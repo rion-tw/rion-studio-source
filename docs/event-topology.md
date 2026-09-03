@@ -38,6 +38,18 @@ deadline before submission. If acknowledgement is absent, queued work becomes
 can prove a narrower terminal result. A deadline never means success and never
 starts reconciliation polling.
 
+Core's operation actor owns cancellation of an admitted desktop effect. It
+publishes one ordered `coreEffectCancellations` record carrying the exact effect
+ID, operation ID, and `operationCancelled`, `deadlineElapsed`, or `actorStopped`
+reason. Electron aborts only that execution and any exact native child it owns;
+the original execution promise remains the child-exit, pipe-EOF, and resource-
+release fence. A deadline removes the pending Core acknowledgement before the
+cancellation event is published, so any later result is classified `late` and
+cannot commit. If compensating immediately would mutate a resource still owned
+by that cancelled native execution, the domain preserves its durable journal,
+quarantine, and ownership fence for shutdown/restart recovery instead of racing
+cleanup. Cancellation is never synthesized into success.
+
 Backoff and debounce are permitted only after an event has already established
 the pending work. They may control throughput, but they cannot re-read another
 authority to decide whether work exists or whether state is correct.

@@ -10,6 +10,7 @@ impl AppCore {
             CoreCommand::RoleBrowserDataClear { role_id } => {
                 self.clear_role_browser_data(role_id).await
             }
+            CoreCommand::GlobalWebProfileClear => self.clear_global_web_profile().await,
             CoreCommand::ChromeProfileRequestQuit { import_id } => {
                 let pending = self
                     .chrome_profile_import
@@ -214,6 +215,68 @@ impl AppCore {
                         .map_err(|error| CoreError::Internal(error.to_string()))
                 })
             }
+            CoreCommand::BrowserWorkspaceWebSurfaceFailed {
+                operation_id,
+                surface_id,
+                surface_generation,
+                tab_id,
+                window_id,
+                expected_attempt_generation,
+                expected_window_generation,
+            } => {
+                let core = Arc::clone(self);
+                let snapshot = tokio::task::spawn_blocking(move || {
+                    core.report_chromium_workspace_web_surface_failed(
+                        ChromiumWorkspaceWebSurfaceFailureInput {
+                            operation_id,
+                            surface_id,
+                            surface_generation,
+                            tab_id,
+                            window_id,
+                            expected_attempt_generation,
+                            expected_window_generation,
+                        },
+                    )
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(snapshot)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserTabAudioMute { tab_id, muted } => {
+                let core = Arc::clone(self);
+                let receipt = tokio::task::spawn_blocking(move || {
+                    core.set_browser_tab_audio_muted(tab_id, muted)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(receipt)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserRuntimeTabReload {
+                operation_id,
+                tab_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                lifecycle_epoch,
+            } => {
+                let core = Arc::clone(self);
+                let receipt = tokio::task::spawn_blocking(move || {
+                    core.reload_browser_runtime_tab(
+                        operation_id,
+                        tab_id,
+                        window_id,
+                        window_generation,
+                        topology_revision,
+                        lifecycle_epoch,
+                    )
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(receipt)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::BrowserRoleStop { role_id } => {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || core.stop_embedded_role(&role_id))
@@ -271,6 +334,46 @@ impl AppCore {
                     .await
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "deleted": true }))
+            }
+            CoreCommand::BrowserAppKitRuntimeEvent { event } => {
+                let core = Arc::clone(self);
+                let receipt = tokio::task::spawn_blocking(move || {
+                    core.handle_appkit_runtime_event(event)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(receipt)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserWorkspaceDividerPointer { event } => {
+                let core = Arc::clone(self);
+                let receipt = tokio::task::spawn_blocking(move || {
+                    core.handle_workspace_divider_pointer(event)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(receipt)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserPopupOpenAdmit { request } => {
+                let core = Arc::clone(self);
+                let admission = tokio::task::spawn_blocking(move || {
+                    core.admit_chromium_popup(request)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(admission)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserPopupLifecycleCommit { event } => {
+                let core = Arc::clone(self);
+                let receipt = tokio::task::spawn_blocking(move || {
+                    core.commit_chromium_popup_lifecycle(event)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(receipt)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             command => {
                 let core = Arc::clone(self);
@@ -490,14 +593,73 @@ impl AppCore {
                     continue;
                 }
             };
-            let committed = transfer_directory.join("committed").is_file();
-            if !committed && transfer_directory.join("backup.enc").is_file() {
+            let v23_chromium = journal
+                .payload
+                .get("runtimeContractVersion")
+                .and_then(Value::as_u64)
+                == Some(u64::from(CHROMIUM_RUNTIME_CONTRACT_VERSION));
+            let transaction_identity = if v23_chromium {
+                match crate::chrome_profile_import_contract::resolve_transaction_identity(
+                    &self.user_data_dir,
+                    &journal,
+                ) {
+                    Ok(identity) => Some(identity),
+                    Err(_) => {
+                        pending += 1;
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            let committed = if let Some(identity) = transaction_identity.as_ref() {
+                journal.phase == "committing"
+                    && crate::chrome_profile_import_contract::verify_commit_marker(
+                        &self.user_data_dir,
+                        self.platform,
+                        identity,
+                    )
+                    .is_ok()
+            } else {
+                transfer_directory.join("committed").is_file()
+            };
+            let backup_available = transfer_directory.join("backup.enc").is_file();
+            if v23_chromium && !committed && !backup_available {
+                // The v23 helper is never allowed to mutate before an exact encrypted
+                // rollback snapshot exists. Missing recovery evidence therefore stays
+                // pending; absence is not proof that the destination is unchanged.
+                pending += 1;
+                continue;
+            }
+            if !committed && backup_available {
                 let Some(launch_url) = journal.payload.get("launchUrl").and_then(Value::as_str)
                 else {
                     pending += 1;
                     continue;
                 };
-                let paths = self.resolve_role_paths(role_id)?;
+                let legacy_paths = if v23_chromium {
+                    None
+                } else {
+                    Some(self.resolve_role_paths(role_id)?)
+                };
+                let webview2_user_data_dir = transaction_identity
+                    .as_ref()
+                    .map(|identity| identity.role_paths.webview2_user_data_dir.clone())
+                    .or_else(|| legacy_paths.as_ref().map(|paths| {
+                        paths.webview2_user_data_dir.clone()
+                    }))
+                    .ok_or_else(|| CoreError::Internal(
+                        "Chrome-import recovery path identity is unavailable.".to_owned()
+                    ))?;
+                let webkit_data_store_identifier = transaction_identity
+                    .as_ref()
+                    .map(|identity| identity.role_paths.webkit_data_store_identifier.clone())
+                    .or_else(|| legacy_paths.as_ref().map(|paths| {
+                        paths.webkit_data_store_identifier.clone()
+                    }))
+                    .ok_or_else(|| CoreError::Internal(
+                        "Chrome-import recovery path identity is unavailable.".to_owned()
+                    ))?;
                 if self
                     .request_core_effect(
                         role_id,
@@ -505,13 +667,38 @@ impl AppCore {
                             transaction_id: transaction_id.to_owned(),
                             role_id: role_id.to_owned(),
                             launch_url: launch_url.to_owned(),
-                            webview2_user_data_dir: paths.webview2_user_data_dir,
-                            webkit_data_store_identifier: paths.webkit_data_store_identifier,
+                            replace_existing: transaction_identity
+                                .as_ref()
+                                .map(|identity| identity.replace_existing),
+                            webview2_user_data_dir,
+                            webkit_data_store_identifier,
+                            chromium_user_data_dir: transaction_identity.as_ref().map(
+                                |identity| identity.role_paths.chromium_user_data_dir.clone(),
+                            ),
+                            journal_phase: v23_chromium.then(|| journal.phase.clone()),
+                            journal_revision: transaction_identity
+                                .as_ref()
+                                .map(|identity| identity.journal_revision),
                         },
                         CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
                     )
                     .await
                     .is_err()
+                {
+                    pending += 1;
+                    continue;
+                }
+                if v23_chromium
+                    && matches!(journal.phase.as_str(), "metadataCommitted" | "committing")
+                    && self
+                        .mutate_state(StateMutation::ChromeProfileImportMetadataRollback {
+                            role_id: role_id.to_owned(),
+                            transaction_id: transaction_id.to_owned(),
+                            operation_id: journal.id.clone(),
+                            expected_journal_revision:
+                                crate::chrome_profile_import_contract::journal_revision(&journal)?,
+                        })
+                        .is_err()
                 {
                     pending += 1;
                     continue;
@@ -627,6 +814,11 @@ impl AppCore {
         let admission_operation_id = uuid::Uuid::new_v4().to_string();
         let admission_attempt_id = uuid::Uuid::new_v4().to_string();
         let admission_requested_tab_id = launch_tab_id.clone();
+        let presentation_intent = if restore_role_slots.is_some() {
+            EmbeddedLaunchPresentationIntent::RestoreHydration
+        } else {
+            EmbeddedLaunchPresentationIntent::Foreground
+        };
         let completion_permit = self.launch_completion.try_reserve()?;
         for _ in 0..4 {
             let workspace = self.state_workspace(&workspace_id)?;
@@ -652,6 +844,7 @@ impl AppCore {
                         launch_preview_id: start_launch_preview_id,
                         launch_tab_id: start_launch_tab_id,
                         launch_attempt_id: start_attempt_id,
+                        presentation_intent,
                         restore_role_slots: start_restore_role_slots,
                     },
                 )
@@ -702,6 +895,7 @@ impl AppCore {
                 }
                 Ok(EmbeddedWorkspaceLaunchStart::Pending(pending)) => {
                     let accepted_at = Instant::now();
+                    let completion_operation_id = admission_operation_id.clone();
                     let pending_tab_id = pending.tab_id.clone();
                     let accepted = pending
                         .role_ids
@@ -724,12 +918,16 @@ impl AppCore {
                         } = *pending;
                         let completion_tab_id = tab_id.clone();
                         let completion_source_id = workspace_id.clone();
-                        let launch = core.finish_system_launch_async(handle, &roles).await;
+                        let persistence_window_id = window_id.clone();
+                        let launch = core
+                            .finish_system_launch_async(handle, &roles, &tab_id)
+                            .await;
                         let completion_core = Arc::clone(&core);
                         let completion = tokio::task::spawn_blocking(move || {
                             let result = completion_core.commit_embedded_workspace_launch_outcome(
                                 role_ids,
                                 tab_id,
+                                persistence_window_id,
                                 workspace_id,
                                 launch,
                             );
@@ -752,6 +950,7 @@ impl AppCore {
                             accepted_at,
                             error: completion.as_ref().err().map(|error| error.payload()),
                             launch_preview_id,
+                            operation_id: completion_operation_id,
                             source_id: completion_source_id,
                             tab_id: completion_tab_id,
                             tab_type: "workspace".to_owned(),

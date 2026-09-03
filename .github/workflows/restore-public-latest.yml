@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Published public release to restore as latest (vMAJOR.MINOR.PATCH)
+        description: Published public Tauri v22 release to restore (vMAJOR.MINOR.PATCH)
         required: true
         type: string
       confirm:
@@ -17,37 +17,66 @@ permissions:
 
 env:
   PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
+  SOURCE_CONTROL_REPOSITORY: rion-tw/rion-studio-source
 
 concurrency:
-  group: restore-public-latest
+  group: public-latest-rion-studio
   cancel-in-progress: false
+  queue: max
 
 jobs:
   restore:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' &&
+          github.repository == 'rion-tw/rion-studio-source' &&
+          github.event.repository.full_name == 'rion-tw/rion-studio-source' &&
+          github.ref == 'refs/heads/main' &&
+          github.ref_protected == true &&
+          github.workflow_ref == 'rion-tw/rion-studio-source/.github/workflows/restore-public-latest.yml@refs/heads/main' }}
     runs-on: ubuntu-latest
+    environment: electron-production-release
     steps:
-      - name: Validate rollback request
+      - name: Fence dispatch to the trusted main control plane
         shell: bash
         env:
           CONFIRM: ${{ inputs.confirm }}
+          EVENT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          REF_PROTECTED: ${{ github.ref_protected }}
           TAG: ${{ inputs.tag }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid release tag: ${TAG}" >&2
-            exit 1
-          fi
+          test "${GITHUB_EVENT_NAME}" = "workflow_dispatch"
+          test "${GITHUB_REPOSITORY}" = "${SOURCE_CONTROL_REPOSITORY}"
+          test "${EVENT_REPOSITORY}" = "${SOURCE_CONTROL_REPOSITORY}"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${EVENT_DEFAULT_BRANCH}" = "main"
+          test "${REF_PROTECTED}" = "true"
+          test "${WORKFLOW_REF}" = \
+            "${SOURCE_CONTROL_REPOSITORY}/.github/workflows/restore-public-latest.yml@refs/heads/main"
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           test "${CONFIRM}" = "true"
 
-      - name: Checkout verification scripts
+      - name: Checkout the trusted restore implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify the checked-out control revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Setup Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
 
-      - name: Create public repository token
+      - name: Create the narrow public-latest writer token
         id: public-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
@@ -57,58 +86,479 @@ jobs:
           repositories: rion-studio
           permission-contents: write
 
-      - name: Verify rollback target
+      - name: Capture exact source and target snapshots by immutable release ID
+        id: snapshots
         shell: bash
         env:
           GH_TOKEN: ${{ steps.public-token.outputs.token }}
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          version="${TAG#v}"
-          release_json="$(
-            gh release view "${TAG}" \
-              --repo "${PUBLIC_RELEASE_REPOSITORY}" \
-              --json isDraft,isPrerelease,tagName
-          )"
+          umask 077
+          evidence_root="${PWD}/restore-evidence"
+          work_root="${PWD}/restore-work/initial"
+          mkdir -p "${evidence_root}" "${work_root}"
+          asset_names=(
+            Rion.Studio-mac.app.tar.gz
+            Rion.Studio-mac.app.tar.gz.sig
+            Rion.Studio-mac.dmg
+            Rion.Studio-win.exe
+            Rion.Studio-win.exe.sig
+            SHA256SUMS.txt
+            latest.json
+          )
 
-          test "$(jq -r .tagName <<< "${release_json}")" = "${TAG}"
-          test "$(jq -r .isDraft <<< "${release_json}")" = "false"
-          test "$(jq -r .isPrerelease <<< "${release_json}")" = "false"
+          capture_release_by_id() {
+            local release_id="$1"
+            local is_latest="$2"
+            local root="$3"
+            local snapshot_path="$4"
+            mkdir -p "${root}/assets"
+            gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${release_id}" \
+              > "${root}/release-api.json"
+            test "$(jq -r .id "${root}/release-api.json")" = "${release_id}"
+            test "$(jq -r .draft "${root}/release-api.json")" = "false"
+            test "$(jq -r .prerelease "${root}/release-api.json")" = "false"
+            test "$(jq -r .published_at "${root}/release-api.json")" != "null"
+            local release_tag tag_ref tag_commit
+            release_tag="$(jq -r .tag_name "${root}/release-api.json")"
+            [[ "${release_tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            tag_ref="$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${release_tag}")"
+            test "$(jq -r .object.type <<< "${tag_ref}")" = "commit"
+            tag_commit="$(jq -r .object.sha <<< "${tag_ref}")"
+            [[ "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]
+            test "$(jq '.assets | length' "${root}/release-api.json")" = "7"
+            for name in "${asset_names[@]}"; do
+              test "$(jq --arg name "${name}" \
+                '[.assets[] | select(.name == $name)] | length' \
+                "${root}/release-api.json")" = "1"
+              local asset_id
+              asset_id="$(jq -r --arg name "${name}" \
+                '.assets[] | select(.name == $name) | .id' \
+                "${root}/release-api.json")"
+              [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+              test "$(jq -r --arg name "${name}" \
+                '.assets[] | select(.name == $name) | .state' \
+                "${root}/release-api.json")" = "uploaded"
+              gh api -H "Accept: application/octet-stream" \
+                "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/assets/${asset_id}" \
+                > "${root}/assets/${name}"
+            done
+            RELEASE_API="${root}/release-api.json" \
+            IS_LATEST="${is_latest}" \
+            TAG_COMMIT="${tag_commit}" \
+            node --input-type=module <<'NODE' > "${root}/release-metadata.json"
+          import { readFile } from "node:fs/promises";
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+          const release = JSON.parse(await readFile(process.env.RELEASE_API, "utf8"));
+          process.stdout.write(serializeCanonicalJson({
+            repository: "rion-tw/rion-studio",
+            id: String(release.id),
+            tag: release.tag_name,
+            targetCommitish: process.env.TAG_COMMIT,
+            isLatest: process.env.IS_LATEST === "true",
+            draft: release.draft,
+            prerelease: release.prerelease,
+            assets: release.assets.map((asset) => ({
+              id: String(asset.id), name: asset.name, bytes: asset.size,
+              digest: asset.digest, url: asset.browser_download_url,
+              contentType: asset.content_type
+            }))
+          }));
+          NODE
+            node scripts/electronProductionPublicationCli.mjs snapshot \
+              --asset-directory "${root}/assets" \
+              --release-json "${root}/release-metadata.json" \
+              --output "${snapshot_path}"
+          }
 
-          for forbidden_path in src src-tauri crates tests scripts package.json pnpm-lock.yaml Cargo.toml; do
-            if gh api \
-              "repos/${PUBLIC_RELEASE_REPOSITORY}/contents/${forbidden_path}?ref=${TAG}" \
-              > /dev/null 2>&1; then
-              echo "Rollback tag contains forbidden source path: ${forbidden_path}" >&2
+          gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/tags/${TAG}" \
+            > "${work_root}/target-lookup.json"
+          gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" \
+            > "${work_root}/source-lookup.json"
+          target_id="$(jq -r .id "${work_root}/target-lookup.json")"
+          source_id="$(jq -r .id "${work_root}/source-lookup.json")"
+          [[ "${target_id}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${source_id}" =~ ^[1-9][0-9]*$ ]]
+          test "${target_id}" != "${source_id}"
+          capture_release_by_id "${target_id}" false "${work_root}/target" \
+            "${evidence_root}/target-observed-snapshot.json"
+          capture_release_by_id "${source_id}" true "${work_root}/source" \
+            "${evidence_root}/source-public-latest-snapshot.json"
+          test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" --jq .id)" = \
+            "${source_id}"
+          test "$(jq -r .release.tag \
+            "${evidence_root}/target-observed-snapshot.json")" = "${TAG}"
+
+          target_version="${TAG#v}"
+          source_version="$(jq -r .latestJson.version \
+            "${evidence_root}/source-public-latest-snapshot.json")"
+          node scripts/releaseArtifacts.mjs "${work_root}/target/assets" "${target_version}" \
+            --verify-checksums --require-tauri-v22
+          node scripts/releaseArtifacts.mjs "${work_root}/source/assets" "${source_version}" \
+            --verify-checksums
+
+          set +e
+          node --input-type=module - "${work_root}/source/assets" <<'NODE'
+          import { assertStableTauriV22PublicReleaseAssets } from
+            "./scripts/publicReleaseRuntimePolicy.mjs";
+          await assertStableTauriV22PublicReleaseAssets(process.argv[2]);
+          NODE
+          source_is_tauri=$?
+          set -e
+          if test "${source_is_tauri}" = "0"; then
+            source_runtime=tauri-v22
+          else
+            tar -tzf "${work_root}/source/assets/Rion.Studio-mac.app.tar.gz" \
+              > "${work_root}/source/archive-entries.txt"
+            grep -Fq '/Contents/Frameworks/Electron Framework.framework' \
+              "${work_root}/source/archive-entries.txt"
+            grep -Fq '/Contents/Resources/app.asar' \
+              "${work_root}/source/archive-entries.txt"
+            if grep -Fq '/Contents/MacOS/rion-tauri' \
+              "${work_root}/source/archive-entries.txt"; then
+              echo "Current latest mixes Tauri and Electron runtime markers." >&2
               exit 1
             fi
-          done
+            source_runtime=electron-v23
+          fi
 
-          gh release download "${TAG}" \
-            --repo "${PUBLIC_RELEASE_REPOSITORY}" \
-            --dir rollback-assets
-          node scripts/releaseArtifacts.mjs rollback-assets "${version}" --verify-checksums
+          TARGET_OBSERVED="${evidence_root}/target-observed-snapshot.json" \
+          TARGET_PROJECTED="${evidence_root}/target-expected-latest-snapshot.json" \
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import {
+            deriveTauriV22ExpectedLatestState,
+            writeElectronProductionPublicLatestSnapshot
+          } from "./scripts/electronProductionPublicLatestSnapshot.mjs";
+          const observed = JSON.parse(await readFile(process.env.TARGET_OBSERVED, "utf8"));
+          await writeElectronProductionPublicLatestSnapshot({
+            outputPath: process.env.TARGET_PROJECTED,
+            snapshot: deriveTauriV22ExpectedLatestState(observed)
+          });
+          NODE
 
-      - name: Restore verified public latest
+          echo "source_runtime=${source_runtime}" >> "${GITHUB_OUTPUT}"
+          echo "source_state_sha256=$(jq -r .stateSha256 \
+            "${evidence_root}/source-public-latest-snapshot.json")" >> "${GITHUB_OUTPUT}"
+          echo "source_version=${source_version}" >> "${GITHUB_OUTPUT}"
+          echo "target_state_sha256=$(jq -r .stateSha256 \
+            "${evidence_root}/target-expected-latest-snapshot.json")" >> "${GITHUB_OUTPUT}"
+          echo "target_version=${target_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Acquire the durable public-latest lease
+        id: acquire
         shell: bash
         env:
           GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          SOURCE_RUNTIME: ${{ steps.snapshots.outputs.source_runtime }}
+          SOURCE_STATE_SHA256: ${{ steps.snapshots.outputs.source_state_sha256 }}
+          SOURCE_VERSION: ${{ steps.snapshots.outputs.source_version }}
+          TARGET_STATE_SHA256: ${{ steps.snapshots.outputs.target_state_sha256 }}
+          TARGET_VERSION: ${{ steps.snapshots.outputs.target_version }}
+        run: |
+          set -euo pipefail
+          umask 077
+          output_root="${PWD}/restore-evidence/held-acquired"
+          mkdir -p "${output_root}"
+          transaction_id="$(node --input-type=module -e \
+            'import { randomUUID } from "node:crypto"; console.log(randomUUID())')"
+          lease_id="$(node --input-type=module -e \
+            'import { randomUUID } from "node:crypto"; console.log(randomUUID())')"
+          recorded_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs acquire \
+            --transaction-id "${transaction_id}" \
+            --lease-id "${lease_id}" \
+            --purpose tauri-v22-latest-restore \
+            --holder-workflow .github/workflows/restore-public-latest.yml \
+            --holder-run-id "${GITHUB_RUN_ID}" \
+            --holder-run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --control-head-sha "${GITHUB_SHA}" \
+            --source-runtime "${SOURCE_RUNTIME}" \
+            --source-version "${SOURCE_VERSION}" \
+            --source-state-sha256 "${SOURCE_STATE_SHA256}" \
+            --target-runtime tauri-v22 \
+            --target-version "${TARGET_VERSION}" \
+            --target-state-sha256 "${TARGET_STATE_SHA256}" \
+            --recorded-at "${recorded_at}" \
+            --output "${output_root}/electron-production-public-latest-lease.json" \
+            > "${output_root}/acquire-operation.json"
+          echo "held_lease=${output_root}/electron-production-public-latest-lease.json" \
+            >> "${GITHUB_OUTPUT}"
+          echo "held_sha256=$(jq -r .output.sha256 \
+            "${output_root}/acquire-operation.json")" >> "${GITHUB_OUTPUT}"
+
+      - name: Observe the exact held lease immediately before mutation
+        id: pre-mutation-lease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          HELD_LEASE: ${{ steps.acquire.outputs.held_lease }}
+          HELD_SHA256: ${{ steps.acquire.outputs.held_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          output_root="${PWD}/restore-evidence/held-pre-mutation"
+          mkdir -p "${output_root}"
+          node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs observe \
+            --held-lease "${HELD_LEASE}" \
+            --held-lease-sha256 "${HELD_SHA256}" \
+            --output "${output_root}/electron-production-public-latest-lease.json" \
+            > "${output_root}/observe-operation.json"
+
+      - name: Submit latest mutation with closed acknowledgement
+        id: mutation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p restore-work/mutation restore-evidence
+          target_id="$(jq -r .release.id \
+            restore-evidence/target-expected-latest-snapshot.json)"
+          set +e
+          gh api --method PATCH --include \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${target_id}" \
+            -f make_latest=true \
+            > restore-work/mutation/response.txt \
+            2> restore-work/mutation/error.txt
+          command_status=$?
+          set -e
+          http_status="$(sed -nE \
+            's/^HTTP\/[0-9.]+ ([0-9]{3})( .*)?$/\1/p' \
+            restore-work/mutation/response.txt | tail -n 1)"
+          acknowledgement=unknown
+          if test "${command_status}" = "0" && test "${http_status}" = "200"; then
+            acknowledgement=confirmed
+          elif [[ "${http_status}" =~ ^4[0-9]{2}$ ]]; then
+            acknowledgement=rejected
+          fi
+          ACKNOWLEDGEMENT="${acknowledgement}" \
+          COMMAND_STATUS="${command_status}" \
+          HTTP_STATUS="${http_status}" \
+          TARGET_ID="${target_id}" \
+          node --input-type=module <<'NODE' > restore-evidence/mutation-acknowledgement.json
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+          const status = process.env.HTTP_STATUS;
+          process.stdout.write(serializeCanonicalJson({
+            schemaVersion: 1,
+            kind: "rion-public-latest-restore-mutation-acknowledgement",
+            acknowledgement: process.env.ACKNOWLEDGEMENT,
+            commandExitCode: Number(process.env.COMMAND_STATUS),
+            httpStatus: status === "" ? null : Number(status),
+            releaseId: process.env.TARGET_ID
+          }));
+          NODE
+          echo "acknowledgement=${acknowledgement}" >> "${GITHUB_OUTPUT}"
+
+      - name: Always capture and classify a fresh latest readback
+        id: readback
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          evidence_root="${PWD}/restore-evidence"
+          work_root="${PWD}/restore-work/readback"
+          mkdir -p "${evidence_root}" "${work_root}"
+          asset_names=(
+            Rion.Studio-mac.app.tar.gz
+            Rion.Studio-mac.app.tar.gz.sig
+            Rion.Studio-mac.dmg
+            Rion.Studio-win.exe
+            Rion.Studio-win.exe.sig
+            SHA256SUMS.txt
+            latest.json
+          )
+          capture_fresh_latest() {
+            gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" \
+              > "${work_root}/latest-lookup.json"
+            local release_id
+            release_id="$(jq -r .id "${work_root}/latest-lookup.json")"
+            [[ "${release_id}" =~ ^[1-9][0-9]*$ ]]
+            mkdir -p "${work_root}/assets"
+            gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${release_id}" \
+              > "${work_root}/release-api.json"
+            test "$(jq -r .id "${work_root}/release-api.json")" = "${release_id}"
+            test "$(jq -r .draft "${work_root}/release-api.json")" = "false"
+            test "$(jq -r .prerelease "${work_root}/release-api.json")" = "false"
+            test "$(jq -r .published_at "${work_root}/release-api.json")" != "null"
+            local release_tag tag_ref tag_commit
+            release_tag="$(jq -r .tag_name "${work_root}/release-api.json")"
+            [[ "${release_tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+            tag_ref="$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${release_tag}")"
+            test "$(jq -r .object.type <<< "${tag_ref}")" = "commit"
+            tag_commit="$(jq -r .object.sha <<< "${tag_ref}")"
+            [[ "${tag_commit}" =~ ^[0-9a-f]{40}$ ]]
+            test "$(jq '.assets | length' "${work_root}/release-api.json")" = "7"
+            for name in "${asset_names[@]}"; do
+              test "$(jq --arg name "${name}" \
+                '[.assets[] | select(.name == $name)] | length' \
+                "${work_root}/release-api.json")" = "1"
+              local asset_id
+              asset_id="$(jq -r --arg name "${name}" \
+                '.assets[] | select(.name == $name) | .id' \
+                "${work_root}/release-api.json")"
+              [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+              gh api -H "Accept: application/octet-stream" \
+                "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/assets/${asset_id}" \
+                > "${work_root}/assets/${name}"
+            done
+            RELEASE_API="${work_root}/release-api.json" \
+            TAG_COMMIT="${tag_commit}" \
+            node --input-type=module <<'NODE' > "${work_root}/release-metadata.json"
+          import { readFile } from "node:fs/promises";
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+          const release = JSON.parse(await readFile(process.env.RELEASE_API, "utf8"));
+          process.stdout.write(serializeCanonicalJson({
+            repository: "rion-tw/rion-studio", id: String(release.id),
+            tag: release.tag_name, targetCommitish: process.env.TAG_COMMIT,
+            isLatest: true, draft: release.draft, prerelease: release.prerelease,
+            assets: release.assets.map((asset) => ({
+              id: String(asset.id), name: asset.name, bytes: asset.size,
+              digest: asset.digest, url: asset.browser_download_url,
+              contentType: asset.content_type
+            }))
+          }));
+          NODE
+            node scripts/electronProductionPublicationCli.mjs snapshot \
+              --asset-directory "${work_root}/assets" \
+              --release-json "${work_root}/release-metadata.json" \
+              --output "${evidence_root}/observed-fresh-latest-snapshot.json"
+            test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" --jq .id)" = \
+              "${release_id}"
+          }
+
+          set +e
+          (set -euo pipefail; capture_fresh_latest)
+          capture_status=$?
+          set -e
+          CAPTURE_STATUS="${capture_status}" \
+          OBSERVED="${evidence_root}/observed-fresh-latest-snapshot.json" \
+          SOURCE="${evidence_root}/source-public-latest-snapshot.json" \
+          TARGET="${evidence_root}/target-expected-latest-snapshot.json" \
+          node --input-type=module <<'NODE' > "${evidence_root}/readback-classification.json"
+          import { readFile } from "node:fs/promises";
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+          import { classifyElectronProductionPublicLatestSnapshot } from
+            "./scripts/electronProductionPublicLatestSnapshot.mjs";
+          let classification = "unknown";
+          if (process.env.CAPTURE_STATUS === "0") {
+            try {
+              classification = classifyElectronProductionPublicLatestSnapshot({
+                observed: JSON.parse(await readFile(process.env.OBSERVED, "utf8")),
+                source: JSON.parse(await readFile(process.env.SOURCE, "utf8")),
+                target: JSON.parse(await readFile(process.env.TARGET, "utf8"))
+              });
+            } catch {
+              classification = "unknown";
+            }
+          }
+          process.stdout.write(serializeCanonicalJson({
+            schemaVersion: 1,
+            kind: "rion-public-latest-restore-readback",
+            captureSucceeded: process.env.CAPTURE_STATUS === "0",
+            classification
+          }));
+          NODE
+          classification="$(jq -r .classification \
+            "${evidence_root}/readback-classification.json")"
+          echo "classification=${classification}" >> "${GITHUB_OUTPUT}"
+
+      - name: Release the lease only for a safe acknowledgement and exact readback
+        id: release-lease
+        if: >-
+          ${{ always() &&
+              ((steps.mutation.outputs.acknowledgement == 'confirmed' &&
+                steps.readback.outputs.classification == 'target') ||
+               (steps.mutation.outputs.acknowledgement == 'rejected' &&
+                steps.readback.outputs.classification == 'source')) }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          HELD_LEASE: ${{ steps.acquire.outputs.held_lease }}
+          HELD_SHA256: ${{ steps.acquire.outputs.held_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          observe_root="${PWD}/restore-evidence/held-pre-release"
+          released_root="${PWD}/restore-evidence/released"
+          mkdir -p "${observe_root}" "${released_root}"
+          node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs observe \
+            --held-lease "${HELD_LEASE}" \
+            --held-lease-sha256 "${HELD_SHA256}" \
+            --output "${observe_root}/electron-production-public-latest-lease.json" \
+            > "${observe_root}/observe-operation.json"
+          node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs release \
+            --held-lease "${HELD_LEASE}" \
+            --held-lease-sha256 "${HELD_SHA256}" \
+            --recorded-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --output "${released_root}/electron-production-public-latest-lease.json" \
+            > "${released_root}/release-operation.json"
+
+      - name: Record the closed restore result
+        if: ${{ always() }}
+        shell: bash
+        env:
+          ACKNOWLEDGEMENT: ${{ steps.mutation.outputs.acknowledgement }}
+          ACQUIRE_STEP_OUTCOME: ${{ steps.acquire.outcome }}
+          CLASSIFICATION: ${{ steps.readback.outputs.classification }}
+          RELEASE_STEP_OUTCOME: ${{ steps.release-lease.outcome }}
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          gh release edit "${TAG}" \
-            --repo "${PUBLIC_RELEASE_REPOSITORY}" \
-            --latest \
-            --verify-tag
-          test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" --jq .tag_name)" = "${TAG}"
-
-      - name: Record rollback summary
-        shell: bash
-        run: |
+          umask 077
+          mkdir -p restore-evidence
+          lease_status=not-acquired
+          if test "${ACQUIRE_STEP_OUTCOME}" = "success"; then
+            lease_status=held
+          fi
+          if test "${RELEASE_STEP_OUTCOME}" = "success"; then
+            lease_status=released
+          fi
+          ACKNOWLEDGEMENT="${ACKNOWLEDGEMENT:-unknown}" \
+          CLASSIFICATION="${CLASSIFICATION:-unknown}" \
+          LEASE_STATUS="${lease_status}" \
+          TAG="${TAG}" \
+          node --input-type=module <<'NODE' > restore-evidence/final-summary.json
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+          process.stdout.write(serializeCanonicalJson({
+            schemaVersion: 1,
+            kind: "rion-public-latest-restore-final-summary",
+            acknowledgement: process.env.ACKNOWLEDGEMENT,
+            classification: process.env.CLASSIFICATION,
+            leaseStatus: process.env.LEASE_STATUS,
+            targetTag: process.env.TAG
+          }));
+          NODE
           {
-            echo "## Public latest restored"
+            echo "## Public latest restore"
             echo
-            echo "Verified latest: https://github.com/${PUBLIC_RELEASE_REPOSITORY}/releases/tag/${{ inputs.tag }}"
+            echo "- Target: https://github.com/${PUBLIC_RELEASE_REPOSITORY}/releases/tag/${TAG}"
+            echo "- Mutation acknowledgement: ${ACKNOWLEDGEMENT:-unknown}"
+            echo "- Fresh readback: ${CLASSIFICATION:-unknown}"
+            echo "- Lease: ${lease_status}"
             echo
             echo "Existing installations on newer versions are not downgraded."
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Preserve snapshots and durable lease evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: public-latest-restore-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: restore-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Require a safely released lease
+        if: ${{ always() }}
+        shell: bash
+        env:
+          RELEASE_STEP_OUTCOME: ${{ steps.release-lease.outcome }}
+        run: |
+          set -euo pipefail
+          test "${RELEASE_STEP_OUTCOME}" = "success"

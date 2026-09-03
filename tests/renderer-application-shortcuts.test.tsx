@@ -18,7 +18,7 @@ describe("useWindowsApplicationShortcuts", () => {
     const executeApplicationShortcut = vi.fn(() => Promise.resolve());
     installBridge(executeApplicationShortcut);
     document.documentElement.dataset.platform = "windows";
-    render(<ShortcutHarness />);
+    render(<ShortcutHarness enabled />);
 
     const event = new KeyboardEvent("keydown", {
       bubbles: true,
@@ -33,11 +33,30 @@ describe("useWindowsApplicationShortcuts", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("leaves Electron Windows shortcuts to the native application menu", () => {
+    const executeApplicationShortcut = vi.fn(() => Promise.resolve());
+    installBridge(executeApplicationShortcut);
+    document.documentElement.dataset.platform = "windows";
+    render(<ShortcutHarness enabled={false} />);
+
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "KeyN",
+      ctrlKey: true,
+      key: "n"
+    });
+    window.dispatchEvent(event);
+
+    expect(executeApplicationShortcut).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it("does not install Windows application shortcuts on macOS", () => {
     const executeApplicationShortcut = vi.fn(() => Promise.resolve());
     installBridge(executeApplicationShortcut);
     document.documentElement.dataset.platform = "mac";
-    render(<ShortcutHarness />);
+    render(<ShortcutHarness enabled />);
 
     window.dispatchEvent(new KeyboardEvent("keydown", {
       bubbles: true,
@@ -49,8 +68,10 @@ describe("useWindowsApplicationShortcuts", () => {
   });
 });
 
-function ShortcutHarness(): JSX.Element {
-  useWindowsApplicationShortcuts(true);
+function ShortcutHarness(input: Readonly<{
+  enabled: boolean;
+}>): JSX.Element {
+  useWindowsApplicationShortcuts(input.enabled);
   return <div />;
 }
 

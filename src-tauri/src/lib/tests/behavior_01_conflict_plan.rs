@@ -22,6 +22,8 @@ use super::*;
     fn application_shutdown_has_one_worker_and_only_exits_after_it_terminalizes() {
         for platform in ["darwin", "win32"] {
             let shutdown = ApplicationShutdownCoordinator::default();
+            assert_eq!(shutdown.requested_exit_code(), 0, "{platform}");
+            assert!(!shutdown.allows_core_shutdown_on_run_exit(), "{platform}");
             assert_eq!(
                 shutdown.request_exit(),
                 ApplicationExitRequest::StartShutdown,
@@ -32,9 +34,11 @@ use super::*;
                 ApplicationExitRequest::WaitForShutdown,
                 "{platform}"
             );
+            assert!(!shutdown.allows_core_shutdown_on_run_exit(), "{platform}");
 
             shutdown.mark_ready_to_exit();
 
+            assert!(shutdown.allows_core_shutdown_on_run_exit(), "{platform}");
             assert_eq!(
                 shutdown.request_exit(),
                 ApplicationExitRequest::Exit,
@@ -44,7 +48,111 @@ use super::*;
     }
 
     #[test]
-    fn irreversible_exit_never_starts_native_teardown_on_the_event_loop_thread() {
+    fn fatal_exit_code_survives_a_joined_verified_shutdown() {
+        for platform in ["darwin", "win32"] {
+            let normalized = ApplicationShutdownCoordinator::default();
+            assert_eq!(
+                normalized.request_fatal_exit(0),
+                ApplicationExitRequest::StartShutdown,
+                "{platform}"
+            );
+            assert_eq!(normalized.requested_exit_code(), 9, "{platform}");
+
+            let shutdown = ApplicationShutdownCoordinator::default();
+            assert_eq!(
+                shutdown.request_exit(),
+                ApplicationExitRequest::StartShutdown,
+                "{platform}"
+            );
+            assert_eq!(
+                shutdown.request_fatal_exit(9),
+                ApplicationExitRequest::WaitForShutdown,
+                "{platform}"
+            );
+            assert_eq!(shutdown.requested_exit_code(), 9, "{platform}");
+            assert_eq!(
+                shutdown.request_fatal_exit(7),
+                ApplicationExitRequest::WaitForShutdown,
+                "{platform}"
+            );
+            assert_eq!(shutdown.requested_exit_code(), 9, "{platform}");
+
+            shutdown.mark_ready_to_exit();
+
+            assert_eq!(
+                shutdown.request_exit(),
+                ApplicationExitRequest::Exit,
+                "{platform}"
+            );
+            assert_eq!(shutdown.requested_exit_code(), 9, "{platform}");
+        }
+    }
+
+    #[test]
+    fn stable_tauri_quit_entries_route_through_the_verified_coordinator() {
+        let activation = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/lib/section_01_activation.rs"
+        ));
+        let shell = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/lib/section_04_rion_shell_invoke.rs"
+        ));
+        let quick_menu = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/quick_menu/section_01_tray_id.rs"
+        ));
+        let quick_menu_actions = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/quick_menu/section_02_handle_menu_event.rs"
+        ));
+        let run = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/lib/section_09_run.rs"
+        ));
+
+        let shell_quit = shell
+            .split_once("\"quitApplication\" =>")
+            .expect("the renderer quit operation exists")
+            .1
+            .split_once("\"confirmApplicationQuit\" =>")
+            .expect("the quit request precedes confirmation")
+            .0;
+        assert!(shell_quit.contains("request_application_shutdown(&app, &state)"));
+        assert!(!shell_quit.contains("app.exit("));
+        assert!(quick_menu.contains("crate::request_application_shutdown_from_app(app)"));
+        assert!(!quick_menu.contains("app.exit("));
+        assert!(quick_menu_actions.contains("crate::request_application_shutdown_from_app(app)"));
+        assert!(!quick_menu_actions.contains("app.exit("));
+
+        let verified_exit = activation
+            .split_once("fn exit_application_after_verified_shutdown")
+            .expect("one verified exit adapter exists")
+            .1
+            .split_once("fn confirm_application_shutdown")
+            .expect("the verified exit adapter is bounded")
+            .0;
+        let ready = verified_exit
+            .find("allows_core_shutdown_on_run_exit()")
+            .expect("verified exit checks the coordinator terminal");
+        let exit = verified_exit
+            .find("app.exit(state.application_shutdown.requested_exit_code())")
+            .expect("verified exit preserves the requested code");
+        assert!(ready < exit);
+
+        let executor_failure = run
+            .split_once("System WebView effect executor failed")
+            .expect("the native executor failure is explicit")
+            .1
+            .split_once("CoreEvent::CoreEffectCancellations")
+            .expect("the executor failure branch is bounded")
+            .0;
+        assert!(executor_failure.contains("request_fatal_application_shutdown"));
+        assert!(!executor_failure.contains("app_handle.exit("));
+    }
+
+    #[test]
+    fn irreversible_exit_only_releases_core_after_verified_ordered_shutdown() {
         let run = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/src/lib/section_09_run.rs"
@@ -58,8 +166,47 @@ use super::*;
             .expect("Exit arm is followed by the fallback arm")
             .0;
 
-        assert!(exit_arm.contains("state.core.shutdown();"));
+        let verified = exit_arm
+            .find("allows_core_shutdown_on_run_exit()")
+            .expect("RunEvent::Exit checks the ordered shutdown coordinator");
+        let checked_shutdown = exit_arm
+            .find("state.core.shutdown_checked()")
+            .expect("verified RunEvent::Exit uses checked Core shutdown");
+        assert!(verified < checked_shutdown);
         assert!(!exit_arm.contains("runtime.close_all()"));
+    }
+
+    #[test]
+    fn shutdown_exit_decision_accepts_only_safe_native_and_core_terminals() {
+        for platform in ["darwin", "win32"] {
+            for status in [
+                SystemRuntimeOperationStatus::Applied,
+                SystemRuntimeOperationStatus::Degraded,
+            ] {
+                assert_eq!(
+                    application_shutdown_exit_decision(&status, true),
+                    ApplicationShutdownExitDecision::Clean,
+                    "{platform}: {status:?}"
+                );
+                assert_eq!(
+                    application_shutdown_exit_decision(&status, false),
+                    ApplicationShutdownExitDecision::HardExit,
+                    "{platform}: {status:?}"
+                );
+            }
+            for status in [
+                SystemRuntimeOperationStatus::Cancelled,
+                SystemRuntimeOperationStatus::Failed,
+                SystemRuntimeOperationStatus::Indeterminate,
+                SystemRuntimeOperationStatus::Superseded,
+            ] {
+                assert_eq!(
+                    application_shutdown_exit_decision(&status, true),
+                    ApplicationShutdownExitDecision::HardExit,
+                    "{platform}: {status:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -76,10 +223,207 @@ use super::*;
             .find("core.quiesce_automatic_input_for_shutdown();")
             .expect("automatic input is quiesced during shutdown");
         let native_close = worker
-            .find("runtime.close_all();")
+            .find("runtime.close_all_until(shutdown_deadline);")
             .expect("native hosts close during shutdown");
 
         assert!(input_quiesce < native_close);
+    }
+
+    #[test]
+    fn shutdown_fences_core_clear_commands_before_native_drain_and_waits_after_results() {
+        for source in [
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/lib/section_01_activation.rs"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/lib/section_01_update_install.rs"
+            )),
+        ] {
+            let deadline = source
+                .find("let shutdown_deadline = system_runtime::system_runtime_shutdown_deadline();")
+                .expect("shutdown creates one shared destructive drain deadline");
+            let core_fence = source
+                .find("begin_role_browser_data_clear_command_drain()")
+                .expect("Core clear-command admission is fenced");
+            let native_drain = source
+                .find("close_all_until(shutdown_deadline)")
+                .expect("the native runtime uses the shared deadline");
+            let core_terminal = source
+                .find("wait_for_role_browser_data_clear_command_drain(shutdown_deadline)")
+                .expect("Core command terminal uses the same deadline");
+
+            assert!(deadline < core_fence);
+            assert!(core_fence < native_drain);
+            assert!(native_drain < core_terminal);
+        }
+    }
+
+    #[test]
+    fn core_effect_cancellations_reach_the_native_identity_fence_before_renderer_forwarding() {
+        let run = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/lib/section_09_run.rs"
+        ));
+        let cancellation_arm = run
+            .split_once("CoreEvent::CoreEffectCancellations { cancellations } =>")
+            .expect("the stable runtime consumes Core effect cancellations")
+            .1
+            .split_once("CoreEvent::OverlayChanged")
+            .expect("the cancellation arm precedes the next Core event arm")
+            .0;
+        let native_consumer = cancellation_arm
+            .find("consume_core_effect_cancellations(&cancellations)")
+            .expect("the native destructive-work registry consumes cancellations");
+        let renderer_forward = cancellation_arm
+            .find("renderer_events.push(CoreEvent::CoreEffectCancellations")
+            .expect("the same cancellation stream remains renderer-visible");
+
+        assert!(native_consumer < renderer_forward);
+    }
+
+    #[test]
+    fn unsafe_shutdown_terminal_bypasses_checked_core_shutdown() {
+        for source in [
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/lib/section_01_activation.rs"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/lib/section_01_update_install.rs"
+            )),
+        ] {
+            let unsafe_terminal = source
+                .find("ApplicationShutdownExitDecision::HardExit")
+                .expect("unsafe shutdown terminal is handled explicitly");
+            let hard_exit = source[unsafe_terminal..]
+                .find("std::process::exit(9);")
+                .expect("unsafe shutdown terminal uses a non-zero hard exit");
+            let core_shutdown = source[unsafe_terminal..]
+                .find("shutdown_checked()")
+                .expect("safe shutdown retains the checked Core shutdown path");
+
+            assert!(hard_exit < core_shutdown);
+        }
+    }
+
+    #[test]
+    fn unproven_checked_shutdown_phase_invalidates_a_persisted_clean_restore_marker() {
+        for (platform, error) in [
+            (
+                "darwin",
+                rion_core::CoreError::Domain {
+                    code: "CORE_SHUTDOWN_BROWSER_OPERATIONS_UNVERIFIED",
+                    message: "controlled active browser operation".to_owned(),
+                },
+            ),
+            (
+                "win32",
+                rion_core::CoreError::Internal(
+                    "controlled browser-operation precheck lock poison".to_owned(),
+                ),
+            ),
+            (
+                "darwin",
+                rion_core::CoreError::Domain {
+                    code: "CORE_SHUTDOWN_PRETERMINAL_UNVERIFIED",
+                    message: "controlled structured pre-terminal failure".to_owned(),
+                },
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let core = AppCore::create(AppCoreOptions {
+                app_version: "2.1.0-test".to_owned(),
+                build_commit: None,
+                packaged: false,
+                platform: platform.to_owned(),
+                runtime_contract_version: Some(22),
+                user_data_dir: directory.path().to_string_lossy().into_owned(),
+                performance_telemetry_path: None,
+            })
+            .unwrap();
+            let persisted_clean = core
+                .update_runtime_restore_session(|session| {
+                    session.session_generation =
+                        session.session_generation.checked_add(1).unwrap();
+                    session.clean_exit = true;
+                    session.last_focused_window_id = Some("window-clean".to_owned());
+                    session.live_window_ids = Some(vec!["window-clean".to_owned()]);
+                })
+                .unwrap();
+            assert!(persisted_clean.clean_exit, "{platform}");
+
+            let failure = compensate_checked_core_shutdown_result(&core, Err(error)).unwrap_err();
+            assert!(failure.contains("clean restore marker was invalidated"));
+            let invalidated = core.runtime_restore_session().unwrap();
+            assert!(!invalidated.clean_exit, "{platform}");
+            assert_eq!(
+                invalidated.session_generation,
+                persisted_clean.session_generation + 1,
+                "{platform}"
+            );
+            assert_eq!(
+                invalidated.last_focused_window_id,
+                persisted_clean.last_focused_window_id,
+                "{platform}"
+            );
+            assert_eq!(
+                invalidated.live_window_ids,
+                persisted_clean.live_window_ids,
+                "{platform}"
+            );
+            core.shutdown();
+        }
+    }
+
+    #[test]
+    fn proven_late_checked_shutdown_failure_retains_the_verified_native_clean_marker() {
+        for (platform, error) in [
+            (
+                "darwin",
+                rion_core::CoreError::LogDatabase(
+                    "controlled late log teardown failure".to_owned(),
+                ),
+            ),
+            (
+                "win32",
+                rion_core::CoreError::Domain {
+                    code: "CORE_SHUTDOWN_INSTANCE_LOCK_UNVERIFIED",
+                    message: "controlled late instance-lock teardown failure".to_owned(),
+                },
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let core = AppCore::create(AppCoreOptions {
+                app_version: "2.1.0-test".to_owned(),
+                build_commit: None,
+                packaged: false,
+                platform: platform.to_owned(),
+                runtime_contract_version: Some(22),
+                user_data_dir: directory.path().to_string_lossy().into_owned(),
+                performance_telemetry_path: None,
+            })
+            .unwrap();
+            let persisted_clean = core
+                .update_runtime_restore_session(|session| {
+                    session.session_generation =
+                        session.session_generation.checked_add(1).unwrap();
+                    session.clean_exit = true;
+                })
+                .unwrap();
+
+            let failure = compensate_checked_core_shutdown_result(&core, Err(error)).unwrap_err();
+            assert!(failure.contains("native clean restore marker remains authoritative"));
+            let retained = core.runtime_restore_session().unwrap();
+            assert!(retained.clean_exit, "{platform}");
+            assert_eq!(
+                retained.session_generation, persisted_clean.session_generation,
+                "{platform}"
+            );
+            core.shutdown();
+        }
     }
 
     #[test]
@@ -311,11 +655,11 @@ use super::*;
     fn macos_drag_motion_uses_the_original_live_native_preview_without_a_window_snapshot() {
         let model = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/native/macos/RionRuntimeTabsController/03_shortcut_model.mm"
+            "/../crates/rion-appkit/native/macos/RionRuntimeTabsController/03_shortcut_model.mm"
         ));
         let view = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/native/macos/RionRuntimeTabsController/04_view_model.mm"
+            "/../crates/rion-appkit/native/macos/RionRuntimeTabsController/04_view_model.mm"
         ));
 
         assert!(model.contains("[self.tabsController moveTabDrag:self"));
@@ -402,7 +746,8 @@ use super::*;
                     "slotId":"runtime-shared","roleId":"role-shared","state":"available",
                     "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
                 }],
-                "hidden": false
+                "hidden": false,
+                "audioMuted": false
             }],
             "roles": [],
             "workspaces": []
@@ -566,7 +911,8 @@ use super::*;
                     "state":"running",
                     "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
                 }],
-                "hidden": false
+                "hidden": false,
+                "audioMuted": false
             }],
             "roles": [],
             "workspaces": []

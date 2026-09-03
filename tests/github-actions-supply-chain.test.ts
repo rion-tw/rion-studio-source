@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const approvedActions = new Map([
   ["Swatinem/rust-cache", "e18b497796c12c097a38f9edb9d0641fb99eee32"],
+  ["actions/attest-build-provenance", "4d101475d8b20a2381f78447822ac1eab6504dd8"],
   ["actions/checkout", "3d3c42e5aac5ba805825da76410c181273ba90b1"],
   ["actions/create-github-app-token", "bcd2ba49218906704ab6c1aa796996da409d3eb1"],
   ["actions/download-artifact", "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"],

@@ -741,6 +741,7 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         webview2_user_data_dir: &str,
         webkit_data_store_identifier: &str,
+        destructive_identity: Option<(&str, &str)>,
     ) -> RuntimeResult<()> {
         if self.state()?.has_native_role_surface(role_id) {
             return Err(RuntimeError::new(
@@ -761,37 +762,148 @@ impl SystemRuntimeExecutor {
             webview2: PathBuf::from(webview2_user_data_dir),
         };
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
+        if let Some((effect_id, operation_id)) = destructive_identity {
+            match self
+                .destructive_native_work
+                .admit_native_submission(effect_id, operation_id)
+            {
+                DestructiveNativeSubmission::Admitted => {}
+                DestructiveNativeSubmission::Cancelled => {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_BROWSER_DATA_CLEAR_CANCELLED",
+                        "Core cancelled browser-data clearing before native store ownership.",
+                    ));
+                }
+                DestructiveNativeSubmission::Draining => {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_RUNTIME_SHUTTING_DOWN",
+                        "Application shutdown cancelled browser-data clearing before native store ownership.",
+                    ));
+                }
+                DestructiveNativeSubmission::IdentityMismatch => {
+                    self.health.mark_unhealthy();
+                    return Err(RuntimeError::new(
+                        BROWSER_DATA_CLEAR_NATIVE_TERMINAL_UNVERIFIED,
+                        "The browser-data clear lost its exact native-store ownership identity before native ownership could be verified.",
+                    ));
+                }
+            }
+        }
         let window_app = self.app.clone();
         let window_label = runtime_label("browser-data-clear", role_id);
-        let window = self.create_window_bounded(role_id, move || {
-            WindowBuilder::new(&window_app, window_label)
-                .inner_size(1.0, 1.0)
-                .visible(false)
-                .build()
-        })?;
-        let webview = self
-            .add_child_bounded(
-                &window,
-                self.webview_builder(
-                    runtime_label("browser-data-clear-webview", role_id),
-                    &paths,
-                    None,
-                    WebviewSurfaceFeaturePolicy::Utility,
-                )?,
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(1.0, 1.0),
-                role_id,
-            )
-            .inspect_err(|_| {
-                let _ = window.close();
+        // This path is deliberately event-bound. The bounded creation helpers may return while
+        // their worker still owns a late utility surface, which is unsafe for destructive stores.
+        let window = WindowBuilder::new(&window_app, window_label)
+            .inner_size(1.0, 1.0)
+            .visible(false)
+            .build()
+            .map_err(|error| {
+                let error = RuntimeError::tauri(error);
+                RuntimeError::new(
+                    BROWSER_DATA_CLEAR_NATIVE_TERMINAL_UNVERIFIED,
+                    format!(
+                        "The utility window build failed without an authoritative native-owner release event: {}",
+                        error.message
+                    ),
+                )
             })?;
-        let result = webview
-            .clear_all_browsing_data()
-            .map_err(RuntimeError::tauri);
-        let surface_cleanup = webview.close().map_err(RuntimeError::tauri);
-        let window_cleanup = window.close().map_err(RuntimeError::tauri);
-        result.and(surface_cleanup).and(window_cleanup)?;
+        let (destroyed_sender, destroyed_receiver) = std::sync::mpsc::sync_channel(1);
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = destroyed_sender.try_send(());
+            }
+        });
+
+        let builder = self.webview_builder(
+            runtime_label("browser-data-clear-webview", role_id),
+            &paths,
+            None,
+            WebviewSurfaceFeaturePolicy::Utility,
+        );
+        let restore_parent = self.prepare_surface_parent_for_creation(&window, role_id);
+        let webview = match (builder, restore_parent) {
+            (Ok(builder), Ok(restore_parent)) => {
+                let created = window
+                    .add_child(
+                        builder,
+                        LogicalPosition::new(0.0, 0.0),
+                        LogicalSize::new(1.0, 1.0),
+                    )
+                    .map_err(RuntimeError::tauri);
+                let restored = self.finish_surface_host_initialization(
+                    &window,
+                    restore_parent,
+                    Some(false),
+                    role_id,
+                );
+                browser_data_utility_surface_creation_outcome(created, restored)
+            }
+            (Err(error), _) | (_, Err(error)) => Err(error),
+        };
+        let webview = match webview {
+            Ok(webview) => webview,
+            Err(error) => {
+                let cleanup = self.release_browser_data_utility_window(
+                    &window,
+                    destroyed_receiver,
+                );
+                return match cleanup {
+                    Ok(()) => Err(error),
+                    Err(cleanup_error) => Err(cleanup_error),
+                };
+            }
+        };
+
+        let admission = destructive_identity.map_or(DestructiveNativeSubmission::Admitted, |ids| {
+            self.destructive_native_work
+                .admit_destructive_mutation(ids.0, ids.1)
+        });
+        let clear_result = match admission {
+            DestructiveNativeSubmission::Admitted => {
+                clear_platform_browser_data_event_bound(&webview)
+            }
+            DestructiveNativeSubmission::Cancelled => Err(RuntimeError::new(
+                "SYSTEM_BROWSER_DATA_CLEAR_CANCELLED",
+                "Core cancelled browser-data clearing before native submission.",
+            )),
+            DestructiveNativeSubmission::Draining => Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_SHUTTING_DOWN",
+                "Application shutdown cancelled browser-data clearing before native submission.",
+            )),
+            DestructiveNativeSubmission::IdentityMismatch => {
+                self.health.mark_unhealthy();
+                Err(RuntimeError::new(
+                    BROWSER_DATA_CLEAR_NATIVE_TERMINAL_UNVERIFIED,
+                    "The browser-data clear lost its exact native submission identity after native ownership was admitted.",
+                ))
+            }
+        };
+        let cleanup_result =
+            self.release_browser_data_utility_window(&window, destroyed_receiver);
+        match cleanup_result {
+            Ok(()) => clear_result?,
+            Err(error) => return Err(error),
+        }
         self.remove_role_cookie_checkpoint(role_id)
+    }
+
+    fn release_browser_data_utility_window(
+        &self,
+        window: &Window,
+        destroyed_receiver: std::sync::mpsc::Receiver<()>,
+    ) -> RuntimeResult<()> {
+        let app = self.app.clone();
+        await_utility_surface_release(
+            destroyed_receiver,
+            || window.destroy().map_err(RuntimeError::tauri),
+            |released_sender| {
+                app
+                    .run_on_main_thread(move || {
+                        let _ = released_sender.send(());
+                    })
+                    .map_err(RuntimeError::tauri)
+            },
+        )
     }
 
     fn apply_role_session_transfer(
@@ -1029,6 +1141,21 @@ impl SystemRuntimeExecutor {
         result.and(cleanup)
     }
 
+}
+
+fn browser_data_utility_surface_creation_outcome<T>(
+    created: RuntimeResult<T>,
+    restored: RuntimeResult<()>,
+) -> RuntimeResult<T> {
+    match (created, restored) {
+        (Ok(surface), Ok(())) => Ok(surface),
+        (Ok(surface), Err(error)) => {
+            // The caller's enclosing utility-window destroy barrier owns exact native release.
+            drop(surface);
+            Err(error)
+        }
+        (Err(error), Ok(())) | (Err(_), Err(error)) => Err(error),
+    }
 }
 
 fn macos_high_refresh_rate_enabled(

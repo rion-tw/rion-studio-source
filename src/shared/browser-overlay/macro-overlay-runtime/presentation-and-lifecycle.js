@@ -497,6 +497,60 @@
     activeBadgesElement.hidden = nextMarkup.length === 0;
   }
 
+  function settleExactRefresh(refreshId, outcome, value) {
+    const pending = exactRefreshes.get(refreshId);
+    if (!pending) return;
+    exactRefreshes.delete(refreshId);
+    if (outcome === "resolve") {
+      pending.resolve(value);
+    } else {
+      pending.reject(value);
+    }
+  }
+
+  function refreshExact(refreshId) {
+    if (
+      typeof refreshId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(refreshId)
+    ) {
+      return Promise.reject(new Error("The Chromium overlay refresh identity is invalid."));
+    }
+    if (isDisposed) {
+      return Promise.reject(new Error("The Chromium overlay is disposed."));
+    }
+    if (exactRefreshes.has(refreshId)) {
+      return Promise.reject(new Error("The Chromium overlay refresh identity is already active."));
+    }
+    let resolve;
+    let reject;
+    const promise = new Promise((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    exactRefreshes.set(refreshId, { reject, resolve });
+    queuedExactRefreshIds.push(refreshId);
+    refreshQueued = true;
+    void refresh();
+    return promise;
+  }
+
+  async function refreshFromNative(refreshId) {
+    if (typeof binding.refreshReceipt !== "function") {
+      throw new Error("The Chromium overlay refresh receipt port is unavailable.");
+    }
+    let receipt;
+    try {
+      receipt = await refreshExact(refreshId);
+    } catch {
+      receipt = { refreshId, status: "failed" };
+    }
+    try {
+      await binding.refreshReceipt(receipt);
+    } catch {
+      // Main may have already terminalized this exact document on navigation.
+    }
+  }
+
   function refresh() {
     if (isDisposed) {
       return Promise.resolve();
@@ -512,18 +566,40 @@
     }
 
     refreshQueued = false;
+    const exactRefreshIds = queuedExactRefreshIds.splice(
+      0,
+      queuedExactRefreshIds.length
+    );
     const operation = (async () => {
       const requestVersion = ++state.requestVersion;
       const requestStartedAt = browserMonotonicNowMs();
       try {
         const nextState = await binding({ type: "list" });
-        if (requestVersion !== state.requestVersion || disposeIfDetached(nextState)) {
+        if (requestVersion !== state.requestVersion) {
+          queuedExactRefreshIds.unshift(...exactRefreshIds.filter(
+            (refreshId) => exactRefreshes.has(refreshId)
+          ));
+          refreshQueued = true;
+          return;
+        }
+        if (disposeIfDetached(nextState)) {
           return;
         }
         applyState(nextState);
         reportMacroBadgeSnapshotTimings(requestStartedAt);
         updatePresentation();
+        for (const refreshId of exactRefreshIds) {
+          settleExactRefresh(refreshId, "resolve", {
+            refreshId,
+            inputContext: automaticInputContext(),
+            requestVersion,
+            status: "applied"
+          });
+        }
       } catch (error) {
+        for (const refreshId of exactRefreshIds) {
+          settleExactRefresh(refreshId, "reject", error);
+        }
         console.warn("Unable to refresh Rion Studio macro shortcuts.", error);
       }
     })();
@@ -692,6 +768,14 @@
     appliedPageZoom = 1;
     appliedPageZoomKnown = false;
     refreshQueued = false;
+    queuedExactRefreshIds.length = 0;
+    for (const refreshId of [...exactRefreshes.keys()]) {
+      settleExactRefresh(
+        refreshId,
+        "reject",
+        new Error("The Chromium overlay was disposed before refresh completed.")
+      );
+    }
     cancelCoordinateMeasureHide();
     destroyCoordinateMeasurement();
     resetCoordinateMeasurementModuleLoader();
@@ -785,11 +869,14 @@
         ? inputContextLossVersion
         : 0,
       refresh,
+      refreshExact,
+      refreshFromNative,
       physicalModifierCodes,
       releaseForwardedMacroKey,
       suppressNextModifierProjection,
       suppressNextMiddleButtonShortcut,
       suppressNextShortcut,
+      suppressShortcutSequence,
       version: scriptVersion
     };
     isInstalled = true;

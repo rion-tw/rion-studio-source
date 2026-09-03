@@ -73,6 +73,77 @@ fn runtime_window_snapshot_input(
     })
 }
 
+fn restore_cohort_tab(id: &str, source_id: &str, name: &str) -> Value {
+    json!({
+        "id": id,
+        "tabType": "role",
+        "sourceId": source_id,
+        "name": name,
+        "roleSlots": [{
+            "slotId": format!("restore:{source_id}"),
+            "roleId": source_id,
+            "rect": { "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 },
+            "browserZoomPercent": 100.0
+        }],
+        "hidden": false,
+        "audioMuted": false
+    })
+}
+
+fn saved_restore_cohort(core: &Arc<AppCore>, name: &str) -> (String, Vec<Value>) {
+    let window_id = create_saved_window(core, name);
+    let tabs = vec![
+        restore_cohort_tab(
+            "00000000-0000-4000-8000-0000000000a1",
+            "restore-role-alpha",
+            "Alpha",
+        ),
+        restore_cohort_tab(
+            "00000000-0000-4000-8000-0000000000b2",
+            "restore-role-beta",
+            "Beta",
+        ),
+        restore_cohort_tab(
+            "00000000-0000-4000-8000-0000000000c3",
+            "restore-role-gamma",
+            "Gamma",
+        ),
+    ];
+    assert_eq!(
+        commit_live_window_tabs(
+            core,
+            &window_id,
+            1,
+            1,
+            name,
+            tabs.clone(),
+            Some("00000000-0000-4000-8000-0000000000c3"),
+        )["status"],
+        "applied"
+    );
+    (window_id, tabs)
+}
+
+fn mark_window_restore_in_progress(core: &Arc<AppCore>, window_id: &str) {
+    core.update_runtime_restore_session(|session| {
+        session.clean_exit = false;
+        session.restore_in_progress_window_ids = vec![window_id.to_owned()];
+    })
+    .unwrap();
+}
+
+fn saved_tab_ids(core: &Arc<AppCore>, window_id: &str) -> Vec<String> {
+    core.invoke(CoreCommand::GameWindowGet {
+        id: window_id.to_owned(),
+    })
+    .unwrap()["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tab| tab["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
 #[test]
 fn runtime_window_snapshot_commit_is_latest_revision_wins() {
     let (_directory, core) = core();
@@ -257,6 +328,126 @@ fn runtime_window_snapshot_batch_is_atomic_and_latest_revision_wins_per_window()
     )])
     .unwrap();
     assert_eq!(retry["receipts"][0]["status"], "applied");
+}
+
+#[test]
+fn partial_runtime_restore_snapshot_retains_the_ordered_saved_cohort() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform(platform);
+        let (window_id, tabs) = saved_restore_cohort(&core, "Partial restore");
+        mark_window_restore_in_progress(&core, &window_id);
+
+        let mut admitted_alpha = tabs[0].clone();
+        admitted_alpha["name"] = json!("Alpha admitted");
+        assert_eq!(
+            commit_live_window_tabs(
+                &core,
+                &window_id,
+                2,
+                1,
+                "Partial restore",
+                vec![admitted_alpha],
+                Some("00000000-0000-4000-8000-0000000000a1"),
+            )["status"],
+            "applied",
+            "{platform}"
+        );
+
+        assert_eq!(
+            saved_tab_ids(&core, &window_id),
+            tabs.iter()
+                .map(|tab| tab["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>(),
+            "{platform}"
+        );
+        let saved = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(saved["tabs"][0]["name"], "Alpha admitted", "{platform}");
+        assert_eq!(
+            saved["activeTabId"],
+            "00000000-0000-4000-8000-0000000000c3",
+            "{platform}"
+        );
+        core.shutdown();
+    }
+}
+
+#[test]
+fn complete_runtime_restore_snapshot_commits_exact_tabs_and_active_tab() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform(platform);
+        let (window_id, mut tabs) = saved_restore_cohort(&core, "Complete restore");
+        mark_window_restore_in_progress(&core, &window_id);
+        tabs[1]["name"] = json!("Beta terminal");
+
+        assert_eq!(
+            commit_live_window_tabs(
+                &core,
+                &window_id,
+                2,
+                1,
+                "Complete restore",
+                tabs.clone(),
+                Some("00000000-0000-4000-8000-0000000000b2"),
+            )["status"],
+            "applied",
+            "{platform}"
+        );
+        let saved = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(saved["tabs"][1]["name"], "Beta terminal", "{platform}");
+        assert_eq!(
+            saved["activeTabId"],
+            "00000000-0000-4000-8000-0000000000b2",
+            "{platform}"
+        );
+        core.shutdown();
+    }
+}
+
+#[test]
+fn failed_or_cancelled_runtime_restore_preserves_the_saved_cohort() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform(platform);
+        let (window_id, tabs) = saved_restore_cohort(&core, "Cancelled restore");
+        mark_window_restore_in_progress(&core, &window_id);
+        commit_live_window_tabs(
+            &core,
+            &window_id,
+            2,
+            1,
+            "Cancelled restore",
+            vec![tabs[0].clone()],
+            Some("00000000-0000-4000-8000-0000000000a1"),
+        );
+
+        core.update_runtime_restore_session(|session| {
+            session.restore_in_progress_window_ids.clear();
+        })
+        .unwrap();
+        assert_eq!(
+            saved_tab_ids(&core, &window_id),
+            tabs.iter()
+                .map(|tab| tab["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>(),
+            "{platform}"
+        );
+        assert_eq!(
+            core.invoke(CoreCommand::GameWindowGet {
+                id: window_id.clone(),
+            })
+            .unwrap()["activeTabId"],
+            "00000000-0000-4000-8000-0000000000c3",
+            "{platform}"
+        );
+        core.shutdown();
+    }
 }
 
 #[test]

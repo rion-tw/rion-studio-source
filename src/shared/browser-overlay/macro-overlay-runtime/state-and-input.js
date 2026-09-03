@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v62";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-30.1";
+  const scriptVersion = "2026-08-30.2";
   const inputContextLossVersion = 1;
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
@@ -164,8 +164,10 @@
   let isOpenRequestPending = false;
   let refreshInFlight = null;
   let refreshQueued = false;
+  const exactRefreshes = new Map();
+  const queuedExactRefreshIds = [];
   let root = null;
-  let inFlightMacroKeyGuard = null;
+  const inFlightMacroKeyGuards = [];
   let triggerElement = null;
 
   if (typeof binding !== "function") {

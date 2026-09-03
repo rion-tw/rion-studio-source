@@ -15,12 +15,15 @@ impl MacroRuntime {
         Self {
             shared: Arc::new(Shared {
                 action_timeout,
+                application_lifecycle_lock: Mutex::new(()),
+                application_suspend_completed: AtomicBool::new(false),
+                application_suspended: AtomicBool::new(false),
                 action_role_locks: Mutex::new(HashMap::new()),
                 events,
                 inner: Mutex::new(Inner::default()),
                 next_id: AtomicU64::new(1),
                 next_start_attempt_id: AtomicU64::new(1),
-                pending: Mutex::new(HashMap::new()),
+                pending: Mutex::new(BrowserActionDispatchState::default()),
                 last_presentation_status_emit: Mutex::new(None),
                 macro_run_locks: Mutex::new(HashMap::new()),
                 shutting_down: AtomicBool::new(false),
@@ -303,7 +306,7 @@ impl MacroRuntime {
         role_id: &str,
         input_epoch: u64,
     ) -> CoreResult<bool> {
-        let controls = {
+        let (controls, recovery_removed) = {
             let mut inner = self
                 .shared
                 .inner
@@ -312,19 +315,54 @@ impl MacroRuntime {
             if inner.input_epochs.get(role_id).copied().unwrap_or_default() != input_epoch {
                 return Ok(false);
             }
+            let recovery_removed = cancel_recovery_for_role(&mut inner, role_id);
             inner.transferring_role_ids.remove(role_id);
             inner.quiesced_role_ids.insert(role_id.to_owned());
             inner.restart_required_role_ids.insert(role_id.to_owned());
-            inner
+            let controls = inner
                 .invocations
                 .values()
                 .filter(|control| control.role_ids.contains(role_id))
                 .cloned()
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (controls, recovery_removed)
         };
         self.shared.role_transfer_changed.notify_all();
         self.terminalize_controls(&controls)?;
+        if recovery_removed && controls.is_empty() {
+            self.emit_statuses();
+        }
         Ok(true)
+    }
+
+    pub fn terminalize_role_after_navigation_failure(&self, role_id: &str) -> CoreResult<()> {
+        let (controls, recovery_removed) = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            let recovery_removed = cancel_recovery_for_role(&mut inner, role_id);
+            inner.stopping_role_ids.remove(role_id);
+            inner.transferring_role_ids.remove(role_id);
+            inner.quiesced_role_ids.insert(role_id.to_owned());
+            inner.restart_required_role_ids.insert(role_id.to_owned());
+            let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+            *epoch = epoch.saturating_add(1);
+            let controls = inner
+                .invocations
+                .values()
+                .filter(|control| control.role_ids.contains(role_id))
+                .cloned()
+                .collect::<Vec<_>>();
+            (controls, recovery_removed)
+        };
+        self.shared.role_transfer_changed.notify_all();
+        self.terminalize_controls(&controls)?;
+        if recovery_removed && controls.is_empty() {
+            self.emit_statuses();
+        }
+        Ok(())
     }
 
     pub fn terminalize_role_after_process_termination(&self, role_id: &str) -> CoreResult<()> {
@@ -395,6 +433,10 @@ impl MacroRuntime {
             .inner
             .lock()
             .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let preserves_active_macro = inner
+            .invocations
+            .values()
+            .any(|control| control.role_ids.contains(role_id));
         if inner.held_keys.values().any(|held| held.role_id == role_id) {
             drop(inner);
             drop(role_guards);
@@ -410,7 +452,7 @@ impl MacroRuntime {
         drop(role_guards);
         drop(input_sequence_guards);
         self.shared.role_transfer_changed.notify_all();
-        Ok(true)
+        Ok(preserves_active_macro)
     }
 
     pub fn role_ownership_transfer_active(&self, role_id: &str) -> CoreResult<bool> {
@@ -508,6 +550,31 @@ impl MacroRuntime {
         Ok(resumed)
     }
 
+    pub fn resume_role_input_after_provisional_navigation_restart(
+        &self,
+        role_id: &str,
+        input_epoch: u64,
+    ) -> CoreResult<bool> {
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let current = inner.input_epochs.get(role_id).copied().unwrap_or_default() == input_epoch;
+        let resumed = current
+            && !inner.stopping_role_ids.contains(role_id)
+            && inner.restart_required_role_ids.remove(role_id)
+            && inner.quiesced_role_ids.remove(role_id);
+        if resumed {
+            inner.transferring_role_ids.remove(role_id);
+        }
+        drop(inner);
+        if resumed {
+            self.shared.role_transfer_changed.notify_all();
+        }
+        Ok(resumed)
+    }
+
     pub fn input_diagnostics(&self) -> CoreResult<MacroInputDiagnosticsRecord> {
         let inner = self
             .shared
@@ -578,6 +645,7 @@ impl MacroRuntime {
         inner.stopping_role_ids.remove(role_id);
         inner.transferring_role_ids.remove(role_id);
         inner.quiesced_role_ids.remove(role_id);
+        inner.application_suspend_epochs.remove(role_id);
         // Preserve a monotonic epoch so late cleanup from the released native
         // generation can never match a subsequently relaunched role.
         let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
@@ -697,35 +765,56 @@ impl MacroRuntime {
         Ok(())
     }
 
-    pub fn dispatch_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
+    pub fn dispatch_results(
+        &self,
+        results: Vec<BrowserActionResult>,
+    ) -> CoreResult<CoreEffectDispatchReport> {
+        let mut report = CoreEffectDispatchReport::default();
         for result in results {
             validate_result(&result)?;
-            let pending = self
-                .shared
-                .pending
-                .lock()
-                .map_err(|_| CoreError::Internal("macro result lock poisoned".to_owned()))?
-                .remove(&result.request_id);
-            if let Some(pending) = pending {
-                if matches!(
-                    result.error_code.as_deref(),
-                    Some(
-                        "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
-                            | "SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED"
-                    )
-                ) {
-                    self.ensure_input_recovery(&result.request_id, &pending.role_id)?;
-                }
-                if let Some(signal) = pending.signal.upgrade() {
-                    let _signal_guard = signal.wake.0.lock().ok();
-                    let _ = pending.result.send(result);
-                    signal.wake.1.notify_all();
-                } else {
-                    let _ = pending.result.send(result);
-                }
+            let request_id = result.request_id.clone();
+            let pending = {
+                let mut actions = self
+                    .shared
+                    .pending
+                    .lock()
+                    .map_err(|_| CoreError::Internal("macro result lock poisoned".to_owned()))?;
+                let Some(pending) = actions.remove(&request_id) else {
+                    match actions.completed.get(&request_id) {
+                        Some(CompletedBrowserAction::TimedOut) => report.late.push(request_id),
+                        Some(CompletedBrowserAction::Completed) => {
+                            report.duplicate.push(request_id);
+                        }
+                        None => report.unknown.push(request_id),
+                    }
+                    continue;
+                };
+                actions.remember(request_id.clone(), CompletedBrowserAction::Completed);
+                report.accepted.push(request_id);
+                pending
+            };
+            if matches!(
+                result.error_code.as_deref(),
+                Some(
+                    "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                        | "SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED"
+                )
+            ) {
+                let _ = try_ensure_input_recovery_shared(
+                    &self.shared,
+                    &result.request_id,
+                    &pending.role_id,
+                )?;
+            }
+            if let Some(signal) = pending.signal.upgrade() {
+                let _signal_guard = signal.wake.0.lock().ok();
+                let _ = pending.result.send(result);
+                signal.wake.1.notify_all();
+            } else {
+                let _ = pending.result.send(result);
             }
         }
-        Ok(())
+        Ok(report)
     }
 
     pub fn shutdown(&self) {
@@ -740,6 +829,7 @@ impl MacroRuntime {
             .unwrap_or_default();
         let _ = cancel_and_wait_all(&controls);
         if let Ok(mut inner) = self.shared.inner.lock() {
+            inner.application_suspend_epochs.clear();
             inner.held_keys.clear();
             inner.invocations.clear();
             inner.leases.clear();
@@ -822,6 +912,13 @@ impl MacroRuntime {
         if self.shared.shutting_down.load(Ordering::Acquire) {
             return Err(CoreError::ShuttingDown);
         }
+        if self.shared.application_suspended.load(Ordering::Acquire) {
+            return Err(CoreError::Domain {
+                code: "MACRO_RUNTIME_NOT_ACTIVE",
+                message: "The macro runtime is suspended by the application lifecycle."
+                    .to_owned(),
+            });
+        }
         validate_start_request(&request)?;
         let restart_intent = (!defer_execution).then(|| MacroRestartIntent {
             macro_id: request.macro_id.clone(),
@@ -902,6 +999,13 @@ impl MacroRuntime {
                 .inner
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            if self.shared.application_suspended.load(Ordering::Acquire) {
+                return Err(CoreError::Domain {
+                    code: "MACRO_RUNTIME_NOT_ACTIVE",
+                    message: "The macro runtime is suspended by the application lifecycle."
+                        .to_owned(),
+                });
+            }
             if !inner.mutating_macro_ids.is_disjoint(&invocation_macro_ids) {
                 return Err(CoreError::Domain {
                     code: "MACRO_MUTATION_BUSY",
@@ -971,7 +1075,7 @@ impl MacroRuntime {
             .map(|role_id| (role_id.as_str(), BrowserAction::Focus))
             .collect();
         if let Err(failure) =
-            perform_actions_with_control(&self.shared, &control, focus_actions, false)
+            perform_actions_with_control(&self.shared, &control, focus_actions, false, None)
         {
             discard_unstarted_invocation(&self.shared, &control);
             return Err(macro_input_core_error(failure));

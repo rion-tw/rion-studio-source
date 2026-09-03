@@ -1,4 +1,48 @@
 impl SystemRuntimeExecutor {
+    fn apply_tab_audio_muted_effect(
+        &self,
+        tab_id: &str,
+        window_id: &str,
+        attempt_generation: &str,
+        roles: &[EmbeddedTabAudioMuteRoleEffectRecord],
+        muted: bool,
+        previous_muted: bool,
+    ) -> RuntimeResult<()> {
+        let live_window_id = self.presentation.tab_window(tab_id).map_err(|message| {
+            RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+        })?;
+        let role_id = {
+            let state = self.state()?;
+            if state.launch_attempt_generations.get(tab_id).map(String::as_str)
+                != Some(attempt_generation)
+                || live_window_id.as_deref() != Some(window_id)
+            {
+                return Err(RuntimeError::new(
+                    "RUNTIME_TAB_AUDIO_STALE",
+                    "The runtime tab identity changed before native audio mute was applied.",
+                ));
+            }
+            let tab = state.native_resources.tabs.get(tab_id).ok_or_else(|| {
+                RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
+            })?;
+            if roles.is_empty()
+                || tab.roles.len() != roles.len()
+                || roles.iter().any(|role| {
+                    tab.roles
+                        .get(&role.role_id)
+                        .is_none_or(|surface| surface.generation != role.owner_generation)
+                })
+            {
+                return Err(RuntimeError::new(
+                    "RUNTIME_TAB_AUDIO_STALE",
+                    "The runtime role generation set changed before native audio mute was applied.",
+                ));
+            }
+            roles[0].role_id.clone()
+        };
+        self.apply_role_audio_muted(&role_id, muted, previous_muted)
+    }
+
     fn apply_role_audio_muted(
         &self,
         role_id: &str,

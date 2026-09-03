@@ -2,9 +2,22 @@ pub(crate) fn prepare_application_update_exit(app: &AppHandle) -> Result<(), Str
     if let Some(state) = app.try_state::<CoreState>() {
         state.application_exit_guard.permit();
         state.application_shutdown.mark_started();
-        let receipt = state.runtime.close_all();
-        let shutdown_result = if system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status)
-        {
+        let shutdown_deadline = system_runtime::system_runtime_shutdown_deadline();
+        let core_clear_drain_began = state
+            .core
+            .begin_role_browser_data_clear_command_drain()
+            .is_ok();
+        let receipt = state.runtime.close_all_until(shutdown_deadline);
+        let core_clear_drain_safe = core_clear_drain_began
+            && matches!(
+                state
+                    .core
+                    .wait_for_role_browser_data_clear_command_drain(shutdown_deadline),
+                Ok(true)
+            );
+        let exit_decision =
+            application_shutdown_exit_decision(&receipt.status, core_clear_drain_safe);
+        let shutdown_result = if exit_decision == ApplicationShutdownExitDecision::Clean {
             state.runtime.persist_restore_session(true)
         } else {
             Err(receipt
@@ -15,7 +28,18 @@ pub(crate) fn prepare_application_update_exit(app: &AppHandle) -> Result<(), Str
         // failed or indeterminate terminal drain must allow the caller's
         // fail-closed restart instead of leaving ExitRequested waiting for a
         // shutdown worker that this synchronous path never creates.
-        state.core.shutdown();
+        if exit_decision == ApplicationShutdownExitDecision::HardExit {
+            // Do not normally release the Core instance lock after an unsafe native terminal.
+            // A non-zero hard exit leaves final release to the OS.
+            std::process::exit(9);
+        }
+        if let Err(error) = compensate_checked_core_shutdown_result(
+            &state.core,
+            state.core.shutdown_checked(),
+        ) {
+            eprintln!("{error}");
+            std::process::exit(9);
+        }
         state.application_shutdown.mark_ready_to_exit();
         shutdown_result?;
     }

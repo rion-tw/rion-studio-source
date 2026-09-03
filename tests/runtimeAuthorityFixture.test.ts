@@ -287,6 +287,33 @@ describe("runtime authority fixture launch gates", () => {
     expect(source).toContain('const sessionMarker = "gated-marker"');
   });
 
+  it("records an event-bound gated navigation transport cancellation", async () => {
+    const { origin } = await startFixture();
+    expect((await post(origin, "/api/gate", { roleId: "cancelled-role" })).ok)
+      .toBe(true);
+    const controller = new AbortController();
+    const navigation = fetch(`${origin}/role/cancelled-role`, {
+      signal: controller.signal
+    }).then(() => false, () => true);
+    const waiting = await fetch(`${origin}/api/gates/cancelled-role/waiting`);
+    expect(await waiting.json()).toEqual({
+      roleId: "cancelled-role",
+      waiterCount: 1
+    });
+    const cancelled = fetch(
+      `${origin}/api/events?afterSequence=0&` +
+      "roleId=cancelled-role&kind=gated-navigation-transport-cancelled"
+    );
+
+    controller.abort();
+
+    expect(await navigation).toBe(true);
+    expect((await (await cancelled).json()).event).toMatchObject({
+      kind: "gated-navigation-transport-cancelled",
+      roleId: "cancelled-role"
+    });
+  });
+
   it("fails one navigation and holds recovery until failure injection is released", async () => {
     const { origin } = await startFixture();
     expect((await post(origin, "/api/navigation-failure", {
@@ -294,10 +321,9 @@ describe("runtime authority fixture launch gates", () => {
       roleId: "recovery-role"
     })).ok).toBe(true);
 
-    const failedNavigation = fetch(`${origin}/role/recovery-role`).then(
-      () => false,
-      () => true
-    );
+    const failedNavigation = fetch(`${origin}/role/recovery-role`)
+      .then((response) => response.text())
+      .then(() => false, () => true);
     const attempted = await fetch(
       `${origin}/api/navigation-failures/recovery-role/attempted`
     );
@@ -320,5 +346,80 @@ describe("runtime authority fixture launch gates", () => {
       roleId: "recovery-role"
     })).ok).toBe(true);
     expect((await recoveryNavigation).status).toBe(200);
+  });
+
+  it("exposes the active-navigation failure control only for the recovery Role", async () => {
+    const { origin } = await startFixture();
+    const recovery = await (await fetch(
+      `${origin}/role/chromium-workspaces-recovery-failing`
+    )).text();
+    const healthy = await (await fetch(
+      `${origin}/role/chromium-workspaces-recovery-healthy`
+    )).text();
+
+    expect(recovery).toContain('id="active-navigation-failure"');
+    expect(recovery).toContain(
+      'roleId === "chromium-workspaces-recovery-failing"'
+    );
+    expect(recovery).toContain('record("navigation-requested"');
+    expect(recovery).toContain("isTrusted: event.isTrusted");
+    expect(recovery).toContain("window.location.assign(window.location.href)");
+    expect(healthy).toContain("activeNavigationFailure.hidden = false");
+    expect(healthy).toContain(
+      'roleId === "chromium-workspaces-recovery-failing"'
+    );
+  });
+
+  it("exposes visible permission and attachment controls only to the security fixture", async () => {
+    const { origin } = await startFixture();
+    const security = await (await fetch(
+      `${origin}/role/chromium-workspace-web-fullscreen`
+    )).text();
+    const ordinary = await (await fetch(`${origin}/role/test-role`)).text();
+
+    for (const marker of [
+      'id="permission-geolocation"',
+      'id="blocked-download"',
+      'record("permission-requested"',
+      'navigator.geolocation.getCurrentPosition(',
+      'record("permission-denied"',
+      'record("download-requested"'
+    ]) {
+      expect(security).toContain(marker);
+    }
+    expect(security).toContain('const securityPolicyEnabled = roleId ===');
+    expect(ordinary).toContain("permissionButton.hidden = !securityPolicyEnabled");
+    expect(ordinary).toContain("downloadLink.hidden = !securityPolicyEnabled");
+  });
+
+  it("holds attachment transport until the exact client cancellation event", async () => {
+    const { origin } = await startFixture();
+    const controller = new AbortController();
+    const response = await fetch(
+      `${origin}/download/chromium-workspace-web-fullscreen`,
+      { signal: controller.signal }
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="chromium-workspace-web-fullscreen.txt"'
+    );
+    const started = await fetch(
+      `${origin}/api/events?afterSequence=0&` +
+      "roleId=chromium-workspace-web-fullscreen&kind=download-response-started"
+    );
+    expect((await started.json()).event).toMatchObject({
+      kind: "download-response-started",
+      roleId: "chromium-workspace-web-fullscreen"
+    });
+
+    const cancelled = fetch(
+      `${origin}/api/events?afterSequence=0&` +
+      "roleId=chromium-workspace-web-fullscreen&kind=download-transport-cancelled"
+    );
+    controller.abort();
+    expect((await (await cancelled).json()).event).toMatchObject({
+      kind: "download-transport-cancelled",
+      roleId: "chromium-workspace-web-fullscreen"
+    });
   });
 });

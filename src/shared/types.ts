@@ -10,6 +10,7 @@ import type {
   BrowserPerformanceDiagnosticsRecord,
   BrowserPerformanceDiagnosticOperationRecord,
   BrowserPerformanceSettingsRecord,
+  BrowserRuntimeFailureReason as RustBrowserRuntimeFailureReason,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
   ChromeProfileImportResolutionRecord,
@@ -154,11 +155,11 @@ export interface RoleStatus {
   automationState?: "ready" | "unavailable";
   /** Availability of the native in-page macro overlay and shortcuts. */
   overlayState?: "ready" | "unavailable";
-  /** Health reported by the active system WebView surface. */
+  /** Health reported by the active browser runtime surface. */
   pageHealth?: "healthy" | "unresponsive";
   resolvedEngine?: ResolvedBrowserEngine;
   hostKind?: BrowserHostKind;
-  issueReason?: SystemWebViewIssueReason;
+  issueReason?: BrowserRuntimeFailureReason;
   capabilitySnapshot?: EngineCapabilitySnapshot;
 }
 
@@ -378,6 +379,7 @@ export type BrowserFontRuntimePayload = BrowserFontRuntimePayloadRecord;
 export type BrowserRuntimeMode = "embedded";
 export type ResolvedBrowserEngine = RustResolvedBrowserEngine;
 export type BrowserHostKind = RustBrowserHostKind;
+export type BrowserRuntimeFailureReason = RustBrowserRuntimeFailureReason;
 export type SystemWebViewIssueReason = RustSystemWebViewIssueReason;
 export type EngineCapabilitySnapshot = RustEngineCapabilitySnapshotRecord;
 export type WorkspaceBackgroundStyle = "material" | "black";

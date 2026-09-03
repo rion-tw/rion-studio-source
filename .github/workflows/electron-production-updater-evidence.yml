@@ -1,0 +1,876 @@
+name: Electron Production Updater Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_source_sha:
+        description: Exact target Electron production-candidate source SHA
+        required: true
+        type: string
+      target_version:
+        description: Exact target Electron semantic version
+        required: true
+        type: string
+      target_candidate_run_id:
+        description: Successful target Electron Production Candidate run ID
+        required: true
+        type: string
+      target_candidate_receipt_sha256:
+        description: Owner-recorded target candidate receipt SHA-256
+        required: true
+        type: string
+      target_trusted_control_receipt_sha256:
+        description: Owner-recorded target trusted-control receipt SHA-256
+        required: true
+        type: string
+      prior_source_sha:
+        description: Exact prior Electron production-candidate source SHA
+        required: true
+        type: string
+      prior_version:
+        description: Exact prior Electron semantic version
+        required: true
+        type: string
+      prior_candidate_run_id:
+        description: Successful prior Electron Production Candidate run ID
+        required: true
+        type: string
+      prior_candidate_receipt_sha256:
+        description: Owner-recorded prior candidate receipt SHA-256
+        required: true
+        type: string
+      prior_trusted_control_receipt_sha256:
+        description: Owner-recorded prior trusted-control receipt SHA-256
+        required: true
+        type: string
+      tauri_release_tag:
+        description: Exact published stable Tauri release tag
+        required: true
+        type: string
+      tauri_source_sha:
+        description: Exact published stable Tauri source SHA
+        required: true
+        type: string
+      tauri_version:
+        description: Exact published stable Tauri semantic version
+        required: true
+        type: string
+      tauri_lineage_run_id:
+        description: Successful attested public Tauri lineage run ID
+        required: true
+        type: string
+      tauri_macos_lineage_receipt_sha256:
+        description: Owner-recorded macOS Tauri lineage receipt SHA-256
+        required: true
+        type: string
+      tauri_windows_lineage_receipt_sha256:
+        description: Owner-recorded Windows Tauri lineage receipt SHA-256
+        required: true
+        type: string
+      provisional_publication_run_id:
+        description: Successful provisional target-publication run ID
+        required: true
+        type: string
+      provisional_publication_receipt_sha256:
+        description: Owner-recorded provisional publication receipt SHA-256
+        required: true
+        type: string
+      owner_approval:
+        description: Type AUTHORIZE ELECTRON PRODUCTION UPDATER EVIDENCE
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  attestations: read
+  contents: read
+
+concurrency:
+  group: electron-production-updater-evidence-${{ inputs.target_source_sha }}-${{ inputs.target_version }}
+  cancel-in-progress: false
+
+jobs:
+  authorize-and-seal:
+    if: ${{ false }}
+    name: Authorize and seal the exact four-cell attempt
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    outputs:
+      attempt_plan_sha256: ${{ steps.seal.outputs.attempt_plan_sha256 }}
+      control_plane_sha: ${{ steps.guard.outputs.control_plane_sha }}
+      sealed_artifact_name: ${{ steps.seal.outputs.sealed_artifact_name }}
+      trusted_bindings_sha256: ${{ steps.seal.outputs.trusted_bindings_sha256 }}
+    steps:
+      - name: Require protected main and the exact owner acknowledgement
+        id: guard
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_EVENT: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+          EXPECTED_REPOSITORY: rion-tw/rion-studio-source
+          EXPECTED_WORKFLOW_REF: rion-tw/rion-studio-source/.github/workflows/electron-production-updater-evidence.yml@refs/heads/main
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          test "${REPOSITORY}" = "${EXPECTED_REPOSITORY}"
+          test "${DISPATCH_EVENT}" = "workflow_dispatch"
+          test "${DEFAULT_BRANCH}" = "main"
+          test "${DISPATCH_REF}" = "refs/heads/main"
+          test "${DISPATCH_REF_PROTECTED}" = "true"
+          test "${WORKFLOW_REF}" = "${EXPECTED_WORKFLOW_REF}"
+          test "${OWNER_APPROVAL}" = "AUTHORIZE ELECTRON PRODUCTION UPDATER EVIDENCE"
+          [[ "${CONTROL_PLANE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          echo "control_plane_sha=${CONTROL_PLANE_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout the exact trusted control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ steps.guard.outputs.control_plane_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify immutable upstream workflow runs
+        id: upstream
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIOR_RUN_ID: ${{ inputs.prior_candidate_run_id }}
+          PROVISIONAL_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+          TAURI_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+          TARGET_RUN_ID: ${{ inputs.target_candidate_run_id }}
+        run: |
+          set -euo pipefail
+          verify_run() {
+            local run_id="$1"
+            local expected_path="$2"
+            local label="$3"
+            [[ "${run_id}" =~ ^[1-9][0-9]*$ ]]
+            local document
+            document="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+            test "$(jq -r .path <<< "${document}")" = "${expected_path}"
+            test "$(jq -r .event <<< "${document}")" = "workflow_dispatch"
+            test "$(jq -r .status <<< "${document}")" = "completed"
+            test "$(jq -r .conclusion <<< "${document}")" = "success"
+            test "$(jq -r .head_repository.full_name <<< "${document}")" = \
+              "rion-tw/rion-studio-source"
+            test "$(jq -r .head_branch <<< "${document}")" = "main"
+            local attempt control_sha
+            attempt="$(jq -r .run_attempt <<< "${document}")"
+            control_sha="$(jq -r .head_sha <<< "${document}")"
+            [[ "${attempt}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${control_sha}" =~ ^[0-9a-f]{40}$ ]]
+            echo "${label}_attempt=${attempt}" >> "${GITHUB_OUTPUT}"
+            echo "${label}_control_sha=${control_sha}" >> "${GITHUB_OUTPUT}"
+          }
+          verify_run "${TARGET_RUN_ID}" \
+            ".github/workflows/electron-production-candidate.yml" target
+          verify_run "${PRIOR_RUN_ID}" \
+            ".github/workflows/electron-production-candidate.yml" prior
+          verify_run "${TAURI_RUN_ID}" \
+            ".github/workflows/electron-updater-tauri-v22-compatibility.yml" tauri
+          verify_run "${PROVISIONAL_RUN_ID}" \
+            ".github/workflows/electron-production-provisional-publish.yml" provisional
+          test "${TARGET_RUN_ID}" != "${PRIOR_RUN_ID}"
+          test "${TARGET_RUN_ID}" != "${TAURI_RUN_ID}"
+          test "${TARGET_RUN_ID}" != "${PROVISIONAL_RUN_ID}"
+          test "${PRIOR_RUN_ID}" != "${TAURI_RUN_ID}"
+          test "${PRIOR_RUN_ID}" != "${PROVISIONAL_RUN_ID}"
+          test "${TAURI_RUN_ID}" != "${PROVISIONAL_RUN_ID}"
+
+      - name: Download exact trusted upstream artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIOR_ATTEMPT: ${{ steps.upstream.outputs.prior_attempt }}
+          PRIOR_RUN_ID: ${{ inputs.prior_candidate_run_id }}
+          PRIOR_SHA: ${{ inputs.prior_source_sha }}
+          PRIOR_VERSION: ${{ inputs.prior_version }}
+          PROVISIONAL_ATTEMPT: ${{ steps.upstream.outputs.provisional_attempt }}
+          PROVISIONAL_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+          TAURI_ATTEMPT: ${{ steps.upstream.outputs.tauri_attempt }}
+          TAURI_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+          TARGET_ATTEMPT: ${{ steps.upstream.outputs.target_attempt }}
+          TARGET_RUN_ID: ${{ inputs.target_candidate_run_id }}
+          TARGET_SHA: ${{ inputs.target_source_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p control-input
+          gh run download "${TARGET_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-${TARGET_VERSION}-${TARGET_SHA}-attempt-${TARGET_ATTEMPT}" \
+            --dir control-input/target-candidate
+          gh run download "${TARGET_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-trusted-control-${TARGET_VERSION}-${TARGET_SHA}-attempt-${TARGET_ATTEMPT}" \
+            --dir control-input/target-control
+          gh run download "${TARGET_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-macos-arm64-${TARGET_VERSION}-${TARGET_SHA}-attempt-${TARGET_ATTEMPT}" \
+            --dir control-input/target-macos
+          gh run download "${TARGET_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-windows-x64-${TARGET_VERSION}-${TARGET_SHA}-attempt-${TARGET_ATTEMPT}" \
+            --dir control-input/target-windows
+          gh run download "${PRIOR_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-${PRIOR_VERSION}-${PRIOR_SHA}-attempt-${PRIOR_ATTEMPT}" \
+            --dir control-input/prior-candidate
+          gh run download "${PRIOR_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-trusted-control-${PRIOR_VERSION}-${PRIOR_SHA}-attempt-${PRIOR_ATTEMPT}" \
+            --dir control-input/prior-control
+          gh run download "${PRIOR_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-macos-arm64-${PRIOR_VERSION}-${PRIOR_SHA}-attempt-${PRIOR_ATTEMPT}" \
+            --dir control-input/prior-macos
+          gh run download "${PRIOR_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-windows-x64-${PRIOR_VERSION}-${PRIOR_SHA}-attempt-${PRIOR_ATTEMPT}" \
+            --dir control-input/prior-windows
+          gh run download "${TAURI_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "tauri-v22-public-lineage-darwin-aarch64-${TAURI_RUN_ID}-${TAURI_ATTEMPT}" \
+            --dir control-input/tauri/darwin-aarch64
+          gh run download "${TAURI_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "tauri-v22-public-lineage-windows-x86_64-${TAURI_RUN_ID}-${TAURI_ATTEMPT}" \
+            --dir control-input/tauri/windows-x86_64
+          gh run download "${PROVISIONAL_RUN_ID}" --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-publication-provisional-${TARGET_VERSION}-${TARGET_SHA}-attempt-${PROVISIONAL_ATTEMPT}" \
+            --dir control-input/provisional
+
+      - name: Verify detached upstream attestations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIOR_ATTEMPT: ${{ steps.upstream.outputs.prior_attempt }}
+          PRIOR_CONTROL_SHA: ${{ steps.upstream.outputs.prior_control_sha }}
+          PRIOR_RUN_ID: ${{ inputs.prior_candidate_run_id }}
+          PROVISIONAL_ATTEMPT: ${{ steps.upstream.outputs.provisional_attempt }}
+          PROVISIONAL_CONTROL_SHA: ${{ steps.upstream.outputs.provisional_control_sha }}
+          PROVISIONAL_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+          TAURI_ATTEMPT: ${{ steps.upstream.outputs.tauri_attempt }}
+          TAURI_CONTROL_SHA: ${{ steps.upstream.outputs.tauri_control_sha }}
+          TAURI_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+          TARGET_ATTEMPT: ${{ steps.upstream.outputs.target_attempt }}
+          TARGET_CONTROL_SHA: ${{ steps.upstream.outputs.target_control_sha }}
+          TARGET_RUN_ID: ${{ inputs.target_candidate_run_id }}
+        run: |
+          set -euo pipefail
+          verify_attestation() {
+            local subject="$1" control_sha="$2" workflow="$3" run_id="$4" attempt="$5"
+            local invocation_uri="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${run_id}/attempts/${attempt}"
+            local result
+            result="$(gh attestation verify "${subject}" \
+              --repo "${GITHUB_REPOSITORY}" --format=json \
+              --signer-digest "${control_sha}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/${workflow}" \
+              --source-digest "${control_sha}")"
+            jq -e --arg invocation_uri "${invocation_uri}" '
+              any(.[]; .verificationResult.signature.certificate.runInvocationURI == $invocation_uri)
+            ' <<< "${result}" > /dev/null
+          }
+          verify_attestation \
+            control-input/target-control/electron-production-candidate-trusted-control-receipt.json \
+            "${TARGET_CONTROL_SHA}" .github/workflows/electron-production-candidate.yml \
+            "${TARGET_RUN_ID}" "${TARGET_ATTEMPT}"
+          verify_attestation \
+            control-input/prior-control/electron-production-candidate-trusted-control-receipt.json \
+            "${PRIOR_CONTROL_SHA}" .github/workflows/electron-production-candidate.yml \
+            "${PRIOR_RUN_ID}" "${PRIOR_ATTEMPT}"
+          for platform in darwin-aarch64 windows-x86_64; do
+            verify_attestation \
+              "control-input/tauri/${platform}/tauri-v22-public-lineage-receipt.json" \
+              "${TAURI_CONTROL_SHA}" \
+              .github/workflows/electron-updater-tauri-v22-compatibility.yml \
+              "${TAURI_RUN_ID}" "${TAURI_ATTEMPT}"
+          done
+          verify_attestation \
+            control-input/provisional/electron-production-publication-provisional-receipt.json \
+            "${PROVISIONAL_CONTROL_SHA}" \
+            .github/workflows/electron-production-provisional-publish.yml \
+            "${PROVISIONAL_RUN_ID}" "${PROVISIONAL_ATTEMPT}"
+
+      - name: Build the closed trusted-control descriptor
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ steps.guard.outputs.control_plane_sha }}
+          PRIOR_ATTEMPT: ${{ steps.upstream.outputs.prior_attempt }}
+          PRIOR_CONTROL_SHA: ${{ steps.upstream.outputs.prior_control_sha }}
+          PRIOR_RECEIPT_SHA: ${{ inputs.prior_candidate_receipt_sha256 }}
+          PRIOR_RUN_ID: ${{ inputs.prior_candidate_run_id }}
+          PRIOR_SHA: ${{ inputs.prior_source_sha }}
+          PRIOR_TRUSTED_SHA: ${{ inputs.prior_trusted_control_receipt_sha256 }}
+          PRIOR_VERSION: ${{ inputs.prior_version }}
+          PRODUCTION_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+          PROVISIONAL_ATTEMPT: ${{ steps.upstream.outputs.provisional_attempt }}
+          PROVISIONAL_CONTROL_SHA: ${{ steps.upstream.outputs.provisional_control_sha }}
+          PROVISIONAL_RECEIPT_SHA: ${{ inputs.provisional_publication_receipt_sha256 }}
+          PROVISIONAL_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+          TAURI_ATTEMPT: ${{ steps.upstream.outputs.tauri_attempt }}
+          TAURI_CONTROL_SHA: ${{ steps.upstream.outputs.tauri_control_sha }}
+          TAURI_MACOS_RECEIPT_SHA: ${{ inputs.tauri_macos_lineage_receipt_sha256 }}
+          TAURI_RELEASE_TAG: ${{ inputs.tauri_release_tag }}
+          TAURI_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+          TAURI_SHA: ${{ inputs.tauri_source_sha }}
+          TAURI_VERSION: ${{ inputs.tauri_version }}
+          TAURI_WINDOWS_RECEIPT_SHA: ${{ inputs.tauri_windows_lineage_receipt_sha256 }}
+          TARGET_ATTEMPT: ${{ steps.upstream.outputs.target_attempt }}
+          TARGET_CONTROL_SHA: ${{ steps.upstream.outputs.target_control_sha }}
+          TARGET_RECEIPT_SHA: ${{ inputs.target_candidate_receipt_sha256 }}
+          TARGET_RUN_ID: ${{ inputs.target_candidate_run_id }}
+          TARGET_SHA: ${{ inputs.target_source_sha }}
+          TARGET_TRUSTED_SHA: ${{ inputs.target_trusted_control_receipt_sha256 }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import path from "node:path";
+          import { writeFile } from "node:fs/promises";
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+
+          const root = path.resolve("control-input");
+          const candidate = (label, sourceSha, version, runId, runAttempt,
+            controlSha, receiptSha256, trustedControlReceiptSha256) => ({
+            artifactName: `electron-production-candidate-${version}-${sourceSha}-attempt-${runAttempt}`,
+            candidateDirectory: path.join(root, `${label}-candidate`, "candidate"),
+            candidateReceiptPath: path.join(root, `${label}-candidate`,
+              "electron-production-candidate-receipt.json"),
+            candidateReceiptSha256: receiptSha256,
+            controlReceiptPath: path.join(root, `${label}-control`,
+              "electron-production-candidate-trusted-control-receipt.json"),
+            controlSha,
+            macDirectory: path.join(root, `${label}-macos`),
+            repository: "rion-tw/rion-studio-source",
+            runAttempt: Number(runAttempt),
+            runId,
+            sourceSha,
+            trustedControlReceiptSha256,
+            version,
+            windowsDirectory: path.join(root, `${label}-windows`),
+            workflow: ".github/workflows/electron-production-candidate.yml"
+          });
+          const descriptor = {
+            schemaVersion: 1,
+            kind: "rion-electron-production-updater-trusted-control-intake",
+            producer: {
+              aggregateArtifactName:
+                `electron-production-updater-terminal-evidence-${process.env.TARGET_VERSION}-` +
+                `${process.env.TARGET_SHA}-attempt-${process.env.GITHUB_RUN_ATTEMPT}`,
+              controlSha: process.env.CONTROL_PLANE_SHA,
+              repository: "rion-tw/rion-studio-source",
+              runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              runId: process.env.GITHUB_RUN_ID,
+              workflow: ".github/workflows/electron-production-updater-evidence.yml"
+            },
+            productionUpdaterPublicKey: process.env.PRODUCTION_PUBLIC_KEY,
+            target: candidate("target", process.env.TARGET_SHA,
+              process.env.TARGET_VERSION, process.env.TARGET_RUN_ID,
+              process.env.TARGET_ATTEMPT, process.env.TARGET_CONTROL_SHA,
+              process.env.TARGET_RECEIPT_SHA, process.env.TARGET_TRUSTED_SHA),
+            priorV23: candidate("prior", process.env.PRIOR_SHA,
+              process.env.PRIOR_VERSION, process.env.PRIOR_RUN_ID,
+              process.env.PRIOR_ATTEMPT, process.env.PRIOR_CONTROL_SHA,
+              process.env.PRIOR_RECEIPT_SHA, process.env.PRIOR_TRUSTED_SHA),
+            tauriV22: {
+              artifacts: Object.fromEntries([
+                ["darwin-aarch64", process.env.TAURI_MACOS_RECEIPT_SHA],
+                ["windows-x86_64", process.env.TAURI_WINDOWS_RECEIPT_SHA]
+              ].map(([platform, receiptSha256]) => [platform, {
+                artifactName:
+                  `tauri-v22-public-lineage-${platform}-${process.env.TAURI_RUN_ID}-${process.env.TAURI_ATTEMPT}`,
+                receiptPath: path.join(root, "tauri", platform,
+                  "tauri-v22-public-lineage-receipt.json"),
+                receiptSha256
+              }])),
+              controlSha: process.env.TAURI_CONTROL_SHA,
+              releaseTag: process.env.TAURI_RELEASE_TAG,
+              repository: "rion-tw/rion-studio-source",
+              runAttempt: Number(process.env.TAURI_ATTEMPT),
+              runId: process.env.TAURI_RUN_ID,
+              sourceSha: process.env.TAURI_SHA,
+              targetSourceSha: process.env.TARGET_SHA,
+              version: process.env.TAURI_VERSION,
+              workflow: ".github/workflows/electron-updater-tauri-v22-compatibility.yml"
+            },
+            provisionalPublication: {
+              artifactName:
+                `electron-production-publication-provisional-${process.env.TARGET_VERSION}-` +
+                `${process.env.TARGET_SHA}-attempt-${process.env.PROVISIONAL_ATTEMPT}`,
+              controlSha: process.env.PROVISIONAL_CONTROL_SHA,
+              receiptPath: path.join(root, "provisional",
+                "electron-production-publication-provisional-receipt.json"),
+              receiptSha256: process.env.PROVISIONAL_RECEIPT_SHA,
+              repository: "rion-tw/rion-studio-source",
+              runAttempt: Number(process.env.PROVISIONAL_ATTEMPT),
+              runId: process.env.PROVISIONAL_RUN_ID,
+              workflow: ".github/workflows/electron-production-provisional-publish.yml"
+            }
+          };
+          await writeFile(
+            path.join(root, "trusted-control-descriptor.json"),
+            serializeCanonicalJson(descriptor),
+            { flag: "wx", mode: 0o600 }
+          );
+          NODE
+
+      - name: Verify control inputs and seal the four-cell attempt
+        id: seal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p sealed-input/cells sealed-input/lineage
+          bindings="sealed-input/electron-production-updater-evidence-attempt-plan-bindings.json"
+          node scripts/electronProductionUpdaterTrustedControlIntakeCli.mjs create \
+            --descriptor "$(pwd)/control-input/trusted-control-descriptor.json" \
+            --output "$(pwd)/${bindings}" > trusted-intake-summary.json
+          trusted_sha="$(jq -r .artifact.sha256 trusted-intake-summary.json)"
+          openssl rand 32 > sealed-input/challenge-nonce.bin
+          plan="sealed-input/electron-production-updater-evidence-attempt-plan.json"
+          node scripts/electronProductionUpdaterEvidenceAttemptPlanCli.mjs create \
+            --bindings "$(pwd)/${bindings}" \
+            --challenge-nonce-file "$(pwd)/sealed-input/challenge-nonce.bin" \
+            --output "$(pwd)/${plan}" > attempt-plan-summary.json
+          plan_sha="$(jq -r .artifact.sha256 attempt-plan-summary.json)"
+          for transition in \
+            tauri-v22-to-electron-v23 electron-v23-to-electron-v23; do
+            for platform in darwin-aarch64 windows-x86_64; do
+              node scripts/electronProductionUpdaterEvidenceCellBindingsCli.mjs create \
+                --attempt-plan "$(pwd)/${plan}" \
+                --attempt-plan-sha256 "${plan_sha}" \
+                --descriptor "$(pwd)/control-input/trusted-control-descriptor.json" \
+                --output-root "$(pwd)/sealed-input/cells/${transition}/${platform}" \
+                --platform "${platform}" \
+                --transition-kind "${transition}" \
+                --trusted-bindings "$(pwd)/${bindings}" \
+                --trusted-bindings-sha256 "${trusted_sha}"
+            done
+          done
+          cp -R control-input/tauri/darwin-aarch64 sealed-input/lineage/
+          cp -R control-input/tauri/windows-x86_64 sealed-input/lineage/
+          sealed_name="electron-production-updater-evidence-input-${{ inputs.target_version }}-${{ inputs.target_source_sha }}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "attempt_plan_sha256=${plan_sha}" >> "${GITHUB_OUTPUT}"
+          echo "trusted_bindings_sha256=${trusted_sha}" >> "${GITHUB_OUTPUT}"
+          echo "sealed_artifact_name=${sealed_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload the exact sealed four-cell input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.seal.outputs.sealed_artifact_name }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: sealed-input
+
+  native-transaction:
+    if: ${{ false }}
+    name: ${{ matrix.transition }} on ${{ matrix.platform }}
+    needs: authorize-and-seal
+    permissions:
+      actions: read
+      attestations: none
+      contents: read
+      id-token: none
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-aarch64
+            runner: macos-14
+            transition: tauri-v22-to-electron-v23
+          - platform: windows-x86_64
+            runner: windows-latest
+            transition: tauri-v22-to-electron-v23
+          - platform: darwin-aarch64
+            runner: macos-14
+            transition: electron-v23-to-electron-v23
+          - platform: windows-x86_64
+            runner: windows-latest
+            transition: electron-v23-to-electron-v23
+    runs-on: ${{ matrix.runner }}
+    environment: electron-production-updater-evidence-native
+    steps:
+      - name: Checkout the exact trusted control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-and-seal.outputs.control_plane_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download sealed attempt input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.authorize-and-seal.outputs.sealed_artifact_name }}
+          path: sealed-input
+
+      - name: Resolve and download the exact source artifact
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ matrix.platform }}
+          TRANSITION: ${{ matrix.transition }}
+        run: |
+          set -euo pipefail
+          plan="$(pwd)/sealed-input/electron-production-updater-evidence-attempt-plan.json"
+          bindings="$(pwd)/sealed-input/cells/${TRANSITION}/${PLATFORM}/bundle-bindings.json"
+          mkdir -p cell-work/source
+          artifact_name="$(jq -r .sourceBinding.artifactName "${bindings}")"
+          if [[ "${TRANSITION}" = "tauri-v22-to-electron-v23" ]]; then
+            lineage="sealed-input/lineage/${PLATFORM}/tauri-v22-public-lineage-receipt.json"
+            asset_id="$(jq -r .assets.artifact.id "${lineage}")"
+            [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+            test "$(jq -r .assets.artifact.name "${lineage}")" = "${artifact_name}"
+            gh api -H "Accept: application/octet-stream" \
+              "repos/rion-tw/rion-studio/releases/assets/${asset_id}" \
+              > "cell-work/source/${artifact_name}"
+          else
+            prior_run_id="$(jq -r .upstream.priorV23.runId "${plan}")"
+            prior_artifact="$(jq -r .upstream.priorV23.artifactName "${plan}")"
+            gh run download "${prior_run_id}" --repo "${GITHUB_REPOSITORY}" \
+              --name "${prior_artifact}" --dir cell-work/prior-candidate
+            cp "cell-work/prior-candidate/candidate/${artifact_name}" \
+              "cell-work/source/${artifact_name}"
+          fi
+          node --input-type=module <<'NODE' >> "${GITHUB_OUTPUT}"
+          import path from "node:path";
+          const platform = process.env.PLATFORM;
+          const transition = process.env.TRANSITION;
+          const bindings = path.resolve("sealed-input", "cells", transition, platform,
+            "bundle-bindings.json");
+          const artifactName = JSON.parse(
+            await (await import("node:fs/promises")).readFile(bindings, "utf8")
+          ).sourceBinding.artifactName;
+          const isDarwin = platform === "darwin-aarch64";
+          const installRoot = path.join(process.env.RUNNER_TEMP, "rion-source-runtime");
+          const userData = isDarwin
+            ? path.join(process.env.HOME, "Library", "Application Support", "Rion Studio")
+            : path.join(process.env.APPDATA, "Rion Studio");
+          console.log(`artifact_path=${path.resolve("cell-work", "source", artifactName)}`);
+          console.log(`bindings_path=${bindings}`);
+          console.log(`install_root=${installRoot}`);
+          console.log(`user_data=${userData}`);
+          NODE
+
+      - name: Prepare exact source runtime without private updater material
+        id: prepare
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TRANSITION: ${{ matrix.transition }}
+        run: |
+          set -euo pipefail
+          preparation="$(pwd)/cell-work/source-runtime-preparation.json"
+          node scripts/electronProductionUpdaterSourceRuntimeCli.mjs prepare \
+            --artifact "${{ steps.source.outputs.artifact_path }}" \
+            --bindings "${{ steps.source.outputs.bindings_path }}" \
+            --install-root "${{ steps.source.outputs.install_root }}" \
+            --output "${preparation}" \
+            --platform "${PLATFORM}" \
+            --transition-kind "${TRANSITION}" \
+            --user-data "${{ steps.source.outputs.user_data }}" \
+            > cell-work/source-preparation-summary.json
+          echo "preparation=${preparation}" >> "${GITHUB_OUTPUT}"
+          echo "preparation_sha256=$(jq -r .artifact.sha256 cell-work/source-preparation-summary.json)" \
+            >> "${GITHUB_OUTPUT}"
+          echo "source_executable=$(jq -r .executablePath cell-work/source-preparation-summary.json)" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Place the fresh preservation challenge before source launch
+        id: preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          nonce="$(pwd)/sealed-input/challenge-nonce.bin"
+          challenge_sha="$(jq -r .challenge.nonceSha256 \
+            sealed-input/electron-production-updater-evidence-attempt-plan.json)"
+          before="$(pwd)/cell-work/data-preservation-before.json"
+          node scripts/electronProductionUpdaterDataPreservationObserverCli.mjs prepare \
+            --challenge-nonce "${nonce}" \
+            --expected-challenge-sha256 "${challenge_sha}" \
+            --output "${before}" \
+            --user-data-directory "${{ steps.source.outputs.user_data }}" \
+            > cell-work/data-preservation-summary.json
+          echo "before=${before}" >> "${GITHUB_OUTPUT}"
+          echo "before_sha256=$(jq -r .artifact.sha256 cell-work/data-preservation-summary.json)" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Launch exact source runtime with embedded updater trust only
+        id: launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          launch_receipt="$(pwd)/cell-work/source-runtime-launch.json"
+          node scripts/electronProductionUpdaterSourceRuntimeCli.mjs launch \
+            --expected-preparation-sha256 "${{ steps.prepare.outputs.preparation_sha256 }}" \
+            --output "${launch_receipt}" \
+            --preparation "${{ steps.prepare.outputs.preparation }}" \
+            > cell-work/source-launch-summary.json
+          echo "process_id=$(jq -r .processId cell-work/source-launch-summary.json)" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Open updater settings through visible OS accessibility
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          ui_platform="win32"
+          if [[ "${PLATFORM}" = "darwin-aarch64" ]]; then ui_platform="darwin"; fi
+          node scripts/electronProductionUpdaterVisibleUiCli.mjs open-settings \
+            --platform "${ui_platform}" \
+            --process-id "${{ steps.launch.outputs.process_id }}" \
+            --output "$(pwd)/cell-work/visible-settings-actions.json"
+
+      - name: Invoke visible update check and independently observe its endpoint
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TRANSITION: ${{ matrix.transition }}
+        run: |
+          set -euo pipefail
+          ui_platform="win32"
+          if [[ "${PLATFORM}" = "darwin-aarch64" ]]; then ui_platform="darwin"; fi
+          node scripts/electronProductionUpdaterVisibleUiCli.mjs check \
+            --platform "${ui_platform}" \
+            --process-id "${{ steps.launch.outputs.process_id }}" \
+            --output "$(pwd)/cell-work/check-action.json"
+          node scripts/electronProductionUpdaterEvidenceEndpointObservationCli.mjs observe \
+            --bindings "$(pwd)/sealed-input/cells/${TRANSITION}/${PLATFORM}/endpoint-observation-bindings.json" \
+            --output "$(pwd)/cell-work/endpoint-observation.json"
+
+      - name: Observe visible install through exact source journal handoff
+        id: install
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          TRANSITION: ${{ matrix.transition }}
+        run: |
+          set -euo pipefail
+          journal="${{ steps.source.outputs.user_data }}/app-update-install-journal.json"
+          ui_platform="${PLATFORM}"
+          node scripts/electronProductionUpdaterVisibleInstallCoordinatorCli.mjs observe \
+            --install-action-output "$(pwd)/cell-work/install-action.json" \
+            --journal "${journal}" \
+            --journal-trace-output "$(pwd)/cell-work/source-event-stream.jsonl" \
+            --platform "${ui_platform}" \
+            --process-id "${{ steps.launch.outputs.process_id }}" \
+            --source-journal-output "$(pwd)/cell-work/source-install-journal.json" \
+            --target-version "${TARGET_VERSION}" \
+            --transition-kind "${TRANSITION}" \
+            > cell-work/visible-install-summary.json
+          echo "trace_sha256=$(jq -r .artifacts.journalTrace.sha256 \
+            cell-work/visible-install-summary.json)" >> "${GITHUB_OUTPUT}"
+
+      - name: Build exact macOS native process inventory helper
+        if: runner.os == 'macOS'
+        id: inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$(node --input-type=module <<'NODE'
+          import { buildDarwinPackagedProcessInventory } from
+            "./scripts/packagedElectronDarwinProcessOwnership.mjs";
+          process.stdout.write(await buildDarwinPackagedProcessInventory(
+            "cell-work/native-tools"
+          ));
+          NODE
+          )"
+          echo "path=${helper}" >> "${GITHUB_OUTPUT}"
+          echo "sha256=$(shasum -a 256 "${helper}" | awk '{print $1}')" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Observe product terminality, exact Chromium host, and assemble cell bundle
+        id: bundle
+        shell: bash
+        env:
+          ATTEMPT_PLAN_SHA: ${{ needs.authorize-and-seal.outputs.attempt_plan_sha256 }}
+          PLATFORM: ${{ matrix.platform }}
+          TARGET_SHA: ${{ inputs.target_source_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          TRANSITION: ${{ matrix.transition }}
+        run: |
+          set -euo pipefail
+          preparation="${{ steps.prepare.outputs.preparation }}"
+          target_executable="$(node --input-type=module - "${preparation}" <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import path from "node:path";
+          const receipt = JSON.parse(await readFile(process.argv[2], "utf8"));
+          const root = receipt.installation.installRoot;
+          const executable = receipt.platform === "darwin-aarch64"
+            ? path.join(root, "Rion Studio.app", "Contents", "MacOS", "Rion Studio")
+            : path.join(root, "Rion Studio.exe");
+          process.stdout.write(executable);
+          NODE
+          )"
+          arguments=(
+            observe
+            --attachment-output-root "$(pwd)/cell-work/final-attachments"
+            --attempt-plan "$(pwd)/sealed-input/electron-production-updater-evidence-attempt-plan.json"
+            --attempt-plan-sha256 "${ATTEMPT_PLAN_SHA}"
+            --bindings "$(pwd)/sealed-input/cells/${TRANSITION}/${PLATFORM}/bundle-bindings.json"
+            --bundle-output-root "$(pwd)/cell-work/terminal-bundle"
+            --check-action "$(pwd)/cell-work/check-action.json"
+            --data-preservation-before "${{ steps.preservation.outputs.before }}"
+            --data-preservation-before-sha256 "${{ steps.preservation.outputs.before_sha256 }}"
+            --data-preservation-context-output "$(pwd)/cell-work/data-preservation-context.json"
+            --data-preservation-observation-output "$(pwd)/cell-work/data-preservation-observation.json"
+            --endpoint-observation "$(pwd)/cell-work/endpoint-observation.json"
+            --install-action "$(pwd)/cell-work/install-action.json"
+            --journal-trace "$(pwd)/cell-work/source-event-stream.jsonl"
+            --journal-trace-sha256 "${{ steps.install.outputs.trace_sha256 }}"
+            --native-host-observation "$(pwd)/cell-work/native-host-observation.json"
+            --platform "${PLATFORM}"
+            --product-terminal-receipt-output "$(pwd)/cell-work/product-terminal-receipt.json"
+            --source-install-journal "$(pwd)/cell-work/source-install-journal.json"
+            --target-executable "${target_executable}"
+            --target-launch-arguments-output "$(pwd)/cell-work/native-host-launch-arguments.json"
+            --target-user-data "${{ steps.source.outputs.user_data }}"
+            --transition-kind "${TRANSITION}"
+          )
+          if [[ "${PLATFORM}" = "darwin-aarch64" ]]; then
+            arguments+=(
+              --inventory-executable "${{ steps.inventory.outputs.path }}"
+              --inventory-executable-sha256 "${{ steps.inventory.outputs.sha256 }}"
+            )
+          fi
+          node scripts/electronProductionUpdaterPostInstallCellCoordinatorCli.mjs \
+            "${arguments[@]}" > cell-work/post-install-summary.json
+          artifact_root="cell-artifact/${TRANSITION}/${PLATFORM}"
+          mkdir -p "${artifact_root}"
+          cp -R cell-work/terminal-bundle/. "${artifact_root}/"
+          echo "artifact_name=electron-production-updater-terminal-cell-${TRANSITION}-${PLATFORM}-${TARGET_VERSION}-${TARGET_SHA}-attempt-${GITHUB_RUN_ATTEMPT}" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Upload one closed terminal cell bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.bundle.outputs.artifact_name }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: cell-artifact
+
+  attest-terminal-cell:
+    if: ${{ false }}
+    name: Attest ${{ matrix.transition }} on ${{ matrix.platform }}
+    needs:
+      - authorize-and-seal
+      - native-transaction
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-aarch64
+            transition: tauri-v22-to-electron-v23
+          - platform: windows-x86_64
+            transition: tauri-v22-to-electron-v23
+          - platform: darwin-aarch64
+            transition: electron-v23-to-electron-v23
+          - platform: windows-x86_64
+            transition: electron-v23-to-electron-v23
+    steps:
+      - name: Download exactly one native cell bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-updater-terminal-cell-${{ matrix.transition }}-${{ matrix.platform }}-${{ inputs.target_version }}-${{ inputs.target_source_sha }}-attempt-${{ github.run_attempt }}
+          path: terminal-cell
+
+      - name: Attest only the terminal receipt subject
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: terminal-cell/${{ matrix.transition }}/${{ matrix.platform }}/terminal-receipt.json
+
+  aggregate-and-verify:
+    if: ${{ false }}
+    name: Verify attestations and publish the exact four-cell aggregate
+    needs:
+      - authorize-and-seal
+      - native-transaction
+      - attest-terminal-cell
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    steps:
+      - name: Checkout the exact trusted aggregate verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-and-seal.outputs.control_plane_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the sealed attempt plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.authorize-and-seal.outputs.sealed_artifact_name }}
+          path: sealed-input
+
+      - name: Download all four exact cell bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: electron-production-updater-terminal-cell-*-${{ inputs.target_version }}-${{ inputs.target_source_sha }}-attempt-${{ github.run_attempt }}
+          path: aggregate
+          merge-multiple: true
+
+      - name: Verify each terminal receipt attestation and aggregate contract
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-and-seal.outputs.control_plane_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PLAN_SHA: ${{ needs.authorize-and-seal.outputs.attempt_plan_sha256 }}
+        run: |
+          set -euo pipefail
+          invocation_uri="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          signer_workflow="${GITHUB_REPOSITORY}/.github/workflows/electron-production-updater-evidence.yml"
+          for transition in \
+            tauri-v22-to-electron-v23 electron-v23-to-electron-v23; do
+            for platform in darwin-aarch64 windows-x86_64; do
+              receipt="aggregate/${transition}/${platform}/terminal-receipt.json"
+              result="$(gh attestation verify "${receipt}" \
+                --repo "${GITHUB_REPOSITORY}" --format=json \
+                --signer-digest "${CONTROL_PLANE_SHA}" \
+                --signer-workflow "${signer_workflow}" \
+                --source-digest "${CONTROL_PLANE_SHA}")"
+              jq -e --arg invocation_uri "${invocation_uri}" '
+                any(.[]; .verificationResult.signature.certificate.runInvocationURI == $invocation_uri)
+              ' <<< "${result}" > /dev/null
+            done
+          done
+          node scripts/electronProductionUpdaterEvidenceAggregateCli.mjs verify \
+            --aggregate-root "$(pwd)/aggregate" \
+            --attempt-plan "$(pwd)/sealed-input/electron-production-updater-evidence-attempt-plan.json" \
+            --expected-attempt-plan-sha256 "${PLAN_SHA}" \
+            > aggregate-verification.json
+
+      - name: Upload the exact verified terminal aggregate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-updater-terminal-evidence-${{ inputs.target_version }}-${{ inputs.target_source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: aggregate

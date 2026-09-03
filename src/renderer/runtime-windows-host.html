@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; style-src 'self'; script-src 'self'" />
+    <title>Rion Studio Game Window</title>
+    <link rel="stylesheet" href="/runtime-windows-host.css" />
+  </head>
+  <body>
+    <header data-runtime-toolbar aria-label="Game Window tabs">
+      <div class="runtime-drag-region" aria-hidden="true"></div>
+      <div class="runtime-tabs" data-runtime-tabs aria-label="Open Game Window tabs"></div>
+      <div class="runtime-window-controls" data-runtime-window-controls>
+        <button type="button" aria-label="Minimize Game Window" data-window-command="minimizeWindow">&#x2212;</button>
+        <button type="button" aria-label="Maximize or restore Game Window" data-window-command="toggleMaximizeWindow">&#x25A1;</button>
+        <button type="button" aria-label="Close Game Window" data-window-command="closeWindow">&#x00D7;</button>
+      </div>
+    </header>
+    <div class="runtime-reveal-edge" data-runtime-reveal-edge hidden></div>
+    <div class="runtime-workspace-dividers" data-runtime-workspace-dividers></div>
+    <script type="module" src="/src/runtime-windows-host.ts"></script>
+  </body>
+</html>

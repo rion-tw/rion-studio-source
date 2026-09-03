@@ -14,8 +14,9 @@ use uuid::Uuid;
 use crate::{
     error::{CoreError, CoreErrorPayload, CoreResult},
     model::{
-        CoreEffectAction, CoreEffectDispatchReport, CoreEffectMetricsRecord, CoreEffectRequest,
-        CoreEffectResult, CoreEffectTarget, OperationCompletionPolicy,
+        CoreEffectAction, CoreEffectCancellationReason, CoreEffectCancellationRecord,
+        CoreEffectDispatchReport, CoreEffectMetricsRecord, CoreEffectRequest, CoreEffectResult,
+        CoreEffectTarget, OperationCompletionPolicy,
     },
 };
 
@@ -24,6 +25,7 @@ const DEFAULT_OPERATION_CAPACITY: usize = 128;
 const COMPLETED_EFFECT_CAPACITY: usize = 1_024;
 
 type EffectEmitter = Arc<dyn Fn(Vec<CoreEffectRequest>) + Send + Sync>;
+type CancellationEmitter = Arc<dyn Fn(Vec<CoreEffectCancellationRecord>) + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct OperationEffect {
@@ -62,6 +64,32 @@ pub struct OperationCompensationFailure {
 pub struct OperationHandle {
     pub operation_id: String,
     pub outcome: oneshot::Receiver<OperationOutcome>,
+    first_effect_dispatch: Option<oneshot::Receiver<Result<(), CoreErrorPayload>>>,
+}
+
+impl OperationHandle {
+    /// Waits until this operation's first effect has passed through the effect
+    /// emitter. Callers may then release their admission lane without allowing
+    /// a later operation to overtake the emitted CoreEffects event.
+    ///
+    /// This fence does not wait for the native effect result. If the operation
+    /// ends before emitting an effect, it returns that pre-dispatch failure.
+    pub fn wait_for_first_effect_dispatch(&mut self) -> CoreResult<()> {
+        let dispatch = self.first_effect_dispatch.take().ok_or_else(|| {
+            CoreError::Internal("first effect dispatch fence was already consumed".to_owned())
+        })?;
+        match dispatch.blocking_recv() {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(CoreError::Effect {
+                code: error.code,
+                message: error.message,
+            }),
+            Err(_) => Err(CoreError::Internal(
+                "operation actor stopped before resolving its first effect dispatch fence"
+                    .to_owned(),
+            )),
+        }
+    }
 }
 
 pub struct OperationActor {
@@ -70,6 +98,7 @@ pub struct OperationActor {
 
 struct ActorInner {
     emit: EffectEmitter,
+    emit_cancellations: CancellationEmitter,
     origin: Instant,
     pending_capacity: usize,
     operation_capacity: usize,
@@ -101,6 +130,14 @@ struct PendingEffect {
     deadline: Option<Instant>,
     enqueued_at: Instant,
     result: oneshot::Sender<CoreEffectResult>,
+    dispatch_phase: PendingEffectDispatchPhase,
+    cancellation_reason: Option<CoreEffectCancellationReason>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PendingEffectDispatchPhase {
+    Emitting,
+    Dispatched,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -115,10 +152,44 @@ enum CompletedEffect {
     TimedOut,
 }
 
+struct FirstEffectDispatchSignal {
+    sender: Option<oneshot::Sender<Result<(), CoreErrorPayload>>>,
+}
+
+impl FirstEffectDispatchSignal {
+    fn dispatched(&mut self) {
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(Ok(()));
+        }
+    }
+
+    fn failed(&mut self, error: CoreErrorPayload) {
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(Err(error));
+        }
+    }
+
+    fn is_pending(&self) -> bool {
+        self.sender.is_some()
+    }
+}
+
 impl OperationActor {
     pub fn new(emit: EffectEmitter) -> Self {
         Self::with_capacity(
             emit,
+            DEFAULT_PENDING_EFFECT_CAPACITY,
+            DEFAULT_OPERATION_CAPACITY,
+        )
+    }
+
+    pub fn new_with_cancellation_emitter(
+        emit: EffectEmitter,
+        emit_cancellations: CancellationEmitter,
+    ) -> Self {
+        Self::with_capacity_and_cancellation_emitter(
+            emit,
+            emit_cancellations,
             DEFAULT_PENDING_EFFECT_CAPACITY,
             DEFAULT_OPERATION_CAPACITY,
         )
@@ -129,9 +200,24 @@ impl OperationActor {
         pending_capacity: usize,
         operation_capacity: usize,
     ) -> Self {
+        Self::with_capacity_and_cancellation_emitter(
+            emit,
+            Arc::new(|_| {}),
+            pending_capacity,
+            operation_capacity,
+        )
+    }
+
+    fn with_capacity_and_cancellation_emitter(
+        emit: EffectEmitter,
+        emit_cancellations: CancellationEmitter,
+        pending_capacity: usize,
+        operation_capacity: usize,
+    ) -> Self {
         Self {
             inner: Arc::new(ActorInner {
                 emit,
+                emit_cancellations,
                 origin: Instant::now(),
                 pending_capacity: pending_capacity.max(1),
                 operation_capacity: operation_capacity.max(1),
@@ -188,6 +274,7 @@ impl OperationActor {
         }
 
         let (outcome_sender, outcome) = oneshot::channel();
+        let (first_effect_dispatch_sender, first_effect_dispatch) = oneshot::channel();
         let actor = Arc::clone(&self.inner);
         let thread_operation_id = operation_id.clone();
         thread::Builder::new()
@@ -199,6 +286,9 @@ impl OperationActor {
                     parent_operation_id,
                     cancelled,
                     plan,
+                    FirstEffectDispatchSignal {
+                        sender: Some(first_effect_dispatch_sender),
+                    },
                 );
                 if let Ok(mut state) = actor.state.lock() {
                     state.operations.remove(&thread_operation_id);
@@ -220,11 +310,12 @@ impl OperationActor {
         Ok(OperationHandle {
             operation_id,
             outcome,
+            first_effect_dispatch: Some(first_effect_dispatch),
         })
     }
 
     pub fn cancel(&self, operation_id: &str) -> CoreResult<bool> {
-        let wake = {
+        let cancellations = {
             let mut state = self.state()?;
             let Some(cancelled) = state
                 .operations
@@ -234,30 +325,28 @@ impl OperationActor {
                 return Ok(false);
             };
             cancelled.store(true, Ordering::Release);
-            let effect_ids = state
+            state
                 .pending
-                .iter()
+                .iter_mut()
                 .filter_map(|(effect_id, pending)| {
-                    (pending.operation_id == operation_id).then_some(effect_id.clone())
-                })
-                .collect::<Vec<_>>();
-            effect_ids
-                .into_iter()
-                .filter_map(|effect_id| {
-                    let pending = state.pending.remove(&effect_id)?;
-                    remember_completed(&mut state, effect_id.clone(), CompletedEffect::Completed);
-                    Some((effect_id, pending))
+                    if pending.operation_id != operation_id
+                        || pending.cancellation_reason.is_some()
+                    {
+                        return None;
+                    }
+                    pending.cancellation_reason =
+                        Some(CoreEffectCancellationReason::OperationCancelled);
+                    (pending.dispatch_phase == PendingEffectDispatchPhase::Dispatched).then(|| {
+                        CoreEffectCancellationRecord {
+                            effect_id: effect_id.clone(),
+                            operation_id: operation_id.to_owned(),
+                            reason: CoreEffectCancellationReason::OperationCancelled,
+                        }
+                    })
                 })
                 .collect::<Vec<_>>()
         };
-        for (effect_id, pending) in wake {
-            let _ = pending.result.send(failed_result(
-                effect_id,
-                operation_id.to_owned(),
-                "CORE_OPERATION_CANCELLED",
-                "The core operation was cancelled.",
-            ));
-        }
+        emit_cancellations(&self.inner, cancellations);
         Ok(true)
     }
 
@@ -359,7 +448,7 @@ impl OperationActor {
     }
 
     pub fn shutdown(&self) {
-        let wake = {
+        let cancellations = {
             let Ok(mut state) = self.inner.state.lock() else {
                 return;
             };
@@ -372,21 +461,25 @@ impl OperationActor {
                 .values()
                 .for_each(|operation| operation.cancelled.store(true, Ordering::Release));
             state.operations.clear();
-            let pending = state.pending.drain().collect::<Vec<_>>();
-            for (effect_id, _) in &pending {
-                remember_completed(&mut state, effect_id.clone(), CompletedEffect::Completed);
-            }
-            pending
+            state
+                .pending
+                .iter_mut()
+                .filter_map(|(effect_id, pending)| {
+                    if pending.cancellation_reason.is_some() {
+                        return None;
+                    }
+                    pending.cancellation_reason = Some(CoreEffectCancellationReason::ActorStopped);
+                    (pending.dispatch_phase == PendingEffectDispatchPhase::Dispatched).then(|| {
+                        CoreEffectCancellationRecord {
+                            effect_id: effect_id.clone(),
+                            operation_id: pending.operation_id.clone(),
+                            reason: CoreEffectCancellationReason::ActorStopped,
+                        }
+                    })
+                })
+                .collect::<Vec<_>>()
         };
-        for (effect_id, pending) in wake {
-            let operation_id = pending.operation_id.clone();
-            let _ = pending.result.send(failed_result(
-                effect_id,
-                operation_id,
-                "CORE_SHUTTING_DOWN",
-                "The core is shutting down.",
-            ));
-        }
+        emit_cancellations(&self.inner, cancellations);
     }
 
     fn state(&self) -> CoreResult<std::sync::MutexGuard<'_, ActorState>> {
@@ -397,26 +490,39 @@ impl OperationActor {
     }
 }
 
+fn emit_cancellations(
+    actor: &ActorInner,
+    cancellations: Vec<CoreEffectCancellationRecord>,
+) {
+    if cancellations.is_empty() {
+        return;
+    }
+    (actor.emit_cancellations)(cancellations);
+}
+
 fn run_operation(
     actor: Arc<ActorInner>,
     operation_id: String,
     parent_operation_id: Option<String>,
     cancelled: Arc<AtomicBool>,
     plan: OperationPlan,
+    mut first_effect_dispatch: FirstEffectDispatchSignal,
 ) -> OperationOutcome {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build();
     let Ok(runtime) = runtime else {
+        let error = CoreErrorPayload {
+            code: "CORE_OPERATION_RUNTIME_FAILED".to_owned(),
+            message: "The operation runtime could not be created.".to_owned(),
+        };
+        first_effect_dispatch.failed(error.clone());
         return OperationOutcome {
             operation_id,
             results: Vec::new(),
             compensation_results: Vec::new(),
             compensation_failures: Vec::new(),
-            error: Some(CoreErrorPayload {
-                code: "CORE_OPERATION_RUNTIME_FAILED".to_owned(),
-                message: "The operation runtime could not be created.".to_owned(),
-            }),
+            error: Some(error),
         };
     };
     let mut results = Vec::new();
@@ -438,6 +544,9 @@ fn run_operation(
             &operation_id,
             parent_operation_id.as_deref(),
             step.effect,
+            first_effect_dispatch
+                .is_pending()
+                .then_some(&mut first_effect_dispatch),
         ) {
             Ok(result) if result.ok => {
                 results.push(result);
@@ -483,6 +592,7 @@ fn run_operation(
                 &operation_id,
                 parent_operation_id.as_deref(),
                 compensation,
+                None,
             ) {
                 Ok(result) => {
                     if !result.ok {
@@ -506,6 +616,13 @@ fn run_operation(
         }
     }
 
+    if first_effect_dispatch.is_pending() {
+        first_effect_dispatch.failed(failure.clone().unwrap_or_else(|| CoreErrorPayload {
+            code: "CORE_OPERATION_NO_EFFECT_DISPATCHED".to_owned(),
+            message: "The operation completed without dispatching an effect.".to_owned(),
+        }));
+    }
+
     OperationOutcome {
         operation_id,
         results,
@@ -521,6 +638,7 @@ fn execute_effect(
     operation_id: &str,
     parent_operation_id: Option<&str>,
     effect: OperationEffect,
+    mut first_effect_dispatch: Option<&mut FirstEffectDispatchSignal>,
 ) -> CoreResult<CoreEffectResult> {
     let completion_policy = effect.action.completion_policy();
     let timeout = effect.timeout.max(Duration::from_millis(1));
@@ -528,13 +646,23 @@ fn execute_effect(
         .then(|| Instant::now() + timeout);
     let effect_id = Uuid::new_v4().to_string();
     let (result_sender, result) = oneshot::channel();
-    {
+    let admission = (|| {
         let mut state = actor
             .state
             .lock()
             .map_err(|_| CoreError::Internal("operation actor lock poisoned".to_owned()))?;
         if state.shutting_down {
             return Err(CoreError::ShuttingDown);
+        }
+        if state
+            .operations
+            .get(operation_id)
+            .is_none_or(|operation| operation.cancelled.load(Ordering::Acquire))
+        {
+            return Err(CoreError::Domain {
+                code: "CORE_OPERATION_CANCELLED",
+                message: "The core operation was cancelled before effect dispatch.".to_owned(),
+            });
         }
         if state.pending.len() >= actor.pending_capacity {
             return Err(CoreError::Domain {
@@ -549,6 +677,8 @@ fn execute_effect(
                 deadline,
                 enqueued_at: Instant::now(),
                 result: result_sender,
+                dispatch_phase: PendingEffectDispatchPhase::Emitting,
+                cancellation_reason: None,
             },
         );
         state.emitted_effect_count = state.emitted_effect_count.saturating_add(1);
@@ -560,6 +690,13 @@ fn execute_effect(
             state.launch_effect_count = state.launch_effect_count.saturating_add(1);
         }
         state.peak_pending_effect_count = state.peak_pending_effect_count.max(state.pending.len());
+        Ok(())
+    })();
+    if let Err(error) = admission {
+        if let Some(dispatch) = first_effect_dispatch.as_deref_mut() {
+            dispatch.failed(error.payload());
+        }
+        return Err(error);
     }
     let deadline_ms = (completion_policy == OperationCompletionPolicy::DeadlineBound).then(|| {
         actor
@@ -578,6 +715,28 @@ fn execute_effect(
         deadline_ms,
         action: effect.action,
     }]);
+    let deferred_cancellation = {
+        let mut state = actor
+            .state
+            .lock()
+            .map_err(|_| CoreError::Internal("operation actor lock poisoned".to_owned()))?;
+        state.pending.get_mut(&effect_id).and_then(|pending| {
+            pending.dispatch_phase = PendingEffectDispatchPhase::Dispatched;
+            pending
+                .cancellation_reason
+                .map(|reason| CoreEffectCancellationRecord {
+                    effect_id: effect_id.clone(),
+                    operation_id: operation_id.to_owned(),
+                    reason,
+                })
+        })
+    };
+    if let Some(cancellation) = deferred_cancellation {
+        emit_cancellations(&actor, vec![cancellation]);
+    }
+    if let Some(dispatch) = first_effect_dispatch {
+        dispatch.dispatched();
+    }
 
     match completion_policy {
         OperationCompletionPolicy::EventBound => runtime
@@ -588,10 +747,26 @@ fn execute_effect(
                 Ok(Ok(result)) => Ok(result),
                 Ok(Err(_)) => Err(CoreError::ShuttingDown),
                 Err(_) => {
-                    if let Ok(mut state) = actor.state.lock()
-                        && state.pending.remove(&effect_id).is_some()
+                    let cancellation = if let Ok(mut state) = actor.state.lock()
+                        && let Some(pending) = state.pending.remove(&effect_id)
                     {
-                        remember_completed(&mut state, effect_id, CompletedEffect::TimedOut);
+                        remember_completed(
+                            &mut state,
+                            effect_id.clone(),
+                            CompletedEffect::TimedOut,
+                        );
+                        pending.cancellation_reason.is_none().then(|| {
+                            CoreEffectCancellationRecord {
+                                effect_id: effect_id.clone(),
+                                operation_id: operation_id.to_owned(),
+                                reason: CoreEffectCancellationReason::DeadlineElapsed,
+                            }
+                        })
+                    } else {
+                        None
+                    };
+                    if let Some(cancellation) = cancellation {
+                        emit_cancellations(&actor, vec![cancellation]);
                     }
                     Err(CoreError::Domain {
                         code: "CORE_EFFECT_TIMEOUT",

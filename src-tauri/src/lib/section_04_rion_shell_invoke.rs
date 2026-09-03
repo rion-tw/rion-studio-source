@@ -101,7 +101,7 @@ async fn rion_shell_invoke(
             .map(|()| Value::Null)
             .map_err(|error| shell_error("SHELL_MENU_FAILED", error)),
         "quitApplication" => {
-            app.exit(0);
+            request_application_shutdown(&app, &state);
             Ok(Value::Null)
         }
         "confirmApplicationQuit" => {

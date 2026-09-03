@@ -5,14 +5,19 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+system-webview-probe = ["rion-platform/system-webview-probe"]
+
 [dependencies]
 base64.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
 fs2.workspace = true
+getrandom.workspace = true
 regex.workspace = true
 reqwest.workspace = true
-rion-platform = { path = "../rion-platform" }
+rion-platform = { path = "../rion-platform", default-features = false }
 rusqlite.workspace = true
 rusty-leveldb.workspace = true
 serde.workspace = true

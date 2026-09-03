@@ -1,0 +1,775 @@
+name: Electron Production Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character source commit SHA to package
+        required: true
+        type: string
+      version:
+        description: Exact semantic version without a leading v
+        required: true
+        type: string
+      updater_base_url:
+        description: Owner-selected direct-200 HTTPS directory for latest.json and immutable assets
+        required: true
+        type: string
+      published_at:
+        description: Exact RFC 3339 publication timestamp for latest.json
+        required: true
+        type: string
+      owner_approval:
+        description: Type BUILD ELECTRON PRODUCTION CANDIDATE to authorize candidate construction
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  attestations: read
+  contents: read
+
+concurrency:
+  group: electron-production-candidate-${{ inputs.source_sha }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  authorize-control-plane:
+    name: Authorize the trusted production control plane
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    outputs:
+      control_plane_sha: ${{ steps.guard.outputs.control_plane_sha }}
+    steps:
+      - name: Require protected default-branch workflow dispatch
+        id: guard
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_EVENT: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          EXPECTED_REPOSITORY: rion-tw/rion-studio-source
+          EXPECTED_WORKFLOW_REF: rion-tw/rion-studio-source/.github/workflows/electron-production-candidate.yml@refs/heads/main
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          test "${DISPATCH_EVENT}" = "workflow_dispatch"
+          test "${REPOSITORY}" = "${EXPECTED_REPOSITORY}"
+          test "${EVENT_REPOSITORY}" = "${EXPECTED_REPOSITORY}"
+          test "${DEFAULT_BRANCH}" = "main"
+          test "${DISPATCH_REF}" = "refs/heads/main"
+          test "${DISPATCH_REF_PROTECTED}" = "true"
+          test "${WORKFLOW_REF}" = "${EXPECTED_WORKFLOW_REF}"
+          [[ "${CONTROL_PLANE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          echo "control_plane_sha=${CONTROL_PLANE_SHA}" >> "${GITHUB_OUTPUT}"
+
+  validate:
+    name: Validate owner-locked production inputs
+    needs: authorize-control-plane
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    outputs:
+      control_plane_sha: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+      control_receipt_sha256: ${{ steps.inputs.outputs.control_receipt_sha256 }}
+      updater_endpoint: ${{ steps.inputs.outputs.updater_endpoint }}
+      public_key_sha256: ${{ steps.inputs.outputs.public_key_sha256 }}
+    steps:
+      - name: Checkout the exact trusted default-branch control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Create the closed trusted-control receipt
+        id: inputs
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+          PUBLISHED_AT: ${{ inputs.published_at }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+        run: |
+          set -euo pipefail
+          require_secret() {
+            local name="$1"
+            if [[ -z "${!name}" ]]; then
+              echo "::error::${name} is required for production updater trust."
+              exit 1
+            fi
+          }
+          require_secret RION_STUDIO_UPDATER_PUBLIC_KEY
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          mkdir trusted-control
+          validation="$(node scripts/electronProductionCandidateTrustedControl.mjs create-control \
+            --control-plane-ref "refs/heads/main" \
+            --control-plane-sha "${CONTROL_PLANE_SHA}" \
+            --event "${GITHUB_EVENT_NAME}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${RELEASE_VERSION}" \
+            --updater-base-url "${UPDATER_BASE_URL}" \
+            --published-at "${PUBLISHED_AT}" \
+            --owner-approval "${OWNER_APPROVAL}" \
+            --output trusted-control/electron-production-candidate-trusted-control-receipt.json)"
+          VALIDATION="${validation}" node --input-type=module <<'NODE' >> "${GITHUB_OUTPUT}"
+          const value = JSON.parse(process.env.VALIDATION);
+          console.log(`updater_endpoint=${value.updaterEndpoint}`);
+          console.log(`public_key_sha256=${value.publicKeySha256}`);
+          NODE
+          control_receipt_sha256="$(sha256sum \
+            trusted-control/electron-production-candidate-trusted-control-receipt.json | cut -d ' ' -f 1)"
+          echo "control_receipt_sha256=${control_receipt_sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Require an existing direct-200 production manifest endpoint
+        shell: bash
+        env:
+          UPDATER_ENDPOINT: ${{ steps.inputs.outputs.updater_endpoint }}
+        run: |
+          set -euo pipefail
+          status="$(curl \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            --proto '=https' \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --max-redirs 0 \
+            "${UPDATER_ENDPOINT}")"
+          test "${status}" = "200"
+
+      - name: Upload the exact trusted-control receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-candidate-trusted-control-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: trusted-control/electron-production-candidate-trusted-control-receipt.json
+
+  quality:
+    name: Re-run exact-SHA quality gates
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.source_sha }}
+
+  build:
+    name: ${{ matrix.name }} production candidate
+    needs:
+      - validate
+      - quality
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS arm64 AppKit Chromium
+            os: macos-latest
+            platform: darwin-aarch64
+            package_script: package:electron:mac
+            application: release/electron/mac-arm64/Rion Studio.app
+            artifact: release/electron/Rion.Studio-mac.app.tar.gz
+            upload_name: macos-arm64
+          - name: Windows x64 Chromium
+            os: windows-latest
+            platform: windows-x86_64
+            package_script: package:electron:win
+            application: release/electron/win-unpacked
+            artifact: release/electron/Rion.Studio-win.exe
+            upload_name: windows-x64
+    env:
+      RION_STUDIO_CANDIDATE_CONTROL_ROOT: ${{ runner.temp }}/rion-electron-production-control-${{ github.run_id }}-${{ github.run_attempt }}
+      RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.version }}
+      RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}/black-box
+      RION_STUDIO_ELECTRON_PAYLOAD_PROOF_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}/windows-proof
+      RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-unsigned-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RION_STUDIO_UPDATER_ENDPOINT: ${{ needs.validate.outputs.updater_endpoint }}
+    steps:
+      - name: Checkout exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Download the trusted-control receipt without inheriting secrets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-candidate-trusted-control-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_CONTROL_ROOT }}
+
+      - name: Load public updater trust from the closed control receipt
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.validate.outputs.control_plane_sha }}
+          CONTROL_RECEIPT_SHA256: ${{ needs.validate.outputs.control_receipt_sha256 }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          receipt="${RION_STUDIO_CANDIDATE_CONTROL_ROOT}/electron-production-candidate-trusted-control-receipt.json"
+          test "$(sha256sum "${receipt}" | cut -d ' ' -f 1)" = "${CONTROL_RECEIPT_SHA256}"
+          RECEIPT_PATH="${receipt}" node --input-type=module <<'NODE' >> "${GITHUB_ENV}"
+          import { createHash } from "node:crypto";
+          import { readFileSync } from "node:fs";
+          const receipt = JSON.parse(readFileSync(process.env.RECEIPT_PATH, "utf8"));
+          if (receipt?.candidate?.sourceSha !== process.env.SOURCE_SHA ||
+              receipt?.candidate?.version !== process.env.VERSION ||
+              receipt?.controlPlane?.sha !== process.env.CONTROL_PLANE_SHA ||
+              receipt?.controlPlane?.ref !== "refs/heads/main") {
+            throw new Error("The trusted-control candidate or control-plane binding is invalid.");
+          }
+          const publicKey = receipt?.updaterTrust?.publicKey;
+          const keyBytes = Buffer.from(publicKey ?? "", "base64");
+          const digest = createHash("sha256").update(keyBytes).digest("hex");
+          if (keyBytes.length !== 42 || digest !== receipt?.updaterTrust?.publicKeySha256) {
+            throw new Error("The trusted-control updater public key is invalid.");
+          }
+          console.log(`RION_STUDIO_UPDATER_PUBLIC_KEY=${publicKey}`);
+          NODE
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore production Electron Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-bin: "false"
+          shared-key: electron-production-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply and verify the exact release version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          pnpm run release:version -- "${RELEASE_VERSION}"
+          test "$(node -p 'require("./package.json").version')" = "${RELEASE_VERSION}"
+          cargo metadata --locked --no-deps --format-version 1 > /dev/null
+
+      - name: Build production Electron Chromium distribution
+        run: pnpm run ${{ matrix.package_script }}
+
+      - name: Verify exact Electron, Chromium, Rust Core, and retained AppKit ABI
+        run: pnpm run verify:electron-runtime
+
+      - name: Move exact unsigned package outside the checkout before execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e "${RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT}"
+          mkdir "${RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT}"
+          test ! -e "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}"
+          mkdir -p "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/release"
+          mv "${GITHUB_WORKSPACE}/release/electron" \
+            "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/release/electron"
+
+      - name: Run exact macOS production candidate packaged Chromium black-box
+        if: runner.os == 'macOS'
+        id: production_candidate_black_box_macos
+        timeout-minutes: 20
+        run: >-
+          pnpm run test:e2e:desktop:electron:packaged -- --app
+          "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/${{ matrix.application }}"
+
+      - name: Run exact Windows production candidate packaged Chromium black-box
+        if: runner.os == 'Windows'
+        id: production_candidate_black_box_windows
+        timeout-minutes: 20
+        shell: pwsh
+        env:
+          RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          if (Test-Path -LiteralPath $env:RION_STUDIO_E2E_ARTIFACT_ROOT) {
+            throw "The Windows black-box evidence root must be create-new."
+          }
+          New-Item -ItemType Directory -Path $env:RION_STUDIO_E2E_ARTIFACT_ROOT -ErrorAction Stop | Out-Null
+          $pnpm = (Get-Command pnpm.cmd -ErrorAction Stop).Source
+          ./scripts/runWindowsIsolatedProfile.ps1 `
+            -RepositoryRoot "$env:GITHUB_WORKSPACE" `
+            -RepositoryAccess "RX" `
+            -ToolHomeAccess "None" `
+            -CommandPath $pnpm `
+            -AdditionalReadablePaths @($env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT) `
+            -AdditionalWritablePaths @($env:RION_STUDIO_E2E_ARTIFACT_ROOT) `
+            -CommandArguments @(
+              "run", "test:e2e:desktop:electron:packaged", "--",
+              "--app", "$env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT\${{ matrix.application }}"
+            )
+
+      - name: Upload exact production candidate black-box evidence
+        if: >-
+          always() &&
+          (steps.production_candidate_black_box_macos.outcome != 'skipped' ||
+          steps.production_candidate_black_box_windows.outcome != 'skipped')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-black-box-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+          path: |
+            ${{ env.RION_STUDIO_E2E_ARTIFACT_ROOT }}
+            !${{ env.RION_STUDIO_E2E_ARTIFACT_ROOT }}/**/roles/*/browser/**
+
+      - name: Prove exact Windows NSIS payload matches the black-box package
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: pwsh
+        env:
+          RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          $proofRoot = $env:RION_STUDIO_ELECTRON_PAYLOAD_PROOF_ROOT
+          if (Test-Path -LiteralPath $proofRoot) {
+            throw "The Windows installer payload proof root must be create-new."
+          }
+          New-Item -ItemType Directory -Path $proofRoot | Out-Null
+          ./scripts/runWindowsElectronInstallerPayloadProof.ps1 `
+            -RepositoryRoot "$env:GITHUB_WORKSPACE" `
+            -UnsignedInputRoot "$env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT" `
+            -ApplicationPath "$env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT\release\electron\win-unpacked" `
+            -ArtifactPath "$env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT\release\electron\Rion.Studio-win.exe" `
+            -OutputPath "$proofRoot\windows-installer-payload-proof.json" `
+            -SourceSha "${{ inputs.source_sha }}" `
+            -Version "${{ inputs.version }}"
+
+      - name: Seal exact unsigned package inputs for detached signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/electron-production-unsigned-${{ matrix.upload_name }}.tar.gz"
+          test ! -e "${archive}"
+          COPYFILE_DISABLE=1 tar -C "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}" \
+            -czf "${archive}" release/electron
+          test -s "${archive}"
+
+      - name: Upload exact unsigned package inputs for detached signing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-unsigned-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          path: ${{ runner.temp }}/electron-production-unsigned-${{ matrix.upload_name }}.tar.gz
+
+      - name: Upload exact unsigned Windows payload proof for detached signing
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-unsigned-windows-proof-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          path: ${{ env.RION_STUDIO_ELECTRON_PAYLOAD_PROOF_ROOT }}/windows-installer-payload-proof.json
+
+  attest-signing-input:
+    name: Attest ${{ matrix.platform }} closed signing input from trusted control
+    needs:
+      - authorize-control-plane
+      - validate
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: darwin-aarch64
+            upload_name: macos-arm64
+          - platform: windows-x86_64
+            upload_name: windows-x64
+    env:
+      RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout the exact trusted default-branch control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download the exact trusted-control receipt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-candidate-trusted-control-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/control
+
+      - name: Download the exact unsigned package archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-unsigned-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/unsigned
+
+      - name: Download the exact packaged black-box evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-black-box-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/black-box
+
+      - name: Download the exact unsigned Windows payload proof
+        if: matrix.platform == 'windows-x86_64'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-unsigned-windows-proof-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/windows-proof
+
+      - name: Create the closed signing-input identity before private key entry
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          CONTROL_RECEIPT_SHA256: ${{ needs.validate.outputs.control_receipt_sha256 }}
+          PLATFORM: ${{ matrix.platform }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          control_receipt="${RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT}/control/electron-production-candidate-trusted-control-receipt.json"
+          test "$(sha256sum "${control_receipt}" | cut -d ' ' -f 1)" = "${CONTROL_RECEIPT_SHA256}"
+          node scripts/electronProductionCandidateTrustedControl.mjs create-signing-input \
+            --control-plane-sha "${CONTROL_PLANE_SHA}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${VERSION}" \
+            --platform "${PLATFORM}" \
+            --input-root "${RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT}" \
+            --control-receipt "${control_receipt}" \
+            --output electron-production-candidate-signing-input-receipt.json
+
+      - name: Upload the exact closed signing-input identity
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-candidate-signing-input-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: electron-production-candidate-signing-input-receipt.json
+
+      - name: Attest the exact closed signing-input identity
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: electron-production-candidate-signing-input-receipt.json
+
+  sign:
+    name: ${{ matrix.name }} detached production updater signing
+    needs:
+      - authorize-control-plane
+      - attest-signing-input
+      - validate
+      - build
+    runs-on: ${{ matrix.os }}
+    environment: electron-production-release
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS arm64 AppKit Chromium
+            os: macos-latest
+            platform: darwin-aarch64
+            application: release/electron/mac-arm64/Rion Studio.app
+            artifact: release/electron/Rion.Studio-mac.app.tar.gz
+            upload_name: macos-arm64
+          - name: Windows x64 Chromium
+            os: windows-latest
+            platform: windows-x86_64
+            application: release/electron/win-unpacked
+            artifact: release/electron/Rion.Studio-win.exe
+            upload_name: windows-x64
+    env:
+      RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+      RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-unsigned-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout the exact trusted default-branch signing control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install locked signing dependencies before private key entry
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the exact trusted-control receipt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-candidate-trusted-control-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/control
+
+      - name: Download the exact unsigned package archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-unsigned-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/unsigned
+
+      - name: Download the exact packaged black-box evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-black-box-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/black-box
+
+      - name: Download the exact unsigned Windows payload proof
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-unsigned-windows-proof-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT }}/windows-proof
+
+      - name: Download the attested closed signing-input identity
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-candidate-signing-input-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/electron-production-candidate-signing-input-identity
+
+      - name: Verify trusted-control provenance and every sealed input byte
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ matrix.platform }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          receipt="${RUNNER_TEMP}/electron-production-candidate-signing-input-identity/electron-production-candidate-signing-input-receipt.json"
+          signer_workflow="${GITHUB_REPOSITORY}/.github/workflows/electron-production-candidate.yml"
+          invocation_uri="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          attestation_json="$(gh attestation verify "${receipt}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --format=json \
+            --signer-digest "${CONTROL_PLANE_SHA}" \
+            --signer-workflow "${signer_workflow}" \
+            --source-digest "${CONTROL_PLANE_SHA}")"
+          jq -e --arg invocation_uri "${invocation_uri}" '
+            any(
+              .[];
+              .verificationResult.signature.certificate.runInvocationURI == $invocation_uri
+            )
+          ' <<< "${attestation_json}" > /dev/null
+          verified="$(node scripts/electronProductionCandidateTrustedControl.mjs verify-signing-input \
+            --control-plane-sha "${CONTROL_PLANE_SHA}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${VERSION}" \
+            --platform "${PLATFORM}" \
+            --input-root "${RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT}" \
+            --receipt "${receipt}")"
+          VERIFIED="${verified}" node --input-type=module <<'NODE' >> "${GITHUB_ENV}"
+          const value = JSON.parse(process.env.VERIFIED);
+          for (const name of ["blackBoxReportPath", "unsignedArchivePath", "updaterPublicKey"]) {
+            if (typeof value[name] !== "string" || value[name].length === 0 || value[name].includes("\n")) {
+              throw new Error(`The verified signing-input ${name} is invalid.`);
+            }
+          }
+          if (value.windowsInstallerPayloadProofPath !== null &&
+              (typeof value.windowsInstallerPayloadProofPath !== "string" ||
+               value.windowsInstallerPayloadProofPath.length === 0 ||
+               value.windowsInstallerPayloadProofPath.includes("\n"))) {
+            throw new Error("The verified Windows payload-proof path is invalid.");
+          }
+          console.log(`RION_STUDIO_SIGNING_BLACK_BOX_REPORT=${value.blackBoxReportPath}`);
+          console.log(`RION_STUDIO_SIGNING_UNSIGNED_ARCHIVE=${value.unsignedArchivePath}`);
+          console.log(`RION_STUDIO_SIGNING_WINDOWS_PAYLOAD_PROOF=${value.windowsInstallerPayloadProofPath ?? ""}`);
+          console.log(`RION_STUDIO_UPDATER_PUBLIC_KEY=${value.updaterPublicKey}`);
+          NODE
+
+      - name: Restore sealed unsigned package inputs before private key entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${RION_STUDIO_SIGNING_UNSIGNED_ARCHIVE}"
+          test ! -e "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}"
+          test ! -e "${GITHUB_WORKSPACE}/release/electron"
+          mkdir -p "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/release"
+          node scripts/restoreElectronUnsignedInputArchive.mjs \
+            --archive "${RION_STUDIO_SIGNING_UNSIGNED_ARCHIVE}" \
+            --destination "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/release/electron"
+          test -d "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/release/electron"
+          test ! -e "${GITHUB_WORKSPACE}/release/electron"
+
+      - name: Sign updater payload and stage immutable platform candidate
+        shell: bash
+        env:
+          APPLICATION_PATH: ${{ env.RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT }}/${{ matrix.application }}
+          ARTIFACT_PATH: ${{ env.RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT }}/${{ matrix.artifact }}
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+          PLATFORM: ${{ matrix.platform }}
+          PUBLISHED_AT: ${{ inputs.published_at }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          test -f "${RION_STUDIO_SIGNING_BLACK_BOX_REPORT}"
+          distribution=()
+          windows_payload_proof=()
+          if [[ "${PLATFORM}" == "darwin-aarch64" ]]; then
+            distribution=(
+              --distribution
+              "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/release/electron/Rion.Studio-mac.dmg"
+            )
+          else
+            test -f "${RION_STUDIO_SIGNING_WINDOWS_PAYLOAD_PROOF}"
+            windows_payload_proof=(
+              --windows-installer-payload-proof
+              "${RION_STUDIO_SIGNING_WINDOWS_PAYLOAD_PROOF}"
+            )
+          fi
+          node scripts/electronProductionCandidate.mjs sign-platform \
+            --platform "${PLATFORM}" \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${RELEASE_VERSION}" \
+            --updater-base-url "${UPDATER_BASE_URL}" \
+            --published-at "${PUBLISHED_AT}" \
+            --owner-approval "${OWNER_APPROVAL}" \
+            --application "${APPLICATION_PATH}" \
+            --black-box-report "${RION_STUDIO_SIGNING_BLACK_BOX_REPORT}" \
+            --artifact "${ARTIFACT_PATH}" \
+            "${distribution[@]}" \
+            "${windows_payload_proof[@]}" \
+            --output platform-candidate
+
+      - name: Upload exact verified platform candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-${{ matrix.upload_name }}-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: platform-candidate
+
+  assemble:
+    name: Assemble cross-platform production candidate
+    needs:
+      - authorize-control-plane
+      - validate
+      - sign
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    steps:
+      - name: Checkout the exact trusted default-branch assembly control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download exact macOS candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-macos-arm64-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: platform-candidates/macos
+
+      - name: Download exact Windows candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-windows-x64-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: platform-candidates/windows
+
+      - name: Assemble manifest, checksums, and fail-closed candidate receipt
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+          PUBLISHED_AT: ${{ inputs.published_at }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          node scripts/electronProductionCandidate.mjs assemble \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${RELEASE_VERSION}" \
+            --updater-base-url "${UPDATER_BASE_URL}" \
+            --published-at "${PUBLISHED_AT}" \
+            --owner-approval "${OWNER_APPROVAL}" \
+            --mac-directory platform-candidates/macos \
+            --windows-directory platform-candidates/windows \
+            --output candidate \
+            --receipt electron-production-candidate-receipt.json
+          sha256sum electron-production-candidate-receipt.json
+
+      - name: Upload verified production candidate without publishing it
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-candidate-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: |
+            candidate
+            electron-production-candidate-receipt.json
+
+      - name: Record candidate-only outcome
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          {
+            echo "## Electron production candidate"
+            echo
+            echo "Exact source: ${SOURCE_SHA}"
+            echo "Version: ${VERSION}"
+            echo "Status: verified candidate only; no release or updater endpoint was modified"
+          } >> "${GITHUB_STEP_SUMMARY}"

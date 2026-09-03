@@ -144,6 +144,52 @@ fn navigation_failure_terminalizes_a_transferred_multi_role_run_after_a_recovery
 }
 
 #[test]
+fn direct_navigation_failure_supersedes_an_older_input_recovery_atomically() {
+    let runtime = MacroRuntime::new(Arc::new(|_| {}));
+    let control = new_invocation_control(
+        "navigation-failure-invocation".to_owned(),
+        "m1".to_owned(),
+        HashSet::from(["r1".to_owned()]),
+    );
+    *control.restart_intent.lock().unwrap() = Some(MacroRestartIntent {
+        macro_id: "m1".to_owned(),
+        sequence: 1,
+        source_role_id: Some("r1".to_owned()),
+    });
+    runtime
+        .shared
+        .inner
+        .lock()
+        .unwrap()
+        .invocations
+        .insert(control.id.clone(), Arc::clone(&control));
+    let recovery = runtime.ensure_input_recovery("older-action", "r1").unwrap();
+
+    runtime
+        .terminalize_role_after_navigation_failure("r1")
+        .unwrap();
+
+    assert!(control.cancelled.load(Ordering::Acquire));
+    assert!(runtime.statuses().unwrap().is_empty());
+    assert!(runtime.input_recovery_for_role("r1").unwrap().is_none());
+    let diagnostic = runtime
+        .input_diagnostics()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|role| role.role_id == "r1")
+        .unwrap();
+    assert!(diagnostic.quiesced);
+    assert!(diagnostic.restart_required);
+    assert!(!diagnostic.stopping);
+    assert!(diagnostic.input_epoch > recovery.input_epoch);
+    let late = runtime
+        .ensure_input_recovery("late-action", "r1")
+        .unwrap_err();
+    assert_eq!(late.code(), "MACRO_INPUT_RECOVERY_SUPERSEDED");
+}
+
+#[test]
 fn authoritative_role_release_terminalizes_stopping_input_without_reusing_its_epoch() {
     let runtime = MacroRuntime::new(Arc::new(|_| {}));
     runtime.request_stop_role("r1").unwrap();
@@ -255,6 +301,16 @@ fn ownership_transfer_preserves_and_resumes_the_active_macro_role_identity() {
         .unwrap();
     runtime.stop_macro("m1").unwrap();
     assert!(runtime.statuses().unwrap().is_empty());
+}
+
+#[test]
+fn ownership_transfer_without_active_macro_needs_no_preserved_invocation() {
+    let runtime = MacroRuntime::new(Arc::new(|_| {}));
+
+    assert!(!runtime.begin_role_ownership_transfer("r1").unwrap());
+    assert!(runtime.role_ownership_transfer_active("r1").unwrap());
+    runtime.allow_role_after_launch("r1");
+    assert!(!runtime.role_ownership_transfer_active("r1").unwrap());
 }
 
 #[test]

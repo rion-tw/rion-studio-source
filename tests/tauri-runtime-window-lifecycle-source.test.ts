@@ -85,7 +85,7 @@ describe("runtime window lifecycle authority", () => {
     expect(refreshLayout).toContain("self.layout_runtime_tab(&tab_id)");
   });
 
-  it("keeps active-tab selection entirely outside Core", async () => {
+  it("routes active-tab selection through revision-fenced Core authority", async () => {
     const [selection, core] = await Promise.all([
       readFile(new URL("../src-tauri/src/lib/section_01_activation.rs", import.meta.url), "utf8"),
       readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8")
@@ -94,7 +94,13 @@ describe("runtime window lifecycle authority", () => {
     expect(selection).toContain("schedule_live_window_state_persistence(window_id)");
     expect(selection).not.toContain("TabSelectionCommitCoordinator");
     expect(selection).not.toContain("The active tab metadata did not converge");
-    expect(core).not.toContain("CoreCommand::EmbeddedTabActivate");
+    expect(core).toContain("CoreCommand::EmbeddedTabActivate");
+    expect(core).toContain("CoreCommand::EmbeddedTabHide");
+    expect(core).toContain("fn apply_runtime_tab_action(");
+    expect(core).toContain("if window.window_generation != window_generation");
+    expect(core).toContain("|| window.revision != topology_revision");
+    expect(core).toContain("RuntimeIntent::CommitTopology(");
+    expect(core).toContain("project_embedded_runtime_snapshot_without_persistence");
     expect(core).not.toContain("apply_embedded_tab_selection_without_native_effect");
   });
 
@@ -496,7 +502,10 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     expect(core).toContain("pub fn effect_is_pending");
-    expect(executor).toContain("create_effect_is_still_pending");
+    expect(executor).toContain("create_effect_pending_status");
+    expect(executor).toContain("Unknown Core ownership can never authorize a destructive mutation");
+    expect(admission).toContain(".core_effect_is_pending");
+    expect(admission).toContain(".ok()");
     expect(executor).toContain("retire_unacknowledged_created_tab");
     expect(executor).toContain("optional_divider_hydration_can_continue");
     expect(executor).toContain("self.close_managed_divider(&surface_instance_id)?");

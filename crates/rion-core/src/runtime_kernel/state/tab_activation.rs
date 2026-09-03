@@ -46,6 +46,78 @@ fn seed_dormant_tabs(
     Ok(basic_commit(state, false, vec![window_id.to_owned()]))
 }
 
+fn begin_tab_activation(
+    state: &mut RuntimeKernelState,
+    activation_attempt_id: OperationId,
+    tab_id: RuntimeTabId,
+    window_id: String,
+) -> CoreResult<RuntimeCommit> {
+    let Some(window) = state.windows.get(&window_id) else {
+        return Ok(superseded_commit(
+            state,
+            Some(activation_attempt_id.as_str().to_owned()),
+            vec![window_id],
+        ));
+    };
+    if !window.contains_tab(tab_id.as_str()) || window.hidden_tab_ids.contains(tab_id.as_str()) {
+        return Ok(superseded_commit(
+            state,
+            Some(activation_attempt_id.as_str().to_owned()),
+            vec![window_id],
+        ));
+    }
+    let window_generation = RuntimeWindowGeneration(window.window_generation);
+    if let Some(current) = state.tab_activations.get(tab_id.as_str()) {
+        let status = if current.attempt_id == activation_attempt_id
+            && current.owner_window_id == window_id
+            && current.window_generation == window_generation
+            && current.phase == RuntimeTabActivationPhaseRecord::Activating
+        {
+            RuntimeCommitStatus::Duplicate
+        } else {
+            RuntimeCommitStatus::Superseded
+        };
+        return Ok(RuntimeCommit {
+            desired_effects: Vec::new(),
+            membership_changed: false,
+            operation_id: Some(activation_attempt_id.as_str().to_owned()),
+            revision: state.revision,
+            status,
+            terminal_events: Vec::new(),
+            window_ids: vec![window_id],
+            browser_result: None,
+        });
+    }
+
+    let revision = next_revision(state);
+    state.tab_activations.insert(
+        tab_id.as_str().to_owned(),
+        RuntimeTabActivationRecord {
+            attempt_id: activation_attempt_id.clone(),
+            native_operation_id: None,
+            owner_window_id: window_id.clone(),
+            phase: RuntimeTabActivationPhaseRecord::Activating,
+            tab_id,
+            window_generation,
+        },
+    );
+    state
+        .windows
+        .get_mut(&window_id)
+        .expect("activation candidate was validated")
+        .revision = revision;
+    Ok(RuntimeCommit {
+        desired_effects: Vec::new(),
+        membership_changed: false,
+        operation_id: Some(activation_attempt_id.as_str().to_owned()),
+        revision,
+        status: RuntimeCommitStatus::Applied,
+        terminal_events: Vec::new(),
+        window_ids: vec![window_id],
+        browser_result: None,
+    })
+}
+
 fn activate_tab(
     state: &mut RuntimeKernelState,
     expected_revision: Option<u64>,

@@ -98,6 +98,7 @@ fn start_child_invocation(
                 .map(|role_id| (role_id.as_str(), BrowserAction::Focus))
                 .collect(),
             false,
+            None,
         ) {
             let message = failure.message.clone();
             focus_failure = Some(failure);
@@ -276,9 +277,15 @@ fn perform_actions(
     if !allow_cancelled {
         actions.retain(|(role_id, _)| !is_role_cancelled(&context.control, role_id));
     }
-    perform_actions_with_control(shared, &context.control, actions, allow_cancelled)
+    perform_actions_with_control(shared, &context.control, actions, allow_cancelled, None)
         .map(|_| ())
         .map_err(|failure| failure.message)
+}
+
+struct ExactBrowserActionSurface {
+    role_id: String,
+    surface_generation: u64,
+    document_instance_id: String,
 }
 
 fn perform_actions_with_control(
@@ -286,6 +293,7 @@ fn perform_actions_with_control(
     control: &Arc<InvocationControl>,
     actions: Vec<(&str, BrowserAction)>,
     allow_cancelled: bool,
+    exact_surface: Option<&ExactBrowserActionSurface>,
 ) -> Result<Vec<String>, MacroActionFailure> {
     if !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
         return Err(MacroActionFailure::internal("macro run cancelled"));
@@ -379,6 +387,12 @@ fn perform_actions_with_control(
                     scheduled_at_ms: epoch_millis(),
                     deadline_ms: epoch_millis()
                         .saturating_add(shared.action_timeout.as_millis() as u64),
+                    surface_generation: exact_surface
+                        .filter(|surface| surface.role_id == role_id)
+                        .map(|surface| surface.surface_generation),
+                    document_instance_id: exact_surface
+                        .filter(|surface| surface.role_id == role_id)
+                        .map(|surface| surface.document_instance_id.clone()),
                     action,
                 }
             })
@@ -402,6 +416,7 @@ fn perform_actions_with_control(
     (shared.events)(vec![CoreEvent::BrowserActions { actions: requests }]);
     let deadline = std::time::Instant::now() + shared.action_timeout;
     let mut outcome = Ok(());
+    let mut timed_out_normal_actions = HashSet::new();
     for (request_id, role_id, receiver) in &pending_actions {
         let mut signal_guard = control
             .wake
@@ -451,21 +466,25 @@ fn perform_actions_with_control(
                     signal_guard = next_guard;
                 }
                 Err(TryRecvError::Empty) => {
-                    record_action_failure(
-                        control,
-                        role_id,
-                        MacroActionFailure {
-                            cause_code: "MACRO_INPUT_TIMEOUT".to_owned(),
-                            focus_request_ids: focus_request_ids.clone(),
-                            message: format!(
-                                "Macro input timed out after {} ms.",
-                                ACTION_TIMEOUT.as_millis()
-                            ),
-                            request_id: Some(request_id.clone()),
-                            role_id: Some(role_id.clone()),
-                        },
-                        &mut outcome,
-                    );
+                    if allow_cancelled {
+                        record_action_failure(
+                            control,
+                            role_id,
+                            MacroActionFailure {
+                                cause_code: "MACRO_INPUT_TIMEOUT".to_owned(),
+                                focus_request_ids: focus_request_ids.clone(),
+                                message: format!(
+                                    "Macro input timed out after {} ms.",
+                                    ACTION_TIMEOUT.as_millis()
+                                ),
+                                request_id: Some(request_id.clone()),
+                                role_id: Some(role_id.clone()),
+                            },
+                            &mut outcome,
+                        );
+                    } else {
+                        timed_out_normal_actions.insert(request_id.clone());
+                    }
                     break;
                 }
                 Err(TryRecvError::Disconnected) => {
@@ -486,10 +505,21 @@ fn perform_actions_with_control(
             }
         }
         drop(signal_guard);
+        if timed_out_normal_actions.contains(request_id) {
+            let _ = try_ensure_input_recovery_shared(shared, request_id, role_id)
+                .map_err(|error| MacroActionFailure::internal(error.to_string()))?;
+        }
     }
-    if let Ok(mut pending) = shared.pending.lock() {
+    if let Ok(mut actions) = shared.pending.lock() {
         for (request_id, _, _) in &pending_actions {
-            pending.remove(request_id);
+            if actions.remove(request_id).is_some() {
+                let completion = if timed_out_normal_actions.contains(request_id) {
+                    CompletedBrowserAction::TimedOut
+                } else {
+                    CompletedBrowserAction::Completed
+                };
+                actions.remember(request_id.clone(), completion);
+            }
         }
     }
     if outcome.is_ok() && !allow_cancelled && control.cancelled.load(Ordering::Acquire) {

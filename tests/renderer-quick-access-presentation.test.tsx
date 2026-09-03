@@ -49,10 +49,12 @@ describe("in-game Quick Access presentation", () => {
     render(<PresentationHarness enabled />);
 
     await waitFor(() => expect(screen.getByTestId("presentation-state").textContent).toBe("open"));
+    expect(screen.getByTestId("managed-request-state").textContent).toBe("active");
     expect(bridge.present).toHaveBeenCalledWith(`accepted-${resolution}`);
     fireEvent.click(screen.getByRole("button", { name: button }));
 
     expect(screen.getByTestId("presentation-state").textContent).toBe("closed");
+    expect(screen.getByTestId("managed-request-state").textContent).toBe("inactive");
     expect(screen.getByTestId("restore-focus").textContent).toBe("skip");
     expect(bridge.resolve).toHaveBeenCalledWith(`accepted-${resolution}`, resolution);
   });
@@ -63,6 +65,7 @@ describe("in-game Quick Access presentation", () => {
 
     await waitFor(() => expect(bridge.present).toHaveBeenCalledWith("stale"));
     expect(screen.getByTestId("presentation-state").textContent).toBe("closed");
+    expect(screen.getByTestId("managed-request-state").textContent).toBe("inactive");
   });
 
   it("does not treat the Quick Access palette itself as a blocking dialog", () => {
@@ -86,6 +89,9 @@ function PresentationHarness({ enabled }: { enabled: boolean }): JSX.Element {
       </output>
       <output data-testid="restore-focus">
         {presentation.restoreDomFocusOnClose ? "restore" : "skip"}
+      </output>
+      <output data-testid="managed-request-state">
+        {presentation.isManagedRequestActive() ? "active" : "inactive"}
       </output>
       <button type="button" onClick={() => presentation.close("cancel")}>Cancel</button>
       <button type="button" onClick={() => presentation.close("complete")}>Complete</button>

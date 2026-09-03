@@ -282,6 +282,11 @@ pub enum RuntimeIntent {
         tab_ids: Vec<String>,
         window_id: String,
     },
+    BeginTabActivation {
+        operation_id: OperationId,
+        tab_id: RuntimeTabId,
+        window_id: String,
+    },
     ActivateTab {
         expected_revision: Option<u64>,
         operation_id: OperationId,
@@ -349,7 +354,8 @@ impl RuntimeIntent {
             | Self::ReplaceWindow { operation_id, .. }
             | Self::RemoveWindow { operation_id, .. } => Some(operation_id),
             Self::BeginOperation(operation) => Some(operation.operation_id.as_str()),
-            Self::ActivateTab { operation_id, .. }
+            Self::BeginTabActivation { operation_id, .. }
+            | Self::ActivateTab { operation_id, .. }
             | Self::CloseTab { operation_id, .. }
             | Self::TerminalizeOperation { operation_id, .. } => Some(operation_id.as_str()),
             Self::NativeEvent(event) => Some(event.operation_id.as_str()),

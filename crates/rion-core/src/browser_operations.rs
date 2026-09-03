@@ -62,6 +62,12 @@ impl BrowserOperationCoordinator {
             .unwrap_or(usize::MAX)
     }
 
+    #[cfg(test)]
+    pub(crate) fn poison_state_lock_for_test(&self) {
+        let _state = self.state.lock().unwrap();
+        panic!("poison the browser-operation lock");
+    }
+
     pub fn acquire(&self, request: BrowserOperationRequest) -> CoreResult<BrowserOperationLease> {
         let kind = OperationKind::parse(&request.kind)?;
         let mut role_ids = request
@@ -260,11 +266,20 @@ impl BrowserOperationCoordinator {
         Ok(())
     }
 
-    pub fn shutdown(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.shutting_down = true;
-            self.changed.notify_all();
-        }
+    /// Atomically closes operation admission and reports whether every
+    /// previously admitted ticket has reached its terminal. Shutdown callers
+    /// must not perform irreversible teardown when this returns `false`:
+    /// recoverable/destructive mutations can deliberately retain their ticket
+    /// while ownership of quarantined browser data remains indeterminate.
+    pub fn begin_shutdown_and_check_idle(&self) -> CoreResult<bool> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| CoreError::Internal("browser operation lock poisoned".to_owned()))?;
+        state.shutting_down = true;
+        let idle = state.tickets.is_empty();
+        self.changed.notify_all();
+        Ok(idle)
     }
 
     fn remove_ticket(state: &mut CoordinatorState, id: &str) {
@@ -428,7 +443,7 @@ mod tests {
         let waiting = Arc::clone(&coordinator);
         let thread = thread::spawn(move || waiting.acquire(request(&["r1"], "normal")));
         thread::sleep(Duration::from_millis(10));
-        coordinator.shutdown();
+        assert!(!coordinator.begin_shutdown_and_check_idle().unwrap());
         assert_eq!(
             thread.join().unwrap().unwrap_err().code(),
             "CORE_SHUTTING_DOWN"

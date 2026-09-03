@@ -29,29 +29,28 @@ use crate::{
     },
     error::{CoreError, CoreResult},
     layout,
-    macro_runtime::MacroRuntime,
+    macro_runtime::{MacroRuntime, ManagedShortcutPhaseDispatch},
     model::{
-        AppCoreOptions, ApplicationDiagnosticsSnapshotRecord, BrowserActionResult,
-        BrowserOperationRequest, BrowserRuntimeCommand, ChromeProfileImportAuthStateRecord,
-        ChromeProfileImportItemResultRecord, ChromeProfileImportProgressRecord,
-        ChromeProfileImportResolutionRecord, ChromeProfileImportResultRecord,
-        ChromeProfileImportUnsupportedCountsRecord, CoreCommand, CoreEffectAction,
-        CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind,
-        CoreEvent, CoreStateSnapshotRecord, DiagnosticExportResultRecord,
+        AppCoreOptions, AppKitRuntimeHostIdentityRecord, ApplicationDiagnosticsSnapshotRecord,
+        BrowserActionResult, BrowserOperationRequest, BrowserRuntimeCommand,
+        BrowserRuntimeFailureReason, BrowserRuntimeRegistrationRecord,
+        ChromeProfileImportAuthStateRecord, ChromeProfileImportItemResultRecord,
+        ChromeProfileImportProgressRecord, ChromeProfileImportResolutionRecord,
+        ChromeProfileImportResultRecord, ChromeProfileImportUnsupportedCountsRecord, CoreCommand,
+        CoreEffectAction, CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget,
+        CoreEffectTargetKind, CoreEvent, CoreStateSnapshotRecord, DiagnosticExportResultRecord,
         EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
         EmbeddedRoleSlotEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
-        GameBrowserSettingsPatchRecord, GameWindowRuntimeSnapshotBatchCommitInputRecord,
-        GameWindowRuntimeSnapshotCommitInputRecord,
-        GameBrowserSettingsRecord, GameWindowRoleSlotRecord, GameWindowSaveRuntimeInputRecord,
+        GameBrowserSettingsPatchRecord, GameBrowserSettingsRecord, GameWindowRoleSlotRecord,
+        GameWindowRuntimeSnapshotBatchCommitInputRecord,
+        GameWindowRuntimeSnapshotCommitInputRecord, GameWindowSaveRuntimeInputRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
         MacroInputDiagnosticsRecord, MacroInputEpochRecord, MacroOverlayRequestRecord,
         MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressRequest,
-        MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
-        OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
-        RuntimeRoleSlotInputRecord, RuntimeWindowPersistenceBatchReceiptRecord,
-        RuntimeWindowPersistenceReceiptRecord,
-        RuntimeWindowPreferencesRecord, StateCollection,
-        RuntimeWindowStopRequestRecord,
+        MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest, OperationCancelResultRecord,
+        RolePathsRecord, RuntimeRestoreSessionRecord, RuntimeRoleSlotInputRecord,
+        RuntimeWindowPersistenceBatchReceiptRecord, RuntimeWindowPersistenceReceiptRecord,
+        RuntimeWindowPreferencesRecord, RuntimeWindowStopRequestRecord, StateCollection,
         StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
         StateNormalizedRectRecord, StateRoleRecord, SystemWebViewRuntimeRegistrationRecord,
     },
@@ -62,6 +61,8 @@ const EVENT_QUEUE_CAPACITY: usize = 64;
 const LAUNCH_COMPLETION_QUEUE_CAPACITY: usize = 64;
 const LAUNCH_COMPLETION_CONCURRENCY: usize = 4;
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
+const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 23;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.
@@ -125,6 +126,7 @@ pub struct BrowserLaunchCompletionRecord {
     pub accepted_at: Instant,
     pub error: Option<crate::error::CoreErrorPayload>,
     pub launch_preview_id: Option<String>,
+    pub operation_id: String,
     pub source_id: String,
     pub tab_id: String,
     pub tab_type: String,
@@ -239,8 +241,11 @@ struct ChromeImportRollbackContext {
     transaction_id: String,
     role_id: String,
     launch_url: String,
+    replace_existing: bool,
     webview2_user_data_dir: String,
+    chromium_user_data_dir: String,
     webkit_data_store_identifier: String,
+    v23_chromium: bool,
     staging: PathBuf,
 }
 
@@ -318,6 +323,12 @@ impl Drop for BrowserOperationGuard<'_> {
 pub struct AppCore {
     app_version: String,
     app_snapshot_sequence: AtomicU64,
+    appkit_event_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
+    appkit_event_sequences: Mutex<std::collections::HashMap<AppKitRuntimeHostIdentityRecord, u64>>,
+    appkit_window_visibility_replay:
+        crate::runtime_window_visibility_replay::RuntimeWindowVisibilityReplay<
+            crate::model::AppKitRuntimeEventReceiptRecord,
+        >,
     runtime_authority_barrier: Arc<RwLock<()>>,
     browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
     browser_launch_completion_sink: RwLock<Option<BrowserLaunchCompletionSink>>,
@@ -325,17 +336,47 @@ pub struct AppCore {
     browser_runtime: Arc<crate::runtime_kernel::RuntimeKernel>,
     browser_status_emit_guard: Mutex<()>,
     chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
+    chrome_profile_import_contract:
+        Mutex<crate::chrome_profile_import_contract::ChromeProfileImportContractRuntime>,
     database_paths: DatabasePaths,
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
-    system_webview_issues:
-        RwLock<std::collections::HashMap<String, crate::model::SystemWebViewIssueReason>>,
-    system_webview_ready_roles: RwLock<std::collections::HashSet<String>>,
+    browser_runtime_issues: RwLock<std::collections::HashMap<String, BrowserRuntimeFailureReason>>,
+    browser_runtime_ready_roles: RwLock<std::collections::HashSet<String>>,
     embedded_closing_tabs: Mutex<std::collections::HashSet<String>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
-    runtime_window_persistence_revisions:
-        Mutex<std::collections::HashMap<String, (u64, u64)>>,
+    runtime_window_persistence_revisions: Mutex<std::collections::HashMap<String, (u64, u64)>>,
+    runtime_ui_action_receipts: Mutex<RuntimeUiActionReceiptLedger>,
+    runtime_ui_window_visibility_replay:
+        crate::runtime_window_visibility_replay::RuntimeWindowVisibilityReplay<
+            crate::model::SystemRuntimeOperationSummaryRecord,
+        >,
+    runtime_window_zoom_receipts: Mutex<RuntimeWindowZoomReceiptLedger>,
+    controlled_role_reload_admission: Mutex<()>,
+    controlled_role_reloads: ControlledRoleReloadCoordinator,
+    application_lifecycle_epoch: AtomicU64,
+    application_suspended: AtomicBool,
+    #[cfg(test)]
+    controlled_role_reload_fault_stage: Mutex<Option<String>>,
+    #[cfg(test)]
+    controlled_role_reload_mutation_admitted_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    controlled_role_reload_after_prepare_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    controlled_role_reload_after_final_admission_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    controlled_role_reload_before_final_admission_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    workspace_divider_runtime: Mutex<WorkspaceDividerRuntime>,
+    runtime_window_provision_receipts: Mutex<RuntimeWindowProvisionReceiptLedger>,
     instance_lock: Mutex<Option<File>>,
+    #[cfg(test)]
+    retain_failed_shutdown_instance_lock_for_test: AtomicBool,
     macro_runtime: Arc<MacroRuntime>,
+    macro_input_recovery_guard: Mutex<()>,
+    managed_shortcut_runtime: Mutex<ManagedShortcutRuntime>,
+    #[cfg(test)]
+    macro_input_recovery_after_resume_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    system_surface_failure_after_owner_fence_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     log_capture: Mutex<crate::log_capture::LogCaptureRuntime>,
     launch_completion: LaunchCompletionCoordinator,
     operation_actor: Arc<crate::operation_actor::OperationActor>,
@@ -343,16 +384,24 @@ pub struct AppCore {
     overlay_refresh: crate::overlay::OverlayRefreshRuntime,
     resolved_theme: Mutex<String>,
     platform: rion_platform::Platform,
+    runtime_contract_version: u32,
     portable: Mutex<crate::portable::PortableRuntime>,
+    popup_lifecycle: Mutex<crate::popup_lifecycle::ChromiumPopupLifecycleRuntime>,
+    role_browser_data_clear_commands: Arc<RoleBrowserDataClearCommandCoordinator>,
+    #[cfg(test)]
+    role_browser_data_clear_before_domain_terminal_hook:
+        Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     runtime: RwLock<Option<Runtime>>,
+    runtime_restore_session_mutations: RuntimeRestoreSessionMutationCoordinator,
     shutdown_started: AtomicBool,
     embedded_runtime_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
     embedded_window_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
     event_sender: Sender<Vec<CoreEvent>>,
     state_mutation_guard: Mutex<()>,
+    session_transfer_vault_guard: Mutex<()>,
     subscribers: Arc<Mutex<Vec<Sender<Vec<CoreEvent>>>>>,
     system_fonts: Mutex<Option<Vec<crate::model::SystemFontFamilyRecord>>>,
-    system_webview_runtime: RwLock<SystemWebViewRuntimeRegistrationRecord>,
+    browser_runtime_registration: RwLock<BrowserRuntimeRegistrationRecord>,
     user_data_dir: PathBuf,
 }
 
@@ -377,6 +426,9 @@ impl AppCore {
         }
         let platform = rion_platform::Platform::parse(&options.platform)
             .map_err(|error| CoreError::Platform(error.to_string()))?;
+        let runtime_contract_version = options
+            .runtime_contract_version
+            .unwrap_or(STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION);
         preflight_supported_data(&user_data_dir)?;
         let instance_lock = acquire_instance_lock(&user_data_dir)?;
         if let Some(backup_label) = backup_label {
@@ -400,14 +452,23 @@ impl AppCore {
         let subscribers = Arc::new(Mutex::new(Vec::new()));
         let event_sender = start_event_dispatcher(Arc::clone(&subscribers))?;
         let effect_event_sender = event_sender.clone();
-        let operation_actor = Arc::new(crate::operation_actor::OperationActor::new(Arc::new(
-            move |effects| {
-                publish_events(
-                    &effect_event_sender,
-                    vec![CoreEvent::CoreEffects { effects }],
-                );
-            },
-        )));
+        let effect_cancellation_event_sender = event_sender.clone();
+        let operation_actor = Arc::new(
+            crate::operation_actor::OperationActor::new_with_cancellation_emitter(
+                Arc::new(move |effects| {
+                    publish_events(
+                        &effect_event_sender,
+                        vec![CoreEvent::CoreEffects { effects }],
+                    );
+                }),
+                Arc::new(move |cancellations| {
+                    publish_events(
+                        &effect_cancellation_event_sender,
+                        vec![CoreEvent::CoreEffectCancellations { cancellations }],
+                    );
+                }),
+            ),
+        );
         let scheduler = MonotonicScheduler::start()?;
         let telemetry_path = options
             .performance_telemetry_path
@@ -459,6 +520,12 @@ impl AppCore {
         let core = Self {
             app_version: options.app_version,
             app_snapshot_sequence: AtomicU64::new(0),
+            appkit_event_sequence: Arc::new(
+                crate::runtime_sequence::RuntimeOperationSequence::default(),
+            ),
+            appkit_event_sequences: Mutex::new(std::collections::HashMap::new()),
+            appkit_window_visibility_replay:
+                crate::runtime_window_visibility_replay::RuntimeWindowVisibilityReplay::default(),
             runtime_authority_barrier: Arc::new(RwLock::new(())),
             browser_action_effects,
             browser_launch_completion_sink: RwLock::new(None),
@@ -468,14 +535,48 @@ impl AppCore {
             chrome_profile_import: Mutex::new(
                 crate::chrome_profile_import::ChromeProfileImportRuntime::default(),
             ),
+            chrome_profile_import_contract: Mutex::new(
+                crate::chrome_profile_import_contract::ChromeProfileImportContractRuntime::default(
+                ),
+            ),
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
-            system_webview_issues: RwLock::new(std::collections::HashMap::new()),
-            system_webview_ready_roles: RwLock::new(std::collections::HashSet::new()),
+            browser_runtime_issues: RwLock::new(std::collections::HashMap::new()),
+            browser_runtime_ready_roles: RwLock::new(std::collections::HashSet::new()),
             embedded_closing_tabs: Mutex::new(std::collections::HashSet::new()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),
             runtime_window_persistence_revisions: Mutex::new(std::collections::HashMap::new()),
+            runtime_ui_action_receipts: Mutex::new(RuntimeUiActionReceiptLedger::default()),
+            runtime_ui_window_visibility_replay:
+                crate::runtime_window_visibility_replay::RuntimeWindowVisibilityReplay::default(),
+            runtime_window_zoom_receipts: Mutex::new(RuntimeWindowZoomReceiptLedger::default()),
+            controlled_role_reload_admission: Mutex::new(()),
+            controlled_role_reloads: ControlledRoleReloadCoordinator::default(),
+            application_lifecycle_epoch: AtomicU64::new(1),
+            application_suspended: AtomicBool::new(false),
+            #[cfg(test)]
+            controlled_role_reload_fault_stage: Mutex::new(None),
+            #[cfg(test)]
+            controlled_role_reload_mutation_admitted_hook: Mutex::new(None),
+            #[cfg(test)]
+            controlled_role_reload_after_prepare_hook: Mutex::new(None),
+            #[cfg(test)]
+            controlled_role_reload_after_final_admission_hook: Mutex::new(None),
+            #[cfg(test)]
+            controlled_role_reload_before_final_admission_hook: Mutex::new(None),
+            workspace_divider_runtime: Mutex::new(WorkspaceDividerRuntime::default()),
+            runtime_window_provision_receipts: Mutex::new(
+                RuntimeWindowProvisionReceiptLedger::default(),
+            ),
             instance_lock: Mutex::new(Some(instance_lock)),
+            #[cfg(test)]
+            retain_failed_shutdown_instance_lock_for_test: AtomicBool::new(false),
+            macro_input_recovery_guard: Mutex::new(()),
+            managed_shortcut_runtime: Mutex::new(ManagedShortcutRuntime::default()),
+            #[cfg(test)]
+            macro_input_recovery_after_resume_hook: Mutex::new(None),
+            #[cfg(test)]
+            system_surface_failure_after_owner_fence_hook: Mutex::new(None),
             log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new_with_metadata(
                 user_data_dir.clone(),
                 log_level,
@@ -488,13 +589,24 @@ impl AppCore {
             overlay_refresh,
             resolved_theme: Mutex::new("light".to_owned()),
             platform,
+            runtime_contract_version,
             portable: Mutex::new(crate::portable::PortableRuntime::default()),
+            popup_lifecycle: Mutex::new(
+                crate::popup_lifecycle::ChromiumPopupLifecycleRuntime::default(),
+            ),
+            role_browser_data_clear_commands: Arc::new(
+                RoleBrowserDataClearCommandCoordinator::default(),
+            ),
+            #[cfg(test)]
+            role_browser_data_clear_before_domain_terminal_hook: Mutex::new(None),
             runtime: RwLock::new(Some(Runtime {
                 state,
                 logs,
                 scheduler,
                 telemetry,
             })),
+            runtime_restore_session_mutations:
+                RuntimeRestoreSessionMutationCoordinator::default(),
             shutdown_started: AtomicBool::new(false),
             embedded_runtime_sequence: Arc::new(
                 crate::runtime_sequence::RuntimeOperationSequence::default(),
@@ -504,9 +616,13 @@ impl AppCore {
             ),
             event_sender,
             state_mutation_guard: Mutex::new(()),
+            session_transfer_vault_guard: Mutex::new(()),
             subscribers,
             system_fonts: Mutex::new(None),
-            system_webview_runtime: RwLock::new(unavailable_system_webview_runtime(platform)),
+            browser_runtime_registration: RwLock::new(unavailable_browser_runtime_registration(
+                platform,
+                runtime_contract_version,
+            )),
             user_data_dir,
         };
         if !retired_local_storage_replay_warnings.is_empty() {
@@ -544,6 +660,14 @@ impl AppCore {
     }
 
     fn notify_browser_launch_completion(&self, record: BrowserLaunchCompletionRecord) {
+        self.emit(vec![CoreEvent::BrowserLaunchCompleted {
+            operation_id: record.operation_id.clone(),
+            source_id: record.source_id.clone(),
+            source_type: record.tab_type.clone(),
+            tab_id: record.tab_id.clone(),
+            ok: record.error.is_none(),
+            error_code: record.error.as_ref().map(|error| error.code.clone()),
+        }]);
         let sink = self
             .browser_launch_completion_sink
             .read()
@@ -553,5 +677,4 @@ impl AppCore {
             sink(record);
         }
     }
-
 }

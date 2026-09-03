@@ -1,0 +1,518 @@
+name: Electron Production Promotion Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact Electron candidate source SHA
+        required: true
+        type: string
+      version:
+        description: Exact Electron candidate semantic version without a leading v
+        required: true
+        type: string
+      candidate_run_id:
+        description: Successful Electron Production Candidate workflow run ID
+        required: true
+        type: string
+      candidate_receipt_sha256:
+        description: Owner-recorded SHA-256 of the exact candidate receipt
+        required: true
+        type: string
+      prior_electron_source_sha:
+        description: Exact prior Electron production-candidate source SHA
+        required: true
+        type: string
+      prior_electron_version:
+        description: Exact prior Electron semantic version without a leading v
+        required: true
+        type: string
+      prior_candidate_run_id:
+        description: Successful prior Electron Production Candidate workflow run ID
+        required: true
+        type: string
+      prior_candidate_receipt_sha256:
+        description: Owner-recorded SHA-256 of the exact prior candidate receipt
+        required: true
+        type: string
+      evidence_run_id:
+        description: Successful externally attested updater-evidence workflow run ID
+        required: true
+        type: string
+      provisional_publication_run_id:
+        description: Successful provisional Electron publication workflow run ID
+        required: true
+        type: string
+      provisional_publication_receipt_sha256:
+        description: Owner-recorded SHA-256 of the attested provisional publication receipt
+        required: true
+        type: string
+      challenge_id:
+        description: Fresh UUID shared by all four external terminal transactions
+        required: true
+        type: string
+      challenge_nonce_sha256:
+        description: SHA-256 of the fresh data-preservation challenge
+        required: true
+        type: string
+      tauri_release_tag:
+        description: Exact published Tauri v22 source release tag
+        required: true
+        type: string
+      tauri_source_sha:
+        description: Exact source commit for the published Tauri v22 release
+        required: true
+        type: string
+      tauri_version:
+        description: Exact published Tauri v22 semantic version
+        required: true
+        type: string
+      tauri_lineage_run_id:
+        description: Successful attested public Tauri v22 lineage workflow run ID
+        required: true
+        type: string
+      tauri_lineage_macos_receipt_sha256:
+        description: Owner-recorded SHA-256 of the attested macOS public-lineage receipt
+        required: true
+        type: string
+      tauri_lineage_windows_receipt_sha256:
+        description: Owner-recorded SHA-256 of the attested Windows public-lineage receipt
+        required: true
+        type: string
+      tauri_macos_receipt_sha256:
+        description: Attested macOS v22-to-v23 terminal receipt SHA-256
+        required: true
+        type: string
+      tauri_windows_receipt_sha256:
+        description: Attested Windows v22-to-v23 terminal receipt SHA-256
+        required: true
+        type: string
+      electron_macos_receipt_sha256:
+        description: Attested macOS v23-to-v23 terminal receipt SHA-256
+        required: true
+        type: string
+      electron_windows_receipt_sha256:
+        description: Attested Windows v23-to-v23 terminal receipt SHA-256
+        required: true
+        type: string
+      owner_approval:
+        description: Type VERIFY ELECTRON PRODUCTION PROMOTION READINESS
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  attestations: read
+  contents: read
+
+concurrency:
+  group: electron-production-promotion-readiness-${{ inputs.source_sha }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  authorize-control-plane:
+    name: Authorize the trusted readiness control plane
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    outputs:
+      control_plane_sha: ${{ steps.guard.outputs.control_plane_sha }}
+    steps:
+      - name: Require the fixed repository protected main dispatch
+        id: guard
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_EVENT: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+          EXPECTED_REPOSITORY: rion-tw/rion-studio-source
+          EXPECTED_WORKFLOW_REF: rion-tw/rion-studio-source/.github/workflows/electron-production-promotion-readiness.yml@refs/heads/main
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          test "${REPOSITORY}" = "${EXPECTED_REPOSITORY}"
+          test "${DISPATCH_EVENT}" = "workflow_dispatch"
+          test "${DEFAULT_BRANCH}" = "main"
+          test "${DISPATCH_REF}" = "refs/heads/main"
+          test "${DISPATCH_REF_PROTECTED}" = "true"
+          test "${WORKFLOW_REF}" = "${EXPECTED_WORKFLOW_REF}"
+          [[ "${CONTROL_PLANE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          echo "control_plane_sha=${CONTROL_PLANE_SHA}" >> "${GITHUB_OUTPUT}"
+
+  verify-readiness:
+    name: Verify immutable cross-platform promotion readiness
+    needs: authorize-control-plane
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    steps:
+      - name: Checkout the exact trusted default-branch control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Validate owner inputs and exact workflow-run provenance
+        id: provenance
+        shell: bash
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+          PRIOR_CANDIDATE_RUN_ID: ${{ inputs.prior_candidate_run_id }}
+          PRIOR_ELECTRON_SOURCE_SHA: ${{ inputs.prior_electron_source_sha }}
+          PRIOR_ELECTRON_VERSION: ${{ inputs.prior_electron_version }}
+          PROVISIONAL_PUBLICATION_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TAURI_LINEAGE_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+          VERSION: ${{ inputs.version }}
+          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${CANDIDATE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PRIOR_CANDIDATE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${EVIDENCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PROVISIONAL_PUBLICATION_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${TAURI_LINEAGE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PRIOR_ELECTRON_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${PRIOR_ELECTRON_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          test "${CANDIDATE_RUN_ID}" != "${EVIDENCE_RUN_ID}"
+          test "${CANDIDATE_RUN_ID}" != "${PRIOR_CANDIDATE_RUN_ID}"
+          test "${EVIDENCE_RUN_ID}" != "${PRIOR_CANDIDATE_RUN_ID}"
+          test "${PROVISIONAL_PUBLICATION_RUN_ID}" != "${CANDIDATE_RUN_ID}"
+          test "${PROVISIONAL_PUBLICATION_RUN_ID}" != "${PRIOR_CANDIDATE_RUN_ID}"
+          test "${PROVISIONAL_PUBLICATION_RUN_ID}" != "${EVIDENCE_RUN_ID}"
+          test "${TAURI_LINEAGE_RUN_ID}" != "${CANDIDATE_RUN_ID}"
+          test "${TAURI_LINEAGE_RUN_ID}" != "${EVIDENCE_RUN_ID}"
+          test "${TAURI_LINEAGE_RUN_ID}" != "${PRIOR_CANDIDATE_RUN_ID}"
+          test "${TAURI_LINEAGE_RUN_ID}" != "${PROVISIONAL_PUBLICATION_RUN_ID}"
+          test "${OWNER_APPROVAL}" = "VERIFY ELECTRON PRODUCTION PROMOTION READINESS"
+          test -n "${RION_STUDIO_UPDATER_PUBLIC_KEY}"
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+
+          verify_run() {
+            local run_id="$1"
+            local expected_path="$2"
+            local label="$3"
+            local run_json
+            run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+            test "$(jq -r .path <<< "${run_json}")" = "${expected_path}"
+            test "$(jq -r .event <<< "${run_json}")" = "workflow_dispatch"
+            test "$(jq -r .status <<< "${run_json}")" = "completed"
+            test "$(jq -r .conclusion <<< "${run_json}")" = "success"
+            test "$(jq -r .head_repository.full_name <<< "${run_json}")" = "rion-tw/rion-studio-source"
+            test "$(jq -r .head_branch <<< "${run_json}")" = "main"
+            local control_sha
+            control_sha="$(jq -r .head_sha <<< "${run_json}")"
+            [[ "${control_sha}" =~ ^[0-9a-f]{40}$ ]]
+            local attempt
+            attempt="$(jq -r .run_attempt <<< "${run_json}")"
+            [[ "${attempt}" =~ ^[1-9][0-9]*$ ]]
+            echo "${label}_run_attempt=${attempt}" >> "${GITHUB_OUTPUT}"
+            echo "${label}_control_sha=${control_sha}" >> "${GITHUB_OUTPUT}"
+          }
+
+          verify_run \
+            "${CANDIDATE_RUN_ID}" \
+            ".github/workflows/electron-production-candidate.yml" \
+            candidate
+          verify_run \
+            "${PRIOR_CANDIDATE_RUN_ID}" \
+            ".github/workflows/electron-production-candidate.yml" \
+            prior_candidate
+          verify_run \
+            "${EVIDENCE_RUN_ID}" \
+            ".github/workflows/electron-production-updater-evidence.yml" \
+            evidence
+          verify_run \
+            "${PROVISIONAL_PUBLICATION_RUN_ID}" \
+            ".github/workflows/electron-production-provisional-publish.yml" \
+            provisional_publication
+          verify_run \
+            "${TAURI_LINEAGE_RUN_ID}" \
+            ".github/workflows/electron-updater-tauri-v22-compatibility.yml" \
+            tauri_lineage
+
+      - name: Download exact candidate, platform receipts, and terminal evidence
+        shell: bash
+        env:
+          CANDIDATE_RUN_ATTEMPT: ${{ steps.provenance.outputs.candidate_run_attempt }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          EVIDENCE_RUN_ATTEMPT: ${{ steps.provenance.outputs.evidence_run_attempt }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          PRIOR_CANDIDATE_RUN_ATTEMPT: ${{ steps.provenance.outputs.prior_candidate_run_attempt }}
+          PRIOR_CANDIDATE_RUN_ID: ${{ inputs.prior_candidate_run_id }}
+          PRIOR_ELECTRON_SOURCE_SHA: ${{ inputs.prior_electron_source_sha }}
+          PRIOR_ELECTRON_VERSION: ${{ inputs.prior_electron_version }}
+          PROVISIONAL_PUBLICATION_RUN_ATTEMPT: ${{ steps.provenance.outputs.provisional_publication_run_attempt }}
+          PROVISIONAL_PUBLICATION_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TAURI_LINEAGE_RUN_ATTEMPT: ${{ steps.provenance.outputs.tauri_lineage_run_attempt }}
+          TAURI_LINEAGE_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh run download "${CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-${VERSION}-${SOURCE_SHA}-attempt-${CANDIDATE_RUN_ATTEMPT}" \
+            --dir candidate-bundle
+          gh run download "${CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-trusted-control-${VERSION}-${SOURCE_SHA}-attempt-${CANDIDATE_RUN_ATTEMPT}" \
+            --dir candidate-trusted-control
+          gh run download "${CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-macos-arm64-${VERSION}-${SOURCE_SHA}-attempt-${CANDIDATE_RUN_ATTEMPT}" \
+            --dir platform-candidates/macos
+          gh run download "${CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-windows-x64-${VERSION}-${SOURCE_SHA}-attempt-${CANDIDATE_RUN_ATTEMPT}" \
+            --dir platform-candidates/windows
+          gh run download "${PRIOR_CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-${PRIOR_ELECTRON_VERSION}-${PRIOR_ELECTRON_SOURCE_SHA}-attempt-${PRIOR_CANDIDATE_RUN_ATTEMPT}" \
+            --dir prior-candidate-bundle
+          gh run download "${PRIOR_CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-candidate-trusted-control-${PRIOR_ELECTRON_VERSION}-${PRIOR_ELECTRON_SOURCE_SHA}-attempt-${PRIOR_CANDIDATE_RUN_ATTEMPT}" \
+            --dir prior-candidate-trusted-control
+          gh run download "${PRIOR_CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-macos-arm64-${PRIOR_ELECTRON_VERSION}-${PRIOR_ELECTRON_SOURCE_SHA}-attempt-${PRIOR_CANDIDATE_RUN_ATTEMPT}" \
+            --dir prior-platform-candidates/macos
+          gh run download "${PRIOR_CANDIDATE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-windows-x64-${PRIOR_ELECTRON_VERSION}-${PRIOR_ELECTRON_SOURCE_SHA}-attempt-${PRIOR_CANDIDATE_RUN_ATTEMPT}" \
+            --dir prior-platform-candidates/windows
+          gh run download "${EVIDENCE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-updater-terminal-evidence-${VERSION}-${SOURCE_SHA}-attempt-${EVIDENCE_RUN_ATTEMPT}" \
+            --dir terminal-evidence
+          gh run download "${PROVISIONAL_PUBLICATION_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "electron-production-publication-provisional-${VERSION}-${SOURCE_SHA}-attempt-${PROVISIONAL_PUBLICATION_RUN_ATTEMPT}" \
+            --dir provisional-publication
+          gh run download "${TAURI_LINEAGE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "tauri-v22-public-lineage-darwin-aarch64-${TAURI_LINEAGE_RUN_ID}-${TAURI_LINEAGE_RUN_ATTEMPT}" \
+            --dir tauri-lineage/macos
+          gh run download "${TAURI_LINEAGE_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "tauri-v22-public-lineage-windows-x86_64-${TAURI_LINEAGE_RUN_ID}-${TAURI_LINEAGE_RUN_ATTEMPT}" \
+            --dir tauri-lineage/windows
+
+      - name: Verify GitHub artifact attestations from the external evidence producer
+        shell: bash
+        env:
+          EVIDENCE_CONTROL_SHA: ${{ steps.provenance.outputs.evidence_control_sha }}
+          EVIDENCE_RUN_ATTEMPT: ${{ steps.provenance.outputs.evidence_run_attempt }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          signer_workflow="${GITHUB_REPOSITORY}/.github/workflows/electron-production-updater-evidence.yml"
+          invocation_uri="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${EVIDENCE_RUN_ID}/attempts/${EVIDENCE_RUN_ATTEMPT}"
+          receipts=(
+            terminal-evidence/tauri-v22-to-electron-v23/darwin-aarch64/terminal-receipt.json
+            terminal-evidence/tauri-v22-to-electron-v23/windows-x86_64/terminal-receipt.json
+            terminal-evidence/electron-v23-to-electron-v23/darwin-aarch64/terminal-receipt.json
+            terminal-evidence/electron-v23-to-electron-v23/windows-x86_64/terminal-receipt.json
+          )
+          for receipt in "${receipts[@]}"; do
+            attestation_json="$(gh attestation verify "${receipt}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --format=json \
+              --signer-digest "${EVIDENCE_CONTROL_SHA}" \
+              --signer-workflow "${signer_workflow}" \
+              --source-digest "${EVIDENCE_CONTROL_SHA}")"
+            jq -e --arg invocation_uri "${invocation_uri}" '
+              any(
+                .[];
+                .verificationResult.signature.certificate.runInvocationURI == $invocation_uri
+              )
+            ' <<< "${attestation_json}" > /dev/null
+          done
+
+      - name: Verify GitHub attestation for the provisional publication receipt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVISIONAL_PUBLICATION_CONTROL_SHA: ${{ steps.provenance.outputs.provisional_publication_control_sha }}
+          PROVISIONAL_PUBLICATION_RUN_ATTEMPT: ${{ steps.provenance.outputs.provisional_publication_run_attempt }}
+          PROVISIONAL_PUBLICATION_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+        run: |
+          set -euo pipefail
+          signer_workflow="${GITHUB_REPOSITORY}/.github/workflows/electron-production-provisional-publish.yml"
+          invocation_uri="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${PROVISIONAL_PUBLICATION_RUN_ID}/attempts/${PROVISIONAL_PUBLICATION_RUN_ATTEMPT}"
+          receipt="provisional-publication/electron-production-publication-provisional-receipt.json"
+          attestation_json="$(gh attestation verify "${receipt}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --format=json \
+            --signer-digest "${PROVISIONAL_PUBLICATION_CONTROL_SHA}" \
+            --signer-workflow "${signer_workflow}" \
+            --source-digest "${PROVISIONAL_PUBLICATION_CONTROL_SHA}")"
+          jq -e --arg invocation_uri "${invocation_uri}" '
+            any(
+              .[];
+              .verificationResult.signature.certificate.runInvocationURI == $invocation_uri
+            )
+          ' <<< "${attestation_json}" > /dev/null
+
+      - name: Verify GitHub attestations for both public Tauri v22 source lineages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAURI_LINEAGE_CONTROL_SHA: ${{ steps.provenance.outputs.tauri_lineage_control_sha }}
+          TAURI_LINEAGE_RUN_ATTEMPT: ${{ steps.provenance.outputs.tauri_lineage_run_attempt }}
+          TAURI_LINEAGE_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+        run: |
+          set -euo pipefail
+          signer_workflow="${GITHUB_REPOSITORY}/.github/workflows/electron-updater-tauri-v22-compatibility.yml"
+          invocation_uri="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${TAURI_LINEAGE_RUN_ID}/attempts/${TAURI_LINEAGE_RUN_ATTEMPT}"
+          receipts=(
+            tauri-lineage/macos/tauri-v22-public-lineage-receipt.json
+            tauri-lineage/windows/tauri-v22-public-lineage-receipt.json
+          )
+          for receipt in "${receipts[@]}"; do
+            attestation_json="$(gh attestation verify "${receipt}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --format=json \
+              --signer-digest "${TAURI_LINEAGE_CONTROL_SHA}" \
+              --signer-workflow "${signer_workflow}" \
+              --source-digest "${TAURI_LINEAGE_CONTROL_SHA}")"
+            jq -e --arg invocation_uri "${invocation_uri}" '
+              any(
+                .[];
+                .verificationResult.signature.certificate.runInvocationURI == $invocation_uri
+              )
+            ' <<< "${attestation_json}" > /dev/null
+          done
+
+      - name: Rebuild and re-hash the candidate, then aggregate exact terminal evidence
+        shell: bash
+        env:
+          CANDIDATE_CONTROL_SHA: ${{ steps.provenance.outputs.candidate_control_sha }}
+          CANDIDATE_RECEIPT_SHA256: ${{ inputs.candidate_receipt_sha256 }}
+          CANDIDATE_RUN_ATTEMPT: ${{ steps.provenance.outputs.candidate_run_attempt }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CHALLENGE_ID: ${{ inputs.challenge_id }}
+          CHALLENGE_NONCE_SHA256: ${{ inputs.challenge_nonce_sha256 }}
+          ELECTRON_MACOS_RECEIPT_SHA256: ${{ inputs.electron_macos_receipt_sha256 }}
+          ELECTRON_WINDOWS_RECEIPT_SHA256: ${{ inputs.electron_windows_receipt_sha256 }}
+          EVIDENCE_CONTROL_SHA: ${{ steps.provenance.outputs.evidence_control_sha }}
+          EVIDENCE_RUN_ATTEMPT: ${{ steps.provenance.outputs.evidence_run_attempt }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+          PRIOR_CANDIDATE_CONTROL_SHA: ${{ steps.provenance.outputs.prior_candidate_control_sha }}
+          PRIOR_CANDIDATE_RECEIPT_SHA256: ${{ inputs.prior_candidate_receipt_sha256 }}
+          PRIOR_CANDIDATE_RUN_ATTEMPT: ${{ steps.provenance.outputs.prior_candidate_run_attempt }}
+          PRIOR_CANDIDATE_RUN_ID: ${{ inputs.prior_candidate_run_id }}
+          PRIOR_ELECTRON_SOURCE_SHA: ${{ inputs.prior_electron_source_sha }}
+          PRIOR_ELECTRON_VERSION: ${{ inputs.prior_electron_version }}
+          PROVISIONAL_PUBLICATION_RECEIPT_SHA256: ${{ inputs.provisional_publication_receipt_sha256 }}
+          PROVISIONAL_PUBLICATION_CONTROL_SHA: ${{ steps.provenance.outputs.provisional_publication_control_sha }}
+          PROVISIONAL_PUBLICATION_RUN_ATTEMPT: ${{ steps.provenance.outputs.provisional_publication_run_attempt }}
+          PROVISIONAL_PUBLICATION_RUN_ID: ${{ inputs.provisional_publication_run_id }}
+          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+          READINESS_CONTROL_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TAURI_LINEAGE_CONTROL_SHA: ${{ steps.provenance.outputs.tauri_lineage_control_sha }}
+          TAURI_LINEAGE_RUN_ATTEMPT: ${{ steps.provenance.outputs.tauri_lineage_run_attempt }}
+          TAURI_LINEAGE_RUN_ID: ${{ inputs.tauri_lineage_run_id }}
+          TAURI_MACOS_LINEAGE_RECEIPT_SHA256: ${{ inputs.tauri_lineage_macos_receipt_sha256 }}
+          TAURI_MACOS_RECEIPT_SHA256: ${{ inputs.tauri_macos_receipt_sha256 }}
+          TAURI_RELEASE_TAG: ${{ inputs.tauri_release_tag }}
+          TAURI_SOURCE_SHA: ${{ inputs.tauri_source_sha }}
+          TAURI_VERSION: ${{ inputs.tauri_version }}
+          TAURI_WINDOWS_LINEAGE_RECEIPT_SHA256: ${{ inputs.tauri_lineage_windows_receipt_sha256 }}
+          TAURI_WINDOWS_RECEIPT_SHA256: ${{ inputs.tauri_windows_receipt_sha256 }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/electronProductionPromotionReadinessCli.mjs verify \
+            --source-sha "${SOURCE_SHA}" \
+            --version "${VERSION}" \
+            --candidate-run-id "${CANDIDATE_RUN_ID}" \
+            --candidate-run-attempt "${CANDIDATE_RUN_ATTEMPT}" \
+            --candidate-run-control-sha "${CANDIDATE_CONTROL_SHA}" \
+            --candidate-directory candidate-bundle/candidate \
+            --candidate-receipt candidate-bundle/electron-production-candidate-receipt.json \
+            --candidate-receipt-sha256 "${CANDIDATE_RECEIPT_SHA256}" \
+            --candidate-trusted-control-receipt candidate-trusted-control/electron-production-candidate-trusted-control-receipt.json \
+            --mac-directory platform-candidates/macos \
+            --windows-directory platform-candidates/windows \
+            --prior-candidate-run-id "${PRIOR_CANDIDATE_RUN_ID}" \
+            --prior-candidate-run-attempt "${PRIOR_CANDIDATE_RUN_ATTEMPT}" \
+            --prior-candidate-run-control-sha "${PRIOR_CANDIDATE_CONTROL_SHA}" \
+            --prior-candidate-directory prior-candidate-bundle/candidate \
+            --prior-candidate-receipt prior-candidate-bundle/electron-production-candidate-receipt.json \
+            --prior-candidate-receipt-sha256 "${PRIOR_CANDIDATE_RECEIPT_SHA256}" \
+            --prior-candidate-trusted-control-receipt prior-candidate-trusted-control/electron-production-candidate-trusted-control-receipt.json \
+            --prior-mac-directory prior-platform-candidates/macos \
+            --prior-windows-directory prior-platform-candidates/windows \
+            --prior-electron-source-sha "${PRIOR_ELECTRON_SOURCE_SHA}" \
+            --prior-electron-version "${PRIOR_ELECTRON_VERSION}" \
+            --provisional-publication-run-id "${PROVISIONAL_PUBLICATION_RUN_ID}" \
+            --provisional-publication-run-attempt "${PROVISIONAL_PUBLICATION_RUN_ATTEMPT}" \
+            --provisional-publication-run-control-sha "${PROVISIONAL_PUBLICATION_CONTROL_SHA}" \
+            --provisional-publication-receipt provisional-publication/electron-production-publication-provisional-receipt.json \
+            --provisional-publication-receipt-sha256 "${PROVISIONAL_PUBLICATION_RECEIPT_SHA256}" \
+            --evidence-run-id "${EVIDENCE_RUN_ID}" \
+            --evidence-run-attempt "${EVIDENCE_RUN_ATTEMPT}" \
+            --evidence-run-control-sha "${EVIDENCE_CONTROL_SHA}" \
+            --evidence-directory terminal-evidence \
+            --challenge-id "${CHALLENGE_ID}" \
+            --challenge-nonce-sha256 "${CHALLENGE_NONCE_SHA256}" \
+            --tauri-release-tag "${TAURI_RELEASE_TAG}" \
+            --tauri-source-sha "${TAURI_SOURCE_SHA}" \
+            --tauri-version "${TAURI_VERSION}" \
+            --tauri-lineage-run-id "${TAURI_LINEAGE_RUN_ID}" \
+            --tauri-lineage-run-attempt "${TAURI_LINEAGE_RUN_ATTEMPT}" \
+            --tauri-lineage-run-control-sha "${TAURI_LINEAGE_CONTROL_SHA}" \
+            --tauri-macos-lineage-receipt tauri-lineage/macos/tauri-v22-public-lineage-receipt.json \
+            --tauri-macos-lineage-receipt-sha256 "${TAURI_MACOS_LINEAGE_RECEIPT_SHA256}" \
+            --tauri-windows-lineage-receipt tauri-lineage/windows/tauri-v22-public-lineage-receipt.json \
+            --tauri-windows-lineage-receipt-sha256 "${TAURI_WINDOWS_LINEAGE_RECEIPT_SHA256}" \
+            --tauri-macos-receipt-sha256 "${TAURI_MACOS_RECEIPT_SHA256}" \
+            --tauri-windows-receipt-sha256 "${TAURI_WINDOWS_RECEIPT_SHA256}" \
+            --electron-macos-receipt-sha256 "${ELECTRON_MACOS_RECEIPT_SHA256}" \
+            --electron-windows-receipt-sha256 "${ELECTRON_WINDOWS_RECEIPT_SHA256}" \
+            --readiness-control-sha "${READINESS_CONTROL_SHA}" \
+            --owner-approval "${OWNER_APPROVAL}" \
+            --output electron-production-promotion-readiness-receipt.json
+
+      - name: Upload read-only readiness receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-promotion-readiness-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: electron-production-promotion-readiness-receipt.json
+
+      - name: Record the read-only terminal-promotion boundary
+        shell: bash
+        run: |
+          {
+            echo "## Electron production promotion readiness"
+            echo
+            echo "Both attested public v22 source lineages: verified and cross-bound"
+            echo "Attested provisional publication: verified and cross-bound"
+            echo "Candidate and four externally attested terminal transactions: verified"
+            echo "Evidence classification: externally-served-terminal-evidence-observed"
+            echo "Publication performed by this workflow: false"
+            echo "Terminal promotion receipt produced: false"
+            echo "The preserved Tauri v22 release remains the rollback source until a separate owner-approved finalizer completes."
+          } >> "${GITHUB_STEP_SUMMARY}"

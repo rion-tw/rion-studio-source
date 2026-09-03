@@ -26,7 +26,14 @@ if (updatedCargoToml === cargoToml) throw new Error("Cargo workspace version was
 await write("Cargo.toml", updatedCargoToml);
 
 let cargoLock = await read("Cargo.lock");
-for (const name of ["rion-core", "rion-platform", "rion-tauri"]) {
+for (const name of [
+  "rion-appkit",
+  "rion-core",
+  "rion-node",
+  "rion-platform",
+  "rion-tauri",
+  "rion-updater"
+]) {
   const expression = new RegExp(`(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = )"[^"]+"`);
   const updated = cargoLock.replace(expression, `$1"${version}"`);
   if (updated === cargoLock) throw new Error(`Cargo.lock package ${name} was not updated.`);

@@ -3,6 +3,11 @@
 use super::super::*;
 
 #[cfg(target_os = "macos")]
+mod session_export;
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) use session_export::*;
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn ensure_platform_automation_surface_ready(
     _webview: &Webview,
     context: &InputDispatchContext,
@@ -53,6 +58,52 @@ pub(in crate::system_runtime) fn macos_webkit_runtime_version() -> Option<String
         .to_owned();
     unsafe { rion_wk_free_c_string(raw) };
     (!value.is_empty()).then_some(value)
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn clear_platform_browser_data_event_bound(
+    webview: &Webview,
+) -> RuntimeResult<()> {
+    use block2::RcBlock;
+    use objc2::MainThreadMarker;
+    use objc2_foundation::NSDate;
+    use objc2_web_kit::{WKWebView, WKWebsiteDataStore};
+
+    await_event_bound_native_terminal(|terminal_sender| {
+        webview
+            .with_webview(move |platform_webview| {
+                let Some(main_thread_marker) = MainThreadMarker::new() else {
+                    let _ = terminal_sender.send(Err(RuntimeError::new(
+                        "SYSTEM_BROWSER_DATA_CLEAR_THREAD_INVALID",
+                        "WKWebsiteDataStore clear was not delivered on the AppKit main thread.",
+                    )));
+                    return;
+                };
+                let raw_webview = platform_webview.inner().cast::<WKWebView>();
+                let Some(webview) = (unsafe { raw_webview.as_ref() }) else {
+                    let _ = terminal_sender.send(Err(RuntimeError::new(
+                        "SYSTEM_BROWSER_DATA_CLEAR_WEBVIEW_INVALID",
+                        "The WKWebView clear target was unavailable.",
+                    )));
+                    return;
+                };
+                let store = unsafe { webview.configuration().websiteDataStore() };
+                let data_types =
+                    unsafe { WKWebsiteDataStore::allWebsiteDataTypes(main_thread_marker) };
+                let since = NSDate::dateWithTimeIntervalSince1970(0.0);
+                let completion = RcBlock::new(move || {
+                    let _ = terminal_sender.send(Ok(()));
+                });
+                unsafe {
+                    store.removeDataOfTypes_modifiedSince_completionHandler(
+                        &data_types,
+                        &since,
+                        &completion,
+                    );
+                }
+            })
+            .map_err(RuntimeError::tauri)
+    })
 }
 
 #[cfg(target_os = "macos")]

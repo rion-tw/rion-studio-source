@@ -1,29 +1,28 @@
 use crate::model::{
-    BrowserEngineResolutionRecord, BrowserHostKind, ResolvedBrowserEngine, SystemWebViewIssueReason,
+    BrowserEngineResolutionRecord, BrowserHostKind, BrowserRuntimeFailureReason,
+    ResolvedBrowserEngine,
 };
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BrowserEngineResolutionInput {
-    pub platform: rion_platform::Platform,
-    pub system_available: bool,
-    pub system_failure_reason: Option<SystemWebViewIssueReason>,
+    pub engine: ResolvedBrowserEngine,
+    pub host_kind: BrowserHostKind,
+    pub runtime_available: bool,
+    pub runtime_failure_reason: Option<BrowserRuntimeFailureReason>,
 }
 
 pub(crate) fn resolve_browser_engine(
     input: BrowserEngineResolutionInput,
 ) -> BrowserEngineResolutionRecord {
     BrowserEngineResolutionRecord {
-        resolved_engine: match input.platform {
-            rion_platform::Platform::Windows => ResolvedBrowserEngine::Webview2,
-            rion_platform::Platform::Macos => ResolvedBrowserEngine::Wkwebview,
-        },
-        host_kind: BrowserHostKind::SystemNative,
-        issue_reason: if input.system_available {
+        resolved_engine: input.engine,
+        host_kind: input.host_kind,
+        issue_reason: if input.runtime_available {
             None
         } else {
             input
-                .system_failure_reason
-                .or(Some(SystemWebViewIssueReason::RuntimeCreationFailed))
+                .runtime_failure_reason
+                .or(Some(BrowserRuntimeFailureReason::RuntimeCreationFailed))
         },
     }
 }
@@ -32,42 +31,56 @@ pub(crate) fn resolve_browser_engine(
 mod tests {
     use super::*;
 
-    fn input(platform: rion_platform::Platform) -> BrowserEngineResolutionInput {
+    fn system_input(engine: ResolvedBrowserEngine) -> BrowserEngineResolutionInput {
         BrowserEngineResolutionInput {
-            platform,
-            system_available: true,
-            system_failure_reason: None,
+            engine,
+            host_kind: BrowserHostKind::SystemNative,
+            runtime_available: true,
+            runtime_failure_reason: None,
         }
     }
 
     #[test]
-    fn system_preference_maps_to_the_platform_engine() {
-        for (platform, expected) in [
+    fn resolution_retains_the_registered_engine_and_host() {
+        for (engine, host_kind) in [
             (
-                rion_platform::Platform::Windows,
                 ResolvedBrowserEngine::Webview2,
+                BrowserHostKind::SystemNative,
             ),
             (
-                rion_platform::Platform::Macos,
                 ResolvedBrowserEngine::Wkwebview,
+                BrowserHostKind::SystemNative,
+            ),
+            (
+                ResolvedBrowserEngine::Chromium,
+                BrowserHostKind::AppkitChromium,
+            ),
+            (
+                ResolvedBrowserEngine::Chromium,
+                BrowserHostKind::BundledChromium,
             ),
         ] {
-            let resolved = resolve_browser_engine(input(platform));
-            assert_eq!(resolved.resolved_engine, expected);
-            assert_eq!(resolved.host_kind, BrowserHostKind::SystemNative);
+            let resolved = resolve_browser_engine(BrowserEngineResolutionInput {
+                engine,
+                host_kind,
+                runtime_available: true,
+                runtime_failure_reason: None,
+            });
+            assert_eq!(resolved.resolved_engine, engine);
+            assert_eq!(resolved.host_kind, host_kind);
         }
     }
 
     #[test]
     fn unavailable_system_reports_a_capability_failure_without_changing_engines() {
-        let mut fallback = input(rion_platform::Platform::Windows);
-        fallback.system_available = false;
-        fallback.system_failure_reason = Some(SystemWebViewIssueReason::RuntimeCreationFailed);
+        let mut fallback = system_input(ResolvedBrowserEngine::Webview2);
+        fallback.runtime_available = false;
+        fallback.runtime_failure_reason = Some(BrowserRuntimeFailureReason::RuntimeCreationFailed);
         let resolution = resolve_browser_engine(fallback);
         assert_eq!(resolution.resolved_engine, ResolvedBrowserEngine::Webview2);
         assert_eq!(
             resolution.issue_reason,
-            Some(SystemWebViewIssueReason::RuntimeCreationFailed)
+            Some(BrowserRuntimeFailureReason::RuntimeCreationFailed)
         );
     }
 }

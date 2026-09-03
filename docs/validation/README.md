@@ -10,10 +10,29 @@ be treated as current evidence.
   W1-W11 placement, persistence, display, DPI, and generation-fence acceptance.
 - [macOS WKWebView Game Mode A/B](runbooks/macos-wkwebview-game-mode.md):
   isolated fullscreen Game Mode eligibility, workload controls, and FPS gates.
+- [macOS Flyff Brave/Rion Same-Scene A/B](runbooks/macos-flyff-brave-rion-same-scene.md):
+  matched Effects-on scene controls, interleaved sampling, and stability gates.
 
 Desktop smoke, full, and extended profile policy remains in
 [Desktop E2E Strategy](../e2e-strategy.md). Journey and phase membership remains
 in `docs/e2e-coverage.json`.
+
+The Chromium Macro native-effect contract has a focused portable source/unit
+gate:
+
+```bash
+pnpm exec vitest run tests/chromium-macro-native-effect-e2e-source.test.ts \
+  tests/electron-windows-chromium-input-surface-attachment.test.ts \
+  tests/electron-windows-chromium-trusted-input-adapter.test.ts \
+  tests/electron-windows-chromium-trusted-input-runtime.test.ts \
+  tests/electron-windows-chromium-native-input-probe.test.ts
+```
+
+Its live `chromium-macro-native-effect` and `chromium-macro-background-tab`
+phases remain pending their respective macOS/Windows desktop runners. Windows
+also runs the ABI-v3 foreground-and-hidden physical probe in
+`chromium-windows-trusted-input-physical`; portable or macOS results cannot
+substitute for that Windows evidence.
 
 ## Immutable archive
 

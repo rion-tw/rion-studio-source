@@ -16,13 +16,11 @@ use crate::domain::{
     assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_game_window,
     create_macro, create_role, create_workspace, default_game_browser_settings,
     default_macro_settings, default_quick_access_preferences, default_runtime_window_preferences,
-    delete_game, delete_game_window,
-        delete_macro, delete_macros, delete_workspace,
+    delete_game, delete_game_window, delete_macro, delete_macros, delete_workspace,
     macro_shortcut_source_role_ids, normalize_game_browser_settings, normalize_macro_settings,
-    reorder_game_windows, reorder_roles,
-    reorder_workspaces, reset_builtin_game, save_runtime_game_window, update_game,
-    update_game_window, update_macro, update_role, update_workspace,
-    validate_game_window_collection,
+    reorder_game_windows, reorder_roles, reorder_workspaces, reset_builtin_game,
+    save_runtime_game_window, update_game, update_game_window, update_macro, update_role,
+    update_workspace, validate_game_window_collection,
 };
 use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
@@ -30,16 +28,22 @@ use crate::model::{
     GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
     GameWindowCreateInputRecord, GameWindowDisplayRemapRecord,
     GameWindowRuntimeSnapshotCommitInputRecord, GameWindowSaveRuntimeInputRecord,
-    GameWindowUpdateInputRecord,
-    LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition,
-    MacroOverlaySettingsRecord, MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,
-    QuickAccessItemRefRecord, QuickAccessPreferencesRecord, RoleGameAssignmentRecord,
-    RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
-    StateCollection, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
-    StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
+    GameWindowUpdateInputRecord, LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord,
+    MacroDefinition, MacroOverlaySettingsRecord, MacroRuntimeSettings, MacroSettingsRecord,
+    MacroUpdateInputRecord, QuickAccessItemRefRecord, QuickAccessPreferencesRecord,
+    RoleCreateInputRecord, RoleGameAssignmentRecord, RoleUpdateInputRecord,
+    RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord, StateGameWindowRecord,
+    StateLaunchWorkspaceRecord, StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord,
+    WorkspaceUpdateInputRecord,
+};
+use crate::session_migration::{
+    RoleSessionMigrationImportBeginInput, RoleSessionMigrationRecord,
+    RoleSessionMigrationStartInput, RoleSessionMigrationTransitionInput,
+    V23ChromeProfileImportReadyEvidence, V23RoleExplicitResetEvidence,
+    V23RoleInitializationEvidence,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 28;
+pub(crate) const SCHEMA_VERSION: u32 = 29;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -66,16 +70,48 @@ enum Request {
     DomainMutation(Box<StateMutation>, Sender<CoreResult<Value>>),
     Metadata(Sender<CoreResult<Value>>),
     MacroConfiguration(Sender<CoreResult<(Vec<MacroDefinition>, MacroRuntimeSettings)>>),
-    OverlayConfiguration(Sender<CoreResult<(
-        Vec<MacroDefinition>,
-        MacroBadgePositionRecord,
-        MacroOverlaySettingsRecord,
-    )>>),
+    OverlayConfiguration(
+        Sender<
+            CoreResult<(
+                Vec<MacroDefinition>,
+                MacroBadgePositionRecord,
+                MacroOverlaySettingsRecord,
+            )>,
+        >,
+    ),
     RecoverPortableImport(PathBuf, Sender<CoreResult<bool>>),
     OperationJournals(Sender<CoreResult<Vec<OperationJournalRecord>>>),
     OperationJournalPut(OperationJournalRecord, Sender<CoreResult<()>>),
     OperationJournalDelete(String, Sender<CoreResult<()>>),
-    Shutdown(Sender<()>),
+    ChromeProfileImportJournalTransition(
+        crate::chrome_profile_import_contract::ChromeProfileImportJournalTransitionInput,
+        Sender<CoreResult<OperationJournalRecord>>,
+    ),
+    RoleSessionMigrationRead(
+        String,
+        Sender<CoreResult<Option<RoleSessionMigrationRecord>>>,
+    ),
+    RoleSessionMigrationList(Sender<CoreResult<Vec<RoleSessionMigrationRecord>>>),
+    RoleSessionMigrationsPrepareV22(
+        crate::RoleSessionMigrationPlatform,
+        Sender<CoreResult<Vec<RoleSessionMigrationRecord>>>,
+    ),
+    RoleSessionMigrationStart(
+        RoleSessionMigrationStartInput,
+        Sender<CoreResult<RoleSessionMigrationRecord>>,
+    ),
+    RoleSessionMigrationImportBegin(
+        crate::RoleSessionMigrationPlatform,
+        u32,
+        RoleSessionMigrationImportBeginInput,
+        Sender<CoreResult<RoleSessionMigrationRecord>>,
+    ),
+    RoleSessionMigrationTransition(
+        crate::session_migration::TransitionAuthority,
+        RoleSessionMigrationTransitionInput,
+        Sender<CoreResult<RoleSessionMigrationRecord>>,
+    ),
+    Shutdown(Sender<CoreResult<()>>),
 }
 
 pub(crate) enum StateMutation {
@@ -98,6 +134,25 @@ pub(crate) enum StateMutation {
         id: String,
         input: RoleCreateInputRecord,
     },
+    RoleCreateWithV23Ready {
+        id: String,
+        input: RoleCreateInputRecord,
+        initialization: V23RoleInitializationEvidence,
+    },
+    ChromeProfileImportMetadataCommit {
+        id: String,
+        input: RoleCreateInputRecord,
+        create_role: bool,
+        ready: V23ChromeProfileImportReadyEvidence,
+        operation_id: String,
+        expected_journal_revision: u64,
+    },
+    ChromeProfileImportMetadataRollback {
+        role_id: String,
+        transaction_id: String,
+        operation_id: String,
+        expected_journal_revision: u64,
+    },
     RoleUpdate {
         id: String,
         input: RoleUpdateInputRecord,
@@ -116,6 +171,8 @@ pub(crate) enum StateMutation {
     RoleBrowserDataReset {
         id: String,
         operation_id: String,
+        expected_platform: crate::RoleSessionMigrationPlatform,
+        v23_explicit_reset: Option<V23RoleExplicitResetEvidence>,
     },
     RoleAssignGameIds(Vec<RoleGameAssignmentRecord>),
     WorkspaceCreate(WorkspaceCreateInputRecord),
@@ -193,6 +250,9 @@ impl StateMutation {
             Self::GameDelete { .. } | Self::GamesDelete { .. } => vec![Games],
             Self::RoleCreate(_)
             | Self::RoleCreateWithId { .. }
+            | Self::RoleCreateWithV23Ready { .. }
+            | Self::ChromeProfileImportMetadataCommit { .. }
+            | Self::ChromeProfileImportMetadataRollback { .. }
             | Self::RoleUpdate { .. }
             | Self::RoleReorder { .. }
             | Self::RoleBrowserDataReset { .. }
@@ -315,6 +375,72 @@ impl StateDatabaseWorker {
         })
     }
 
+    pub(crate) fn transition_chrome_profile_import_journal(
+        &self,
+        input: crate::chrome_profile_import_contract::ChromeProfileImportJournalTransitionInput,
+    ) -> CoreResult<OperationJournalRecord> {
+        request(&self.sender, |response| {
+            Request::ChromeProfileImportJournalTransition(input, response)
+        })
+    }
+
+    pub(crate) fn role_session_migration(
+        &self,
+        role_id: String,
+    ) -> CoreResult<Option<RoleSessionMigrationRecord>> {
+        request(&self.sender, |response| {
+            Request::RoleSessionMigrationRead(role_id, response)
+        })
+    }
+
+    pub(crate) fn role_session_migrations(&self) -> CoreResult<Vec<RoleSessionMigrationRecord>> {
+        request(&self.sender, Request::RoleSessionMigrationList)
+    }
+
+    pub(crate) fn prepare_v22_role_session_migrations(
+        &self,
+        platform: crate::RoleSessionMigrationPlatform,
+    ) -> CoreResult<Vec<RoleSessionMigrationRecord>> {
+        request(&self.sender, |response| {
+            Request::RoleSessionMigrationsPrepareV22(platform, response)
+        })
+    }
+
+    pub(crate) fn start_role_session_migration(
+        &self,
+        input: RoleSessionMigrationStartInput,
+    ) -> CoreResult<RoleSessionMigrationRecord> {
+        request(&self.sender, |response| {
+            Request::RoleSessionMigrationStart(input, response)
+        })
+    }
+
+    pub(crate) fn transition_role_session_migration(
+        &self,
+        authority: crate::session_migration::TransitionAuthority,
+        input: RoleSessionMigrationTransitionInput,
+    ) -> CoreResult<RoleSessionMigrationRecord> {
+        request(&self.sender, |response| {
+            Request::RoleSessionMigrationTransition(authority, input, response)
+        })
+    }
+
+    pub(crate) fn begin_role_session_migration_import(
+        &self,
+        expected_platform: crate::RoleSessionMigrationPlatform,
+        runtime_contract_version: u32,
+        input: RoleSessionMigrationImportBeginInput,
+    ) -> CoreResult<RoleSessionMigrationRecord> {
+        request(&self.sender, |response| {
+            Request::RoleSessionMigrationImportBegin(
+                expected_platform,
+                runtime_contract_version,
+                input,
+                response,
+            )
+        })
+    }
+
     pub fn metadata(&self) -> CoreResult<Value> {
         request(&self.sender, Request::Metadata)
     }
@@ -339,22 +465,37 @@ impl StateDatabaseWorker {
         })
     }
 
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) -> CoreResult<()> {
+        if self.join.is_none() {
+            return Ok(());
+        }
         let (sender, receiver) = bounded(1);
-        if self
+        let result = match self
             .sender
             .send_timeout(Request::Shutdown(sender), WORKER_SHUTDOWN_TIMEOUT)
-            .is_ok()
         {
-            let _ = receiver.recv_timeout(WORKER_SHUTDOWN_TIMEOUT);
-        }
+            Ok(()) => match receiver.recv_timeout(WORKER_SHUTDOWN_TIMEOUT) {
+                Ok(result) => result,
+                Err(RecvTimeoutError::Timeout) => Err(CoreError::StateDatabase(format!(
+                    "state worker shutdown timed out after {} seconds",
+                    WORKER_SHUTDOWN_TIMEOUT.as_secs()
+                ))),
+                Err(RecvTimeoutError::Disconnected) => Err(CoreError::ShuttingDown),
+            },
+            Err(SendTimeoutError::Timeout(_)) => Err(CoreError::StateDatabase(format!(
+                "state worker shutdown queue timed out after {} seconds",
+                WORKER_SHUTDOWN_TIMEOUT.as_secs()
+            ))),
+            Err(SendTimeoutError::Disconnected(_)) => Err(CoreError::ShuttingDown),
+        };
         join_worker_if_finished(&mut self.join);
+        result
     }
 }
 
 impl Drop for StateDatabaseWorker {
     fn drop(&mut self) {
-        self.shutdown();
+        let _ = self.shutdown();
     }
 }
 
@@ -458,10 +599,69 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             Request::OperationJournalDelete(id, response) => {
                 let _ = response.send(delete_operation_journal(&connection, &id));
             }
+            Request::ChromeProfileImportJournalTransition(input, response) => {
+                let _ = response.send(
+                    crate::chrome_profile_import_contract::apply_journal_transition(
+                        &mut connection,
+                        input,
+                    ),
+                );
+            }
+            Request::RoleSessionMigrationRead(role_id, response) => {
+                let _ = response.send(crate::session_migration::read(&connection, &role_id));
+            }
+            Request::RoleSessionMigrationList(response) => {
+                let _ = response.send(crate::session_migration::list(&connection));
+            }
+            Request::RoleSessionMigrationsPrepareV22(platform, response) => {
+                let _ = response.send(crate::session_migration::prepare_v22_role_journals(
+                    &mut connection,
+                    platform,
+                ));
+            }
+            Request::RoleSessionMigrationStart(input, response) => {
+                let _ = response.send(crate::session_migration::start(&mut connection, input));
+            }
+            Request::RoleSessionMigrationImportBegin(
+                expected_platform,
+                runtime_contract_version,
+                input,
+                response,
+            ) => {
+                let _ = response.send(
+                    crate::session_migration::begin_role_session_migration_import(
+                        &mut connection,
+                        expected_platform,
+                        runtime_contract_version,
+                        input,
+                    ),
+                );
+            }
+            Request::RoleSessionMigrationTransition(authority, input, response) => {
+                let _ = response.send(crate::session_migration::transition(
+                    &mut connection,
+                    authority,
+                    input,
+                ));
+            }
             Request::Shutdown(response) => {
-                let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-                let _ = response.send(());
-                break;
+                let checkpoint = connection
+                    .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()));
+                if let Err(error) = checkpoint {
+                    let _ = response.send(Err(error));
+                    continue;
+                }
+                match connection.close() {
+                    Ok(()) => {
+                        let _ = response.send(Ok(()));
+                        return;
+                    }
+                    Err((returned, error)) => {
+                        connection = returned;
+                        let _ = response.send(Err(CoreError::StateDatabase(error.to_string())));
+                    }
+                }
             }
         }
     }

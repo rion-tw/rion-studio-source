@@ -1,39 +1,204 @@
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppCoreShutdownOutcome {
+    Completed,
+    AlreadyCompleted,
+}
+
+struct ProcessRetainedInstanceLock {
+    #[cfg(test)]
+    user_data_dir: std::path::PathBuf,
+    _file: std::fs::File,
+}
+
+fn process_retained_instance_locks(
+) -> &'static std::sync::Mutex<Vec<ProcessRetainedInstanceLock>> {
+    static RETAINED: std::sync::OnceLock<
+        std::sync::Mutex<Vec<ProcessRetainedInstanceLock>>,
+    > = std::sync::OnceLock::new();
+    RETAINED.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
 impl AppCore {
     pub fn quiesce_automatic_input_for_shutdown(&self) {
         self.macro_runtime.shutdown();
     }
 
-    pub fn shutdown(&self) {
-        if self.shutdown_started.swap(true, Ordering::AcqRel) {
-            return;
+    /// Performs the irreversible Core shutdown only after the destructive
+    /// command domain is proven idle. Callers that own a bounded external drain
+    /// must use this checked boundary so an active Role browser-data clear can
+    /// never be reported as a successful teardown.
+    pub fn shutdown_checked(&self) -> CoreResult<AppCoreShutdownOutcome> {
+        self.begin_role_browser_data_clear_command_drain()
+            .map_err(|error| {
+                shutdown_preterminal_unverified(
+                    "Core could not establish the Role browser-data clear admission fence",
+                    error,
+                )
+            })?;
+        if !self
+            .role_browser_data_clear_commands
+            .is_idle()
+            .map_err(|error| {
+                shutdown_preterminal_unverified(
+                    "Core could not verify the Role browser-data clear command terminal",
+                    error,
+                )
+            })?
+        {
+            return Err(CoreError::Domain {
+                code: "CORE_SHUTDOWN_ROLE_BROWSER_DATA_CLEAR_UNVERIFIED",
+                message: "Core shutdown cannot release its runtime or instance lock before every accepted Role browser-data clear reaches its command-domain terminal."
+                .to_owned(),
+            });
+        }
+        if !self
+            .browser_operations
+            .begin_shutdown_and_check_idle()
+            .map_err(|error| {
+                shutdown_preterminal_unverified(
+                    "Core could not verify the browser-operation terminal",
+                    error,
+                )
+            })?
+        {
+            return Err(CoreError::Domain {
+                code: "CORE_SHUTDOWN_BROWSER_OPERATIONS_UNVERIFIED",
+                message: "Core shutdown cannot release its runtime or instance lock while an admitted browser operation still owns a non-terminal lease."
+                    .to_owned(),
+            });
+        }
+        if self
+            .shutdown_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            let runtime_released = self
+                .runtime
+                .read()
+                .map_err(|_| CoreError::Internal("runtime lock poisoned".to_owned()))?
+                .is_none();
+            let instance_lock_released = self
+                .instance_lock
+                .lock()
+                .map_err(|_| CoreError::Internal("instance lock poisoned".to_owned()))?
+                .is_none();
+            return if runtime_released && instance_lock_released {
+                Ok(AppCoreShutdownOutcome::AlreadyCompleted)
+            } else {
+                Err(CoreError::Domain {
+                    code: "CORE_SHUTDOWN_IN_PROGRESS",
+                    message: "Core shutdown has started but has not proven terminal teardown."
+                        .to_owned(),
+                })
+            };
         }
         self.launch_completion.shutdown();
-        self.browser_operations.shutdown();
         self.quiesce_automatic_input_for_shutdown();
         self.browser_action_effects.shutdown();
         self.operation_actor.shutdown();
-        let core_effects = self.operation_actor.metrics();
         self.overlay_refresh.shutdown();
-        if let Ok(mut embedded_input) = self.embedded_input.lock() {
-            embedded_input.shutdown();
-        }
-        if let Ok(mut runtime) = self.runtime.write()
-            && let Some(mut runtime) = runtime.take()
+        self.embedded_input
+            .lock()
+            .map_err(|_| CoreError::Internal("embedded input lock poisoned".to_owned()))?
+            .shutdown();
         {
+            let mut divider_runtime = self.workspace_divider_runtime.lock().map_err(|_| {
+                CoreError::Internal("workspace divider runtime lock poisoned".to_owned())
+            })?;
+            // Core shutdown is the terminal actor-stop boundary for native
+            // divider gestures. Move commits remain authoritative in memory;
+            // shutdown itself performs no divider durability commit. A prior,
+            // independent window snapshot may already have persisted them.
+            divider_runtime.gestures.clear();
+        }
+        let core_effects = self.operation_actor.metrics();
+        let mut instance_lock = self
+            .instance_lock
+            .lock()
+            .map_err(|_| CoreError::Internal("instance lock poisoned".to_owned()))?;
+        if instance_lock.is_none() {
+            return Err(CoreError::Domain {
+                code: "CORE_SHUTDOWN_INSTANCE_LOCK_UNVERIFIED",
+                message: "Core instance-lock ownership was unavailable during verified shutdown."
+                    .to_owned(),
+            });
+        }
+        let mut runtime = self
+            .runtime
+            .write()
+            .map_err(|_| CoreError::Internal("runtime lock poisoned".to_owned()))?;
+        {
+            let runtime = runtime.as_mut().ok_or_else(|| CoreError::Domain {
+                code: "CORE_SHUTDOWN_RUNTIME_UNVERIFIED",
+                message: "Core runtime teardown was not available for verified shutdown."
+                    .to_owned(),
+            })?;
             runtime.scheduler.shutdown();
             runtime.telemetry.record_core_effects(core_effects);
             runtime.telemetry.shutdown();
-            if let Err(error) = runtime.logs.shutdown() {
-                eprintln!("Rion Studio log database shutdown failed: {error}");
-            }
-            runtime.state.shutdown();
+            runtime.logs.shutdown()?;
+            runtime.state.shutdown()?;
         }
+        let released_runtime = runtime.take().ok_or_else(|| CoreError::Domain {
+            code: "CORE_SHUTDOWN_RUNTIME_UNVERIFIED",
+            message: "Core runtime teardown lost ownership before terminal release.".to_owned(),
+        })?;
+        drop(runtime);
+        drop(released_runtime);
         self.emit(vec![CoreEvent::Shutdown]);
-        if let Ok(mut lock) = self.instance_lock.lock()
-            && let Some(file) = lock.take()
-        {
-            let _ = fs2::FileExt::unlock(&file);
+        let file = instance_lock.as_ref().ok_or_else(|| CoreError::Domain {
+            code: "CORE_SHUTDOWN_INSTANCE_LOCK_UNVERIFIED",
+            message: "Core instance-lock ownership was lost before terminal release.".to_owned(),
+        })?;
+        fs2::FileExt::unlock(file).map_err(|error| {
+            CoreError::Internal(format!("Core instance lock unlock failed: {error}"))
+        })?;
+        let _released_instance_lock = instance_lock.take().ok_or_else(|| CoreError::Domain {
+            code: "CORE_SHUTDOWN_INSTANCE_LOCK_UNVERIFIED",
+            message: "Core instance-lock ownership was lost after successful unlock.".to_owned(),
+        })?;
+        Ok(AppCoreShutdownOutcome::Completed)
+    }
+
+    /// Compatibility boundary for existing Rust owners. Production shells that
+    /// need to decide whether process exit is clean must call
+    /// [`Self::shutdown_checked`] and inspect its result.
+    pub fn shutdown(&self) {
+        if let Err(error) = self.shutdown_checked() {
+            eprintln!("Core shutdown did not reach a verified terminal: {error}");
         }
+    }
+
+    /// Transfers a still-owned OS instance lock to process-lifetime quarantine.
+    /// A checked shutdown failure must never turn object destruction into an
+    /// observable unlock that lets another shell enter the same data directory.
+    fn retain_instance_lock_until_process_exit(&mut self) -> bool {
+        #[cfg(test)]
+        if !self
+            .retain_failed_shutdown_instance_lock_for_test
+            .load(Ordering::Acquire)
+        {
+            return false;
+        }
+
+        let instance_lock = match self.instance_lock.get_mut() {
+            Ok(instance_lock) => instance_lock,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let Some(file) = instance_lock.take() else {
+            return false;
+        };
+        let retained = ProcessRetainedInstanceLock {
+            #[cfg(test)]
+            user_data_dir: self.user_data_dir.clone(),
+            _file: file,
+        };
+        let mut locks = match process_retained_instance_locks().lock() {
+            Ok(locks) => locks,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        locks.push(retained);
+        true
     }
 
     fn with_runtime<T>(&self, operation: impl FnOnce(&Runtime) -> CoreResult<T>) -> CoreResult<T> {
@@ -74,7 +239,7 @@ impl AppCore {
         let logging = self.with_runtime(|runtime| runtime.logs.storage_status(current_level))?;
         let browser_role_statuses = self.browser_statuses()?;
         let browser_workspace_statuses = self.browser_workspace_statuses()?;
-        let system_webview_runtime = self.system_webview_runtime()?;
+        let browser_runtime_registration = self.browser_runtime_registration()?;
         let gpu_feature_status =
             serde_json::from_str::<Value>(&snapshot.gpu_feature_status_raw_json)
                 .unwrap_or(Value::Null);
@@ -82,6 +247,38 @@ impl AppCore {
             .gpu_info_raw_json
             .as_deref()
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+        let runtime_registration_key = if self.runtime_contract_version
+            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+        {
+            "browserRuntime"
+        } else {
+            "systemRuntime"
+        };
+        let runtime_registration_value = if self.runtime_contract_version
+            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+        {
+            serde_json::to_value(&browser_runtime_registration)
+        } else {
+            serde_json::to_value(SystemWebViewRuntimeRegistrationRecord {
+                platform: browser_runtime_registration.platform.clone(),
+                engine: browser_runtime_registration.engine,
+                adapter_version: browser_runtime_registration.adapter_version.clone(),
+                available: browser_runtime_registration.available,
+                capability_snapshot: browser_runtime_registration.capabilities.clone(),
+                failure_reason: browser_runtime_registration.failure_reason.map(Into::into),
+            })
+        }
+        .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let mut browser_engines = json!({
+            "activeRoles": browser_role_statuses,
+            "activeWorkspaces": browser_workspace_statuses,
+            "foregroundPerformance": snapshot.browser_performance,
+            "nativeRuntime": snapshot.native_runtime,
+        });
+        browser_engines
+            .as_object_mut()
+            .ok_or_else(|| CoreError::Internal("browser diagnostics must be an object".to_owned()))?
+            .insert(runtime_registration_key.to_owned(), runtime_registration_value);
         let diagnostics = json!({
             "generatedAt": captured_at.to_rfc3339(),
             "application": {
@@ -117,13 +314,7 @@ impl AppCore {
                 "gpuFeatureStatus": gpu_feature_status,
                 "gpuInfo": gpu_info,
             },
-            "browserEngines": {
-                "systemRuntime": system_webview_runtime,
-                "activeRoles": browser_role_statuses,
-                "activeWorkspaces": browser_workspace_statuses,
-                "foregroundPerformance": snapshot.browser_performance,
-                "nativeRuntime": snapshot.native_runtime,
-            },
+            "browserEngines": browser_engines,
             "windowsGraphicsEvents": windows_graphics_events,
             "windowsGraphicsEventWindow": {
                 "since": graphics_since.to_rfc3339(),
@@ -160,6 +351,35 @@ impl AppCore {
         publish_events(&self.event_sender, events);
     }
 
+}
+
+fn shutdown_preterminal_unverified(context: &str, cause: CoreError) -> CoreError {
+    CoreError::Domain {
+        code: "CORE_SHUTDOWN_PRETERMINAL_UNVERIFIED",
+        message: format!("{context}: {cause}"),
+    }
+}
+
+#[cfg(test)]
+fn release_process_retained_instance_lock_for_test(
+    user_data_dir: &std::path::Path,
+) -> CoreResult<bool> {
+    let mut locks = process_retained_instance_locks()
+        .lock()
+        .map_err(|_| CoreError::Internal("retained instance-lock registry poisoned".to_owned()))?;
+    let Some(index) = locks
+        .iter()
+        .position(|retained| retained.user_data_dir == user_data_dir)
+    else {
+        return Ok(false);
+    };
+    let retained = locks.swap_remove(index);
+    fs2::FileExt::unlock(&retained._file).map_err(|error| {
+        CoreError::Internal(format!(
+            "could not release the test process-retained instance lock: {error}"
+        ))
+    })?;
+    Ok(true)
 }
 
 fn embedded_status(result: EmbeddedLaunchResultRecord) -> crate::model::BrowserRoleStatusRecord {
@@ -511,6 +731,24 @@ fn chrome_import_cancelled() -> CoreError {
     }
 }
 
+fn require_chrome_import_journal_fence(
+    journal: &OperationJournalRecord,
+    expected_phase: &str,
+    expected_revision: u64,
+) -> CoreResult<()> {
+    if journal.kind != "chrome_profile_import_v2"
+        || journal.phase != expected_phase
+        || crate::chrome_profile_import_contract::journal_revision(journal)? != expected_revision
+    {
+        return Err(CoreError::Domain {
+            code: "CHROME_PROFILE_IMPORT_FENCE_MISMATCH",
+            message: "The Chrome profile import transaction changed before completion."
+                .to_owned(),
+        });
+    }
+    Ok(())
+}
+
 fn chrome_import_auth_probe(game: &StateGameRecord) -> Option<ChromeImportAuthProbe> {
     (game.builtin_key.as_deref() == Some("flyff-universe")).then_some(ChromeImportAuthProbe {
         verification_url: "https://universe.flyff.com/profile",
@@ -614,8 +852,32 @@ fn recover_operation_journals(
                     }
                 }
                 "deferred" => {
-                    crate::role_browser_data::remove(user_data_dir, role_id)?;
-                    crate::role_browser_data::ensure(user_data_dir, role_id)?;
+                    if journal
+                        .payload
+                        .get("deferredByWindowsLock")
+                        .and_then(Value::as_bool)
+                        != Some(true)
+                        || journal
+                            .payload
+                            .get("hadDirectory")
+                            .and_then(Value::as_bool)
+                            != Some(true)
+                    {
+                        return Err(CoreError::Migration(
+                            "deferred role browser-data clear journal is invalid".to_owned(),
+                        ));
+                    }
+                    // A deferred prepare means Windows rejected the quarantine
+                    // rename and the original role directory never moved. A
+                    // timed-out helper has no authoritative completion receipt,
+                    // so restart may only roll the journal back after proving
+                    // that exact disk topology. It must not turn uncertainty
+                    // into a clear or a v23 explicit-reset transaction.
+                    crate::role_browser_data::recover_deferred_clear_rollback(
+                        user_data_dir,
+                        role_id,
+                        &journal.id,
+                    )?;
                 }
                 "committed" => {
                     crate::role_browser_data::discard_quarantine(user_data_dir, &journal.id)?;

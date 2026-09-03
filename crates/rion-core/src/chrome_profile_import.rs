@@ -168,7 +168,7 @@ pub(crate) fn persist_encrypted_staging(
     protected_payload: &[u8],
 ) -> CoreResult<()> {
     fs::create_dir_all(directory).map_err(|error| CoreError::Platform(error.to_string()))?;
-    restrict_directory(directory)?;
+    restrict_directory_internal(directory)?;
     let path = directory.join("session-transfer.enc");
     let temporary = directory.join("session-transfer.tmp");
     #[cfg(unix)]
@@ -197,7 +197,7 @@ pub(crate) fn persist_encrypted_staging(
         .map_err(|error| CoreError::Platform(error.to_string()))
 }
 
-fn restrict_directory(path: &Path) -> CoreResult<()> {
+pub(crate) fn restrict_directory_internal(path: &Path) -> CoreResult<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

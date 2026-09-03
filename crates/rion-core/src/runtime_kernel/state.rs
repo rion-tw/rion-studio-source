@@ -436,6 +436,11 @@ fn apply_to_candidate(
         RuntimeIntent::SeedDormantTabs {
             tab_ids, window_id, ..
         } => seed_dormant_tabs(state, &window_id, tab_ids)?,
+        RuntimeIntent::BeginTabActivation {
+            operation_id,
+            tab_id,
+            window_id,
+        } => begin_tab_activation(state, operation_id, tab_id, window_id)?,
         RuntimeIntent::ActivateTab {
             expected_revision,
             operation_id,
@@ -596,6 +601,7 @@ fn apply_browser_runtime(
     command: BrowserRuntimeCommand,
 ) -> CoreResult<RuntimeCommit> {
     let mutates = !matches!(&command, BrowserRuntimeCommand::Snapshot);
+    retire_terminal_close_tombstone_for_create(state, &command)?;
     let result = state.ownership.invoke(command)?;
     if mutates {
         next_revision(state);
@@ -610,6 +616,51 @@ fn apply_browser_runtime(
         window_ids: Vec::new(),
         browser_result: Some(result),
     })
+}
+
+fn retire_terminal_close_tombstone_for_create(
+    state: &mut RuntimeKernelState,
+    command: &BrowserRuntimeCommand,
+) -> CoreResult<()> {
+    let BrowserRuntimeCommand::CreateTab {
+        tab_id: Some(tab_id),
+        attempt_generation,
+        window_id,
+        ..
+    } = command
+    else {
+        return Ok(());
+    };
+    let Some(tombstone) = state.tombstones.get(tab_id) else {
+        return Ok(());
+    };
+    let new_attempt = attempt_generation
+        .as_deref()
+        .filter(|attempt| !attempt.is_empty() && attempt.trim() == *attempt);
+    let close = state.operations.get(tombstone.operation_id.as_str());
+    let relaunch_is_admissible = new_attempt.is_some_and(|attempt| {
+        tombstone.tab_id.as_str() == tab_id
+            && tombstone.window_id == *window_id
+            && close.is_some_and(|operation| {
+                operation.kind == "closeTab"
+                    && operation.phase.is_terminal()
+                    && operation
+                        .tab_id
+                        .as_ref()
+                        .is_some_and(|closed| closed.as_str() == tab_id)
+                    && operation.window_id.as_deref() == Some(window_id.as_str())
+                    && operation.attempt_id.as_ref().map(LaunchAttemptId::as_str) != Some(attempt)
+            })
+    });
+    if !relaunch_is_admissible {
+        return Err(CoreError::Domain {
+            code: "RUNTIME_TAB_RELAUNCH_STALE",
+            message: "A closed runtime tab may only reopen in its exact window under a new launch attempt."
+                .to_owned(),
+        });
+    }
+    state.tombstones.remove(tab_id);
+    Ok(())
 }
 
 include!("state/trace.rs");
@@ -1136,7 +1187,7 @@ fn apply_topology(
     if input.commit_id.trim().is_empty()
         || !matches!(
             input.source.as_str(),
-            "appKit" | "html" | "restore" | "command"
+            "appKit" | "html" | "restore" | "command" | "rendererAdapter"
         )
     {
         return Err(CoreError::InvalidInput(
@@ -1251,6 +1302,19 @@ fn apply_topology(
             state.windows.insert(window_id.clone(), window);
         }
     }
+    let logical_owner_by_tab = state
+        .windows
+        .iter()
+        .flat_map(|(window_id, window)| {
+            window
+                .tabs
+                .iter()
+                .map(move |tab| (tab.id.clone(), window_id.clone()))
+        })
+        .collect::<HashMap<_, _>>();
+    state
+        .ownership
+        .synchronize_tab_window_owners(&logical_owner_by_tab);
     let retained_tab_ids = state
         .windows
         .values()

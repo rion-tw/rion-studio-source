@@ -1,4 +1,127 @@
 impl AppCore {
+    pub fn inspect_macro_input_recovery(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+        expected_input_epoch: u64,
+    ) -> CoreResult<crate::model::MacroInputRecoveryTicketRecord> {
+        let _guard = self.macro_input_recovery_guard.lock().map_err(|_| {
+            CoreError::Internal("macro input recovery guard poisoned".to_owned())
+        })?;
+        self.inspect_macro_input_recovery_under_guard(
+            recovery_id,
+            role_id,
+            expected_input_epoch,
+        )
+    }
+
+    fn inspect_macro_input_recovery_under_guard(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+        expected_input_epoch: u64,
+    ) -> CoreResult<crate::model::MacroInputRecoveryTicketRecord> {
+        let ticket = self
+            .macro_input_recovery_for_role(role_id)?
+            .filter(|ticket| {
+                ticket.recovery_id == recovery_id && ticket.input_epoch == expected_input_epoch
+            })
+            .ok_or_else(|| CoreError::Domain {
+                code: "MACRO_INPUT_RECOVERY_STALE",
+                message: "The macro input recovery ticket is no longer current.".to_owned(),
+            })?;
+        Ok(crate::model::MacroInputRecoveryTicketRecord {
+            input_epoch: ticket.input_epoch,
+            pending_macro_restart_count: ticket.pending_macro_restart_count,
+            recovery_id: ticket.recovery_id,
+            role_id: ticket.role_id,
+        })
+    }
+
+    pub fn complete_macro_input_recovery_exact(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+        expected_input_epoch: u64,
+    ) -> CoreResult<crate::model::MacroInputRecoveryCompletionReceiptRecord> {
+        let _guard = self.macro_input_recovery_guard.lock().map_err(|_| {
+            CoreError::Internal("macro input recovery guard poisoned".to_owned())
+        })?;
+        self.inspect_macro_input_recovery_under_guard(
+            recovery_id,
+            role_id,
+            expected_input_epoch,
+        )?;
+        if !self
+            .resume_macro_input(role_id, expected_input_epoch)?
+            .current
+        {
+            return Err(CoreError::Domain {
+                code: "MACRO_INPUT_RECOVERY_NOT_RESUMABLE",
+                message: "The macro input recovery role cannot resume at the expected epoch."
+                    .to_owned(),
+            });
+        }
+        #[cfg(test)]
+        if let Some(hook) = self
+            .macro_input_recovery_after_resume_hook
+            .lock()
+            .map_err(|_| {
+                CoreError::Internal("macro input recovery test hook poisoned".to_owned())
+            })?
+            .clone()
+        {
+            hook();
+        }
+        let completion = self.complete_macro_input_recovery(recovery_id, role_id)?;
+        let terminal = completion.deferred_count == 0;
+        Ok(crate::model::MacroInputRecoveryCompletionReceiptRecord {
+            deferred_count: completion.deferred_count,
+            input_epoch: expected_input_epoch,
+            recovery_id: recovery_id.to_owned(),
+            restarted_count: completion.restarted_count,
+            role_id: role_id.to_owned(),
+            skipped_count: completion.skipped_count,
+            terminal,
+        })
+    }
+
+    pub fn fail_macro_input_recovery_exact(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+        expected_input_epoch: u64,
+        message: &str,
+    ) -> CoreResult<crate::model::MacroInputRecoveryFailureReceiptRecord> {
+        let _guard = self.macro_input_recovery_guard.lock().map_err(|_| {
+            CoreError::Internal("macro input recovery guard poisoned".to_owned())
+        })?;
+        self.inspect_macro_input_recovery_under_guard(
+            recovery_id,
+            role_id,
+            expected_input_epoch,
+        )?;
+        if message.trim().is_empty() {
+            return Err(CoreError::InvalidInput(
+                "macro input recovery failure message is required".to_owned(),
+            ));
+        }
+        let failed = self.fail_macro_input_recovery(recovery_id, role_id, message)?;
+        if !failed {
+            return Err(CoreError::Domain {
+                code: "MACRO_INPUT_RECOVERY_STALE",
+                message: "The macro input recovery ticket is no longer current.".to_owned(),
+            });
+        }
+        Ok(crate::model::MacroInputRecoveryFailureReceiptRecord {
+            failed,
+            input_epoch: expected_input_epoch,
+            recovery_id: recovery_id.to_owned(),
+            restart_required: true,
+            role_id: role_id.to_owned(),
+        })
+    }
+
     pub fn macro_input_diagnostics(&self) -> CoreResult<MacroInputDiagnosticsRecord> {
         self.macro_runtime.input_diagnostics()
     }

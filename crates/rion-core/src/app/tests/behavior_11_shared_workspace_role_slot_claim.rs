@@ -1,6 +1,6 @@
 #[test]
 fn shared_workspace_role_is_blocked_then_moves_without_stopping_unique_roles() {
-    let (_directory, core) = core();
+    let (_directory, core) = chromium_web_core("darwin");
     let game_id = first_game_id(&core);
     let shared_role_id = create_role(&core, &game_id, 1);
     let unique_role_id = create_role(&core, &game_id, 2);
@@ -87,14 +87,19 @@ fn shared_workspace_role_is_blocked_then_moves_without_stopping_unique_roles() {
     let target_tab_id = target_tab.id.clone();
     let target_slot_id = target_slot.slot_id.clone();
 
-    let (claim, actions, _) = drive_async_command(
+    let (claim, actions, _) = drive_async_command_with(
         Arc::clone(&core),
         CoreCommand::BrowserRoleSlotClaim {
             tab_id: target_tab_id.clone(),
             slot_id: target_slot_id.clone(),
             expected_owner_generation: Some(source_owner.generation),
         },
-        None,
+        |effect| {
+            if matches!(&effect.action, CoreEffectAction::EmbeddedLoadRoles { .. }) {
+                assert_eq!(effect.target.handle_id, target_tab_id);
+            }
+            effect_result(effect, None)
+        },
     );
     assert!(claim.is_ok(), "{claim:?}");
     let destroy_index = actions
@@ -119,6 +124,13 @@ fn shared_workspace_role_is_blocked_then_moves_without_stopping_unique_roles() {
     assert_eq!(shared.owner.tab_id, target_tab_id);
     assert_eq!(shared.owner.slot_id, target_slot_id);
     assert_eq!(shared.state, "running");
+    let statuses = core.browser_statuses().unwrap();
+    let shared_status = statuses
+        .iter()
+        .find(|status| status.role_id == shared_role_id)
+        .unwrap();
+    assert_eq!(shared_status.automation_state.as_deref(), Some("ready"));
+    assert!(!core.role_ownership_transfer_active(&shared_role_id).unwrap());
     assert_eq!(
         after
             .roles
@@ -151,6 +163,147 @@ fn shared_workspace_role_is_blocked_then_moves_without_stopping_unique_roles() {
     assert_eq!(stale.unwrap_err().code(), "RUNTIME_ROLE_OWNER_STALE");
     assert!(stale_actions.is_empty());
     core.shutdown();
+}
+
+#[test]
+fn v23_shared_workspace_topology_retains_the_blocked_role_identity() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = chromium_web_core(platform);
+        let game_id = first_game_id(&core);
+        let shared_role_id = create_role(&core, &game_id, 1);
+        let unique_role_id = create_role(&core, &game_id, 2);
+        let create_workspace = |name: &str, role_ids: &[String]| {
+            core.invoke(command(json!({
+                "type": "workspaceCreate",
+                "input": {
+                    "name": name,
+                    "template": if role_ids.len() == 1 { "single" } else { "two_columns" },
+                    "slots": role_ids.iter().enumerate().map(|(index, role_id)| json!({
+                        "roleId": role_id,
+                        "rect": workspace_rect(index, role_ids.len())
+                    })).collect::<Vec<_>>()
+                }
+            })))
+            .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let source_workspace_id =
+            create_workspace("V23 shared source", std::slice::from_ref(&shared_role_id));
+        let target_workspace_id = create_workspace(
+            "V23 shared target",
+            &[shared_role_id.clone(), unique_role_id.clone()],
+        );
+        let launch = |workspace_id: &str, window_id: &str| {
+            command(json!({
+                "type": "embeddedWorkspaceLaunch",
+                "workspaceId": workspace_id,
+                "target": {
+                    "windowId": window_id,
+                    "displayId": 1,
+                    "scaleFactor": 1,
+                    "workArea": {"x": 0, "y": 0, "width": 1600, "height": 1000},
+                    "bounds": {"x": 160, "y": 100, "width": 1280, "height": 800},
+                    "presentation": "normal"
+                }
+            }))
+        };
+        assert!(drive_command(
+            Arc::clone(&core),
+            launch(&source_workspace_id, "v23-shared-source-window"),
+            None,
+        )
+        .0
+        .is_ok());
+        let (target_launch, target_actions) = drive_command(
+            Arc::clone(&core),
+            launch(&target_workspace_id, "v23-shared-target-window"),
+            None,
+        );
+        assert!(target_launch.is_ok(), "{platform}: {target_launch:?}");
+        assert!(target_actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::EmbeddedLoadRoles { roles }
+                if roles.len() == 1 && roles[0].role_id == unique_role_id
+        )));
+
+        let topology = core.browser_runtime.snapshot().unwrap();
+        let target_tab = topology.windows["v23-shared-target-window"]
+            .tabs
+            .iter()
+            .find(|tab| tab.source_id == target_workspace_id)
+            .unwrap();
+        assert_eq!(
+            target_tab.role_ids.iter().cloned().collect::<std::collections::HashSet<_>>(),
+            [shared_role_id.clone(), unique_role_id.clone()]
+                .into_iter()
+                .collect(),
+            "{platform}"
+        );
+        assert_eq!(target_tab.role_slots.len(), 2, "{platform}");
+
+        let ownership = core
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+            .unwrap()
+            .snapshot;
+        let target = ownership
+            .tabs
+            .iter()
+            .find(|tab| tab.source_id == target_workspace_id)
+            .unwrap();
+        assert!(target.slots.iter().any(|slot| {
+            slot.role_id == shared_role_id && slot.state == "blocked" && slot.owner.is_some()
+        }), "{platform}");
+        if platform == "darwin" {
+            let shared_owner = ownership
+                .roles
+                .iter()
+                .find(|role| role.role_id == shared_role_id)
+                .unwrap()
+                .owner
+                .clone();
+            let target_slot = target
+                .slots
+                .iter()
+                .find(|slot| slot.role_id == shared_role_id)
+                .unwrap();
+            core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
+                role_id: shared_role_id.clone(),
+                runtime: "embedded".to_owned(),
+                tab_id: shared_owner.tab_id.clone(),
+                slot_id: Some(shared_owner.slot_id.clone()),
+                state: "stopping".to_owned(),
+                launched_at: ownership
+                    .roles
+                    .iter()
+                    .find(|role| role.role_id == shared_role_id)
+                    .and_then(|role| role.launched_at.clone()),
+            })
+            .unwrap();
+            core.invoke_browser_runtime(BrowserRuntimeCommand::ClaimRoleSlot {
+                role_id: shared_role_id.clone(),
+                tab_id: target.id.clone(),
+                slot_id: target_slot.slot_id.clone(),
+                expected_owner_generation: Some(shared_owner.generation),
+            })
+            .unwrap();
+            let projection = appkit_web_projection(
+                &core,
+                "v23-shared-target-window",
+                1280,
+                800,
+                false,
+            );
+            assert!(projection.roles.iter().all(|role| {
+                role.role_id != shared_role_id
+            }));
+            assert!(projection.roles.iter().any(|role| {
+                role.role_id == unique_role_id
+            }));
+        }
+        core.shutdown();
+    }
 }
 
 #[test]
@@ -246,6 +399,105 @@ fn failed_shared_role_target_load_releases_owner_and_preserves_both_slots() {
             && tab.slots[0].state == "available"
             && tab.slots[0].owner.is_none()
     }));
+    core.shutdown();
+}
+
+#[test]
+fn shared_role_slot_claim_is_blocked_by_pending_chrome_profile_recovery() {
+    let (_directory, core) = core();
+    let game_id = first_game_id(&core);
+    let role_id = create_role(&core, &game_id, 1);
+    let create_workspace = |name: &str| {
+        core.invoke(command(json!({
+            "type": "workspaceCreate",
+            "input": {
+                "name": name,
+                "template": "single",
+                "slots": [{
+                    "roleId": role_id,
+                    "rect": workspace_rect(0, 1)
+                }]
+            }
+        })))
+        .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let source_workspace_id = create_workspace("Recovery source");
+    let target_workspace_id = create_workspace("Recovery target");
+    let launch = |workspace_id: &str, window_id: &str| {
+        command(json!({
+            "type": "embeddedWorkspaceLaunch",
+            "workspaceId": workspace_id,
+            "target": {
+                "windowId": window_id,
+                "displayId": 1,
+                "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+            }
+        }))
+    };
+    assert!(drive_command(
+        Arc::clone(&core),
+        launch(&source_workspace_id, "recovery-source-window"),
+        None,
+    )
+    .0
+    .is_ok());
+    assert!(drive_command(
+        Arc::clone(&core),
+        launch(&target_workspace_id, "recovery-target-window"),
+        None,
+    )
+    .0
+    .is_ok());
+    let before = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    let owner_generation = before
+        .roles
+        .iter()
+        .find(|role| role.role_id == role_id)
+        .unwrap()
+        .owner
+        .generation;
+    let target = before
+        .tabs
+        .iter()
+        .find(|tab| tab.source_id == target_workspace_id)
+        .unwrap();
+    let tab_id = target.id.clone();
+    let slot_id = target.slots[0].slot_id.clone();
+    core.with_runtime(|runtime| {
+        runtime.state.put_operation_journal(OperationJournalRecord {
+            id: format!("chrome-profile-import-{}", uuid::Uuid::new_v4()),
+            kind: "chrome_profile_import_v2".to_owned(),
+            phase: "prepared".to_owned(),
+            payload: json!({
+                "roleId": role_id,
+                "transactionId": uuid::Uuid::new_v4().to_string()
+            }),
+        })
+    })
+    .unwrap();
+
+    let (result, actions, _) = drive_async_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserRoleSlotClaim {
+            tab_id,
+            slot_id,
+            expected_owner_generation: Some(owner_generation),
+        },
+        None,
+    );
+    assert_eq!(result.unwrap_err().code(), "ROLE_SESSION_RECOVERY_REQUIRED");
+    assert!(actions.is_empty());
+    let after = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    assert_eq!(serde_json::to_value(after).unwrap(), serde_json::to_value(before).unwrap());
     core.shutdown();
 }
 

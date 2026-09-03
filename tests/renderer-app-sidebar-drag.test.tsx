@@ -17,8 +17,15 @@ afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, "rionStudio");
   delete document.documentElement.dataset.platform;
+  delete document.documentElement.dataset.windowGestureMode;
   delete document.documentElement.dataset.windowFullscreen;
 });
+
+function setWindowPlatform(platform: "mac" | "windows"): void {
+  document.documentElement.dataset.platform = platform;
+  document.documentElement.dataset.windowGestureMode =
+    platform === "windows" ? "native-non-client" : "appkit-bridge";
+}
 
 function renderSidebar(initialEntry: string): void {
   render(
@@ -52,7 +59,7 @@ function installWindowBridge() {
 describe("application sidebar window dragging", () => {
   it("groups preferences with general settings and data transfer with system settings", () => {
     installWindowBridge();
-    document.documentElement.dataset.platform = "windows";
+    setWindowPlatform("windows");
     render(
       <MemoryRouter initialEntries={["/settings"]}>
         <SettingsSidebar t={t} />
@@ -82,7 +89,7 @@ describe("application sidebar window dragging", () => {
     "keeps the brand region draggable and Home navigation interactive on %s",
     async (platform) => {
       const bridge = installWindowBridge();
-      document.documentElement.dataset.platform = platform;
+      setWindowPlatform(platform);
       renderSidebar("/games");
 
       const brandTitle = screen.getByText("Rion Studio");
@@ -120,7 +127,7 @@ describe("application sidebar window dragging", () => {
 
   it("routes the macOS content-top surface through native drag and maximize commands", () => {
     const bridge = installWindowBridge();
-    document.documentElement.dataset.platform = "mac";
+    setWindowPlatform("mac");
     render(<WindowDragHandle className="app-content-window-drag-region" />);
 
     const contentRegion = document.querySelector<HTMLElement>(".app-content-window-drag-region");
@@ -144,7 +151,7 @@ describe("application sidebar window dragging", () => {
 
   it("hands the Windows content-top surface to the native non-client region", () => {
     const bridge = installWindowBridge();
-    document.documentElement.dataset.platform = "windows";
+    setWindowPlatform("windows");
     render(<WindowDragHandle className="app-content-window-drag-region" />);
 
     const contentRegion = document.querySelector<HTMLElement>(".app-content-window-drag-region")!;
@@ -160,11 +167,37 @@ describe("application sidebar window dragging", () => {
     expect(bridge.toggleCurrentWindowMaximize).not.toHaveBeenCalled();
   });
 
+  it("uses the explicit host gesture capability instead of browser or platform sniffing", () => {
+    const bridge = installWindowBridge();
+    document.documentElement.dataset.platform = "windows";
+    document.documentElement.dataset.windowGestureMode = "appkit-bridge";
+    const { rerender } = render(
+      <WindowDragHandle className="app-content-window-drag-region" />
+    );
+
+    let contentRegion = document.querySelector<HTMLElement>(
+      ".app-content-window-drag-region"
+    )!;
+    expect(contentRegion.className).toContain("app-no-drag");
+    fireEvent.mouseDown(contentRegion, { button: 0, detail: 1 });
+    expect(bridge.startCurrentWindowDrag).toHaveBeenCalledOnce();
+
+    document.documentElement.dataset.platform = "mac";
+    document.documentElement.dataset.windowGestureMode = "native-non-client";
+    rerender(<WindowDragHandle className="app-content-window-drag-region" />);
+    contentRegion = document.querySelector<HTMLElement>(
+      ".app-content-window-drag-region"
+    )!;
+    expect(contentRegion.className).toContain("app-drag");
+    fireEvent.mouseDown(contentRegion, { button: 0, detail: 1 });
+    expect(bridge.startCurrentWindowDrag).toHaveBeenCalledOnce();
+  });
+
   it.each(["mac", "windows"] as const)(
     "disables manual window gestures while fullscreen on %s",
     (platform) => {
       const bridge = installWindowBridge();
-      document.documentElement.dataset.platform = platform;
+      setWindowPlatform(platform);
       document.documentElement.dataset.windowFullscreen = "true";
       render(<WindowDragHandle className="app-content-window-drag-region" />);
 
@@ -181,7 +214,7 @@ describe("application sidebar window dragging", () => {
     "uses the platform window gesture surface for the settings sidebar on %s",
     (platform) => {
       const bridge = installWindowBridge();
-      document.documentElement.dataset.platform = platform;
+      setWindowPlatform(platform);
       render(
         <MemoryRouter initialEntries={["/settings?section=interface"]}>
           <SettingsSidebar t={t} />

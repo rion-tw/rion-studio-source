@@ -1,0 +1,1248 @@
+NS_ASSUME_NONNULL_BEGIN
+
+static const int32_t kRionAppKitWindowResolutionSuccess = 0;
+static const int32_t kRionAppKitWindowResolutionInvalidInput = 1;
+static const int32_t kRionAppKitWindowResolutionNotMainThread = 2;
+static const int32_t kRionAppKitWindowResolutionDetachedView = 3;
+
+uint32_t rion_appkit_runtime_tabs_abi_version(void) {
+  return 6;
+}
+
+int32_t rion_appkit_resolve_electron_native_view_window(
+    void * _Nullable rawNativeView,
+    void * _Nullable * _Nullable rawNativeWindow) {
+  @autoreleasepool {
+    if (!rawNativeWindow) {
+      return kRionAppKitWindowResolutionInvalidInput;
+    }
+    *rawNativeWindow = nullptr;
+    if (!rawNativeView) {
+      return kRionAppKitWindowResolutionInvalidInput;
+    }
+    if (!NSThread.isMainThread) {
+      return kRionAppKitWindowResolutionNotMainThread;
+    }
+
+    // Electron documents the macOS native handle as a live NSView pointer. Do
+    // not retain it or infer a window from any serialized identifier: the
+    // owning AppKit window must be resolved from that exact view on main.
+    NSView *nativeView = (__bridge NSView *)rawNativeView;
+    NSWindow *nativeWindow = nativeView.window;
+    if (!nativeWindow) {
+      return kRionAppKitWindowResolutionDetachedView;
+    }
+    *rawNativeWindow = (__bridge void *)nativeWindow;
+    return kRionAppKitWindowResolutionSuccess;
+  }
+}
+
+static BOOL RionInstallTitlebarWidgetInsetHook(NSView * _Nullable frameView) {
+  if (!frameView) return NO;
+  // AppKit's auxiliary fullscreen windows do not consistently expose this
+  // private metric. Their native inset is the supported fallback, so skip an
+  // incompatible frame without treating it as a runtime failure.
+  SEL selector = NSSelectorFromString(@"_minXTitlebarWidgetInset");
+  if (![frameView respondsToSelector:selector]) return NO;
+
+  NSMethodSignature *signature =
+      [frameView methodSignatureForSelector:selector];
+  if (!signature || signature.numberOfArguments != 2 ||
+      signature.methodReturnLength != sizeof(CGFloat) ||
+      std::strcmp(signature.methodReturnType, @encode(CGFloat)) != 0) {
+    return NO;
+  }
+
+  Class targetClass = object_getClass(frameView);
+  std::lock_guard<std::mutex> lock(RionRuntimeTitlebarWidgetInsetHookMutex);
+  if (RionRuntimeOriginalTitlebarWidgetInsetIMPs.find(targetClass) !=
+      RionRuntimeOriginalTitlebarWidgetInsetIMPs.end()) {
+    return YES;
+  }
+
+  Method inheritedMethod = class_getInstanceMethod(targetClass, selector);
+  if (!inheritedMethod) {
+    return NO;
+  }
+  IMP original = method_getImplementation(inheritedMethod);
+  if (original == (IMP)RionRuntimeTitlebarWidgetInset) return YES;
+  const char *types = method_getTypeEncoding(inheritedMethod);
+  RionRuntimeOriginalTitlebarWidgetInsetIMPs.emplace(targetClass, original);
+
+  Method directMethod = RionDirectInstanceMethod(targetClass, selector);
+  if (directMethod) {
+    method_setImplementation(directMethod,
+                             (IMP)RionRuntimeTitlebarWidgetInset);
+    return YES;
+  }
+  if (class_addMethod(targetClass, selector,
+                      (IMP)RionRuntimeTitlebarWidgetInset, types)) {
+    return YES;
+  }
+
+  RionRuntimeOriginalTitlebarWidgetInsetIMPs.erase(targetClass);
+  return NO;
+}
+
+@class RionRuntimeTabsController;
+@class RionRuntimeSurfaceView;
+@class RionRuntimeTabGroupView;
+
+@interface RionRuntimeDraggableView : NSView
+@end
+
+static NSString * _Nullable RionStringFromUTF8(
+    const char * _Nullable value) {
+  if (!value) return nil;
+  return [NSString stringWithUTF8String:value];
+}
+
+static NSPoint RionTopLeftScreenPoint(NSPoint screenPoint) {
+  CGFloat desktopTop = 0;
+  for (NSScreen *screen in NSScreen.screens) {
+    desktopTop = MAX(desktopTop, NSMaxY(screen.frame));
+  }
+  return NSMakePoint(screenPoint.x, desktopTop - screenPoint.y);
+}
+
+static void RionForwardRuntimeTabsAction(
+    NSDictionary<NSString *, id> *action, void *context,
+    RionRuntimeTabsCActionHandler actionHandler) {
+  NSString *type = action[@"type"];
+  NSString *sessionID = action[@"sessionId"];
+  NSString *tabID = action[@"tabId"];
+  NSString *beforeTabID = action[@"beforeTabId"];
+  NSArray<NSString *> *orderedTabIDs = action[@"orderedTabIds"];
+  NSString *orderedTabIDsJSON = nil;
+  if ([orderedTabIDs isKindOfClass:NSArray.class]) {
+    NSError *error = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:orderedTabIDs
+                                                   options:0
+                                                     error:&error];
+    if (data && !error) {
+      orderedTabIDsJSON = [[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding];
+    }
+  }
+  NSDictionary<NSString *, id> *statusIdentity = action[@"statusIdentity"];
+  NSString *statusIdentityJSON = nil;
+  if ([statusIdentity isKindOfClass:NSDictionary.class]) {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:statusIdentity
+                                                   options:0
+                                                     error:nil];
+    if (data) {
+      statusIdentityJSON = [[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding];
+    }
+  }
+  NSString *sourceWindowID = action[@"sourceWindowId"];
+  NSString *targetWindowID = action[@"windowId"];
+  NSNumber *screenX = action[@"screenX"];
+  NSNumber *screenY = action[@"screenY"];
+  NSNumber *grabRatioX = action[@"grabRatioX"];
+  NSNumber *grabRatioY = action[@"grabRatioY"];
+  NSNumber *tabWidth = action[@"tabWidth"];
+  NSNumber *tabHeight = action[@"tabHeight"];
+  NSNumber *modifierCount = action[@"modifierCount"];
+  NSNumber *cancelled = action[@"cancelled"];
+  NSNumber *focused = action[@"focused"];
+  NSNumber *minimized = action[@"minimized"];
+  NSNumber *visible = action[@"visible"];
+  actionHandler(context, type.UTF8String, sessionID.UTF8String, tabID.UTF8String,
+                sourceWindowID.UTF8String, targetWindowID.UTF8String,
+                beforeTabID.UTF8String, orderedTabIDsJSON.UTF8String,
+                statusIdentityJSON.UTF8String,
+                screenX ? screenX.doubleValue : NAN,
+                screenY ? screenY.doubleValue : NAN,
+                grabRatioX ? grabRatioX.doubleValue : NAN,
+                grabRatioY ? grabRatioY.doubleValue : NAN,
+                tabWidth ? tabWidth.doubleValue : NAN,
+                tabHeight ? tabHeight.doubleValue : NAN,
+                modifierCount ? modifierCount.unsignedIntValue : 0,
+                cancelled ? cancelled.boolValue : false,
+                focused ? focused.boolValue : false,
+                minimized ? minimized.boolValue : false,
+                visible ? visible.boolValue : false);
+}
+
+void * _Nullable rion_runtime_tabs_create(
+    void *rawWindow, const char *rawWindowIdentifier, void *context,
+    RionRuntimeTabsCActionHandler actionHandler,
+    RionRuntimeTabsCLayoutHandler layoutHandler) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawWindow || !rawWindowIdentifier ||
+        !actionHandler || !layoutHandler) {
+      return nullptr;
+    }
+    NSWindow *window = (__bridge NSWindow *)rawWindow;
+    NSString *windowIdentifier = RionStringFromUTF8(rawWindowIdentifier);
+    if (windowIdentifier.length == 0) return nullptr;
+    RionRuntimeTabsController *controller =
+        [[RionRuntimeTabsController alloc]
+            initWithWindow:window
+            windowIdentifier:windowIdentifier
+            actionHandler:^(NSDictionary<NSString *, id> *action) {
+              RionForwardRuntimeTabsAction(action, context, actionHandler);
+            }
+            contentLayoutHandler:^(RionRuntimeContentLayout layout) {
+              layoutHandler(context, layout.heightInset, layout.yOffset,
+                            layout.valid);
+            }];
+    return (__bridge_retained void *)controller;
+  }
+}
+
+void rion_runtime_tabs_destroy(void * _Nullable rawController) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawController) return;
+    RionRuntimeTabsController *controller =
+        (__bridge_transfer RionRuntimeTabsController *)rawController;
+    [controller destroy];
+  }
+}
+
+void rion_runtime_tabs_prepare_fullscreen(
+    void * _Nullable rawController, bool fullscreen) {
+  if (rawController) {
+    [(__bridge RionRuntimeTabsController *)rawController
+        prepareForFullscreenTransition:fullscreen];
+  }
+}
+
+bool rion_runtime_tabs_set_fullscreen_policy(
+    void * _Nullable rawController, bool alwaysShow) {
+  if (!NSThread.isMainThread || !rawController) return false;
+  RionRuntimeTabsController *controller =
+      (__bridge RionRuntimeTabsController *)rawController;
+  [controller setAlwaysShowInFullScreen:alwaysShow];
+  return controller.alwaysShowInFullScreen == alwaysShow;
+}
+
+bool rion_runtime_tabs_set_tab_close_buttons_hidden(
+    void * _Nullable rawController, bool alwaysHide) {
+  if (!NSThread.isMainThread || !rawController) return false;
+  RionRuntimeTabsController *controller =
+      (__bridge RionRuntimeTabsController *)rawController;
+  [controller setAlwaysHideTabCloseButton:alwaysHide];
+  return controller.alwaysHideTabCloseButton == alwaysHide;
+}
+
+bool rion_runtime_tabs_is_main_thread(void) {
+  return [NSThread isMainThread];
+}
+
+bool rion_runtime_tabs_set_window_interaction(
+    void * _Nullable rawWindow, bool pointerPassthrough, bool focusWindow) {
+  @autoreleasepool {
+    if (!rawWindow || !NSThread.isMainThread) return false;
+    NSWindow *window = (__bridge NSWindow *)rawWindow;
+    window.ignoresMouseEvents = pointerPassthrough;
+    if (!pointerPassthrough && focusWindow) {
+      [NSApp activateIgnoringOtherApps:YES];
+      [window makeKeyAndOrderFront:nil];
+    }
+    return window.ignoresMouseEvents == pointerPassthrough;
+  }
+}
+
+bool rion_runtime_tabs_set_reveal_locked(
+    void * _Nullable rawController, bool locked) {
+  if (!NSThread.isMainThread || !rawController) return false;
+  RionRuntimeTabsController *controller =
+      (__bridge RionRuntimeTabsController *)rawController;
+  [controller setRevealLocked:locked];
+  return controller.revealLocked == locked;
+}
+
+bool rion_runtime_tabs_set_window_name(
+    void * _Nullable rawController, const char * _Nullable windowName) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawController) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    NSString *expected = RionStringFromUTF8(windowName);
+    [controller setWindowName:expected];
+    return [(controller.windowName ?: @"") isEqualToString:(expected ?: @"")];
+  }
+}
+
+void rion_runtime_tabs_set_active(
+    void * _Nullable rawController,
+    const char * _Nullable tabIdentifier) {
+  @autoreleasepool {
+    if (!rawController) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller setActiveTabIdentifier:RionStringFromUTF8(tabIdentifier)];
+  }
+}
+
+bool rion_runtime_tabs_accessibility_press(
+    void * _Nullable rawController, const char *rawTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !rawTabIdentifier) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    if (tabIdentifier.length == 0) return false;
+    return [controller performAccessibilityPressForTabIdentifier:tabIdentifier];
+  }
+}
+
+bool rion_runtime_tabs_accessibility_close(
+    void * _Nullable rawController, const char *rawTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !rawTabIdentifier) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    if (tabIdentifier.length == 0) return false;
+    return [controller performAccessibilityCloseForTabIdentifier:tabIdentifier];
+  }
+}
+
+#if defined(RION_DESKTOP_E2E)
+bool rion_runtime_tabs_accessibility_show_menu(
+    void * _Nullable rawController, const char *rawTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !rawTabIdentifier) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    if (tabIdentifier.length == 0) return false;
+    return [controller performAccessibilityShowMenuForTabIdentifier:tabIdentifier];
+  }
+}
+
+bool rion_runtime_tabs_desktop_e2e_drag(
+    void * _Nullable rawSourceController, const char *rawTabIdentifier,
+    void * _Nullable rawTargetController, const char *rawBeforeTabIdentifier) {
+  @autoreleasepool {
+    if (!rawSourceController || !rawTargetController || !rawTabIdentifier ||
+        !rawBeforeTabIdentifier) return false;
+    RionRuntimeTabsController *source =
+        (__bridge RionRuntimeTabsController *)rawSourceController;
+    RionRuntimeTabsController *target =
+        (__bridge RionRuntimeTabsController *)rawTargetController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    NSString *beforeTabIdentifier = RionStringFromUTF8(rawBeforeTabIdentifier);
+    return [source performDesktopE2EDragForTabIdentifier:tabIdentifier
+                                       targetController:target
+                             beforeTabIdentifier:beforeTabIdentifier];
+  }
+}
+
+static void RionDesktopE2EPostKey(CGKeyCode keyCode) {
+  CGEventRef down = CGEventCreateKeyboardEvent(NULL, keyCode, true);
+  CGEventRef up = CGEventCreateKeyboardEvent(NULL, keyCode, false);
+  if (down) CGEventPost(kCGHIDEventTap, down);
+  if (up) CGEventPost(kCGHIDEventTap, up);
+  if (down) CFRelease(down);
+  if (up) CFRelease(up);
+}
+
+static id _Nullable RionDesktopE2EMenuTrackingObserver = nil;
+
+static bool RionDesktopE2EPostMenuSelection(
+    int action, unsigned long targetRank) {
+  RionDesktopE2EPostKey(115);  // Home
+  unsigned long downCount = 0;
+  if (action == 0) downCount = 4;       // Hide
+  else if (action == 1) downCount = 2;  // Move to New Window
+  else if (action == 2) {               // Move to Game Window submenu
+    RionDesktopE2EPostKey(125);
+    RionDesktopE2EPostKey(124);
+    downCount = targetRank;
+  } else {
+    return false;
+  }
+  for (unsigned long index = 0; index < downCount; ++index) {
+    RionDesktopE2EPostKey(125);
+  }
+  RionDesktopE2EPostKey(36);  // Return
+  return true;
+}
+
+bool rion_runtime_tabs_desktop_e2e_select_menu_item(
+    int action, unsigned long targetRank) {
+  @autoreleasepool {
+    if (action < 0 || action > 2) return false;
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    @synchronized(center) {
+      if (RionDesktopE2EMenuTrackingObserver) {
+        [center removeObserver:RionDesktopE2EMenuTrackingObserver];
+        RionDesktopE2EMenuTrackingObserver = nil;
+      }
+      __weak NSNotificationCenter *weakCenter = center;
+      RionDesktopE2EMenuTrackingObserver =
+          [center addObserverForName:NSMenuDidBeginTrackingNotification
+                              object:nil
+                               queue:nil
+                          usingBlock:^(__unused NSNotification *notification) {
+        NSNotificationCenter *callbackCenter = weakCenter;
+        if (!callbackCenter) return;
+        @synchronized(callbackCenter) {
+          id observer = RionDesktopE2EMenuTrackingObserver;
+          RionDesktopE2EMenuTrackingObserver = nil;
+          if (observer) [callbackCenter removeObserver:observer];
+        }
+        RionDesktopE2EPostMenuSelection(action, targetRank);
+      }];
+      return RionDesktopE2EMenuTrackingObserver != nil;
+    }
+  }
+}
+
+int rion_runtime_tabs_desktop_e2e_status_presentation(
+    void * _Nullable rawController) {
+  @autoreleasepool {
+    if (!rawController) return 0;
+    return (int)[(__bridge RionRuntimeTabsController *)rawController
+        statusPresentation];
+  }
+}
+
+bool rion_runtime_tabs_desktop_e2e_titlebar_geometry(
+    void * _Nullable rawController,
+    RionRuntimeTabsDesktopE2ETitlebarGeometry *geometry) {
+  @autoreleasepool {
+    if (!rawController || !geometry) return false;
+    return [(__bridge RionRuntimeTabsController *)rawController
+        desktopE2ETitlebarGeometry:geometry];
+  }
+}
+
+bool rion_runtime_tabs_desktop_e2e_fullscreen_toolbar_state(
+    void * _Nullable rawController,
+    RionRuntimeTabsDesktopE2EFullscreenToolbarState *state) {
+  @autoreleasepool {
+    if (!rawController || !state) return false;
+    return [(__bridge RionRuntimeTabsController *)rawController
+        desktopE2EFullscreenToolbarState:state];
+  }
+}
+#endif
+
+void rion_runtime_tabs_hide_status(void * _Nullable rawController) {
+  @autoreleasepool {
+    if (!rawController) return;
+    [(__bridge RionRuntimeTabsController *)rawController hideStatus];
+  }
+}
+
+bool rion_runtime_tabs_ensure(void * _Nullable rawController,
+                              const char *tabIdentifier,
+                              const char *name, const char *phase,
+                              const char *type,
+                              const char * _Nullable workspaceTemplate,
+                              const char *windowIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifier || !name || !type || !phase ||
+        !windowIdentifier) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller ensureTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                               name:RionStringFromUTF8(name)
+                              phase:RionStringFromUTF8(phase)
+                               type:RionStringFromUTF8(type)
+                  workspaceTemplate:RionStringFromUTF8(workspaceTemplate)
+                   windowIdentifier:RionStringFromUTF8(windowIdentifier)];
+    return true;
+  }
+}
+
+bool rion_runtime_tabs_matches_phases(void * _Nullable rawController,
+                                      const char *tabPhasesJSON) {
+  @autoreleasepool {
+    if (!rawController || !tabPhasesJSON) return false;
+    NSData *data = [RionStringFromUTF8(tabPhasesJSON)
+        dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *phases = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![phases isKindOfClass:NSDictionary.class]) return false;
+    RionRuntimeTabsController *controller = (__bridge RionRuntimeTabsController *)rawController;
+    return [controller matchesTabPhases:phases];
+  }
+}
+
+void rion_runtime_tabs_reserve(void * _Nullable rawController,
+                               const char *tabIdentifier,
+                               const char *name, const char *type,
+                               const char * _Nullable workspaceTemplate,
+                               const char *windowIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifier || !name || !type ||
+        !windowIdentifier) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller reserveTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                                name:RionStringFromUTF8(name)
+                                type:RionStringFromUTF8(type)
+                   workspaceTemplate:RionStringFromUTF8(workspaceTemplate)
+                    windowIdentifier:RionStringFromUTF8(windowIdentifier)];
+  }
+}
+
+void rion_runtime_tabs_remove(
+    void * _Nullable rawController, const char *tabIdentifier,
+    const char * _Nullable activeTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifier) return;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller removeTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                activeTabIdentifier:RionStringFromUTF8(activeTabIdentifier)];
+  }
+}
+
+void rion_runtime_tabs_reorder(void * _Nullable rawController,
+                               const char *tabIdentifiersJSON) {
+  @autoreleasepool {
+    if (!rawController || !tabIdentifiersJSON) return;
+    NSString *json = RionStringFromUTF8(tabIdentifiersJSON);
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    id value = data ? [NSJSONSerialization JSONObjectWithData:data
+                                                       options:0
+                                                         error:nil]
+                    : nil;
+    if (![value isKindOfClass:[NSArray class]]) return;
+    NSMutableArray<NSString *> *identifiers = [NSMutableArray array];
+    for (id identifier in (NSArray *)value) {
+      if ([identifier isKindOfClass:[NSString class]]) {
+        [identifiers addObject:identifier];
+      }
+    }
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller reorderTabIdentifiers:identifiers];
+  }
+}
+
+bool rion_runtime_tabs_matches_projection(
+    void * _Nullable rawController, const char *tabIdentifiersJSON,
+    const char * _Nullable rawActiveTabIdentifier) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawController || !tabIdentifiersJSON) {
+      return false;
+    }
+    NSString *json = RionStringFromUTF8(tabIdentifiersJSON);
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    id value = data ? [NSJSONSerialization JSONObjectWithData:data
+                                                       options:0
+                                                         error:nil]
+                    : nil;
+    if (![value isKindOfClass:NSArray.class]) return false;
+    NSMutableArray<NSString *> *identifiers =
+        [NSMutableArray arrayWithCapacity:[(NSArray *)value count]];
+    for (id identifier in (NSArray *)value) {
+      if (![identifier isKindOfClass:NSString.class]) return false;
+      [identifiers addObject:identifier];
+    }
+    NSString *activeTabIdentifier =
+        RionStringFromUTF8(rawActiveTabIdentifier);
+    return [(__bridge RionRuntimeTabsController *)rawController
+        matchesTabIdentifiers:identifiers
+          activeTabIdentifier:activeTabIdentifier];
+  }
+}
+
+static NSDictionary<NSString *, id> * _Nullable
+RionRuntimeWorkspaceDividerProjectionFromJSON(
+    const char * _Nullable projectionJSON) {
+  constexpr size_t kMaximumProjectionBytes = 64 * 1024;
+  if (!projectionJSON ||
+      strnlen(projectionJSON, kMaximumProjectionBytes + 1) >
+          kMaximumProjectionBytes) {
+    return nil;
+  }
+  NSString *json = RionStringFromUTF8(projectionJSON);
+  NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+  NSError *error = nil;
+  id value = data ? [NSJSONSerialization JSONObjectWithData:data
+                                                    options:0
+                                                      error:&error]
+                  : nil;
+  return !error && [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
+
+bool rion_runtime_tabs_apply_workspace_divider_projection(
+    void * _Nullable rawController, const char *projectionJSON) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawController) return false;
+    NSDictionary<NSString *, id> *projection =
+        RionRuntimeWorkspaceDividerProjectionFromJSON(projectionJSON);
+    if (!projection) return false;
+    return [(__bridge RionRuntimeTabsController *)rawController
+        applyWorkspaceDividerProjection:projection];
+  }
+}
+
+bool rion_runtime_tabs_matches_workspace_divider_projection(
+    void * _Nullable rawController, const char *projectionJSON) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawController) return false;
+    NSDictionary<NSString *, id> *projection =
+        RionRuntimeWorkspaceDividerProjectionFromJSON(projectionJSON);
+    if (!projection) return false;
+    return [(__bridge RionRuntimeTabsController *)rawController
+        matchesWorkspaceDividerProjection:projection];
+  }
+}
+
+void rion_runtime_tabs_update_metadata(
+    void * _Nullable rawController, const RionRuntimeTabInput *input,
+    bool alwaysHideTabCloseButton, const char *audioMutedLabel,
+    const char *audioPlayingLabel, const char *closeLabel,
+    const char *addLabel, const char *scrollLeftLabel,
+    const char *scrollRightLabel) {
+  @autoreleasepool {
+    if (!rawController || !input || !input->identifier) return;
+    RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
+    tab.active = input->active;
+    tab.audible = input->audible;
+    tab.audioMuted = input->audioMuted;
+    tab.automaticInputPaused = input->automaticInputPaused;
+    tab.automaticInputRestartRequired =
+        input->automaticInputRestartRequired;
+    tab.identifier = RionStringFromUTF8(input->identifier) ?: @"";
+    tab.name = RionStringFromUTF8(input->name) ?: tab.identifier;
+    tab.phase = RionStringFromUTF8(input->phase) ?: @"ready";
+    tab.failureBody = RionStringFromUTF8(input->failureBody) ?: @"";
+    tab.failureTitle = RionStringFromUTF8(input->failureTitle) ?: @"";
+    tab.loadingAccessibilityLabel =
+        RionStringFromUTF8(input->loadingAccessibilityLabel) ?: @"";
+    tab.retryLabel = RionStringFromUTF8(input->retryLabel) ?: @"";
+    NSString *statusIdentityJSON = RionStringFromUTF8(input->statusIdentityJSON);
+    if (statusIdentityJSON.length > 0) {
+      NSData *data = [statusIdentityJSON dataUsingEncoding:NSUTF8StringEncoding];
+      id value = data ? [NSJSONSerialization JSONObjectWithData:data
+                                                        options:0
+                                                          error:nil]
+                      : nil;
+      if ([value isKindOfClass:NSDictionary.class]) {
+        tab.statusIdentity = value;
+      }
+    }
+    tab.tooltip = RionStringFromUTF8(input->tooltip) ?: tab.name;
+    tab.type = RionStringFromUTF8(input->type) ?: @"role";
+    tab.iconDataURL = RionStringFromUTF8(input->iconDataURL);
+    tab.workspaceTemplate = RionStringFromUTF8(input->workspaceTemplate);
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    [controller
+          updateTabMetadata:tab
+         hideTabCloseButton:alwaysHideTabCloseButton
+                   addLabel:RionStringFromUTF8(addLabel) ?:
+                                @"Open role or workspace"
+                 closeLabel:RionStringFromUTF8(closeLabel) ?:
+                                @"Stop and close tab"
+          audioPlayingLabel:RionStringFromUTF8(audioPlayingLabel) ?:
+                                @"Playing audio"
+             audioMutedLabel:RionStringFromUTF8(audioMutedLabel) ?: @"Tab muted"
+            scrollLeftLabel:RionStringFromUTF8(scrollLeftLabel) ?:
+                                @"Scroll tabs left"
+           scrollRightLabel:RionStringFromUTF8(scrollRightLabel) ?:
+                                @"Scroll tabs right"];
+  }
+}
+
+RionRuntimeContentLayout rion_runtime_tabs_content_layout(
+    void * _Nullable rawController) {
+  if (!NSThread.isMainThread || !rawController) {
+    return (RionRuntimeContentLayout){0, 0, NO};
+  }
+  return [(__bridge RionRuntimeTabsController *)rawController contentLayout];
+}
+
+@interface RionRuntimeTabsController (RionDragGeometry)
+- (BOOL)controlRowContainsTopLeftScreenPoint:(NSPoint)point;
+- (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
+                        grabRatioX:(double)grabRatioX
+                        grabRatioY:(double)grabRatioY
+                      windowOffset:(NSPoint *)windowOffset;
+@end
+
+bool rion_runtime_tabs_control_row_contains(void * _Nullable rawController,
+                                            double screenX,
+                                            double screenY) {
+  if (!rawController || !std::isfinite(screenX) || !std::isfinite(screenY)) {
+    return false;
+  }
+  return [(__bridge RionRuntimeTabsController *)rawController
+      controlRowContainsTopLeftScreenPoint:NSMakePoint(screenX, screenY)];
+}
+
+bool rion_runtime_tabs_drag_anchor(void * _Nullable rawController,
+                                   const char *tabIdentifier,
+                                   double grabRatioX,
+                                   double grabRatioY,
+                                   double *windowOffsetX,
+                                   double *windowOffsetY) {
+  if (!rawController || !tabIdentifier || !windowOffsetX || !windowOffsetY ||
+      !std::isfinite(grabRatioX) || !std::isfinite(grabRatioY)) {
+    return false;
+  }
+  NSPoint offset = NSZeroPoint;
+  BOOL available = [(__bridge RionRuntimeTabsController *)rawController
+      dragAnchorForTabIdentifier:RionStringFromUTF8(tabIdentifier)
+                     grabRatioX:grabRatioX
+                     grabRatioY:grabRatioY
+                   windowOffset:&offset];
+  if (!available) return false;
+  *windowOffsetX = offset.x;
+  *windowOffsetY = offset.y;
+  return true;
+}
+
+struct RionRuntimeTabsActionScopeProbe {
+  std::string sourceWindowID;
+  std::string targetWindowID;
+  uint32_t modifierCount;
+  bool focused;
+  bool minimized;
+  bool visible;
+  bool called;
+};
+
+static void RionRuntimeTabsActionScopeProbeCallback(
+    void *context, const char *type, const char *sessionIdentifier,
+    const char *tabIdentifier,
+    const char *sourceWindowID, const char *targetWindowID,
+    const char *beforeTabIdentifier, const char *orderedTabIdentifiersJSON,
+    const char *statusIdentityJSON,
+    double screenX, double screenY,
+    double grabRatioX, double grabRatioY, double tabWidth, double tabHeight,
+    uint32_t modifierCount, bool cancelled, bool focused, bool minimized,
+    bool visible) {
+  (void)sessionIdentifier;
+  (void)tabIdentifier;
+  (void)beforeTabIdentifier;
+  (void)orderedTabIdentifiersJSON;
+  (void)statusIdentityJSON;
+  (void)screenX;
+  (void)screenY;
+  (void)grabRatioX;
+  (void)grabRatioY;
+  (void)tabWidth;
+  (void)tabHeight;
+  (void)cancelled;
+  RionRuntimeTabsActionScopeProbe *probe =
+      static_cast<RionRuntimeTabsActionScopeProbe *>(context);
+  probe->called = type && (strcmp(type, "openLauncher") == 0 ||
+                           strcmp(type, "move") == 0 ||
+                           strcmp(type, "modifierFocusNeutralized") == 0 ||
+                           strcmp(type, "windowFocusChanged") == 0);
+  probe->sourceWindowID = sourceWindowID ?: "";
+  probe->targetWindowID = targetWindowID ?: "";
+  probe->modifierCount = modifierCount;
+  probe->focused = focused;
+  probe->minimized = minimized;
+  probe->visible = visible;
+}
+
+bool rion_runtime_tabs_action_scope_self_test(void) {
+  @autoreleasepool {
+    RionRuntimeTabsActionScopeProbe launcherProbe = {
+        "", "", 0, false, false, false, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"openLauncher", @"sourceWindowId" : @"window-a" },
+        &launcherProbe, RionRuntimeTabsActionScopeProbeCallback);
+    RionRuntimeTabsActionScopeProbe moveProbe = {
+        "", "", 0, false, false, false, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"move",
+           @"sourceWindowId" : @"window-a",
+           @"windowId" : @"window-b" },
+        &moveProbe, RionRuntimeTabsActionScopeProbeCallback);
+    RionRuntimeTabsActionScopeProbe modifierProbe = {
+        "", "", 0, false, false, false, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"modifierFocusNeutralized",
+           @"sourceWindowId" : @"window-a",
+           @"modifierCount" : @3 },
+        &modifierProbe, RionRuntimeTabsActionScopeProbeCallback);
+    RionRuntimeTabsActionScopeProbe focusProbe = {
+        "", "", 0, false, false, false, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"windowFocusChanged",
+           @"sourceWindowId" : @"window-a",
+           @"focused" : @YES,
+           @"minimized" : @NO,
+           @"visible" : @YES },
+        &focusProbe, RionRuntimeTabsActionScopeProbeCallback);
+    return launcherProbe.called && launcherProbe.sourceWindowID == "window-a" &&
+           launcherProbe.targetWindowID.empty() && moveProbe.called &&
+           moveProbe.sourceWindowID == "window-a" &&
+           moveProbe.targetWindowID == "window-b" && modifierProbe.called &&
+           modifierProbe.modifierCount == 3 && focusProbe.called &&
+           focusProbe.focused &&
+           !focusProbe.minimized && focusProbe.visible;
+  }
+}
+
+bool rion_runtime_tabs_fullscreen_toolbar_policy_self_test(void) {
+  @autoreleasepool {
+    const NSApplicationPresentationOptions unrelated =
+        NSApplicationPresentationFullScreen |
+        NSApplicationPresentationAutoHideMenuBar;
+    const NSApplicationPresentationOptions toolbar =
+        NSApplicationPresentationAutoHideToolbar;
+    return !RionShouldPinFullscreenToolbar(NO, NO) &&
+        RionShouldPinFullscreenToolbar(YES, NO) &&
+        RionShouldPinFullscreenToolbar(NO, YES) &&
+        RionShouldPinFullscreenToolbar(YES, YES) &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 960, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), YES,
+                                       YES) == 40 &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 1000, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), YES,
+                                       YES) == 0 &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 960, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), NO,
+                                       YES) == 0 &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 960, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), YES,
+                                       NO) == 0 &&
+        !RionResolveFullscreenToolbarAutoHide(NO, @[]) &&
+        RionResolveFullscreenToolbarAutoHide(YES, @[]) &&
+        RionResolveFullscreenToolbarAutoHide(NO, @[ @YES ]) &&
+        RionResolveFullscreenToolbarAutoHide(YES, @[ @YES, @YES ]) &&
+        !RionResolveFullscreenToolbarAutoHide(NO, @[ @NO ]) &&
+        !RionResolveFullscreenToolbarAutoHide(YES, @[ @YES, @NO ]) &&
+        RionResolveFullscreenToolbarPresentationOptions(unrelated, nil) ==
+            unrelated &&
+        RionResolveFullscreenToolbarPresentationOptions(unrelated, @YES) ==
+            (unrelated | toolbar) &&
+        RionResolveFullscreenToolbarPresentationOptions(
+            unrelated | toolbar, @NO) == unrelated;
+  }
+}
+
+bool rion_runtime_tabs_overflow_layout_self_test(void) {
+  @autoreleasepool {
+    CGFloat visibleWidth = RionRuntimePreferredTabWidth(160.0, NO);
+    CGFloat hiddenWidth = RionRuntimePreferredTabWidth(160.0, YES);
+    RionRuntimeTabWidthLayout idealWidths = RionRuntimeResolveTabWidths(
+        {144.0, 180.0, 320.0}, 700.0, 2.0);
+    RionRuntimeTabWidthLayout adaptiveWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 320.0}, 550.0, 2.0);
+    RionRuntimeTabWidthLayout pixelWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 144.0}, 355.0, 2.0);
+    RionRuntimeTabWidthLayout minimumWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 144.0}, 348.0, 2.0);
+    RionRuntimeTabWidthLayout overflowingWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 144.0}, 347.5, 2.0);
+    RionRuntimeTabWidthLayout ghostWidths = RionRuntimeResolveTabWidths(
+        {144.0, 112.0, 144.0}, 370.0, 2.0);
+    CGFloat trailingControlOrigin = RionRuntimeTrailingControlOriginX(
+        640.0, NSMakeRect(180.0, 0.0, 144.0, kRionTabHeight), YES);
+    CGFloat shortWindowNameWidth = RionRuntimeWindowNameWidth(96.0);
+    CGFloat longWindowNameWidth = RionRuntimeWindowNameWidth(420.0);
+    CGFloat leftRevealOrigin = RionRuntimeInsetRevealScrollOrigin(
+        25.0, 169.0, 120.0, 450.0, 950.0, 25.0);
+    CGFloat rightRevealOrigin = RionRuntimeInsetRevealScrollOrigin(
+        781.0, 925.0, 0.0, 450.0, 950.0, 25.0);
+    CGFloat minimumWindowTabsWidth =
+        640.0 - kRionTrafficLightFallbackWidth - kRionRootLeadingInset -
+        longWindowNameWidth - kRionWindowNameTrailingSpacing -
+        kRionRootTrailingDraggableWidth - kRionTabHeight -
+        kRionAddButtonSpacing;
+    NSView *glassViewport = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *glassContainer = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *glassContent = [[NSView alloc] initWithFrame:NSZeroRect];
+    [glassViewport addSubview:glassContainer];
+    [glassContainer addSubview:glassContent];
+    NSRect clusterFrame = NSMakeRect(244.0, 6.0, 248.0, kRionTabHeight);
+    RionRuntimeLayoutTabClusterViews(
+        glassViewport, glassContainer, glassContent, clusterFrame);
+    NSView *fallbackViewport = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *fallbackContent = [[NSView alloc] initWithFrame:NSZeroRect];
+    [fallbackViewport addSubview:fallbackContent];
+    RionRuntimeLayoutTabClusterViews(
+        fallbackViewport, fallbackContent, fallbackContent, clusterFrame);
+    NSRect controlRow = NSMakeRect(-120.0, 80.0, 640.0, kRionTitlebarHeight);
+    return !RionRuntimeTabsOverflow(400.5, 400.0) &&
+           RionRuntimeTabsOverflow(402.0, 400.0) &&
+           RionRuntimeClampScrollOrigin(-20.0, 900.0, 400.0) == 0.0 &&
+           RionRuntimeClampScrollOrigin(700.0, 900.0, 400.0) == 500.0 &&
+           RionRuntimeRevealScrollOrigin(620.0, 760.0, 100.0, 400.0,
+                                         900.0) == 360.0 &&
+           hiddenWidth < visibleWidth &&
+           idealWidths.contentWidth == 656.0 &&
+           idealWidths.widths == std::vector<CGFloat>({144.0, 180.0, 320.0}) &&
+           !idealWidths.overflowing &&
+           adaptiveWidths.contentWidth == 550.0 &&
+           adaptiveWidths.widths ==
+               std::vector<CGFloat>({144.0, 144.0, 250.0}) &&
+           pixelWidths.contentWidth == 355.0 &&
+           pixelWidths.widths ==
+               std::vector<CGFloat>({114.5, 114.5, 114.0}) &&
+           minimumWidths.widths ==
+               std::vector<CGFloat>({112.0, 112.0, 112.0}) &&
+           !minimumWidths.overflowing && overflowingWidths.overflowing &&
+           ghostWidths.contentWidth == 370.0 &&
+           ghostWidths.widths ==
+               std::vector<CGFloat>({123.0, 112.0, 123.0}) &&
+           trailingControlOrigin == 332.0 &&
+           RionRuntimeTrailingControlOriginX(
+               640.0, NSMakeRect(180.0, 0.0, 144.0, kRionTabHeight), NO) ==
+               640.0 &&
+           shortWindowNameWidth == kRionWindowNameMinimumWidth &&
+           longWindowNameWidth == kRionWindowNameMaximumWidth &&
+           leftRevealOrigin == 0.0 && rightRevealOrigin == 500.0 &&
+           kRionTabCompactMinimumWidth == 112.0 &&
+           kRionTabScrollFusionInset == 25.0 &&
+           RionRuntimeTabEdgeFadeAlpha(0.0, 450.0, 25.0) == 0.0 &&
+           RionRuntimeTabEdgeFadeAlpha(6.25, 450.0, 25.0) == 0.15625 &&
+           RionRuntimeTabEdgeFadeAlpha(12.5, 450.0, 25.0) == 0.5 &&
+           RionRuntimeTabEdgeFadeAlpha(18.75, 450.0, 25.0) == 0.84375 &&
+           RionRuntimeTabEdgeFadeAlpha(25.0, 450.0, 25.0) == 1.0 &&
+           RionRuntimeTabEdgeFadeAlpha(425.0, 450.0, 25.0) == 1.0 &&
+           RionRuntimeTabEdgeFadeAlpha(437.5, 450.0, 25.0) == 0.5 &&
+           RionRuntimeTabEdgeFadeAlpha(450.0, 450.0, 25.0) == 0.0 &&
+           NSEqualRects(glassViewport.frame, clusterFrame) &&
+           NSEqualRects(glassContainer.frame, glassViewport.bounds) &&
+           NSEqualRects(glassContent.frame, glassContainer.bounds) &&
+           NSEqualRects(fallbackViewport.frame, clusterFrame) &&
+           NSEqualRects(fallbackContent.frame, fallbackViewport.bounds) &&
+           NSEqualRects(RionRuntimeTabEdgeEffectVisibleRect(
+                            144.0, 28.0, -50.0, 450.0, 11.0),
+                        NSMakeRect(61.0, 0.0, 83.0, 28.0)) &&
+           NSEqualRects(RionRuntimeTabEdgeEffectVisibleRect(
+                            144.0, 28.0, 400.0, 450.0, 11.0),
+                        NSMakeRect(0.0, 0.0, 39.0, 28.0)) &&
+           minimumWindowTabsWidth > kRionTabMinimumWidth &&
+           kRionTitlebarHeight == 40.0 &&
+           RionRuntimePointInHalfOpenRect(NSMakePoint(-120.0, 80.0),
+                                          controlRow) &&
+           RionRuntimePointInHalfOpenRect(NSMakePoint(519.99, 119.99),
+                                          controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(-120.01, 80.0),
+                                           controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(520.0, 80.0),
+                                           controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(-120.0, 79.99),
+                                           controlRow) &&
+           !RionRuntimePointInHalfOpenRect(NSMakePoint(-120.0, 120.0),
+                                           controlRow) &&
+           RionRuntimeDragScrollDelta(50.0, 0.0, 200.0, 36.0) == 0.0 &&
+           RionRuntimeDragScrollDelta(1.0, 0.0, 200.0, 36.0) == -16.0 &&
+           RionRuntimeDragScrollDelta(199.0, 0.0, 200.0, 36.0) == 16.0;
+  }
+}
+
+bool rion_runtime_tabs_drag_hysteresis_self_test(void) {
+  @autoreleasepool {
+    NSArray<NSNumber *> *midpoints = @[ @50.0, @150.0, @250.0 ];
+    NSArray<NSNumber *> *widths = @[ @100.0, @100.0, @100.0 ];
+    NSRect originalFrame = NSMakeRect(-140.0, 480.0, 180.0, 28.0);
+    NSRect sourceLockedFrame =
+        RionRuntimeDragFrameWithLockedY(originalFrame, 720.0);
+    NSRect targetLockedFrame =
+        RionRuntimeDragFrameWithLockedY(sourceLockedFrame, 220.0);
+    NSImage *dragImage = RionRuntimeTransparentDragImage();
+    NSBitmapImageRep *dragRepresentation =
+        (NSBitmapImageRep *)dragImage.representations.firstObject;
+    NSColor *dragPixel = [dragRepresentation colorAtX:0 y:0];
+    NSArray<NSString *> *payloadParts = RionRuntimeTabDragPayloadParts(
+        RionRuntimeTabDragPayload(@"window-a", @"tab-a", @"session-a",
+                                  NSMakePoint(0.5, 0.5),
+                                  NSMakeSize(180.0, 28.0)));
+    BOOL resolvesRight = NO;
+    BOOL resolvesLeft = NO;
+    BOOL resolvesStationary = YES;
+    CGFloat rightProbe = RionRuntimeDirectionalInsertionProbeX(
+        10.0, 110.0, 60.0, 1.0, &resolvesRight);
+    CGFloat leftProbe = RionRuntimeDirectionalInsertionProbeX(
+        10.0, 110.0, 60.0, -1.0, &resolvesLeft);
+    CGFloat stationaryProbe = RionRuntimeDirectionalInsertionProbeX(
+        10.0, 110.0, 60.0, 0.0, &resolvesStationary);
+    return RionRuntimeTabReorderHysteresis(100.0) == 3.0 &&
+           RionRuntimeTabReorderHysteresis(280.0) == 5.0 &&
+           RionRuntimeTabInsertionProbeX(80.0, 100.0, 0.2) == 110.0 &&
+           RionRuntimeTabInsertionProbeX(110.0, 100.0, 0.5) == 110.0 &&
+           RionRuntimeTabInsertionProbeX(140.0, 100.0, 0.8) == 110.0 &&
+           resolvesRight && rightProbe == 110.0 &&
+           resolvesLeft && leftProbe == 10.0 &&
+           !resolvesStationary && stationaryProbe == 60.0 &&
+           payloadParts.count == 7 &&
+           [payloadParts[3] isEqualToString:@"0.5"] &&
+           [payloadParts[4] isEqualToString:@"0.5"] &&
+           [payloadParts[5] isEqualToString:@"180"] &&
+           [payloadParts[6] isEqualToString:@"28"] &&
+           RionRuntimeStableInsertionIndex(52.0, midpoints, widths, 0) == 0 &&
+           RionRuntimeStableInsertionIndex(54.0, midpoints, widths, 0) == 1 &&
+           RionRuntimeStableInsertionIndex(48.0, midpoints, widths, 1) == 1 &&
+           RionRuntimeStableInsertionIndex(46.0, midpoints, widths, 1) == 0 &&
+           RionRuntimeStableInsertionIndex(300.0, midpoints, widths, 0) == 3 &&
+           sourceLockedFrame.origin.x == originalFrame.origin.x &&
+           sourceLockedFrame.origin.y == 720.0 &&
+           NSEqualSizes(sourceLockedFrame.size, originalFrame.size) &&
+           targetLockedFrame.origin.x == originalFrame.origin.x &&
+           targetLockedFrame.origin.y == 220.0 &&
+           NSEqualSizes(targetLockedFrame.size, originalFrame.size) &&
+           NSEqualSizes(dragImage.size, NSMakeSize(1.0, 1.0)) &&
+           [dragRepresentation isKindOfClass:NSBitmapImageRep.class] &&
+           dragPixel.alphaComponent == 0.0;
+  }
+}
+
+static NSEventModifierFlags RionRuntimeShortcutModifierFlagForKeyCode(
+    unsigned short keyCode) {
+  switch (keyCode) {
+    case 56:  // Left Shift
+    case 60:  // Right Shift
+      return NSEventModifierFlagShift;
+    case 59:  // Left Control
+    case 62:  // Right Control
+      return NSEventModifierFlagControl;
+    default:
+      return 0;
+  }
+}
+
+static NSEventModifierFlags RionRuntimePendingShortcutModifiersAfterEvent(
+    NSEventModifierFlags pending, NSEvent *event) {
+  NSEventModifierFlags changed =
+      RionRuntimeShortcutModifierFlagForKeyCode(event.keyCode);
+  if ((pending & changed) == 0) return pending;
+  NSEventModifierFlags active = event.modifierFlags &
+      (NSEventModifierFlagControl | NSEventModifierFlagShift);
+  return pending & active;
+}
+
+static BOOL RionRuntimeRelayShortcutModifierEvent(
+    NSResponder *origin, NSResponder *current, NSEventModifierFlags pending,
+    NSEvent *event) {
+  NSEventModifierFlags changed =
+      RionRuntimeShortcutModifierFlagForKeyCode(event.keyCode);
+  if ((pending & changed) == 0 || !origin || origin == current) return NO;
+  [origin flagsChanged:event];
+  return YES;
+}
+
+@interface RionRuntimeShortcutResponderProbe : NSResponder
+
+@property(nonatomic) NSUInteger flagsChangedCount;
+@property(nonatomic) unsigned short lastKeyCode;
+@property(nonatomic) NSMutableArray<NSNumber *> *keyCodes;
+@property(nonatomic) NSMutableArray<NSNumber *> *modifierFlags;
+
+@end
+
+
+@implementation RionRuntimeShortcutResponderProbe
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _keyCodes = [NSMutableArray array];
+    _modifierFlags = [NSMutableArray array];
+  }
+  return self;
+}
+
+- (void)flagsChanged:(NSEvent *)event {
+  self.flagsChangedCount += 1;
+  self.lastKeyCode = event.keyCode;
+  [self.keyCodes addObject:@(event.keyCode)];
+  [self.modifierFlags addObject:@(event.modifierFlags)];
+}
+
+@end
+
+
+bool rion_runtime_tabs_shortcut_self_test(void) {
+  @autoreleasepool {
+    NSEventModifierFlags control = NSEventModifierFlagControl;
+    NSEventModifierFlags shift = NSEventModifierFlagShift;
+    NSEventModifierFlags command = NSEventModifierFlagCommand;
+    NSEventModifierFlags option = NSEventModifierFlagOption;
+    NSEventModifierFlags mask = NSEventModifierFlagDeviceIndependentFlagsMask;
+    auto accepts = ^BOOL(unsigned short keyCode, NSEventModifierFlags flags) {
+      flags &= mask;
+      return keyCode == 48 && (flags & control) != 0 &&
+          (flags & (command | option | NSEventModifierFlagFunction)) == 0;
+    };
+    NSEvent *shiftRelease = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                            location:NSZeroPoint
+                                       modifierFlags:control
+                                           timestamp:0
+                                        windowNumber:0
+                                             context:nil
+                                          characters:@""
+                         charactersIgnoringModifiers:@""
+                                           isARepeat:NO
+                                             keyCode:60];
+    NSEvent *controlRelease = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                              location:NSZeroPoint
+                                         modifierFlags:0
+                                             timestamp:0
+                                          windowNumber:0
+                                               context:nil
+                                            characters:@""
+                           charactersIgnoringModifiers:@""
+                                             isARepeat:NO
+                                               keyCode:62];
+    RionRuntimeShortcutResponderProbe *probe =
+        [[RionRuntimeShortcutResponderProbe alloc] init];
+    RionRuntimeShortcutResponderProbe *current =
+        [[RionRuntimeShortcutResponderProbe alloc] init];
+    BOOL relayed = RionRuntimeRelayShortcutModifierEvent(
+        probe, current, control | shift, shiftRelease);
+    BOOL duplicate = RionRuntimeRelayShortcutModifierEvent(
+        probe, probe, control | shift, controlRelease);
+    NSEventModifierFlags pending =
+        RionRuntimePendingShortcutModifiersAfterEvent(control | shift,
+                                                       shiftRelease);
+    pending = RionRuntimePendingShortcutModifiersAfterEvent(
+        pending, controlRelease);
+    return accepts(48, control) && accepts(48, control | shift) &&
+        !accepts(48, command) && !accepts(48, control | option) &&
+        !accepts(49, control) &&
+        RionRuntimeShortcutModifierFlagForKeyCode(59) == control &&
+        RionRuntimeShortcutModifierFlagForKeyCode(62) == control &&
+        RionRuntimeShortcutModifierFlagForKeyCode(56) == shift &&
+        RionRuntimeShortcutModifierFlagForKeyCode(60) == shift &&
+        RionRuntimeShortcutModifierFlagForKeyCode(58) == 0 &&
+        relayed && !duplicate && probe.flagsChangedCount == 1 &&
+        probe.lastKeyCode == 60 &&
+        pending == 0;
+  }
+}
+
+bool rion_runtime_tabs_macro_fallback_event_self_test(void) {
+  @autoreleasepool {
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                      location:NSZeroPoint
+                                 modifierFlags:0
+                                     timestamp:0
+                                  windowNumber:0
+                                       context:nil
+                                    characters:@"a"
+                   charactersIgnoringModifiers:@"a"
+                                     isARepeat:NO
+                                       keyCode:0];
+    if (!event || RionRuntimeIsMacroKeyEvent(event)) return false;
+    objc_setAssociatedObject(
+        event, NSSelectorFromString(@"rionStudioMacroKeyEvent"), @YES,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return RionRuntimeIsMacroKeyEvent(event);
+  }
+}
+
+@interface RionRuntimeBackdropView : NSVisualEffectView
+@end
+
+@interface RionRuntimeVerticallyCenteredTextFieldCell : NSTextFieldCell
+@end
+
+@interface RionRuntimeHorizontalScrollView : NSScrollView
+@end
+
+@interface RionRuntimeWindowNameField : NSTextField
+@end
+
+@interface RionRuntimeStatusBackdropView : NSView
+@end
+
+@interface RionRuntimeSurfaceView : NSView
+
+@property(nonatomic, strong, readonly) NSView *contentView;
+
+- (instancetype)initWithContentView:(NSView *)contentView
+                       cornerRadius:(CGFloat)cornerRadius;
+- (void)setEdgeFadeMask:(nullable CAGradientLayer *)mask
+       effectVisibleRect:(NSRect)effectVisibleRect;
+- (void)updateActive:(BOOL)active
+             hovered:(BOOL)hovered
+        windowActive:(BOOL)windowActive
+             animate:(BOOL)animate;
+
+@end
+
+@interface RionRuntimeTabItemView
+    : NSControl <NSAccessibilityRadioButton, NSDraggingSource>
+
+@property(nonatomic) BOOL activeTab;
+@property(nonatomic) BOOL tabDropHandled;
+@property(nonatomic, copy) NSString *dragSessionID;
+@property(nonatomic, copy) NSString *sourceWindowID;
+@property(nonatomic, weak) RionRuntimeSurfaceView *surfaceView;
+@property(nonatomic, weak, nullable)
+    RionRuntimeTabGroupView *tabAccessibilityParent;
+@property(nonatomic, weak) RionRuntimeTabsController *tabsController;
+@property(nonatomic, copy) NSString *tabIdentifier;
+@property(nonatomic) CGFloat layoutWidth;
+@property(nonatomic, readonly) CGFloat preferredWidth;
+@property(nonatomic, readonly) BOOL tabCloseButtonHidden;
+@property(nonatomic, readonly) NSPoint grabRatio;
+
+- (void)configureWithTab:(RionRuntimeTabModel *)tab
+                    image:(NSImage *)image
+      hideTabCloseButton:(BOOL)hideTabCloseButton
+               closeLabel:(NSString *)closeLabel
+        audioPlayingLabel:(NSString *)audioPlayingLabel
+           audioMutedLabel:(NSString *)audioMutedLabel
+             windowActive:(BOOL)windowActive;
+- (void)updateWindowActive:(BOOL)windowActive;
+- (void)setHideTabCloseButton:(BOOL)hideTabCloseButton;
+- (void)updateVisualStateAnimated:(BOOL)animate;
+- (BOOL)performAccessibilityClose;
+- (void)beginDragPreviewSession:(NSDraggingSession *)session
+                  lockedScreenY:(CGFloat)screenY;
+- (void)lockDragPreviewToScreenY:(CGFloat)screenY;
+- (void)clearDragPreviewYLock;
+
+@end
+
+@interface RionRuntimeTabGroupView
+    : RionRuntimeDraggableView <NSAccessibilityGroup>
+
+@property(nonatomic, copy)
+    NSArray<RionRuntimeTabItemView *> *tabAccessibilityChildren;
+@property(nonatomic, weak, nullable) NSView *titlebarAccessibilityParent;
+
+@end
+
+@interface RionRuntimeAddButton : NSButton
+
+@property(nonatomic, weak) RionRuntimeSurfaceView *surfaceView;
+
+@end
+
+@interface RionRuntimeTabsRootView : RionRuntimeDraggableView
+    <NSAccessibilityGroup, NSDraggingDestination>
+
+@property(nonatomic, weak, nullable)
+    RionRuntimeTabGroupView *tabAccessibilityGroup;
+@property(nonatomic, weak) RionRuntimeTabsController *tabsController;
+@property(nonatomic, copy)
+    NSArray<NSView *> *workspaceDividerAccessibilityChildren;
+
+@end
+
+@interface RionRuntimeTitlebarAccessoryViewController
+    : NSTitlebarAccessoryViewController
+
+@property(nonatomic, copy, nullable) dispatch_block_t appearanceHandler;
+
+@end
+
+@interface RionRuntimeTabsController () <NSToolbarDelegate>
+
+@property(nonatomic, readwrite) BOOL alwaysShowInFullScreen;
+@property(nonatomic, readwrite) BOOL revealLocked;
+
+- (void)activateTab:(NSString *)tabIdentifier;
+- (void)ensureStatusBackdrop;
+- (void)hideStatus;
+- (void)showLoadingStatusForTab:(RionRuntimeTabModel *)tab;
+- (void)retryFailedTab:(id)sender;
+- (void)showFailureStatusForTab:(RionRuntimeTabModel *)tab;
+- (void)updateStatusForActiveTab;
+- (void)closeTab:(NSString *)tabIdentifier;
+- (void)applyLiquidGlassTitlebarAppearance;
+- (void)attachAccessoryController;
+- (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
+
+NS_ASSUME_NONNULL_END

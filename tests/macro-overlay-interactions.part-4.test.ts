@@ -45,6 +45,11 @@ interface OverlayController {
     code: string,
     phase?: "keydown" | "keyup"
   ) => boolean;
+  suppressShortcutSequence: (
+    dispatchId: string,
+    code: string,
+    phases: readonly ("keydown" | "keyup")[]
+  ) => boolean;
 }
 
 interface OverlayTestWindow extends Window {
@@ -337,8 +342,16 @@ describe("macro overlay native key guard", () => {
       };
       if (request.phase === "replay") {
         for (const code of request.modifierCodes) dispatch("keydown", code, true);
-        dispatch("keydown", request.code, true);
-        dispatch("keyup", request.code, true);
+        const dispatchId = `test-dispatch-${++testDispatchSequence}`;
+        expect(controller.suppressShortcutSequence(
+          dispatchId,
+          request.code,
+          ["keydown", "keyup"]
+        )).toBe(true);
+        document.dispatchEvent(keyEvent("keydown", request.code,
+          request.code === "Digit2" ? "@" : "#", { shiftKey: true }));
+        document.dispatchEvent(keyEvent("keyup", request.code,
+          request.code === "Digit2" ? "@" : "#", { shiftKey: true }));
         for (const code of [...request.modifierCodes].reverse()) dispatch("keyup", code, false);
       }
     });

@@ -40,6 +40,9 @@ import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppSc
 import { DashboardRoute, GameEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
 
 const TOAST_DISMISS_MS = 4000;
+const DESKTOP_SHELL = typeof __RION_DESKTOP_SHELL__ === "undefined"
+  ? undefined
+  : __RION_DESKTOP_SHELL__;
 const EMPTY_QUICK_ACCESS_PREFERENCES: QuickAccessPreferences = {
   pinnedItems: [],
   recentItems: []
@@ -55,7 +58,7 @@ export function App(): JSX.Element {
   });
   const preferences = usePreferences();
   const hasBridge = Boolean(window.rionStudio);
-  useWindowsApplicationShortcuts(hasBridge);
+  useWindowsApplicationShortcuts(hasBridge && DESKTOP_SHELL === "tauri");
   const legal = useLegalAcceptance(hasBridge);
   const firstRunOnboarding = useFirstRunOnboarding({ enabled: hasBridge && data.initialLoadState === "ready" && legal.status?.isAccepted === true, roles: data.roles });
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);
@@ -301,6 +304,7 @@ export function App(): JSX.Element {
     close: closeQuickAccess,
     didClose: didCloseQuickAccess,
     isOpen: isQuickAccessOpen,
+    isManagedRequestActive: isManagedQuickAccessRequestActive,
     openFromMainWindow: openQuickAccess,
     restoreDomFocusOnClose: restoreQuickAccessDomFocus
   } = quickAccessPresentation;
@@ -347,6 +351,10 @@ export function App(): JSX.Element {
     if (!quickAccessEnabled) return;
     function handleQuickAccessShortcut(event: KeyboardEvent): void {
       if (!isQuickAccessShortcut(event, isMacOS ? "mac" : "windows")) return;
+      if (isManagedQuickAccessRequestActive()) {
+        event.preventDefault();
+        return;
+      }
       if (isQuickAccessOpen) {
         event.preventDefault();
         closeQuickAccess("cancel");
@@ -358,7 +366,8 @@ export function App(): JSX.Element {
 
     window.addEventListener("keydown", handleQuickAccessShortcut);
     return () => window.removeEventListener("keydown", handleQuickAccessShortcut);
-  }, [closeQuickAccess, isMacOS, isQuickAccessOpen, openQuickAccess, quickAccessEnabled]);
+  }, [closeQuickAccess, isMacOS, isManagedQuickAccessRequestActive,
+    isQuickAccessOpen, openQuickAccess, quickAccessEnabled]);
 
   const setQuickAccessPinned = useCallback(async (
     item: QuickAccessItemRef,

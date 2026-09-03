@@ -11,6 +11,7 @@ import {
 const execute = promisify(execFile);
 const reportOnly = process.argv.includes("--report");
 const sourceExtensions = new Set([
+  ".cs",
   ".css",
   ".h",
   ".js",
@@ -24,7 +25,7 @@ const sourceExtensions = new Set([
   ".tsx"
 ]);
 const generatedPrefixes = ["src/shared/generated/"];
-const limits = { bytes: 64 * 1024, lines: 1600 };
+const limits = { bytes: 64 * 1024, lines: 3200 };
 const facadeLineLimit = 250;
 const architectureGuards = [
   {

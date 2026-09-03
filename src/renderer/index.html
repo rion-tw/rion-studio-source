@@ -4,39 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title></title>
-    <script>
-      (() => {
-        try {
-          const themeKey = "rion-studio-theme";
-          const storedTheme = localStorage.getItem(themeKey);
-          const resolvedTheme =
-            storedTheme === "light" || storedTheme === "dark"
-              ? storedTheme
-              : window.matchMedia("(prefers-color-scheme: dark)").matches
-                ? "dark"
-                : "light";
-
-          document.documentElement.dataset.theme = resolvedTheme;
-          document.documentElement.style.colorScheme = resolvedTheme;
-        } catch {
-          document.documentElement.dataset.theme = "light";
-          document.documentElement.style.colorScheme = "light";
-        }
-        const platform = navigator.platform.toLowerCase();
-        const userAgent = navigator.userAgent.toLowerCase();
-        document.documentElement.dataset.platform =
-          platform.includes("mac") || userAgent.includes("mac os")
-            ? "mac"
-            : platform.includes("win") || userAgent.includes("windows")
-              ? "windows"
-              : "linux";
-        document.documentElement.dataset.windowFullscreen = "false";
-        document.documentElement.dataset.windowMaximized = "false";
-        document.documentElement.dataset.windowFocused = "true";
-        document.documentElement.dataset.windowControlsScrolled = "false";
-        document.documentElement.dataset.windowsMica = "fallback";
-      })();
-    </script>
+    <script type="module" src="/src/app/earlyDocumentState.ts"></script>
     <link rel="stylesheet" href="/src/boot.css" />
   </head>
   <body>

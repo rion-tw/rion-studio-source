@@ -1,5 +1,7 @@
 allowBuilds:
   edgedriver: false
+  electron: true
+  electron-winstaller: true
   esbuild: true
   geckodriver: false
 
@@ -17,6 +19,7 @@ minimumReleaseAgeExclude:
   - typescript-eslint@8.64.0
 
 onlyBuiltDependencies:
+  - electron
   - esbuild
 
 verifyDepsBeforeRun: false

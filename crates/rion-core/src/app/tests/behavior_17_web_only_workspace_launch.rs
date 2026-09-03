@@ -62,7 +62,7 @@ fn web_workspace_browser_launch(workspace_id: &str, window_id: &str) -> CoreComm
 #[test]
 fn web_only_workspace_launches_without_creating_managed_role_statuses() {
     for platform in ["darwin", "win32"] {
-        let (_directory, core) = core_for_platform(platform);
+        let (directory, core) = core_for_platform(platform);
         let workspace_id = create_web_only_workspace(&core, &format!("Web only {platform}"));
         let (launch, actions) = drive_command(
             Arc::clone(&core),
@@ -89,6 +89,16 @@ fn web_only_workspace_launches_without_creating_managed_role_statuses() {
                 action,
                 CoreEffectAction::EmbeddedLoadRoles { roles } if roles.is_empty()
             )),
+            "{platform}"
+        );
+        assert!(
+            actions
+                .iter()
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedLoadWebSurfaces { .. })),
+            "{platform}"
+        );
+        assert!(
+            !directory.path().join("web-profiles").exists(),
             "{platform}"
         );
 
@@ -211,6 +221,51 @@ fn repeated_web_only_launch_joins_the_existing_tab_and_stop_allows_a_fresh_attem
             "{platform}"
         );
         assert!(relaunched_snapshot.roles.is_empty(), "{platform}");
+        core.shutdown();
+    }
+}
+
+#[test]
+fn chromium_browser_workspace_stop_retires_kernel_and_ownership_topology() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform_contract(platform, 23);
+        let workspace_id = create_web_only_workspace(
+            &core,
+            &format!("Chromium stop topology {platform}"),
+        );
+        let window_id = format!("chromium-stop-window-{platform}");
+        let (launched, launch_actions, _) = drive_async_command(
+            Arc::clone(&core),
+            web_workspace_browser_launch(&workspace_id, &window_id),
+            None,
+        );
+        assert!(launched.is_ok(), "{platform}: {launched:?}");
+        assert!(launch_actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::EmbeddedCreateTab { .. }
+        )), "{platform}");
+        let before = core.app_snapshot().unwrap();
+        assert_eq!(before.logical_windows.len(), 1, "{platform}");
+        assert_eq!(before.browser_runtime.windows.len(), 1, "{platform}");
+        assert_eq!(before.browser_runtime.tabs.len(), 1, "{platform}");
+
+        let (stopped, stop_actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::BrowserWorkspaceStop {
+                workspace_id: workspace_id.clone(),
+            },
+            None,
+        );
+        assert!(stopped.is_ok(), "{platform}: {stopped:?}");
+        assert!(stop_actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::EmbeddedDestroyTab { .. }
+        )), "{platform}");
+        let after = core.app_snapshot().unwrap();
+        assert!(after.logical_windows.is_empty(), "{platform}");
+        assert!(after.browser_runtime.windows.is_empty(), "{platform}");
+        assert!(after.browser_runtime.tabs.is_empty(), "{platform}");
+        assert!(after.browser_runtime.roles.is_empty(), "{platform}");
         core.shutdown();
     }
 }

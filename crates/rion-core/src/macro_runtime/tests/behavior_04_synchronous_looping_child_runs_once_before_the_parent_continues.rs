@@ -256,7 +256,13 @@
         assert!(inner.held_keys.is_empty());
         assert!(inner.leases.is_empty());
         drop(inner);
-        assert!(runtime.shared.pending.lock().unwrap().is_empty());
+        assert!(runtime
+            .shared
+            .pending
+            .lock()
+            .unwrap()
+            .pending
+            .is_empty());
         assert!(runtime.shared.action_role_locks.lock().unwrap().len() <= 1);
     }
 

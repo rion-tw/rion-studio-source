@@ -453,6 +453,12 @@ impl SystemRuntimeExecutor {
         &self,
         roles: Vec<BrowserRuntimeRoleRecord>,
     ) -> Option<BrowserRuntimeSnapshot> {
+        let launch_attempt_generations = self
+            .state
+            .lock()
+            .ok()?
+            .launch_attempt_generations
+            .clone();
         let mut live_windows = self.presentation.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
         live_windows.sort_by(|left, right| left.0.cmp(&right.0));
         let owner_by_role = roles
@@ -500,12 +506,15 @@ impl SystemRuntimeExecutor {
                     .collect::<Vec<_>>();
                 let projected = BrowserRuntimeTabRecord {
                     id: tab.id.clone(),
+                    audio_muted: tab.audio_muted,
+                    attempt_generation: launch_attempt_generations.get(&tab.id).cloned(),
                     source_id: tab.source_id.clone(),
                     name: tab.title.clone(),
                     window_id: window_id.clone(),
                     tab_type: tab.tab_type.clone(),
                     workspace_id: (tab.tab_type == "workspace").then(|| tab.source_id.clone()),
                     slots: slots.clone(),
+                    web_surfaces: Vec::new(),
                     hidden: live.tab_is_hidden(&tab.id),
                 };
                 if tab.tab_type == "workspace" {

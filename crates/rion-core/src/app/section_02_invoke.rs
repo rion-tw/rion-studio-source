@@ -41,6 +41,10 @@ impl AppCore {
                 serde_json::to_value(self.register_system_webview_runtime(registration)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::BrowserRuntimeRegister { registration } => {
+                serde_json::to_value(self.register_browser_runtime(registration)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::StateSnapshot => self.with_runtime(|runtime| runtime.state.snapshot()),
             CoreCommand::AppSnapshot => serde_json::to_value(self.app_snapshot()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
@@ -66,6 +70,34 @@ impl AppCore {
                 self.read_state_record("roles", "id", &id, "ROLE_NOT_FOUND", "Role not found.")
             }
             CoreCommand::RoleCreate { input } => {
+                if self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION {
+                    let _guard = self.state_mutation_guard()?;
+                    let role_id = uuid::Uuid::new_v4().to_string();
+                    let initialization = crate::v23_role_initialization::new_evidence(
+                        role_id.clone(),
+                        self.platform,
+                    );
+                    crate::v23_role_initialization::prepare_empty_store(
+                        &self.user_data_dir,
+                        &initialization,
+                    )?;
+                    return match self.mutate_state_under_guard(
+                        StateMutation::RoleCreateWithV23Ready {
+                            id: role_id,
+                            input,
+                            initialization: initialization.clone(),
+                        },
+                    ) {
+                        Ok(role) => Ok(role),
+                        Err(error) => {
+                            crate::v23_role_initialization::rollback_empty_store(
+                                &self.user_data_dir,
+                                &initialization,
+                            );
+                            Err(error)
+                        }
+                    };
+                }
                 let role = self.mutate_state(StateMutation::RoleCreate(input))?;
                 let role_id = role
                     .get("id")
@@ -129,8 +161,27 @@ impl AppCore {
                 serde_json::to_value(self.resolve_role_paths(&id)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::GlobalWebProfilePathsResolve => {
+                if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+                    return Err(CoreError::Domain {
+                        code: "GLOBAL_WEB_PROFILE_RUNTIME_UNAVAILABLE",
+                        message: "The global Web Chromium profile is unavailable before runtime contract v23."
+                            .to_owned(),
+                    });
+                }
+                serde_json::to_value(crate::global_web_profile::ensure(&self.user_data_dir)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::RoleAssignGameIds { assignments } => {
                 self.mutate_state(StateMutation::RoleAssignGameIds(assignments))
+            }
+            CoreCommand::RoleSessionMigrationGet { role_id } => {
+                serde_json::to_value(self.role_session_migration(role_id)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::RoleSessionMigrationsList => {
+                serde_json::to_value(self.role_session_migrations()?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::ChromeProfileDefaultPath => Ok(
                 rion_platform::default_chrome_user_data_directory(self.platform)
@@ -207,13 +258,16 @@ impl AppCore {
                 "GAME_WINDOW_NOT_FOUND",
                 "Game window not found.",
             ),
-            CoreCommand::GameWindowCreate { input } =>
-                self.mutate_state(StateMutation::GameWindowCreate(input)),
+            CoreCommand::GameWindowCreate { input } => {
+                self.mutate_state(StateMutation::GameWindowCreate(input))
+            }
             CoreCommand::GameWindowSaveRuntime { input } => self.save_runtime_game_window(input),
-            CoreCommand::GameWindowRuntimeSnapshotCommit { input } =>
-                self.commit_runtime_window_snapshot(input),
-            CoreCommand::GameWindowRuntimeSnapshotBatchCommit { input } =>
-                self.commit_runtime_window_snapshot_batch(input),
+            CoreCommand::GameWindowRuntimeSnapshotCommit { input } => {
+                self.commit_runtime_window_snapshot(input)
+            }
+            CoreCommand::GameWindowRuntimeSnapshotBatchCommit { input } => {
+                self.commit_runtime_window_snapshot_batch(input)
+            }
             CoreCommand::GameWindowUpdate { id, input } => {
                 self.mutate_state(StateMutation::GameWindowUpdate { id, input })
             }
@@ -341,8 +395,7 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::RuntimeRestoreSessionReplace { session } => {
-                let session = normalize_runtime_restore_session(session)?;
-                self.replace_scalar_state("runtimeRestoreSession", session.clone())?;
+                let session = self.replace_runtime_restore_session(session)?;
                 serde_json::to_value(session)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -618,10 +671,84 @@ impl AppCore {
             }
             CoreCommand::MacroReleaseRole { role_id } => self.release_macro_role(role_id),
             CoreCommand::MacroInputFence { role_id } => self.macro_input_fence(role_id),
-            CoreCommand::MacroInputDrain { role_id, input_epoch } =>
-                self.macro_input_drain(role_id, input_epoch),
-            CoreCommand::MacroInputResume { role_id, input_epoch } =>
-                self.macro_input_resume(role_id, input_epoch),
+            CoreCommand::MacroInputDrain {
+                role_id,
+                input_epoch,
+            } => self.macro_input_drain(role_id, input_epoch),
+            CoreCommand::MacroInputResume {
+                role_id,
+                input_epoch,
+            } => self.macro_input_resume(role_id, input_epoch),
+            CoreCommand::MacroInputRecoveryInspect {
+                recovery_id,
+                role_id,
+                expected_input_epoch,
+            } => serde_json::to_value(self.inspect_macro_input_recovery(
+                &recovery_id,
+                &role_id,
+                expected_input_epoch,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::MacroInputRecoveryComplete {
+                recovery_id,
+                role_id,
+                expected_input_epoch,
+            } => serde_json::to_value(self.complete_macro_input_recovery_exact(
+                &recovery_id,
+                &role_id,
+                expected_input_epoch,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::MacroInputRecoveryFail {
+                recovery_id,
+                role_id,
+                expected_input_epoch,
+                message,
+            } => serde_json::to_value(self.fail_macro_input_recovery_exact(
+                &recovery_id,
+                &role_id,
+                expected_input_epoch,
+                &message,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::ManagedShortcutPhase {
+                operation_id,
+                role_id,
+                tab_id,
+                surface_generation,
+                document_instance_id,
+                expected_owner_generation,
+                press_id,
+                macro_id,
+                code,
+                phase,
+                modifier_codes,
+            } => serde_json::to_value(self.dispatch_managed_shortcut_phase(
+                ManagedShortcutPhaseInput {
+                    operation_id,
+                    role_id,
+                    tab_id,
+                    surface_generation,
+                    document_instance_id,
+                    expected_owner_generation,
+                    press_id,
+                    macro_id,
+                    code,
+                    phase,
+                    modifier_codes,
+                },
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::ManagedShortcutSurfaceRetire {
+                role_id,
+                surface_generation,
+                document_instance_id,
+            } => serde_json::to_value(self.retire_managed_shortcut_surface(
+                &role_id,
+                surface_generation,
+                &document_instance_id,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::MacroStatuses => serde_json::to_value(self.macro_runtime.statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::OperationCancel { operation_id } => {
@@ -655,23 +782,24 @@ impl AppCore {
                 self.stop_embedded_workspace(&workspace_id)?;
                 Ok(json!({ "stopped": true }))
             }
-            CoreCommand::EmbeddedSystemSurfaceFailed { role_id, reason } => serde_json::to_value(
-                self.report_crashed_system_surface(&role_id, reason.as_deref())?,
-            )
+            CoreCommand::EmbeddedSystemSurfaceFailed {
+                role_id,
+                reason,
+                expected_tab_id,
+                expected_owner_generation,
+            } => serde_json::to_value(self.report_crashed_system_surface(
+                &role_id,
+                reason.as_deref(),
+                expected_tab_id.as_deref(),
+                expected_owner_generation,
+            )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::EmbeddedSystemSurfaceRecovered { role_id } => {
                 serde_json::to_value(self.report_recovered_system_surface(&role_id)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedWindowRegister { target } => {
-                let window_id = target.window_id.clone();
-                serde_json::to_value(self.apply_embedded_runtime_command(
-                    Vec::new(),
-                    Some(target),
-                    vec![window_id.clone()],
-                    vec![window_id],
-                    None,
-                )?)
+                serde_json::to_value(self.register_embedded_window(target)?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedWindowDelete { window_id: _ } => {
@@ -684,9 +812,157 @@ impl AppCore {
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::EmbeddedWindowsShow { window_id } => {
-                self.show_embedded_windows(window_id)
+            CoreCommand::EmbeddedWindowsShow { window_id } => self.show_embedded_windows(window_id),
+            CoreCommand::EmbeddedWindowVisibility {
+                operation_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                visible,
+            } => serde_json::to_value(self.apply_runtime_window_visibility_action(
+                operation_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                visible,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedWindowPresentation {
+                operation_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                presentation,
+            } => serde_json::to_value(self.apply_runtime_window_presentation_action(
+                operation_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                presentation,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserRuntimeWindowZoom {
+                operation_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                action,
+            } => serde_json::to_value(self.apply_runtime_window_zoom_action(
+                operation_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                action,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::BrowserWindowsRuntimeWindowPlacement { event } => {
+                serde_json::to_value(self.commit_windows_runtime_window_placement(event)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::EmbeddedWindowProvisionForTabMove {
+                operation_id,
+                tab_id,
+                source_window_id,
+                source_window_generation,
+                source_topology_revision,
+                target,
+            } => serde_json::to_value(self.apply_runtime_window_provision_for_tab_move(
+                operation_id,
+                tab_id,
+                source_window_id,
+                source_window_generation,
+                source_topology_revision,
+                target,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedWindowProvisionResume {
+                operation_id,
+                tab_id,
+            } => serde_json::to_value(self.resume_runtime_window_provision(operation_id, tab_id)?)
+                .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedWindowRetireProvision {
+                operation_id,
+                window_id,
+                window_generation,
+                topology_revision,
+            } => {
+                self.retire_runtime_window_provision(
+                    operation_id,
+                    window_id,
+                    window_generation,
+                    topology_revision,
+                )?;
+                Ok(json!({ "retired": true }))
+            }
+            CoreCommand::EmbeddedTabActivate {
+                operation_id,
+                tab_id,
+                window_id,
+                window_generation,
+                topology_revision,
+            } => serde_json::to_value(self.apply_runtime_tab_action(
+                RuntimeUiTabAction::Activate,
+                operation_id,
+                tab_id,
+                window_id,
+                window_generation,
+                topology_revision,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedTabHide {
+                operation_id,
+                tab_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                hidden,
+            } => serde_json::to_value(self.apply_runtime_tab_action(
+                RuntimeUiTabAction::Hide { hidden },
+                operation_id,
+                tab_id,
+                window_id,
+                window_generation,
+                topology_revision,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedTabReorder {
+                operation_id,
+                tab_id,
+                window_id,
+                window_generation,
+                topology_revision,
+                before_tab_id,
+            } => serde_json::to_value(self.apply_runtime_tab_action(
+                RuntimeUiTabAction::Reorder { before_tab_id },
+                operation_id,
+                tab_id,
+                window_id,
+                window_generation,
+                topology_revision,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::EmbeddedTabMove {
+                operation_id,
+                tab_id,
+                source_window_id,
+                source_window_generation,
+                source_topology_revision,
+                target_window_id,
+                target_window_generation,
+                target_topology_revision,
+                before_tab_id,
+            } => serde_json::to_value(self.apply_runtime_tab_move_action(
+                operation_id,
+                tab_id,
+                source_window_id,
+                source_window_generation,
+                source_topology_revision,
+                target_window_id,
+                target_window_generation,
+                target_topology_revision,
+                before_tab_id,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserStatuses => serde_json::to_value(self.browser_statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserWorkspaceStatuses => {
@@ -694,10 +970,50 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserRuntimeSnapshot => self.serialized_browser_runtime_snapshot(),
-            CoreCommand::BrowserRuntimeSuspend { suspended } => {
-                Ok(json!({ "suspended": suspended }))
+            CoreCommand::BrowserRuntimeSuspend {
+                suspended,
+                lifecycle_epoch,
+            } => {
+                let reload_admission = self
+                    .supersede_all_controlled_role_reloads("applicationLifecycle")?;
+                let current_epoch = self.application_lifecycle_epoch.load(Ordering::Acquire);
+                let next_epoch = lifecycle_epoch
+                    .unwrap_or_else(|| current_epoch.saturating_add(1).max(1));
+                if next_epoch < current_epoch {
+                    return Err(CoreError::Domain {
+                        code: "SYSTEM_LIFECYCLE_EPOCH_STALE",
+                        message: "The application lifecycle epoch is stale.".to_owned(),
+                    });
+                }
+                self.application_lifecycle_epoch
+                    .store(next_epoch, Ordering::Release);
+                if suspended {
+                    self.application_suspended.store(true, Ordering::Release);
+                }
+                let role_input_epochs = if suspended {
+                    self.macro_runtime.suspend_for_application_lifecycle()?
+                } else {
+                    self.macro_runtime.resume_after_application_lifecycle()?
+                };
+                self.application_suspended
+                    .store(suspended, Ordering::Release);
+                drop(reload_admission);
+                Ok(json!({
+                    "suspended": suspended,
+                    "lifecycleEpoch": next_epoch,
+                    "roleInputEpochs": role_input_epochs,
+                }))
+            }
+            CoreCommand::BrowserPopupOpenAdmit { request } => {
+                serde_json::to_value(self.admit_chromium_popup(request)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserPopupLifecycleCommit { event } => {
+                serde_json::to_value(self.commit_chromium_popup_lifecycle(event)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::RoleBrowserDataClear { .. }
+            | CoreCommand::GlobalWebProfileClear
             | CoreCommand::ChromeProfileRequestQuit { .. }
             | CoreCommand::ChromeProfileApply { .. }
             | CoreCommand::DiagnosticsExport { .. }
@@ -705,12 +1021,17 @@ impl AppCore {
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleSlotClaim { .. }
+            | CoreCommand::BrowserWorkspaceWebSurfaceFailed { .. }
+            | CoreCommand::BrowserTabAudioMute { .. }
+            | CoreCommand::BrowserRuntimeTabReload { .. }
             | CoreCommand::BrowserRoleStop { .. }
             | CoreCommand::BrowserWorkspaceStop { .. }
             | CoreCommand::EmbeddedTabStop { .. }
             | CoreCommand::BrowserWindowCloseAdmit { .. }
             | CoreCommand::BrowserWindowStop { .. }
-            | CoreCommand::BrowserWindowDelete { .. } => Err(CoreError::Internal(
+            | CoreCommand::BrowserWindowDelete { .. }
+            | CoreCommand::BrowserAppKitRuntimeEvent { .. }
+            | CoreCommand::BrowserWorkspaceDividerPointer { .. } => Err(CoreError::Internal(
                 "asynchronous browser intent reached the synchronous core dispatcher".to_owned(),
             )),
         }

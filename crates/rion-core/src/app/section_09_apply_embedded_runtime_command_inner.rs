@@ -17,7 +17,9 @@ impl AppCore {
         }
         let next = result.snapshot;
         let effect = CoreEffectAction::EmbeddedFollowRoleOwnership {
+            lifecycle_epoch: self.application_lifecycle_epoch.load(Ordering::Acquire),
             roles: next.roles.clone(),
+            windows: self.embedded_runtime_window_projections()?,
             target: target.clone(),
             reveal_window_ids,
             focus_window_ids,
@@ -52,6 +54,24 @@ impl AppCore {
             .map(|tab| tab.id))
     }
 
+    fn saved_game_window_tab_audio_muted(
+        &self,
+        window_id: &str,
+        tab_type: &str,
+        source_id: &str,
+    ) -> CoreResult<bool> {
+        Ok(self
+            .read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?
+            .into_iter()
+            .find(|window| window.id == window_id)
+            .and_then(|window| {
+                window.tabs.into_iter().find(|tab| {
+                    tab.tab_type == tab_type && tab.source_id == source_id
+                })
+            })
+            .is_some_and(|tab| tab.audio_muted))
+    }
+
     fn publish_embedded_runtime_snapshot(
         &self,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
@@ -68,7 +88,9 @@ impl AppCore {
         let step = effect_step(
             "embedded-runtime-projection",
             CoreEffectAction::EmbeddedFollowRoleOwnership {
+                lifecycle_epoch: self.application_lifecycle_epoch.load(Ordering::Acquire),
                 roles: snapshot.roles.clone(),
+                windows: self.embedded_runtime_window_projections()?,
                 target: None,
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
@@ -122,7 +144,9 @@ impl AppCore {
         self.run_effect_plan(vec![effect_step(
             "embedded-runtime-projection",
             CoreEffectAction::EmbeddedFollowRoleOwnership {
+                lifecycle_epoch: self.application_lifecycle_epoch.load(Ordering::Acquire),
                 roles: snapshot.roles.clone(),
+                windows: self.embedded_runtime_window_projections()?,
                 target: None,
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
@@ -139,6 +163,57 @@ impl AppCore {
         if self.publish_embedded_runtime_snapshot().is_err() {
             self.emit_browser_statuses();
         }
+    }
+
+    fn embedded_runtime_window_projections(
+        &self,
+    ) -> CoreResult<Vec<crate::model::EmbeddedRuntimeWindowProjectionRecord>> {
+        let snapshot = self.browser_runtime.snapshot()?;
+        let activation_by_tab = &snapshot.tab_activations;
+        let mut windows = snapshot
+            .windows
+            .into_values()
+            .map(|window| {
+                let mut hidden_tab_ids = window.hidden_tab_ids.into_iter().collect::<Vec<_>>();
+                hidden_tab_ids.sort();
+                let tab_phases = window
+                    .tabs
+                    .iter()
+                    .map(|tab| crate::model::EmbeddedRuntimeTabPhaseProjectionRecord {
+                        tab_id: tab.id.clone(),
+                        phase: activation_by_tab
+                            .get(&tab.id)
+                            .filter(|activation| {
+                                activation.owner_window_id == window.window_id
+                                    && activation.window_generation.0
+                                        == window.window_generation
+                            })
+                            .map(|activation| activation.phase)
+                            .unwrap_or(crate::model::RuntimeTabActivationPhaseRecord::Ready),
+                    })
+                    .collect();
+                crate::model::EmbeddedRuntimeWindowProjectionRecord {
+                    workspace_tabs: window
+                        .tabs
+                        .iter()
+                        .filter(|tab| !tab.workspace_slots.is_empty())
+                        .map(|tab| crate::model::EmbeddedRuntimeWorkspaceTabProjectionRecord {
+                            tab_id: tab.id.clone(),
+                            workspace_slots: tab.workspace_slots.clone(),
+                        })
+                        .collect(),
+                    window_id: window.window_id,
+                    window_generation: window.window_generation,
+                    topology_revision: window.revision,
+                    tab_ids: window.tabs.into_iter().map(|tab| tab.id).collect(),
+                    tab_phases,
+                    hidden_tab_ids,
+                    active_tab_id: window.selected_tab_id,
+                }
+            })
+            .collect::<Vec<_>>();
+        windows.sort_by(|left, right| left.window_id.cmp(&right.window_id));
+        Ok(windows)
     }
 
     pub fn resolve_role_paths(&self, role_id: &str) -> CoreResult<crate::model::RolePathsRecord> {
@@ -197,7 +272,7 @@ impl AppCore {
     }
 
     pub fn dispatch_browser_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
-        self.macro_runtime.dispatch_results(results)
+        self.macro_runtime.dispatch_results(results).map(|_| ())
     }
 
     pub fn dispatch_core_effect_results(
@@ -218,16 +293,33 @@ impl AppCore {
                 operation_results.push(result);
             }
         }
-        if !browser_results.is_empty() {
-            self.macro_runtime.dispatch_results(browser_results)?;
-        }
+        let browser_report = self.macro_runtime.dispatch_results(browser_results)?;
         let mut report = self.operation_actor.dispatch_results(operation_results)?;
         let core_effects = self.operation_actor.metrics();
-        self.with_runtime(|runtime| {
+        let telemetry = self.with_runtime(|runtime| {
             runtime.telemetry.record_core_effects(core_effects);
             Ok(())
-        })?;
-        report.accepted.extend(browser_effect_ids);
+        });
+        if let Err(error) = telemetry
+            && !(self.shutdown_started.load(Ordering::Acquire)
+                && matches!(error, CoreError::ShuttingDown))
+        {
+            return Err(error);
+        }
+        debug_assert!(browser_report
+            .accepted
+            .iter()
+            .chain(&browser_report.duplicate)
+            .chain(&browser_report.late)
+            .chain(&browser_report.unknown)
+            .all(|effect_id| browser_effect_ids.contains(effect_id)));
+        report.accepted.extend(browser_report.accepted);
+        report.duplicate.extend(browser_report.duplicate);
+        report.late.extend(browser_report.late);
+        report.unknown.extend(browser_report.unknown);
+        report
+            .operation_mismatch
+            .extend(browser_report.operation_mismatch);
         Ok(report)
     }
 

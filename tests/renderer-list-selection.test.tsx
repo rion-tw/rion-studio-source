@@ -48,16 +48,22 @@ describe("list selection", () => {
     setBounds(screen.getByTestId("one"), 10, 10, 40, 40);
     setBounds(screen.getByTestId("two"), 80, 10, 40, 40);
     const collection = screen.getByTestId("collection");
+    const setPointerCapture = vi.spyOn(collection, "setPointerCapture");
 
     fireEvent.pointerDown(collection, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 1 });
+    expect(setPointerCapture).not.toHaveBeenCalled();
     fireEvent.pointerMove(collection, { clientX: 2, clientY: 2, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("");
+    expect(setPointerCapture).not.toHaveBeenCalled();
 
     fireEvent.pointerMove(collection, { clientX: 7, clientY: 0, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("");
+    expect(setPointerCapture).not.toHaveBeenCalled();
 
     fireEvent.pointerMove(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("");
+    expect(setPointerCapture).toHaveBeenCalledOnce();
+    expect(setPointerCapture).toHaveBeenCalledWith(1);
     act(() => nextFrame?.(0));
     expect(screen.getByTestId("selected").textContent).toBe("one");
 

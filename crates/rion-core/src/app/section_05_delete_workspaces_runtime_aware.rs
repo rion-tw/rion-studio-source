@@ -1,3 +1,6 @@
+pub(crate) const CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RECEIPT_EVIDENCE: &str =
+    "electron-clear-storage-data-promise-and-cookie-readback";
+
 impl AppCore {
     async fn delete_workspaces_runtime_aware(
         self: &Arc<Self>,
@@ -268,9 +271,9 @@ impl AppCore {
                     id,
                     &operation_id,
                 ) {
-                    Ok(crate::role_browser_data::DeleteQuarantineOutcome::DeferredByWindowsLock) => {
-                        true
-                    }
+                    Ok(
+                        crate::role_browser_data::DeleteQuarantineOutcome::DeferredByWindowsLock,
+                    ) => true,
                     Ok(crate::role_browser_data::DeleteQuarantineOutcome::Quarantined(_)) => {
                         journal.phase = "quarantined".to_owned();
                         if let Err(error) = self.with_runtime(|runtime| {
@@ -322,7 +325,77 @@ impl AppCore {
     }
 
     async fn clear_role_browser_data(self: &Arc<Self>, role_id: String) -> CoreResult<Value> {
+        self.clear_role_browser_data_with_effect_timeout(role_id, Duration::from_secs(30))
+            .await
+    }
+
+    async fn clear_role_browser_data_with_effect_timeout(
+        self: &Arc<Self>,
+        role_id: String,
+        effect_timeout: Duration,
+    ) -> CoreResult<Value> {
+        self.clear_role_browser_data_with_effect_timeout_and_quarantine(
+            role_id,
+            effect_timeout,
+            crate::role_browser_data::quarantine_for_clear,
+        )
+        .await
+    }
+
+    async fn clear_role_browser_data_with_effect_timeout_and_quarantine(
+        self: &Arc<Self>,
+        role_id: String,
+        effect_timeout: Duration,
+        quarantine: fn(
+            &std::path::Path,
+            &str,
+            &str,
+        ) -> CoreResult<crate::role_browser_data::DeleteQuarantineOutcome>,
+    ) -> CoreResult<Value> {
         self.ensure_role_exists(&role_id)?;
+        let permit = self.role_browser_data_clear_commands.admit()?;
+        let core = Arc::clone(self);
+        let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+        thread::Builder::new()
+            .name(format!("rion-role-browser-data-clear-{role_id}"))
+            .spawn(move || {
+                let result = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+                    .and_then(|runtime| {
+                        runtime.block_on(core.clear_role_browser_data_command(
+                            role_id,
+                            effect_timeout,
+                            quarantine,
+                        ))
+                    });
+                drop(permit);
+                let _ = result_sender.send(result);
+            })
+            .map_err(|error| {
+                CoreError::Internal(format!(
+                    "could not start role browser-data clear command worker: {error}"
+                ))
+            })?;
+        result_receiver.await.map_err(|_| {
+            CoreError::Internal(
+                "role browser-data clear command worker stopped without a terminal result"
+                    .to_owned(),
+            )
+        })?
+    }
+
+    async fn clear_role_browser_data_command(
+        self: &Arc<Self>,
+        role_id: String,
+        effect_timeout: Duration,
+        quarantine: fn(
+            &std::path::Path,
+            &str,
+            &str,
+        ) -> CoreResult<crate::role_browser_data::DeleteQuarantineOutcome>,
+    ) -> CoreResult<Value> {
         self.cancel_embedded_operations(std::slice::from_ref(&role_id))?;
         let lease = self
             .acquire_browser_operation_async(BrowserOperationRequest {
@@ -360,17 +433,13 @@ impl AppCore {
             let operation_id = operation_id.clone();
             tokio::task::spawn_blocking(move || {
                 core.with_runtime(|runtime| runtime.state.put_operation_journal(journal))?;
-                let quarantine = match crate::role_browser_data::quarantine_for_clear(
-                    &core.user_data_dir,
-                    &role_id,
-                    &operation_id,
-                ) {
+                let quarantine = match quarantine(&core.user_data_dir, &role_id, &operation_id) {
                     Ok(crate::role_browser_data::DeleteQuarantineOutcome::Quarantined(
                         had_directory,
                     )) => (had_directory, false),
-                    Ok(crate::role_browser_data::DeleteQuarantineOutcome::DeferredByWindowsLock) => {
-                        (true, true)
-                    }
+                    Ok(
+                        crate::role_browser_data::DeleteQuarantineOutcome::DeferredByWindowsLock,
+                    ) => (true, true),
                     Err(error) => {
                         let _ = core.with_runtime(|runtime| {
                             runtime.state.delete_operation_journal(operation_id.clone())
@@ -429,20 +498,63 @@ impl AppCore {
                     webview2_user_data_dir: role_paths.webview2_user_data_dir,
                     webkit_data_store_identifier: role_paths.webkit_data_store_identifier,
                 },
-                Duration::from_secs(30),
+                effect_timeout,
             )
             .await;
-        if let Err(error) = effect {
-            let _ = rollback_role_browser_data_clear(
-                self,
-                &role_id,
-                &operation_id,
-                had_directory,
-                deferred_by_windows_lock,
-            );
-            let _ = self.browser_operations.abort(&lease.id);
-            return Err(error);
-        }
+        let effect = match effect {
+            Ok(effect) => effect,
+            Err(error) if role_browser_data_clear_native_terminal_is_unverified(error.code()) => {
+                // The helper may still own the exact role path or Chromium Session.
+                // Preserve the quarantine, recovery journal, and role lease until
+                // process shutdown; startup recovery is the next safe convergence
+                // boundary and a late helper result is already fenced by the actor.
+                return Err(error);
+            }
+            Err(error) => {
+                let _ = rollback_role_browser_data_clear(
+                    self,
+                    &role_id,
+                    &operation_id,
+                    had_directory,
+                    deferred_by_windows_lock,
+                );
+                let _ = self.browser_operations.abort(&lease.id);
+                return Err(error);
+            }
+        };
+        let explicit_reset = (|| -> CoreResult<_> {
+            if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+                return Ok(None);
+            }
+            let receipt = parse_chromium_role_clear_receipt(&effect, &role_id)?;
+            let current = self.role_session_migration(role_id.clone())?;
+            crate::session_migration::new_v23_explicit_reset_evidence(
+                role_id.clone(),
+                self.platform,
+                current.as_ref(),
+                format!("chromium-session-clear:{}", receipt.operation_id),
+                format!("role-browser-clear:{operation_id}"),
+            )
+            .map(Some)
+        })();
+        let explicit_reset = match explicit_reset {
+            Ok(evidence) => evidence,
+            Err(error) => {
+                let _ = rollback_role_browser_data_clear(
+                    self,
+                    &role_id,
+                    &operation_id,
+                    had_directory,
+                    deferred_by_windows_lock,
+                );
+                let _ = self.browser_operations.abort(&lease.id);
+                return Err(error);
+            }
+        };
+        let expected_platform = match self.platform {
+            rion_platform::Platform::Macos => crate::RoleSessionMigrationPlatform::Macos,
+            rion_platform::Platform::Windows => crate::RoleSessionMigrationPlatform::Windows,
+        };
 
         let commit = {
             let core = Arc::clone(self);
@@ -453,6 +565,8 @@ impl AppCore {
                 let role = core.mutate_state(StateMutation::RoleBrowserDataReset {
                     id: role_id.clone(),
                     operation_id: operation_id.clone(),
+                    expected_platform,
+                    v23_explicit_reset: explicit_reset,
                 });
                 let role = match role {
                     Ok(role) => role,
@@ -480,6 +594,15 @@ impl AppCore {
             .map_err(|error| CoreError::Internal(error.to_string()))?
         };
         let completion = if commit.is_ok() {
+            #[cfg(test)]
+            if let Some(hook) = self
+                .role_browser_data_clear_before_domain_terminal_hook
+                .lock()
+                .ok()
+                .and_then(|hook| hook.clone())
+            {
+                hook();
+            }
             self.browser_operations.complete(&lease.id)
         } else {
             self.browser_operations.abort(&lease.id)
@@ -714,5 +837,65 @@ impl AppCore {
             statuses,
         })
     }
+}
 
+fn role_browser_data_clear_native_terminal_is_unverified(code: &str) -> bool {
+    matches!(
+        code,
+        "CORE_EFFECT_TIMEOUT" | "SYSTEM_BROWSER_DATA_CLEAR_NATIVE_TERMINAL_UNVERIFIED"
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChromiumRoleBrowserDataClearReceipt {
+    role_id: String,
+    operation_id: String,
+    cleared_storages: Vec<String>,
+    cookie_readback_count: u64,
+    evidence: String,
+}
+
+fn parse_chromium_role_clear_receipt(
+    effect: &CoreEffectResult,
+    role_id: &str,
+) -> CoreResult<ChromiumRoleBrowserDataClearReceipt> {
+    const STORAGES: [&str; 7] = [
+        "cookies",
+        "filesystem",
+        "indexdb",
+        "localstorage",
+        "shadercache",
+        "serviceworkers",
+        "cachestorage",
+    ];
+    let receipt = effect
+        .value_json
+        .as_deref()
+        .ok_or_else(role_clear_receipt_error)
+        .and_then(|value| {
+            serde_json::from_str::<ChromiumRoleBrowserDataClearReceipt>(value)
+                .map_err(|_| role_clear_receipt_error())
+        })?;
+    if receipt.role_id != role_id
+        || receipt.operation_id != effect.operation_id
+        || receipt.cookie_readback_count != 0
+        || receipt.evidence != CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RECEIPT_EVIDENCE
+        || receipt.cleared_storages.len() != STORAGES.len()
+        || !receipt
+            .cleared_storages
+            .iter()
+            .zip(STORAGES)
+            .all(|(actual, expected)| actual == expected)
+    {
+        return Err(role_clear_receipt_error());
+    }
+    Ok(receipt)
+}
+
+fn role_clear_receipt_error() -> CoreError {
+    CoreError::Effect {
+        code: "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RECEIPT_INVALID".to_owned(),
+        message: "Chromium did not return the exact browser-data clear receipt.".to_owned(),
+    }
 }

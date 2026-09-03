@@ -1,18 +1,20 @@
 import type {
-  SystemWebViewIssueReason,
+  BrowserRuntimeFailureReason,
   ResolvedBrowserEngine,
   RoleStatus
 } from "../../../shared/types";
 import type { TranslationKey, Translator } from "../i18n";
 
 const resolvedEngineLabelKeys: Record<ResolvedBrowserEngine, TranslationKey> = {
+  chromium: "browserEngine.actual.chromium",
   webview2: "browserEngine.actual.webview2",
   wkwebview: "browserEngine.actual.wkwebview"
 };
 
-const engineIssueLabelKeys: Record<SystemWebViewIssueReason, TranslationKey> = {
-  "webkit-spi-unavailable": "browserEngine.issueReason.webkitSpiUnavailable",
+const engineIssueLabelKeys: Record<BrowserRuntimeFailureReason, TranslationKey> = {
+  "trusted-input-unavailable": "browserEngine.issueReason.trustedInputUnavailable",
   "macro-input-unavailable": "browserEngine.issueReason.macroInputUnavailable",
+  "session-migration-required": "browserEngine.issueReason.sessionMigrationRequired",
   "runtime-creation-failed": "browserEngine.issueReason.runtimeCreationFailed",
   "runtime-crashed": "browserEngine.issueReason.runtimeCrashed"
 };

@@ -629,7 +629,7 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             return true;
         }
         "quit-app" => {
-            app.exit(0);
+            crate::request_application_shutdown_from_app(app);
             return true;
         }
         _ => {}

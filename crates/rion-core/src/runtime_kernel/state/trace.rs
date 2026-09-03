@@ -19,6 +19,7 @@ fn intent_trace_identity(intent: &RuntimeIntent) -> (&'static str, &'static str)
         }
         RuntimeIntent::SetWindowZoomFactor { .. } => ("setWindowZoomFactor", "command"),
         RuntimeIntent::SeedDormantTabs { .. } => ("seedDormantTabs", "restore"),
+        RuntimeIntent::BeginTabActivation { .. } => ("beginTabActivation", "appCore"),
         RuntimeIntent::ActivateTab { .. } => ("activateTab", "command"),
         RuntimeIntent::SetTabActivationPhase { .. } => ("setTabActivationPhase", "nativeEvent"),
         RuntimeIntent::ReplaceWindow { source, .. } => {
@@ -65,6 +66,16 @@ fn intent_trace_context(intent: &RuntimeIntent) -> RuntimeTraceContext {
             surface_generation: Some(operation.surface_generation.0),
             tab_id: operation.tab_id.as_ref().map(|tab| tab.as_str().to_owned()),
             window_generation: Some(operation.window_generation.0),
+        },
+        RuntimeIntent::BeginTabActivation {
+            operation_id,
+            tab_id,
+            ..
+        } => RuntimeTraceContext {
+            attempt_id: Some(operation_id.as_str().to_owned()),
+            phase: Some("activating".to_owned()),
+            tab_id: Some(tab_id.as_str().to_owned()),
+            ..RuntimeTraceContext::default()
         },
         RuntimeIntent::ActivateTab { tab_id, .. }
         | RuntimeIntent::SetTabActivationPhase { tab_id, .. } => RuntimeTraceContext {

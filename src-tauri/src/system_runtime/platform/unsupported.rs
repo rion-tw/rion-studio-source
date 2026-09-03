@@ -3,6 +3,16 @@
 use super::super::*;
 
 #[cfg(not(any(windows, target_os = "macos")))]
+pub(in crate::system_runtime) fn clear_platform_browser_data_event_bound(
+    _webview: &Webview,
+) -> RuntimeResult<()> {
+    Err(RuntimeError::new(
+        "SYSTEM_BROWSER_DATA_CLEAR_UNAVAILABLE",
+        "System WebView browser-data clearing is unavailable on this platform.",
+    ))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub(in crate::system_runtime) fn ensure_platform_automation_surface_ready(
     _webview: &Webview,
     context: &InputDispatchContext,

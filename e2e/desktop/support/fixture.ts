@@ -15,6 +15,13 @@ export interface FixtureEvent {
   code?: string;
   coordinates?: { x: number; y: number };
   defaultPrevented?: boolean;
+  errorCode?: string;
+  errorMessage?: string;
+  fileUpload?: {
+    bytes: number;
+    fileName: string;
+    sha256: string;
+  };
   hidden?: boolean;
   isTrusted?: boolean;
   key?: string;

@@ -2,9 +2,10 @@
   "use strict";
 
   const RUNTIME_KEY = "__rionStudioBrowserFonts";
+  const INJECTED_PAYLOAD_KEY = "__rionStudioBrowserFontsInjectedPayloadV1";
   const STYLE_ID = "rion-studio-browser-fonts";
   const CANVAS_HOOK_KEY = "__rionStudioBrowserFontsCanvasHook";
-  const VERSION = 6;
+  const VERSION = 7;
   const CANVAS_FONT_CACHE_CAPACITY = 256;
   const SLOT_RANGES = Object.freeze({
     cjk: [
@@ -43,10 +44,23 @@
     "ui-serif"
   ]);
 
+  const injectedDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    INJECTED_PAYLOAD_KEY
+  );
+  const hasInjectedPayload = Boolean(
+    injectedDescriptor &&
+    Object.prototype.hasOwnProperty.call(injectedDescriptor, "value") &&
+    injectedDescriptor.configurable
+  );
+  const injectedPayload = hasInjectedPayload ? injectedDescriptor.value : undefined;
+  if (hasInjectedPayload) delete globalThis[INJECTED_PAYLOAD_KEY];
+
   const previous = globalThis[RUNTIME_KEY];
   if (previous?.version === VERSION && typeof previous.refresh === "function") {
-    void previous.refresh();
-    return;
+    return hasInjectedPayload
+      ? previous.refresh(injectedPayload)
+      : previous.refresh();
   }
 
   const state = {
@@ -55,8 +69,11 @@
     canvasRevision: 0,
     canvasStacks: { general: [], math: [], monospace: [] },
     canvasTextQualityActive: false,
+    failedFaceCount: 0,
     faces: [],
+    loadedCatalogIds: new Set(),
     refreshSequence: 0,
+    sourceMode: hasInjectedPayload ? "injected" : "tauri",
     version: VERSION
   };
   const canvasContexts = new WeakMap();
@@ -461,6 +478,8 @@
     state.canvasFontCache.clear();
     state.canvasStacks = { general: [], math: [], monospace: [] };
     state.canvasTextQualityActive = false;
+    state.failedFaceCount = 0;
+    state.loadedCatalogIds.clear();
     document.getElementById(STYLE_ID)?.remove();
     for (const face of state.faces) {
       try {
@@ -509,9 +528,12 @@
           unicodeRange,
           weight: String(asset.weight || "400")
         });
-        pendingFaces.push(face.load().then(() => face).catch(() => undefined));
+        pendingFaces.push(face.load().then(() => face).catch(() => {
+          if (sequence === state.refreshSequence) state.failedFaceCount += 1;
+          return undefined;
+        }));
       } catch {
-        // One unavailable shard should fall through to the next face or fallback font.
+        if (sequence === state.refreshSequence) state.failedFaceCount += 1;
       }
     }
     const loadedFaces = await Promise.all(pendingFaces);
@@ -524,20 +546,39 @@
         state.faces.push(face);
         loaded += 1;
       } catch {
-        // One unavailable shard should fall through to the next face or fallback font.
+        state.failedFaceCount += 1;
       }
     }
+    if (loaded > 0) state.loadedCatalogIds.add(catalogId);
     return loaded > 0 ? quoteFamily(alias) : undefined;
   }
 
+  function applicationEvidence(sequence, settings) {
+    return Object.freeze({
+      canvasFontsActive: state.canvasFontsActive,
+      canvasTextQualityActive: state.canvasTextQualityActive,
+      failedFaceCount: state.failedFaceCount,
+      fontMode: settings?.mode === "custom" ? "custom" : "default",
+      fontSmoothingEnabled: settings?.fontSmoothingEnabled !== false,
+      loadedCatalogIds: Object.freeze([...state.loadedCatalogIds].sort()),
+      loadedFaceCount: state.faces.length,
+      runtimeVersion: VERSION,
+      sequence,
+      status: "applied",
+      styleInstalled: Boolean(document.getElementById(STYLE_ID))
+    });
+  }
+
   async function installPayload(payload, sequence) {
-    if (sequence !== state.refreshSequence) return;
+    if (sequence !== state.refreshSequence) return undefined;
     removeAppliedFonts();
     const settings = payload?.settings;
-    if (!settings) return;
+    if (!settings) throw new Error("The browser-font payload has no settings.");
     const fontsActive = settings.mode === "custom";
     const textQualityActive = settings.fontSmoothingEnabled !== false;
-    if (!fontsActive && !textQualityActive) return;
+    if (!fontsActive && !textQualityActive) {
+      return applicationEvidence(sequence, settings);
+    }
 
     const facesByCatalog = new Map();
     if (fontsActive) {
@@ -554,7 +595,7 @@
     if (fontsActive) {
       for (const slot of ["numeric", "latin", "cjk", "monospace", "math"]) {
         resolved[slot] = await registerSelection(slot, slots[slot], facesByCatalog, sequence);
-        if (sequence !== state.refreshSequence) return;
+        if (sequence !== state.refreshSequence) return undefined;
       }
     }
 
@@ -594,40 +635,81 @@
     }
     const styleText = css.join("\n");
     const installStyle = () => {
-      if (sequence !== state.refreshSequence || document.getElementById(STYLE_ID)) return;
+      if (sequence !== state.refreshSequence) return "superseded";
+      if (document.getElementById(STYLE_ID)) return "installed";
       const root = document.documentElement;
-      if (!root) return;
+      if (!root) return "pending";
       const style = document.createElement("style");
       style.id = STYLE_ID;
       style.textContent = styleText;
       (document.head || root).appendChild(style);
       root.dataset.rionStudioFonts = "custom";
+      return "installed";
     };
-    installStyle();
+    let styleOutcome = installStyle();
+    if (styleOutcome === "pending") {
+      styleOutcome = await new Promise((resolve, reject) => {
+        const cleanup = () => {
+          document.removeEventListener("readystatechange", continueInstallation);
+          document.removeEventListener("DOMContentLoaded", continueInstallation);
+          globalThis.removeEventListener?.("pagehide", documentRetired);
+        };
+        const continueInstallation = () => {
+          const outcome = installStyle();
+          if (outcome === "pending") return;
+          cleanup();
+          resolve(outcome);
+        };
+        const documentRetired = () => {
+          cleanup();
+          reject(new Error("The browser-font document retired before style installation."));
+        };
+        document.addEventListener("readystatechange", continueInstallation);
+        document.addEventListener("DOMContentLoaded", continueInstallation);
+        globalThis.addEventListener?.("pagehide", documentRetired, { once: true });
+        continueInstallation();
+      });
+    }
+    if (styleOutcome === "superseded") return undefined;
     if (!document.getElementById(STYLE_ID)) {
-      document.addEventListener("readystatechange", installStyle, { once: true });
-      document.addEventListener("DOMContentLoaded", installStyle, { once: true });
+      throw new Error("The browser-font style was not installed.");
     }
+    return applicationEvidence(sequence, settings);
   }
 
-  async function refresh() {
+  async function refresh(payloadOverride) {
+    const hasPayloadOverride = arguments.length > 0;
     const sequence = ++state.refreshSequence;
-    const internals = globalThis.__TAURI_INTERNALS__;
-    if (!internals || typeof internals.invoke !== "function") return;
     try {
-      const payload = await internals.invoke("rion_browser_font_payload");
-      await installPayload(payload, sequence);
-    } catch {
+      let payload = payloadOverride;
+      if (!hasPayloadOverride) {
+        if (state.sourceMode !== "tauri") {
+          throw new Error("The injected browser-font runtime requires an exact payload.");
+        }
+        const internals = globalThis.__TAURI_INTERNALS__;
+        if (!internals || typeof internals.invoke !== "function") return undefined;
+        payload = await internals.invoke("rion_browser_font_payload");
+      } else {
+        state.sourceMode = "injected";
+      }
+      return await installPayload(payload, sequence);
+    } catch (error) {
       if (sequence === state.refreshSequence) removeAppliedFonts();
+      if (hasPayloadOverride || state.sourceMode === "injected") throw error;
+      return undefined;
     }
   }
 
-  Object.defineProperty(state, "refresh", { enumerable: false, value: refresh });
+  const runtime = Object.freeze({
+    refresh,
+    version: VERSION
+  });
   Object.defineProperty(globalThis, RUNTIME_KEY, {
-    configurable: true,
+    configurable: false,
     enumerable: false,
-    value: state
+    value: runtime,
+    writable: false
   });
   installCanvasHooks();
-  void refresh();
+  return hasInjectedPayload ? refresh(injectedPayload) : refresh();
 })();

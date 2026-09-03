@@ -179,6 +179,94 @@ fn clean_exit_requires_a_terminal_shutdown_drain() {
     }
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn shutdown_surface_isolation_deadline_cancels_the_same_owner_future() {
+    struct NeverTerminalSurface {
+        dropped: Arc<AtomicBool>,
+        polled: Arc<AtomicBool>,
+    }
+
+    impl std::future::Future for NeverTerminalSurface {
+        type Output = RuntimeResult<()>;
+
+        fn poll(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            self.polled.store(true, Ordering::Release);
+            std::task::Poll::Pending
+        }
+    }
+
+    impl Drop for NeverTerminalSurface {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::Release);
+        }
+    }
+
+    let dropped = Arc::new(AtomicBool::new(false));
+    let polled = Arc::new(AtomicBool::new(false));
+    let started = Instant::now();
+    let outcome = await_shutdown_surface_isolation_until(
+        vec![ShutdownSurfaceIsolationTask::new(
+            "surface-never-terminal".to_owned(),
+            Box::pin(NeverTerminalSurface {
+                dropped: Arc::clone(&dropped),
+                polled: Arc::clone(&polled),
+            }),
+        )],
+        Instant::now() + Duration::from_millis(20),
+    )
+    .await;
+
+    assert!(polled.load(Ordering::Acquire));
+    assert!(dropped.load(Ordering::Acquire));
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(outcome.error_count, 0);
+    assert_eq!(
+        outcome.incomplete_instance_ids,
+        vec!["surface-never-terminal"]
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn shutdown_surface_isolation_completes_all_exact_terminals_concurrently() {
+    let first_polled = Arc::new(AtomicBool::new(false));
+    let second_polled = Arc::new(AtomicBool::new(false));
+    let first_observation = Arc::clone(&first_polled);
+    let second_observation = Arc::clone(&second_polled);
+    let outcome = await_shutdown_surface_isolation_until(
+        vec![
+            ShutdownSurfaceIsolationTask::new(
+                "surface-a".to_owned(),
+                Box::pin(async move {
+                    first_observation.store(true, Ordering::Release);
+                    Ok(())
+                }),
+            ),
+            ShutdownSurfaceIsolationTask::new(
+                "surface-b".to_owned(),
+                Box::pin(async move {
+                    second_observation.store(true, Ordering::Release);
+                    Ok(())
+                }),
+            ),
+        ],
+        Instant::now() + Duration::from_secs(1),
+    )
+    .await;
+
+    assert!(first_polled.load(Ordering::Acquire));
+    assert!(second_polled.load(Ordering::Acquire));
+    assert_eq!(
+        outcome,
+        ShutdownSurfaceIsolationOutcome {
+            error_count: 0,
+            incomplete_instance_ids: Vec::new(),
+        }
+    );
+}
+
 #[test]
 fn full_application_shutdown_does_not_wait_for_in_process_store_reuse() {
     assert_eq!(

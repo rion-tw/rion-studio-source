@@ -73,7 +73,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                 .await;
             });
         }
-        "quit-app" => app.exit(0),
+        "quit-app" => crate::request_application_shutdown_from_app(app),
         "stop-all" => {
             let role_ids = core
                 .invoke(CoreCommand::BrowserStatuses)

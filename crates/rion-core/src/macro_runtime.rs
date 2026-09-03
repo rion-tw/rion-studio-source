@@ -8,6 +8,9 @@ include!("macro_runtime/section_03_stop_role_matching.rs");
 include!("macro_runtime/section_04_start_child_invocation.rs");
 include!("macro_runtime/section_05_discard_unstarted_invocation.rs");
 include!("macro_runtime/section_06_input_recovery.rs");
+include!("macro_runtime/section_07_application_lifecycle.rs");
+include!("macro_runtime/section_08_managed_shortcut.rs");
+include!("macro_runtime/section_09_held_key_continuity.rs");
 
 #[cfg(test)]
 mod tests;

@@ -33,6 +33,8 @@ impl WindowStatePersistCoordinator {
                         window_id: window.id.clone(),
                         window_generation: 0,
                         revision: 0,
+                        window_zoom_factor: 1.0,
+                        presentation: Some(window.placement.presentation.clone()),
                         tabs: window.tabs.clone(),
                         active_tab_id: window.active_tab_id.clone(),
                     },
@@ -183,7 +185,6 @@ impl WindowStatePersistCoordinator {
             *active = false;
         }
     }
-
 }
 
 fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecutor>) {
@@ -201,11 +202,7 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
             return;
         }
         let now = Instant::now();
-        let next_due = lanes
-            .values()
-            .map(|lane| lane.due_at)
-            .min()
-            .unwrap_or(now);
+        let next_due = lanes.values().map(|lane| lane.due_at).min().unwrap_or(now);
         if next_due > now {
             lanes = match runtime
                 .window_state_persistence
@@ -240,11 +237,9 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
                 )
             })
             .collect::<Vec<_>>();
-        let result = runtime
-            .core
-            .commit_runtime_window_snapshots(GameWindowRuntimeSnapshotBatchCommitInputRecord {
-                inputs,
-            });
+        let result = runtime.core.commit_runtime_window_snapshots(
+            GameWindowRuntimeSnapshotBatchCommitInputRecord { inputs },
+        );
         match result {
             Ok(batch) => {
                 for (window_id, window_generation, revision) in &requested {
@@ -304,8 +299,7 @@ fn retire_window_state_persist_lane(
     let retired = if let Ok(mut lanes) = runtime.window_state_persistence.lanes.lock()
         && lanes.get(window_id).is_some_and(|lane| {
             lane.window_generation == window_generation && lane.revision == revision
-        })
-    {
+        }) {
         let retired = lanes.remove(window_id);
         runtime.window_state_persistence.changed.notify_all();
         retired
@@ -350,8 +344,7 @@ fn record_window_state_persist_failure(
             }
             lane.failure_count = lane.failure_count.saturating_add(1);
             lane.last_error = Some(message.clone());
-            lane.due_at =
-                Instant::now() + window_state_persist_retry_delay(lane.failure_count);
+            lane.due_at = Instant::now() + window_state_persist_retry_delay(lane.failure_count);
             runtime.window_state_persistence.changed.notify_all();
             Some(lane.failure_count)
         });
@@ -369,10 +362,8 @@ fn window_state_persist_retry_delay(failure_count: u32) -> Duration {
         1 => Duration::from_millis(250),
         2 => Duration::from_secs(1),
         3 => Duration::from_secs(5),
-        count => Duration::from_secs(
-            5_u64.saturating_mul(1_u64 << (count - 4).min(3)),
-        )
-        .min(Duration::from_secs(30)),
+        count => Duration::from_secs(5_u64.saturating_mul(1_u64 << (count - 4).min(3)))
+            .min(Duration::from_secs(30)),
     }
 }
 
@@ -411,6 +402,8 @@ impl SystemRuntimeExecutor {
                 window_id: window_id.to_owned(),
                 window_generation,
                 revision,
+                window_zoom_factor: live.window_zoom_factor.unwrap_or(1.0),
+                presentation: Some(placement.presentation.clone()),
                 tabs: Self::live_game_window_tabs(&live),
                 active_tab_id: live
                     .selected_tab_id
@@ -546,10 +539,11 @@ impl SystemRuntimeExecutor {
             return false;
         };
         while !lanes.is_empty() && Instant::now() < deadline {
-            lanes = match self.window_state_persistence.changed.wait_timeout(
-                lanes,
-                deadline.saturating_duration_since(Instant::now()),
-            ) {
+            lanes = match self
+                .window_state_persistence
+                .changed
+                .wait_timeout(lanes, deadline.saturating_duration_since(Instant::now()))
+            {
                 Ok((lanes, _)) => lanes,
                 Err(_) => return false,
             };
@@ -639,10 +633,16 @@ mod window_state_persistence_tests {
 
     #[test]
     fn persistence_retry_backoff_is_bounded() {
-        assert_eq!(window_state_persist_retry_delay(1), Duration::from_millis(250));
+        assert_eq!(
+            window_state_persist_retry_delay(1),
+            Duration::from_millis(250)
+        );
         assert_eq!(window_state_persist_retry_delay(2), Duration::from_secs(1));
         assert_eq!(window_state_persist_retry_delay(3), Duration::from_secs(5));
-        assert_eq!(window_state_persist_retry_delay(20), Duration::from_secs(30));
+        assert_eq!(
+            window_state_persist_retry_delay(20),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]

@@ -156,9 +156,9 @@
     {
       "id": "system-runtime-native",
       "intentAliases": ["native", "system-runtime", "webview"],
-      "pathGlobs": ["crates/rion-platform/**", "crates/rion-core/src/browser_runtime/**", "crates/rion-core/src/operation_actor/**", "crates/rion-core/src/runtime_kernel/**", "src-tauri/**", "src/renderer/runtime-shell/**"],
+      "pathGlobs": ["crates/rion-platform/**", "crates/rion-appkit/**", "crates/rion-node/**", "crates/rion-core/src/browser_runtime/**", "crates/rion-core/src/operation_actor/**", "crates/rion-core/src/runtime_kernel/**", "src-tauri/**", "src/electron/**", "src/renderer/runtime-shell/**"],
       "contextFiles": [".agents/context/architecture.md", ".agents/context/system-runtime.md", ".agents/context/testing.md"],
-      "canonicalDocs": ["docs/system-webview-runtime-contract.md"],
+      "canonicalDocs": ["docs/system-webview-runtime-contract.md", "docs/chromium-runtime-migration.md"],
       "risks": ["native-lifecycle", "event-topology", "cross-platform"],
       "platforms": ["macos", "windows"],
       "validationProfiles": ["native-runtime"],
@@ -178,7 +178,7 @@
     {
       "id": "updater-release",
       "intentAliases": ["release", "updater", "update-transaction"],
-      "pathGlobs": [".github/workflows/*release*", ".github/workflows/*rebuild*", ".github/workflows/*updater*", "release/**", "release.config.mjs", "src-tauri/src/update*", "src-tauri/src/update*/**", "scripts/*Release*", "scripts/*Updater*", "scripts/syncPublicRepositoryDocs*"],
+      "pathGlobs": [".github/workflows/*release*", ".github/workflows/*rebuild*", ".github/workflows/*updater*", "release/**", "release.config.mjs", "crates/rion-updater/**", "crates/rion-node/src/updater.rs", "src-tauri/src/update*", "src-tauri/src/update*/**", "src/electron/main/electronChromiumUpdater.ts", "src/electron/main/electronUpdaterDispatcher.ts", "scripts/*Release*", "scripts/*Updater*", "scripts/syncPublicRepositoryDocs*", "tests/electron-chromium-updater.test.ts", "tests/electron-updater-*.test.ts"],
       "contextFiles": [".agents/context/release.md", ".agents/context/testing.md"],
       "canonicalDocs": ["docs/updater-transaction-contract.md"],
       "risks": ["release-integrity", "recovery", "cross-platform"],
@@ -189,7 +189,7 @@
     {
       "id": "build-ci",
       "intentAliases": ["build", "ci", "tooling"],
-      "pathGlobs": [".github/**", "scripts/**", "tests/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
+      "pathGlobs": [".github/**", "scripts/**", "tests/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "electron.vite.config.ts", "electron-builder.config.mjs", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
       "contextFiles": [".agents/context/testing.md", ".agents/context/release.md"],
       "canonicalDocs": ["docs/e2e-strategy.md"],
       "risks": ["ci-reachability", "tooling-drift"],
@@ -204,8 +204,8 @@
     { "feature": "games", "pathGlobs": ["src/renderer/src/features/games/**"] },
     { "feature": "roles", "pathGlobs": ["src/renderer/src/features/roles/**", "crates/rion-core/src/session_import/**"] },
     { "feature": "workspaces", "pathGlobs": ["src/renderer/src/features/workspaces/**", "e2e/desktop/specs/workspace-recovery.e2e.ts"] },
-    { "feature": "game-windows", "pathGlobs": ["src/renderer/src/features/game-windows/**", "src/renderer/runtime-shell/**", "src-tauri/src/system_runtime/**", "src-tauri/native/**"] },
+    { "feature": "game-windows", "pathGlobs": ["src/renderer/src/features/game-windows/**", "src/renderer/runtime-shell/**", "src-tauri/src/system_runtime/**", "src-tauri/native/**", "src/electron/runtime/**"] },
     { "feature": "macros", "pathGlobs": ["src/renderer/src/features/macros/**", "crates/rion-core/src/macro_runtime/**", "e2e/desktop/specs/macro-runtime.e2e.ts"] },
-    { "feature": "settings", "pathGlobs": ["src/renderer/src/features/settings/**", "src-tauri/src/update*"] }
+    { "feature": "settings", "pathGlobs": ["src/renderer/src/features/settings/**", "src-tauri/src/update*", "crates/rion-updater/**", "crates/rion-node/src/updater.rs", "src/electron/main/electronChromiumUpdater.ts", "src/electron/main/electronUpdaterDispatcher.ts"] }
   ]
 }

@@ -204,7 +204,7 @@ export function QuickAccessPalette({
           ) : items.map((item, index) => {
             const previousGroup = items[index - 1]?.group;
             return (
-              <div key={item.key}>
+              <div key={item.key} data-quick-access-group={item.group}>
                 {item.group !== previousGroup ? (
                   <p className="px-2 pb-1 pt-3 text-caption font-semibold uppercase text-muted-foreground first:pt-1">
                     {t(GROUP_LABEL_KEYS[item.group])}

@@ -153,6 +153,7 @@ impl SystemRuntimeExecutor {
             effect_sender: OnceLock::new(),
             lifecycle_sender: OnceLock::new(),
             diagnostics: Mutex::new(RuntimeDiagnosticsState::default()),
+            destructive_native_work: DestructiveNativeWorkRegistry::default(),
             health: RuntimeHealth::new(),
             focus_broker,
             language: Mutex::new("en".to_owned()),
@@ -447,6 +448,81 @@ impl SystemRuntimeExecutor {
         action_name: &'static str,
         persist_runtime: bool,
     ) -> Result<(), String> {
+        let destructive_identity = match &effect.action {
+            CoreEffectAction::RoleBrowserDataClearSession {
+                role_id,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+            } => Some((
+                effect.effect_id.clone(),
+                effect.operation_id.clone(),
+                role_browser_data_clear_fingerprint(
+                    role_id,
+                    webview2_user_data_dir,
+                    webkit_data_store_identifier,
+                ),
+            )),
+            _ => None,
+        };
+        if let Some((effect_id, operation_id, content_fingerprint)) =
+            destructive_identity.as_ref()
+        {
+            match self.destructive_native_work.queue(
+                effect_id,
+                operation_id,
+                content_fingerprint,
+            ) {
+                DestructiveNativeWorkQueue::Accepted => {}
+                DestructiveNativeWorkQueue::Duplicate => return Ok(()),
+                DestructiveNativeWorkQueue::Replay(result) => {
+                    return self
+                        .core
+                        .dispatch_core_effect_results(vec![result])
+                        .map(|_| ())
+                        .map_err(|error| error.to_string());
+                }
+                DestructiveNativeWorkQueue::CapacityExceeded => {
+                    return self
+                        .core
+                        .dispatch_core_effect_results(vec![CoreEffectResult {
+                            effect_id: effect_id.clone(),
+                            operation_id: operation_id.clone(),
+                            ok: false,
+                            value_json: None,
+                            error: Some(rion_core::CoreErrorPayload {
+                                code: "SYSTEM_DESTRUCTIVE_NATIVE_REPLAY_CAPACITY".to_owned(),
+                                message: "The bounded destructive native replay ledger is full; restart Rion Studio before retrying this clear."
+                                    .to_owned(),
+                            }),
+                        }])
+                        .map(|_| ())
+                        .map_err(|error| error.to_string());
+                }
+                DestructiveNativeWorkQueue::Draining => {
+                    return self
+                        .core
+                        .dispatch_core_effect_results(vec![CoreEffectResult {
+                            effect_id: effect_id.clone(),
+                            operation_id: operation_id.clone(),
+                            ok: false,
+                            value_json: None,
+                            error: Some(rion_core::CoreErrorPayload {
+                                code: "SYSTEM_RUNTIME_SHUTTING_DOWN".to_owned(),
+                                message: "Application shutdown rejected queued browser-data clear work."
+                                    .to_owned(),
+                            }),
+                        }])
+                        .map(|_| ())
+                        .map_err(|error| error.to_string());
+                }
+                DestructiveNativeWorkQueue::IdentityConflict => {
+                    return Err(
+                        "A destructive native effect reused an effect identity with a different operation or clear target."
+                            .to_owned(),
+                    );
+                }
+            }
+        }
         let shutdown_accepting = RuntimeShutdownState::from_raw(
             self.shutdown_state.load(Ordering::Acquire),
         ) == RuntimeShutdownState::Accepting;
@@ -465,18 +541,29 @@ impl SystemRuntimeExecutor {
                     "The System WebView runtime is shutting down and rejected new native work.",
                 )
             };
+            let result = CoreEffectResult {
+                effect_id: effect.effect_id,
+                operation_id: effect.operation_id,
+                ok: false,
+                value_json: None,
+                error: Some(rion_core::CoreErrorPayload {
+                    code: code.to_owned(),
+                    message: message.to_owned(),
+                }),
+            };
+            if destructive_identity.is_some()
+                && !self
+                    .destructive_native_work
+                    .complete_queued_from_effect_result(&result)
+            {
+                return Err(
+                    "The rejected browser-data clear lost its queued destructive identity fence."
+                        .to_owned(),
+                );
+            }
             return self
                 .core
-                .dispatch_core_effect_results(vec![CoreEffectResult {
-                    effect_id: effect.effect_id,
-                    operation_id: effect.operation_id,
-                    ok: false,
-                    value_json: None,
-                    error: Some(rion_core::CoreErrorPayload {
-                        code: code.to_owned(),
-                        message: message.to_owned(),
-                    }),
-                }])
+                .dispatch_core_effect_results(vec![result])
                 .map(|_| ())
                 .map_err(|error| error.to_string());
         }
@@ -550,16 +637,51 @@ impl SystemRuntimeExecutor {
                         .map_err(|dispatch_error| dispatch_error.to_string())
                 });
         }
-        self.effect_sender
+        let queued = self.effect_sender
             .get()
-            .ok_or_else(|| "The System WebView effect executor is unavailable.".to_owned())?
-            .send(SystemRuntimeWork::Effect {
-                action_name,
-                effect: Box::new(effect),
-                presentation_revision,
-                persist_runtime,
-            })
-            .map_err(|_| "The System WebView effect executor stopped unexpectedly.".to_owned())
+            .ok_or_else(|| "The System WebView effect executor is unavailable.".to_owned())
+            .and_then(|sender| {
+                sender
+                    .send(SystemRuntimeWork::Effect {
+                        action_name,
+                        effect: Box::new(effect),
+                        presentation_revision,
+                        persist_runtime,
+                    })
+                    .map_err(|_| {
+                        "The System WebView effect executor stopped unexpectedly.".to_owned()
+                    })
+            });
+        let Err(queue_error) = queued else {
+            return Ok(());
+        };
+        let Some((effect_id, operation_id, _)) = destructive_identity else {
+            return Err(queue_error);
+        };
+        let result = CoreEffectResult {
+            effect_id,
+            operation_id,
+            ok: false,
+            value_json: None,
+            error: Some(rion_core::CoreErrorPayload {
+                code: "SYSTEM_RUNTIME_EFFECT_QUEUE_UNAVAILABLE".to_owned(),
+                message: queue_error.clone(),
+            }),
+        };
+        if !self
+            .destructive_native_work
+            .complete_queued_from_effect_result(&result)
+        {
+            return Err(format!(
+                "{queue_error} The browser-data clear also lost its queued destructive identity fence."
+            ));
+        }
+        match self.core.dispatch_core_effect_results(vec![result]) {
+            Ok(_) => Err(queue_error),
+            Err(dispatch_error) => Err(format!(
+                "{queue_error} Core also rejected its terminal failure receipt: {dispatch_error}"
+            )),
+        }
     }
 
     fn mark_critical_activity(&self) {

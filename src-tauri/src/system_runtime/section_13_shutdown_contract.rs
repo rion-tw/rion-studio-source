@@ -1,5 +1,12 @@
 impl SystemRuntimeExecutor {
     pub fn close_all(&self) -> SystemRuntimeOperationSummaryRecord {
+        self.close_all_until(system_runtime_shutdown_deadline())
+    }
+
+    pub(crate) fn close_all_until(
+        &self,
+        deadline: Instant,
+    ) -> SystemRuntimeOperationSummaryRecord {
         let operation = self
             .shutdown_operation
             .get_or_init(|| {
@@ -28,16 +35,20 @@ impl SystemRuntimeExecutor {
                     .summary();
             }
         }
-        if self
-            .shutdown_state
-            .compare_exchange(
-                RuntimeShutdownState::Accepting as u8,
-                RuntimeShutdownState::Draining as u8,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
+        let destructive_drain = self.destructive_native_work.begin_shutdown_and_wait(
+            deadline,
+            || {
+                self.shutdown_state
+                    .compare_exchange(
+                        RuntimeShutdownState::Accepting as u8,
+                        RuntimeShutdownState::Draining as u8,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+            },
+        );
+        if !destructive_drain.starts_shutdown {
             return self.shutdown_receipt_or_indeterminate(&operation);
         }
         self.notify_optional_idle_changed();
@@ -49,7 +60,6 @@ impl SystemRuntimeExecutor {
             "SYSTEM_SURFACE_SHUTDOWN_CANCELLED",
             "Application shutdown ended the pending native close continuation.",
         );
-        let deadline = operation.required_deadline();
         let initial_role_ids = match self.shutdown_role_ids() {
             Ok(role_ids) => role_ids,
             Err(()) => {
@@ -79,7 +89,7 @@ impl SystemRuntimeExecutor {
             self.discard_role_navigation_input_fences(role_id, "runtime-shutdown");
         }
 
-        let isolation_errors = self.isolate_shutdown_surfaces(&surfaces);
+        let isolation_errors = self.isolate_shutdown_surfaces(&surfaces, deadline);
         let platform = current_runtime_platform();
         let unreleased_count = surfaces
             .iter()
@@ -112,7 +122,14 @@ impl SystemRuntimeExecutor {
         drop(hosts.tabs);
         let close_error_count =
             self.close_shutdown_hosts(hosts.display_hosts, hosts.popup_labels);
-        let (state, status, stage, failure_code) = if cancelled_surface_closes > 0 {
+        let (state, status, stage, failure_code) = if !destructive_drain.native_work_drained {
+            (
+                RuntimeShutdownState::Indeterminate,
+                NativeOperationStatus::Indeterminate,
+                "shutdownDestructiveNativeWorkUnverified",
+                Some("SYSTEM_SHUTDOWN_DESTRUCTIVE_WORK_UNVERIFIED"),
+            )
+        } else if cancelled_surface_closes > 0 {
             (
                 RuntimeShutdownState::Indeterminate,
                 NativeOperationStatus::Indeterminate,
@@ -206,45 +223,74 @@ impl SystemRuntimeExecutor {
         Ok((surfaces, role_ids))
     }
 
-    fn isolate_shutdown_surfaces(&self, surfaces: &[ManagedSurface]) -> usize {
-        let errors = Mutex::new(Vec::<String>::new());
-        thread::scope(|scope| {
-            let handles = surfaces
-                .iter()
-                .map(|surface| {
-                    let errors = &errors;
-                    scope.spawn(move || {
-                        let result = if surface.phase == ManagedSurfacePhase::Retired {
-                            Ok(())
-                        } else if surface.kind == ManagedSurfaceKind::Divider {
-                            self.close_managed_divider(&surface.instance_id)
+    fn isolate_shutdown_surfaces(
+        &self,
+        surfaces: &[ManagedSurface],
+        deadline: Instant,
+    ) -> usize {
+        let tasks = surfaces
+            .iter()
+            .filter(|surface| surface.phase != ManagedSurfacePhase::Retired)
+            .map(|surface| {
+                let instance_id = surface.instance_id.clone();
+                let task_instance_id = instance_id.clone();
+                ShutdownSurfaceIsolationTask::new(
+                    instance_id,
+                    Box::pin(async move {
+                        if surface.kind == ManagedSurfaceKind::Divider {
+                            self.close_managed_surface_event_bound(
+                                &surface.instance_id,
+                                &surface.instance_id,
+                            )
+                            .await
                         } else {
-                            self.close_managed_surface_with_release_boundary_and_wait(
+                            self.close_managed_surface_with_release_boundary_event_bound(
                                 &surface.instance_id,
                                 surface
                                     .role_id
                                     .as_deref()
                                     .unwrap_or(surface.instance_id.as_str()),
-                                application_shutdown_release_boundary(surface.release_boundary),
+                                Some(application_shutdown_release_boundary(
+                                    surface.release_boundary,
+                                )),
+                                application_shutdown_defers_navigation_to_preflight(),
                             )
-                        };
-                        if let Err(error) = result
-                            && let Ok(mut errors) = errors.lock()
-                        {
-                            errors.push(format!("{}: {}", surface.instance_id, error.message));
+                            .await
                         }
-                    })
+                        .inspect_err(|error| {
+                            eprintln!(
+                                "Native surface shutdown failed (surface={task_instance_id}): {}",
+                                error.message
+                            );
+                        })
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let outcome = tauri::async_runtime::block_on(
+            await_shutdown_surface_isolation_until(tasks, deadline),
+        );
+        if !outcome.incomplete_instance_ids.is_empty() {
+            let incomplete = outcome
+                .incomplete_instance_ids
+                .iter()
+                .filter_map(|instance_id| {
+                    surfaces
+                        .iter()
+                        .find(|surface| surface.instance_id == *instance_id)
+                        .cloned()
                 })
                 .collect::<Vec<_>>();
-            for handle in handles {
-                if handle.join().is_err()
-                    && let Ok(mut errors) = errors.lock()
-                {
-                    errors.push("native surface shutdown worker panicked".to_owned());
-                }
-            }
-        });
-        errors.into_inner().map(|errors| errors.len()).unwrap_or(1)
+            self.cancel_surface_continuations_inner(
+                incomplete,
+                "SYSTEM_SHUTDOWN_SURFACE_DEADLINE_ELAPSED",
+                "Application shutdown reached its native surface reclamation deadline.",
+                true,
+            );
+        }
+        outcome
+            .error_count
+            .saturating_add(outcome.incomplete_instance_ids.len())
     }
 
     fn take_shutdown_hosts(&self) -> Result<ShutdownHostSnapshot, ()> {
@@ -325,6 +371,98 @@ impl SystemRuntimeExecutor {
     }
 }
 
+struct ShutdownSurfaceIsolationTask<'a> {
+    instance_id: String,
+    future: Option<
+        std::pin::Pin<Box<dyn std::future::Future<Output = RuntimeResult<()>> + 'a>>,
+    >,
+}
+
+impl<'a> ShutdownSurfaceIsolationTask<'a> {
+    fn new(
+        instance_id: String,
+        future: std::pin::Pin<
+            Box<dyn std::future::Future<Output = RuntimeResult<()>> + 'a>,
+        >,
+    ) -> Self {
+        Self {
+            instance_id,
+            future: Some(future),
+        }
+    }
+}
+
+struct ShutdownSurfaceIsolationBatch<'a> {
+    error_count: usize,
+    tasks: Vec<ShutdownSurfaceIsolationTask<'a>>,
+}
+
+impl std::future::Future for ShutdownSurfaceIsolationBatch<'_> {
+    type Output = usize;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.get_mut();
+        let mut pending = 0;
+        for task in &mut this.tasks {
+            let Some(future) = task.future.as_mut() else {
+                continue;
+            };
+            match future.as_mut().poll(context) {
+                std::task::Poll::Ready(result) => {
+                    if result.is_err() {
+                        this.error_count = this.error_count.saturating_add(1);
+                    }
+                    task.future = None;
+                }
+                std::task::Poll::Pending => pending += 1,
+            }
+        }
+        if pending == 0 {
+            std::task::Poll::Ready(this.error_count)
+        } else {
+            std::task::Poll::Pending
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ShutdownSurfaceIsolationOutcome {
+    error_count: usize,
+    incomplete_instance_ids: Vec<String>,
+}
+
+async fn await_shutdown_surface_isolation_until(
+    tasks: Vec<ShutdownSurfaceIsolationTask<'_>>,
+    deadline: Instant,
+) -> ShutdownSurfaceIsolationOutcome {
+    let mut batch = ShutdownSurfaceIsolationBatch {
+        error_count: 0,
+        tasks,
+    };
+    if tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), &mut batch)
+        .await
+        .is_ok()
+    {
+        return ShutdownSurfaceIsolationOutcome {
+            error_count: batch.error_count,
+            incomplete_instance_ids: Vec::new(),
+        };
+    }
+    let incomplete_instance_ids = batch
+        .tasks
+        .iter()
+        .filter(|task| task.future.is_some())
+        .map(|task| task.instance_id.clone())
+        .collect();
+    ShutdownSurfaceIsolationOutcome {
+        error_count: batch.error_count,
+        incomplete_instance_ids,
+    }
+}
+
 fn application_shutdown_release_boundary(
     boundary: SurfaceReleaseBoundary,
 ) -> SurfaceReleaseBoundary {
@@ -336,6 +474,10 @@ fn application_shutdown_release_boundary(
 
 fn application_shutdown_defers_navigation_to_preflight() -> bool {
     false
+}
+
+pub(crate) fn system_runtime_shutdown_deadline() -> Instant {
+    Instant::now() + SURFACE_RECLAMATION_TIMEOUT
 }
 
 pub(crate) fn shutdown_receipt_allows_clean_exit(status: &SystemRuntimeOperationStatus) -> bool {

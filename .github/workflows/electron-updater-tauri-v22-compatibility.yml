@@ -1,0 +1,1411 @@
+name: Electron Updater Tauri v22 Layout Compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact 40-character Electron target commit SHA to validate
+        required: true
+        type: string
+      target_version:
+        description: Exact semantic Electron target version without a leading v
+        required: true
+        type: string
+      prior_v23_version:
+        description: Exact app SemVer of the prior Electron-v23 runtime exercised before the target
+        required: true
+        type: string
+      target_updater_endpoint:
+        description: Owner-selected direct-200 HTTPS production latest.json endpoint
+        required: true
+        type: string
+      tauri_release_tag:
+        description: Exact published Tauri v22 compatibility release tag
+        required: true
+        type: string
+      tauri_source_sha:
+        description: Exact 40-character commit SHA referenced by the Tauri release tag
+        required: true
+        type: string
+      tauri_release_version:
+        description: Semantic application version embedded in the Tauri artifacts
+        required: true
+        type: string
+      tauri_macos_archive_sha256:
+        description: Externally recorded SHA-256 for Rion.Studio-mac.app.tar.gz
+        required: true
+        type: string
+      tauri_windows_installer_sha256:
+        description: Externally recorded SHA-256 for Rion.Studio-win.exe
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  attestations: read
+  contents: read
+
+concurrency:
+  group: electron-updater-tauri-v22-${{ inputs.tauri_source_sha }}-${{ inputs.target_sha }}
+  cancel-in-progress: false
+
+jobs:
+  authorize-control-plane:
+    name: Authorize the trusted compatibility control plane
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    outputs:
+      control_plane_sha: ${{ steps.guard.outputs.control_plane_sha }}
+    steps:
+      - name: Require protected default-branch workflow dispatch
+        id: guard
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_EVENT: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          test "${SOURCE_REPOSITORY}" = "rion-tw/rion-studio-source"
+          test "${DISPATCH_EVENT}" = "workflow_dispatch"
+          test "${DEFAULT_BRANCH}" = "main"
+          test "${DISPATCH_REF}" = "refs/heads/main"
+          test "${DISPATCH_REF_PROTECTED}" = "true"
+          test "${WORKFLOW_REF}" = \
+            "rion-tw/rion-studio-source/.github/workflows/electron-updater-tauri-v22-compatibility.yml@refs/heads/main"
+          [[ "${CONTROL_PLANE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          echo "control_plane_sha=${CONTROL_PLANE_SHA}" >> "${GITHUB_OUTPUT}"
+
+  build-target-input:
+    name: ${{ matrix.name }} exact-SHA unsigned compatibility input
+    needs: authorize-control-plane
+    runs-on: ${{ matrix.os }}
+    environment: electron-production-release
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS arm64 AppKit Chromium
+            os: macos-latest
+            platform: darwin-aarch64
+            upload_name: macos-arm64
+          - name: Windows x64 Chromium
+            os: windows-latest
+            platform: windows-x86_64
+            upload_name: windows-x64
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/rion-electron-updater-compatibility-build/cargo-target
+      RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.target_version }}
+      RION_STUDIO_UPDATER_ENDPOINT: ${{ inputs.target_updater_endpoint }}
+      RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+      RION_UPDATER_CI_FIXTURE_ROOT: ${{ runner.temp }}/rion-electron-updater-prior-v23
+      RION_UPDATER_PRIOR_V23_VERSION: ${{ inputs.prior_v23_version }}
+    steps:
+      - name: Checkout the exact untrusted candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.target_sha }}
+
+      - name: Setup pnpm for candidate construction
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node for candidate construction
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Validate exact candidate identity without credentials
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          [[ "${CONTROL_PLANE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TARGET_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          test "$(git rev-parse HEAD)" = "${TARGET_SHA}"
+          test -n "${RION_STUDIO_UPDATER_PUBLIC_KEY}"
+
+      - name: Install candidate dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore candidate build cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-bin: "false"
+          shared-key: tauri-v22-electron-updater-build-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Apply exact target version
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${TARGET_SHA}"
+          pnpm run release:version -- "${TARGET_VERSION}"
+          test "$(node -p "require('./package.json').version")" = "${TARGET_VERSION}"
+          cargo metadata --locked --no-deps --format-version 1 > /dev/null
+
+      - name: Build exact macOS Electron target without signing or publication
+        if: runner.os == 'macOS'
+        run: pnpm run package:electron:mac
+
+      - name: Build exact Windows Electron target without signing or publication
+        if: runner.os == 'Windows'
+        run: pnpm run package:electron:win
+
+      - name: Verify retained AppKit and packaged macOS target identity
+        if: runner.os == 'macOS'
+        run: pnpm run verify:electron-package -- --app "release/electron/mac-arm64/Rion Studio.app"
+
+      - name: Verify packaged Windows target identity
+        if: runner.os == 'Windows'
+        run: pnpm run verify:electron-package -- --app "release/electron/win-unpacked"
+
+      - name: Build previous Electron v23 Windows control fixture without credentials
+        if: runner.os == 'Windows'
+        run: pnpm run build:electron-updater:previous-fixtures
+
+      - name: Seal exact unsigned target package input
+        shell: bash
+        env:
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/electron-updater-tauri-v22-unsigned-${UPLOAD_NAME}.tar.gz"
+          test ! -e "${archive}"
+          COPYFILE_DISABLE=1 tar -C "${GITHUB_WORKSPACE}" -czf "${archive}" release/electron
+          test -s "${archive}"
+
+      - name: Upload exact unsigned target package input
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-updater-tauri-v22-unsigned-${{ matrix.upload_name }}-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          path: ${{ runner.temp }}/electron-updater-tauri-v22-unsigned-${{ matrix.upload_name }}.tar.gz
+
+      - name: Upload exact prior-v23 Windows control installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-updater-tauri-v22-prior-v23-windows-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          path: ${{ env.RION_UPDATER_PREVIOUS_V23_INSTALLER }}
+
+  attest-signing-input:
+    name: Attest ${{ matrix.platform }} unsigned input from trusted control
+    needs:
+      - authorize-control-plane
+      - build-target-input
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: darwin-aarch64
+            upload_name: macos-arm64
+          - platform: windows-x86_64
+            upload_name: windows-x64
+    env:
+      RION_COMPATIBILITY_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-input-${{ matrix.upload_name }}
+    steps:
+      - name: Checkout the exact trusted default-branch attestation control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download exact unsigned target archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-updater-tauri-v22-unsigned-${{ matrix.upload_name }}-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/unsigned
+
+      - name: Create the closed control and candidate provenance receipt
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          PLATFORM: ${{ matrix.platform }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          archive="${RION_COMPATIBILITY_SIGNING_INPUT_ROOT}/unsigned/electron-updater-tauri-v22-unsigned-${UPLOAD_NAME}.tar.gz"
+          output="${RION_COMPATIBILITY_SIGNING_INPUT_ROOT}/electron-updater-tauri-v22-trusted-control-receipt.json"
+          ARCHIVE_PATH="${archive}" OUTPUT_PATH="${output}" node --input-type=module <<'NODE'
+          import { writeFile } from "node:fs/promises";
+          import { captureStableBoundedFileIdentity } from "./scripts/electronProductionCandidateAssetBinding.mjs";
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+
+          const unsignedArchive = await captureStableBoundedFileIdentity(
+            process.env.ARCHIVE_PATH,
+            2 * 1024 * 1024 * 1024,
+            "unsigned compatibility archive"
+          );
+          await writeFile(process.env.OUTPUT_PATH, serializeCanonicalJson({
+            schemaVersion: 1,
+            kind: "rion-electron-updater-tauri-v22-trusted-control",
+            repository: "rion-tw/rion-studio-source",
+            workflow: ".github/workflows/electron-updater-tauri-v22-compatibility.yml",
+            event: "workflow_dispatch",
+            controlPlaneRef: "refs/heads/main",
+            controlPlaneSha: process.env.CONTROL_PLANE_SHA,
+            candidateSourceSha: process.env.TARGET_SHA,
+            candidateVersion: process.env.TARGET_VERSION,
+            platform: process.env.PLATFORM,
+            runId: process.env.GITHUB_RUN_ID,
+            runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            unsignedArchive: {
+              name: `electron-updater-tauri-v22-unsigned-${process.env.UPLOAD_NAME}.tar.gz`,
+              ...unsignedArchive
+            }
+          }), { flag: "wx", mode: 0o600 });
+          NODE
+
+      - name: Upload the exact closed trusted-control receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-updater-tauri-v22-signing-input-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/electron-updater-tauri-v22-trusted-control-receipt.json
+
+      - name: Attest the closed trusted-control receipt
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/electron-updater-tauri-v22-trusted-control-receipt.json
+
+  prepare-signed-input:
+    name: ${{ matrix.name }} detached production updater input signing
+    needs:
+      - authorize-control-plane
+      - attest-signing-input
+    runs-on: ${{ matrix.os }}
+    environment: electron-production-release
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS arm64 AppKit Chromium
+            os: macos-latest
+            platform: darwin-aarch64
+            upload_name: macos-arm64
+            application: release/electron/mac-arm64/Rion Studio.app
+            artifact: release/electron/Rion.Studio-mac.app.tar.gz
+          - name: Windows x64 Chromium
+            os: windows-latest
+            platform: windows-x86_64
+            upload_name: windows-x64
+            application: release/electron/win-unpacked
+            artifact: release/electron/Rion.Studio-win.exe
+    env:
+      RION_COMPATIBILITY_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-input-${{ matrix.upload_name }}
+      RION_UPDATER_CI_FIXTURE_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-runtime
+      RION_UPDATER_PREPARED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-production-input
+      RION_UPDATER_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-unsigned
+      RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.target_version }}
+    steps:
+      - name: Checkout the exact trusted default-branch signing control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Setup pnpm for trusted signing control
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node for trusted signing control
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install locked trusted signing dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download exact unsigned target archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-updater-tauri-v22-unsigned-${{ matrix.upload_name }}-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/unsigned
+
+      - name: Download attested trusted-control receipt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-updater-tauri-v22-signing-input-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/control
+
+      - name: Verify attestation and every sealed input byte before private key entry
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ matrix.platform }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          archive="${RION_COMPATIBILITY_SIGNING_INPUT_ROOT}/unsigned/electron-updater-tauri-v22-unsigned-${UPLOAD_NAME}.tar.gz"
+          receipt="${RION_COMPATIBILITY_SIGNING_INPUT_ROOT}/control/electron-updater-tauri-v22-trusted-control-receipt.json"
+          signer_workflow="rion-tw/rion-studio-source/.github/workflows/electron-updater-tauri-v22-compatibility.yml"
+          invocation_uri="https://github.com/rion-tw/rion-studio-source/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          attestation_json="$(gh attestation verify "${receipt}" \
+            --repo "rion-tw/rion-studio-source" \
+            --format=json \
+            --signer-digest "${CONTROL_PLANE_SHA}" \
+            --signer-workflow "${signer_workflow}" \
+            --source-digest "${CONTROL_PLANE_SHA}")"
+          jq -e --arg invocation_uri "${invocation_uri}" '
+            any(.[]; .verificationResult.signature.certificate.runInvocationURI == $invocation_uri)
+          ' <<< "${attestation_json}" > /dev/null
+          ARCHIVE_PATH="${archive}" RECEIPT_PATH="${receipt}" node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import { captureStableBoundedFileIdentity } from "./scripts/electronProductionCandidateAssetBinding.mjs";
+
+          const receipt = JSON.parse(await readFile(process.env.RECEIPT_PATH, "utf8"));
+          const exactKeys = (value, keys, label) => {
+            if (!value || typeof value !== "object" || Array.isArray(value) ||
+                JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())) {
+              throw new Error(`${label} is not closed-schema.`);
+            }
+          };
+          exactKeys(receipt, [
+            "candidateSourceSha", "candidateVersion", "controlPlaneRef", "controlPlaneSha",
+            "event", "kind", "platform", "repository", "runAttempt", "runId",
+            "schemaVersion", "unsignedArchive", "workflow"
+          ], "trusted-control receipt");
+          exactKeys(receipt.unsignedArchive, ["bytes", "name", "sha256"], "unsigned archive");
+          const expected = {
+            schemaVersion: 1,
+            kind: "rion-electron-updater-tauri-v22-trusted-control",
+            repository: "rion-tw/rion-studio-source",
+            workflow: ".github/workflows/electron-updater-tauri-v22-compatibility.yml",
+            event: "workflow_dispatch",
+            controlPlaneRef: "refs/heads/main",
+            controlPlaneSha: process.env.CONTROL_PLANE_SHA,
+            candidateSourceSha: process.env.TARGET_SHA,
+            candidateVersion: process.env.TARGET_VERSION,
+            platform: process.env.PLATFORM,
+            runId: process.env.GITHUB_RUN_ID,
+            runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            archiveName: `electron-updater-tauri-v22-unsigned-${process.env.UPLOAD_NAME}.tar.gz`
+          };
+          for (const [key, value] of Object.entries(expected)) {
+            if (key === "archiveName") {
+              if (receipt.unsignedArchive.name !== value) throw new Error("Unsigned archive name changed.");
+            } else if (receipt[key] !== value) {
+              throw new Error(`Trusted-control ${key} changed.`);
+            }
+          }
+          const observed = await captureStableBoundedFileIdentity(
+            process.env.ARCHIVE_PATH,
+            2 * 1024 * 1024 * 1024,
+            "unsigned compatibility archive"
+          );
+          if (observed.bytes !== receipt.unsignedArchive.bytes ||
+              observed.sha256 !== receipt.unsignedArchive.sha256) {
+            throw new Error("Unsigned compatibility archive bytes changed after attestation.");
+          }
+          NODE
+
+      - name: Restore and verify sealed candidate package before private key entry
+        shell: bash
+        env:
+          APPLICATION_PATH: ${{ env.RION_UPDATER_UNSIGNED_INPUT_ROOT }}/${{ matrix.application }}
+        run: |
+          set -euo pipefail
+          archive="${RION_COMPATIBILITY_SIGNING_INPUT_ROOT}/unsigned/electron-updater-tauri-v22-unsigned-${{ matrix.upload_name }}.tar.gz"
+          test ! -e "${RION_UPDATER_UNSIGNED_INPUT_ROOT}"
+          mkdir -p "${RION_UPDATER_UNSIGNED_INPUT_ROOT}/release"
+          node scripts/restoreElectronUnsignedInputArchive.mjs \
+            --archive "${archive}" \
+            --destination "${RION_UPDATER_UNSIGNED_INPUT_ROOT}/release/electron"
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            pnpm run verify:electron-package -- --app "${APPLICATION_PATH}"
+          else
+            pnpm run verify:electron-package -- --app "${APPLICATION_PATH}"
+          fi
+          mkdir -m 700 "${RION_UPDATER_CI_FIXTURE_ROOT}"
+          mkdir -m 700 "${RION_UPDATER_PREPARED_INPUT_ROOT}"
+
+      - name: Prepare production-signed updater probe input from trusted control
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ env.RION_UPDATER_UNSIGNED_INPUT_ROOT }}/${{ matrix.artifact }}
+          APPLICATION_PATH: ${{ env.RION_UPDATER_UNSIGNED_INPUT_ROOT }}/${{ matrix.application }}
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          arguments=(--artifact "${ARTIFACT_PATH}")
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            arguments+=(--app "${APPLICATION_PATH}")
+          fi
+          node scripts/prepareElectronUpdaterTransactionProbeInput.mjs "${arguments[@]}"
+
+      - name: Upload exact prepared production-signed input without executing candidate code
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-updater-tauri-v22-prepared-${{ matrix.platform }}-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          path: ${{ env.RION_UPDATER_PREPARED_INPUT_ROOT }}
+
+  artifact-compatibility:
+    name: ${{ matrix.name }} published v22 input and v23 layout replacement
+    needs:
+      - authorize-control-plane
+      - build-target-input
+      - prepare-signed-input
+    runs-on: ${{ matrix.os }}
+    environment: electron-production-release
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+            platform: darwin-aarch64
+            upload_name: macos-arm64
+            application: release/electron/mac-arm64/Rion Studio.app
+            artifact: Rion.Studio-mac.app.tar.gz
+            signature: Rion.Studio-mac.app.tar.gz.sig
+            running_executable_derivation: macos-exact-archive-member
+          - name: Windows x64
+            os: windows-latest
+            platform: windows-x86_64
+            upload_name: windows-x64
+            application: release/electron/win-unpacked
+            artifact: Rion.Studio-win.exe
+            signature: Rion.Studio-win.exe.sig
+            running_executable_derivation: windows-isolated-current-user-nsis-install
+    env:
+      CARGO_TARGET_DIR: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime/cargo-target
+      RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.target_version }}
+      RION_STUDIO_UPDATER_ENDPOINT: ${{ inputs.target_updater_endpoint }}
+      RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+      RION_UPDATER_PRIOR_V23_VERSION: ${{ inputs.prior_v23_version }}
+      RION_UPDATER_COMPATIBILITY_BOUNDARY_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary
+      RION_UPDATER_CI_FIXTURE_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime
+      RION_UPDATER_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-unsigned
+      RION_COMPATIBILITY_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-input-${{ matrix.upload_name }}
+      RION_UPDATER_PREPARED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-production-input
+      RION_UPDATER_PROVISIONAL_RECEIPT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime/provisional-layout-probe-receipt.json
+      RION_TAURI_V22_LINEAGE_RECEIPT: ${{ runner.temp }}/rion-tauri-v22-lineage/tauri-v22-public-lineage-receipt.json
+    steps:
+      - name: Checkout the exact trusted default-branch compatibility control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Validate exact Tauri v22 source identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tauri_release_tag }}
+          RELEASE_VERSION: ${{ inputs.tauri_release_version }}
+          PRIOR_V23_VERSION: ${{ inputs.prior_v23_version }}
+          SOURCE_SHA: ${{ inputs.tauri_source_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          TARGET_UPDATER_ENDPOINT: ${{ inputs.target_updater_endpoint }}
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          MACOS_SHA256: ${{ inputs.tauri_macos_archive_sha256 }}
+          WINDOWS_SHA256: ${{ inputs.tauri_windows_installer_sha256 }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_TAG}" =~ ^v?[0-9][0-9A-Za-z._-]{0,63}$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${PRIOR_V23_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TARGET_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${MACOS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${WINDOWS_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test -n "${RION_STUDIO_UPDATER_PUBLIC_KEY}"
+          node --input-type=module <<'NODE'
+          import { assertSemanticVersionIsNewer } from "./scripts/electronUpdaterCompatibilityReceiptIo.mjs";
+
+          assertSemanticVersionIsNewer(
+            process.env.TARGET_VERSION,
+            process.env.RELEASE_VERSION,
+            "Electron target application version"
+          );
+          assertSemanticVersionIsNewer(
+            process.env.TARGET_VERSION,
+            process.env.PRIOR_V23_VERSION,
+            "Electron target application version"
+          );
+          NODE
+          TARGET_UPDATER_ENDPOINT="${TARGET_UPDATER_ENDPOINT}" node --input-type=module <<'NODE'
+          const endpoint = new URL(process.env.TARGET_UPDATER_ENDPOINT);
+          if (
+            endpoint.protocol !== "https:" ||
+            endpoint.username ||
+            endpoint.password ||
+            endpoint.search ||
+            endpoint.hash ||
+            !endpoint.pathname.endsWith("/latest.json")
+          ) {
+            throw new Error("The target updater endpoint must be one direct HTTPS latest.json URL.");
+          }
+          NODE
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          git fetch --no-tags origin "${TARGET_SHA}"
+          test "$(git rev-parse FETCH_HEAD)" = "${TARGET_SHA}"
+          git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          test "$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")" = "${SOURCE_SHA}"
+
+      - name: Require the owner-selected direct-200 production manifest endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            --proto '=https' \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --max-redirs 0 \
+            "${RION_STUDIO_UPDATER_ENDPOINT}")"
+          test "${status}" = "200"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore updater build cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-bin: "false"
+          shared-key: tauri-v22-electron-updater-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Download exact unsigned target archive as product input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-updater-tauri-v22-unsigned-${{ matrix.upload_name }}-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/unsigned
+
+      - name: Download attested trusted-control receipt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-updater-tauri-v22-signing-input-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/control
+
+      - name: Download exact prepared production-signed probe input
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-updater-tauri-v22-prepared-${{ matrix.platform }}-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.RION_UPDATER_PREPARED_INPUT_ROOT }}
+
+      - name: Download exact prior-v23 Windows control installer
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-updater-tauri-v22-prior-v23-windows-${{ inputs.target_sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rion-electron-updater-prior-v23
+
+      - name: Re-verify trusted provenance and restore candidate bytes without signing material
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ matrix.platform }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          archive="${RION_COMPATIBILITY_SIGNING_INPUT_ROOT}/unsigned/electron-updater-tauri-v22-unsigned-${UPLOAD_NAME}.tar.gz"
+          receipt="${RION_COMPATIBILITY_SIGNING_INPUT_ROOT}/control/electron-updater-tauri-v22-trusted-control-receipt.json"
+          invocation_uri="https://github.com/rion-tw/rion-studio-source/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          attestation_json="$(gh attestation verify "${receipt}" \
+            --repo "rion-tw/rion-studio-source" \
+            --format=json \
+            --signer-digest "${CONTROL_PLANE_SHA}" \
+            --signer-workflow "rion-tw/rion-studio-source/.github/workflows/electron-updater-tauri-v22-compatibility.yml" \
+            --source-digest "${CONTROL_PLANE_SHA}")"
+          jq -e --arg invocation_uri "${invocation_uri}" '
+            any(.[]; .verificationResult.signature.certificate.runInvocationURI == $invocation_uri)
+          ' <<< "${attestation_json}" > /dev/null
+          jq -e \
+            --arg control_sha "${CONTROL_PLANE_SHA}" \
+            --arg target_sha "${TARGET_SHA}" \
+            --arg target_version "${TARGET_VERSION}" \
+            --arg platform "${PLATFORM}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --argjson run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg archive_name "electron-updater-tauri-v22-unsigned-${UPLOAD_NAME}.tar.gz" '
+              (keys | sort) == ([
+                "candidateSourceSha", "candidateVersion", "controlPlaneRef", "controlPlaneSha",
+                "event", "kind", "platform", "repository", "runAttempt", "runId",
+                "schemaVersion", "unsignedArchive", "workflow"
+              ] | sort) and
+              .schemaVersion == 1 and
+              .kind == "rion-electron-updater-tauri-v22-trusted-control" and
+              .repository == "rion-tw/rion-studio-source" and
+              .workflow == ".github/workflows/electron-updater-tauri-v22-compatibility.yml" and
+              .event == "workflow_dispatch" and
+              .controlPlaneRef == "refs/heads/main" and
+              .controlPlaneSha == $control_sha and
+              .candidateSourceSha == $target_sha and
+              .candidateVersion == $target_version and
+              .platform == $platform and
+              .runId == $run_id and
+              .runAttempt == $run_attempt and
+              (.unsignedArchive | keys | sort) == (["bytes", "name", "sha256"] | sort) and
+              .unsignedArchive.name == $archive_name and
+              (.unsignedArchive.bytes | type) == "number" and
+              (.unsignedArchive.bytes > 0) and
+              (.unsignedArchive.sha256 | test("^[0-9a-f]{64}$"))
+            ' "${receipt}" > /dev/null
+          observed_archive="$(ARCHIVE_PATH="${archive}" node --input-type=module <<'NODE'
+          import { captureStableBoundedFileIdentity } from "./scripts/electronProductionCandidateAssetBinding.mjs";
+          process.stdout.write(JSON.stringify(await captureStableBoundedFileIdentity(
+            process.env.ARCHIVE_PATH,
+            2 * 1024 * 1024 * 1024,
+            "unsigned compatibility archive"
+          )));
+          NODE
+          )"
+          test "$(jq -r .bytes <<< "${observed_archive}")" = \
+            "$(jq -r .unsignedArchive.bytes "${receipt}")"
+          test "$(jq -r .sha256 <<< "${observed_archive}")" = \
+            "$(jq -r .unsignedArchive.sha256 "${receipt}")"
+          test ! -e "${RION_UPDATER_UNSIGNED_INPUT_ROOT}"
+          mkdir -p "${RION_UPDATER_UNSIGNED_INPUT_ROOT}/release"
+          node scripts/restoreElectronUnsignedInputArchive.mjs \
+            --archive "${archive}" \
+            --destination "${RION_UPDATER_UNSIGNED_INPUT_ROOT}/release/electron"
+          pnpm run verify:electron-package -- \
+            --app "${RION_UPDATER_UNSIGNED_INPUT_ROOT}/${{ matrix.application }}"
+          mkdir -m 700 -p "${RION_UPDATER_CI_FIXTURE_ROOT}"
+          mkdir -m 700 -p "${CARGO_TARGET_DIR}"
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            prior_installer="${RUNNER_TEMP}/rion-electron-updater-prior-v23/Rion.Studio-win.exe"
+            test -f "${prior_installer}"
+            echo "RION_UPDATER_PREVIOUS_V23_INSTALLER=${prior_installer}" >> "${GITHUB_ENV}"
+            echo "RION_UPDATER_PREVIOUS_V23_VERSION=${RION_UPDATER_PRIOR_V23_VERSION}" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Capture closed metadata and download exact public release asset IDs
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: rion-tw/rion-studio
+          RELEASE_TAG: ${{ inputs.tauri_release_tag }}
+          RELEASE_VERSION: ${{ inputs.tauri_release_version }}
+          SIGNATURE_NAME: ${{ matrix.signature }}
+          SOURCE_REPOSITORY: rion-tw/rion-studio-source
+        run: |
+          set -euo pipefail
+          metadata_root="${RUNNER_TEMP}/rion-tauri-v22-lineage-metadata"
+          input_root="${RUNNER_TEMP}/rion-tauri-v22-input"
+          mkdir -p "${metadata_root}"
+          mkdir -p "${input_root}"
+          tagged_release_path="${metadata_root}/tagged-release.json"
+          latest_release_path="${metadata_root}/latest-release.json"
+          public_release_path="${metadata_root}/public-release-metadata.json"
+          source_tag_path="${metadata_root}/source-tag-metadata.json"
+          gh api "repos/${RELEASE_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${tagged_release_path}"
+          gh api "repos/${RELEASE_REPOSITORY}/releases/latest" > "${latest_release_path}"
+          export SOURCE_TAG_REF_OBJECT_TYPE="$(git cat-file -t "refs/tags/${RELEASE_TAG}")"
+          export SOURCE_TAG_REF_OBJECT_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}")"
+          export SOURCE_TAG_PEELED_COMMIT_SHA="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          export TAGGED_RELEASE_PATH="${tagged_release_path}"
+          export LATEST_RELEASE_PATH="${latest_release_path}"
+          export PUBLIC_RELEASE_PATH="${public_release_path}"
+          export SOURCE_TAG_PATH="${source_tag_path}"
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from "node:fs/promises";
+
+          const tagged = JSON.parse(await readFile(process.env.TAGGED_RELEASE_PATH, "utf8"));
+          const latest = JSON.parse(await readFile(process.env.LATEST_RELEASE_PATH, "utf8"));
+          if (String(tagged.id) !== String(latest.id)) {
+            throw new Error("The published Tauri v22 release was not latest at lineage capture.");
+          }
+          if (
+            tagged.tag_name !== process.env.RELEASE_TAG ||
+            tagged.draft !== false ||
+            tagged.prerelease !== false ||
+            typeof tagged.published_at !== "string"
+          ) {
+            throw new Error("The tagged public Tauri v22 release metadata is not stable.");
+          }
+          const selectedNames = {
+            artifact: process.env.ARTIFACT_NAME,
+            signature: process.env.SIGNATURE_NAME,
+            manifest: "latest.json",
+            checksums: "SHA256SUMS.txt"
+          };
+          const assets = {};
+          for (const [role, name] of Object.entries(selectedNames)) {
+            const matches = tagged.assets?.filter((asset) => asset.name === name) ?? [];
+            if (matches.length !== 1) {
+              throw new Error(`Expected exactly one public ${role} asset named ${name}.`);
+            }
+            const asset = matches[0];
+            if (!Number.isSafeInteger(asset.size) || asset.size <= 0) {
+              throw new Error(`The public ${role} asset has an invalid byte count.`);
+            }
+            assets[role] = { id: String(asset.id), name, bytes: asset.size };
+          }
+          const observedAt = new Date().toISOString();
+          const publicRelease = {
+            repository: process.env.RELEASE_REPOSITORY,
+            id: String(tagged.id),
+            tagName: tagged.tag_name,
+            version: process.env.RELEASE_VERSION,
+            draft: false,
+            prerelease: false,
+            wasLatestAtCapture: true,
+            publishedAt: tagged.published_at,
+            observedAt,
+            assets
+          };
+          const sourceTag = {
+            repository: process.env.SOURCE_REPOSITORY,
+            releaseTag: process.env.RELEASE_TAG,
+            refObjectType: process.env.SOURCE_TAG_REF_OBJECT_TYPE,
+            refObjectSha: process.env.SOURCE_TAG_REF_OBJECT_SHA,
+            peeledCommitSha: process.env.SOURCE_TAG_PEELED_COMMIT_SHA,
+            observedAt
+          };
+          await Promise.all([
+            writeFile(process.env.PUBLIC_RELEASE_PATH, `${JSON.stringify(publicRelease, null, 2)}\n`, {
+              encoding: "utf8",
+              flag: "wx",
+              mode: 0o600
+            }),
+            writeFile(process.env.SOURCE_TAG_PATH, `${JSON.stringify(sourceTag, null, 2)}\n`, {
+              encoding: "utf8",
+              flag: "wx",
+              mode: 0o600
+            })
+          ]);
+          NODE
+          while IFS=$'\t' read -r asset_id asset_name; do
+            [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+            case "${asset_name}" in
+              "${ARTIFACT_NAME}"|"${SIGNATURE_NAME}"|latest.json|SHA256SUMS.txt) ;;
+              *) echo "Unexpected selected public asset name: ${asset_name}" >&2; exit 1 ;;
+            esac
+            gh api \
+              -H "Accept: application/octet-stream" \
+              "repos/${RELEASE_REPOSITORY}/releases/assets/${asset_id}" \
+              > "${input_root}/${asset_name}"
+          done < <(
+            jq -r '.assets | to_entries[] | [.value.id, .value.name] | @tsv' \
+              "${public_release_path}"
+          )
+          test "$(find "${input_root}" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 4
+          echo "RION_TAURI_V22_INPUT_ROOT=${input_root}" >> "${GITHUB_ENV}"
+          echo "RION_TAURI_V22_PUBLIC_RELEASE_METADATA=${public_release_path}" >> "${GITHUB_ENV}"
+          echo "RION_TAURI_V22_SOURCE_TAG_METADATA=${source_tag_path}" >> "${GITHUB_ENV}"
+
+      - name: Verify pinned Tauri v22 release receipt
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tauri_release_tag }}
+          RELEASE_VERSION: ${{ inputs.tauri_release_version }}
+          SOURCE_SHA: ${{ inputs.tauri_source_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+          EXPECTED_SHA256: ${{ matrix.platform == 'darwin-aarch64' && inputs.tauri_macos_archive_sha256 || inputs.tauri_windows_installer_sha256 }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          pnpm run verify:tauri-v22-updater-input -- \
+            --directory "${RION_TAURI_V22_INPUT_ROOT}" \
+            --output "${RION_TAURI_V22_INPUT_ROOT}/verified-input-receipt.json" \
+            --platform "${PLATFORM}" \
+            --version "${RELEASE_VERSION}" \
+            --release-tag "${RELEASE_TAG}" \
+            --source-sha "${SOURCE_SHA}" \
+            --target-sha "${TARGET_SHA}" \
+            --expected-sha256 "${EXPECTED_SHA256}"
+
+      - name: Verify Tauri v22 updater signature through the Rust trust root
+        shell: bash
+        env:
+          RION_UPDATER_PROBE_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${RION_UPDATER_PROBE_PUBLIC_KEY}"
+          export RION_UPDATER_PROBE_ARTIFACT="${RION_TAURI_V22_ARTIFACT}"
+          export RION_UPDATER_PROBE_MANIFEST="${RION_TAURI_V22_MANIFEST}"
+          export RION_UPDATER_PROBE_PLATFORM="${RION_TAURI_V22_PLATFORM}"
+          export RION_UPDATER_PROBE_VERSION="${RION_TAURI_V22_VERSION}"
+          cargo test -p rion-updater --lib \
+            package_probe::packaged_artifact_manifest_fail_closed_probe -- \
+            --ignored --exact --nocapture
+
+      - name: Validate and extract exact Tauri v22 macOS bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PRIOR_V23_VERSION: ${{ inputs.prior_v23_version }}
+          RELEASE_VERSION: ${{ inputs.tauri_release_version }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { assertStableTauriV22PublicReleaseAssets } from "./scripts/publicReleaseRuntimePolicy.mjs";
+
+          await assertStableTauriV22PublicReleaseAssets(
+            process.env.RION_TAURI_V22_INPUT_ROOT
+          );
+          NODE
+          previous_root="${RUNNER_TEMP}/rion-tauri-v22-app"
+          mkdir -p "${previous_root}"
+          tar -xzf "${RION_TAURI_V22_ARTIFACT}" -C "${previous_root}"
+          test "$(find "${previous_root}" -mindepth 1 -maxdepth 1 -type d -name '*.app' | wc -l | tr -d ' ')" -eq 1
+          previous_app="${previous_root}/Rion Studio.app"
+          test -d "${previous_app}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${previous_app}/Contents/Info.plist")" = "com.rionstudio.launcher"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${previous_app}/Contents/Info.plist")" = "${RELEASE_VERSION}"
+          codesign --verify --deep --strict "${previous_app}"
+          codesign --display --verbose=4 "${previous_app}" 2>&1 | grep -F 'Signature=adhoc'
+          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${previous_app}/Contents/Info.plist")"
+          test "${executable_name}" = "rion-tauri"
+          previous_executable="${previous_app}/Contents/MacOS/rion-tauri"
+          test -f "${previous_executable}"
+          test ! -L "${previous_executable}"
+          lipo -archs "${previous_executable}" | grep -w arm64
+          test ! -e "${previous_app}/Contents/Resources/app.asar"
+          echo "RION_UPDATER_PROBE_PREVIOUS_APP=${previous_app}" >> "${GITHUB_ENV}"
+          echo "RION_UPDATER_PROBE_PREVIOUS_VERSIONS=${RELEASE_VERSION},${PRIOR_V23_VERSION}" >> "${GITHUB_ENV}"
+          echo "RION_TAURI_V22_RUNNING_EXECUTABLE=${previous_executable}" >> "${GITHUB_ENV}"
+
+      - name: Validate exact Tauri v22 Windows installer policy
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.tauri_release_version }}
+        run: |
+          $signature = Get-AuthenticodeSignature -LiteralPath $env:RION_TAURI_V22_ARTIFACT
+          if ($signature.Status -ne "NotSigned") {
+            throw "The real Tauri v22 installer must match the owner-locked unsigned policy."
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RION_UPDATER_PREVIOUS_TAURI_V22_INSTALLER=$env:RION_TAURI_V22_ARTIFACT"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RION_UPDATER_PREVIOUS_TAURI_V22_VERSION=$env:RELEASE_VERSION"
+
+      - name: Derive the exact Windows v22 executable through an isolated NSIS install
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.tauri_release_version }}
+          RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          $lineageRoot = Join-Path $env:RUNNER_TEMP "rion-tauri-v22-lineage-install-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $installPath = Join-Path $lineageRoot "application"
+          $contractPath = Join-Path $lineageRoot "tauri-v22-windows-install-contract.json"
+          New-Item -ItemType Directory -Path $lineageRoot -ErrorAction Stop | Out-Null
+          $pwsh = Join-Path $PSHOME "pwsh.exe"
+          $derivation = Join-Path $env:GITHUB_WORKSPACE "scripts\deriveTauriV22WindowsInstall.ps1"
+          ./scripts/runWindowsIsolatedProfile.ps1 `
+            -RepositoryRoot $env:GITHUB_WORKSPACE `
+            -RepositoryAccess "RX" `
+            -ToolHomeAccess "None" `
+            -CommandPath $pwsh `
+            -AdditionalWritablePaths @($lineageRoot) `
+            -AdditionalReadablePaths @($env:RION_TAURI_V22_ARTIFACT) `
+            -CommandArguments @(
+              "-NoLogo", "-NoProfile", "-NonInteractive", "-File", $derivation,
+              "-ArtifactPath", $env:RION_TAURI_V22_ARTIFACT,
+              "-ContractPath", $contractPath,
+              "-InstallDirectory", $installPath,
+              "-RepositoryRoot", $env:GITHUB_WORKSPACE,
+              "-Version", $env:RELEASE_VERSION
+            )
+          $executable = Join-Path $installPath "rion-tauri.exe"
+          if (
+            -not (Test-Path -LiteralPath $contractPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $executable -PathType Leaf)
+          ) {
+            throw "The isolated Tauri v22 derivation did not retain its verified outputs."
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RION_TAURI_V22_RUNNING_EXECUTABLE=$executable"
+
+      - name: Create the closed public Tauri v22 source-lineage receipt
+        shell: bash
+        env:
+          LINEAGE_ARTIFACT_NAME: tauri-v22-public-lineage-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          RUNNING_EXECUTABLE_DERIVATION: ${{ matrix.running_executable_derivation }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { mkdir, readFile } from "node:fs/promises";
+          import { dirname } from "node:path";
+          import { createTauriV22PublicLineage } from "./scripts/tauriV22PublicLineage.mjs";
+
+          await mkdir(dirname(process.env.RION_TAURI_V22_LINEAGE_RECEIPT), { recursive: true });
+          const [publicRelease, sourceTag] = await Promise.all([
+            readFile(process.env.RION_TAURI_V22_PUBLIC_RELEASE_METADATA, "utf8").then(JSON.parse),
+            readFile(process.env.RION_TAURI_V22_SOURCE_TAG_METADATA, "utf8").then(JSON.parse)
+          ]);
+          await createTauriV22PublicLineage({
+            assetDirectory: process.env.RION_TAURI_V22_INPUT_ROOT,
+            outputPath: process.env.RION_TAURI_V22_LINEAGE_RECEIPT,
+            producer: {
+              artifactName: process.env.LINEAGE_ARTIFACT_NAME,
+              event: process.env.GITHUB_EVENT_NAME,
+              headSha: process.env.RION_ELECTRON_TARGET_SHA,
+              producedAt: new Date().toISOString(),
+              repository: process.env.GITHUB_REPOSITORY,
+              runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              runId: process.env.GITHUB_RUN_ID,
+              workflow: ".github/workflows/electron-updater-tauri-v22-compatibility.yml"
+            },
+            publicRelease,
+            runningExecutable: {
+              derivation: process.env.RUNNING_EXECUTABLE_DERIVATION,
+              path: process.env.RION_TAURI_V22_RUNNING_EXECUTABLE
+            },
+            sourceTag,
+            verifiedInputReceiptPath: process.env.RION_TAURI_V22_INPUT_RECEIPT
+          });
+          NODE
+
+      - name: Run macOS published-v22-input plus v23 layout replacement probe without private signing material
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace="$(pwd -P)"
+          test "${workspace}" = "$(cd "${GITHUB_WORKSPACE}" && pwd -P)"
+          boundary_root="$(cd "${RION_UPDATER_COMPATIBILITY_BOUNDARY_ROOT}" && pwd -P)"
+          child_output_root="$(cd "${RION_UPDATER_CI_FIXTURE_ROOT}" && pwd -P)"
+          test "$(dirname "${child_output_root}")" = "${boundary_root}"
+          test "$(basename "${child_output_root}")" = "child-runtime"
+          prepared_artifact="${RION_UPDATER_PREPARED_INPUT_ROOT}/Rion.Studio-mac.app.tar.gz"
+          prepared_receipt="${RION_UPDATER_PREPARED_INPUT_ROOT}/prepared-updater-probe-input.json"
+          isolation_result="${child_output_root}/macos-updater-process-isolation-result.json"
+          sealed_output_root="${boundary_root}/terminal-receipt"
+          test ! -e "${isolation_result}"
+          test ! -e "${sealed_output_root}"
+          test ! -e "${RION_UPDATER_PROVISIONAL_RECEIPT}"
+          runtime_home="${RION_UPDATER_CI_FIXTURE_ROOT}/runtime-home"
+          runtime_temp="${RION_UPDATER_CI_FIXTURE_ROOT}/runtime-temp"
+          mkdir -m 700 "${runtime_home}" "${runtime_temp}"
+          test -d "${CARGO_TARGET_DIR}"
+          node_lookup="$(command -v node)"
+          test -x "${node_lookup}"
+          node_command="$(
+            "${node_lookup}" --input-type=module -e \
+              'import { realpathSync } from "node:fs"; process.stdout.write(realpathSync(process.execPath));'
+          )"
+          test -x "${node_command}"
+          test ! -L "${node_command}"
+          command_harness="${workspace}/scripts/runElectronUpdaterTransactionProbe.mjs"
+          command_harness="$(
+            "${node_command}" --input-type=module -e \
+              'import { realpathSync } from "node:fs"; process.stdout.write(realpathSync(process.argv[1]));' \
+              "${command_harness}"
+          )"
+          test "${command_harness}" = "${workspace}/scripts/runElectronUpdaterTransactionProbe.mjs"
+          test -f "${command_harness}"
+          test ! -L "${command_harness}"
+          sha256_file() {
+            "${node_command}" --input-type=module -e \
+              'import { createHash } from "node:crypto"; import { readFileSync } from "node:fs"; process.stdout.write(createHash("sha256").update(readFileSync(process.argv[1])).digest("hex"));' \
+              "$1"
+          }
+          prepared_receipt_sha256="$(sha256_file "${prepared_receipt}")"
+          tauri_input_receipt_sha256="$(sha256_file "${RION_TAURI_V22_INPUT_RECEIPT}")"
+          tauri_lineage_receipt_sha256="$(sha256_file "${RION_TAURI_V22_LINEAGE_RECEIPT}")"
+          command_executable_sha256="$(sha256_file "${node_command}")"
+          command_harness_sha256="$(sha256_file "${command_harness}")"
+          sandbox_profile="$(node scripts/macosUpdaterProbeSandbox.mjs \
+            --cargo-target-directory "${CARGO_TARGET_DIR}" \
+            --runtime-home "${runtime_home}" \
+            --runtime-root "${RION_UPDATER_CI_FIXTURE_ROOT}" \
+            --runtime-temp "${runtime_temp}")"
+          sandbox_profile_sha256="$(
+            "${node_command}" --input-type=module -e \
+              'import { createHash } from "node:crypto"; process.stdout.write(createHash("sha256").update(process.argv[1], "utf8").digest("hex"));' \
+              "${sandbox_profile}"
+          )"
+          attempt_nonce="$(
+            "${node_command}" --input-type=module -e \
+              'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(16).toString("hex"));'
+          )"
+          runtime_environment=(
+            "CARGO_TARGET_DIR=${CARGO_TARGET_DIR}"
+            "CFFIXED_USER_HOME=${runtime_home}"
+            "CI=true"
+            "GITHUB_ACTIONS=true"
+            "HOME=${runtime_home}"
+            "PATH=${PATH}"
+            "RION_STUDIO_ELECTRON_PACKAGE_VERSION=${RION_STUDIO_ELECTRON_PACKAGE_VERSION}"
+            "RION_STUDIO_UPDATER_ENDPOINT=${RION_STUDIO_UPDATER_ENDPOINT}"
+            "RION_STUDIO_UPDATER_PUBLIC_KEY=${RION_STUDIO_UPDATER_PUBLIC_KEY}"
+            "RION_UPDATER_CI_FIXTURE_ROOT=${RION_UPDATER_CI_FIXTURE_ROOT}"
+            "RION_UPDATER_PREPARED_INPUT_ROOT=${RION_UPDATER_PREPARED_INPUT_ROOT}"
+            "RION_UPDATER_PROBE_PREVIOUS_APP=${RION_UPDATER_PROBE_PREVIOUS_APP}"
+            "RION_UPDATER_PROBE_PREVIOUS_VERSIONS=${RION_UPDATER_PROBE_PREVIOUS_VERSIONS}"
+            "TEMP=${runtime_temp}"
+            "TMP=${runtime_temp}"
+            "TMPDIR=${runtime_temp}"
+          )
+          for name in \
+            AR CC CXX DEVELOPER_DIR LANG LANGUAGE LC_ALL LC_CTYPE \
+            LIBCLANG_PATH MACOSX_DEPLOYMENT_TARGET RANLIB RUSTUP_HOME \
+            RUSTUP_TOOLCHAIN SDKROOT CARGO_HOME; do
+            if [[ -n "${!name:-}" ]]; then
+              runtime_environment+=("${name}=${!name}")
+            fi
+          done
+          command_arguments=(
+            "${command_harness}"
+            "--app" "${RION_UPDATER_UNSIGNED_INPUT_ROOT}/release/electron/mac-arm64/Rion Studio.app"
+            "--artifact" "${prepared_artifact}"
+            "--input-receipt" "${RION_TAURI_V22_INPUT_RECEIPT}"
+            "--prepared-input" "${prepared_receipt}"
+            "--target-sha" "${RION_ELECTRON_TARGET_SHA}"
+            "--provisional-receipt" "${RION_UPDATER_PROVISIONAL_RECEIPT}"
+            "--isolation-attempt-nonce" "${attempt_nonce}"
+            "--isolation-sandbox-profile-sha256" "${sandbox_profile_sha256}"
+          )
+          command_invocation_sha256="$(
+            "${node_command}" --input-type=module - \
+              "${sandbox_profile_sha256}" \
+              "${workspace}" \
+              "${#runtime_environment[@]}" \
+              "${runtime_environment[@]}" \
+              "${node_command}" \
+              "${#command_arguments[@]}" \
+              "${command_arguments[@]}" <<'NODE'
+          import { createHash } from "node:crypto";
+
+          const values = process.argv.slice(2);
+          const sandboxProfileSha256 = values.shift();
+          const workingDirectory = values.shift();
+          const environmentCount = Number(values.shift());
+          if (!Number.isSafeInteger(environmentCount) || environmentCount < 1) {
+            throw new Error("The Darwin command environment count is invalid.");
+          }
+          const runtimeEnvironment = values.splice(0, environmentCount);
+          const nodeCommand = values.shift();
+          const argumentCount = Number(values.shift());
+          if (
+            !Number.isSafeInteger(argumentCount) || argumentCount < 1 ||
+            values.length !== argumentCount ||
+            values.includes("--isolation-command-invocation-sha256")
+          ) {
+            throw new Error("The Darwin command argument vector is invalid.");
+          }
+          const parts = [
+            "rion-darwin-isolated-command-invocation-v1",
+            "/usr/bin/sandbox-exec",
+            "-p",
+            sandboxProfileSha256,
+            "/usr/bin/env",
+            "-i",
+            String(environmentCount),
+            ...runtimeEnvironment,
+            nodeCommand,
+            workingDirectory,
+            String(argumentCount),
+            ...values,
+            "--isolation-command-invocation-sha256",
+            "<self-sha256>"
+          ];
+          if (parts.some((part) => typeof part !== "string" || part.includes("\0"))) {
+            throw new Error("The Darwin command invocation contains an invalid field.");
+          }
+          process.stdout.write(
+            createHash("sha256").update(parts.join("\0"), "utf8").digest("hex")
+          );
+          NODE
+          )"
+          /usr/bin/sandbox-exec -p "${sandbox_profile}" \
+            /usr/bin/env -i "${runtime_environment[@]}" \
+            "${node_command}" "${command_arguments[@]}" \
+            --isolation-command-invocation-sha256 "${command_invocation_sha256}"
+          test -f "${isolation_result}"
+          test ! -L "${isolation_result}"
+          isolation_result_sha256="$(sha256_file "${isolation_result}")"
+          node scripts/finalizeMacosElectronUpdaterCompatibilityReceipt.mjs \
+            --child-output-root "${child_output_root}" \
+            --isolation-attempt-nonce "${attempt_nonce}" \
+            --isolation-command-executable "${node_command}" \
+            --isolation-command-executable-sha256 "${command_executable_sha256}" \
+            --isolation-command-harness "${command_harness}" \
+            --isolation-command-harness-sha256 "${command_harness_sha256}" \
+            --isolation-command-invocation-sha256 "${command_invocation_sha256}" \
+            --isolation-result "${isolation_result}" \
+            --isolation-result-sha256 "${isolation_result_sha256}" \
+            --prepared-artifact "${prepared_artifact}" \
+            --prepared-input-receipt "${prepared_receipt}" \
+            --prepared-input-receipt-sha256 "${prepared_receipt_sha256}" \
+            --prepared-fixture-root "${RION_UPDATER_PREPARED_INPUT_ROOT}" \
+            --prior-v23-version "${RION_UPDATER_PRIOR_V23_VERSION}" \
+            --provisional-receipt "${RION_UPDATER_PROVISIONAL_RECEIPT}" \
+            --sandbox-profile-sha256 "${sandbox_profile_sha256}" \
+            --sealed-output-root "${sealed_output_root}" \
+            --target-source-sha "${RION_ELECTRON_TARGET_SHA}" \
+            --target-updater-endpoint "${RION_STUDIO_UPDATER_ENDPOINT}" \
+            --target-version "${RION_STUDIO_ELECTRON_PACKAGE_VERSION}" \
+            --tauri-v22-asset-directory "${RION_TAURI_V22_INPUT_ROOT}" \
+            --tauri-v22-input-receipt "${RION_TAURI_V22_INPUT_RECEIPT}" \
+            --tauri-v22-input-receipt-sha256 "${tauri_input_receipt_sha256}" \
+            --tauri-v22-lineage-receipt "${RION_TAURI_V22_LINEAGE_RECEIPT}" \
+            --tauri-v22-lineage-receipt-sha256 "${tauri_lineage_receipt_sha256}" \
+            --updater-public-key-sha256 "${RION_UPDATER_PRODUCTION_PUBLIC_KEY_SHA256}"
+
+      - name: Run Windows published-v22-input plus v23 layout replacement probe without private signing material
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          $pnpmCommand = (Get-Command pnpm.cmd -ErrorAction Stop).Source
+          $pnpm = (Resolve-Path -LiteralPath $pnpmCommand).Path
+          $workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE).Path
+          $commandHarness = Join-Path $workspace "scripts\runElectronUpdaterTransactionProbe.mjs"
+          $preparedArtifact = Join-Path $env:RION_UPDATER_PREPARED_INPUT_ROOT "Rion.Studio-win.exe"
+          $preparedReceipt = Join-Path $env:RION_UPDATER_PREPARED_INPUT_ROOT "prepared-updater-probe-input.json"
+          $boundaryRoot = (Resolve-Path -LiteralPath $env:RION_UPDATER_COMPATIBILITY_BOUNDARY_ROOT).Path
+          $parentIsolationRoot = Join-Path $boundaryRoot "parent-isolation"
+          $sealedOutputRoot = Join-Path $boundaryRoot "terminal-receipt"
+          $isolationResult = Join-Path $parentIsolationRoot "windows-isolated-profile-result.json"
+          if (
+            (Test-Path -LiteralPath $parentIsolationRoot) -or
+            (Test-Path -LiteralPath $sealedOutputRoot) -or
+            (Test-Path -LiteralPath $env:RION_UPDATER_PROVISIONAL_RECEIPT)
+          ) {
+            throw "Updater compatibility parent-owned outputs must be create-new."
+          }
+          New-Item `
+            -ItemType Directory `
+            -Path $parentIsolationRoot `
+            -ErrorAction Stop | Out-Null
+          $attemptNonce = [Convert]::ToHexString(
+            [Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
+          ).ToLowerInvariant()
+          $commandArguments = @(
+            "run", "test:electron-updater:packaged", "--",
+            "--artifact", $preparedArtifact,
+            "--input-receipt", $env:RION_TAURI_V22_INPUT_RECEIPT,
+            "--prepared-input", $preparedReceipt,
+            "--target-sha", $env:RION_ELECTRON_TARGET_SHA,
+            "--provisional-receipt", $env:RION_UPDATER_PROVISIONAL_RECEIPT
+          )
+          $invocationParts = @(
+            "rion-windows-isolated-command-invocation-v1"
+            $pnpm
+            $workspace
+            $commandArguments
+          )
+          $invocationBytes = [Text.UTF8Encoding]::new($false).GetBytes(
+            ([string[]] $invocationParts) -join [char] 0
+          )
+          $commandInvocationSha256 = [Convert]::ToHexString(
+            [Security.Cryptography.SHA256]::HashData($invocationBytes)
+          ).ToLowerInvariant()
+          $commandExecutableSha256 = (
+            Get-FileHash -LiteralPath $pnpm -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          $commandHarnessSha256 = (
+            Get-FileHash -LiteralPath $commandHarness -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          $preparedReceiptSha256 = (
+            Get-FileHash -LiteralPath $preparedReceipt -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          $tauriInputReceiptSha256 = (
+            Get-FileHash -LiteralPath $env:RION_TAURI_V22_INPUT_RECEIPT -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          $tauriLineageReceiptSha256 = (
+            Get-FileHash -LiteralPath $env:RION_TAURI_V22_LINEAGE_RECEIPT -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          ./scripts/runWindowsIsolatedProfile.ps1 `
+            -RepositoryRoot $workspace `
+            -RepositoryAccess "RX" `
+            -ToolHomeAccess "RX" `
+            -CommandPath $pnpm `
+            -AdditionalWritablePaths @($env:RION_UPDATER_CI_FIXTURE_ROOT) `
+            -AdditionalReadablePaths @(
+              $env:RION_TAURI_V22_INPUT_ROOT,
+              $env:RION_UPDATER_PREPARED_INPUT_ROOT
+            ) `
+            -AdditionalDeniedPaths @($parentIsolationRoot) `
+            -ProtectedSiblingParent $boundaryRoot `
+            -ResultPath $isolationResult `
+            -AttemptNonce $attemptNonce `
+            -ResultCommandHarnessPath $commandHarness `
+            -ResultInstallerPath $preparedArtifact `
+            -ResultForbiddenSourceListPath $preparedReceipt `
+            -CommandArguments $commandArguments
+          node scripts/finalizeWindowsElectronUpdaterCompatibilityReceipt.mjs `
+            --child-output-root $env:RION_UPDATER_CI_FIXTURE_ROOT `
+            --isolation-result $isolationResult `
+            --provisional-receipt $env:RION_UPDATER_PROVISIONAL_RECEIPT `
+            --sealed-output-root $sealedOutputRoot `
+            --prepared-artifact $preparedArtifact `
+            --prepared-fixture-root $env:RION_UPDATER_PREPARED_INPUT_ROOT `
+            --prepared-input-receipt $preparedReceipt `
+            --target-version $env:RION_STUDIO_ELECTRON_PACKAGE_VERSION `
+            --prior-v23-version $env:RION_UPDATER_PREVIOUS_V23_VERSION `
+            --target-updater-endpoint $env:RION_STUDIO_UPDATER_ENDPOINT `
+            --target-source-sha $env:RION_ELECTRON_TARGET_SHA `
+            --tauri-v22-asset-directory $env:RION_TAURI_V22_INPUT_ROOT `
+            --tauri-v22-input-receipt $env:RION_TAURI_V22_INPUT_RECEIPT `
+            --tauri-v22-lineage-receipt $env:RION_TAURI_V22_LINEAGE_RECEIPT `
+            --isolation-attempt-nonce $attemptNonce `
+            --isolation-command-executable $pnpm `
+            --isolation-command-executable-sha256 $commandExecutableSha256 `
+            --isolation-command-harness $commandHarness `
+            --isolation-command-harness-sha256 $commandHarnessSha256 `
+            --isolation-command-invocation-sha256 $commandInvocationSha256 `
+            --prepared-input-receipt-sha256 $preparedReceiptSha256 `
+            --tauri-v22-input-receipt-sha256 $tauriInputReceiptSha256 `
+            --tauri-v22-lineage-receipt-sha256 $tauriLineageReceiptSha256 `
+            --updater-public-key-sha256 $env:RION_UPDATER_PRODUCTION_PUBLIC_KEY_SHA256
+
+      - name: Upload the exact closed public Tauri v22 source lineage for detached attestation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tauri-v22-public-lineage-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: ${{ env.RION_TAURI_V22_LINEAGE_RECEIPT }}
+
+      - name: Upload immutable Tauri v22 input receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tauri-v22-published-input-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          path: ${{ runner.temp }}/rion-tauri-v22-input/verified-input-receipt.json
+
+      - name: Upload successful terminal layout-replacement receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: tauri-v22-electron-layout-probe-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          path: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/terminal-receipt/terminal-layout-probe-receipt.json
+
+      - name: Record the non-cutover-eligible evidence boundary
+        shell: bash
+        run: |
+          {
+            echo "## Tauri v22 to Electron layout compatibility"
+            echo
+            echo "Published v22 input and production trust: verified"
+            echo "Closed public v22 source lineage: prepared for detached attestation"
+            echo "v23 layout replacement and relaunch probe: applied"
+            echo "Source v22 updater invoked: false"
+            echo "Cutover eligible from this workflow alone: false"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  attest-lineage:
+    name: Attest ${{ matrix.platform }} public v22 source lineage without signing material
+    needs:
+      - authorize-control-plane
+      - artifact-compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          - darwin-aarch64
+          - windows-x86_64
+    steps:
+      - name: Checkout the exact trusted default-branch lineage-attestation control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+
+      - name: Reassert the trusted lineage-attestation control identity
+        shell: bash
+        env:
+          CONTROL_PLANE_SHA: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_PLANE_SHA}"
+          [[ "${TARGET_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${CONTROL_PLANE_SHA}" != "${TARGET_SHA}" || \
+            echo "Control and candidate SHAs may coincide only as separately bound identities."
+
+      - name: Download one exact closed lineage receipt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: tauri-v22-public-lineage-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rion-tauri-v22-lineage
+
+      - name: Attest the closed public Tauri v22 source lineage
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/rion-tauri-v22-lineage/tauri-v22-public-lineage-receipt.json

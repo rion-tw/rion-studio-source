@@ -63,7 +63,7 @@ export const MacroRootNode = memo(function MacroRootNode({ data, selected }: Min
   const root = data as MacroRootNodeData & MacroMindMapCanvasNodeData;
   return (
     <div className={cn(
-      "macro-mind-map-card macro-mind-map-root glass-panel-strong relative grid w-full content-start gap-3 rounded-lg border border-border/55 p-4 text-foreground",
+      "macro-mind-map-card macro-mind-map-root nopan glass-panel-strong relative grid w-full content-start gap-3 rounded-lg border border-border/55 p-4 text-foreground",
       selected && "macro-mind-map-card-selected"
     )} data-macro-mind-map-node-kind="macroRoot">
       <NodeHandles hasTarget={!root.isCurrent} />
@@ -103,7 +103,7 @@ export const MacroSettingsNode = memo(function MacroSettingsNode({ data, selecte
   const settings = data as MacroSettingsNodeData & MacroMindMapCanvasNodeData;
   return (
     <div className={cn(
-      "macro-mind-map-card macro-mind-map-settings glass-control relative grid w-full content-start rounded-lg border border-border/50 text-foreground",
+      "macro-mind-map-card macro-mind-map-settings nopan glass-control relative grid w-full content-start rounded-lg border border-border/50 text-foreground",
       selected && "macro-mind-map-card-selected"
     )} data-macro-mind-map-node-kind="macroSettings">
       <NodeHandles />
@@ -137,7 +137,7 @@ export const MacroStepNode = memo(function MacroStepNode({ data, selected }: Min
   const StepIcon = stepIconByType[step.stepType];
   return (
     <div className={cn(
-      "macro-mind-map-card macro-mind-map-step glass-control relative grid w-full content-start gap-3 rounded-lg border border-border/50 p-4 text-foreground",
+      "macro-mind-map-card macro-mind-map-step nopan glass-control relative grid w-full content-start gap-3 rounded-lg border border-border/50 p-4 text-foreground",
       selected && "macro-mind-map-card-selected"
     )}
       data-macro-mind-map-current-step={step.currentStepId}
@@ -218,7 +218,7 @@ export const MacroWarningNode = memo(function MacroWarningNode({ data, selected 
   const warning = data as MacroWarningNodeData & MacroMindMapCanvasNodeData;
   return (
     <div className={cn(
-      "macro-mind-map-card macro-mind-map-warning relative grid w-full content-center gap-2 rounded-lg border bg-background/22 p-4",
+      "macro-mind-map-card macro-mind-map-warning nopan relative grid w-full content-center gap-2 rounded-lg border bg-background/22 p-4",
       warning.tone === "warning"
         ? "border-warning-foreground/25 text-warning-foreground"
         : "border-border/55 text-muted-foreground",

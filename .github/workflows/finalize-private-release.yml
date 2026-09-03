@@ -17,84 +17,269 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  SOURCE_CONTROL_REPOSITORY: rion-tw/rion-studio-source
 
 jobs:
-  verify-and-upload-private-release:
+  authorize-control-plane:
     runs-on: ubuntu-latest
+    outputs:
+      control_sha: ${{ steps.control.outputs.control_sha }}
     steps:
-      - name: Checkout release tag
+      - name: Fence finalization to the trusted protected-main caller
+        id: control
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ inputs.release_artifact_name }}
+          EVENT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ inputs.version }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = "${SOURCE_CONTROL_REPOSITORY}"
+          test "${EVENT_REPOSITORY}" = "${SOURCE_CONTROL_REPOSITORY}"
+          test "${EVENT_DEFAULT_BRANCH}" = "main"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${REF_PROTECTED}" = "true"
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${WORKFLOW_SHA}" = "${GITHUB_SHA}"
+          case "${GITHUB_EVENT_NAME}" in
+            workflow_run)
+              expected_workflow_ref="${SOURCE_CONTROL_REPOSITORY}/.github/workflows/release.yml@refs/heads/main"
+              ;;
+            workflow_dispatch)
+              expected_workflow_ref="${SOURCE_CONTROL_REPOSITORY}/.github/workflows/resume-release.yml@refs/heads/main"
+              ;;
+            *)
+              echo "The private release finalizer caller event is not authorized." >&2
+              exit 1
+              ;;
+          esac
+          test "${WORKFLOW_REF}" = "${expected_workflow_ref}"
+          [[ "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "${TAG}" = "v${VERSION}"
+          test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"
+          echo "control_sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+  verify-and-upload-private-release:
+    needs: authorize-control-plane
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      asset_set_sha256: ${{ steps.upload.outputs.asset_set_sha256 }}
+      release_id: ${{ steps.private-release.outputs.release_id }}
+    steps:
+      - name: Checkout the trusted main release implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_sha }}
 
-      - name: Require the semantic private draft or a verified prior publication
+      - name: Verify the checked-out control revision
+        shell: bash
+        env:
+          CONTROL_SHA: ${{ needs.authorize-control-plane.outputs.control_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_SHA}"
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Resolve the private release and tag only as immutable data
+        id: private-release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,tagName >/dev/null
+          gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/tags/${TAG}" \
+            > private-release-lookup.json
+          release_id="$(jq -r .id private-release-lookup.json)"
+          [[ "${release_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${release_id}" \
+            > private-release-api.json
+          test "$(jq -r .id private-release-api.json)" = "${release_id}"
+          test "$(jq -r .tag_name private-release-api.json)" = "${TAG}"
+          test "$(jq -r .prerelease private-release-api.json)" = "false"
+          tag_ref="$(gh api "repos/${SOURCE_CONTROL_REPOSITORY}/git/ref/tags/${TAG}")"
+          tag_type="$(jq -r .object.type <<< "${tag_ref}")"
+          tag_sha="$(jq -r .object.sha <<< "${tag_ref}")"
+          [[ "${tag_sha}" =~ ^[0-9a-f]{40}$ ]]
+          if test "${tag_type}" = "tag"; then
+            tag_object="$(gh api "repos/${SOURCE_CONTROL_REPOSITORY}/git/tags/${tag_sha}")"
+            test "$(jq -r .tag <<< "${tag_object}")" = "${TAG}"
+            test "$(jq -r .object.type <<< "${tag_object}")" = "commit"
+            tag_sha="$(jq -r .object.sha <<< "${tag_object}")"
+          else
+            test "${tag_type}" = "commit"
+          fi
+          [[ "${tag_sha}" =~ ^[0-9a-f]{40}$ ]]
+          echo "release_id=${release_id}" >> "${GITHUB_OUTPUT}"
 
-      - name: Download verified release assets
+      - name: Download the immutable release candidate artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ${{ inputs.release_artifact_name }}
           path: release-assets
 
-      - name: Verify and upload immutable private release assets
+      - name: Verify and upload immutable private release assets from trusted control
+        id: upload
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.private-release.outputs.release_id }}
           TAG: ${{ inputs.tag }}
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          node scripts/releaseArtifacts.mjs release-assets "${VERSION}" --verify-checksums
-          immutable_assets=(
-            release-assets/Rion.Studio-mac.dmg
-            release-assets/Rion.Studio-mac.app.tar.gz
-            release-assets/Rion.Studio-mac.app.tar.gz.sig
-            release-assets/Rion.Studio-win.exe
-            release-assets/Rion.Studio-win.exe.sig
-            release-assets/SHA256SUMS.txt
-            release-assets/latest.json
+          test "$(git rev-parse HEAD)" = \
+            "${{ needs.authorize-control-plane.outputs.control_sha }}"
+          node scripts/releaseArtifacts.mjs release-assets "${VERSION}" \
+            --verify-checksums --require-tauri-v22
+          asset_names=(
+            Rion.Studio-mac.app.tar.gz
+            Rion.Studio-mac.app.tar.gz.sig
+            Rion.Studio-mac.dmg
+            Rion.Studio-win.exe
+            Rion.Studio-win.exe.sig
+            SHA256SUMS.txt
+            latest.json
           )
-          for asset in "${immutable_assets[@]}"; do
-            name="${asset##*/}"
-            if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fxq "${name}"; then
-              mkdir -p existing-assets
-              gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${name}" --dir existing-assets
-              cmp "${asset}" "existing-assets/${name}"
+          gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${RELEASE_ID}" \
+            > private-release-before-upload.json
+          test "$(jq -r .tag_name private-release-before-upload.json)" = "${TAG}"
+          jq -e --argjson allowed \
+            '["Rion.Studio-mac.app.tar.gz","Rion.Studio-mac.app.tar.gz.sig","Rion.Studio-mac.dmg","Rion.Studio-win.exe","Rion.Studio-win.exe.sig","SHA256SUMS.txt","latest.json"]' \
+            '(.assets | length) <= 7 and
+             ([.assets[].name] | length) == ([.assets[].name] | unique | length) and
+             all(.assets[]; .name as $name | $allowed | index($name) != null)' \
+            private-release-before-upload.json >/dev/null
+          mkdir -p existing-private-assets
+          for name in "${asset_names[@]}"; do
+            count="$(jq --arg name "${name}" \
+              '[.assets[] | select(.name == $name)] | length' \
+              private-release-before-upload.json)"
+            if test "${count}" = "1"; then
+              asset_id="$(jq -r --arg name "${name}" \
+                '.assets[] | select(.name == $name) | .id' \
+                private-release-before-upload.json)"
+              [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+              gh api -H "Accept: application/octet-stream" \
+                "repos/${SOURCE_CONTROL_REPOSITORY}/releases/assets/${asset_id}" \
+                > "existing-private-assets/${name}"
+              cmp "release-assets/${name}" "existing-private-assets/${name}"
             else
-              gh release upload "${TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}"
+              test "${count}" = "0"
+              gh release upload "${TAG}" "release-assets/${name}" \
+                --repo "${SOURCE_CONTROL_REPOSITORY}"
             fi
           done
+          gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${RELEASE_ID}" \
+            > private-release-after-upload.json
+          test "$(jq '.assets | length' private-release-after-upload.json)" = "7"
           mkdir downloaded-assets
-          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir downloaded-assets
-          node scripts/releaseArtifacts.mjs downloaded-assets "${VERSION}" --verify-checksums
-          cmp release-assets/SHA256SUMS.txt downloaded-assets/SHA256SUMS.txt
+          for name in "${asset_names[@]}"; do
+            test "$(jq --arg name "${name}" \
+              '[.assets[] | select(.name == $name)] | length' \
+              private-release-after-upload.json)" = "1"
+            asset_id="$(jq -r --arg name "${name}" \
+              '.assets[] | select(.name == $name) | .id' \
+              private-release-after-upload.json)"
+            expected_size="$(jq -r --arg name "${name}" \
+              '.assets[] | select(.name == $name) | .size' \
+              private-release-after-upload.json)"
+            expected_digest="$(jq -r --arg name "${name}" \
+              '.assets[] | select(.name == $name) | .digest' \
+              private-release-after-upload.json)"
+            [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${expected_size}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${expected_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "$(jq -r --arg name "${name}" \
+              '.assets[] | select(.name == $name) | .state' \
+              private-release-after-upload.json)" = "uploaded"
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${SOURCE_CONTROL_REPOSITORY}/releases/assets/${asset_id}" \
+              > "downloaded-assets/${name}"
+            test "$(wc -c < "downloaded-assets/${name}")" = "${expected_size}"
+            test "sha256:$(sha256sum "downloaded-assets/${name}" | cut -d ' ' -f 1)" = \
+              "${expected_digest}"
+            cmp "release-assets/${name}" "downloaded-assets/${name}"
+          done
+          node scripts/releaseArtifacts.mjs downloaded-assets "${VERSION}" \
+            --verify-checksums --require-tauri-v22
+          jq -cS '[.assets[] | {
+            id: (.id | tostring), name, size, digest, state
+          }] | sort_by(.name)' private-release-after-upload.json \
+            > private-release-asset-set.json
+          echo "asset_set_sha256=$(sha256sum private-release-asset-set.json | \
+            cut -d ' ' -f 1)" >> "${GITHUB_OUTPUT}"
 
   publish-public-release:
-    needs: verify-and-upload-private-release
+    needs:
+      - authorize-control-plane
+      - verify-and-upload-private-release
     uses: ./.github/workflows/publish-public-release.yml
     permissions:
-      contents: write
+      contents: read
     with:
       tag: ${{ inputs.tag }}
+      release_contract: tauri-v22
     secrets:
       RION_RELEASE_APP_PRIVATE_KEY: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}
 
   finalize-private-release:
-    needs: publish-public-release
+    needs:
+      - authorize-control-plane
+      - verify-and-upload-private-release
+      - publish-public-release
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
-      - name: Publish the verified private release
+      - name: Checkout the trusted main finalization implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ needs.authorize-control-plane.outputs.control_sha }}
+
+      - name: Publish the exact verified private release by immutable ID
         shell: bash
         env:
+          ASSET_SET_SHA256: ${{ needs.verify-and-upload-private-release.outputs.asset_set_sha256 }}
+          CONTROL_SHA: ${{ needs.authorize-control-plane.outputs.control_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.verify-and-upload-private-release.outputs.release_id }}
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest=false
+          test "$(git rev-parse HEAD)" = "${CONTROL_SHA}"
+          [[ "${RELEASE_ID}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${RELEASE_ID}" \
+            > private-release-final-read.json
+          test "$(jq -r .id private-release-final-read.json)" = "${RELEASE_ID}"
+          test "$(jq -r .tag_name private-release-final-read.json)" = "${TAG}"
+          test "$(jq -r .prerelease private-release-final-read.json)" = "false"
+          test "$(jq '.assets | length' private-release-final-read.json)" = "7"
+          jq -cS '[.assets[] | {
+            id: (.id | tostring), name, size, digest, state
+          }] | sort_by(.name)' private-release-final-read.json \
+            > private-release-final-asset-set.json
+          test "$(sha256sum private-release-final-asset-set.json | cut -d ' ' -f 1)" = \
+            "${ASSET_SET_SHA256}"
+          gh api --method PATCH \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false -f make_latest=false >/dev/null
+          test "$(gh api \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${RELEASE_ID}" \
+            --jq .draft)" = "false"

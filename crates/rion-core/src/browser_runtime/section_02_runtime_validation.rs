@@ -28,6 +28,35 @@ fn validate_role_slot_inputs(
     Ok(())
 }
 
+fn validate_web_surface_identities(
+    tab_type: &str,
+    tab_id: &str,
+    surfaces: &[crate::model::EmbeddedWebSurfaceIdentityRecord],
+) -> CoreResult<()> {
+    if !surfaces.is_empty() && tab_type != "workspace" {
+        return Err(domain(
+            "RUNTIME_WEB_SURFACE_TAB_INVALID",
+            "Only a workspace tab may own Web surface identities.",
+        ));
+    }
+    let mut surface_ids = HashSet::new();
+    let mut slot_ids = HashSet::new();
+    for surface in surfaces {
+        if surface.surface_id.trim().is_empty()
+            || surface.slot_id.trim().is_empty()
+            || !surface.surface_id.starts_with(&format!("web-{tab_id}-"))
+            || !surface_ids.insert(surface.surface_id.as_str())
+            || !slot_ids.insert(surface.slot_id.as_str())
+        {
+            return Err(domain(
+                "RUNTIME_WEB_SURFACE_IDENTITY_INVALID",
+                "A runtime Web surface identity is invalid or duplicated.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn workspace_state(slots: &[RuntimeRoleSlotRecord]) -> &'static str {
     if slots.iter().any(|slot| slot.state == "stopping") {
         "stopping"

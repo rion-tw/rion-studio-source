@@ -117,7 +117,17 @@ describe("Tauri development and release commands", () => {
     expect(script).toContain('updateJson("package.json"');
     expect(script).toContain('updateJson("src-tauri/tauri.conf.json"');
     expect(script).toContain("[workspace\\.package\\]");
-    expect(script).toContain('["rion-core", "rion-platform", "rion-tauri"]');
+    expect(script).toContain("for (const name of [");
+    for (const crate of [
+      "rion-appkit",
+      "rion-core",
+      "rion-node",
+      "rion-platform",
+      "rion-tauri",
+      "rion-updater"
+    ]) {
+      expect(script).toContain(`"${crate}"`);
+    }
     expect(script).toContain('await write("Cargo.lock", cargoLock)');
   });
 

@@ -11,6 +11,9 @@ pub enum CoreCommand {
     SystemWebViewRuntimeRegister {
         registration: SystemWebViewRuntimeRegistrationRecord,
     },
+    BrowserRuntimeRegister {
+        registration: BrowserRuntimeRegistrationRecord,
+    },
     StateSnapshot,
     AppSnapshot,
     GamesList,
@@ -67,9 +70,16 @@ pub enum CoreCommand {
     RolePathsResolve {
         id: String,
     },
+    GlobalWebProfilePathsResolve,
+    GlobalWebProfileClear,
     RoleAssignGameIds {
         assignments: Vec<RoleGameAssignmentRecord>,
     },
+    RoleSessionMigrationGet {
+        #[ts(rename = "roleId")]
+        role_id: String,
+    },
+    RoleSessionMigrationsList,
     ChromeProfileDefaultPath,
     ChromeProfilePreview {
         source_user_data_dir: String,
@@ -395,6 +405,62 @@ pub enum CoreCommand {
         #[ts(type = "number", rename = "inputEpoch")]
         input_epoch: u64,
     },
+    MacroInputRecoveryInspect {
+        #[ts(rename = "recoveryId")]
+        recovery_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "number", rename = "expectedInputEpoch")]
+        expected_input_epoch: u64,
+    },
+    MacroInputRecoveryComplete {
+        #[ts(rename = "recoveryId")]
+        recovery_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "number", rename = "expectedInputEpoch")]
+        expected_input_epoch: u64,
+    },
+    MacroInputRecoveryFail {
+        #[ts(rename = "recoveryId")]
+        recovery_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "number", rename = "expectedInputEpoch")]
+        expected_input_epoch: u64,
+        message: String,
+    },
+    ManagedShortcutPhase {
+        #[ts(rename = "operationId")]
+        operation_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(type = "number", rename = "surfaceGeneration")]
+        surface_generation: u64,
+        #[ts(rename = "documentInstanceId")]
+        document_instance_id: String,
+        #[ts(type = "number", rename = "expectedOwnerGeneration")]
+        expected_owner_generation: u64,
+        #[ts(rename = "pressId")]
+        press_id: String,
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        code: String,
+        #[ts(type = "\"replay\" | \"keyDown\" | \"keyUp\"")]
+        phase: String,
+        #[ts(rename = "modifierCodes")]
+        modifier_codes: Vec<String>,
+    },
+    ManagedShortcutSurfaceRetire {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "number", rename = "surfaceGeneration")]
+        surface_generation: u64,
+        #[ts(rename = "documentInstanceId")]
+        document_instance_id: String,
+    },
     MacroStatuses,
     OperationCancel {
         #[ts(rename = "operationId")]
@@ -428,6 +494,12 @@ pub enum CoreCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "expectedTabId")]
+        expected_tab_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "expectedOwnerGeneration", type = "number")]
+        expected_owner_generation: Option<u64>,
     },
     EmbeddedSystemSurfaceRecovered {
         #[ts(rename = "roleId")]
@@ -444,6 +516,105 @@ pub enum CoreCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "windowId")]
         window_id: Option<String>,
+    },
+    EmbeddedWindowVisibility {
+        operation_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+        visible: bool,
+    },
+    EmbeddedWindowPresentation {
+        operation_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+        #[ts(type = "\"normal\" | \"maximized\" | \"fullscreen\"")]
+        presentation: String,
+    },
+    BrowserRuntimeWindowZoom {
+        operation_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+        #[ts(type = "\"in\" | \"out\" | \"reset\"")]
+        action: String,
+    },
+    EmbeddedWindowProvisionForTabMove {
+        operation_id: String,
+        tab_id: String,
+        source_window_id: String,
+        #[ts(type = "number")]
+        source_window_generation: u64,
+        #[ts(type = "number")]
+        source_topology_revision: u64,
+        target: RuntimeWindowProvisionTargetRecord,
+    },
+    EmbeddedWindowProvisionResume {
+        operation_id: String,
+        tab_id: String,
+    },
+    EmbeddedWindowRetireProvision {
+        operation_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+    },
+    EmbeddedTabActivate {
+        operation_id: String,
+        tab_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+    },
+    EmbeddedTabHide {
+        operation_id: String,
+        tab_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+        hidden: bool,
+    },
+    EmbeddedTabReorder {
+        operation_id: String,
+        tab_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        before_tab_id: Option<String>,
+    },
+    EmbeddedTabMove {
+        operation_id: String,
+        tab_id: String,
+        source_window_id: String,
+        #[ts(type = "number")]
+        source_window_generation: u64,
+        #[ts(type = "number")]
+        source_topology_revision: u64,
+        target_window_id: String,
+        #[ts(type = "number")]
+        target_window_generation: u64,
+        #[ts(type = "number")]
+        target_topology_revision: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        before_tab_id: Option<String>,
     },
     EmbeddedTabStop {
         request: RuntimeTabMutationRequestRecord,
@@ -492,6 +663,53 @@ pub enum CoreCommand {
         #[ts(optional, rename = "expectedOwnerGeneration", type = "number")]
         expected_owner_generation: Option<u64>,
     },
+    BrowserWorkspaceWebSurfaceFailed {
+        #[ts(rename = "operationId")]
+        operation_id: String,
+        #[ts(rename = "surfaceId")]
+        surface_id: String,
+        #[ts(rename = "surfaceGeneration", type = "number")]
+        surface_generation: u64,
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "windowId")]
+        window_id: String,
+        #[ts(rename = "expectedAttemptGeneration")]
+        expected_attempt_generation: String,
+        #[ts(rename = "expectedWindowGeneration", type = "number")]
+        expected_window_generation: u64,
+    },
+    BrowserTabAudioMute {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        muted: bool,
+    },
+    BrowserRuntimeTabReload {
+        operation_id: String,
+        tab_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+        #[ts(type = "number")]
+        lifecycle_epoch: u64,
+    },
+    BrowserAppKitRuntimeEvent {
+        event: AppKitRuntimeEventRecord,
+    },
+    BrowserWindowsRuntimeWindowPlacement {
+        event: WindowsRuntimeWindowPlacementEventRecord,
+    },
+    BrowserWorkspaceDividerPointer {
+        event: BrowserWorkspaceDividerPointerRecord,
+    },
+    BrowserPopupOpenAdmit {
+        request: ChromiumPopupOpenRequestRecord,
+    },
+    BrowserPopupLifecycleCommit {
+        event: ChromiumPopupLifecycleEventRecord,
+    },
     BrowserRoleStop {
         #[ts(rename = "roleId")]
         role_id: String,
@@ -514,6 +732,9 @@ pub enum CoreCommand {
     BrowserRuntimeSnapshot,
     BrowserRuntimeSuspend {
         suspended: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "number")]
+        lifecycle_epoch: Option<u64>,
     },
 }
 
@@ -528,6 +749,7 @@ impl CoreCommand {
                 | Self::RoleDelete { .. }
                 | Self::RolesDelete { .. }
                 | Self::RoleBrowserDataClear { .. }
+                | Self::GlobalWebProfileClear
                 | Self::ChromeProfileRequestQuit { .. }
                 | Self::ChromeProfileApply { .. }
                 | Self::WorkspaceCreate { .. }
@@ -543,6 +765,13 @@ impl CoreCommand {
                 | Self::BrowserRoleLaunch { .. }
                 | Self::BrowserWorkspaceLaunch { .. }
                 | Self::BrowserRoleSlotClaim { .. }
+                | Self::BrowserWorkspaceWebSurfaceFailed { .. }
+                | Self::BrowserTabAudioMute { .. }
+                | Self::BrowserRuntimeTabReload { .. }
+                | Self::BrowserAppKitRuntimeEvent { .. }
+                | Self::BrowserWorkspaceDividerPointer { .. }
+                | Self::BrowserPopupOpenAdmit { .. }
+                | Self::BrowserPopupLifecycleCommit { .. }
                 | Self::BrowserRoleStop { .. }
                 | Self::BrowserWorkspaceStop { .. }
                 | Self::BrowserWindowCloseAdmit { .. }

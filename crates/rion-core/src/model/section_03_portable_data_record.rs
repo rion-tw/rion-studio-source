@@ -223,6 +223,7 @@ pub struct RolePathsRecord {
     pub browser_user_data_dir: String,
     pub system_browser_data_dir: String,
     pub webview2_user_data_dir: String,
+    pub chromium_user_data_dir: String,
     pub webkit_data_store_key: String,
     pub webkit_data_store_identifier: String,
 }

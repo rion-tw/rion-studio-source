@@ -1,6 +1,11 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   "entry": [
+    "electron-builder.config.mjs",
+    "e2e/desktop/wdio.electron.conf.ts",
+    "src/electron/e2e/index.ts",
+    "src/electron/e2e/preload.ts",
+    "src/renderer/src/electron.tsx",
     "src/renderer/runtime-shell/runtimeDivider.ts",
     "src/renderer/runtime-shell/runtimeTabStrip.ts",
     "src/shared/browser-overlay/*.js",
@@ -28,12 +33,20 @@
     "@tauri-apps/cli",
     // WDIO loads these CLI/config-selected packages without static imports.
     "@wdio/cli",
+    // Electron WebdriverIO loads the service from the profile configuration.
+    "@wdio/electron-service",
     "@wdio/local-runner",
     "@wdio/mocha-framework",
     "@wdio/spec-reporter",
     // Loaded from CSS through @import, outside Knip's JavaScript dependency graph.
     "tailwindcss"
   ],
+  "ignoreIssues": {
+    // GitHub-hosted runners provide jq; it is not an npm dependency.
+    ".github/workflows/electron-production-provisional-recovery.yml": [
+      "binaries"
+    ]
+  },
   "rules": {
     // Knip 6 reports the existing intentional exports and shared types as warnings.
     "exports": "warn",

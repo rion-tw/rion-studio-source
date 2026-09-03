@@ -1,0 +1,16 @@
+{
+  "version": "2.3.4",
+  "pub_date": "2026-07-26T00:00:00Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://downloads.example.test/releases/v2.3.4/Rion.Studio-mac.app.tar.gz",
+      "signature": "mac-signature",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "windows-x86_64": {
+      "url": "https://downloads.example.test/releases/v2.3.4/Rion.Studio-win.exe",
+      "signature": "windows-signature",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }
+}

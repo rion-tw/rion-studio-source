@@ -1,6 +1,66 @@
-use std::path::Path;
+use std::{fs::File, path::Path};
 
 use crate::PlatformError;
+
+#[cfg(not(windows))]
+pub fn verify_open_file_identity(path: &Path, opened: &File) -> Result<(), PlatformError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let path_metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| PlatformError::Operation(format!("inspect open file path: {error}")))?;
+    let handle_metadata = opened
+        .metadata()
+        .map_err(|error| PlatformError::Operation(format!("inspect open file handle: {error}")))?;
+    if path_metadata.dev() != handle_metadata.dev() || path_metadata.ino() != handle_metadata.ino()
+    {
+        return Err(PlatformError::Operation(
+            "open file identity changed".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn verify_open_file_identity(path: &Path, opened: &File) -> Result<(), PlatformError> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+            GetFileInformationByHandle,
+        },
+    };
+
+    fn identity(file: &File) -> Result<(u32, u64), PlatformError> {
+        use std::os::windows::io::AsRawHandle;
+
+        let mut information = BY_HANDLE_FILE_INFORMATION::default();
+        unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &raw mut information) }
+            .map_err(|_| PlatformError::Operation("read open file identity".to_owned()))?;
+        let index =
+            (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+        Ok((information.dwVolumeSerialNumber, index))
+    }
+
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| PlatformError::Operation("inspect open file path".to_owned()))?;
+    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+        return Err(PlatformError::Operation(
+            "open file path is not a regular file".to_owned(),
+        ));
+    }
+    let current = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)
+        .map_err(|_| PlatformError::Operation("reopen file identity path".to_owned()))?;
+    if identity(opened)? != identity(&current)? {
+        return Err(PlatformError::Operation(
+            "open file identity changed".to_owned(),
+        ));
+    }
+    Ok(())
+}
 
 #[cfg(not(windows))]
 pub fn restrict_directory_to_current_user(_root: &Path) -> Result<(), PlatformError> {
@@ -10,6 +70,7 @@ pub fn restrict_directory_to_current_user(_root: &Path) -> Result<(), PlatformEr
 #[cfg(windows)]
 pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformError> {
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
 
     use windows::{
         Win32::{
@@ -59,8 +120,23 @@ pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformErr
         }
     }
 
-    if !root.exists() {
-        return Ok(());
+    const FILE_ATTRIBUTE_REPARSE_POINT_VALUE: u32 = 0x0000_0400;
+    let root_metadata = match std::fs::symlink_metadata(root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(PlatformError::Operation(format!(
+                "inspect current-user ACL root: {error}"
+            )));
+        }
+    };
+    if !root_metadata.is_dir()
+        || root_metadata.file_type().is_symlink()
+        || root_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT_VALUE != 0
+    {
+        return Err(PlatformError::Operation(
+            "current-user ACL root must be a real directory".to_owned(),
+        ));
     }
     let mut token = HANDLE::default();
     unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }
@@ -131,7 +207,9 @@ pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformErr
                 let metadata = std::fs::symlink_metadata(entry.path()).map_err(|error| {
                     PlatformError::Operation(format!("inspect migrated data ACL entry: {error}"))
                 })?;
-                if metadata.file_type().is_symlink() {
+                if metadata.file_type().is_symlink()
+                    || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT_VALUE != 0
+                {
                     continue;
                 }
                 apply_acl(&entry.path(), acl.0)?;
@@ -220,6 +298,19 @@ mod tests {
 
         assert_eq!(std::fs::read(&destination).unwrap(), b"new");
         assert!(!source.exists());
+    }
+
+    #[test]
+    fn exact_open_file_identity_rejects_a_different_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first.enc");
+        let second = directory.path().join("second.enc");
+        std::fs::write(&first, b"first").unwrap();
+        std::fs::write(&second, b"second").unwrap();
+        let first_file = File::open(&first).unwrap();
+
+        verify_open_file_identity(&first, &first_file).unwrap();
+        assert!(verify_open_file_identity(&second, &first_file).is_err());
     }
 
     #[cfg(windows)]

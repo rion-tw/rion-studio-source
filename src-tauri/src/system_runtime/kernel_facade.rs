@@ -87,7 +87,12 @@ impl SystemRuntimeExecutor {
             let command = if recovered {
                 CoreCommand::EmbeddedSystemSurfaceRecovered { role_id }
             } else {
-                CoreCommand::EmbeddedSystemSurfaceFailed { role_id, reason }
+                CoreCommand::EmbeddedSystemSurfaceFailed {
+                    role_id,
+                    reason,
+                    expected_tab_id: None,
+                    expected_owner_generation: None,
+                }
             };
             if let Err(error) = core.invoke_async(command).await {
                 eprintln!("Asynchronous System WebView lifecycle projection failed: {error}");

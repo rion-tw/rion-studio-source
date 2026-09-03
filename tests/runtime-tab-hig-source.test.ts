@@ -7,21 +7,21 @@ describe("runtime tab HIG status presentation", () => {
     const [tabItem, supportViews, failurePresentation] = await Promise.all([
       readFile(
         new URL(
-          "../src-tauri/native/macos/RionRuntimeTabsController/03_shortcut_model.mm",
+          "../crates/rion-appkit/native/macos/RionRuntimeTabsController/03_shortcut_model.mm",
           import.meta.url
         ),
         "utf8"
       ),
       readFile(
         new URL(
-          "../src-tauri/native/macos/RionRuntimeTabsController/03_support_views.mm",
+          "../crates/rion-appkit/native/macos/RionRuntimeTabsController/03_support_views.mm",
           import.meta.url
         ),
         "utf8"
       ),
       readFile(
         new URL(
-          "../src-tauri/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
+          "../crates/rion-appkit/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
           import.meta.url
         ),
         "utf8"

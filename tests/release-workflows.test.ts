@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-describe("Tauri-only release workflows", () => {
-  it("runs native validation and desktop E2E in parallel on macOS and Windows", async () => {
+describe("desktop shell migration workflows", () => {
+  it("runs Tauri compatibility, Electron packaging, and desktop E2E on both platforms", async () => {
     const [
       workflow,
       packageJsonSource,
@@ -34,12 +34,19 @@ describe("Tauri-only release workflows", () => {
     );
     const platformChecks = workflow.slice(
       workflow.indexOf("  platform-validation:"),
+      workflow.indexOf("  electron-platform-validation:")
+    );
+    const electronChecks = workflow.slice(
+      workflow.indexOf("  electron-platform-validation:"),
       workflow.indexOf("  desktop-e2e:")
     );
     const desktopE2e = workflow.slice(workflow.indexOf("  desktop-e2e:"));
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain(
+      "group: ci-${{ github.workflow }}-${{ inputs.ref || github.ref }}"
+    );
     expect(workflow).toContain("runs-on: ubuntu-latest");
     expect(workflow).toContain("pnpm run verify:system-only");
     expect(workflow).toContain("pnpm run typecheck");
@@ -83,6 +90,81 @@ describe("Tauri-only release workflows", () => {
     expect(platformChecks).toContain("path: diagnostics/windows-test-loader");
     expect(platformChecks).not.toContain("id: desktop_smoke");
     expect(platformChecks).not.toContain("pnpm run test:e2e:desktop:");
+    expect(electronChecks).toContain("Electron Chromium package validation");
+    expect(electronChecks).toContain("pnpm run package:electron:mac");
+    expect(electronChecks).toContain("pnpm run package:electron:win");
+    expect(electronChecks).toContain("Prepare ephemeral Electron updater trust fixture");
+    expect(electronChecks).toContain("pnpm run prepare:electron-updater:ci");
+    expect(electronChecks).toContain(
+      "Apply and verify ephemeral Electron updater fixture version"
+    );
+    expect(electronChecks).toContain(
+      'pnpm run release:version -- "${RION_STUDIO_ELECTRON_PACKAGE_VERSION}"'
+    );
+    expect(electronChecks.indexOf("pnpm run prepare:electron-updater:ci"))
+      .toBeLessThan(electronChecks.indexOf("pnpm run release:version"));
+    expect(electronChecks.indexOf("pnpm run release:version"))
+      .toBeLessThan(electronChecks.indexOf("pnpm run package:electron:mac"));
+    expect(electronChecks.indexOf("pnpm run release:version"))
+      .toBeLessThan(electronChecks.indexOf("pnpm run package:electron:win"));
+    expect(electronChecks.indexOf("pnpm run release:version"))
+      .toBeLessThan(electronChecks.indexOf("pnpm run verify:electron-runtime"));
+    expect(electronChecks).toContain(
+      "pnpm run build:electron-updater:previous-fixtures"
+    );
+    expect(electronChecks).toContain(
+      "Verify packaged macOS Rust-owned updater transaction"
+    );
+    expect(electronChecks).toContain(
+      "Verify packaged Windows Rust-owned updater transactions"
+    );
+    expect(electronChecks.match(/test:electron-updater:packaged/gu))
+      .toHaveLength(2);
+    expect(electronChecks).not.toContain("pnpm run package:electron:dir");
+    expect(electronChecks).toContain("pnpm run verify:electron-package");
+    expect(electronChecks).toContain(
+      'release/electron/mac-arm64/Rion Studio.app'
+    );
+    expect(electronChecks).toContain("release/electron/win-unpacked");
+    expect(electronChecks).not.toContain("without launching it");
+    expect(electronChecks).toContain(
+      "Verify exact Electron, Chromium, Rust Core, and AppKit ABI runtime"
+    );
+    expect(electronChecks).toContain("pnpm run verify:electron-runtime");
+    expect(electronChecks).toContain("Verify macOS Electron distribution payloads");
+    expect(electronChecks).toContain("hdiutil verify");
+    expect(electronChecks).toContain("test ! -e release/electron/Rion.Studio-mac.dmg.blockmap");
+    expect(electronChecks).toContain("Verify Windows Electron distribution payload");
+    expect(electronChecks).toContain('Get-AuthenticodeSignature -LiteralPath $installer');
+    expect(electronChecks).toContain("Windows Electron installer must remain Authenticode-unsigned");
+    expect(electronChecks).toContain("Run macOS AppKit Chromium shell E2E");
+    expect(electronChecks).toContain(
+      "pnpm run test:e2e:desktop:chromium:macos-appkit"
+    );
+    expect(electronChecks).toContain("Run Windows Chromium shell E2E");
+    expect(electronChecks).toContain(
+      "pnpm run test:e2e:desktop:chromium:windows"
+    );
+    expect(electronChecks.match(/timeout-minutes: 90/gu)).toHaveLength(2);
+    expect(electronChecks).toContain("Upload Chromium shell E2E diagnostics");
+    expect(electronChecks).toContain(
+      "Run packaged macOS AppKit Chromium Role black-box E2E"
+    );
+    expect(electronChecks).toContain(
+      "Run packaged Windows Chromium Role black-box E2E"
+    );
+    expect(electronChecks.match(/runWindowsIsolatedProfile\.ps1/gu))
+      .toHaveLength(2);
+    expect(electronChecks.match(/runner\.environment == 'github-hosted'/gu))
+      .toHaveLength(3);
+    expect(electronChecks).not.toContain("APPDATA:");
+    expect(electronChecks).not.toContain("LOCALAPPDATA:");
+    expect(electronChecks).toContain(
+      "pnpm run test:e2e:desktop:electron:packaged"
+    );
+    expect(electronChecks).toContain(
+      "Upload packaged Chromium Role black-box E2E diagnostics"
+    );
     expect(desktopE2e).toContain("id: desktop_smoke");
     expect(desktopE2e).toContain("pnpm run test:e2e:desktop:smoke");
     expect(desktopE2e).toContain("if: github.event_name == 'pull_request'");
@@ -121,6 +203,7 @@ describe("Tauri-only release workflows", () => {
     );
     expect(platformChecks).toContain("needs: renderer-assets");
     expect(platformChecks).not.toContain("needs: checks");
+    expect(electronChecks).not.toContain("needs:");
     expect(desktopE2e).not.toContain("needs:");
     expect(desktopE2e).not.toContain("renderer-assets-");
     expect(platformChecks.indexOf("Download renderer assets for platform checks")).toBeLessThan(
@@ -156,8 +239,508 @@ describe("Tauri-only release workflows", () => {
     expect(Object.keys(packageJson.scripts).some((name) => name.startsWith("test:native:")))
       .toBe(false);
     expect(workflow).toContain("rust-concurrency-sanitizer:");
-    expect(workflow.toLowerCase()).not.toContain("electron");
-    expect(workflow).not.toContain("Node-API");
+    expect(workflow).toContain("electron-platform-validation:");
+    expect(workflow).toContain("electron-platform-ci-${{ runner.os }}-${{ runner.arch }}");
+  });
+
+  it("requires immutable real Tauri v22 artifacts before claiming cutover compatibility", async () => {
+    const [
+      workflow,
+      previousFixtures,
+      transactionProbe,
+      windowsDerivation,
+      prepareProbeCli,
+      windowsReceiptFinalizer,
+      macosReceiptFinalizer
+    ] = await Promise.all([
+      readWorkflow(
+        ".github/workflows/electron-updater-tauri-v22-compatibility.yml"
+      ),
+      readFile("scripts/buildElectronUpdaterPreviousFixtures.mjs", "utf8"),
+      readFile("scripts/runElectronUpdaterTransactionProbe.mjs", "utf8"),
+      readFile("scripts/deriveTauriV22WindowsInstall.ps1", "utf8"),
+      readFile(
+        "scripts/prepareElectronUpdaterTransactionProbeInput.mjs",
+        "utf8"
+      ),
+      readFile(
+        "scripts/electronUpdaterCompatibilityReceiptFinalizer.mjs",
+        "utf8"
+      ),
+      readFile(
+        "scripts/electronUpdaterMacosCompatibilityReceiptFinalizer.mjs",
+        "utf8"
+      )
+    ]);
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("target_sha:");
+    expect(workflow).toContain("target_version:");
+    expect(workflow).toContain("prior_v23_version:");
+    expect(workflow).toContain("target_updater_endpoint:");
+    expect(workflow).toContain("tauri_source_sha:");
+    expect(workflow).toContain("tauri_macos_archive_sha256:");
+    expect(workflow).toContain("tauri_windows_installer_sha256:");
+    expect(workflow).not.toContain("gh release download");
+    expect(workflow).toContain('"repos/${RELEASE_REPOSITORY}/releases/assets/${asset_id}"');
+    expect(workflow).toContain('Accept: application/octet-stream');
+    expect(workflow).toContain("RELEASE_REPOSITORY: rion-tw/rion-studio");
+    expect(workflow).toContain('gh api "repos/${RELEASE_REPOSITORY}/releases/tags/${RELEASE_TAG}"');
+    expect(workflow).toContain("permissions:\n  actions: read\n  attestations: read\n  contents: read");
+    expect(workflow).not.toContain("contents: write");
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).toContain("pnpm run verify:tauri-v22-updater-input");
+    expect(workflow).toContain('--target-sha "${TARGET_SHA}"');
+    expect(workflow).toContain(
+      "package_probe::packaged_artifact_manifest_fail_closed_probe"
+    );
+    expect(workflow).toContain("RION_UPDATER_PROBE_PREVIOUS_APP");
+    expect(workflow).toContain("RION_UPDATER_PREVIOUS_TAURI_V22_INSTALLER");
+    expect(workflow).toContain(
+      "RION_UPDATER_PRIOR_V23_VERSION: ${{ inputs.prior_v23_version }}"
+    );
+    expect(workflow).toContain(
+      '--prior-v23-version "${RION_UPDATER_PRIOR_V23_VERSION}"'
+    );
+    expect(workflow).toContain(
+      "--prior-v23-version $env:RION_UPDATER_PREVIOUS_V23_VERSION"
+    );
+    expect(workflow).not.toContain('--prior-v23-version "23.0.0"');
+    expect(workflow).toContain("Verify retained AppKit");
+    expect(workflow).toContain(
+      'import { assertStableTauriV22PublicReleaseAssets } from "./scripts/publicReleaseRuntimePolicy.mjs";'
+    );
+    expect(workflow).toContain(
+      "await assertStableTauriV22PublicReleaseAssets("
+    );
+    expect(workflow.indexOf("assertStableTauriV22PublicReleaseAssets")).toBeLessThan(
+      workflow.indexOf('tar -xzf "${RION_TAURI_V22_ARTIFACT}"')
+    );
+    expect(workflow).toContain('previous_app="${previous_root}/Rion Studio.app"');
+    expect(workflow).toContain('previous_executable="${previous_app}/Contents/MacOS/rion-tauri"');
+    expect(workflow).toContain("deriveTauriV22WindowsInstall.ps1");
+    expect(workflow).toContain("RION_TAURI_V22_RUNNING_EXECUTABLE");
+    expect(workflow).toContain('-RepositoryAccess "RX"');
+    expect(workflow).toContain('-ToolHomeAccess "None"');
+    expect(workflow).toContain(
+      "-AdditionalReadablePaths @($env:RION_TAURI_V22_ARTIFACT)"
+    );
+    expect(workflow).not.toContain("$env:APPDATA =");
+    expect(workflow).not.toContain("$env:LOCALAPPDATA =");
+    expect(windowsDerivation).toContain("temporary-local-windows-user-profile-v1");
+    expect(windowsDerivation).toContain("Get-Item -LiteralPath $InstallDirectory");
+    expect(windowsDerivation).toContain("[IO.FileAttributes]::ReparsePoint");
+    expect(workflow).toContain("createTauriV22PublicLineage");
+    expect(workflow).toContain(
+      "RUNNING_EXECUTABLE_DERIVATION: ${{ matrix.running_executable_derivation }}"
+    );
+    expect(workflow).not.toContain("matrix.running-executable-derivation");
+    expect(workflow).toContain(
+      "tauri-v22-public-lineage-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}"
+    );
+    expect(workflow).toContain(
+      "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8"
+    );
+    expect(workflow).toContain(
+      "subject-path: ${{ runner.temp }}/rion-tauri-v22-lineage/tauri-v22-public-lineage-receipt.json"
+    );
+    expect(workflow).not.toMatch(/7z(?:\.exe)?\s/iu);
+    expect(workflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}");
+    expect(workflow).toContain("TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}");
+    expect(workflow).toContain("terminal-layout-probe-receipt.json");
+    expect(workflow).toContain("runWindowsIsolatedProfile.ps1");
+    expect(workflow).toContain("runner.environment == 'github-hosted'");
+    expect(workflow).toContain("-AdditionalReadablePaths @(");
+    expect(workflow).toContain("$env:RION_TAURI_V22_INPUT_ROOT,");
+    expect(workflow).toContain("$env:RION_UPDATER_PREPARED_INPUT_ROOT");
+    expect(workflow).toContain(
+      "CARGO_TARGET_DIR: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime/cargo-target"
+    );
+    expect(windowsDerivation).toContain(
+      "tauriV22WindowsInstallContract.mjs"
+    );
+    expect(windowsDerivation).toContain(
+      "[Microsoft.Win32.RegistryView]::Registry32"
+    );
+    expect(windowsDerivation).toContain(
+      '$installRegistryPath = "Software\\rionstudio\\Rion Studio"'
+    );
+    expect(windowsDerivation).toContain(
+      '$uninstallRegistryPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Rion Studio"'
+    );
+    expect(windowsDerivation).toContain(
+      'mainBinaryName = [string] $uninstallRegistry.GetValue("MainBinaryName"'
+    );
+    expect(windowsDerivation).toContain("mainBinaryReparsePoint");
+    expect(windowsDerivation).toContain("uninstallerReparsePoint");
+    expect(workflow).toContain("Cutover eligible from this workflow alone: false");
+    expect(workflow.indexOf("- name: Setup Node")).toBeLessThan(
+      workflow.indexOf("- name: Validate exact Tauri v22 source identity")
+    );
+    expect(workflow).not.toContain("prepare:electron-updater:ci");
+    expect(workflow).not.toContain("real Tauri v22 to Electron");
+    expect(workflow).not.toContain("publish-public-release");
+    expect(workflow).not.toContain("finalize-private-release");
+    expect(previousFixtures).toContain('["V23", priorV23Version]');
+    expect(previousFixtures).toContain(
+      "RION_UPDATER_PREVIOUS_V23_VERSION=${priorV23Version}"
+    );
+    expect(previousFixtures).toContain("assertSemanticVersionIsNewer(");
+    expect(previousFixtures).not.toContain("requiredV23SemanticVersion");
+    expect(previousFixtures).not.toContain('["V22", "22.9.0"]');
+    expect(transactionProbe).toContain(
+      "writeElectronUpdaterCompatibilityProvisionalReceipt({"
+    );
+    expect(transactionProbe).toContain(
+      "environment.RION_UPDATER_PREVIOUS_V23_VERSION"
+    );
+    expect(transactionProbe).not.toContain("sourceUpdaterInvoked: false");
+    expect(transactionProbe).not.toContain("cutoverEligible: false");
+    for (const finalizer of [windowsReceiptFinalizer, macosReceiptFinalizer]) {
+      expect(finalizer).toContain("sourceUpdaterInvoked: false");
+      expect(finalizer).toContain("cutoverEligible: false");
+    }
+    expect(transactionProbe).toContain(
+      "createUpdaterProbeRuntimeEnvironment("
+    );
+    expect(transactionProbe).toContain(
+      "Production-trust compatibility probes require a separately prepared signed input."
+    );
+    expect(transactionProbe).not.toContain(
+      "prepareElectronUpdaterProbeInput"
+    );
+    expect(prepareProbeCli).toContain("prepareElectronUpdaterProbeInput");
+    expect(prepareProbeCli).not.toContain("@electron/asar");
+    expect(prepareProbeCli).not.toContain("runElectronUpdaterTransactionProbe");
+    expect(prepareProbeCli).toContain(
+      'console.error("Updater probe input preparation failed.")'
+    );
+    const compatibilityJob = workflow.slice(
+      workflow.indexOf("  artifact-compatibility:"),
+      workflow.indexOf("  attest-lineage:")
+    );
+    const attestationJob = workflow.slice(workflow.indexOf("  attest-lineage:"));
+    expect(compatibilityJob).toContain(
+      "permissions:\n      actions: read\n      attestations: read\n      contents: read"
+    );
+    expect(compatibilityJob).not.toContain("id-token: write");
+    expect(compatibilityJob).not.toContain("attestations: write");
+    for (const value of [
+      "- artifact-compatibility",
+      "attestations: write",
+      "id-token: write"
+    ]) expect(attestationJob).toContain(value);
+    for (const value of ["environment:", "secrets.", "TAURI_SIGNING_PRIVATE_KEY"]) {
+      expect(attestationJob).not.toContain(value);
+    }
+    expect(attestationJob).toContain("platform:\n          - darwin-aarch64\n          - windows-x86_64");
+    expect(workflow.match(
+      /tauri-v22-public-lineage-\$\{\{ matrix\.platform \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/gu
+    )).toHaveLength(3);
+    const compatibilityJobStart = workflow.indexOf("  artifact-compatibility:");
+    const compatibilityJobEnvironment = workflow.slice(
+      workflow.indexOf("    env:", compatibilityJobStart),
+      workflow.indexOf("    steps:", compatibilityJobStart)
+    );
+    expect(compatibilityJobEnvironment).not.toContain(
+      "TAURI_SIGNING_PRIVATE_KEY"
+    );
+    expect(workflow.match(/TAURI_SIGNING_PRIVATE_KEY: \$\{\{ secrets\./gu))
+      .toHaveLength(1);
+    const buildJob = workflow.slice(
+      workflow.indexOf("  build-target-input:"),
+      workflow.indexOf("  attest-signing-input:")
+    );
+    const sealingJob = workflow.slice(
+      workflow.indexOf("  attest-signing-input:"),
+      workflow.indexOf("  prepare-signed-input:")
+    );
+    const signingJob = workflow.slice(
+      workflow.indexOf("  prepare-signed-input:"),
+      workflow.indexOf("  artifact-compatibility:")
+    );
+    const macRuntime = workflow.slice(
+      workflow.indexOf(
+        "- name: Run macOS published-v22-input plus v23 layout replacement probe without private signing material"
+      ),
+      workflow.indexOf(
+        "- name: Run Windows published-v22-input plus v23 layout replacement probe without private signing material"
+      )
+    );
+    const windowsRuntime = workflow.slice(
+      workflow.indexOf(
+        "- name: Run Windows published-v22-input plus v23 layout replacement probe without private signing material"
+      ),
+      workflow.indexOf(
+        "- name: Upload the exact closed public Tauri v22 source lineage for detached attestation"
+      )
+    );
+    expect(buildJob).toContain("ref: ${{ inputs.target_sha }}");
+    expect(buildJob).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(sealingJob).toContain(
+      "ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}"
+    );
+    expect(sealingJob).toContain("candidateSourceSha");
+    expect(sealingJob).toContain("controlPlaneSha");
+    expect(sealingJob).toContain("attest-build-provenance");
+    expect(sealingJob).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(signingJob).toContain(
+      "Verify attestation and every sealed input byte before private key entry"
+    );
+    expect(signingJob).toContain('--signer-digest "${CONTROL_PLANE_SHA}"');
+    expect(signingJob).toContain('--source-digest "${CONTROL_PLANE_SHA}"');
+    expect(signingJob).toContain("Unsigned compatibility archive bytes changed after attestation.");
+    expect(signingJob).toContain(
+      "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+    );
+    expect(signingJob).toContain("prepareElectronUpdaterTransactionProbeInput.mjs");
+    const privateKeyStep = signingJob.indexOf(
+      "- name: Prepare production-signed updater probe input from trusted control"
+    );
+    const postPrivateKeySteps = signingJob.slice(privateKeyStep);
+    expect(privateKeyStep).toBeGreaterThan(-1);
+    expect(postPrivateKeySteps).not.toContain("ref: ${{ inputs.target_sha }}");
+    expect(postPrivateKeySteps).not.toContain("pnpm run package:electron");
+    expect(postPrivateKeySteps).not.toContain("runElectronUpdaterTransactionProbe.mjs");
+    for (const runtime of [macRuntime, windowsRuntime]) {
+      expect(runtime).toContain("--prepared-input");
+      expect(runtime).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+      expect(runtime).not.toContain("TAURI_SIGNING_PRIVATE_KEY_PASSWORD");
+    }
+    expect(windowsRuntime).toContain('-RepositoryAccess "RX"');
+    expect(windowsRuntime).toContain('-ToolHomeAccess "RX"');
+    expect(windowsRuntime).not.toContain(
+      "AllowEphemeralUpdaterSigningEnvironment"
+    );
+    expect(windowsRuntime).toContain(
+      "-AdditionalWritablePaths @($env:RION_UPDATER_CI_FIXTURE_ROOT)"
+    );
+  });
+
+  it("proves the Windows Electron NSIS payload before updater signing", async () => {
+    const [
+      candidate,
+      ci,
+      proofRunner,
+      installerProof,
+      isolatedProfileRunner
+    ] =
+      await Promise.all([
+      readWorkflow(".github/workflows/electron-production-candidate.yml"),
+      readWorkflow(".github/workflows/ci.yml"),
+      readWorkflow("scripts/runWindowsElectronInstallerPayloadProof.ps1"),
+      readWorkflow("scripts/installWindowsElectronPayloadForProof.ps1"),
+      readWorkflow("scripts/runWindowsIsolatedProfile.ps1")
+    ]);
+    const buildStart = candidate.indexOf("  build:");
+    const buildStepsStart = candidate.indexOf("    steps:", buildStart);
+    const attestJobStart = candidate.indexOf(
+      "  attest-signing-input:",
+      buildStepsStart
+    );
+    const signJobStart = candidate.indexOf("  sign:", buildStepsStart);
+    const buildEnvironment = candidate.slice(
+      candidate.indexOf("    env:", buildStart),
+      buildStepsStart
+    );
+    const proofStepStart = candidate.indexOf(
+      "- name: Prove exact Windows NSIS payload matches the black-box package",
+      buildStepsStart
+    );
+    const signingStepStart = candidate.indexOf(
+      "- name: Sign updater payload and stage immutable platform candidate",
+      proofStepStart
+    );
+    const uploadStepStart = candidate.indexOf(
+      "- name: Upload exact verified platform candidate",
+      signingStepStart
+    );
+    const proofStep = candidate.slice(proofStepStart, signingStepStart);
+    const signingStep = candidate.slice(signingStepStart, uploadStepStart);
+    const buildJob = candidate.slice(buildStart, attestJobStart);
+    const signJob = candidate.slice(
+      signJobStart,
+      candidate.indexOf("  assemble:", signJobStart)
+    );
+    const windowsBlackBoxStep = candidate.slice(
+      candidate.indexOf(
+        "- name: Run exact Windows production candidate packaged Chromium black-box",
+        buildStepsStart
+      ),
+      candidate.indexOf(
+        "- name: Upload exact production candidate black-box evidence",
+        buildStepsStart
+      )
+    );
+
+    expect(buildStart).toBeGreaterThan(-1);
+    expect(buildStepsStart).toBeGreaterThan(buildStart);
+    expect(signJobStart).toBeGreaterThan(buildStepsStart);
+    expect(attestJobStart).toBeGreaterThan(buildStepsStart);
+    expect(signJobStart).toBeGreaterThan(attestJobStart);
+    expect(proofStepStart).toBeGreaterThan(buildStepsStart);
+    expect(signingStepStart).toBeGreaterThan(proofStepStart);
+    expect(uploadStepStart).toBeGreaterThan(signingStepStart);
+    expect(buildEnvironment).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(buildJob).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(buildJob).not.toContain("secrets.");
+    expect(buildJob).toContain(
+      'COPYFILE_DISABLE=1 tar -C "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}"'
+    );
+    expect(proofStep).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(proofStep).toContain("if: runner.os == 'Windows'");
+    expect(proofStep).toContain(
+      "RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}"
+    );
+    expect(signingStep).toContain(
+      "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
+    );
+    expect(signingStep).toContain(
+      "TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+    );
+    expect(signingStep).toContain(
+      '"${RION_STUDIO_SIGNING_WINDOWS_PAYLOAD_PROOF}"'
+    );
+    expect(signJob).toContain("- attest-signing-input");
+    expect(signJob).toContain(
+      "Checkout the exact trusted default-branch signing control plane"
+    );
+    expect(signJob).toContain("persist-credentials: false");
+    expect(signJob).toContain(
+      "Install locked signing dependencies before private key entry"
+    );
+    expect(signJob).toContain("Download the exact unsigned package archive");
+    expect(signJob).toContain("Download the exact packaged black-box evidence");
+    expect(signJob).toContain("Verify trusted-control provenance and every sealed input byte");
+    expect(signJob).toContain("Restore sealed unsigned package inputs before private key entry");
+    expect(signJob).toContain("restoreElectronUnsignedInputArchive.mjs");
+    expect(signJob).toContain(
+      '--destination "${RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT}/release/electron"'
+    );
+    expect(signJob).not.toContain('tar -xzf "${archive}"');
+    expect(signJob.indexOf("Restore sealed unsigned package inputs before private key entry"))
+      .toBeLessThan(signJob.indexOf("TAURI_SIGNING_PRIVATE_KEY"));
+    expect(signJob).toContain("test \"$(git rev-parse HEAD)\" = \"${CONTROL_PLANE_SHA}\"");
+    expect(signJob).not.toContain("test \"$(git rev-parse HEAD)\" = \"${SOURCE_SHA}\"");
+    expect(candidate).toContain("- authorize-control-plane\n      - validate\n      - sign");
+    expect(candidate.match(/persist-credentials: false/gu)).toHaveLength(5);
+    expect(windowsBlackBoxStep).toContain('-RepositoryAccess "RX"');
+    expect(windowsBlackBoxStep).toContain('-ToolHomeAccess "None"');
+    expect(windowsBlackBoxStep).toContain(
+      "-AdditionalWritablePaths @($env:RION_STUDIO_E2E_ARTIFACT_ROOT)"
+    );
+    expect(windowsBlackBoxStep).toContain(
+      "-AdditionalReadablePaths @($env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT)"
+    );
+    expect(windowsBlackBoxStep).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
+    expect(candidate).toContain(
+      "RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-"
+    );
+    expect(isolatedProfileRunner).toContain(
+      "Deny-PathMutationRecursively $resolvedRepository"
+    );
+    expect(proofStep).toContain("runWindowsElectronInstallerPayloadProof.ps1");
+    expect(proofStep).toContain(
+      '-UnsignedInputRoot "$env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT"'
+    );
+    expect(proofStep).toContain(
+      '-ApplicationPath "$env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT\\release\\electron\\win-unpacked"'
+    );
+    expect(proofStep).toContain(
+      '-ArtifactPath "$env:RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT\\release\\electron\\Rion.Studio-win.exe"'
+    );
+
+    expect(proofRunner).toContain('$env:CI -ne "true"');
+    expect(proofRunner).toContain('$env:GITHUB_ACTIONS -ne "true"');
+    expect(proofRunner).toContain(
+      '.Name.StartsWith("TAURI_SIGNING_", [StringComparison]::OrdinalIgnoreCase)'
+    );
+    expect(installerProof).toContain(
+      '.Name.StartsWith("TAURI_SIGNING_", [StringComparison]::OrdinalIgnoreCase)'
+    );
+    expect(proofRunner).toContain("-RepositoryAccess None");
+    expect(proofRunner).toContain("-WorkingDirectory $gateRoot");
+    expect(proofRunner).toContain("-AdditionalDeniedPaths @($application)");
+    expect(proofRunner).toContain("-AdditionalReadablePaths @($inputRoot)");
+    expect(proofRunner).toContain("-ToolHomeAccess None");
+    expect(proofRunner).toContain("-ExpectedTotalProcesses 3");
+    expect(proofRunner).toContain("-ResultPath $isolationResultPath");
+    expect(proofRunner).toContain("-AttemptNonce $attemptNonce");
+    expect(proofRunner).toContain("-ResultCommandHarnessPath $stagedHarness");
+    expect(proofRunner).toContain("-ResultInstallerPath $stagedArtifact");
+    expect(proofRunner).toContain(
+      "-ResultForbiddenSourceListPath $forbiddenSourceFileList"
+    );
+    expect(proofRunner).toContain("--isolation-result $isolationResultPath");
+    expect(proofRunner).toContain("--attempt-nonce $attemptNonce");
+    expect(proofRunner).toContain("--command-path $pwsh");
+    expect(proofRunner).toContain("--command-script $stagedHarness");
+    expect(proofRunner).toContain(
+      "--forbidden-source-file-list $forbiddenSourceFileList"
+    );
+    expect(proofRunner).toContain("write-forbidden-source-list");
+    expect(installerProof).toContain(
+      "foreach ($accessName in $forbiddenAccessMasks.Keys)"
+    );
+    expect(installerProof).toContain(
+      "The isolated installer can $accessName a forbidden source-package path."
+    );
+    expect(installerProof).toContain(
+      "instead of access denied."
+    );
+    expect(proofRunner).toContain(
+      "Assert-NoAlternateDataStreams -Paths @($sourceEntries.FullName)"
+    );
+    expect(installerProof).toContain(
+      "Get-Item -LiteralPath $installedEntry.FullName -Stream *"
+    );
+
+    const ciProofStepStart = ci.indexOf(
+      "- name: Verify exact Windows NSIS installed payload"
+    );
+    const ciUpdaterStepStart = ci.indexOf(
+      "- name: Verify packaged macOS Rust-owned updater transaction",
+      ciProofStepStart
+    );
+    const ciProofStep = ci.slice(ciProofStepStart, ciUpdaterStepStart);
+    expect(ciProofStepStart).toBeGreaterThan(-1);
+    expect(ciUpdaterStepStart).toBeGreaterThan(ciProofStepStart);
+    expect(ciProofStep).toContain("if: runner.os == 'Windows'");
+    expect(ciProofStep).toContain(
+      "RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}"
+    );
+    expect(ciProofStep).toContain("runWindowsElectronInstallerPayloadProof.ps1");
+    expect(ciProofStep).toContain(
+      '-ApplicationPath "$env:GITHUB_WORKSPACE\\release\\electron\\win-unpacked"'
+    );
+    expect(ciProofStep).toContain(
+      '-ArtifactPath "$env:GITHUB_WORKSPACE\\release\\electron\\Rion.Studio-win.exe"'
+    );
+    expect(ciProofStep).toContain("-SourceSha $sourceSha");
+    expect(ciProofStep).toContain(
+      '.Name.StartsWith("TAURI_SIGNING_", [StringComparison]::OrdinalIgnoreCase)'
+    );
+    expect(ciProofStep).toContain(
+      '-Version "$env:RION_STUDIO_ELECTRON_PACKAGE_VERSION"'
+    );
+
+    const installerInvocationStart = installerProof.indexOf(
+      "Invoke-BoundedInstaller -FilePath $artifact -ArgumentList @("
+    );
+    const installerInvocationEnd = installerProof.indexOf(
+      "\n)",
+      installerInvocationStart
+    );
+    expect(installerInvocationStart).toBeGreaterThan(-1);
+    expect(installerInvocationEnd).toBeGreaterThan(installerInvocationStart);
+    expect(installerProof.slice(installerInvocationStart, installerInvocationEnd + 2))
+      .toBe([
+        "Invoke-BoundedInstaller -FilePath $artifact -ArgumentList @(",
+        '  "/S",',
+        '  "/currentuser",',
+        '  "/D=$expectedInstallDirectory"',
+        ")"
+      ].join("\n"));
+    expect(installerProof).not.toContain("--force-run");
   });
 
   it("keeps extended desktop E2E on immutable hardware-runner evidence", async () => {
@@ -174,7 +757,13 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("Extended E2E ref must be a full immutable Git SHA");
     expect(workflow).toContain("RION_STUDIO_E2E_COMMIT: ${{ inputs.ref || github.sha }}");
     expect(workflow).toContain("pnpm run test:e2e:desktop:extended");
-    expect(workflow.match(/timeout-minutes: 120/gu)).toHaveLength(2);
+    expect(workflow).toContain(
+      "pnpm run test:e2e:desktop:chromium:macos-appkit:hardware"
+    );
+    expect(workflow).toContain(
+      "pnpm run test:e2e:desktop:chromium:windows:hardware"
+    );
+    expect(workflow.match(/timeout-minutes: 240/gu)).toHaveLength(2);
     expect(workflow.match(/include-hidden-files: true/gu)).toHaveLength(2);
     expect(workflow.match(/path: \|/gu)).toHaveLength(2);
     expect(workflow.match(/!.desktop-e2e-artifacts\/\*\*\/roles\/\*\/browser\/\*\*/gu))
@@ -427,8 +1016,14 @@ describe("Tauri-only release workflows", () => {
     expect(finalizeWorkflow).toContain("verify-and-upload-private-release:");
     expect(finalizeWorkflow).toContain("publish-public-release:");
     expect(finalizeWorkflow).toContain("finalize-private-release:");
-    expect(finalizeWorkflow).toContain("--draft=false --latest=false");
-    expect(finalizeWorkflow).toContain("cmp release-assets/SHA256SUMS.txt");
+    expect(finalizeWorkflow).toContain("-F draft=false -f make_latest=false");
+    expect(finalizeWorkflow).toContain(
+      "ref: ${{ needs.authorize-control-plane.outputs.control_sha }}"
+    );
+    expect(finalizeWorkflow).not.toContain("ref: ${{ inputs.tag }}");
+    expect(finalizeWorkflow).toContain(
+      'cmp "release-assets/${name}" "downloaded-assets/${name}"'
+    );
     expect(finalizeWorkflow).toContain("--verify-checksums");
     expect(compatibilityWorkflow).toContain("source_ref:");
     expect(compatibilityWorkflow).not.toContain("inputs.tag");
@@ -484,26 +1079,135 @@ describe("Tauri-only release workflows", () => {
     const workflow = await readWorkflow(".github/workflows/publish-public-release.yml");
     const draftIndex = workflow.indexOf("gh release create");
     const uploadIndex = workflow.indexOf("gh release upload");
-    const verifyIndex = workflow.indexOf("cmp release-assets/SHA256SUMS.txt");
-    const publishIndex = workflow.indexOf("gh release edit");
-    const documentationIndex = workflow.indexOf("Sync public documentation from the released source");
-    const summaryIndex = workflow.indexOf("Record public release summary");
+    const publishIndex = workflow.indexOf("--draft=false --latest=false");
+    const verifyIndex = workflow.indexOf("target-published.json");
+    const leaseIndex = workflow.indexOf(
+      "Acquire the durable public-latest publication lease"
+    );
+    const documentationIndex = workflow.indexOf(
+      "Synchronize public documentation using trusted main control code"
+    );
+    const summaryIndex = workflow.indexOf(
+      "Record the closed stable publication result"
+    );
 
     expect(draftIndex).toBeGreaterThan(-1);
     expect(uploadIndex).toBeGreaterThan(draftIndex);
-    expect(verifyIndex).toBeGreaterThan(uploadIndex);
-    expect(publishIndex).toBeGreaterThan(verifyIndex);
-    expect(documentationIndex).toBeGreaterThan(publishIndex);
+    expect(publishIndex).toBeGreaterThan(uploadIndex);
+    expect(verifyIndex).toBeGreaterThan(publishIndex);
+    expect(leaseIndex).toBeGreaterThan(verifyIndex);
+    expect(documentationIndex).toBeGreaterThan(leaseIndex);
     expect(summaryIndex).toBeGreaterThan(documentationIndex);
-    expect(workflow).toContain("contents: write");
+    expect(workflow).toContain("permissions:\n  contents: read");
+    expect(workflow).toContain("permission-contents: write");
     expect(workflow).toContain("RION_RELEASE_APP_PRIVATE_KEY");
     expect(workflow).toContain("--verify-checksums");
-    expect(workflow).toContain("group: public-release-rion-studio");
-    expect(workflow).toContain("node scripts/syncPublicRepositoryDocs.mjs");
-    expect(workflow).toContain('--repository "${PUBLIC_RELEASE_REPOSITORY}"');
-    expect(workflow).toContain('--tag "${TAG}"');
+    expect(workflow).toContain("group: public-latest-rion-studio");
+    expect(workflow).toContain("synchronizePublicDocuments");
+    expect(workflow).toContain('repository: "rion-tw/rion-studio"');
+    expect(workflow).toContain('tag: process.env.TAG');
     expect(workflow).toContain("GH_TOKEN: ${{ steps.public-token.outputs.token }}");
     expect(workflow).not.toContain("--clobber");
+    expect(workflow).not.toContain("gh release download");
+  });
+
+  it("keeps generic public promotion restricted to stable Tauri v22 assets", async () => {
+    const [
+      publish,
+      finalize,
+      restore,
+      runtimePolicy,
+      candidate,
+      candidateProducer,
+      readiness,
+      updaterContract
+    ] = await Promise.all([
+      readWorkflow(".github/workflows/publish-public-release.yml"),
+      readWorkflow(".github/workflows/finalize-private-release.yml"),
+      readWorkflow(".github/workflows/restore-public-latest.yml"),
+      readWorkflow("scripts/publicReleaseRuntimePolicy.mjs"),
+      readWorkflow(".github/workflows/electron-production-candidate.yml"),
+      readWorkflow("scripts/electronProductionCandidate.mjs"),
+      readWorkflow(".github/workflows/electron-production-promotion-readiness.yml"),
+      readWorkflow("docs/updater-transaction-contract.md")
+    ]);
+
+    expect(publish).not.toContain("workflow_dispatch:");
+    expect(publish).toContain("release_contract:");
+    expect(publish).toContain('RELEASE_CONTRACT: ${{ inputs.release_contract }}');
+    expect(publish).toContain('test "${RELEASE_CONTRACT}" = "tauri-v22"');
+    expect(publish.match(/--require-tauri-v22/gu)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(finalize).toContain("release_contract: tauri-v22");
+    expect(finalize.match(/--require-tauri-v22/gu)).toHaveLength(2);
+    expect(restore).toContain("--require-tauri-v22");
+    expect(runtimePolicy).toContain("electron-production-candidate-receipt.json");
+    expect(runtimePolicy).toContain("/Contents/Resources/app.asar");
+    expect(runtimePolicy).toContain("/Contents/Frameworks/Electron Framework.framework");
+    expect(candidate).toContain("environment: electron-production-release");
+    expect(candidate).toContain(
+      "electron-production-candidate-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}"
+    );
+    expect(candidate).toContain(
+      "electron-production-macos-arm64-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}"
+    );
+    expect(candidate).toContain(
+      "electron-production-windows-x64-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}"
+    );
+    expect(candidateProducer).toContain('status: "verified-not-published"');
+    expect(candidate).not.toContain("publish-public-release.yml");
+    for (const fragment of [
+      "electronProductionPromotionReadinessCli.mjs verify",
+      "Publication performed by this workflow: false",
+      "attestations: read",
+      "persist-credentials: false",
+      "EXPECTED_REPOSITORY: rion-tw/rion-studio-source",
+      'test "${DISPATCH_REF}" = "refs/heads/main"',
+      'test "${DISPATCH_REF_PROTECTED}" = "true"',
+      "@refs/heads/main",
+      "ref: ${{ github.sha }}",
+      'test "$(jq -r .head_repository.full_name <<< "${run_json}")" = "rion-tw/rion-studio-source"',
+      'test "$(jq -r .head_branch <<< "${run_json}")" = "main"',
+      'echo "${label}_control_sha=${control_sha}"',
+      "electron-production-candidate-trusted-control-${VERSION}-${SOURCE_SHA}",
+      "electron-production-candidate-trusted-control-${PRIOR_ELECTRON_VERSION}-${PRIOR_ELECTRON_SOURCE_SHA}",
+      "--candidate-trusted-control-receipt candidate-trusted-control/",
+      "--prior-candidate-trusted-control-receipt prior-candidate-trusted-control/",
+      '--candidate-run-control-sha "${CANDIDATE_CONTROL_SHA}"',
+      '--evidence-run-control-sha "${EVIDENCE_CONTROL_SHA}"',
+      '--provisional-publication-run-control-sha "${PROVISIONAL_PUBLICATION_CONTROL_SHA}"',
+      '--tauri-lineage-run-control-sha "${TAURI_LINEAGE_CONTROL_SHA}"',
+      '--readiness-control-sha "${READINESS_CONTROL_SHA}"',
+      '--signer-digest "${EVIDENCE_CONTROL_SHA}"',
+      '--signer-digest "${PROVISIONAL_PUBLICATION_CONTROL_SHA}"',
+      '--signer-digest "${TAURI_LINEAGE_CONTROL_SHA}"',
+      'jq -e --arg invocation_uri "${invocation_uri}"'
+    ]) expect(readiness).toContain(fragment);
+    expect(readiness).not.toContain('.head_sha <<< "${run_json}")" = "${SOURCE_SHA}"');
+    expect(readiness).not.toContain('--signer-digest "${SOURCE_SHA}"');
+    expect(readiness).not.toContain('--source-digest "${SOURCE_SHA}"');
+    const permissions = readiness.slice(
+      readiness.indexOf("permissions:"),
+      readiness.indexOf("\n\nconcurrency:")
+    );
+    expect(permissions.trim()).toBe([
+      "permissions:",
+      "  actions: read",
+      "  attestations: read",
+      "  contents: read"
+    ].join("\n"));
+    expect(readiness).not.toMatch(/^\s+[\w-]+:\s*write\s*$/mu);
+    expect(readiness).not.toMatch(/gh release (?:create|edit|upload)/u);
+    expect(updaterContract).toMatch(
+      /no approved or enabled provisional publisher/u
+    );
+    expect(updaterContract).toMatch(
+      /closed terminal-promotion schema and producer now exist/u
+    );
+    expect(updaterContract).toMatch(
+      /every finalizer job is literal\s+`if: \$\{\{ false \}\}`/u
+    );
+    expect(updaterContract).toContain("sourceUpdaterInvoked: false");
+    expect(updaterContract).toContain("terminal promotion receipt");
   });
 
   it("updates public documents atomically and verifies the resulting managed tree", async () => {
@@ -524,10 +1228,23 @@ describe("Tauri-only release workflows", () => {
   it("restores latest only after validating the canonical artifact set", async () => {
     const workflow = await readWorkflow(".github/workflows/restore-public-latest.yml");
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("node scripts/releaseArtifacts.mjs rollback-assets");
+    expect(workflow).toContain("Capture exact source and target snapshots by immutable release ID");
+    expect(workflow).toContain('releases/${release_id}');
+    expect(workflow).toContain('releases/assets/${asset_id}');
+    expect(workflow).toContain("deriveTauriV22ExpectedLatestState");
+    expect(workflow).toContain(
+      "electronProductionPublicLatestLeaseRemoteCli.mjs acquire"
+    );
+    expect(workflow).toContain(
+      "Observe the exact held lease immediately before mutation"
+    );
+    expect(workflow).toContain(
+      "Release the lease only for a safe acknowledgement and exact readback"
+    );
     expect(workflow).toContain("--verify-checksums");
-    expect(workflow).toContain("gh release edit");
-    expect(workflow).toContain("--latest");
+    expect(workflow).toContain("gh api --method PATCH --include");
+    expect(workflow).toContain("-f make_latest=true");
+    expect(workflow).not.toContain("gh release download");
   });
 });
 

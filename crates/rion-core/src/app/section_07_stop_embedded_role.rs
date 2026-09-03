@@ -15,13 +15,27 @@ impl AppCore {
         persist_closed_tab: bool,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
-        let initial_tab_id = self
+        let initial_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
+            .snapshot;
+        let initial_tab_id = initial_snapshot
             .roles
             .iter()
             .find(|candidate| candidate.role_id == role_id && candidate.runtime == "embedded")
             .map(|role| role.owner.tab_id.clone());
+        let initial_window_id = initial_tab_id.as_deref().and_then(|tab_id| {
+            initial_snapshot
+                .tabs
+                .iter()
+                .find(|tab| tab.id == tab_id)
+                .map(|tab| tab.window_id.clone())
+        });
+        let logical_close_operation_id = parent_operation_id.map_or_else(
+            || format!("role-stop:{role_id}:{}", uuid::Uuid::new_v4()),
+            str::to_owned,
+        );
+        let reload_admission =
+            self.supersede_controlled_role_reloads(&[role_id.to_owned()], "tabStop")?;
         self.cancel_embedded_operations(&[role_id.to_owned()])?;
         let lease = acquire_operation_lease
             .then(|| {
@@ -32,6 +46,21 @@ impl AppCore {
             })
             .transpose()?;
         let result = (|| {
+            let logical_close = if close_role_tab {
+                match (initial_tab_id.as_deref(), initial_window_id.as_deref()) {
+                    (Some(tab_id), Some(window_id)) => self.prepare_runtime_logical_close(
+                        &logical_close_operation_id,
+                        window_id,
+                        None,
+                        None,
+                        tab_id,
+                        None,
+                    )?,
+                    _ => None,
+                }
+            } else {
+                None
+            };
             let prepared = {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
                 let snapshot = self
@@ -73,6 +102,7 @@ impl AppCore {
                     None
                 }
             };
+            drop(reload_admission);
 
             let Some((tab_id, action)) = prepared else {
                 if let Some(tab_id) = initial_tab_id.as_deref() {
@@ -87,12 +117,38 @@ impl AppCore {
                             role_id: role_id.to_owned(),
                         }
                     };
-                    self.run_embedded_runtime_effect(
+                    let native_close = self.run_embedded_runtime_effect(
                         role_id,
                         action,
                         None,
                         parent_operation_id,
-                    )?;
+                    );
+                    match native_close {
+                        Ok(_) => {
+                            if let Some(close) = logical_close.as_ref() {
+                                self.finish_runtime_logical_close(close, "closed")?;
+                            }
+                        }
+                        Err(error) => {
+                            if let Some(close) = logical_close.as_ref() {
+                                let _ = self.finish_runtime_logical_close(close, "failed");
+                            }
+                            return Err(error);
+                        }
+                    }
+                    if close_role_tab {
+                        let _sequence = self.embedded_runtime_sequence.acquire()?;
+                        let current = self
+                            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                            .snapshot;
+                        if current.tabs.iter().any(|tab| {
+                            tab.id == tab_id && tab.tab_type == "role" && tab.source_id == role_id
+                        }) {
+                            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                                tab_id: tab_id.to_owned(),
+                            })?;
+                        }
+                    }
                     self.macro_runtime.release_role(role_id)?;
                 }
                 return Ok(());
@@ -102,7 +158,21 @@ impl AppCore {
             // after the exact game surface is offline; a busy SQLite writer must
             // never leave a visually closed role running.
             self.emit_browser_statuses();
-            self.run_embedded_runtime_effect(role_id, action, None, parent_operation_id)?;
+            let native_close =
+                self.run_embedded_runtime_effect(role_id, action, None, parent_operation_id);
+            match native_close {
+                Ok(_) => {
+                    if let Some(close) = logical_close.as_ref() {
+                        self.finish_runtime_logical_close(close, "closed")?;
+                    }
+                }
+                Err(error) => {
+                    if let Some(close) = logical_close.as_ref() {
+                        let _ = self.finish_runtime_logical_close(close, "failed");
+                    }
+                    return Err(error);
+                }
+            }
 
             {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;

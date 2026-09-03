@@ -1,8 +1,8 @@
 impl SystemRuntimeExecutor {
-    fn create_effect_is_still_pending(&self, effect: &CoreEffectRequest) -> bool {
+    fn create_effect_pending_status(&self, effect: &CoreEffectRequest) -> Option<bool> {
         self.core
             .core_effect_is_pending(&effect.effect_id, &effect.operation_id)
-            .unwrap_or(false)
+            .ok()
     }
 
     fn retire_unacknowledged_created_tab(&self, tab_id: &str) -> RuntimeResult<()> {

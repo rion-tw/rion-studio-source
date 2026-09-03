@@ -15,6 +15,7 @@ pub struct SystemRuntimeExecutor {
     pub(super) effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
     pub(super) lifecycle_sender: OnceLock<Sender<ApplicationLifecycleSignal>>,
     pub(super) diagnostics: Mutex<RuntimeDiagnosticsState>,
+    pub(super) destructive_native_work: DestructiveNativeWorkRegistry,
     pub(super) health: RuntimeHealth,
     pub(super) focus_broker: Arc<NativeFocusBroker>,
     pub(super) language: Mutex<String>,

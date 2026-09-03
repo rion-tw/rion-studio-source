@@ -9,6 +9,7 @@ if (!Number.isInteger(port) || (port !== 0 && (port < 1024 || port > 65535))) {
 let activePort = port;
 
 const counters = new Map();
+const downloadResponses = new Set();
 const eventWaiters = new Set();
 const events = [];
 const gates = new Map();
@@ -77,8 +78,30 @@ function normalizedCaretSnapshot(input) {
   };
 }
 
+function normalizedFileUpload(input) {
+  if (!input || typeof input !== "object") return undefined;
+  if (
+    !Number.isSafeInteger(input.bytes) || input.bytes < 1 || input.bytes > 1_048_576 ||
+    typeof input.fileName !== "string" || input.fileName.length < 1 ||
+    input.fileName.length > 255 || !/^[a-f0-9]{64}$/.test(input.sha256)
+  ) {
+    return undefined;
+  }
+  return {
+    bytes: input.bytes,
+    fileName: input.fileName,
+    sha256: input.sha256
+  };
+}
+
 function recordFixtureEvent(input) {
   const event = {
+    button: Number.isInteger(input.button) && input.button >= 0 && input.button <= 2
+      ? input.button
+      : undefined,
+    buttons: Number.isInteger(input.buttons) && input.buttons >= 0
+      ? input.buttons
+      : undefined,
     caret: normalizedCaretSnapshot(input.caret),
     code: typeof input.code === "string" ? input.code : undefined,
     coordinates: input.coordinates,
@@ -87,6 +110,7 @@ function recordFixtureEvent(input) {
       : undefined,
     errorCode: typeof input.errorCode === "string" ? input.errorCode : undefined,
     errorMessage: typeof input.errorMessage === "string" ? input.errorMessage : undefined,
+    fileUpload: normalizedFileUpload(input.fileUpload),
     hidden: typeof input.hidden === "boolean" ? input.hidden : undefined,
     isTrusted: typeof input.isTrusted === "boolean" ? input.isTrusted : undefined,
     key: typeof input.key === "string" ? input.key : undefined,
@@ -188,16 +212,23 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     main { position: relative; z-index: 1; width: min(760px, calc(100vw - 40px)); padding: 28px; border: 2px solid #5eead4; border-radius: 18px; background: #182131; box-shadow: 0 24px 80px #0008; }
     h1 { margin: 0 0 8px; color: #5eead4; }
     p { color: #a9b7ce; }
-    button, #contained-fullscreen-popup { display: block; width: 240px; height: 72px; margin: 28px auto; border: 0; border-radius: 14px; background: #7c3aed; color: white; font: inherit; font-size: 18px; line-height: 72px; text-align: center; text-decoration: none; cursor: pointer; }
+    button, #blocked-download, #contained-fullscreen-popup { display: block; width: 240px; height: 72px; margin: 28px auto; border: 0; border-radius: 14px; background: #7c3aed; color: white; font: inherit; font-size: 18px; line-height: 72px; text-align: center; text-decoration: none; cursor: pointer; }
     dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
     div { padding: 12px; border-radius: 10px; background: #0e1522; }
     dt { color: #8ea0bc; font-size: 12px; } dd { margin: 5px 0 0; font-size: 22px; }
     #last-event { color: #fbbf24; }
     #game-input-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: 0; }
     #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
+    #qa-target.contained-fullscreen-layout { position: static; transform: none; }
+    #active-navigation-failure { position: fixed; left: 50%; bottom: 24px; z-index: 3; height: 56px; margin: 0; transform: translateX(-50%); line-height: normal; }
+    #active-navigation-failure[hidden] { display: none; }
     #contained-fullscreen-controls { padding: 18px; border: 1px solid #5eead4; border-radius: 12px; background: #0e1522; }
     #contained-fullscreen-controls[hidden] { display: none; }
     #contained-fullscreen-controls button, #contained-fullscreen-controls a { position: static; transform: none; }
+    #contained-fullscreen-controls #permission-geolocation,
+    #contained-fullscreen-controls #blocked-download,
+    #contained-fullscreen-controls #file-upload { position: relative; z-index: 3; }
+    #file-upload { display: block; width: min(420px, 100%); margin: 28px auto; padding: 16px; border: 2px solid #7c3aed; border-radius: 14px; background: #0e1522; color: white; font: inherit; cursor: pointer; }
     #verification-frame { position: fixed; inset: 0; z-index: 4; width: 100vw; height: 100vh; border: 0; background: #10141d; }
     #verification-frame[hidden] { display: none; }
     #text_input { position: fixed; right: 24px; bottom: 24px; z-index: 3; width: min(420px, calc(100vw - 48px)); padding: 12px; border: 2px solid #fbbf24; border-radius: 10px; background: #0e1522; color: #ecf2ff; font: inherit; }
@@ -211,11 +242,15 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     <h1>[Runtime QA] <span id="role-id"></span></h1>
     <p>Local-only WKWebView/WebView2 lifecycle, focus, input, and macro fixture.</p>
     <button id="qa-target" type="button">Macro click target</button>
+    <button id="active-navigation-failure" type="button" hidden>Navigate active page</button>
     <section id="contained-fullscreen-controls" hidden>
       <p>Workspace Web contained fullscreen fixture</p>
       <button id="contained-fullscreen-enter" type="button">Enter contained fullscreen</button>
       <button id="contained-fullscreen-exit" type="button">Exit contained fullscreen</button>
-      <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="rion-contained-fullscreen-popup" hidden>Open fullscreen popup</a>
+      <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="_blank" rel="noopener" hidden>Open fullscreen popup</a>
+      <button id="permission-geolocation" type="button" hidden>Request denied geolocation</button>
+      <a id="blocked-download" href="/download/${roleId}" download hidden>Attempt blocked download</a>
+      <input id="file-upload" type="file" accept="text/plain" aria-label="Choose upload fixture" hidden>
     </section>
     <iframe id="verification-frame" title="Robot verification" hidden></iframe>
     <dl>
@@ -236,7 +271,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const challengeUrl = ${safeChallengeUrl};
     const verificationEnabled = roleId === "macro-input-recovery";
     const flyffCaretDiagnosticsEnabled = roleId === "macro-keyboard-a";
+    const activeNavigationFailureEnabled =
+      roleId === "chromium-workspaces-recovery-failing"
+      || new URL(location.href).searchParams.get("activeNavigationFailure") === "1";
     const containedFullscreenEnabled = roleId === "e2e-workspace-web"
+      || roleId === "chromium-workspace-web-fullscreen"
+      || roleId === "chromium-controlled-role-reload"
       || roleId === "e2e-workspace-popup";
     const containedFullscreenPopup = roleId === "e2e-workspace-popup";
     let verificationComplete = false;
@@ -259,6 +299,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
           keepalive: true
         }))
         .then(() => undefined, () => undefined);
+      return recordQueue;
     };
     const qaTarget = document.querySelector("#qa-target");
     if (verificationEnabled) qaTarget.textContent = "Open robot verification";
@@ -266,6 +307,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     qaTarget.addEventListener("mousedown", (event) => event.preventDefault());
     qaTarget.addEventListener("click", async (event) => {
       record("click", {
+        button: event.button,
+        buttons: event.buttons,
         coordinates: { x: event.clientX, y: event.clientY },
         isTrusted: event.isTrusted,
         targetId: event.currentTarget.id
@@ -294,14 +337,81 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       }
       document.querySelector("#game-input-canvas").focus();
     });
+    const activeNavigationFailure = document.querySelector("#active-navigation-failure");
+    if (activeNavigationFailureEnabled) {
+      activeNavigationFailure.hidden = false;
+      activeNavigationFailure.addEventListener("click", async (event) => {
+        await record("navigation-requested", {
+          isTrusted: event.isTrusted,
+          targetId: event.currentTarget.id
+        });
+        window.location.assign(window.location.href);
+      });
+    }
     const containedFullscreenControls = document.querySelector("#contained-fullscreen-controls");
     if (containedFullscreenEnabled) {
+      qaTarget.classList.add("contained-fullscreen-layout");
       let containedFullscreenExitCount = 0;
       containedFullscreenControls.hidden = false;
       const popupButton = document.querySelector("#contained-fullscreen-popup");
-      popupButton.hidden = roleId !== "e2e-workspace-web";
+      const permissionButton = document.querySelector("#permission-geolocation");
+      const downloadLink = document.querySelector("#blocked-download");
+      const fileUpload = document.querySelector("#file-upload");
+      const securityPolicyEnabled = roleId === "chromium-workspace-web-fullscreen";
+      popupButton.hidden = roleId !== "e2e-workspace-web"
+        && roleId !== "chromium-workspace-web-fullscreen"
+        && roleId !== "chromium-controlled-role-reload";
+      permissionButton.hidden = !securityPolicyEnabled;
+      downloadLink.hidden = !securityPolicyEnabled;
+      fileUpload.hidden = !securityPolicyEnabled;
       popupButton.addEventListener("click", (event) => {
         record("contained-popup-requested", { isTrusted: event.isTrusted });
+      });
+      permissionButton.addEventListener("click", (event) => {
+        record("permission-requested", {
+          isTrusted: event.isTrusted,
+          targetId: event.currentTarget.id
+        });
+        navigator.geolocation.getCurrentPosition(
+          () => record("permission-unexpectedly-granted"),
+          (error) => record("permission-denied", {
+            errorCode: String(error.code),
+            errorMessage: error.message
+          })
+        );
+      });
+      downloadLink.addEventListener("click", (event) => {
+        record("download-requested", {
+          isTrusted: event.isTrusted,
+          targetId: event.currentTarget.id
+        });
+      });
+      fileUpload.addEventListener("click", (event) => {
+        record("file-upload-requested", {
+          isTrusted: event.isTrusted,
+          targetId: event.currentTarget.id
+        });
+      });
+      fileUpload.addEventListener("change", async (event) => {
+        const input = event.currentTarget;
+        const file = input.files?.[0];
+        if (!file) {
+          record("file-upload-empty", { isTrusted: event.isTrusted });
+          return;
+        }
+        const contents = await file.arrayBuffer();
+        const digest = await crypto.subtle.digest("SHA-256", contents);
+        const sha256 = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0")).join("");
+        record("file-upload-selected", {
+          fileUpload: {
+            bytes: contents.byteLength,
+            fileName: file.name,
+            sha256
+          },
+          isTrusted: event.isTrusted,
+          targetId: input.id
+        });
       });
       document.addEventListener("click", (event) => {
         record("contained-control-click", {
@@ -324,11 +434,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       });
       document.addEventListener("fullscreenchange", () => {
         const active = document.fullscreenElement === containedFullscreenControls;
-        if (!active && roleId === "e2e-workspace-web") {
+        if (!active && (roleId === "e2e-workspace-web"
+            || roleId === "chromium-workspace-web-fullscreen")) {
           containedFullscreenExitCount += 1;
           if (containedFullscreenExitCount >= 2) {
             qaTarget.hidden = true;
-            popupButton.style.cssText = "position:fixed;inset:0;z-index:3;width:100vw;height:100vh;margin:0;display:grid;place-items:center";
+            popupButton.style.cssText = "position:fixed;inset:0;z-index:5;width:100vw;height:100vh;margin:0;display:grid;place-items:center";
           }
         }
         const rect = containedFullscreenControls.getBoundingClientRect();
@@ -639,6 +750,17 @@ function notifyNavigationFailureRecoveryObservers(roleId, failure) {
   failure.recoveryObservers.clear();
 }
 
+function sendTerminalNavigationFailure(response, roleId) {
+  const body = `<!doctype html><title>Truncated navigation ${roleId}</title>`;
+  response.writeHead(200, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(body) + 4096,
+    "content-type": "text/html; charset=utf-8",
+    "x-content-type-options": "nosniff"
+  });
+  response.end(body);
+}
+
 function releaseNavigationFailure(roleId) {
   const failure = navigationFailureState(roleId);
   failure.enabled = false;
@@ -663,6 +785,27 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/state") {
       json(response, 200, Object.fromEntries([...counters.entries()].sort()));
+      return;
+    }
+    const downloadMatch = request.method === "GET"
+      && url.pathname.match(/^\/download\/([a-z0-9-]+)$/);
+    if (downloadMatch) {
+      const roleId = downloadMatch[1];
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-disposition": `attachment; filename="${roleId}.txt"`,
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      });
+      response.write("blocked Chromium download fixture\n");
+      downloadResponses.add(response);
+      recordFixtureEvent({ kind: "download-response-started", roleId });
+      response.once("close", () => {
+        downloadResponses.delete(response);
+        if (!response.writableEnded) {
+          recordFixtureEvent({ kind: "download-transport-cancelled", roleId });
+        }
+      });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/events") {
@@ -873,7 +1016,7 @@ const server = createServer(async (request, response) => {
         if (failure.failedAttempts === 0) {
           failure.failedAttempts += 1;
           notifyNavigationFailureAttemptObservers(roleId, failure);
-          response.destroy();
+          sendTerminalNavigationFailure(response, roleId);
           return;
         }
         failure.recoveryWaiters.add(response);
@@ -898,7 +1041,15 @@ const server = createServer(async (request, response) => {
       const waiter = { marker, response, sessionMode };
       gate.waiters.add(waiter);
       notifyGateObservers(roleId, gate);
-      response.once("close", () => gate.waiters.delete(waiter));
+      response.once("close", () => {
+        const cancelledWhileWaiting = gate.waiters.delete(waiter);
+        if (cancelledWhileWaiting && !response.writableEnded) {
+          recordFixtureEvent({
+            kind: "gated-navigation-transport-cancelled",
+            roleId
+          });
+        }
+      });
       return;
     }
     const challengeMatch = request.method === "GET"
@@ -920,5 +1071,9 @@ server.listen(port, "127.0.0.1", () => {
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => server.close(() => process.exit(0)));
+  process.on(signal, () => {
+    for (const response of downloadResponses) response.destroy();
+    downloadResponses.clear();
+    server.close(() => process.exit(0));
+  });
 }

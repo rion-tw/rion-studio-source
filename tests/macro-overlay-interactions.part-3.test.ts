@@ -768,6 +768,57 @@ it("consumes a late physical keyup after blur cleans a while-held shortcut", asy
     expect(pageKeyUp).not.toHaveBeenCalled();
   });
 
+it("releases a managed game key once when blur hides the native keyup", async () => {
+    const { canvas } = createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async () => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    const phases: string[] = [];
+    Object.assign(binding, {
+      managedShortcutKeyPhase: async (request: { code: string; phase: string }) => {
+        phases.push(request.phase);
+        if (request.phase !== "keyDown") return;
+        expect(controller.suppressNextShortcut?.(
+          "managed-held-down",
+          request.code,
+          "keydown"
+        )).toBe(true);
+        canvas.dispatchEvent(new window.KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          code: request.code,
+          key: "F2"
+        }));
+      }
+    });
+    await controller.refresh();
+    const gameEvents: Array<{ code: string; trusted: boolean; type: string }> = [];
+    for (const type of ["keydown", "keyup"] as const) {
+      canvas.addEventListener(type, (event) => gameEvents.push({
+        code: event.code,
+        trusted: event.isTrusted,
+        type
+      }));
+    }
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(phases).toEqual(["keyDown"]));
+    window.dispatchEvent(new window.Event("blur"));
+    await vi.waitFor(() => expect(phases).toEqual(["keyDown", "keyUp"]));
+    await vi.waitFor(() => expect(gameEvents).toEqual([
+      { code: "F2", trusted: false, type: "keydown" },
+      { code: "F2", trusted: false, type: "keyup" }
+    ]));
+
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
+    expect(gameEvents).toHaveLength(2);
+  });
+
 it("matches release by physical code after modifiers are released", async () => {
     createGameSurface(document);
     const heldMacro: Macro = {

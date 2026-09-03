@@ -244,7 +244,7 @@ fn home_directory() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::LogSource;
+    use crate::model::{CoreEvent, LogSource};
 
     fn capture(level: LogLevel, context_raw_json: Option<&str>) -> LogCaptureRecord {
         LogCaptureRecord {
@@ -322,6 +322,17 @@ mod tests {
                 && entry.packaged == Some(true)
                 && entry.runtime_contract_version == Some(22)
         }));
+    }
+
+    #[test]
+    fn omits_absent_optional_fields_from_captured_log_event_json() {
+        let mut runtime = LogCaptureRuntime::new(PathBuf::from("/users/test/Rion"), LogLevel::Info);
+        let entries = runtime.capture(vec![capture(LogLevel::Error, None)]);
+        let event = serde_json::to_value(CoreEvent::LogEntriesCaptured { entries }).unwrap();
+        let entry = &event["entries"][0];
+
+        assert!(entry.get("context").is_none());
+        assert!(entry.get("error").is_none());
     }
 
     #[test]

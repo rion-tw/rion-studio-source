@@ -1275,22 +1275,6 @@ impl SystemRuntimeExecutor {
         )
     }
 
-    fn close_managed_surface_with_release_boundary_and_wait(
-        &self,
-        instance_id: &str,
-        lifecycle_id: &str,
-        release_boundary: SurfaceReleaseBoundary,
-    ) -> RuntimeResult<()> {
-        tauri::async_runtime::block_on(
-            self.close_managed_surface_with_release_boundary_event_bound(
-                instance_id,
-                lifecycle_id,
-                Some(release_boundary),
-                application_shutdown_defers_navigation_to_preflight(),
-            ),
-        )
-    }
-
     async fn wait_for_managed_surface_release(
         &self,
         _instance_id: &str,

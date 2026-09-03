@@ -498,11 +498,11 @@ pub struct LogEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub packaged: Option<bool>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     #[ts(type = "Record<string, unknown>")]
     pub context: Option<BTreeMap<String, Value>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub error: Option<LogErrorDetails>,
 }

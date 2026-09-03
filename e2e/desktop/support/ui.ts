@@ -128,6 +128,17 @@ export async function acceptLegalAndSkipFirstRun(): Promise<void> {
   await sidebar.waitForExist({ timeout: 20_000 });
 }
 
+export async function clickWorkspaceCreateAction(): Promise<void> {
+  for (const label of ["New workspace", "Create workspace"] as const) {
+    const action = await $(`button=${label}`);
+    if (!(await action.isExisting())) continue;
+    await action.waitForClickable({ timeout: 10_000 });
+    await action.click();
+    return;
+  }
+  throw new Error("The Workspaces route has no visible create action");
+}
+
 export async function navigate(path: string): Promise<void> {
   const result = await browser.executeAsync(
     (nextPath: string, done: (result: RendererNavigationResult) => void) => {
@@ -162,11 +173,26 @@ export async function waitForRoute(path: string): Promise<void> {
 }
 
 export async function setEditorName(value: string): Promise<void> {
-  const name = await $("#app-editor-form input[name='name']");
-  await name.waitForExist({ timeout: 10_000 });
-  await name.clearValue();
-  await name.setValue(value);
-  await expect(name).toHaveValue(value);
+  await setInputValue("#app-editor-form input[name='name']", value);
+}
+
+export async function setInputValue(selector: string, value: string): Promise<void> {
+  const input = await $(selector);
+  await input.waitForExist({ timeout: 10_000 });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await input.clearValue();
+    await browser.waitUntil(async () => await input.getValue() === "", {
+      timeout: 2_000,
+      timeoutMsg: `Visible input ${selector} did not clear`
+    });
+    for (const character of value) {
+      await input.addValue(character);
+    }
+    if (await input.getValue() === value) break;
+  }
+
+  await expect($(selector)).toHaveValue(value);
 }
 
 export async function submitEditor(expectedRoute: string): Promise<void> {
@@ -337,7 +363,7 @@ export async function clickEntityMenuAction(
   const trigger = await entity.$(`button[aria-label='${triggerLabel}']`);
   await trigger.waitForExist({ timeout: 10_000 });
   await trigger.scrollIntoView({ block: "center", inline: "center" });
-  await focusMainApplicationWindow();
+  if (browser.tauri) await focusMainApplicationWindow();
   await entity.moveTo();
   await browser.execute((control) => control.focus({ preventScroll: true }), trigger);
   await trigger.waitForDisplayed({ timeout: 10_000 });

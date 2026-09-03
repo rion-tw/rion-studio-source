@@ -40,11 +40,8 @@ impl SystemRuntimeExecutor {
             } => {
                 let (attempt_is_current, completed_failed_launch_cleanup, runtime_tab_exists) = {
                     let mut state = self.state()?;
-                    let attempt_is_current = launch_attempt_is_current(
-                        &state,
-                        &tab_id,
-                        attempt_generation.as_deref(),
-                    );
+                    let attempt_is_current =
+                        launch_attempt_is_current(&state, &tab_id, attempt_generation.as_deref());
                     let completed = failed_launch_cleanup_has_completed(
                         &state,
                         &tab_id,
@@ -53,7 +50,11 @@ impl SystemRuntimeExecutor {
                     if completed {
                         state.retryable_failed_launches.insert(tab_id.clone());
                     }
-                    (attempt_is_current, completed, state.native_resources.tabs.contains_key(&tab_id))
+                    (
+                        attempt_is_current,
+                        completed,
+                        state.native_resources.tabs.contains_key(&tab_id),
+                    )
                 };
                 if !attempt_is_current || completed_failed_launch_cleanup || !runtime_tab_exists {
                     self.record_presentation_event(
@@ -81,12 +82,15 @@ impl SystemRuntimeExecutor {
                         "The close effect was cancelled before native isolation began.",
                     ));
                 }
-                if self.presentation.tab_window(&tab_id).ok().flatten().is_some() {
+                if self
+                    .presentation
+                    .tab_window(&tab_id)
+                    .ok()
+                    .flatten()
+                    .is_some()
+                {
                     let _ = self
-                        .prepare_destroy_tab_presentation(
-                            &tab_id,
-                            next_active_tab_id.as_deref(),
-                        )
+                        .prepare_destroy_tab_presentation(&tab_id, next_active_tab_id.as_deref())
                         .ok();
                 }
                 let result = self.destroy_tab_event_bound(&tab_id).await;
@@ -109,6 +113,8 @@ impl SystemRuntimeExecutor {
         effect: CoreEffectRequest,
         presentation_revision: u64,
     ) -> RuntimeResult<Option<String>> {
+        let effect_id = effect.effect_id.clone();
+        let operation_id = effect.operation_id.clone();
         let parent_operation_id = effect.parent_operation_id.clone();
         match effect.action {
             CoreEffectAction::EmbeddedCreateTab { tab } => {
@@ -126,6 +132,10 @@ impl SystemRuntimeExecutor {
                 self.load_roles(roles)?;
                 Ok(None)
             }
+            CoreEffectAction::EmbeddedLoadWebSurfaces { .. } => Err(RuntimeError::new(
+                "CHROMIUM_WEB_SURFACE_EFFECT_UNAVAILABLE",
+                "The global Chromium Web surface effect is unavailable in the stable System WebView runtime.",
+            )),
             CoreEffectAction::EmbeddedInstallOverlays { role_ids } => {
                 self.install_overlays(&role_ids)?;
                 Ok(None)
@@ -135,6 +145,31 @@ impl SystemRuntimeExecutor {
                 zoom_factor,
             } => {
                 self.focus_role(&role_id, zoom_factor)?;
+                Ok(None)
+            }
+            CoreEffectAction::EmbeddedSetTabAudioMuted {
+                tab_id,
+                window_id,
+                attempt_generation,
+                roles,
+                web_surfaces,
+                previous_muted,
+                muted,
+            } => {
+                if !web_surfaces.is_empty() {
+                    return Err(RuntimeError::new(
+                        "CHROMIUM_WEB_SURFACE_EFFECT_UNAVAILABLE",
+                        "Global Chromium Web surface audio is unavailable in the stable System WebView runtime.",
+                    ));
+                }
+                self.apply_tab_audio_muted_effect(
+                    &tab_id,
+                    &window_id,
+                    &attempt_generation,
+                    &roles,
+                    muted,
+                    previous_muted,
+                )?;
                 Ok(None)
             }
             CoreEffectAction::EmbeddedDestroyRole { role_id } => {
@@ -152,11 +187,8 @@ impl SystemRuntimeExecutor {
             } => {
                 let (attempt_is_current, completed_failed_launch_cleanup, runtime_tab_exists) = {
                     let mut state = self.state()?;
-                    let attempt_is_current = launch_attempt_is_current(
-                        &state,
-                        &tab_id,
-                        attempt_generation.as_deref(),
-                    );
+                    let attempt_is_current =
+                        launch_attempt_is_current(&state, &tab_id, attempt_generation.as_deref());
                     let completed = failed_launch_cleanup_has_completed(
                         &state,
                         &tab_id,
@@ -165,7 +197,11 @@ impl SystemRuntimeExecutor {
                     if completed {
                         state.retryable_failed_launches.insert(tab_id.clone());
                     }
-                    (attempt_is_current, completed, state.native_resources.tabs.contains_key(&tab_id))
+                    (
+                        attempt_is_current,
+                        completed,
+                        state.native_resources.tabs.contains_key(&tab_id),
+                    )
                 };
                 if !attempt_is_current || completed_failed_launch_cleanup || !runtime_tab_exists {
                     self.record_presentation_event(
@@ -188,7 +224,13 @@ impl SystemRuntimeExecutor {
                     // A visible close already removed the tab from LiveWindowTabStore and
                     // presented its successor. A late Core owner-cleanup effect must not run
                     // a second UI preflight against the now-absent tab.
-                    if self.presentation.tab_window(&tab_id).ok().flatten().is_some() {
+                    if self
+                        .presentation
+                        .tab_window(&tab_id)
+                        .ok()
+                        .flatten()
+                        .is_some()
+                    {
                         let _ = self
                             .prepare_destroy_tab_presentation(
                                 &tab_id,
@@ -204,12 +246,20 @@ impl SystemRuntimeExecutor {
                 Ok(None)
             }
             CoreEffectAction::EmbeddedFollowRoleOwnership {
+                lifecycle_epoch: _,
                 roles,
+                windows,
                 target,
                 reveal_window_ids,
                 focus_window_ids,
                 focus_tab_id,
             } => {
+                if !windows.is_empty() {
+                    return Err(RuntimeError::new(
+                        "CHROMIUM_WINDOW_TOPOLOGY_EFFECT_UNAVAILABLE",
+                        "Core emitted Chromium window topology to the stable System WebView runtime.",
+                    ));
+                }
                 self.apply_runtime(
                     roles,
                     target,
@@ -223,15 +273,44 @@ impl SystemRuntimeExecutor {
                 )?;
                 Ok(None)
             }
+            CoreEffectAction::EmbeddedApplyAppKitProjection { .. } => Err(RuntimeError::new(
+                "APPKIT_CHROMIUM_EFFECT_UNAVAILABLE",
+                "The AppKit Chromium projection effect is unavailable in the stable System WebView runtime.",
+            )),
+            CoreEffectAction::EmbeddedProvisionWindowForTabMove { .. }
+            | CoreEffectAction::EmbeddedRetireProvisionedWindow { .. }
+            | CoreEffectAction::EmbeddedSetRuntimeWindowVisibility { .. }
+            | CoreEffectAction::EmbeddedSetRuntimeWindowPresentation { .. } => {
+                Err(RuntimeError::new(
+                    "CHROMIUM_RUNTIME_UI_EFFECT_UNAVAILABLE",
+                    "A Chromium Game Window UI effect is unavailable in the stable System WebView runtime.",
+                ))
+            }
+            CoreEffectAction::EmbeddedSetRuntimeWindowZoom { .. } => Err(RuntimeError::new(
+                "CHROMIUM_RUNTIME_WINDOW_ZOOM_EFFECT_UNAVAILABLE",
+                "Core emitted a Chromium runtime-window zoom effect to the stable System WebView runtime.",
+            )),
+            CoreEffectAction::EmbeddedPrepareTabRoleReload { .. }
+            | CoreEffectAction::EmbeddedCommitTabRoleReload { .. }
+            | CoreEffectAction::EmbeddedSupersedeTabRoleReload { .. } => Err(RuntimeError::new(
+                "CHROMIUM_TAB_ROLE_RELOAD_EFFECT_UNAVAILABLE",
+                "Controlled Chromium Role reload is unavailable in the stable System WebView runtime.",
+            )),
             CoreEffectAction::RoleBrowserDataClearSession {
                 role_id,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
             } => self.clear_role_browser_data_contract(
+                &effect_id,
+                &operation_id,
                 &role_id,
                 &webview2_user_data_dir,
                 &webkit_data_store_identifier,
             ),
+            CoreEffectAction::GlobalWebProfileClear { .. } => Err(RuntimeError::new(
+                "CHROMIUM_GLOBAL_WEB_PROFILE_CLEAR_UNAVAILABLE",
+                "The global Chromium Web profile is unavailable in the stable System WebView runtime.",
+            )),
             CoreEffectAction::ChromeProfileImportSnapshot {
                 transaction_id,
                 role_id,
@@ -239,6 +318,7 @@ impl SystemRuntimeExecutor {
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
                 replace_existing,
+                ..
             } => self.snapshot_role_session_contract(
                 &transaction_id,
                 RoleSessionContractTarget::new(
@@ -256,6 +336,7 @@ impl SystemRuntimeExecutor {
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
                 replace_existing,
+                ..
             } => self.apply_role_session_contract(
                 transaction_id,
                 RoleSessionContractTarget::new(
@@ -273,22 +354,34 @@ impl SystemRuntimeExecutor {
                 login_path,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
-            } => self.verify_role_session_contract(
-                RoleSessionContractTarget::new(
-                    &role_id,
-                    &verification_url,
-                    &webview2_user_data_dir,
-                    &webkit_data_store_identifier,
-                ),
-                &authenticated_path,
-                &login_path,
-            ),
+                ..
+            } => {
+                let (Some(verification_url), Some(authenticated_path), Some(login_path)) =
+                    (verification_url, authenticated_path, login_path)
+                else {
+                    return Err(RuntimeError::new(
+                        "SESSION_IMPORT_AUTH_PROBE_INVALID",
+                        "The stable System WebView import requires an exact authentication probe.",
+                    ));
+                };
+                self.verify_role_session_contract(
+                    RoleSessionContractTarget::new(
+                        &role_id,
+                        &verification_url,
+                        &webview2_user_data_dir,
+                        &webkit_data_store_identifier,
+                    ),
+                    &authenticated_path,
+                    &login_path,
+                )
+            }
             CoreEffectAction::ChromeProfileImportRollback {
                 transaction_id,
                 role_id,
                 launch_url,
                 webview2_user_data_dir,
                 webkit_data_store_identifier,
+                ..
             } => self.rollback_role_session_contract(
                 &transaction_id,
                 RoleSessionContractTarget::new(
@@ -298,7 +391,7 @@ impl SystemRuntimeExecutor {
                     &webkit_data_store_identifier,
                 ),
             ),
-            CoreEffectAction::ChromeProfileImportCommit { transaction_id } => {
+            CoreEffectAction::ChromeProfileImportCommit { transaction_id, .. } => {
                 self.commit_role_session_contract(&transaction_id)
             }
             CoreEffectAction::OverlayOpenMacroPage { role_id } => {
@@ -354,12 +447,7 @@ impl SystemRuntimeExecutor {
             let mut executed = Vec::new();
             for effect in managed_shortcut_key_effects(code, phase, modifier_codes)? {
                 let dispatch_result = context.ensure_current().and_then(|()| {
-                    self.dispatch_guarded_macro_key_effect(
-                        role_id,
-                        &webview,
-                        &effect,
-                        &context,
-                    )
+                    self.dispatch_guarded_macro_key_effect(role_id, &webview, &effect, &context)
                 });
                 if let Err(mut error) = dispatch_result {
                     if let Some(cleanup_error) =
@@ -416,7 +504,10 @@ impl SystemRuntimeExecutor {
         let deadline_ms = request.deadline_ms;
         #[cfg(feature = "desktop-e2e")]
         let inject_indeterminate = (request.intent == "normal"
-            && matches!(&request.action, BrowserAction::Key { .. } | BrowserAction::Click { .. }))
+            && matches!(
+                &request.action,
+                BrowserAction::Key { .. } | BrowserAction::Click { .. }
+            ))
         .then(|| self.desktop_e2e_take_indeterminate_macro_input(&role_id))
         .flatten();
         #[cfg(not(feature = "desktop-e2e"))]
@@ -450,60 +541,52 @@ impl SystemRuntimeExecutor {
                 let context = self.input_dispatch_context(&request)?;
                 native_operation.surface_generation = Some(context.surface_generation);
                 self.with_input_context_lane(&context, || match request.action {
-                BrowserAction::Focus => {
-                    // Native key and mouse delivery targets the role WebView directly. Focus is
-                    // therefore an event-fenced page-readiness check, not permission to blur the
-                    // game canvas or replace the foreground role's AppKit first responder.
-                    let webview = self.role_webview_for_input(&role_id, &context)?;
-                    if !context.is_cleanup() {
-                        let readiness = self.ensure_automation_surface_ready(
-                            &role_id,
-                            &webview,
-                            &context,
-                        );
-                        automation_readiness = Some(readiness.observation);
-                        readiness.result?;
-                        self.preflight_automatic_input_context(&role_id, &webview, &context)?;
+                    BrowserAction::Focus => {
+                        // Native key and mouse delivery targets the role WebView directly. Focus is
+                        // therefore an event-fenced page-readiness check, not permission to blur the
+                        // game canvas or replace the foreground role's AppKit first responder.
+                        let webview = self.role_webview_for_input(&role_id, &context)?;
+                        if !context.is_cleanup() {
+                            let readiness =
+                                self.ensure_automation_surface_ready(&role_id, &webview, &context);
+                            automation_readiness = Some(readiness.observation);
+                            readiness.result?;
+                            self.preflight_automatic_input_context(&role_id, &webview, &context)?;
+                        }
+                        self.wait_for_role_input_focus(&role_id, &context)
+                            .map(|()| None)
                     }
-                    self.wait_for_role_input_focus(&role_id, &context)
-                        .map(|()| None)
-                }
-                BrowserAction::Key {
-                    phase,
-                    key,
-                    code,
-                    modifiers,
-                    owner_id,
-                    suppress_overlay_shortcut: _,
-                } => {
-                    let code = code.filter(|value| !value.is_empty()).unwrap_or(key);
-                    self.dispatch_key_action_in_lane(
-                        &role_id,
-                        &phase,
-                        &code,
-                        &modifiers,
-                        &owner_id,
-                        &context,
-                    )?;
-                    Ok(None)
-                }
-                BrowserAction::Click {
-                    anchor,
-                    unit,
-                    x,
-                    y,
-                    button,
-                } => {
-                    let click = ClickActionDispatch {
-                        anchor: anchor.as_deref(),
-                        unit: &unit,
+                    BrowserAction::Key {
+                        phase,
+                        key,
+                        code,
+                        modifiers,
+                        owner_id,
+                        suppress_overlay_shortcut: _,
+                    } => {
+                        let code = code.filter(|value| !value.is_empty()).unwrap_or(key);
+                        self.dispatch_key_action_in_lane(
+                            &role_id, &phase, &code, &modifiers, &owner_id, &context,
+                        )?;
+                        Ok(None)
+                    }
+                    BrowserAction::Click {
+                        anchor,
+                        unit,
                         x,
                         y,
-                        button: &button,
-                    };
-                    self.dispatch_click_action_in_lane(&role_id, &click, &context)?;
-                    Ok(None)
-                }
+                        button,
+                    } => {
+                        let click = ClickActionDispatch {
+                            anchor: anchor.as_deref(),
+                            unit: &unit,
+                            x,
+                            y,
+                            button: &button,
+                        };
+                        self.dispatch_click_action_in_lane(&role_id, &click, &context)?;
+                        Ok(None)
+                    }
                 })
             })()
         };
@@ -537,7 +620,10 @@ impl SystemRuntimeExecutor {
         let receipt = match result.as_ref() {
             Ok(_) => NativeOperationReceipt::applied(native_operation, native_stage),
             Err(error)
-                if matches!(error.code, "BROWSER_ACTION_STALE" | "BROWSER_ACTION_DEADLINE") =>
+                if matches!(
+                    error.code,
+                    "BROWSER_ACTION_STALE" | "BROWSER_ACTION_DEADLINE"
+                ) =>
             {
                 NativeOperationReceipt::with_status(
                     native_operation,
@@ -652,9 +738,7 @@ impl SystemRuntimeExecutor {
                 "The role input coordinator is unavailable.",
             )
         })?;
-        Ok(Arc::clone(
-            lanes.entry(role_id.to_owned()).or_default(),
-        ))
+        Ok(Arc::clone(lanes.entry(role_id.to_owned()).or_default()))
     }
 
     fn input_dispatch_context(
@@ -676,11 +760,19 @@ impl SystemRuntimeExecutor {
             .unwrap_or_else(Instant::now);
         let surface_generation = {
             let state = self.state()?;
-            let tab_id = state.native_tab_id_for_role_surface(&request.role_id).ok_or_else(|| {
-                RuntimeError::new("TAURI_RUNTIME_ROLE_NOT_FOUND", "Runtime role was not found.")
-            })?;
+            let tab_id = state
+                .native_tab_id_for_role_surface(&request.role_id)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                        "Runtime role was not found.",
+                    )
+                })?;
             if request.intent == "normal"
-                && (state.close_coordinator.closing_roles.contains(&request.role_id)
+                && (state
+                    .close_coordinator
+                    .closing_roles
+                    .contains(&request.role_id)
                     || state
                         .close_coordinator
                         .quarantined_roles
@@ -692,7 +784,8 @@ impl SystemRuntimeExecutor {
                 ));
             }
             state
-                .native_resources.tabs
+                .native_resources
+                .tabs
                 .get(tab_id)
                 .and_then(|tab| tab.roles.get(&request.role_id))
                 .map(|surface| surface.generation)
@@ -745,11 +838,17 @@ impl SystemRuntimeExecutor {
         let lane = self.role_input_lane(role_id)?;
         let surface_generation = {
             let state = self.state()?;
-            let tab_id = state.native_tab_id_for_role_surface(role_id).ok_or_else(|| {
-                RuntimeError::new("TAURI_RUNTIME_ROLE_NOT_FOUND", "Runtime role was not found.")
-            })?;
+            let tab_id = state
+                .native_tab_id_for_role_surface(role_id)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                        "Runtime role was not found.",
+                    )
+                })?;
             state
-                .native_resources.tabs
+                .native_resources
+                .tabs
                 .get(tab_id)
                 .and_then(|tab| tab.roles.get(role_id))
                 .map(|surface| surface.generation)
@@ -808,11 +907,17 @@ impl SystemRuntimeExecutor {
                 "The role is closing or quarantined and cannot accept automatic input.",
             ));
         }
-        let tab_id = state.native_tab_id_for_role_surface(role_id).ok_or_else(|| {
-            RuntimeError::new("TAURI_RUNTIME_ROLE_NOT_FOUND", "Runtime role was not found.")
-        })?;
+        let tab_id = state
+            .native_tab_id_for_role_surface(role_id)
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role was not found.",
+                )
+            })?;
         state
-            .native_resources.tabs
+            .native_resources
+            .tabs
             .get(tab_id)
             .and_then(|tab| tab.roles.get(role_id))
             .filter(|surface| surface.generation == context.surface_generation)
@@ -923,14 +1028,9 @@ impl SystemRuntimeExecutor {
             point,
             context,
         );
-        match dispatch_mouse_click_sequence(
-            &webview,
-            viewport,
-            point,
-            button,
-            context,
-            || self.cleanup_input_context(context),
-        ) {
+        match dispatch_mouse_click_sequence(&webview, viewport, point, button, context, || {
+            self.cleanup_input_context(context)
+        }) {
             Ok(diagnostics) => {
                 self.record_macro_click_submission(
                     role_id,
@@ -958,11 +1058,8 @@ impl SystemRuntimeExecutor {
                 if let Some(waiter) = middle_guard.as_ref() {
                     self.cancel_macro_key_observation(&waiter.dispatch_id);
                     let cleanup = self.cleanup_input_context(context);
-                    let _ = cancel_macro_middle_button_guard(
-                        &webview,
-                        &waiter.dispatch_id,
-                        &cleanup,
-                    );
+                    let _ =
+                        cancel_macro_middle_button_guard(&webview, &waiter.dispatch_id, &cleanup);
                 }
                 self.record_macro_click_submission(
                     role_id,
@@ -1011,13 +1108,7 @@ impl SystemRuntimeExecutor {
         owner_id: &str,
     ) -> RuntimeResult<EmbeddedKeyTransitionRecord> {
         self.core
-            .prepare_embedded_key_transition(
-                role_id,
-                phase,
-                code,
-                &modifier_codes,
-                owner_id,
-            )
+            .prepare_embedded_key_transition(role_id, phase, code, &modifier_codes, owner_id)
             .map_err(RuntimeError::core)
     }
 
@@ -1078,12 +1169,7 @@ impl SystemRuntimeExecutor {
             let cleanup = self.cleanup_input_context(context);
             for effect in release_reasserted_key_effects(&executed) {
                 if let Err(cleanup_error) =
-                    self.dispatch_guarded_macro_key_effect(
-                        role_id,
-                        &webview,
-                        &effect,
-                        &cleanup,
-                    )
+                    self.dispatch_guarded_macro_key_effect(role_id, &webview, &effect, &cleanup)
                 {
                     self.quarantine_role_input(role_id, &cleanup_error);
                     break;

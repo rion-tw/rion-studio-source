@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'; script-src 'none'; style-src 'self'; img-src 'self' data:; connect-src 'none'" />
+    <title>Rion Studio Web Controls</title>
+    <link rel="stylesheet" href="/runtime-web-chrome.css" />
+  </head>
+  <body>
+    <nav aria-label="Web navigation" data-rion-workspace-web-chrome>
+      <button id="back" type="button" aria-label="Back" title="Back" disabled>
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m9.5 3-5 5 5 5M5 8h7" /></svg>
+      </button>
+      <button id="forward" type="button" aria-label="Forward" title="Forward" disabled>
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m6.5 3 5 5-5 5M11 8H4" /></svg>
+      </button>
+      <button id="reload" type="button" aria-label="Reload" title="Reload">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M13 5V2.5L11.2 4A5.5 5.5 0 1 0 13.4 9" /></svg>
+      </button>
+      <button id="home" type="button" aria-label="Home" title="Home">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m2.5 7 5.5-4.5L13.5 7v6H9.8V9.5H6.2V13H2.5z" /></svg>
+      </button>
+      <form id="location-form" novalidate>
+        <input id="location" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Address" />
+      </form>
+    </nav>
+  </body>
+</html>

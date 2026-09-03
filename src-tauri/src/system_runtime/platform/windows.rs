@@ -3,6 +3,51 @@
 use super::super::*;
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn clear_platform_browser_data_event_bound(
+    webview: &Webview,
+) -> RuntimeResult<()> {
+    use webview2_com::{
+        ClearBrowsingDataCompletedHandler,
+        Microsoft::Web::WebView2::Win32::{ICoreWebView2_13, ICoreWebView2Profile2},
+    };
+    use windows::core::Interface;
+
+    await_event_bound_native_terminal(|terminal_sender| {
+        webview
+            .with_webview(move |platform_webview| unsafe {
+                let completion_sender = terminal_sender.clone();
+                let completion =
+                    ClearBrowsingDataCompletedHandler::create(Box::new(move |status| {
+                        let result = if status.is_ok() {
+                            Ok(())
+                        } else {
+                            Err(RuntimeError::new(
+                                "SYSTEM_BROWSER_DATA_CLEAR_NATIVE_FAILED",
+                                "WebView2 reported that browser-data clearing did not complete.",
+                            ))
+                        };
+                        let _ = completion_sender.send(result);
+                        Ok(())
+                    }));
+                let submitted = platform_webview
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|webview| webview.cast::<ICoreWebView2_13>())
+                    .and_then(|webview| webview.Profile())
+                    .and_then(|profile| profile.cast::<ICoreWebView2Profile2>())
+                    .and_then(|profile| profile.ClearBrowsingDataAll(&completion));
+                if submitted.is_err() {
+                    let _ = terminal_sender.send(Err(RuntimeError::new(
+                        "SYSTEM_BROWSER_DATA_CLEAR_SUBMISSION_FAILED",
+                        "WebView2 rejected the browser-data clear request before submission.",
+                    )));
+                }
+            })
+            .map_err(RuntimeError::tauri)
+    })
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn platform_webview_diagnostics(
     webview: &Webview,
 ) -> PlatformWebViewDiagnostics {
@@ -136,6 +181,8 @@ include!("windows/material.rs");
 include!("windows/reparent.rs");
 #[cfg(windows)]
 include!("windows/selected_surface_reprojection.rs");
+#[cfg(windows)]
+include!("windows/session_export.rs");
 
 #[cfg(windows)]
 pub(in crate::system_runtime) fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {

@@ -151,6 +151,8 @@ mod tests {
             intent: "normal".to_owned(),
             scheduled_at_ms: 10,
             deadline_ms: 20,
+            surface_generation: None,
+            document_instance_id: None,
             action: BrowserAction::Focus,
         };
         let effect = effect_request(request);

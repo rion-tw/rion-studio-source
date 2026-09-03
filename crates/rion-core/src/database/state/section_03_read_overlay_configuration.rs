@@ -96,7 +96,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
 
-    if (19..=27).contains(&current_version) {
+    if (19..=28).contains(&current_version) {
         connection
             .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -155,10 +155,21 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                     )
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
-            migrate_game_window_workspace_slots(connection)?;
+            if current_version <= 27 {
+                migrate_game_window_workspace_slots(connection)?;
+                connection
+                    .execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (28, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                        [],
+                    )
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            }
+            connection
+                .execute_batch(crate::session_migration::ROLE_SESSION_MIGRATION_SCHEMA_SQL)
+                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             connection
                 .execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (28, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (29, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                     [],
                 )
                 .map(|_| ())
@@ -172,8 +183,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             .execute_batch("COMMIT;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     } else if current_version == 0 {
-        connection
-            .execute_batch(
+        let schema = format!(
                 "BEGIN IMMEDIATE;
                  CREATE TABLE schema_migrations (
                    version INTEGER PRIMARY KEY,
@@ -276,10 +286,14 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                    updated_at TEXT NOT NULL
                  );
                  CREATE INDEX operation_journal_kind_phase_idx ON operation_journal(kind, phase);
+                 {}
                  INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (28, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 VALUES (29, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                  COMMIT;",
-            )
+                crate::session_migration::ROLE_SESSION_MIGRATION_SCHEMA_SQL
+            );
+        connection
+            .execute_batch(&schema)
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
         seed_builtin_games(connection)?;
         repair_required_settings(connection)?;
@@ -621,6 +635,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         .as_object()
         .ok_or_else(|| CoreError::InvalidInput("state snapshot must be an object".to_owned()))?;
     validate_macro_graph(array_field(object, "macros")?)?;
+    preserve_role_session_migrations_for_snapshot(transaction)?;
     transaction
         .execute_batch(
             "
@@ -641,6 +656,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     insert_entities(transaction, "games", array_field(object, "games")?)?;
     insert_entities(transaction, "roles", array_field(object, "roles")?)?;
+    restore_role_session_migrations_for_snapshot(transaction)?;
     insert_workspaces(transaction, array_field(object, "launchWorkspaces")?)?;
     let game_windows = object
         .get("gameWindows")
@@ -710,6 +726,64 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         )
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     Ok(())
+}
+
+/// Snapshot replacement rewrites the normalized Role table even when a Role is
+/// only retained or its portable metadata changes. Preserve destination-owned
+/// migration authority across that foreign-key cascade. A Role newly introduced
+/// by the portable snapshot has no matching row here and therefore cannot
+/// inherit v23-ready evidence from the source file.
+fn preserve_role_session_migrations_for_snapshot(transaction: &Transaction<'_>) -> CoreResult<()> {
+    transaction
+        .execute_batch(
+            "DROP TABLE IF EXISTS temp.portable_preserved_role_session_migrations;
+             CREATE TEMP TABLE portable_preserved_role_session_migrations AS
+             SELECT
+               role_id, transfer_id, phase, journal_revision, platform,
+               source_engine, target_engine, source_revision, target_revision,
+               envelope_sha256, inventory_sha256, cookie_count,
+               local_storage_origin_count, local_storage_entry_count,
+               stable_error_code, outcome, started_at, phase_changed_at,
+               updated_at, outcome_at, first_verified_launch_at,
+               clean_flush_receipt_id, reset_receipt_id, last_transition_id,
+               last_transition_request_sha256
+             FROM role_session_migrations;",
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))
+}
+
+fn restore_role_session_migrations_for_snapshot(transaction: &Transaction<'_>) -> CoreResult<()> {
+    transaction
+        .execute_batch(
+            "INSERT INTO role_session_migrations(
+               role_id, transfer_id, phase, journal_revision, platform,
+               source_engine, target_engine, source_revision, target_revision,
+               envelope_sha256, inventory_sha256, cookie_count,
+               local_storage_origin_count, local_storage_entry_count,
+               stable_error_code, outcome, started_at, phase_changed_at,
+               updated_at, outcome_at, first_verified_launch_at,
+               clean_flush_receipt_id, reset_receipt_id, last_transition_id,
+               last_transition_request_sha256
+             )
+             SELECT
+               preserved.role_id, preserved.transfer_id, preserved.phase,
+               preserved.journal_revision, preserved.platform,
+               preserved.source_engine, preserved.target_engine,
+               preserved.source_revision, preserved.target_revision,
+               preserved.envelope_sha256, preserved.inventory_sha256,
+               preserved.cookie_count, preserved.local_storage_origin_count,
+               preserved.local_storage_entry_count, preserved.stable_error_code,
+               preserved.outcome, preserved.started_at,
+               preserved.phase_changed_at, preserved.updated_at,
+               preserved.outcome_at, preserved.first_verified_launch_at,
+               preserved.clean_flush_receipt_id, preserved.reset_receipt_id,
+               preserved.last_transition_id,
+               preserved.last_transition_request_sha256
+             FROM temp.portable_preserved_role_session_migrations AS preserved
+             INNER JOIN roles ON roles.id = preserved.role_id;
+             DROP TABLE temp.portable_preserved_role_session_migrations;",
+        )
+        .map_err(|error| CoreError::StateDatabase(error.to_string()))
 }
 
 fn insert_entities(transaction: &Transaction<'_>, table: &str, values: &[Value]) -> CoreResult<()> {

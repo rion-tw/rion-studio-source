@@ -38,6 +38,10 @@ pub fn paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord>
             .join("webview2")
             .to_string_lossy()
             .into_owned(),
+        chromium_user_data_dir: browser_user_data_dir
+            .join("chromium")
+            .to_string_lossy()
+            .into_owned(),
         webkit_data_store_key: format!("role:{role_id}:wkwebview"),
         webkit_data_store_identifier: webkit_data_store_identifier(role_id),
     })
@@ -60,6 +64,7 @@ pub fn ensure(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord
     for directory in [
         &paths.system_browser_data_dir,
         &paths.webview2_user_data_dir,
+        &paths.chromium_user_data_dir,
     ] {
         fs::create_dir_all(directory).map_err(|error| io_error(Path::new(directory), error))?;
     }
@@ -225,6 +230,33 @@ pub fn discard_quarantine(user_data_dir: &Path, operation_id: &str) -> CoreResul
     remove_with_retry(&quarantine_directory(user_data_dir, operation_id))
 }
 
+pub(crate) fn recover_deferred_clear_rollback(
+    user_data_dir: &Path,
+    role_id: &str,
+    operation_id: &str,
+) -> CoreResult<()> {
+    validate_role_id(role_id)?;
+    validate_operation_id(operation_id)?;
+    let source = user_data_dir.join("roles").join(role_id);
+    let quarantine = quarantine_directory(user_data_dir, operation_id);
+    let source_is_original_directory = match fs::symlink_metadata(&source) {
+        Ok(metadata) => metadata.is_dir() && !metadata.file_type().is_symlink(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(io_error(&source, error)),
+    };
+    let quarantine_exists = match fs::symlink_metadata(&quarantine) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(io_error(&quarantine, error)),
+    };
+    if source_is_original_directory && !quarantine_exists {
+        return Ok(());
+    }
+    Err(CoreError::Migration(format!(
+        "deferred role browser-data clear has an ambiguous disk topology: sourceOriginal={source_is_original_directory}, quarantineExists={quarantine_exists}"
+    )))
+}
+
 fn browser_directory(user_data_dir: &Path, role_id: &str) -> PathBuf {
     user_data_dir.join("roles").join(role_id).join("browser")
 }
@@ -297,6 +329,20 @@ mod tests {
         let browser = Path::new(&paths.browser_user_data_dir);
         let system = Path::new(&paths.system_browser_data_dir);
         let webview2 = Path::new(&paths.webview2_user_data_dir);
+        let chromium = Path::new(&paths.chromium_user_data_dir);
+        assert_eq!(
+            chromium,
+            directory
+                .path()
+                .join("roles")
+                .join("role-1")
+                .join("browser")
+                .join("chromium")
+        );
+        assert_eq!(
+            serde_json::to_value(&paths).unwrap()["chromiumUserDataDir"],
+            paths.chromium_user_data_dir
+        );
         assert_eq!(paths.webkit_data_store_key, "role:role-1:wkwebview");
         assert_eq!(
             paths.webkit_data_store_identifier,
@@ -314,17 +360,21 @@ mod tests {
         );
         assert!(system.is_dir());
         assert!(webview2.is_dir());
+        assert!(chromium.is_dir());
         fs::write(browser.join("session"), b"state").unwrap();
         fs::write(system.join("locator.json"), b"{}").unwrap();
         fs::write(webview2.join("cookie-store"), b"state").unwrap();
+        fs::write(chromium.join("Cookies"), b"state").unwrap();
 
         let reset_paths = reset(directory.path(), "role-1").unwrap();
         assert!(browser.is_dir());
         assert!(!browser.join("session").exists());
         assert!(Path::new(&reset_paths.system_browser_data_dir).is_dir());
         assert!(Path::new(&reset_paths.webview2_user_data_dir).is_dir());
+        assert!(Path::new(&reset_paths.chromium_user_data_dir).is_dir());
         assert!(!system.join("locator.json").exists());
         assert!(!webview2.join("cookie-store").exists());
+        assert!(!chromium.join("Cookies").exists());
 
         remove(directory.path(), "role-1").unwrap();
         assert!(!directory.path().join("roles/role-1").exists());
@@ -346,12 +396,15 @@ mod tests {
                 .unwrap()
                 .browser_user_data_dir,
         );
+        let chromium = browser.join("chromium");
         fs::write(browser.join("session"), b"state").unwrap();
+        fs::write(chromium.join("Cookies"), b"state").unwrap();
 
         assert!(quarantine(directory.path(), "role-1", "operation-1").unwrap());
         assert!(!directory.path().join("roles/role-1").exists());
         restore_quarantine(directory.path(), "role-1", "operation-1").unwrap();
         assert!(browser.join("session").exists());
+        assert!(chromium.join("Cookies").exists());
 
         quarantine(directory.path(), "role-1", "operation-2").unwrap();
         discard_quarantine(directory.path(), "operation-2").unwrap();
@@ -392,6 +445,7 @@ mod tests {
         let paths = ensure(directory.path(), "role-1").unwrap();
         let system = Path::new(&paths.system_browser_data_dir);
         let webview2 = Path::new(&paths.webview2_user_data_dir);
+        let chromium = Path::new(&paths.chromium_user_data_dir);
         fs::write(system.join("local-storage-sync-v1.enc"), b"v1").unwrap();
         fs::write(system.join("local-storage-sync-v2.enc"), b"v2").unwrap();
         fs::write(system.join("local-storage-checkpoint.enc"), b"checkpoint").unwrap();
@@ -399,6 +453,7 @@ mod tests {
         fs::write(system.join("cookie-checkpoint.enc"), b"keep").unwrap();
         fs::write(system.join("cookies.enc"), b"keep").unwrap();
         fs::write(webview2.join("Local Storage"), b"keep").unwrap();
+        fs::write(chromium.join("local-storage-sync-v2.enc"), b"keep").unwrap();
         fs::write(
             Path::new(&paths.browser_user_data_dir).join("unrelated"),
             b"keep",
@@ -413,6 +468,7 @@ mod tests {
         assert!(system.join("cookie-checkpoint.enc").exists());
         assert!(system.join("cookies.enc").exists());
         assert!(webview2.join("Local Storage").exists());
+        assert!(chromium.join("local-storage-sync-v2.enc").exists());
         assert!(
             Path::new(&paths.browser_user_data_dir)
                 .join("unrelated")

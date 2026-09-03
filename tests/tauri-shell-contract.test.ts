@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri shell contract guard", () => {
   it("keeps the hidden-inset-equivalent main window and bundled startup failure UI", async () => {
-    const [baseSource, macSource, windowsSource, shell, runtime, windowsMaterial, startup, bootStyles, runtimeTabs, startupFallback, rendererMain, runtimeTabScript] = await Promise.all([
+    const [baseSource, macSource, windowsSource, shell, runtime, windowsMaterial, startup, earlyDocumentState, bootStyles, runtimeTabs, startupFallback, rendererMain, rendererBootstrap, runtimeTabScript] = await Promise.all([
       readFile("src-tauri/tauri.conf.json", "utf8"),
       readFile("src-tauri/tauri.macos.conf.json", "utf8"),
       readFile("src-tauri/tauri.windows.conf.json", "utf8"),
@@ -12,10 +12,12 @@ describe("Tauri shell contract guard", () => {
       readFile("src-tauri/src/system_runtime.rs", "utf8"),
       readFile("src-tauri/src/system_runtime/platform/windows/material.rs", "utf8"),
       readFile("src/renderer/index.html", "utf8"),
+      readFile("src/renderer/src/app/earlyDocumentState.ts", "utf8"),
       readFile("src/renderer/src/boot.css", "utf8"),
       readFile("src/renderer/runtime-tabs.css", "utf8"),
       readFile("src/renderer/src/app/startupFallback.ts", "utf8"),
       readFile("src/renderer/src/main.tsx", "utf8"),
+      readFile("src/renderer/src/app/bootstrapRenderer.tsx", "utf8"),
       readFile("src/renderer/runtime-shell/runtimeTabStrip.ts", "utf8")
     ]);
     const base = JSON.parse(baseSource);
@@ -59,10 +61,11 @@ describe("Tauri shell contract guard", () => {
     expect(shell).toContain('"waitForNativeStartup"');
     expect(shell).toContain("startup.wait_for_native_startup().await?");
     expect(shell).toContain("windowsMicaEnabled");
-    expect(startup).toContain("dataset.windowsMica");
+    expect(startup).toContain('/src/app/earlyDocumentState.ts');
+    expect(earlyDocumentState).toContain("dataset.windowsMica");
     expect(bootStyles).toContain('data-windows-mica="fallback"');
     expect(runtimeTabs).toContain('data-windows-mica="enabled"');
-    expect(rendererMain).toContain("startup.windowsMicaEnabled");
+    expect(rendererBootstrap).toContain("startup.windowsMicaEnabled");
     const tabInitializationStart = runtime.indexOf(
       "fn windows_runtime_tab_initialization_script("
     );
@@ -87,25 +90,26 @@ describe("Tauri shell contract guard", () => {
     expect(bootStyles).toContain("boot-fallback-error-mark");
     expect(bootStyles).toContain("prefers-reduced-motion: reduce");
     expect(rendererMain).toContain("await waitForNativeStartup()");
-    expect(rendererMain).toContain("createHashRouter([");
+    expect(rendererBootstrap).toContain("createHashRouter([");
     expect(rendererMain.indexOf("await waitForNativeStartup()"))
-      .toBeLessThan(rendererMain.indexOf("createHashRouter(["));
+      .toBeLessThan(rendererMain.indexOf("void bootstrapRenderer({"));
   });
 
   it("owns menus, quick-menu restore, tabs, dividers, and workspace launch requests in Tauri", async () => {
-    const [menu, quickMenu, quickMenuMac, nativeDockMenu, tabMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, placeholderCapability, roleCapability] = await Promise.all([
+    const [menu, quickMenu, quickMenuMac, nativeDockMenu, tabMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, appKitBuild, capability, placeholderCapability, roleCapability] = await Promise.all([
       readFile("src-tauri/src/application_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu_macos.rs", "utf8"),
       readFile("src-tauri/native/macos/RionDockMenu.m", "utf8"),
       readFile("src-tauri/src/runtime_tab_menu.rs", "utf8"),
       readFile("src-tauri/src/system_runtime.rs", "utf8"),
-      readFile("src-tauri/native/macos/RionRuntimeTabsController.mm", "utf8"),
-      readFile("src-tauri/native/macos/RionRuntimeTabsController.h", "utf8"),
+      readFile("crates/rion-appkit/native/macos/RionRuntimeTabsController.mm", "utf8"),
+      readFile("crates/rion-appkit/native/macos/RionRuntimeTabsController.h", "utf8"),
       readFile("src-tauri/src/runtime_tabs_macos.rs", "utf8"),
       readFile("src-tauri/native/macos/RionWKWebViewInput.m", "utf8"),
       readFile("src-tauri/src/lib.rs", "utf8"),
       readFile("src-tauri/build.rs", "utf8"),
+      readFile("crates/rion-appkit/build.rs", "utf8"),
       readFile("src-tauri/capabilities/runtime-native-shell.json", "utf8"),
       readFile("src-tauri/capabilities/runtime-role-placeholder.json", "utf8"),
       readFile("src-tauri/capabilities/system-role-overlay.json", "utf8")
@@ -206,7 +210,7 @@ describe("Tauri shell contract guard", () => {
     expect(build).toContain('"rion_runtime_role_slot_ready"');
     expect(build).toContain('"rion_divider_pointer"');
     expect(build).toContain('"rion_runtime_audio_state"');
-    expect(build).toContain("clang_rt.osx");
+    expect(appKitBuild).toContain("clang_rt.osx");
     expect(nativeInput).toContain("rion_wk_install_role_zoom_shortcut");
     expect(nativeInput).toContain("RionRoleZoomBindingForResponder");
     expect(tabs).toContain("AcceleratorKeyPressedEventHandler");

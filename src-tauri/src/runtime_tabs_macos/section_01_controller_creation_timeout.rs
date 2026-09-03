@@ -271,7 +271,7 @@ type ActionCallback = unsafe extern "C" fn(
 type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
 
 unsafe extern "C" {
-    fn rion_runtime_tabs_install_safe_tao_event_dispatch() -> bool;
+    fn rion_tauri_install_safe_tao_webkit_event_dispatch() -> bool;
     fn rion_runtime_tabs_create(
         window: *mut c_void,
         window_id: *const c_char,
@@ -410,7 +410,10 @@ pub(crate) fn set_appkit_window_interaction(
 }
 
 pub fn install_safe_tao_event_dispatch() -> Result<(), String> {
-    if unsafe { rion_runtime_tabs_install_safe_tao_event_dispatch() } {
+    if rion_appkit::runtime_tabs_abi_version() != rion_appkit::RUNTIME_TABS_ABI_VERSION {
+        return Err("The shared AppKit runtime-tab controller ABI is unavailable.".to_owned());
+    }
+    if unsafe { rion_tauri_install_safe_tao_webkit_event_dispatch() } {
         Ok(())
     } else {
         Err("TaoWindow was unavailable for safe macOS event dispatch.".to_owned())

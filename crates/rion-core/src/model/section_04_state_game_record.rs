@@ -258,10 +258,19 @@ pub struct RuntimeWindowTabSnapshotRecord {
     pub window_generation: u64,
     #[ts(type = "number")]
     pub revision: u64,
+    #[serde(default = "default_runtime_window_zoom_factor")]
+    pub window_zoom_factor: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"normal\" | \"maximized\" | \"fullscreen\"")]
+    pub presentation: Option<String>,
     pub tabs: Vec<GameWindowTabRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub active_tab_id: Option<String>,
+}
+
+fn default_runtime_window_zoom_factor() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -475,8 +484,25 @@ pub enum CoreEvent {
     CoreEffects {
         effects: Vec<CoreEffectRequest>,
     },
+    CoreEffectCancellations {
+        cancellations: Vec<CoreEffectCancellationRecord>,
+    },
     BrowserStatuses {
         statuses: Vec<BrowserRoleStatusRecord>,
+    },
+    BrowserLaunchCompleted {
+        #[ts(rename = "operationId")]
+        operation_id: String,
+        #[ts(rename = "sourceId")]
+        source_id: String,
+        #[ts(rename = "sourceType", type = "\"role\" | \"workspace\"")]
+        source_type: String,
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        ok: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "errorCode")]
+        error_code: Option<String>,
     },
     MacroStatuses {
         reliable: bool,
@@ -514,9 +540,37 @@ pub enum BrowserRuntimeCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "workspaceId")]
         workspace_id: Option<String>,
+        #[serde(default)]
+        #[ts(rename = "audioMuted")]
+        audio_muted: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "attemptGeneration")]
+        attempt_generation: Option<String>,
+        #[serde(default)]
+        #[ts(rename = "windowId")]
+        window_id: String,
         #[serde(rename = "roleSlots")]
         #[ts(rename = "roleSlots")]
         role_slots: Vec<RuntimeRoleSlotInputRecord>,
+        #[serde(default)]
+        #[ts(rename = "webSurfaces")]
+        web_surfaces: Vec<EmbeddedWebSurfaceIdentityRecord>,
+    },
+    SetTabAudioMuted {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "windowId")]
+        window_id: String,
+        #[ts(rename = "attemptGeneration")]
+        attempt_generation: String,
+        #[ts(rename = "expectedAudioMuted")]
+        expected_audio_muted: bool,
+        #[ts(rename = "audioMuted")]
+        audio_muted: bool,
+        #[ts(rename = "roleGenerations")]
+        role_generations: Vec<EmbeddedTabAudioMuteRoleEffectRecord>,
+        #[ts(rename = "webSurfaces")]
+        web_surfaces: Vec<EmbeddedWebSurfaceIdentityRecord>,
     },
     RemoveTab {
         #[ts(rename = "tabId")]

@@ -31,7 +31,7 @@
     const normalizedCode = String(code);
     if (
       isDisposed ||
-      inFlightMacroKeyGuard !== null ||
+      inFlightMacroKeyGuards.length !== 0 ||
       normalizedDispatchId.length === 0 ||
       normalizedCode.length === 0 ||
       (phase !== "keydown" && phase !== "keyup") ||
@@ -39,17 +39,46 @@
     ) {
       return false;
     }
-    inFlightMacroKeyGuard = {
+    inFlightMacroKeyGuards.push({
       code: normalizedCode,
       dispatchId: normalizedDispatchId,
       disposition,
       phase
-    };
+    });
     return true;
   }
 
   function suppressNextShortcut(dispatchId, code, phase = "keydown") {
     return armMacroKeyGuard(dispatchId, code, phase, "macro-key");
+  }
+
+  function suppressShortcutSequence(dispatchId, code, phases) {
+    const normalizedDispatchId = String(dispatchId);
+    const normalizedCode = String(code);
+    if (
+      isDisposed ||
+      inFlightMacroKeyGuards.length !== 0 ||
+      normalizedDispatchId.length === 0 ||
+      normalizedCode.length === 0 ||
+      !Array.isArray(phases) ||
+      phases.length < 1 ||
+      phases.length > 2 ||
+      phases.some((phase, index) =>
+        (phase !== "keydown" && phase !== "keyup") ||
+        (index > 0 && phases[index - 1] === phase)
+      )
+    ) {
+      return false;
+    }
+    for (const phase of phases) {
+      inFlightMacroKeyGuards.push({
+        code: normalizedCode,
+        dispatchId: normalizedDispatchId,
+        disposition: "macro-key",
+        phase
+      });
+    }
+    return true;
   }
 
   function suppressNextModifierProjection(dispatchId, code) {
@@ -64,18 +93,23 @@
   }
 
   function clearSuppressedShortcut(dispatchId) {
-    const observation = pendingMacroObservationListeners.get(String(dispatchId));
+    const normalizedDispatchId = String(dispatchId);
+    const observation = pendingMacroObservationListeners.get(normalizedDispatchId);
     if (observation) {
       observation.target.removeEventListener(observation.type, observation.listener);
-      pendingMacroObservationListeners.delete(String(dispatchId));
+      pendingMacroObservationListeners.delete(normalizedDispatchId);
     }
-    if (inFlightMacroKeyGuard?.dispatchId !== String(dispatchId)) return Boolean(observation);
-    inFlightMacroKeyGuard = null;
-    return true;
+    let cleared = Boolean(observation);
+    for (let index = inFlightMacroKeyGuards.length - 1; index >= 0; index -= 1) {
+      if (inFlightMacroKeyGuards[index].dispatchId !== normalizedDispatchId) continue;
+      inFlightMacroKeyGuards.splice(index, 1);
+      cleared = true;
+    }
+    return cleared;
   }
 
   function consumeSuppressedShortcut(event, disposition) {
-    const guard = inFlightMacroKeyGuard;
+    const guard = inFlightMacroKeyGuards[0];
     const phase = event.type === "keydown" ? "keydown" : "keyup";
     if (
       !guard ||
@@ -86,7 +120,7 @@
     ) {
       return null;
     }
-    inFlightMacroKeyGuard = null;
+    inFlightMacroKeyGuards.shift();
     return guard;
   }
 
@@ -146,7 +180,7 @@
   }
 
   function clearAllSuppressedShortcuts() {
-    inFlightMacroKeyGuard = null;
+    inFlightMacroKeyGuards.length = 0;
     for (const observation of pendingMacroObservationListeners.values()) {
       observation.target.removeEventListener(observation.type, observation.listener);
     }
@@ -633,9 +667,17 @@
     if (active.keyUpPromise) return active.keyUpPromise;
     active.keyUpPromise = active.keyDownPromise
       .then(() => dispatchManagedShortcutPhase(active, "keyUp"))
-      .then(() => true)
+      .then(() => {
+        // EventBound fallback: an exact native receipt may terminalize after
+        // Chromium has already hidden the old WebContents. If its suppressed
+        // DOM keyup was observed, the active key is already absent; otherwise
+        // release the page-owned key exactly once before completing cleanup.
+        releaseForwardedMacroKey(active.code);
+        return true;
+      })
       .catch((error) => {
         active.failed = true;
+        releaseForwardedMacroKey(active.code);
         console.warn("Unable to complete a managed Rion Studio shortcut.", error);
         return false;
       });

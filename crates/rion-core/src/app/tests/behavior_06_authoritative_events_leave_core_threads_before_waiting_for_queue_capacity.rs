@@ -4,6 +4,9 @@
             CoreEvent::CoreEffects {
                 effects: Vec::new(),
             },
+            CoreEvent::CoreEffectCancellations {
+                cancellations: Vec::new(),
+            },
             CoreEvent::StateChanged {
                 revision: 2,
                 changed_collections: Vec::new(),
@@ -55,6 +58,8 @@
             intent: "normal".to_owned(),
             scheduled_at_ms: 1,
             deadline_ms: 2,
+            surface_generation: None,
+            document_instance_id: None,
             action: crate::model::BrowserAction::Focus,
         };
 

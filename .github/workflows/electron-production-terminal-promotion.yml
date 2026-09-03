@@ -1,0 +1,477 @@
+name: Electron Production Terminal Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact Electron candidate source SHA
+        required: true
+        type: string
+      version:
+        description: Exact Electron candidate semantic version
+        required: true
+        type: string
+      readiness_run_id:
+        description: Successful promotion-readiness workflow run ID
+        required: true
+        type: string
+      readiness_receipt_sha256:
+        description: Owner-recorded readiness receipt SHA-256
+        required: true
+        type: string
+      provisional_run_id:
+        description: Successful provisional-publication workflow run ID
+        required: true
+        type: string
+      provisional_receipt_sha256:
+        description: Attested provisional publication receipt SHA-256
+        required: true
+        type: string
+      source_snapshot_sha256:
+        description: Exact Tauri v22 public-latest snapshot SHA-256
+        required: true
+        type: string
+      target_snapshot_sha256:
+        description: Exact Electron target projection SHA-256
+        required: true
+        type: string
+      held_lease_sha256:
+        description: Exact held durable public-latest lease SHA-256
+        required: true
+        type: string
+      owner_approval:
+        description: Type FINALIZE ELECTRON PRODUCTION PROMOTION
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: public-latest-rion-studio
+  cancel-in-progress: false
+
+jobs:
+  verify-inputs:
+    name: Verify the protected finalization inputs
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    outputs:
+      readiness_attempt: ${{ steps.verify.outputs.readiness_attempt }}
+      provisional_attempt: ${{ steps.verify.outputs.provisional_attempt }}
+    steps:
+      - name: Require protected main and the explicit owner gate
+        shell: bash
+        env:
+          APPROVAL: ${{ inputs.owner_approval }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_REF_PROTECTED: ${{ github.ref_protected }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          test "${REPOSITORY}" = "rion-tw/rion-studio-source"
+          test "${DEFAULT_BRANCH}" = "main"
+          test "${DISPATCH_REF}" = "refs/heads/main"
+          test "${DISPATCH_REF_PROTECTED}" = "true"
+          test "${EVENT_NAME}" = "workflow_dispatch"
+          test "${WORKFLOW_REF}" = \
+            "rion-tw/rion-studio-source/.github/workflows/electron-production-terminal-promotion.yml@refs/heads/main"
+          test "${APPROVAL}" = "FINALIZE ELECTRON PRODUCTION PROMOTION"
+
+      - name: Check out only the protected finalizer control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify both upstream workflow runs
+        id: verify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVISIONAL_RUN_ID: ${{ inputs.provisional_run_id }}
+          READINESS_RUN_ID: ${{ inputs.readiness_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${VERSION}" =~ ^[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${READINESS_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PROVISIONAL_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          verify_run() {
+            local run_id="$1"
+            local workflow="$2"
+            local output="$3"
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/rion-tw/rion-studio-source/actions/runs/${run_id}" \
+              > "${output}"
+            test "$(jq -r .path "${output}")" = "${workflow}"
+            test "$(jq -r .event "${output}")" = "workflow_dispatch"
+            test "$(jq -r .head_branch "${output}")" = "main"
+            test "$(jq -r .conclusion "${output}")" = "success"
+            test "$(jq -r .repository.full_name "${output}")" = \
+              "rion-tw/rion-studio-source"
+          }
+          verify_run "${READINESS_RUN_ID}" \
+            ".github/workflows/electron-production-promotion-readiness.yml" \
+            readiness-run.json
+          verify_run "${PROVISIONAL_RUN_ID}" \
+            ".github/workflows/electron-production-provisional-publish.yml" \
+            provisional-run.json
+          readiness_attempt="$(jq -er .run_attempt readiness-run.json)"
+          provisional_attempt="$(jq -er .run_attempt provisional-run.json)"
+          echo "readiness_attempt=${readiness_attempt}" >> "${GITHUB_OUTPUT}"
+          echo "provisional_attempt=${provisional_attempt}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download the exact readiness and publication inputs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVISIONAL_ATTEMPT: ${{ steps.verify.outputs.provisional_attempt }}
+          PROVISIONAL_RUN_ID: ${{ inputs.provisional_run_id }}
+          READINESS_ATTEMPT: ${{ steps.verify.outputs.readiness_attempt }}
+          READINESS_RUN_ID: ${{ inputs.readiness_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p terminal-inputs/readiness terminal-inputs/provisional \
+            terminal-inputs/capsule
+          gh run download "${READINESS_RUN_ID}" \
+            --repo rion-tw/rion-studio-source \
+            --name "electron-production-promotion-readiness-${VERSION}-${SOURCE_SHA}-attempt-${READINESS_ATTEMPT}" \
+            --dir terminal-inputs/readiness
+          gh run download "${PROVISIONAL_RUN_ID}" \
+            --repo rion-tw/rion-studio-source \
+            --name "electron-production-publication-provisional-${VERSION}-${SOURCE_SHA}-attempt-${PROVISIONAL_ATTEMPT}" \
+            --dir terminal-inputs/provisional
+          gh run download "${PROVISIONAL_RUN_ID}" \
+            --repo rion-tw/rion-studio-source \
+            --name "electron-production-publication-recovery-capsule-${PROVISIONAL_RUN_ID}-attempt-${PROVISIONAL_ATTEMPT}" \
+            --dir terminal-inputs/capsule
+
+      - name: Bind the exact immutable input identities
+        shell: bash
+        env:
+          HELD_LEASE_SHA256: ${{ inputs.held_lease_sha256 }}
+          PROVISIONAL_RECEIPT_SHA256: ${{ inputs.provisional_receipt_sha256 }}
+          READINESS_RECEIPT_SHA256: ${{ inputs.readiness_receipt_sha256 }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_SNAPSHOT_SHA256: ${{ inputs.source_snapshot_sha256 }}
+          TARGET_SNAPSHOT_SHA256: ${{ inputs.target_snapshot_sha256 }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          readiness="terminal-inputs/readiness/electron-production-promotion-readiness-receipt.json"
+          provisional="terminal-inputs/provisional/electron-production-publication-provisional-receipt.json"
+          source="terminal-inputs/capsule/source-public-latest-snapshot.json"
+          target="terminal-inputs/capsule/target-public-latest-projection.json"
+          held="terminal-inputs/capsule/electron-production-public-latest-lease.json"
+          test "$(sha256sum "${readiness}" | cut -d ' ' -f 1)" = \
+            "${READINESS_RECEIPT_SHA256}"
+          test "$(sha256sum "${provisional}" | cut -d ' ' -f 1)" = \
+            "${PROVISIONAL_RECEIPT_SHA256}"
+          test "$(sha256sum "${source}" | cut -d ' ' -f 1)" = \
+            "${SOURCE_SNAPSHOT_SHA256}"
+          test "$(sha256sum "${target}" | cut -d ' ' -f 1)" = \
+            "${TARGET_SNAPSHOT_SHA256}"
+          test "$(sha256sum "${held}" | cut -d ' ' -f 1)" = \
+            "${HELD_LEASE_SHA256}"
+          test "$(jq -r .status "${readiness}")" = \
+            "verified-terminal-evidence"
+          test "$(jq -r .publication.terminalPromotionReceipt "${readiness}")" = \
+            "false"
+          test "$(jq -r .candidate.sourceSha "${readiness}")" = "${SOURCE_SHA}"
+          test "$(jq -r .candidate.version "${readiness}")" = "${VERSION}"
+          test "$(jq -r .provisionalPublication.receiptSha256 "${readiness}")" = \
+            "${PROVISIONAL_RECEIPT_SHA256}"
+          test "$(jq -r .phase "${provisional}")" = "provisional"
+          test "$(jq -r .terminal "${provisional}")" = "false"
+          test "$(jq -r .status "${held}")" = "held"
+          test "$(jq -r .purpose "${held}")" = \
+            "electron-v23-provisional-publication"
+
+      - name: Upload the fenced finalization inputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-terminal-promotion-inputs-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: terminal-inputs
+
+  observe-target:
+    name: Fresh-read the exact target before lease release
+    if: ${{ false }}
+    needs: verify-inputs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-terminal-promotion-inputs-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: terminal-inputs
+      - name: Observe and require the exact target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SNAPSHOT_SHA256: ${{ inputs.source_snapshot_sha256 }}
+          TARGET_SNAPSHOT_SHA256: ${{ inputs.target_snapshot_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir pre-observation
+          node scripts/electronProductionPublicLatestRecoveryCli.mjs observe \
+            --source-snapshot terminal-inputs/capsule/source-public-latest-snapshot.json \
+            --source-snapshot-sha256 "${SOURCE_SNAPSHOT_SHA256}" \
+            --target-snapshot terminal-inputs/capsule/target-public-latest-projection.json \
+            --target-snapshot-sha256 "${TARGET_SNAPSHOT_SHA256}" \
+            --observed-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --output pre-observation/electron-production-public-latest-recovery-observation.json \
+            > pre-observation/summary.json
+          test "$(jq -r .observation.classification \
+            pre-observation/electron-production-public-latest-recovery-observation.json)" = \
+            "target"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-terminal-promotion-pre-observation-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: pre-observation
+
+  release-lease:
+    name: Release only the exact held durable lease
+    if: ${{ false }}
+    needs:
+      - verify-inputs
+      - observe-target
+    runs-on: ubuntu-latest
+    environment: electron-production-public-latest-writer
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-terminal-promotion-inputs-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: terminal-inputs
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-terminal-promotion-pre-observation-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: pre-observation
+      - name: Require the target observation before credentials enter scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(jq -r .observation.classification \
+            pre-observation/electron-production-public-latest-recovery-observation.json)" = \
+            "target"
+      - name: Create the narrow public repository lease token
+        id: public-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.RION_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}
+          owner: rion-tw
+          repositories: rion-studio
+          permission-contents: write
+      - name: Submit one exact lease release and require its readback
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          HELD_LEASE_SHA256: ${{ inputs.held_lease_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir lease-release
+          resolved_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs release \
+            --held-lease terminal-inputs/capsule/electron-production-public-latest-lease.json \
+            --held-lease-sha256 "${HELD_LEASE_SHA256}" \
+            --recorded-at "${resolved_at}" \
+            --output lease-release/electron-production-public-latest-lease.json \
+            > lease-release/lease-remote-operation.json
+          test "$(jq -r .command lease-release/lease-remote-operation.json)" = \
+            "release"
+          test "$(jq -r .outcome lease-release/lease-remote-operation.json)" = \
+            "applied"
+          test "$(jq -r .lease.status lease-release/lease-remote-operation.json)" = \
+            "released"
+          printf '%s\n' "${resolved_at}" > lease-release/resolved-at.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-terminal-promotion-lease-release-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: lease-release
+
+  observe-final:
+    name: Fresh-read the target after lease release
+    if: ${{ false }}
+    needs:
+      - verify-inputs
+      - release-lease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-terminal-promotion-inputs-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: terminal-inputs
+      - name: Observe and require the final exact target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SNAPSHOT_SHA256: ${{ inputs.source_snapshot_sha256 }}
+          TARGET_SNAPSHOT_SHA256: ${{ inputs.target_snapshot_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir final-observation
+          node scripts/electronProductionPublicLatestRecoveryCli.mjs observe \
+            --source-snapshot terminal-inputs/capsule/source-public-latest-snapshot.json \
+            --source-snapshot-sha256 "${SOURCE_SNAPSHOT_SHA256}" \
+            --target-snapshot terminal-inputs/capsule/target-public-latest-projection.json \
+            --target-snapshot-sha256 "${TARGET_SNAPSHOT_SHA256}" \
+            --observed-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --output final-observation/electron-production-public-latest-recovery-observation.json \
+            > final-observation/summary.json
+          test "$(jq -r .observation.classification \
+            final-observation/electron-production-public-latest-recovery-observation.json)" = \
+            "target"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-terminal-promotion-final-observation-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: final-observation
+
+  finalize-receipt:
+    name: Write the sole terminal promotion receipt
+    if: ${{ false }}
+    needs:
+      - verify-inputs
+      - observe-target
+      - release-lease
+      - observe-final
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: electron-production-terminal-promotion-*-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: terminal-finalization
+      - name: Derive every exact identity and finalize
+        shell: bash
+        env:
+          HELD_LEASE_SHA256: ${{ inputs.held_lease_sha256 }}
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+          PROVISIONAL_RECEIPT_SHA256: ${{ inputs.provisional_receipt_sha256 }}
+          READINESS_RECEIPT_SHA256: ${{ inputs.readiness_receipt_sha256 }}
+          SOURCE_SNAPSHOT_SHA256: ${{ inputs.source_snapshot_sha256 }}
+          TARGET_SNAPSHOT_SHA256: ${{ inputs.target_snapshot_sha256 }}
+        run: |
+          set -euo pipefail
+          inputs="terminal-finalization/electron-production-terminal-promotion-inputs-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          pre="terminal-finalization/electron-production-terminal-promotion-pre-observation-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          release="terminal-finalization/electron-production-terminal-promotion-lease-release-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          final="terminal-finalization/electron-production-terminal-promotion-final-observation-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          pre_receipt="${pre}/electron-production-public-latest-recovery-observation.json"
+          remote_operation="${release}/lease-remote-operation.json"
+          final_receipt="${final}/electron-production-public-latest-recovery-observation.json"
+          finalized_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          mkdir terminal-output
+          node scripts/electronProductionTerminalPromotionCli.mjs finalize \
+            --readiness-receipt "${inputs}/readiness/electron-production-promotion-readiness-receipt.json" \
+            --readiness-receipt-sha256 "${READINESS_RECEIPT_SHA256}" \
+            --provisional-publication-receipt "${inputs}/provisional/electron-production-publication-provisional-receipt.json" \
+            --provisional-publication-receipt-sha256 "${PROVISIONAL_RECEIPT_SHA256}" \
+            --source-snapshot "${inputs}/capsule/source-public-latest-snapshot.json" \
+            --source-snapshot-sha256 "${SOURCE_SNAPSHOT_SHA256}" \
+            --target-snapshot "${inputs}/capsule/target-public-latest-projection.json" \
+            --target-snapshot-sha256 "${TARGET_SNAPSHOT_SHA256}" \
+            --held-lease "${inputs}/capsule/electron-production-public-latest-lease.json" \
+            --held-lease-sha256 "${HELD_LEASE_SHA256}" \
+            --pre-release-observation "${pre_receipt}" \
+            --pre-release-observation-sha256 "$(sha256sum "${pre_receipt}" | cut -d ' ' -f 1)" \
+            --lease-remote-operation "${remote_operation}" \
+            --lease-remote-operation-sha256 "$(sha256sum "${remote_operation}" | cut -d ' ' -f 1)" \
+            --lease-release-resolved-at "$(cat "${release}/resolved-at.txt")" \
+            --final-observation "${final_receipt}" \
+            --final-observation-sha256 "$(sha256sum "${final_receipt}" | cut -d ' ' -f 1)" \
+            --finalized-at "${finalized_at}" \
+            --owner-approval "${OWNER_APPROVAL}" \
+            --output terminal-output/electron-production-terminal-promotion-receipt.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-terminal-promotion-receipt-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          path: terminal-output/electron-production-terminal-promotion-receipt.json
+
+  attest-terminal-receipt:
+    name: Attest only the closed terminal receipt
+    if: ${{ false }}
+    needs: finalize-receipt
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-production-terminal-promotion-receipt-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}
+          path: terminal-receipt
+      - name: Require the closed terminal outcome
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="terminal-receipt/electron-production-terminal-promotion-receipt.json"
+          test "$(jq -r .terminal "${receipt}")" = "true"
+          test "$(jq -r .outcome "${receipt}")" = "promoted"
+          test "$(jq -r .compatibility.macosAppKitRetained "${receipt}")" = \
+            "true"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: terminal-receipt/electron-production-terminal-promotion-receipt.json

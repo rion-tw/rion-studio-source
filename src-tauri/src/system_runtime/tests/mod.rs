@@ -37,3 +37,6 @@ include!("behavior_35_quick_access_request_is_latest_and_idempotent.rs");
 include!("behavior_36_workspace_web_chrome_and_fullscreen.rs");
 include!("behavior_37_workspace_web_only_readiness.rs");
 include!("behavior_38_presentation_waits_for_role_input_lanes.rs");
+include!("behavior_39_windows_role_session_export.rs");
+include!("behavior_40_macos_role_session_export.rs");
+include!("behavior_41_role_browser_data_clear_drain.rs");

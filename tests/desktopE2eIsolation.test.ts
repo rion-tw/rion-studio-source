@@ -135,13 +135,27 @@ describe("desktop E2E build isolation", () => {
   });
 
   it("keeps router-native test navigation out of production renderer assets", async () => {
-    const renderer = await readFile("src/renderer/src/main.tsx", "utf8");
+    const [tauriEntry, renderer] = await Promise.all([
+      readFile("src/renderer/src/main.tsx", "utf8"),
+      readFile("src/renderer/src/app/bootstrapRenderer.tsx", "utf8")
+    ]);
     const isolationCheck = await readFile("scripts/verifyDesktopE2eIsolation.mjs", "utf8");
 
     expect(renderer).toContain("if (__RION_DESKTOP_E2E__)");
+    expect(tauriEntry).toContain('__RION_DESKTOP_E2E_DRIVER__ === "tauri"');
     expect(renderer).toContain("window.__rionStudioDesktopE2eNavigate");
     expect(renderer).toContain("router.navigate(path)");
     expect(isolationCheck).toContain("__rionStudioDesktopE2eNavigate");
+  });
+
+  it("negative-gates Electron E2E preconditions from every production bundle", async () => {
+    const isolationCheck = await readFile("scripts/verifyDesktopE2eIsolation.mjs", "utf8");
+
+    expect(isolationCheck).toContain('resolve(root, "out", "main")');
+    expect(isolationCheck).toContain('resolve(root, "out", "preload")');
+    expect(isolationCheck).toContain("rion:e2e:invoke");
+    expect(isolationCheck).toContain("rionStudioDesktopE2e");
+    expect(isolationCheck).toContain("retainedV22Precondition");
   });
 
   it("submits Windows close through the native window queue", async () => {
@@ -307,23 +321,23 @@ describe("desktop E2E build isolation", () => {
   });
 
   it("keeps native tab gestures feature-gated and user-input driven", async () => {
-    const [command, windowsPointer, macHeader, macBridge, macPointer, build] =
+    const [command, windowsPointer, macHeader, macBridge, macPointer, appKitBuild] =
       await Promise.all([
         readFile("src-tauri/src/desktop_e2e.rs", "utf8"),
         readFile(
           "src-tauri/src/system_runtime/section_31_desktop_e2e_pointer.rs",
           "utf8"
         ),
-        readFile("src-tauri/native/macos/RionRuntimeTabsController.h", "utf8"),
+        readFile("crates/rion-appkit/native/macos/RionRuntimeTabsController.h", "utf8"),
         readFile(
-          "src-tauri/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
+          "crates/rion-appkit/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
           "utf8"
         ),
         readFile(
-          "src-tauri/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
+          "crates/rion-appkit/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
           "utf8"
         ),
-        readFile("src-tauri/build.rs", "utf8")
+        readFile("crates/rion-appkit/build.rs", "utf8")
       ]);
 
     expect(command).toContain("pub(crate) async fn desktop_e2e_runtime_ui_action");
@@ -347,12 +361,12 @@ describe("desktop E2E build isolation", () => {
     expect(macPointer).toContain("[NSApp postEvent:drag atStart:NO]");
     expect(macPointer).toContain("[sourceItem mouseDown:down]");
     expect(macPointer).toContain("[sourceItem mouseDragged:firstDrag]");
-    expect(build).toContain('runtime_tabs.define("RION_DESKTOP_E2E", None)');
+    expect(appKitBuild).toContain('runtime_tabs.define("RION_DESKTOP_E2E", None)');
   });
 
   it("foregrounds the exact AppKit drag windows before posting pointer input", async () => {
     const source = await readFile(
-      "src-tauri/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
+      "crates/rion-appkit/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
       "utf8"
     );
     const drag = source.slice(
@@ -383,7 +397,7 @@ describe("desktop E2E build isolation", () => {
     expect(selection).not.toContain("run_on_appkit_tracking_main");
     expect(selection).toContain("one-shot NSMenu tracking notification");
     const bridge = await readFile(
-      "src-tauri/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
+      "crates/rion-appkit/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
       "utf8"
     );
     expect(bridge).toContain("NSMenuDidBeginTrackingNotification");

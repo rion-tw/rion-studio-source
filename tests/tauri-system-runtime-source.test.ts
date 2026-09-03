@@ -268,7 +268,7 @@ it("routes close around slow effects and keeps failed close intent committed", a
   });
 
 it("keeps tab interaction responsive while native launch verification is pending", async () => {
-    const [runtime, core, menu, shell, quickMenu, macBridge, macController, windowsStrip, projection] =
+    const [runtime, core, menu, shell, quickMenu, macBridge, macController, macCompat, windowsStrip, projection] =
       await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8"),
@@ -284,10 +284,8 @@ it("keeps tab interaction responsive while native launch verification is pending
       ].map((path) => readFile(new URL(path, import.meta.url), "utf8"))).then((parts) => parts.join("\n")),
       readFile(new URL("../src-tauri/src/quick_menu.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8"),
-      readFile(
-        new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
-        "utf8"
-      ),
+      readFile("crates/rion-appkit/native/macos/RionRuntimeTabsController.mm", "utf8"),
+      readFile("src-tauri/native/macos/RionTauriWebKitEventCompatibility.m", "utf8"),
       readFile(
         new URL("../src/renderer/runtime-shell/runtimeTabStrip.ts", import.meta.url),
         "utf8"
@@ -417,19 +415,20 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain('"tab.launch-auto-retry-exhausted"');
     expect(shell).toContain("let reveal_error = completion_runtime");
     expect(shell).toContain("install_safe_tao_event_dispatch()");
-    expect(macBridge).toContain("rion_runtime_tabs_install_safe_tao_event_dispatch");
+    expect(macBridge).toContain("rion_tauri_install_safe_tao_webkit_event_dispatch");
     expect(macBridge).toContain("std::panic::catch_unwind");
-    expect(macController).toContain("RionSafeTaoWindowSendEvent");
-    expect(macController).toContain("method_setImplementation(method, safeImplementation)");
-    expect(macController).toContain("@catch (NSException *exception)");
+    expect(macController).not.toMatch(/TaoWindow/);
+    expect(macCompat).toContain("RionTauriSafeWebKitWindowSendEvent");
+    expect(macCompat).toContain("method_setImplementation(method, safeImplementation)");
+    expect(macCompat).toContain("@catch (NSException *exception)");
     const macPrewarm = runtime.slice(
       runtime.indexOf('#[cfg(target_os = "macos")]\n    pub fn schedule_webview_prewarm'),
       runtime.indexOf('#[cfg(not(target_os = "macos"))]\n    pub fn schedule_webview_prewarm')
     );
     expect(macPrewarm).not.toContain("WebviewWindowBuilder");
     expect(macPrewarm).toContain('"runtime-prewarm", "skipped"');
-    expect(core).not.toContain("CoreCommand::EmbeddedTabActivate");
-    expect(core).not.toContain("CoreCommand::EmbeddedTabHide");
+    expect(core).toContain("CoreCommand::EmbeddedTabActivate");
+    expect(core).toContain("CoreCommand::EmbeddedTabHide");
     expect(core).not.toContain("apply_embedded_tab_selection_without_native_effect");
     const roleLaunch = core.slice(
       core.indexOf("fn launch_embedded_role("),

@@ -1,0 +1,273 @@
+:root,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+[data-runtime-toolbar] {
+  position: fixed;
+  inset: 0 0 auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 5px 12px;
+  overflow: hidden;
+  color: #eef1f7;
+  background: color-mix(in srgb, #171b24 90%, transparent);
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  user-select: none;
+}
+
+[data-runtime-toolbar][hidden] {
+  display: none;
+}
+
+.runtime-drag-region {
+  position: absolute;
+  inset: 0;
+  -webkit-app-region: drag;
+}
+
+.runtime-tabs {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  pointer-events: auto;
+  flex: 1;
+  -webkit-app-region: no-drag;
+}
+
+.runtime-window-controls {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-self: stretch;
+  margin: -5px -12px -5px 8px;
+  -webkit-app-region: no-drag;
+}
+
+.runtime-window-controls button {
+  width: 46px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: 15px/1 system-ui, sans-serif;
+}
+
+.runtime-window-controls button:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
+.runtime-window-controls button[data-window-command="closeWindow"]:hover {
+  background: #c42b1c;
+}
+
+.runtime-tab {
+  box-sizing: border-box;
+  max-width: 240px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  color: rgb(238 241 247 / 72%);
+  font: 12px/18px system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-tab button {
+  height: 30px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+}
+
+.runtime-tab-activate {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  padding: 6px 8px 6px 12px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-tab-activate > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runtime-tab-loading {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: runtime-tab-loading-spin 800ms linear infinite;
+}
+
+.runtime-tab-status {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #fff;
+  background: #8a3d32;
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.runtime-tab[data-phase="degraded"] .runtime-tab-status {
+  color: #2b2100;
+  background: #d8ad3b;
+}
+
+@keyframes runtime-tab-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runtime-tab-loading { animation: none; }
+}
+
+.runtime-tab-close {
+  width: 28px;
+  padding: 0 8px 0 4px;
+  border-radius: 6px;
+  opacity: 0;
+}
+
+.runtime-tab:hover .runtime-tab-close,
+.runtime-tab:focus-within .runtime-tab-close,
+.runtime-tab[data-active="true"] .runtime-tab-close {
+  opacity: 1;
+}
+
+.runtime-tab-close:hover {
+  background: rgb(255 255 255 / 12%);
+}
+
+.runtime-tab[data-active="true"] {
+  color: #fff;
+  background: rgb(255 255 255 / 12%);
+}
+
+.runtime-tab:has(.runtime-tab-activate[data-dragging="true"]) {
+  outline: 1px solid rgb(170 180 204 / 75%);
+  background: rgb(255 255 255 / 16%);
+}
+
+.runtime-tab-menu {
+  position: fixed;
+  z-index: 4;
+  box-sizing: border-box;
+  min-width: 176px;
+  max-width: 280px;
+  padding: 4px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+  color: #eef1f7;
+  background: color-mix(in srgb, #171b24 96%, transparent);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 36%);
+  -webkit-app-region: no-drag;
+}
+
+.runtime-tab-menu[hidden] {
+  display: none;
+}
+
+.runtime-tab-menu button {
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  font: 12px/18px system-ui, sans-serif;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-tab-menu button:hover,
+.runtime-tab-menu button:focus-visible {
+  outline: 0;
+  background: rgb(255 255 255 / 12%);
+}
+
+.runtime-tab-menu button:disabled {
+  opacity: 0.45;
+}
+
+.runtime-reveal-edge {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 2px;
+  background: transparent;
+}
+
+.runtime-workspace-dividers {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.runtime-workspace-divider {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+
+.runtime-workspace-divider::after {
+  position: absolute;
+  content: "";
+  background: rgb(170 180 204 / 55%);
+  opacity: 0;
+  transition: opacity 80ms ease-out;
+}
+
+.runtime-workspace-divider:hover::after,
+.runtime-workspace-divider[data-dragging="true"]::after {
+  opacity: 1;
+}
+
+.runtime-workspace-divider[data-axis="vertical"] {
+  cursor: ew-resize;
+}
+
+.runtime-workspace-divider[data-axis="vertical"]::after {
+  inset: 0 auto 0 50%;
+  width: 1px;
+}
+
+.runtime-workspace-divider[data-axis="horizontal"] {
+  cursor: ns-resize;
+}
+
+.runtime-workspace-divider[data-axis="horizontal"]::after {
+  inset: 50% 0 auto;
+  height: 1px;
+}

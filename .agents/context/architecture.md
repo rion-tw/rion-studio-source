@@ -3,7 +3,7 @@
 The authoritative runtime flow is:
 
 ```text
-React, AppKit, Windows HTML, or native lifecycle event
+React, retained macOS AppKit, Windows Electron HTML, or native lifecycle event
   -> RuntimeIntent / NativeRuntimeEvent
   -> AppCore runtime actor mailbox
   -> RuntimeKernel aggregate transaction
@@ -20,16 +20,18 @@ intents, never a second writer. Platform UI may own a held gesture and a
 transient visual overlay, but every committed result comes from a revisioned
 Kernel projection.
 
-The Tauri `NativeResourceRegistry` owns only non-serializable window/WebView
-handles and their exact native identity. It cannot decide logical membership,
-role ownership, or relaunch eligibility. Native adapters, SQLite, and the React
-`useSyncExternalStore` store are forward-only followers. A native effect never
-synchronously re-enters Core from the effect call stack; completion returns as
-an identity/generation-fenced event or effect result.
+The active shell's `NativeResourceRegistry` owns only non-serializable
+window/WebView/WebContents handles and their exact native identity. It cannot
+decide logical membership, role ownership, or relaunch eligibility. Native
+adapters, SQLite, and the React `useSyncExternalStore` store are forward-only
+followers. A native effect never synchronously re-enters Core from the effect
+call stack; completion returns as an identity/generation-fenced event or effect
+result. The Electron transition uses a Node-API boundary but does not move
+authority into Node or the renderer.
 
 IPC changes update the complete contract together: Rust domain/result types,
-generated TypeScript, `src/shared/api.ts`, Tauri commands/effects, bridge wiring,
-renderer usage, and adjacent Rust/Vitest coverage.
+generated TypeScript, `src/shared/api.ts`, active Tauri and Electron adapters,
+bridge wiring, renderer usage, and adjacent Rust/Vitest coverage.
 
 Async behavior follows an event topology:
 

@@ -6,8 +6,12 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   define: {
+    __RION_DESKTOP_SHELL__: JSON.stringify("tauri"),
     __RION_DESKTOP_E2E__: JSON.stringify(
       process.env.RION_STUDIO_DESKTOP_E2E_BUILD === "1"
+    ),
+    __RION_DESKTOP_E2E_DRIVER__: JSON.stringify(
+      process.env.RION_STUDIO_DESKTOP_E2E_BUILD === "1" ? "tauri" : "none"
     )
   },
   root: "src/renderer",

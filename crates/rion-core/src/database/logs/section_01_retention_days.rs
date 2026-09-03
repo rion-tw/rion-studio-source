@@ -297,14 +297,26 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
                 let _ = response.send(result);
             }
             Request::Shutdown(response) => {
-                let result = flush_pending(&mut connection, &mut pending, &mut pending_appends)
+                let checkpoint = flush_pending(&mut connection, &mut pending, &mut pending_appends)
                     .and_then(|_| {
                         connection
                             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
                             .map_err(|error| CoreError::LogDatabase(error.to_string()))
                     });
-                let _ = response.send(result);
-                break;
+                if let Err(error) = checkpoint {
+                    let _ = response.send(Err(error));
+                    continue;
+                }
+                match connection.close() {
+                    Ok(()) => {
+                        let _ = response.send(Ok(()));
+                        return;
+                    }
+                    Err((returned, error)) => {
+                        connection = returned;
+                        let _ = response.send(Err(CoreError::LogDatabase(error.to_string())));
+                    }
+                }
             }
         }
     }

@@ -7,6 +7,14 @@
 mod native_resource_registry;
 use native_resource_registry::NativeResourceRegistry;
 
+mod destructive_native_work;
+use destructive_native_work::{
+    BROWSER_DATA_CLEAR_NATIVE_TERMINAL_UNVERIFIED, DestructiveNativeSubmission,
+    DestructiveNativeWorkBegin, DestructiveNativeWorkQueue, DestructiveNativeWorkRegistry,
+    await_event_bound_native_terminal, await_utility_surface_release,
+    role_browser_data_clear_fingerprint,
+};
+
 mod macro_badge_timing;
 pub use macro_badge_timing::MacroBadgeTimingObservation;
 use macro_badge_timing::{MacroBadgeTimingPhase, MacroBadgeTimingTracker};
@@ -126,6 +134,8 @@ include!("system_runtime/section_27_add_child_bounded.rs");
 include!("system_runtime/section_27_prepare_destroy_tab_presentation.rs");
 include!("system_runtime/section_28_set_role_audio_muted.rs");
 include!("system_runtime/section_29_session_storage.rs");
+include!("system_runtime/section_29_windows_role_session_export.rs");
+include!("system_runtime/section_29_macos_role_session_export.rs");
 include!("system_runtime/section_30_geometry_and_input.rs");
 include!("system_runtime/section_31_input_fence.rs");
 include!("system_runtime/section_32_macro_input_recovery.rs");

@@ -9,6 +9,8 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | Document | Status | Load when |
 | --- | --- | --- |
 | [System WebView Runtime Contract](system-webview-runtime-contract.md) | Active, version owner | Any Core/Tauri/native runtime contract changes |
+| [Chromium Runtime Migration](chromium-runtime-migration.md) | Active, staged contract | Electron/Chromium architecture, session transfer, cutover, or Tauri retirement |
+| [Chromium Migration Execution Ledger](chromium-migration-execution-ledger.md) | Active, non-normative ledger | Remaining work count, gate status, or migration handoff |
 | [Operations and Receipts](contracts/system-runtime/operations-and-receipts.md) | Active, normative | Operation identity, completion, revisions, diagnostics |
 | [Ownership and Activation](contracts/system-runtime/ownership-and-activation.md) | Active, normative | Window/tab ownership, launch, activation, topology |
 | [Native Projections and Placement](contracts/system-runtime/native-projections-and-placement.md) | Active, normative | Native chrome, destructive stop, persistence, placement |
@@ -25,9 +27,12 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Design System](design-system.md) | Active | Renderer styling, components, theme, or runtime chrome presentation |
 | [Event Topology](event-topology.md) | Active | Any asynchronous production behavior or timer review |
 | [Desktop E2E Strategy](e2e-strategy.md) | Active | User-visible behavior, journey coverage, or desktop validation |
+| [Chromium Macro Cutover Parity](validation/runbooks/chromium-macro-cutover.md) | Active runbook | Paired managed Macro/input cutover phases, evidence, or platform limits |
+| [Electron Production Candidate](electron-production-candidate.md) | Active, owner-locked | Chromium production candidate inputs, updater trust, assets, or promotion boundary |
 | [Validation](validation/README.md) | Active index | Native/hardware runbooks or historical evidence lookup |
 | [Windows Game Window Placement](validation/runbooks/windows-game-window-placement.md) | Active runbook | Physical Windows placement, DPI, and generation acceptance |
 | [macOS WKWebView Game Mode A/B](validation/runbooks/macos-wkwebview-game-mode.md) | Active runbook | Isolated fullscreen Game Mode eligibility and Flyff performance gates |
+| [macOS Flyff Brave/Rion Same-Scene A/B](validation/runbooks/macos-flyff-brave-rion-same-scene.md) | Active runbook | Matched Brave/Rion Flyff scene, Effects-on gap, and stability measurement |
 
 ## Machine-owned registries
 

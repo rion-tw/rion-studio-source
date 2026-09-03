@@ -53,6 +53,7 @@ fn prepare_schema_twenty_five(connection: &Connection) {
     connection
         .execute_batch(
             "DELETE FROM schema_migrations;
+             DROP TABLE role_session_migrations;
              INSERT INTO schema_migrations(version, applied_at) VALUES (25, 'current');",
         )
         .unwrap();
@@ -90,7 +91,7 @@ fn schema_twenty_five_clears_only_quick_access_triggers_and_preserves_macro_data
                 row.get::<_, u32>(0)
             })
             .unwrap(),
-        28
+        SCHEMA_VERSION
     );
     for id in ["ctrl-k", "meta-k"] {
         let payload: Value = serde_json::from_str(

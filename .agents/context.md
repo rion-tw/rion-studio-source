@@ -1,8 +1,10 @@
 # Rion Studio AI Context Index
 
-Rion Studio is a Tauri desktop launcher and automation host for isolated System
-WebView roles. For substantial work, use the deterministic router before loading
-topic documents:
+Rion Studio is migrating from a Tauri/System WebView desktop launcher to a
+Chromium launcher while retaining Rust runtime authority and the macOS AppKit
+native host. Windows uses the Electron host; macOS replaces WKWebView inside the
+existing AppKit window/tab boundary. For substantial work, use the deterministic
+router before loading topic documents:
 
 ```bash
 pnpm run ai:context -- --list
@@ -23,6 +25,7 @@ by the router. If the command is unavailable, use this fallback table:
 | CI, packaging, updater, release | `.agents/context/release.md` | `docs/updater-transaction-contract.md` |
 | AI context or documentation maintenance | `.agents/context/testing.md` | `docs/ai-development.md` |
 
-Repository ownership remains: Core owns domain and persisted state; Tauri owns
-native handles and effects; shared contracts own cross-boundary types; the
-renderer is browser-safe. Global invariants and the owner-locked release decision live in `AGENTS.md`.
+Repository ownership remains: Core owns domain and persisted state; the active
+desktop shell owns only native handles and effects; shared contracts own
+cross-boundary types; the renderer is browser-safe. Global invariants, migration
+limits, and the owner-locked release decision live in `AGENTS.md`.

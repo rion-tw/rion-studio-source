@@ -12,12 +12,17 @@ const requiredExceptionFields = [
   "cleanup"
 ];
 const timerSourceExtensions = new Set([".js", ".ts", ".tsx"]);
-const timerSourcePrefixes = ["src/renderer/src/", "src/shared/browser-overlay/"];
+const timerSourcePrefixes = [
+  "src/electron/main/",
+  "src/renderer/src/",
+  "src/shared/browser-overlay/"
+];
 const productSourcePrefixes = [
   "crates/rion-core/src/",
   "crates/rion-platform/src/",
   "src-tauri/native/",
   "src-tauri/src/",
+  "src/electron/main/",
   "src/renderer/src/",
   "src/shared/browser-overlay/"
 ];
@@ -120,7 +125,10 @@ function isProductSource(path) {
 
 function mechanismsForLine(path, line) {
   const mechanisms = [];
-  if (controlFlowPattern.test(line)) {
+  const trimmed = line.trimStart();
+  const commentOnly = trimmed.startsWith("//") || trimmed.startsWith("/*") ||
+    trimmed.startsWith("*");
+  if (!commentOnly && controlFlowPattern.test(line)) {
     mechanisms.push({ name: "polling/watchdog/dirty-check control flow", classifications: new Set() });
   }
   if (!timerSourceExtensions.has(extname(path)) ||

@@ -43,11 +43,13 @@ impl SystemRuntimeExecutor {
         let paths = global_web_session_paths(&self.user_data_dir);
         let webview2 = paths.webview2.to_string_lossy().into_owned();
         let webkit = uuid::Uuid::from_bytes(paths.webkit_identifier).to_string();
-        self.clear_role_browser_data("global-web", &webview2, &webkit)
+        self.clear_role_browser_data("global-web", &webview2, &webkit, None)
     }
 
     fn clear_role_browser_data_contract(
         &self,
+        effect_id: &str,
+        operation_id: &str,
         role_id: &str,
         webview2_user_data_dir: &str,
         webkit_data_store_identifier: &str,
@@ -62,6 +64,7 @@ impl SystemRuntimeExecutor {
             role_id,
             webview2_user_data_dir,
             webkit_data_store_identifier,
+            Some((effect_id, operation_id)),
         );
         self.record_native_operation_receipt(receipt_for_runtime_result(
             operation,

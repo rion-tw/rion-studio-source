@@ -122,6 +122,15 @@ pub fn run() {
             core.invoke(CoreCommand::SystemWebViewRuntimeRegister {
                 registration: runtime.registration(),
             })?;
+            core.prepare_v22_role_session_migrations_internal()?;
+            #[cfg(target_os = "macos")]
+            runtime
+                .schedule_macos_v22_role_session_export_resume()
+                .map_err(|error| std::io::Error::other(error.message))?;
+            #[cfg(windows)]
+            runtime
+                .schedule_windows_v22_role_session_export_resume()
+                .map_err(|error| std::io::Error::other(error.message))?;
             let receiver = core.subscribe()?;
             let quick_menu_refresh = quick_menu::RefreshCoordinator::default();
             let runtime_launcher_refresh = runtime_tab_menu::RefreshCoordinator::default();
@@ -179,12 +188,31 @@ pub fn run() {
                                             if let Some(state) =
                                                 app_handle.try_state::<CoreState>()
                                             {
-                                                state.application_exit_guard.permit();
+                                                request_fatal_application_shutdown(
+                                                    &app_handle,
+                                                    &state,
+                                                    9,
+                                                );
+                                            } else {
+                                                // Without managed state there is no coordinator or
+                                                // Core lock owner to release safely.
+                                                std::process::exit(9);
                                             }
-                                            app_handle.exit(9);
                                             break;
                                         }
                                     }
+                                }
+                                CoreEvent::CoreEffectCancellations { cancellations } => {
+                                    let operation_mismatches = effect_runtime
+                                        .consume_core_effect_cancellations(&cancellations);
+                                    if operation_mismatches > 0 {
+                                        eprintln!(
+                                            "Ignored {operation_mismatches} Core effect cancellation(s) with mismatched destructive-work identity."
+                                        );
+                                    }
+                                    renderer_events.push(CoreEvent::CoreEffectCancellations {
+                                        cancellations,
+                                    });
                                 }
                                 CoreEvent::OverlayChanged { role_ids } => {
                                     effect_runtime.refresh_macro_overlays(&role_ids);
@@ -681,8 +709,17 @@ pub fn run() {
                     activate_main_window(app_handle, "application-reopen");
                 }
                 tauri::RunEvent::Exit => {
-                    if let Some(state) = app_handle.try_state::<CoreState>() {
-                        state.core.shutdown();
+                    if let Some(state) = app_handle.try_state::<CoreState>()
+                        && state
+                            .application_shutdown
+                            .allows_core_shutdown_on_run_exit()
+                        && let Err(error) = compensate_checked_core_shutdown_result(
+                            &state.core,
+                            state.core.shutdown_checked(),
+                        )
+                    {
+                        eprintln!("Core exit cleanup failed closed: {error}");
+                        std::process::exit(9);
                     }
                 }
                 _ => {}

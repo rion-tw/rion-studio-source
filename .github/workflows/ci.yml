@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -59,7 +59,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify Tauri-only product boundary
+      - name: Verify desktop shell migration boundary
         run: pnpm run verify:system-only
 
       - name: Enforce source, reachability, dependency, and stale-path hygiene
@@ -194,7 +194,7 @@ jobs:
           name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}
           path: out/renderer
 
-      - name: Verify Tauri-only product boundary
+      - name: Verify desktop shell migration boundary
         run: pnpm run verify:system-only
 
       - name: Check target-platform Rust formatting and lints
@@ -203,6 +203,11 @@ jobs:
       - name: Test target-platform Rust workspace
         id: target_rust_tests
         run: pnpm run test:rust
+
+      - name: Lint and test real native Electron startup without visible UI
+        run: |
+          pnpm run lint:electron:native-integration-fixture
+          pnpm run test:electron:native-integration
 
       - name: Test renderer behavior on Windows
         if: runner.os == 'Windows'
@@ -224,6 +229,234 @@ jobs:
 
       - name: Build target-platform Tauri shell
         run: cargo build -p rion-tauri
+
+  electron-platform-validation:
+    name: ${{ matrix.name }} Electron Chromium package validation
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+          - name: Windows x64
+            os: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore Electron Rust build cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-bin: "false"
+          shared-key: electron-platform-ci-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Verify desktop shell migration boundary
+        run: pnpm run verify:system-only
+
+      - name: Prepare ephemeral Electron updater trust fixture
+        run: pnpm run prepare:electron-updater:ci
+
+      - name: Apply and verify ephemeral Electron updater fixture version
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run release:version -- "${RION_STUDIO_ELECTRON_PACKAGE_VERSION}"
+          test "$(node -p 'require("./package.json").version')" = "${RION_STUDIO_ELECTRON_PACKAGE_VERSION}"
+          cargo metadata --locked --no-deps --format-version 1 > /dev/null
+
+      - name: Run macOS AppKit Chromium shell E2E
+        if: runner.os == 'macOS'
+        id: chromium_macos_appkit_smoke
+        timeout-minutes: 90
+        run: pnpm run test:e2e:desktop:chromium:macos-appkit
+        env:
+          RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+
+      - name: Run Windows Chromium shell E2E
+        if: runner.os == 'Windows'
+        id: chromium_windows_smoke
+        timeout-minutes: 90
+        run: pnpm run test:e2e:desktop:chromium:windows
+        env:
+          RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+
+      - name: Upload Chromium shell E2E diagnostics
+        if: always() && (steps.chromium_macos_appkit_smoke.outcome != 'skipped' || steps.chromium_windows_smoke.outcome != 'skipped')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: chromium-shell-e2e-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+          path: |
+            .desktop-e2e-artifacts
+            !.desktop-e2e-artifacts/**/roles/*/browser/**
+
+      - name: Build macOS Electron Chromium release artifacts
+        if: runner.os == 'macOS'
+        run: pnpm run package:electron:mac
+
+      - name: Build Windows Electron Chromium release artifacts
+        if: runner.os == 'Windows'
+        run: pnpm run package:electron:win
+
+      - name: Build previous-version Windows Electron updater fixtures
+        if: runner.os == 'Windows'
+        run: pnpm run build:electron-updater:previous-fixtures
+
+      - name: Verify exact Electron, Chromium, Rust Core, and AppKit ABI runtime
+        run: pnpm run verify:electron-runtime
+
+      - name: Verify macOS Electron package structure
+        if: runner.os == 'macOS'
+        run: pnpm run verify:electron-package -- --app "release/electron/mac-arm64/Rion Studio.app"
+
+      - name: Verify Windows Electron package structure
+        if: runner.os == 'Windows'
+        run: pnpm run verify:electron-package -- --app "release/electron/win-unpacked"
+
+      - name: Verify macOS Electron distribution payloads
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s release/electron/Rion.Studio-mac.app.tar.gz
+          test -s release/electron/Rion.Studio-mac.dmg
+          test ! -e release/electron/Rion.Studio-mac.dmg.blockmap
+          hdiutil verify release/electron/Rion.Studio-mac.dmg
+          tar -tzf release/electron/Rion.Studio-mac.app.tar.gz \
+            "Rion Studio.app/Contents/Resources/app.asar" \
+            "Rion Studio.app/Contents/Resources/native/rion-core.node"
+
+      - name: Verify Windows Electron distribution payload
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = (Resolve-Path "release/electron/Rion.Studio-win.exe").Path
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne "NotSigned") {
+            throw "Windows Electron installer must remain Authenticode-unsigned."
+          }
+          if (Test-Path "release/electron/Rion.Studio-win.exe.blockmap") {
+            throw "Rust-owned updates must not publish an Electron differential blockmap."
+          }
+
+      - name: Verify exact Windows NSIS installed payload
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: pwsh
+        env:
+          RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          Get-ChildItem Env: | Where-Object {
+            $_.Name.StartsWith("TAURI_SIGNING_", [StringComparison]::OrdinalIgnoreCase) -or
+            $_.Name.StartsWith("RION_STUDIO_UPDATER_PRIVATE_", [StringComparison]::OrdinalIgnoreCase)
+          } | ForEach-Object {
+            Remove-Item -LiteralPath "Env:$($_.Name)"
+          }
+          $proofRoot = Join-Path $env:RUNNER_TEMP "rion-electron-installer-proof-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $proofRoot) {
+            throw "The CI Windows installer payload proof root must be create-new."
+          }
+          New-Item -ItemType Directory -Path $proofRoot | Out-Null
+          try {
+            $sourceSha = (& git rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to resolve the exact CI source SHA."
+            }
+            ./scripts/runWindowsElectronInstallerPayloadProof.ps1 `
+              -RepositoryRoot "$env:GITHUB_WORKSPACE" `
+              -ApplicationPath "$env:GITHUB_WORKSPACE\release\electron\win-unpacked" `
+              -ArtifactPath "$env:GITHUB_WORKSPACE\release\electron\Rion.Studio-win.exe" `
+              -OutputPath "$proofRoot\windows-installer-payload-proof.json" `
+              -SourceSha $sourceSha `
+              -Version "$env:RION_STUDIO_ELECTRON_PACKAGE_VERSION"
+          } finally {
+            if (Test-Path -LiteralPath $proofRoot) {
+              Remove-Item -LiteralPath $proofRoot -Recurse -Force
+            }
+          }
+
+      - name: Verify packaged macOS Rust-owned updater transaction
+        if: runner.os == 'macOS'
+        timeout-minutes: 15
+        run: >-
+          pnpm run test:electron-updater:packaged --
+          --app "${{ github.workspace }}/release/electron/mac-arm64/Rion Studio.app"
+          --artifact "${{ github.workspace }}/release/electron/Rion.Studio-mac.app.tar.gz"
+
+      - name: Verify packaged Windows Rust-owned updater transactions
+        if: runner.os == 'Windows'
+        timeout-minutes: 20
+        shell: pwsh
+        env:
+          RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          $pnpm = (Get-Command pnpm.cmd -ErrorAction Stop).Source
+          ./scripts/runWindowsIsolatedProfile.ps1 `
+            -RepositoryRoot "$env:GITHUB_WORKSPACE" `
+            -CommandPath $pnpm `
+            -AdditionalWritablePaths @($env:RION_UPDATER_CI_FIXTURE_ROOT) `
+            -AllowEphemeralUpdaterSigningEnvironment `
+            -CommandArguments @(
+              "run", "test:electron-updater:packaged", "--",
+              "--artifact", "$env:GITHUB_WORKSPACE\release\electron\Rion.Studio-win.exe"
+            )
+
+      - name: Run packaged macOS AppKit Chromium Role black-box E2E
+        if: runner.os == 'macOS'
+        id: packaged_chromium_macos_appkit_smoke
+        timeout-minutes: 20
+        run: pnpm run test:e2e:desktop:electron:packaged -- --app "release/electron/mac-arm64/Rion Studio.app"
+        env:
+          RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+
+      - name: Run packaged Windows Chromium Role black-box E2E
+        if: runner.os == 'Windows'
+        id: packaged_chromium_windows_smoke
+        timeout-minutes: 20
+        shell: pwsh
+        env:
+          RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+          RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          $pnpm = (Get-Command pnpm.cmd -ErrorAction Stop).Source
+          ./scripts/runWindowsIsolatedProfile.ps1 `
+            -RepositoryRoot "$env:GITHUB_WORKSPACE" `
+            -CommandPath $pnpm `
+            -CommandArguments @(
+              "run", "test:e2e:desktop:electron:packaged", "--",
+              "--app", "release/electron/win-unpacked"
+            )
+
+      - name: Upload packaged Chromium Role black-box E2E diagnostics
+        if: always() && (steps.packaged_chromium_macos_appkit_smoke.outcome != 'skipped' || steps.packaged_chromium_windows_smoke.outcome != 'skipped')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: packaged-chromium-role-black-box-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+          path: |
+            .desktop-e2e-artifacts
+            !.desktop-e2e-artifacts/**/roles/*/browser/**
 
   desktop-e2e:
     name: ${{ matrix.name }} desktop E2E

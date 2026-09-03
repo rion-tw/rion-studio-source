@@ -4,82 +4,13 @@ impl MacroRuntime {
         recovery_id: &str,
         role_id: &str,
     ) -> CoreResult<MacroInputRecoveryTicket> {
-        let recovery_id = recovery_id.trim();
-        let role_id = role_id.trim();
-        if recovery_id.is_empty() || role_id.is_empty() {
-            return Err(CoreError::InvalidInput(
-                "macro input recovery identifiers are required".to_owned(),
-            ));
-        }
-        let (ticket, controls) = {
-            let mut inner = self
-                .shared
-                .inner
-                .lock()
-                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
-            if let Some(active_id) = inner.input_recovery_by_role.get(role_id).cloned()
-                && let Some(active) = inner.input_recoveries.get(&active_id)
-            {
-                return Ok(recovery_ticket(&active_id, active));
+        try_ensure_input_recovery_shared(&self.shared, recovery_id, role_id)?.ok_or_else(|| {
+            CoreError::Domain {
+                code: "MACRO_INPUT_RECOVERY_SUPERSEDED",
+                message: "A newer role terminal state superseded macro input recovery."
+                    .to_owned(),
             }
-
-            let directly_affected = inner
-                .invocations
-                .values()
-                .filter(|control| control.role_ids.contains(role_id))
-                .cloned()
-                .collect::<Vec<_>>();
-            let mut roots = HashMap::new();
-            let mut controls = HashMap::new();
-            for control in directly_affected {
-                controls.insert(control.id.clone(), Arc::clone(&control));
-                let root = root_invocation_control(control);
-                controls.insert(root.id.clone(), Arc::clone(&root));
-                roots.insert(root.id.clone(), root);
-            }
-            let mut intents = roots
-                .values()
-                .filter_map(|control| {
-                    control
-                        .restart_intent
-                        .lock()
-                        .ok()
-                        .and_then(|intent| intent.clone())
-                })
-                .collect::<Vec<_>>();
-            intents.sort_by_key(|intent| intent.sequence);
-            intents.dedup_by(|left, right| left.sequence == right.sequence);
-
-            inner.quiesced_role_ids.insert(role_id.to_owned());
-            inner.recovering_role_ids.insert(role_id.to_owned());
-            inner.restart_required_role_ids.remove(role_id);
-            let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
-            *epoch = epoch.saturating_add(1);
-            let input_epoch = *epoch;
-            let recovery = MacroInputRecovery {
-                input_epoch,
-                intents: intents.clone(),
-                role_id: role_id.to_owned(),
-            };
-            inner
-                .input_recovery_by_role
-                .insert(role_id.to_owned(), recovery_id.to_owned());
-            inner
-                .input_recoveries
-                .insert(recovery_id.to_owned(), recovery);
-            install_recovering_statuses(&mut inner, recovery_id, &roots, &intents);
-            let ticket = MacroInputRecoveryTicket {
-                input_epoch,
-                pending_macro_restart_count: intents.len().min(u32::MAX as usize) as u32,
-                recovery_id: recovery_id.to_owned(),
-                role_id: role_id.to_owned(),
-            };
-            (ticket, controls.into_values().collect::<Vec<_>>())
-        };
-        controls.iter().for_each(|control| cancel_control(control));
-        self.shared.role_transfer_changed.notify_all();
-        self.emit_statuses();
-        Ok(ticket)
+        })
     }
 
     #[cfg(test)]
@@ -281,6 +212,94 @@ impl MacroRuntime {
         }
         Ok(changed)
     }
+}
+
+fn try_ensure_input_recovery_shared(
+    shared: &Arc<Shared>,
+    recovery_id: &str,
+    role_id: &str,
+) -> CoreResult<Option<MacroInputRecoveryTicket>> {
+    let recovery_id = recovery_id.trim();
+    let role_id = role_id.trim();
+    if recovery_id.is_empty() || role_id.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "macro input recovery identifiers are required".to_owned(),
+        ));
+    }
+    let (ticket, controls) = {
+        let mut inner = shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        if let Some(active_id) = inner.input_recovery_by_role.get(role_id).cloned()
+            && let Some(active) = inner.input_recoveries.get(&active_id)
+        {
+            return Ok(Some(recovery_ticket(&active_id, active)));
+        }
+        if shared.application_suspended.load(Ordering::Acquire)
+            || inner.stopping_role_ids.contains(role_id)
+            || inner.restart_required_role_ids.contains(role_id)
+        {
+            return Ok(None);
+        }
+
+        let directly_affected = inner
+            .invocations
+            .values()
+            .filter(|control| control.role_ids.contains(role_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut roots = HashMap::new();
+        let mut controls = HashMap::new();
+        for control in directly_affected {
+            controls.insert(control.id.clone(), Arc::clone(&control));
+            let root = root_invocation_control(control);
+            controls.insert(root.id.clone(), Arc::clone(&root));
+            roots.insert(root.id.clone(), root);
+        }
+        let mut intents = roots
+            .values()
+            .filter_map(|control| {
+                control
+                    .restart_intent
+                    .lock()
+                    .ok()
+                    .and_then(|intent| intent.clone())
+            })
+            .collect::<Vec<_>>();
+        intents.sort_by_key(|intent| intent.sequence);
+        intents.dedup_by(|left, right| left.sequence == right.sequence);
+
+        inner.quiesced_role_ids.insert(role_id.to_owned());
+        inner.recovering_role_ids.insert(role_id.to_owned());
+        inner.restart_required_role_ids.remove(role_id);
+        let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+        *epoch = epoch.saturating_add(1);
+        let input_epoch = *epoch;
+        let recovery = MacroInputRecovery {
+            input_epoch,
+            intents: intents.clone(),
+            role_id: role_id.to_owned(),
+        };
+        inner
+            .input_recovery_by_role
+            .insert(role_id.to_owned(), recovery_id.to_owned());
+        inner
+            .input_recoveries
+            .insert(recovery_id.to_owned(), recovery);
+        install_recovering_statuses(&mut inner, recovery_id, &roots, &intents);
+        let ticket = MacroInputRecoveryTicket {
+            input_epoch,
+            pending_macro_restart_count: intents.len().min(u32::MAX as usize) as u32,
+            recovery_id: recovery_id.to_owned(),
+            role_id: role_id.to_owned(),
+        };
+        (ticket, controls.into_values().collect::<Vec<_>>())
+    };
+    controls.iter().for_each(|control| cancel_control(control));
+    shared.role_transfer_changed.notify_all();
+    emit_statuses(shared, true);
+    Ok(Some(ticket))
 }
 
 fn recovery_ticket(recovery_id: &str, recovery: &MacroInputRecovery) -> MacroInputRecoveryTicket {

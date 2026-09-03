@@ -142,7 +142,7 @@ it("selects visible native tab menus from authoritative popup-start events", asy
 it("funnels terminal AppKit and Win32 placement events through one fenced reducer", async () => {
   const [runtime, macLayout, macCallback, windowsResize] = await Promise.all([
     readFile("src-tauri/src/system_runtime/section_14_window_placement.rs", "utf8"),
-    readFile("src-tauri/native/macos/RionRuntimeTabsController/05_layout.mm", "utf8"),
+    readFile("crates/rion-appkit/native/macos/RionRuntimeTabsController/05_layout.mm", "utf8"),
     readFile("src-tauri/src/runtime_tabs_macos/section_02_labels.rs", "utf8"),
     readFile("src-tauri/src/system_runtime/platform/windows/live_resize.rs", "utf8")
   ]);
@@ -254,18 +254,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     ] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
-      readFile(
-        new URL("../src-tauri/native/macos/RionWKWebViewInput.m", import.meta.url),
-        "utf8"
-      ),
-      readFile(
-        new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
-        "utf8"
-      ),
-      readFile(
-        new URL("../crates/rion-platform/src/system_webview.rs", import.meta.url),
-        "utf8"
-      ),
+      readFile("src-tauri/native/macos/RionWKWebViewInput.m", "utf8"),
+      readFile("crates/rion-appkit/native/macos/RionRuntimeTabsController.mm", "utf8"),
+      readFile("crates/rion-platform/src/system_webview.rs", "utf8"),
       readFile(
         new URL("../src-tauri/src/power_lifecycle.rs", import.meta.url),
         "utf8"
@@ -787,20 +778,25 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       shell.indexOf("fn start_application_shutdown("),
       shell.indexOf("fn confirm_application_shutdown(")
     );
-    expect(shutdownWorker).toContain("spawn_blocking(move ||");
-    expect(shutdownWorker).toContain("runtime.close_all()");
-    expect(shutdownWorker).toContain("app.exit(0)");
+    for (const step of [
+      "spawn_blocking(move ||",
+      "runtime.close_all_until(shutdown_deadline)",
+      "application_shutdown.mark_ready_to_exit()",
+      "exit_application_after_verified_shutdown(&app, &state)",
+      "allows_core_shutdown_on_run_exit()",
+      "app.exit(state.application_shutdown.requested_exit_code())"
+    ]) expect(shutdownWorker).toContain(step);
     expect(shell).toContain("confirm_application_shutdown(&app, &state)");
     const updateExit = shell.slice(
       shell.indexOf("fn prepare_application_update_exit("),
       shell.indexOf("fn prepare_application_update_install(")
     );
-    expect(updateExit).toContain("application_shutdown.mark_started()");
-    expect(updateExit).toContain("application_shutdown.mark_ready_to_exit()");
-    expect(updateExit.indexOf("state.core.shutdown()"))
-      .toBeLessThan(updateExit.indexOf("shutdown_result?"));
-    expect(updateExit.indexOf("application_shutdown.mark_ready_to_exit()"))
-      .toBeLessThan(updateExit.indexOf("shutdown_result?"));
+    const updateTerminal = updateExit.indexOf("shutdown_result?");
+    for (const step of [
+      "application_shutdown.mark_started()",
+      "application_shutdown.mark_ready_to_exit()",
+      "state.core.shutdown_checked()"
+    ]) expect(updateExit.indexOf(step)).toBeLessThan(updateTerminal);
 
     expect(runtime).not.toContain("CompatibilitySurface");
     expect(runtime).not.toContain("create_compatibility_surface");

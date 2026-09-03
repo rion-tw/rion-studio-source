@@ -7,7 +7,8 @@ use crate::{
     model::{
         BrowserRuntimeCommand, BrowserRuntimeResult, BrowserRuntimeRoleOwnerRecord,
         BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot, BrowserRuntimeTabRecord,
-        BrowserRuntimeWorkspaceRecord, RuntimeRoleSlotRecord,
+        BrowserRuntimeWorkspaceRecord, EmbeddedTabAudioMuteRoleEffectRecord,
+        EmbeddedWebSurfaceIdentityRecord, RuntimeRoleSlotRecord,
     },
 };
 
@@ -18,9 +19,30 @@ pub struct RoleOwnershipRuntime {
     tabs: HashMap<String, BrowserRuntimeTabRecord>,
 }
 
+struct TabAudioMuteTransaction<'a> {
+    tab_id: &'a str,
+    window_id: &'a str,
+    attempt_generation: &'a str,
+    expected_audio_muted: bool,
+    audio_muted: bool,
+    role_generations: &'a [EmbeddedTabAudioMuteRoleEffectRecord],
+    web_surfaces: &'a [EmbeddedWebSurfaceIdentityRecord],
+}
+
 impl RoleOwnershipRuntime {
     pub fn invoke(&mut self, command: BrowserRuntimeCommand) -> CoreResult<BrowserRuntimeResult> {
         self.invoke_inner(command)
+    }
+
+    pub(crate) fn synchronize_tab_window_owners(
+        &mut self,
+        owner_by_tab: &HashMap<String, String>,
+    ) {
+        for (tab_id, window_id) in owner_by_tab {
+            if let Some(tab) = self.tabs.get_mut(tab_id) {
+                tab.window_id.clone_from(window_id);
+            }
+        }
     }
 
     fn invoke_inner(&mut self, command: BrowserRuntimeCommand) -> CoreResult<BrowserRuntimeResult> {
@@ -34,7 +56,11 @@ impl RoleOwnershipRuntime {
                 name,
                 tab_type,
                 workspace_id,
+                audio_muted,
+                attempt_generation,
+                window_id,
                 role_slots,
+                web_surfaces,
             } => {
                 if !matches!(tab_type.as_str(), "role" | "workspace") {
                     return Err(domain(
@@ -48,6 +74,12 @@ impl RoleOwnershipRuntime {
                         && tab.tab_type == tab_type
                         && tab.workspace_id == workspace_id
                 }) {
+                    if existing.web_surfaces != web_surfaces {
+                        return Err(domain(
+                            "RUNTIME_TAB_WEB_SURFACES_STALE",
+                            "The existing runtime tab has a different Web surface identity set.",
+                        ));
+                    }
                     created_tab_id = Some(existing.id.clone());
                 } else {
                     let id = tab_id.unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -57,11 +89,14 @@ impl RoleOwnershipRuntime {
                             "Runtime tab id is invalid or already in use.",
                         ));
                     }
+                    validate_web_surface_identities(&tab_type, &id, &web_surfaces)?;
                     let tab = BrowserRuntimeTabRecord {
                         id: id.clone(),
+                        audio_muted,
+                        attempt_generation,
                         source_id,
                         name,
-                        window_id: String::new(),
+                        window_id,
                         tab_type,
                         workspace_id,
                         slots: role_slots
@@ -75,6 +110,7 @@ impl RoleOwnershipRuntime {
                                 owner: None,
                             })
                             .collect(),
+                        web_surfaces,
                         hidden: true,
                     };
                     self.tabs.insert(id.clone(), tab);
@@ -83,6 +119,23 @@ impl RoleOwnershipRuntime {
                     tab_created = true;
                 }
             }
+            BrowserRuntimeCommand::SetTabAudioMuted {
+                tab_id,
+                window_id,
+                attempt_generation,
+                expected_audio_muted,
+                audio_muted,
+                role_generations,
+                web_surfaces,
+            } => self.set_tab_audio_muted(TabAudioMuteTransaction {
+                tab_id: &tab_id,
+                window_id: &window_id,
+                attempt_generation: &attempt_generation,
+                expected_audio_muted,
+                audio_muted,
+                role_generations: &role_generations,
+                web_surfaces: &web_surfaces,
+            })?,
             BrowserRuntimeCommand::RemoveTab { tab_id } => self.remove_tab(&tab_id),
             BrowserRuntimeCommand::CloseTabs { tab_ids } => self.close_tabs(&tab_ids),
             BrowserRuntimeCommand::RoleTransition {
@@ -140,6 +193,60 @@ impl RoleOwnershipRuntime {
         self.roles
             .retain(|_, role| role.owner.tab_id.as_str() != tab_id);
         self.refresh_slot_states();
+    }
+
+    fn set_tab_audio_muted(
+        &mut self,
+        transaction: TabAudioMuteTransaction<'_>,
+    ) -> CoreResult<()> {
+        let tab = self
+            .tabs
+            .get(transaction.tab_id)
+            .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
+        let identity_matches = !transaction.window_id.is_empty()
+            && !transaction.attempt_generation.is_empty()
+            && tab.window_id == transaction.window_id
+            && tab.attempt_generation.as_deref() == Some(transaction.attempt_generation)
+            && tab.audio_muted == transaction.expected_audio_muted;
+        if !identity_matches {
+            return Err(domain(
+                "RUNTIME_TAB_AUDIO_STALE",
+                "The runtime tab audio identity changed before the mutation could commit.",
+            ));
+        }
+        let mut actual = self
+            .roles
+            .values()
+            .filter(|role| role.owner.tab_id == transaction.tab_id)
+            .map(|role| EmbeddedTabAudioMuteRoleEffectRecord {
+                role_id: role.role_id.clone(),
+                owner_generation: role.owner.generation,
+            })
+            .collect::<Vec<_>>();
+        actual.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+        let mut expected = transaction.role_generations.to_vec();
+        expected.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+        let mut actual_web_surfaces = tab.web_surfaces.clone();
+        actual_web_surfaces.sort_by(|left, right| left.surface_id.cmp(&right.surface_id));
+        let mut expected_web_surfaces = transaction.web_surfaces.to_vec();
+        expected_web_surfaces.sort_by(|left, right| left.surface_id.cmp(&right.surface_id));
+        if (actual.is_empty() && actual_web_surfaces.is_empty())
+            || actual != expected
+            || actual_web_surfaces != expected_web_surfaces
+        {
+            return Err(domain(
+                "RUNTIME_TAB_AUDIO_STALE",
+                "The runtime tab surface ownership changed before the mutation could commit.",
+            ));
+        }
+        let tab = self.tabs.get_mut(transaction.tab_id).ok_or_else(|| {
+            domain(
+                "RUNTIME_TAB_NOT_FOUND",
+                "Runtime tab was not found before its audio mutation committed.",
+            )
+        })?;
+        tab.audio_muted = transaction.audio_muted;
+        Ok(())
     }
 
     fn close_tabs(&mut self, tab_ids: &[String]) {
@@ -359,7 +466,7 @@ impl RoleOwnershipRuntime {
                 workspace_id: tab.source_id.clone(),
                 name: tab.name.clone(),
                 runtime: "embedded".to_owned(),
-                window_id: String::new(),
+                window_id: tab.window_id.clone(),
                 tab_id: tab.id.clone(),
                 role_ids: tab.slots.iter().map(|slot| slot.role_id.clone()).collect(),
                 state: workspace_state(&tab.slots).to_owned(),

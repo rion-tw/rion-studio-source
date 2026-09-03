@@ -61,7 +61,7 @@ fn classify_probe(platform: Platform, mut raw: RawSystemWebViewProbe) -> SystemW
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(all(target_os = "macos", feature = "system-webview-probe"), test))]
 fn macos_macro_input_available(runtime_version: Option<&str>, public_api_available: bool) -> bool {
     public_api_available
         && runtime_version
@@ -70,7 +70,7 @@ fn macos_macro_input_available(runtime_version: Option<&str>, public_api_availab
             .is_some_and(|major| major >= 14)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "system-webview-probe"))]
 fn probe_macos() -> RawSystemWebViewProbe {
     use std::{ffi::CString, os::raw::c_char};
 
@@ -127,6 +127,14 @@ fn probe_macos() -> RawSystemWebViewProbe {
     }
 }
 
+#[cfg(all(target_os = "macos", not(feature = "system-webview-probe")))]
+fn probe_macos() -> RawSystemWebViewProbe {
+    RawSystemWebViewProbe {
+        reason_codes: vec!["system-webview-probe-disabled".to_owned()],
+        ..RawSystemWebViewProbe::default()
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 fn probe_macos() -> RawSystemWebViewProbe {
     RawSystemWebViewProbe {
@@ -135,7 +143,7 @@ fn probe_macos() -> RawSystemWebViewProbe {
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(all(windows, feature = "system-webview-probe"), test))]
 fn classify_windows_runtime_version(runtime_version: Option<String>) -> RawSystemWebViewProbe {
     let runtime_version =
         runtime_version.and_then(|version| (!version.trim().is_empty()).then_some(version));
@@ -152,7 +160,7 @@ fn classify_windows_runtime_version(runtime_version: Option<String>) -> RawSyste
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "system-webview-probe"))]
 fn probe_windows() -> RawSystemWebViewProbe {
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::GetAvailableCoreWebView2BrowserVersionString, take_pwstr,
@@ -166,6 +174,14 @@ fn probe_windows() -> RawSystemWebViewProbe {
         unsafe { GetAvailableCoreWebView2BrowserVersionString(PCWSTR::null(), &mut version) };
     let value = (!version.is_null()).then(|| take_pwstr(version));
     classify_windows_runtime_version(query.is_ok().then_some(value).flatten())
+}
+
+#[cfg(all(windows, not(feature = "system-webview-probe")))]
+fn probe_windows() -> RawSystemWebViewProbe {
+    RawSystemWebViewProbe {
+        reason_codes: vec!["system-webview-probe-disabled".to_owned()],
+        ..RawSystemWebViewProbe::default()
+    }
 }
 
 #[cfg(not(windows))]
@@ -271,5 +287,25 @@ mod tests {
                     .contains(&"webview2-runtime-unavailable".to_owned())
             );
         }
+    }
+
+    #[cfg(all(
+        not(feature = "system-webview-probe"),
+        any(target_os = "macos", windows)
+    ))]
+    #[test]
+    fn production_probe_fails_closed_when_the_v22_adapter_is_not_compiled() {
+        let platform = if cfg!(target_os = "macos") {
+            Platform::Macos
+        } else {
+            Platform::Windows
+        };
+        let probe = probe_system_webview(platform);
+        assert!(!probe.available);
+        assert!(
+            probe
+                .reason_codes
+                .contains(&"system-webview-probe-disabled".to_owned())
+        );
     }
 }

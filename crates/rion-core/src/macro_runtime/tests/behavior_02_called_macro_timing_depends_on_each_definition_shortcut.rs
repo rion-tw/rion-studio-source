@@ -628,7 +628,7 @@
     }
 
     #[test]
-    fn fails_an_unacknowledged_input_with_the_original_timeout_error() {
+    fn an_unacknowledged_normal_input_opens_recovery_before_worker_teardown() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         // Keep the 1 ms timeout scoped to the intentionally hung key, not the
         // startup focus round trip. The deadline starts after this sink returns.
@@ -674,33 +674,29 @@
             hung_hold[0].action,
             BrowserAction::Key { ref phase, .. } if phase == "hold"
         ));
+        let timed_out_request_id = hung_hold[0].request_id.clone();
 
         let compensating_release = next_browser_actions(&receiver);
         runtime
             .dispatch_results(success_results(compensating_release))
             .unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        let failed = loop {
-            if let Some(status) = runtime
-                .statuses()
-                .unwrap()
-                .into_iter()
-                .find(|status| status.state == "failed")
-            {
-                break status;
-            }
-            assert!(std::time::Instant::now() < deadline);
-            thread::yield_now();
-        };
-        {
-            assert_eq!(
-                failed.error.as_deref(),
-                Some("Macro input timed out after 10000 ms.")
-            );
-            runtime
-                .dispatch_results(success_results(hung_hold))
-                .unwrap();
-        };
+        let ticket = runtime
+            .input_recovery_for_role("r1")
+            .unwrap()
+            .expect("Core deadline opens exact input recovery");
+        assert_eq!(ticket.recovery_id, timed_out_request_id);
+        assert_eq!(ticket.pending_macro_restart_count, 1);
+        assert!(runtime
+            .statuses()
+            .unwrap()
+            .iter()
+            .any(|status| status.state == "recovering" && status.macro_id == "m1"));
+
+        let late = runtime
+            .dispatch_results(success_results(hung_hold))
+            .unwrap();
+        assert_eq!(late.late, vec![timed_out_request_id]);
+        assert!(late.accepted.is_empty());
     }
 
     #[test]

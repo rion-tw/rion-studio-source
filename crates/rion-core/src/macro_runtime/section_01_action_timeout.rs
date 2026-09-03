@@ -14,8 +14,9 @@ use chrono::Utc;
 use crate::{
     error::{CoreError, CoreResult, MacroInputError},
     model::{
-        BrowserAction, BrowserActionRequest, BrowserActionResult, CoreEvent, MacroDefinition,
-        MacroInputDiagnosticsRecord, MacroInputRoleDiagnosticRecord, MacroLastClick,
+        BrowserAction, BrowserActionRequest, BrowserActionResult, CoreEffectDispatchReport,
+        CoreEvent, MacroDefinition, MacroInputDiagnosticsRecord, MacroInputEpochRecord,
+        MacroInputRoleDiagnosticRecord, MacroLastClick,
         MacroStartAttemptDiagnosticRecord,
         MacroPressRequest, MacroReleaseRequest, MacroRepeat, MacroRunStatus, MacroRuntimeSettings,
         MacroStartRequest, MacroStepDefinition,
@@ -26,6 +27,7 @@ const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
 const INVOCATION_STOP_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_ACTIVE_INVOCATIONS: usize = 64;
 const MAX_PENDING_ACTIONS: usize = 512;
+const COMPLETED_ACTION_CAPACITY: usize = 1_024;
 const MAX_RECENT_START_ATTEMPTS: usize = 40;
 const PRESENTATION_STATUS_MIN_INTERVAL: Duration = Duration::from_millis(250);
 const SIBLING_FAILURE_MESSAGE: &str = "Cancelled because another assigned role failed.";
@@ -52,12 +54,15 @@ pub struct MacroRuntime {
 
 struct Shared {
     action_timeout: Duration,
+    application_lifecycle_lock: Mutex<()>,
+    application_suspend_completed: AtomicBool,
+    application_suspended: AtomicBool,
     action_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     events: EventSink,
     inner: Mutex<Inner>,
     next_id: AtomicU64,
     next_start_attempt_id: AtomicU64,
-    pending: Mutex<HashMap<String, PendingMacroAction>>,
+    pending: Mutex<BrowserActionDispatchState>,
     last_presentation_status_emit: Mutex<Option<Instant>>,
     macro_run_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     shutting_down: AtomicBool,
@@ -99,8 +104,57 @@ struct PendingMacroAction {
     signal: Weak<InvocationControl>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CompletedBrowserAction {
+    Completed,
+    TimedOut,
+}
+
+#[derive(Default)]
+struct BrowserActionDispatchState {
+    pending: HashMap<String, PendingMacroAction>,
+    completed: HashMap<String, CompletedBrowserAction>,
+    completed_order: VecDeque<String>,
+}
+
+impl BrowserActionDispatchState {
+    fn len(&self) -> usize {
+        self.pending.len()
+    }
+
+    fn values(&self) -> impl Iterator<Item = &PendingMacroAction> {
+        self.pending.values()
+    }
+
+    fn insert(&mut self, request_id: String, pending: PendingMacroAction) {
+        self.pending.insert(request_id, pending);
+    }
+
+    fn remove(&mut self, request_id: &str) -> Option<PendingMacroAction> {
+        self.pending.remove(request_id)
+    }
+
+    fn remember(&mut self, request_id: String, completion: CompletedBrowserAction) {
+        self.completed.insert(request_id.clone(), completion);
+        self.completed_order.push_back(request_id);
+        while self.completed_order.len() > COMPLETED_ACTION_CAPACITY {
+            if let Some(expired) = self.completed_order.pop_front() {
+                self.completed.remove(&expired);
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.pending.clear();
+        self.completed.clear();
+        self.completed_order.clear();
+    }
+}
+
 #[derive(Default)]
 struct Inner {
+    application_suspend_epochs: HashMap<String, u64>,
+    held_key_continuity_revisions: HashMap<(String, String), HeldKeyContinuityRevision>,
     held_keys: HashMap<String, HeldKey>,
     invocations: HashMap<String, Arc<InvocationControl>>,
     leases: HashMap<String, HeldLease>,
@@ -185,6 +239,13 @@ struct HeldKey {
     modifiers: Vec<String>,
     owner_id: String,
     role_id: String,
+}
+
+#[derive(Clone)]
+struct HeldKeyContinuityRevision {
+    document_instance_id: String,
+    loss_revision: u64,
+    surface_generation: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

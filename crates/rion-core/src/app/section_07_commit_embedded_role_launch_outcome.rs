@@ -3,6 +3,7 @@ struct EmbeddedWorkspaceLaunchRequest {
     launch_preview_id: Option<String>,
     launch_tab_id: Option<String>,
     launch_attempt_id: String,
+    presentation_intent: EmbeddedLaunchPresentationIntent,
     restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
 }
 
@@ -13,6 +14,7 @@ struct EmbeddedWorkspaceLeaseLaunchRequest {
     launch_preview_id: Option<String>,
     launch_tab_id: Option<String>,
     launch_attempt_id: String,
+    presentation_intent: EmbeddedLaunchPresentationIntent,
     lease_id: String,
 }
 
@@ -21,6 +23,7 @@ impl AppCore {
         &self,
         role: StateRoleRecord,
         tab_id: String,
+        window_id: String,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         if let Err(error) = launch {
@@ -31,7 +34,24 @@ impl AppCore {
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                 tab_id: tab_id.clone(),
             });
-            self.publish_embedded_runtime_snapshot_best_effort();
+            let logical_tab_is_live = self.browser_runtime.snapshot().is_ok_and(|snapshot| {
+                snapshot
+                    .windows
+                    .values()
+                    .any(|window| window.contains_tab(&tab_id))
+            });
+            if !logical_tab_is_live
+                || matches!(error.code(), "LAUNCH_CANCELLED" | "LAUNCH_PREVIEW_STALE")
+            {
+                // An authoritative close/stop/supersede transaction owns native
+                // membership teardown. The AppKit ownership follower is
+                // phase-only, so publishing the already-removed logical tab
+                // before EmbeddedDestroyTab would cross that boundary and
+                // race the exact close acknowledgement.
+                self.emit_browser_statuses();
+            } else {
+                self.publish_embedded_runtime_snapshot_best_effort();
+            }
             return Err(error);
         }
         let launched_at = chrono::Utc::now().to_rfc3339();
@@ -48,6 +68,9 @@ impl AppCore {
                 self.commit_embedded_runtime_snapshot_without_native_effect(
                     &std::collections::HashSet::new(),
                 )
+            })
+            .and_then(|_| {
+                self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))
             });
         if let Err(error) = completion {
             let _ = self.run_effect_plan(vec![effect_step(
@@ -83,6 +106,7 @@ impl AppCore {
             launch_preview_id,
             launch_tab_id,
             launch_attempt_id,
+            presentation_intent,
             restore_role_slots,
         } = request;
         let mut operation_role_ids = expected_role_ids.to_vec();
@@ -101,6 +125,37 @@ impl AppCore {
                     "Launch workspace not found.",
                 )?)
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            if restore_role_slots.is_some()
+                && let Some(saved_workspace_slots) = self
+                    .read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?
+                    .into_iter()
+                    .find(|window| window.id == target.window_id)
+                    .and_then(|window| {
+                        window.tabs.into_iter().find(|tab| {
+                            tab.tab_type == "workspace"
+                                && tab.source_id == workspace_id
+                                && launch_tab_id
+                                    .as_deref()
+                                    .is_none_or(|tab_id| tab.id == tab_id)
+                                && !tab.workspace_slots.is_empty()
+                        })
+                    })
+                    .map(|tab| tab.workspace_slots)
+            {
+                // A saved Game Window owns its runtime layout snapshot, while
+                // the Workspace remains authoritative for current slot
+                // content. Restore every stable slot's geometry together so a
+                // Web slot cannot drift from the adjacent restored Role slot.
+                for slot in &mut workspace.slots {
+                    if let Some(saved) = saved_workspace_slots
+                        .iter()
+                        .find(|saved| saved.id == slot.id)
+                    {
+                        slot.rect = saved.rect.clone();
+                        slot.browser_zoom_percent = saved.browser_zoom_percent;
+                    }
+                }
+            }
             if let Some(role_slots) = &restore_role_slots {
                 for saved in role_slots {
                     if let Some(slot) = workspace.slots.iter_mut().find(|slot| {
@@ -177,17 +232,16 @@ impl AppCore {
                         .collect(),
                 ));
             }
-            self.start_embedded_workspace_with_lease(
-                EmbeddedWorkspaceLeaseLaunchRequest {
-                    workspace,
-                    role_ids,
-                    target,
-                    launch_preview_id,
-                    launch_tab_id,
-                    launch_attempt_id,
-                    lease_id: lease.id.clone(),
-                },
-            )
+            self.start_embedded_workspace_with_lease(EmbeddedWorkspaceLeaseLaunchRequest {
+                workspace,
+                role_ids,
+                target,
+                launch_preview_id,
+                launch_tab_id,
+                launch_attempt_id,
+                presentation_intent,
+                lease_id: lease.id.clone(),
+            })
         })();
         match result {
             Ok(EmbeddedWorkspaceLaunchStart::Pending(pending)) => {
@@ -215,6 +269,7 @@ impl AppCore {
             launch_preview_id,
             launch_tab_id,
             launch_attempt_id,
+            presentation_intent,
             lease_id,
         } = request;
         let available_roles = self
@@ -253,35 +308,77 @@ impl AppCore {
             .filter(|role| !existing_role_ids.contains(&role.id))
             .cloned()
             .collect::<Vec<_>>();
-        self.reset_system_launch_retry_state(&launch_roles)?;
+        self.reset_browser_launch_retry_state(&launch_roles)?;
         let workspace_resolution =
             self.resolve_workspace_browser_engine(&roles, &available_games, &settings)?;
-        require_system_resolution(&workspace_resolution)?;
+        require_browser_runtime_resolution(&workspace_resolution)?;
         let workspace_resolved_engine = workspace_resolution.resolved_engine;
+        let global_web_profile = if self.runtime_contract_version
+            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            && workspace.slots.iter().any(|slot| slot.web.is_some())
+        {
+            Some(crate::global_web_profile::ensure(&self.user_data_dir)?)
+        } else {
+            None
+        };
+        let audio_muted =
+            self.saved_game_window_tab_audio_muted(&target.window_id, "workspace", &workspace.id)?;
         let requested_tab_id = launch_tab_id.or(self.saved_game_window_tab_id(
             &target.window_id,
             "workspace",
             &workspace.id,
         )?);
-        let tab_admission = self.invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-                tab_id: requested_tab_id,
-                source_id: workspace.id.clone(),
-                name: workspace.name.clone(),
-                tab_type: "workspace".to_owned(),
-                workspace_id: Some(workspace.id.clone()),
-                role_slots: workspace
+        let requested_tab_id = if global_web_profile.is_some() && requested_tab_id.is_none() {
+            Some(uuid::Uuid::new_v4().to_string())
+        } else {
+            requested_tab_id
+        };
+        let web_surfaces = requested_tab_id
+            .as_deref()
+            .filter(|_| global_web_profile.is_some())
+            .map(|tab_id| {
+                workspace
                     .slots
                     .iter()
-                    .filter_map(|slot| {
-                        Some(RuntimeRoleSlotInputRecord {
+                    .enumerate()
+                    .filter_map(|(index, slot)| {
+                        slot.web.as_ref()?;
+                        Some(crate::model::EmbeddedWebSurfaceIdentityRecord {
+                            surface_id: workspace_web_surface_id(tab_id, index),
                             slot_id: slot.id.clone(),
-                            role_id: slot.role_id.clone()?,
-                            rect: slot.rect.clone(),
-                            browser_zoom_percent: slot.browser_zoom_percent,
                         })
                     })
-                    .collect(),
-            })?;
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let launch_role_ids = launch_roles
+            .iter()
+            .map(|role| role.id.clone())
+            .collect::<Vec<_>>();
+        self.mark_role_session_launch_admitted(&launch_role_ids)?;
+        let tab_admission = self.invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+            tab_id: requested_tab_id,
+            source_id: workspace.id.clone(),
+            name: workspace.name.clone(),
+            tab_type: "workspace".to_owned(),
+            workspace_id: Some(workspace.id.clone()),
+            audio_muted,
+            attempt_generation: Some(launch_attempt_id.clone()),
+            window_id: target.window_id.clone(),
+            role_slots: workspace
+                .slots
+                .iter()
+                .filter_map(|slot| {
+                    Some(RuntimeRoleSlotInputRecord {
+                        slot_id: slot.id.clone(),
+                        role_id: slot.role_id.clone()?,
+                        rect: slot.rect.clone(),
+                        browser_zoom_percent: slot.browser_zoom_percent,
+                    })
+                })
+                .collect(),
+            web_surfaces,
+        })?;
         let tab_id = tab_admission
             .created_tab_id
             .ok_or_else(|| CoreError::Internal("workspace tab was not created".to_owned()))?;
@@ -408,7 +505,10 @@ impl AppCore {
                 }),
         );
         let tab = EmbeddedTabEffectRecord {
+            appkit_window_generation: None,
+            appkit_topology_revision: None,
             tab_id: tab_id.clone(),
+            audio_muted,
             attempt_generation: Some(launch_attempt_id),
             launch_preview_id,
             source_id: workspace.id.clone(),
@@ -424,7 +524,15 @@ impl AppCore {
         let target = tab.target.clone();
         let window_id = target.window_id.clone();
         let title = tab.name.clone();
-        let handle = self.start_system_launch(&tab_id, tab, &launch_roles, runtime_snapshot)?;
+        let handle = self.start_system_launch(SystemLaunchRequest {
+            tab_id: &tab_id,
+            tab,
+            roles: &launch_roles,
+            runtime_snapshot,
+            global_web_profile,
+            presentation_intent,
+            resolved_engine: workspace_resolved_engine,
+        })?;
         if let Err(error) = self.commit_embedded_runtime_snapshot_without_native_effect(
             &std::collections::HashSet::new(),
         ) {
@@ -468,17 +576,24 @@ impl AppCore {
             tab_id,
             target: _,
             title: _,
-            window_id: _,
+            window_id,
             workspace_id,
         } = pending;
-        let launch = self.finish_system_launch(handle, &roles);
-        self.commit_embedded_workspace_launch_outcome(role_ids, tab_id, workspace_id, launch)
+        let launch = self.finish_system_launch(handle, &roles, &tab_id);
+        self.commit_embedded_workspace_launch_outcome(
+            role_ids,
+            tab_id,
+            window_id,
+            workspace_id,
+            launch,
+        )
     }
 
     fn commit_embedded_workspace_launch_outcome(
         &self,
         role_ids: Vec<String>,
         tab_id: String,
+        window_id: String,
         _workspace_id: String,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
@@ -492,7 +607,22 @@ impl AppCore {
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                 tab_id: tab_id.clone(),
             });
-            self.publish_embedded_runtime_snapshot_best_effort();
+            let logical_tab_is_live = self.browser_runtime.snapshot().is_ok_and(|snapshot| {
+                snapshot
+                    .windows
+                    .values()
+                    .any(|window| window.contains_tab(&tab_id))
+            });
+            if !logical_tab_is_live
+                || matches!(error.code(), "LAUNCH_CANCELLED" | "LAUNCH_PREVIEW_STALE")
+            {
+                // The transaction which removed the logical tab owns native
+                // membership teardown; only publish renderer status from this
+                // background outcome.
+                self.emit_browser_statuses();
+            } else {
+                self.publish_embedded_runtime_snapshot_best_effort();
+            }
             return Err(error);
         }
         let launched_at = chrono::Utc::now().to_rfc3339();
@@ -510,10 +640,13 @@ impl AppCore {
         let completion = commands
             .into_iter()
             .try_for_each(|command| self.invoke_browser_runtime(command).map(|_| ()))
-            .and_then(|()| {
+            .and_then(|_| {
                 self.commit_embedded_runtime_snapshot_without_native_effect(
                     &std::collections::HashSet::new(),
                 )
+            })
+            .and_then(|_| {
+                self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))
             });
         if let Err(error) = completion {
             let _ = self.run_effect_plan(vec![effect_step(
@@ -571,17 +704,17 @@ impl AppCore {
                 code: "RUNTIME_ROLE_SLOT_NOT_FOUND",
                 message: "Runtime role slot was not found.".to_owned(),
             })?;
-        if target_slot.owner.as_ref().map(|owner| owner.generation)
-            != expected_owner_generation
-        {
+        if target_slot.owner.as_ref().map(|owner| owner.generation) != expected_owner_generation {
             return Err(CoreError::Domain {
                 code: "RUNTIME_ROLE_OWNER_STALE",
                 message: "The role owner changed before the takeover started.".to_owned(),
             });
         }
-        if target_slot.owner.as_ref().is_some_and(|owner| {
-            owner.tab_id == tab_id && owner.slot_id == slot_id
-        }) {
+        if target_slot
+            .owner
+            .as_ref()
+            .is_some_and(|owner| owner.tab_id == tab_id && owner.slot_id == slot_id)
+        {
             return Err(CoreError::Domain {
                 code: "RUNTIME_ROLE_SLOT_ALREADY_OWNED",
                 message: "This role slot already owns the native game surface.".to_owned(),
@@ -608,7 +741,8 @@ impl AppCore {
             )?;
             let game = self.state_game(&role.game_id)?;
             let resolution = self.resolve_role_browser_engine(&role, &game, &settings)?;
-            require_system_resolution(&resolution)?;
+            require_browser_runtime_resolution(&resolution)?;
+            self.mark_role_session_launch_admitted(std::slice::from_ref(&role_id))?;
 
             let source_owner = {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
@@ -645,9 +779,8 @@ impl AppCore {
                     .find(|runtime_role| runtime_role.role_id == role_id)
                     .map(|runtime_role| runtime_role.owner.clone());
                 if let Some(owner) = source_owner.as_ref() {
-                    preserves_active_macro = self
-                        .macro_runtime
-                        .begin_role_ownership_transfer(&role_id)?;
+                    preserves_active_macro =
+                        self.macro_runtime.begin_role_ownership_transfer(&role_id)?;
                     self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                         role_id: role_id.clone(),
                         runtime: "embedded".to_owned(),
@@ -678,12 +811,13 @@ impl AppCore {
 
             let claimed = {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
-                let claim_result = self.invoke_browser_runtime(BrowserRuntimeCommand::ClaimRoleSlot {
-                    role_id: role_id.clone(),
-                    tab_id: tab_id.to_owned(),
-                    slot_id: slot_id.to_owned(),
-                    expected_owner_generation,
-                });
+                let claim_result =
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::ClaimRoleSlot {
+                        role_id: role_id.clone(),
+                        tab_id: tab_id.to_owned(),
+                        slot_id: slot_id.to_owned(),
+                        expected_owner_generation,
+                    });
                 if let Err(error) = claim_result {
                     if let Some(owner) = source_owner.as_ref() {
                         let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
@@ -698,12 +832,11 @@ impl AppCore {
                     ) {
                         Ok(snapshot) => Ok(snapshot),
                         Err(error) => {
-                            let _ = self.invoke_browser_runtime(
-                                BrowserRuntimeCommand::ReleaseRole {
+                            let _ =
+                                self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
                                     role_id: role_id.clone(),
                                     expected_tab_id: Some(tab_id.to_owned()),
-                                },
-                            );
+                                });
                             Err(error)
                         }
                     }
@@ -722,9 +855,9 @@ impl AppCore {
                 .find(|tab| tab.id == tab_id)
                 .and_then(|tab| tab.slots.iter().find(|slot| slot.slot_id == slot_id))
                 .cloned()
-                .ok_or_else(|| CoreError::Internal(
-                    "claimed runtime role slot disappeared".to_owned(),
-                ))?;
+                .ok_or_else(|| {
+                    CoreError::Internal("claimed runtime role slot disappeared".to_owned())
+                })?;
             let zoom_factor = claimed_slot.browser_zoom_percent.unwrap_or(100.0) / 100.0;
             let zoom_mode = if target_slot.browser_zoom_percent.is_some() {
                 "fixed".to_owned()
@@ -762,7 +895,7 @@ impl AppCore {
                         }),
                     ),
                     effect_step(
-                        &role_id,
+                        tab_id,
                         CoreEffectAction::EmbeddedLoadRoles {
                             roles: vec![EmbeddedRoleLoadEffectRecord {
                                 role_id: role_id.clone(),
@@ -800,9 +933,16 @@ impl AppCore {
                     self.commit_embedded_runtime_snapshot_without_native_effect(
                         &std::collections::HashSet::new(),
                     )
+                })
+                .and_then(|snapshot| {
+                    self.complete_chromium_runtime_launch(
+                        tab_id,
+                        std::slice::from_ref(&role_id),
+                    )?;
+                    Ok(snapshot)
                 });
-            let completed = match completion {
-                Ok(snapshot) => snapshot,
+            match completion {
+                Ok(snapshot) => Ok(snapshot),
                 Err(error) => {
                     let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                         role_id: role_id.clone(),
@@ -826,10 +966,9 @@ impl AppCore {
                         expected_tab_id: Some(tab_id.to_owned()),
                     });
                     self.publish_embedded_runtime_snapshot_best_effort();
-                    return Err(error);
+                    Err(error)
                 }
-            };
-            Ok(completed)
+            }
         })();
         let completion = self.browser_operations.complete(&lease.id);
         match (result, completion) {
@@ -860,5 +999,4 @@ impl AppCore {
     fn stop_embedded_workspace_under_active_lease(&self, workspace_id: &str) -> CoreResult<()> {
         self.stop_embedded_workspace_with_operation_lease(workspace_id, false, true, None)
     }
-
 }

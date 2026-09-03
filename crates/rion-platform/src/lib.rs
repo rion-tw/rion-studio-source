@@ -6,7 +6,9 @@ use thiserror::Error;
 mod background_command;
 pub use background_command::background_command;
 mod filesystem;
-pub use filesystem::{atomic_replace_file, restrict_directory_to_current_user};
+pub use filesystem::{
+    atomic_replace_file, restrict_directory_to_current_user, verify_open_file_identity,
+};
 mod chrome_profile;
 pub use chrome_profile::{
     ChromeProfileEntry, chrome_profile_source_fingerprint, chrome_user_data_in_use,
@@ -18,7 +20,11 @@ pub use chrome_cookie::{
     decrypt_windows_aes_gcm_payload,
 };
 mod protected_data;
-pub use protected_data::{protect_session_transfer, unprotect_session_transfer};
+pub use protected_data::{
+    SESSION_TRANSFER_V2_MAX_CONTEXT_BYTES, SESSION_TRANSFER_V2_MAX_ENVELOPE_BYTES,
+    SESSION_TRANSFER_V2_MAX_PLAINTEXT_BYTES, protect_session_transfer, protect_session_transfer_v2,
+    unprotect_session_transfer, unprotect_session_transfer_v2,
+};
 mod system_fonts;
 pub use system_fonts::query_system_font_names;
 mod system;

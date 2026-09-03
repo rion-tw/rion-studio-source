@@ -44,6 +44,13 @@ use std::{
     }
 
     fn core_for_platform(platform: &str) -> (TempDir, Arc<AppCore>) {
+        core_for_platform_contract(platform, 22)
+    }
+
+    fn core_for_platform_contract(
+        platform: &str,
+        runtime_contract_version: u32,
+    ) -> (TempDir, Arc<AppCore>) {
         let directory = tempfile::tempdir().unwrap();
         let core = Arc::new(
             AppCore::create(AppCoreOptions {
@@ -51,7 +58,7 @@ use std::{
                 build_commit: None,
                 packaged: false,
                 platform: platform.to_owned(),
-                runtime_contract_version: Some(22),
+                runtime_contract_version: Some(runtime_contract_version),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
                 performance_telemetry_path: None,
             })
@@ -59,6 +66,22 @@ use std::{
         );
         install_test_system_runtime_for_platform(&core, platform, supported_system_capabilities());
         (directory, core)
+    }
+
+    #[test]
+    fn browser_runtime_suspend_is_an_idempotent_core_lifecycle_transaction() {
+        let (_directory, core) = core_for_platform_contract("darwin", 23);
+
+        for suspended in [true, true, false, false] {
+            let receipt = core
+                .invoke(command(json!({
+                    "type": "browserRuntimeSuspend",
+                    "suspended": suspended,
+                })))
+                .unwrap();
+            assert_eq!(receipt["suspended"], json!(suspended));
+            assert_eq!(receipt["roleInputEpochs"], json!([]));
+        }
     }
 
     #[test]
@@ -218,7 +241,11 @@ use std::{
                 name: "Running role".to_owned(),
                 tab_type: "role".to_owned(),
                 workspace_id: None,
+                audio_muted: false,
+                attempt_generation: Some("seed-running-role-attempt".to_owned()),
+                window_id: "seed-running-role-window".to_owned(),
                 role_slots: test_role_slots(&[role_id]),
+                web_surfaces: Vec::new(),
             })
             .unwrap()
             .created_tab_id
@@ -408,15 +435,16 @@ use std::{
             "win32" => ("windows", crate::model::ResolvedBrowserEngine::Webview2),
             _ => panic!("unsupported test platform: {platform}"),
         };
-        *core.system_webview_runtime.write().unwrap() = SystemWebViewRuntimeRegistrationRecord {
+        *core.browser_runtime_registration.write().unwrap() = BrowserRuntimeRegistrationRecord {
+            contract_version: core.runtime_contract_version,
             platform: platform_name.to_owned(),
             engine,
             adapter_version: "test-wkwebview-1".to_owned(),
             available: true,
-            capability_snapshot,
+            capabilities: capability_snapshot,
             failure_reason: None,
         };
-        core.system_webview_issues.write().unwrap().clear();
+        core.browser_runtime_issues.write().unwrap().clear();
     }
 
     fn drive_command(

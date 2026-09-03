@@ -1,4 +1,109 @@
 #[test]
+fn accepted_launch_emits_an_exact_authoritative_terminal_event() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform_contract(platform, 23);
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let receiver = core.subscribe().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let admission = runtime
+            .block_on(core.invoke_async(CoreCommand::BrowserRoleLaunch {
+                launch_tab_id: Some("31000000-0000-4000-8000-000000000001".to_owned()),
+                role_id: role_id.clone(),
+                target: EmbeddedLaunchTargetRecord {
+                    window_id: format!("terminal-event-window-{platform}"),
+                    persisted_name: None,
+                    display_id: 1,
+                    scale_factor: 1.0,
+                    work_area: StatePixelBoundsRecord {
+                        x: 0,
+                        y: 0,
+                        width: 1440,
+                        height: 900,
+                    },
+                    bounds: StatePixelBoundsRecord {
+                        x: 0,
+                        y: 0,
+                        width: 960,
+                        height: 640,
+                    },
+                    presentation: "normal".to_owned(),
+                },
+                launch_preview_id: None,
+                zoom_factor: None,
+                restore_role_slots: None,
+            }))
+            .unwrap();
+        assert_eq!(
+            admission["completion"],
+            "pendingNativeCompletion",
+            "{platform}"
+        );
+        let operation_id = admission["operationId"].as_str().unwrap().to_owned();
+        let tab_id = admission["tabId"].as_str().unwrap().to_owned();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut terminal = None;
+
+        while terminal.is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "authoritative launch terminal event did not arrive on {platform}"
+            );
+            let Ok(events) = receiver.recv_timeout(Duration::from_millis(50)) else {
+                continue;
+            };
+            let mut results = Vec::new();
+            for event in events {
+                match event {
+                    CoreEvent::CoreEffects { effects } => {
+                        results.extend(effects.into_iter().map(|effect| {
+                            effect_result(effect, None)
+                        }));
+                    }
+                    CoreEvent::BrowserLaunchCompleted {
+                        operation_id,
+                        source_id,
+                        source_type,
+                        tab_id,
+                        ok,
+                        error_code,
+                    } => {
+                        terminal = Some((
+                            operation_id,
+                            source_id,
+                            source_type,
+                            tab_id,
+                            ok,
+                            error_code,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            if !results.is_empty() {
+                core.dispatch_core_effect_results(results).unwrap();
+            }
+        }
+
+        assert_eq!(
+            terminal,
+            Some((
+                operation_id,
+                role_id,
+                "role".to_owned(),
+                tab_id,
+                true,
+                None,
+            )),
+            "{platform}"
+        );
+        core.shutdown();
+    }
+}
+
+#[test]
 fn already_running_role_returns_completed_launch_admission() {
     for platform in ["darwin", "win32"] {
         let (_directory, core) = core_for_platform(platform);

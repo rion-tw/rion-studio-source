@@ -19,6 +19,8 @@ use super::{
 };
 
 mod generation_restore;
+mod initial_activation;
+mod tombstone_relaunch;
 mod window_context;
 mod workspace_layout;
 

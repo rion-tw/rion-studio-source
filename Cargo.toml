@@ -1,7 +1,10 @@
 [workspace]
 members = [
+  "crates/rion-appkit",
   "crates/rion-core",
+  "crates/rion-node",
   "crates/rion-platform",
+  "crates/rion-updater",
   "src-tauri",
 ]
 resolver = "2"
@@ -20,8 +23,14 @@ cbc = { version = "0.1.2", features = ["block-padding", "alloc"] }
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde", "std"] }
 crossbeam-channel = "0.5.15"
 fs2 = "0.4.3"
+getrandom = "0.3.4"
+napi = { version = "=3.6.1", default-features = false, features = ["napi8", "async", "serde-json", "tokio_rt", "dyn-symbols"] }
+napi-build = "2.3.2"
+napi-derive = "=3.4.0"
+minisign-verify = "0.2.5"
 regex = "1.12.2"
 reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "rustls-tls"] }
+semver = "1.0.27"
 pbkdf2 = "0.12.2"
 rusqlite = { version = "0.40.1", default-features = false, features = ["backup", "bundled"] }
 rusty-leveldb = "4.0.1"

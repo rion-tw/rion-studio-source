@@ -121,6 +121,9 @@ describe("macro mind map UI", () => {
     expect(inlineMap.textContent).not.toContain("Live preview");
     expect(inlineMap.textContent).toContain("Key");
     expect(inlineMap.querySelector(".macro-mind-map-node-rail")).toBeNull();
+    expect([
+      ...inlineMap.querySelectorAll<HTMLElement>(".macro-mind-map-card")
+    ].every((card) => card.classList.contains("nopan"))).toBe(true);
     expect(step?.querySelectorAll(".macro-mind-map-handle")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Zoom out" })).toBeTruthy();

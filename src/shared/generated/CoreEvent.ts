@@ -2,9 +2,10 @@
 import type { BrowserActionRequest } from "./BrowserActionRequest";
 import type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 import type { ChromeProfileImportProgressRecord } from "./ChromeProfileImportProgressRecord";
+import type { CoreEffectCancellationRecord } from "./CoreEffectCancellationRecord";
 import type { CoreEffectRequest } from "./CoreEffectRequest";
 import type { LogEntry } from "./LogEntry";
 import type { MacroRunStatus } from "./MacroRunStatus";
 import type { StateCollection } from "./StateCollection";
 
-export type CoreEvent = { "type": "ready", schemaVersion: number, } | { "type": "stateChanged", revision: number, changedCollections: Array<StateCollection>, } | { "type": "logsChanged" } | { "type": "logEntriesCaptured", entries: Array<LogEntry>, } | { "type": "browserActions", actions: Array<BrowserActionRequest>, } | { "type": "coreEffects", effects: Array<CoreEffectRequest>, } | { "type": "browserStatuses", statuses: Array<BrowserRoleStatusRecord>, } | { "type": "macroStatuses", reliable: boolean, statuses: Array<MacroRunStatus>, } | { "type": "overlayChanged", roleIds: Array<string>, } | { "type": "chromeProfileImportProgress", progress: ChromeProfileImportProgressRecord, } | { "type": "shutdown" };
+export type CoreEvent = { "type": "ready", schemaVersion: number, } | { "type": "stateChanged", revision: number, changedCollections: Array<StateCollection>, } | { "type": "logsChanged" } | { "type": "logEntriesCaptured", entries: Array<LogEntry>, } | { "type": "browserActions", actions: Array<BrowserActionRequest>, } | { "type": "coreEffects", effects: Array<CoreEffectRequest>, } | { "type": "coreEffectCancellations", cancellations: Array<CoreEffectCancellationRecord>, } | { "type": "browserStatuses", statuses: Array<BrowserRoleStatusRecord>, } | { "type": "browserLaunchCompleted", operationId: string, sourceId: string, sourceType: "role" | "workspace", tabId: string, ok: boolean, errorCode?: string, } | { "type": "macroStatuses", reliable: boolean, statuses: Array<MacroRunStatus>, } | { "type": "overlayChanged", roleIds: Array<string>, } | { "type": "chromeProfileImportProgress", progress: ChromeProfileImportProgressRecord, } | { "type": "shutdown" };

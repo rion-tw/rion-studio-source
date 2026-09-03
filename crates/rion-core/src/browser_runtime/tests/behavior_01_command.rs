@@ -261,6 +261,90 @@ fn role_slot_claims_move_one_owner_and_reject_stale_or_repeated_generations() {
 }
 
 #[test]
+fn tab_audio_mutation_requires_exact_attempt_and_role_owner_generations() {
+    let mut runtime = RoleOwnershipRuntime::default();
+    let tab_id = runtime
+        .invoke(BrowserRuntimeCommand::CreateTab {
+            tab_id: Some("10000000-0000-4000-8000-000000000099".to_owned()),
+            source_id: "role-a".to_owned(),
+            name: "Role A".to_owned(),
+            tab_type: "role".to_owned(),
+            workspace_id: None,
+            audio_muted: false,
+            attempt_generation: Some("attempt-1".to_owned()),
+            window_id: "window-1".to_owned(),
+            role_slots: vec![crate::model::RuntimeRoleSlotInputRecord {
+                slot_id: "role:role-a".to_owned(),
+                role_id: "role-a".to_owned(),
+                rect: crate::model::StateNormalizedRectRecord {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                browser_zoom_percent: Some(100.0),
+            }],
+            web_surfaces: Vec::new(),
+        })
+        .unwrap()
+        .created_tab_id
+        .unwrap();
+    runtime
+        .invoke(BrowserRuntimeCommand::RoleTransition {
+            role_id: "role-a".to_owned(),
+            runtime: "embedded".to_owned(),
+            tab_id: tab_id.clone(),
+            slot_id: None,
+            state: "launching".to_owned(),
+            launched_at: None,
+        })
+        .unwrap();
+    let owner_generation = runtime.snapshot().roles[0].owner.generation;
+    let exact_roles = vec![EmbeddedTabAudioMuteRoleEffectRecord {
+        role_id: "role-a".to_owned(),
+        owner_generation,
+    }];
+
+    for (attempt_generation, roles) in [
+        ("stale-attempt".to_owned(), exact_roles.clone()),
+        (
+            "attempt-1".to_owned(),
+            vec![EmbeddedTabAudioMuteRoleEffectRecord {
+                role_id: "role-a".to_owned(),
+                owner_generation: owner_generation + 1,
+            }],
+        ),
+    ] {
+        let stale = runtime
+            .invoke(BrowserRuntimeCommand::SetTabAudioMuted {
+                tab_id: tab_id.clone(),
+                window_id: "window-1".to_owned(),
+                attempt_generation,
+                expected_audio_muted: false,
+                audio_muted: true,
+                role_generations: roles,
+                web_surfaces: Vec::new(),
+            })
+            .unwrap_err();
+        assert_eq!(stale.code(), "RUNTIME_TAB_AUDIO_STALE");
+        assert!(!runtime.snapshot().tabs[0].audio_muted);
+    }
+
+    let applied = runtime
+        .invoke(BrowserRuntimeCommand::SetTabAudioMuted {
+            tab_id,
+            window_id: "window-1".to_owned(),
+            attempt_generation: "attempt-1".to_owned(),
+            expected_audio_muted: false,
+            audio_muted: true,
+            role_generations: exact_roles,
+            web_surfaces: Vec::new(),
+        })
+        .unwrap();
+    assert!(applied.snapshot.tabs[0].audio_muted);
+}
+
+#[test]
 fn compatibility_projection_has_no_active_or_user_order_authority() {
     let mut runtime = RoleOwnershipRuntime::default();
     let first = "ffffffff-ffff-4fff-8fff-ffffffffffff";

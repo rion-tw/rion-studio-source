@@ -1,18 +1,27 @@
 # System Runtime
 
-WebView2 on Windows and WKWebView on macOS own persistent role stores.
+The stable v22 runtime uses WebView2 on Windows and WKWebView on macOS. The
+target v23 runtime uses the Electron-bundled Chromium and per-role
+`session.fromPath` stores on both platforms. macOS retains the current AppKit
+game-window/tab presentation, gestures, and trusted-input adapter while replacing
+WKWebView with Chromium; Windows uses the Electron/Chromium native host.
+The v22 System WebView probe is available only through the explicit
+`system-webview-probe` Cargo feature: Tauri enables it, while `rion-node` keeps
+default features disabled so the Chromium addon does not link WebKit/WebView2.
 `RuntimeKernel` owns logical window/tab topology, role leases, logical surface
-lifecycle, operation terminality, and revisioned desired state. Tauri owns
-native handles and input APIs; platform adapters translate native events and
-apply complete desired projections.
+lifecycle, operation terminality, and revisioned desired state. Platform adapters
+own only their native handles and input APIs, translate native events, and apply
+complete desired projections.
 
 `docs/system-webview-runtime-contract.md` is the versioned contract index. Load
 only the contract part it identifies for the current runtime task.
 
 - Do not expose remote debugging or fall back to another browser runtime.
-- Treat the per-role WebView2 profile or WKWebsiteDataStore as the only ordinary
-  LocalStorage writer. Outside the user-consented Chrome Profile import, Runtime
-  must not enumerate, checkpoint, forward, clear, or replay page LocalStorage.
+- Treat the per-role WebView2 profile, WKWebsiteDataStore, or Chromium session as
+  the only ordinary LocalStorage writer. Enumeration or replay is allowed only
+  inside the authenticated, revision-fenced v22-to-v23 migration or the
+  user-consented Chrome Profile import; ordinary Runtime must not checkpoint,
+  forward, clear, or synchronize page LocalStorage.
 - Never hold the runtime-state mutex while creating, closing, or calling native
   WebViews; native callbacks may reacquire the same state.
 - Do not synchronously call `AppCore` while applying an effect that AppCore is
@@ -38,3 +47,13 @@ only the contract part it identifies for the current runtime task.
   monotonic epoch. No released role may remain as an orphan input fence.
 - Build/package/CI compile and test native targets without launching a machine-
   specific WebView.
+- Transition code never exposes a user engine selector. A role remains on v22
+  only until its encrypted, readback-verified Chromium store migration commits;
+  final v23 removal is gated by both-platform E2E parity.
+- Cookie set/get/flush promises may acknowledge cookie-only Chromium migration.
+  DOM Storage flush has no completion receipt, so LocalStorage-bearing migration
+  stays non-success until a fresh process reopens the exact role path and reads
+  back the canonical inventory. Timers and same-process reopen are not evidence.
+- The macOS adapter may change its embedded page engine, but it must not replace
+  AppKit-native runtime chrome with renderer HTML or silently route through the
+  Windows BrowserWindow host.

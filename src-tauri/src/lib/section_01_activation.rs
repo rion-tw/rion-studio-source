@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicI32, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -16,15 +16,11 @@ use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowDisplayRemapRecord,
-    GameWindowPlacementRecord, GameWindowTabRecord,
-    GameWindowUpdateInputRecord, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
-    MacroRunStatus,
-    RuntimeLaunchIntentReceiptRecord, RuntimeLaunchIntentRecord,
-    RuntimeWindowStopRequestRecord,
-    StateCollection, StateGameWindowRecord,
-    StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationStatus,
-    SystemRuntimeOperationSummaryRecord,
-    RuntimeTabDragSessionRecord, RuntimeTabMoveResultRecord,
+    GameWindowPlacementRecord, GameWindowTabRecord, GameWindowUpdateInputRecord, LogCaptureRecord,
+    LogErrorDetails, LogLevel, LogSource, MacroRunStatus, RuntimeLaunchIntentReceiptRecord,
+    RuntimeLaunchIntentRecord, RuntimeTabDragSessionRecord, RuntimeTabMoveResultRecord,
+    RuntimeWindowStopRequestRecord, StateCollection, StateGameWindowRecord, StatePixelBoundsRecord,
+    StateResolutionRecord, SystemRuntimeOperationStatus, SystemRuntimeOperationSummaryRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -46,6 +42,7 @@ const RENDERER_READY_TIMEOUT: Duration = Duration::from_secs(15);
 fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
     match action {
         CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
+        CoreEffectAction::GlobalWebProfileClear { .. } => "globalWebProfileClear",
         CoreEffectAction::ChromeProfileImportSnapshot { .. } => "chromeProfileImportSnapshot",
         CoreEffectAction::ChromeProfileImportApply { .. } => "chromeProfileImportApply",
         CoreEffectAction::ChromeProfileImportVerify { .. } => "chromeProfileImportVerify",
@@ -54,13 +51,38 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
         CoreEffectAction::EmbeddedCreateTab { .. } => "embeddedCreateTab",
         CoreEffectAction::EmbeddedConfigureRoleSessions { .. } => "embeddedConfigureRoleSessions",
         CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
+        CoreEffectAction::EmbeddedLoadWebSurfaces { .. } => "embeddedLoadWebSurfaces",
         CoreEffectAction::EmbeddedInstallOverlays { .. } => "embeddedInstallOverlays",
         CoreEffectAction::EmbeddedFocusRole { .. } => "embeddedFocusRole",
+        CoreEffectAction::EmbeddedSetTabAudioMuted { .. } => "embeddedSetTabAudioMuted",
         CoreEffectAction::EmbeddedDestroyRole { .. } => "embeddedDestroyRole",
         CoreEffectAction::EmbeddedClaimRoleSlot { .. } => "embeddedClaimRoleSlot",
         CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
-        CoreEffectAction::EmbeddedFollowRoleOwnership { .. } => {
-            "embeddedFollowRoleOwnership"
+        CoreEffectAction::EmbeddedFollowRoleOwnership { .. } => "embeddedFollowRoleOwnership",
+        CoreEffectAction::EmbeddedApplyAppKitProjection { .. } => "embeddedApplyAppKitProjection",
+        CoreEffectAction::EmbeddedProvisionWindowForTabMove { .. } => {
+            "embeddedProvisionWindowForTabMove"
+        }
+        CoreEffectAction::EmbeddedRetireProvisionedWindow { .. } => {
+            "embeddedRetireProvisionedWindow"
+        }
+        CoreEffectAction::EmbeddedSetRuntimeWindowVisibility { .. } => {
+            "embeddedSetRuntimeWindowVisibility"
+        }
+        CoreEffectAction::EmbeddedSetRuntimeWindowPresentation { .. } => {
+            "embeddedSetRuntimeWindowPresentation"
+        }
+        CoreEffectAction::EmbeddedSetRuntimeWindowZoom { .. } => {
+            "embeddedSetRuntimeWindowZoom"
+        }
+        CoreEffectAction::EmbeddedPrepareTabRoleReload { .. } => {
+            "embeddedPrepareTabRoleReload"
+        }
+        CoreEffectAction::EmbeddedCommitTabRoleReload { .. } => {
+            "embeddedCommitTabRoleReload"
+        }
+        CoreEffectAction::EmbeddedSupersedeTabRoleReload { .. } => {
+            "embeddedSupersedeTabRoleReload"
         }
         CoreEffectAction::OverlayOpenMacroPage { .. } => "overlayOpenMacroPage",
         CoreEffectAction::OverlayCopyCoordinate { .. } => "overlayCopyCoordinate",
@@ -110,6 +132,52 @@ fn record_application_shutdown_outcome(
     });
 }
 
+fn compensate_checked_core_shutdown_result(
+    core: &AppCore,
+    result: rion_core::CoreResult<rion_core::AppCoreShutdownOutcome>,
+) -> Result<rion_core::AppCoreShutdownOutcome, String> {
+    match result {
+        Ok(outcome) => Ok(outcome),
+        Err(shutdown_error) => {
+            let requires_marker_invalidation = match shutdown_error.code() {
+                // Stable pre-terminal codes remain explicit for reviewability. Unknown codes use
+                // the same fail-closed branch below, because they do not prove that both browser
+                // work prechecks passed.
+                "CORE_SHUTDOWN_BROWSER_OPERATIONS_UNVERIFIED"
+                | "CORE_SHUTDOWN_PRETERMINAL_UNVERIFIED"
+                | "CORE_SHUTDOWN_ROLE_BROWSER_DATA_CLEAR_UNVERIFIED" => true,
+                // These codes are emitted only after shutdown_checked has atomically passed both
+                // browser-work prechecks and entered irreversible Core teardown.
+                "CORE_LOG_DATABASE_FAILED"
+                | "CORE_SHUTTING_DOWN"
+                | "CORE_SHUTDOWN_INSTANCE_LOCK_UNVERIFIED"
+                | "CORE_SHUTDOWN_RUNTIME_UNVERIFIED"
+                | "CORE_STATE_DATABASE_FAILED" => false,
+                // CORE_INTERNAL_FAILED is deliberately included here: it historically represented
+                // both precheck lock poison and late lock failures, so it cannot prove phase.
+                _ => true,
+            };
+            let shutdown_message = shutdown_error.to_string();
+            if requires_marker_invalidation {
+                return match core.invalidate_runtime_restore_session_clean_exit_internal() {
+                    Ok(()) => Err(format!(
+                        "Core shutdown could not prove that browser-work prechecks reached their terminal; the clean restore marker was invalidated: {shutdown_message}"
+                    )),
+                    Err(invalidation_error) => Err(format!(
+                        "Core shutdown could not prove that browser-work prechecks reached their terminal ({shutdown_message}), and its clean restore marker could not be invalidated ({invalidation_error})"
+                    )),
+                };
+            }
+            // The restore marker is authoritative only for the already verified native surface
+            // drain. A later Core log/state/lock teardown failure still exits non-zero, but must
+            // not rewrite that exact Applied/Degraded native receipt as an unclean native exit.
+            Err(format!(
+                "Core teardown failed after the native shutdown terminal; the native clean restore marker remains authoritative: {shutdown_message}"
+            ))
+        }
+    }
+}
+
 fn start_application_shutdown(app_handle: &AppHandle, state: &CoreState) {
     state.runtime.flush_all_live_window_states();
     let _ = state.runtime.persist_all_game_window_placements();
@@ -127,19 +195,29 @@ fn start_application_shutdown(app_handle: &AppHandle, state: &CoreState) {
     let app = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         core.quiesce_automatic_input_for_shutdown();
-        let receipt = runtime.close_all();
+        let shutdown_deadline = system_runtime::system_runtime_shutdown_deadline();
+        let core_clear_drain_began = core
+            .begin_role_browser_data_clear_command_drain()
+            .is_ok();
+        let receipt = runtime.close_all_until(shutdown_deadline);
+        let core_clear_drain_safe = core_clear_drain_began
+            && matches!(
+                core.wait_for_role_browser_data_clear_command_drain(shutdown_deadline),
+                Ok(true)
+            );
         #[cfg(feature = "desktop-e2e")]
         desktop_e2e::record_event(
             "application-shutdown-terminal",
             None,
             None,
             None,
-            serde_json::to_value(&receipt).unwrap_or_else(|error| {
-                json!({ "serializationError": error.to_string() })
-            }),
+            serde_json::to_value(&receipt)
+                .unwrap_or_else(|error| json!({ "serializationError": error.to_string() })),
         );
+        let exit_decision =
+            application_shutdown_exit_decision(&receipt.status, core_clear_drain_safe);
         let persistence_result =
-            if system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status) {
+            if exit_decision == ApplicationShutdownExitDecision::Clean {
                 runtime.persist_restore_session(true)
             } else {
                 Err(receipt
@@ -172,12 +250,32 @@ fn start_application_shutdown(app_handle: &AppHandle, state: &CoreState) {
             None,
             json!({ "complete": _final_flush_complete }),
         );
-        core.shutdown();
-        if let Some(state) = app.try_state::<CoreState>() {
-            state.application_shutdown.mark_ready_to_exit();
+        if exit_decision == ApplicationShutdownExitDecision::HardExit {
+            // Any unsafe native terminal or incomplete Core command drain may still own native
+            // resources. Bypass Core shutdown so only process termination can release them.
+            std::process::exit(9);
         }
-        app.exit(0);
+        if let Err(error) =
+            compensate_checked_core_shutdown_result(&core, core.shutdown_checked())
+        {
+            eprintln!("{error}");
+            std::process::exit(9);
+        }
+        let Some(state) = app.try_state::<CoreState>() else {
+            eprintln!("Application state disappeared before verified shutdown exit.");
+            std::process::exit(9);
+        };
+        state.application_shutdown.mark_ready_to_exit();
+        exit_application_after_verified_shutdown(&app, &state);
     });
+}
+
+fn exit_application_after_verified_shutdown(app: &AppHandle, state: &CoreState) {
+    if !state.application_shutdown.allows_core_shutdown_on_run_exit() {
+        eprintln!("Application exit was requested before verified shutdown completed.");
+        std::process::exit(9);
+    }
+    app.exit(state.application_shutdown.requested_exit_code());
 }
 
 fn confirm_application_shutdown(app: &AppHandle, state: &CoreState) {
@@ -185,8 +283,25 @@ fn confirm_application_shutdown(app: &AppHandle, state: &CoreState) {
     match state.application_shutdown.request_exit() {
         ApplicationExitRequest::StartShutdown => start_application_shutdown(app, state),
         ApplicationExitRequest::WaitForShutdown => {}
-        ApplicationExitRequest::Exit => app.exit(0),
+        ApplicationExitRequest::Exit => exit_application_after_verified_shutdown(app, state),
     }
+}
+
+fn request_fatal_application_shutdown(app: &AppHandle, state: &CoreState, exit_code: i32) {
+    state.application_exit_guard.permit();
+    match state.application_shutdown.request_fatal_exit(exit_code) {
+        ApplicationExitRequest::StartShutdown => start_application_shutdown(app, state),
+        ApplicationExitRequest::WaitForShutdown => {}
+        ApplicationExitRequest::Exit => exit_application_after_verified_shutdown(app, state),
+    }
+}
+
+fn request_application_shutdown_from_app(app: &AppHandle) {
+    let Some(state) = app.try_state::<CoreState>() else {
+        eprintln!("Application shutdown was requested without managed Core state.");
+        std::process::exit(9);
+    };
+    request_application_shutdown(app, &state);
 }
 
 fn request_application_shutdown(app: &AppHandle, state: &CoreState) {
@@ -237,24 +352,18 @@ fn preview_and_commit_tab_selection_inner(
     tab_id: &str,
     native_style_applied: bool,
 ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
-    let (window_id, provisional, resolved_tab_id, operation_id) =
-        match state
-            .runtime
-            .preview_tab_activation_background(tab_id, native_style_applied)
-        {
-            Err(message) if stale_live_tab_action_error(&message) => {
-                return Ok(state.runtime.superseded_tab_activation_summary(tab_id));
-            }
-            result => result?,
-        };
+    let (window_id, provisional, resolved_tab_id, operation_id) = match state
+        .runtime
+        .preview_tab_activation_background(tab_id, native_style_applied)
+    {
+        Err(message) if stale_live_tab_action_error(&message) => {
+            return Ok(state.runtime.superseded_tab_activation_summary(tab_id));
+        }
+        result => result?,
+    };
     if !provisional
         && let Err(message) =
-            commit_previewed_tab_selection(
-                app,
-                state,
-                &window_id,
-                &resolved_tab_id,
-            )
+            commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)
     {
         eprintln!("Runtime tab selection commit could not be scheduled: {message}");
     }
@@ -321,8 +430,28 @@ enum ApplicationExitRequest {
     Exit,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ApplicationShutdownExitDecision {
+    Clean,
+    HardExit,
+}
+
+fn application_shutdown_exit_decision(
+    native_status: &SystemRuntimeOperationStatus,
+    core_clear_drain_safe: bool,
+) -> ApplicationShutdownExitDecision {
+    if core_clear_drain_safe
+        && system_runtime::shutdown_receipt_allows_clean_exit(native_status)
+    {
+        ApplicationShutdownExitDecision::Clean
+    } else {
+        ApplicationShutdownExitDecision::HardExit
+    }
+}
+
 #[derive(Default)]
 struct ApplicationShutdownCoordinator {
+    requested_exit_code: AtomicI32,
     started: AtomicBool,
     ready_to_exit: AtomicBool,
 }
@@ -343,8 +472,27 @@ impl ApplicationShutdownCoordinator {
         }
     }
 
+    fn request_fatal_exit(&self, exit_code: i32) -> ApplicationExitRequest {
+        let exit_code = if exit_code == 0 { 9 } else { exit_code };
+        let _ = self.requested_exit_code.compare_exchange(
+            0,
+            exit_code,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        self.request_exit()
+    }
+
     fn mark_ready_to_exit(&self) {
         self.ready_to_exit.store(true, Ordering::Release);
+    }
+
+    fn allows_core_shutdown_on_run_exit(&self) -> bool {
+        self.ready_to_exit.load(Ordering::Acquire)
+    }
+
+    fn requested_exit_code(&self) -> i32 {
+        self.requested_exit_code.load(Ordering::Acquire)
     }
 }
 

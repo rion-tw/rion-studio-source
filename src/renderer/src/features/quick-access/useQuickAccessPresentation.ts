@@ -15,6 +15,7 @@ interface UseQuickAccessPresentationInput {
 
 interface QuickAccessPresentationController {
   isOpen: boolean;
+  isManagedRequestActive: () => boolean;
   restoreDomFocusOnClose: boolean;
   close: (reason: QuickAccessCloseReason) => void;
   didClose: () => void;
@@ -53,6 +54,11 @@ export function useQuickAccessPresentation({
     setRestoreDomFocusOnClose(true);
   }, []);
 
+  const isManagedRequestActive = useCallback(
+    (): boolean => activeRequestIdRef.current !== null,
+    []
+  );
+
   const openFromMainWindow = useCallback((): void => {
     if (!enabled || hasBlockingQuickAccessDialog(document)) return;
     setRestoreDomFocusOnClose(true);
@@ -75,18 +81,32 @@ export function useQuickAccessPresentation({
           await window.rionStudio.resolveQuickAccessRequest(request.requestId, "ignored");
           return;
         }
+        // Fence the physical chord before focusing the launcher. Its remaining
+        // native key events must not be consumed again by the main-window
+        // shortcut handler and immediately close the managed-origin palette.
+        activeRequestIdRef.current = request.requestId;
         const presented = await window.rionStudio.presentQuickAccessRequest(request.requestId);
         if (disposed) {
           if (presented) {
             await window.rionStudio.resolveQuickAccessRequest(request.requestId, "ignored");
           }
+          if (activeRequestIdRef.current === request.requestId) {
+            activeRequestIdRef.current = null;
+          }
           return;
         }
-        if (!presented) return;
-        activeRequestIdRef.current = request.requestId;
+        if (!presented) {
+          if (activeRequestIdRef.current === request.requestId) {
+            activeRequestIdRef.current = null;
+          }
+          return;
+        }
         setRestoreDomFocusOnClose(true);
         setIsOpen(true);
       } catch (error) {
+        if (activeRequestIdRef.current === request.requestId) {
+          activeRequestIdRef.current = null;
+        }
         await window.rionStudio
           .resolveQuickAccessRequest(request.requestId, "ignored")
           .catch(() => undefined);
@@ -97,7 +117,9 @@ export function useQuickAccessPresentation({
 
     const consumePendingRequest = (): void => {
       void window.rionStudio.consumePendingQuickAccessRequest()
-        .then((request) => request && handleRequest(request))
+        .then((request) => {
+          if (request) return handleRequest(request);
+        })
         .catch(onError);
     };
     const unsubscribe = window.rionStudio.onQuickAccessRequested(consumePendingRequest);
@@ -114,6 +136,7 @@ export function useQuickAccessPresentation({
     close,
     didClose,
     isOpen,
+    isManagedRequestActive,
     openFromMainWindow,
     restoreDomFocusOnClose
   };

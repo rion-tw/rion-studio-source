@@ -4,7 +4,10 @@ import { applicationShortcutForKeyEvent } from "../../../shared/applicationShort
 
 export function useWindowsApplicationShortcuts(enabled: boolean): void {
   useEffect(() => {
-    if (!enabled || document.documentElement.dataset.platform !== "windows") return;
+    if (
+      !enabled ||
+      document.documentElement.dataset.platform !== "windows"
+    ) return;
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       const command = applicationShortcutForKeyEvent(event);

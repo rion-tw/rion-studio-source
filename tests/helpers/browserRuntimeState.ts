@@ -270,15 +270,20 @@ export function createBrowserRuntimeState() {
           createdTabId = command.tabId ?? `runtime-tab-${++nextTabId}`;
           tabs.set(createdTabId, {
             id: createdTabId,
+            audioMuted: command.audioMuted,
+            ...(command.attemptGeneration
+              ? { attemptGeneration: command.attemptGeneration }
+              : {}),
             sourceId: command.sourceId,
             name: command.name,
-            windowId: "",
+            windowId: command.windowId,
             tabType: command.tabType,
             ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
             slots: command.roleSlots.map((slot) => ({
               ...slot,
               state: "available"
             })),
+            webSurfaces: command.webSurfaces.map((surface) => ({ ...surface })),
             hidden: true
           });
           refreshSlots();

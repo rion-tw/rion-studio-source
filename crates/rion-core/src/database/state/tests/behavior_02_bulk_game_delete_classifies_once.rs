@@ -77,7 +77,8 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version IN (24, 25, 26, 27, 28);
+                "DELETE FROM schema_migrations;
+                 DROP TABLE role_session_migrations;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  INSERT INTO legacy_session_restores(id) VALUES ('retired');
@@ -94,7 +95,7 @@
                     0
                 ))
                 .unwrap(),
-            28
+            SCHEMA_VERSION
         );
         assert_eq!(
             connection
@@ -137,6 +138,7 @@
         connection
             .execute_batch(
                 "DELETE FROM schema_migrations;
+                 DROP TABLE role_session_migrations;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (23, 'current');",
             )
             .unwrap();
@@ -161,7 +163,7 @@
             connection
                 .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, u32>(0))
                 .unwrap(),
-            28
+            SCHEMA_VERSION
         );
     }
 
@@ -249,6 +251,7 @@
         connection
             .execute_batch(
                 "DELETE FROM schema_migrations;
+                 DROP TABLE role_session_migrations;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (24, 'current');",
             )
             .unwrap();
@@ -289,7 +292,7 @@
             connection
                 .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, u32>(0))
                 .unwrap(),
-            28
+            SCHEMA_VERSION
         );
     }
 
@@ -366,7 +369,8 @@
             .unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=28;
+                "DELETE FROM schema_migrations;
+                 DROP TABLE role_session_migrations;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (27, 'current');",
             )
             .unwrap();
@@ -396,7 +400,7 @@
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            28
+            SCHEMA_VERSION
         );
     }
 
@@ -406,7 +410,8 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version IN (24, 25, 26, 27, 28);
+                "DELETE FROM schema_migrations;
+                 DROP TABLE role_session_migrations;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  CREATE TRIGGER reject_schema_twenty BEFORE INSERT ON schema_migrations
@@ -504,7 +509,9 @@
                     ],
                 )
                 .unwrap();
-            connection.execute("DELETE FROM schema_migrations", []).unwrap();
+            connection
+                .execute_batch("DELETE FROM schema_migrations; DROP TABLE role_session_migrations;")
+                .unwrap();
             connection
                 .execute(
                     "INSERT INTO schema_migrations(version, applied_at) VALUES (?1, 'current')",
@@ -525,7 +532,7 @@
                         row.get::<_, u32>(0)
                     })
                     .unwrap(),
-                28
+                SCHEMA_VERSION
             );
             for game_id in ["builtin-flyff-universe", "custom-game"] {
                 let migrated_game: Value = serde_json::from_str(
@@ -582,6 +589,7 @@
         connection
             .execute_batch(
                 "DELETE FROM schema_migrations;
+                 DROP TABLE role_session_migrations;
                  INSERT INTO schema_migrations(version, applied_at) VALUES (22, 'current');
                  CREATE TRIGGER reject_schema_twenty_three BEFORE INSERT ON schema_migrations
                  WHEN NEW.version=23 BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",

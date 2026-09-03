@@ -43,7 +43,8 @@ describe("main window chrome shell", () => {
     expect(closeBranch).not.toContain("app.exit(");
     expect(quitStart).toBeGreaterThanOrEqual(0);
     expect(confirmQuitStart).toBeGreaterThan(quitStart);
-    expect(quitBranch).toContain("app.exit(0)");
+    expect(quitBranch).toContain("request_application_shutdown(&app, &state)");
+    expect(quitBranch).not.toContain("app.exit(");
     expect(osCloseStart).toBeGreaterThan(runEventStart);
     expect(gameWindowCloseStart).toBeGreaterThan(osCloseStart);
     expect(osCloseBranch).toContain("api.prevent_close()");

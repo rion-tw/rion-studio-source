@@ -89,6 +89,10 @@ impl AppCore {
             .as_ref()
             .map(|role| role.id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let v23_chromium = self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION;
+        if v23_chromium && replace_existing {
+            self.require_role_session_launch_evidence(&role_id)?;
+        }
         let lease = self
             .acquire_browser_operation_async(BrowserOperationRequest {
                 role_ids: vec![role_id.clone()],
@@ -98,7 +102,7 @@ impl AppCore {
         let operation_guard = BrowserOperationGuard::new(&self.browser_operations, lease.id);
         let paths = self.resolve_role_paths(&role_id)?;
         let auth_probe = chrome_import_auth_probe(game);
-        if replace_existing && let Some(probe) = auth_probe {
+        if !v23_chromium && replace_existing && let Some(probe) = auth_probe {
             self.emit_chrome_import_progress(import_id, Some(&profile.id), "verifying", 0, 1);
             let auth_state = self
                 .verify_chrome_import_auth(&role_id, &paths, probe)
@@ -149,18 +153,29 @@ impl AppCore {
                     message: "Chrome profile data changed while it was being read.".to_owned(),
                 });
             }
-            let serialized = serde_json::to_vec(&parsed.payload)
+            let mut serialized = serde_json::to_vec(&parsed.payload)
                 .map_err(|error| CoreError::Internal(error.to_string()))?;
-            let protected = rion_platform::protect_session_transfer(platform, &serialized)
-                .map_err(|error| CoreError::Platform(error.to_string()))?;
+            #[cfg(test)]
+            let protected_result = Ok::<_, CoreError>(
+                crate::chrome_profile_import_contract::protect_legacy_for_test(&serialized),
+            );
+            #[cfg(not(test))]
+            let protected_result = rion_platform::protect_session_transfer(platform, &serialized)
+                .map_err(|error| CoreError::Platform(error.to_string()));
+            serialized.fill(0);
+            let protected = protected_result?;
+            let staging_sha256 =
+                crate::chrome_profile_import_contract::sha256_hex(&protected);
+            let staging_bytes = protected.len() as u64;
             crate::chrome_profile_import::persist_encrypted_staging(
                 &encrypted_staging,
                 &protected,
             )?;
-            Ok::<_, CoreError>(parsed)
+            Ok::<_, CoreError>((parsed, staging_sha256, staging_bytes))
         })
         .await
         .map_err(|error| CoreError::Internal(error.to_string()))??;
+        let (parsed, staging_sha256, staging_bytes) = parsed;
         if self.chrome_import_cancel_requested(import_id)? {
             let _ = fs::remove_dir_all(&staging);
             return Err(chrome_import_cancelled());
@@ -174,6 +189,8 @@ impl AppCore {
         }
 
         let operation_id = format!("chrome-profile-import-{transaction_id}");
+        let launch_origin =
+            crate::chrome_profile_import_contract::canonical_launch_origin(&launch_url)?;
         let mut journal = OperationJournalRecord {
             id: operation_id.clone(),
             kind: "chrome_profile_import_v2".to_owned(),
@@ -185,17 +202,48 @@ impl AppCore {
                 "createdRole": creates_role,
                 "transactionId": transaction_id,
                 "launchUrl": launch_url,
+                "launchOrigin": launch_origin,
+                "replaceExisting": replace_existing,
                 "sourceFingerprint": parsed.source_fingerprint,
+                "chromiumJournalRevision": 1,
+                "stagingSha256": staging_sha256,
+                "stagingBytes": staging_bytes,
+                "cookieCount": parsed.payload.cookies.len(),
+                "localStorageCount": parsed.payload.local_storage.len(),
+                "unsupported": parsed.unsupported,
+                "warnings": parsed.warnings,
             }),
         };
+        if v23_chromium {
+            journal
+                .payload
+                .as_object_mut()
+                .expect("the Chrome-import journal payload is an object")
+                .insert(
+                    "runtimeContractVersion".to_owned(),
+                    json!(CHROMIUM_RUNTIME_CONTRACT_VERSION),
+                );
+        }
         self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        let effect_paths = if v23_chromium {
+            crate::chrome_profile_import_contract::resolve_transaction_identity(
+                &self.user_data_dir,
+                &journal,
+            )?
+            .role_paths
+        } else {
+            paths.clone()
+        };
         let rollback = ChromeImportRollbackContext {
             operation_id: operation_id.clone(),
             transaction_id: transaction_id.clone(),
             role_id: role_id.clone(),
             launch_url: launch_url.clone(),
-            webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
-            webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+            replace_existing,
+            webview2_user_data_dir: effect_paths.webview2_user_data_dir.clone(),
+            chromium_user_data_dir: effect_paths.chromium_user_data_dir.clone(),
+            webkit_data_store_identifier: effect_paths.webkit_data_store_identifier.clone(),
+            v23_chromium,
             staging: staging.clone(),
         };
         self.emit_chrome_import_progress(import_id, Some(&profile.id), "backingUp", 0, 1);
@@ -206,9 +254,18 @@ impl AppCore {
                     transaction_id: transaction_id.clone(),
                     role_id: role_id.clone(),
                     launch_url: launch_url.clone(),
-                    webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
-                    webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+                    webview2_user_data_dir: effect_paths.webview2_user_data_dir.clone(),
+                    webkit_data_store_identifier: effect_paths
+                        .webkit_data_store_identifier
+                        .clone(),
                     replace_existing,
+                    chromium_user_data_dir: v23_chromium
+                        .then(|| effect_paths.chromium_user_data_dir.clone()),
+                    journal_phase: v23_chromium.then(|| journal.phase.clone()),
+                    journal_revision: v23_chromium.then(|| {
+                        crate::chrome_profile_import_contract::journal_revision(&journal)
+                            .expect("the just-created import journal has a revision")
+                    }),
                 },
                 CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
@@ -220,14 +277,14 @@ impl AppCore {
             let _ = fs::remove_dir_all(&staging);
             return Err(error);
         }
-        journal.phase = "snapshotted".to_owned();
+        crate::chrome_profile_import_contract::advance_journal(&mut journal, "snapshotted")?;
         self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
         if self.chrome_import_cancel_requested(import_id)? {
             self.rollback_chrome_profile_import_item(&rollback, None)
                 .await?;
             return Err(chrome_import_cancelled());
         }
-        journal.phase = "applying".to_owned();
+        crate::chrome_profile_import_contract::advance_journal(&mut journal, "applying")?;
         self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
         self.emit_chrome_import_progress(import_id, Some(&profile.id), "applying", 0, 1);
         let effect = self
@@ -237,9 +294,18 @@ impl AppCore {
                     transaction_id: transaction_id.clone(),
                     role_id: role_id.clone(),
                     launch_url: launch_url.clone(),
-                    webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
-                    webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+                    webview2_user_data_dir: effect_paths.webview2_user_data_dir.clone(),
+                    webkit_data_store_identifier: effect_paths
+                        .webkit_data_store_identifier
+                        .clone(),
                     replace_existing,
+                    chromium_user_data_dir: v23_chromium
+                        .then(|| effect_paths.chromium_user_data_dir.clone()),
+                    journal_phase: v23_chromium.then(|| journal.phase.clone()),
+                    journal_revision: v23_chromium.then(|| {
+                        crate::chrome_profile_import_contract::journal_revision(&journal)
+                            .expect("the persisted import journal has a revision")
+                    }),
                 },
                 CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
@@ -249,32 +315,92 @@ impl AppCore {
                 .await?;
             return Err(error);
         }
-        let auth_state = if let Some(probe) = auth_probe {
+        crate::chrome_profile_import_contract::advance_journal(&mut journal, "verified")?;
+        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        let auth_state = if v23_chromium {
+            self.emit_chrome_import_progress(import_id, Some(&profile.id), "verifying", 0, 1);
+            match self
+                .verify_chrome_import_session_fresh(
+                    &role_id,
+                    &transaction_id,
+                    &effect_paths,
+                    auth_probe,
+                    &journal,
+                )
+                .await
+            {
+                Ok(auth_state) => auth_state,
+                Err(error) => {
+                    self.rollback_chrome_profile_import_item(&rollback, None)
+                        .await?;
+                    return Err(error);
+                }
+            }
+        } else if let Some(probe) = auth_probe {
             self.emit_chrome_import_progress(import_id, Some(&profile.id), "verifying", 0, 1);
             self.verify_chrome_import_auth_after_apply(&role_id, &paths, probe)
                 .await
         } else {
             ChromeProfileImportAuthStateRecord::NotApplicable
         };
-        journal.phase = "verified".to_owned();
-        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        if v23_chromium {
+            journal = self.chrome_profile_import_journal(&role_id, &transaction_id)?;
+            require_chrome_import_journal_fence(&journal, "freshVerified", 6)?;
+        }
         if self.chrome_import_cancel_requested(import_id)? {
             self.rollback_chrome_profile_import_item(&rollback, None)
                 .await?;
             return Err(chrome_import_cancelled());
         }
 
-        let created_role_id = if creates_role {
+        let role_input = crate::model::RoleCreateInputRecord {
+            game_id: game.id.clone(),
+            name: role_name.clone(),
+            launch_url: Some(launch_url.clone()),
+            notes: Some("Imported from a local Chrome profile.".to_owned()),
+            cover_image_data_url: None,
+            cover_image_dominant_color: None,
+        };
+        let created_role_id = if v23_chromium {
+            let receipt = crate::chrome_profile_import_contract::journal_fresh_receipt(&journal)?;
+            let ready = crate::session_migration::V23ChromeProfileImportReadyEvidence {
+                role_id: role_id.clone(),
+                transaction_id: transaction_id.clone(),
+                transition_id: uuid::Uuid::new_v4().to_string(),
+                platform: match self.platform {
+                    rion_platform::Platform::Macos => {
+                        crate::RoleSessionMigrationPlatform::Macos
+                    }
+                    rion_platform::Platform::Windows => {
+                        crate::RoleSessionMigrationPlatform::Windows
+                    }
+                },
+                staging_sha256: staging_sha256.clone(),
+                inventory_sha256: receipt.inventory_sha256,
+                cookie_count: receipt.cookie_count,
+                local_storage_count: receipt.local_storage_count,
+                occurred_at: chrono::Utc::now().to_rfc3339(),
+            };
+            let committed = self.mutate_state(StateMutation::ChromeProfileImportMetadataCommit {
+                id: role_id.clone(),
+                input: role_input.clone(),
+                create_role: creates_role,
+                ready,
+                operation_id: operation_id.clone(),
+                expected_journal_revision: 6,
+            });
+            if let Err(error) = committed {
+                self.rollback_chrome_profile_import_item(&rollback, None)
+                    .await?;
+                return Err(error);
+            }
+            journal = self.chrome_profile_import_journal(&role_id, &transaction_id)?;
+            require_chrome_import_journal_fence(&journal, "metadataCommitted", 7)?;
+            creates_role.then(|| role_id.clone())
+        } else if creates_role {
             let created = self.mutate_state(StateMutation::RoleCreateWithId {
                 id: role_id.clone(),
-                input: crate::model::RoleCreateInputRecord {
-                    game_id: game.id.clone(),
-                    name: role_name.clone(),
-                    launch_url: Some(launch_url.clone()),
-                    notes: Some("Imported from a local Chrome profile.".to_owned()),
-                    cover_image_data_url: None,
-                    cover_image_dominant_color: None,
-                },
+                input: role_input,
             });
             match created {
                 Ok(_) => Some(role_id.clone()),
@@ -287,20 +413,35 @@ impl AppCore {
         } else {
             None
         };
-        journal.phase = "metadataCommitted".to_owned();
-        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        if !v23_chromium {
+            crate::chrome_profile_import_contract::advance_journal(
+                &mut journal,
+                "metadataCommitted",
+            )?;
+            self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        }
         if self.chrome_import_cancel_requested(import_id)? {
             self.rollback_chrome_profile_import_item(&rollback, created_role_id.as_deref())
                 .await?;
             return Err(chrome_import_cancelled());
         }
-        journal.phase = "committing".to_owned();
-        self.with_runtime(|runtime| runtime.state.put_operation_journal(journal))?;
+        if !v23_chromium {
+            crate::chrome_profile_import_contract::advance_journal(&mut journal, "committing")?;
+            self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
+        }
         if let Err(error) = self
             .request_core_effect(
                 &role_id,
                 CoreEffectAction::ChromeProfileImportCommit {
                     transaction_id: transaction_id.clone(),
+                    role_id: v23_chromium.then(|| role_id.clone()),
+                    chromium_user_data_dir: v23_chromium
+                        .then(|| effect_paths.chromium_user_data_dir.clone()),
+                    journal_phase: v23_chromium.then(|| journal.phase.clone()),
+                    journal_revision: v23_chromium.then(|| {
+                        crate::chrome_profile_import_contract::journal_revision(&journal)
+                            .expect("the committed metadata journal has a revision")
+                    }),
                 },
                 Duration::from_secs(10),
             )
@@ -309,6 +450,10 @@ impl AppCore {
             self.rollback_chrome_profile_import_item(&rollback, created_role_id.as_deref())
                 .await?;
             return Err(error);
+        }
+        if v23_chromium {
+            journal = self.chrome_profile_import_journal(&role_id, &transaction_id)?;
+            require_chrome_import_journal_fence(&journal, "committing", 8)?;
         }
         let mut warnings = parsed.warnings;
         finalize_chrome_import_post_commit(
@@ -343,11 +488,15 @@ impl AppCore {
                 role_id,
                 CoreEffectAction::ChromeProfileImportVerify {
                     role_id: role_id.to_owned(),
-                    verification_url: probe.verification_url.to_owned(),
-                    authenticated_path: probe.authenticated_path.to_owned(),
-                    login_path: probe.login_path.to_owned(),
+                    transaction_id: None,
+                    verification_url: Some(probe.verification_url.to_owned()),
+                    authenticated_path: Some(probe.authenticated_path.to_owned()),
+                    login_path: Some(probe.login_path.to_owned()),
                     webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
                     webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+                    chromium_user_data_dir: None,
+                    journal_phase: None,
+                    journal_revision: None,
                 },
                 CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
@@ -356,6 +505,38 @@ impl AppCore {
             Ok(result) => result.auth_state,
             Err(_) => ChromeProfileImportAuthStateRecord::Indeterminate,
         }
+    }
+
+    async fn verify_chrome_import_session_fresh(
+        &self,
+        role_id: &str,
+        transaction_id: &str,
+        paths: &RolePathsRecord,
+        probe: Option<ChromeImportAuthProbe>,
+        journal: &OperationJournalRecord,
+    ) -> CoreResult<ChromeProfileImportAuthStateRecord> {
+        require_chrome_import_journal_fence(journal, "verified", 4)?;
+        let result = self
+            .request_core_effect(
+                role_id,
+                CoreEffectAction::ChromeProfileImportVerify {
+                    role_id: role_id.to_owned(),
+                    transaction_id: Some(transaction_id.to_owned()),
+                    verification_url: probe.map(|probe| probe.verification_url.to_owned()),
+                    authenticated_path: probe.map(|probe| probe.authenticated_path.to_owned()),
+                    login_path: probe.map(|probe| probe.login_path.to_owned()),
+                    webview2_user_data_dir: paths.webview2_user_data_dir.clone(),
+                    webkit_data_store_identifier: paths.webkit_data_store_identifier.clone(),
+                    chromium_user_data_dir: Some(paths.chromium_user_data_dir.clone()),
+                    journal_phase: Some(journal.phase.clone()),
+                    journal_revision: Some(
+                        crate::chrome_profile_import_contract::journal_revision(journal)?,
+                    ),
+                },
+                CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
+            )
+            .await?;
+        effect_value::<ChromeImportAuthProbeResult>(&result).map(|result| result.auth_state)
     }
 
     async fn verify_chrome_import_auth_after_apply(
@@ -380,6 +561,12 @@ impl AppCore {
         context: &ChromeImportRollbackContext,
         created_role_id: Option<&str>,
     ) -> CoreResult<()> {
+        let journal = context
+            .v23_chromium
+            .then(|| {
+                self.chrome_profile_import_journal(&context.role_id, &context.transaction_id)
+            })
+            .transpose()?;
         if self
             .request_core_effect(
                 &context.role_id,
@@ -387,8 +574,19 @@ impl AppCore {
                     transaction_id: context.transaction_id.clone(),
                     role_id: context.role_id.clone(),
                     launch_url: context.launch_url.clone(),
+                    replace_existing: context
+                        .v23_chromium
+                        .then_some(context.replace_existing),
                     webview2_user_data_dir: context.webview2_user_data_dir.clone(),
                     webkit_data_store_identifier: context.webkit_data_store_identifier.clone(),
+                    chromium_user_data_dir: context
+                        .v23_chromium
+                        .then(|| context.chromium_user_data_dir.clone()),
+                    journal_phase: journal.as_ref().map(|journal| journal.phase.clone()),
+                    journal_revision: journal
+                        .as_ref()
+                        .map(crate::chrome_profile_import_contract::journal_revision)
+                        .transpose()?,
                 },
                 CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT,
             )
@@ -401,6 +599,17 @@ impl AppCore {
                     "The prior browser session is waiting for recovery before this role can launch."
                         .to_owned(),
             });
+        }
+        if let Some(journal) = journal.as_ref().filter(|journal| {
+            matches!(journal.phase.as_str(), "metadataCommitted" | "committing")
+        }) {
+            self.mutate_state(StateMutation::ChromeProfileImportMetadataRollback {
+                role_id: context.role_id.clone(),
+                transaction_id: context.transaction_id.clone(),
+                operation_id: context.operation_id.clone(),
+                expected_journal_revision:
+                    crate::chrome_profile_import_contract::journal_revision(journal)?,
+            })?;
         }
         if let Some(created_role_id) = created_role_id {
             self.delete_role_saga(created_role_id)?;

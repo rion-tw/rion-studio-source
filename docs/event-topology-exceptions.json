@@ -36,6 +36,28 @@
       "reason": "A platform may omit the post-drag click, so the listener needs bounded cleanup.",
       "terminalOutcome": "Expiry removes only the listener and never changes drag or domain state.",
       "cleanup": "The click handler clears the timer; the timer removes the exact capture listener."
+    },
+    {
+      "id": "macos-appkit-trusted-input-dom-receipt-deadline",
+      "paths": [
+        "src/electron/main/macosAppKitTrustedInputAdapter.ts"
+      ],
+      "mechanism": "One-shot Core-owned BrowserAction deadline around the external isolated-preload trusted DOM receipt.",
+      "authoritativeEvent": "The exact main-frame, role, generation, frame-token, input-sequence, event-sequence and trusted DOM receipt terminalizes applied input.",
+      "reason": "Electron may accept native AppKit submission while the renderer process never emits a receipt, which must not block the role lane or shutdown indefinitely.",
+      "terminalOutcome": "Deadline expiry terminalizes indeterminate and cancels the private preload arm; elapsed time never becomes success.",
+      "cleanup": "Every exact receipt, navigation, cancellation, surface retirement, disposal, or deadline clears the one-shot timer and fences all late receipts."
+    },
+    {
+      "id": "windows-chromium-trusted-input-deadline",
+      "paths": [
+        "src/electron/main/index.ts"
+      ],
+      "mechanism": "One-shot Core-owned BrowserAction deadline around the external Win32 submission and isolated-preload trusted DOM receipts.",
+      "authoritativeEvent": "The exact role, surface generation, frame token, input sequence, native submission receipt, and trusted DOM receipt terminalize applied input.",
+      "reason": "A Win32 message or Chromium renderer acknowledgement may never arrive, which must not block the role lane or shutdown indefinitely.",
+      "terminalOutcome": "Deadline expiry terminalizes indeterminate and cancels the exact pending input; elapsed time never becomes success.",
+      "cleanup": "Every exact receipt, navigation, cancellation, surface retirement, disposal, or deadline clears the one-shot timer and fences all late receipts."
     }
   ]
 }

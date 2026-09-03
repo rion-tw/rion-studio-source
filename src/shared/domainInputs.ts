@@ -1,15 +1,85 @@
 import type {
+  GameCreateInputRecord,
+  GameUpdateInputRecord,
   MacroCreateInputRecord,
   MacroUpdateInputRecord,
+  RoleCreateInputRecord,
+  RoleUpdateInputRecord,
   WorkspaceCreateInputRecord,
   WorkspaceUpdateInputRecord
 } from "./generated";
 import type {
+  CreateGameInput,
   CreateLaunchWorkspaceInput,
   CreateMacroInput,
+  CreateRoleInput,
+  UpdateGameInput,
   UpdateLaunchWorkspaceInput,
-  UpdateMacroInput
+  UpdateMacroInput,
+  UpdateRoleInput
 } from "./types";
+
+export function toGameCreateInput(input: CreateGameInput): GameCreateInputRecord {
+  return {
+    name: input.name,
+    defaultLaunchUrl: input.defaultLaunchUrl,
+    ...(typeof input.iconImageDataUrl === "string"
+      ? { iconImageDataUrl: input.iconImageDataUrl }
+      : {}),
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {})
+  };
+}
+
+export function toGameUpdateInput(input: UpdateGameInput): GameUpdateInputRecord {
+  return {
+    ...(input.name === undefined ? {} : { name: input.name }),
+    ...(input.defaultLaunchUrl === undefined
+      ? {}
+      : { defaultLaunchUrl: input.defaultLaunchUrl }),
+    ...(typeof input.iconImageDataUrl === "string"
+      ? { iconImageDataUrl: input.iconImageDataUrl }
+      : {}),
+    setIconImageDataUrl: input.iconImageDataUrl !== undefined,
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {}),
+    setCoverImageDataUrl: input.coverImageDataUrl !== undefined
+  };
+}
+
+export function toRoleCreateInput(input: CreateRoleInput): RoleCreateInputRecord {
+  return {
+    gameId: input.gameId,
+    name: input.name,
+    ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
+    ...(input.notes === undefined ? {} : { notes: input.notes }),
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {}),
+    ...(typeof input.coverImageDominantColor === "string"
+      ? { coverImageDominantColor: input.coverImageDominantColor }
+      : {})
+  };
+}
+
+export function toRoleUpdateInput(input: UpdateRoleInput): RoleUpdateInputRecord {
+  return {
+    ...(input.gameId === undefined ? {} : { gameId: input.gameId }),
+    ...(input.name === undefined ? {} : { name: input.name }),
+    ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
+    ...(input.notes === undefined ? {} : { notes: input.notes }),
+    ...(typeof input.coverImageDataUrl === "string"
+      ? { coverImageDataUrl: input.coverImageDataUrl }
+      : {}),
+    setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
+    ...(typeof input.coverImageDominantColor === "string"
+      ? { coverImageDominantColor: input.coverImageDominantColor }
+      : {}),
+    setCoverImageDominantColor: input.coverImageDominantColor !== undefined
+  };
+}
 
 export function toWorkspaceCreateInput(
   input: CreateLaunchWorkspaceInput

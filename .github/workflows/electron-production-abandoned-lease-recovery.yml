@@ -1,0 +1,770 @@
+name: Electron Production Abandoned Lease Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner_approval:
+        description: Type RELEASE ABANDONED ELECTRON LEASE
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
+  SOURCE_CONTROL_REPOSITORY: rion-tw/rion-studio-source
+
+concurrency:
+  group: public-latest-rion-studio
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  release-abandoned-provisional-lease:
+    name: Release one exact failed or cancelled provisional-publication lease
+    # This near-term crash-recovery path remains disabled until its release drill.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    environment: electron-production-release
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Fence dispatch to the protected trusted-main control plane
+        id: control
+        shell: bash
+        env:
+          EVENT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          EXPECTED_WORKFLOW_REF: rion-tw/rion-studio-source/.github/workflows/electron-production-abandoned-lease-recovery.yml@refs/heads/main
+          GH_TOKEN: ${{ github.token }}
+          REF_PROTECTED: ${{ github.ref_protected }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REPOSITORY}" = "${SOURCE_CONTROL_REPOSITORY}"
+          test "${EVENT_REPOSITORY}" = "${SOURCE_CONTROL_REPOSITORY}"
+          test "${GITHUB_EVENT_NAME}" = "workflow_dispatch"
+          test "${EVENT_DEFAULT_BRANCH}" = "main"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_REF_NAME}" = "main"
+          test "${REF_PROTECTED}" = "true"
+          test "${WORKFLOW_REF}" = "${EXPECTED_WORKFLOW_REF}"
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          run_json="$(gh api \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          test "$(jq -er .path <<< "${run_json}")" \
+            = ".github/workflows/electron-production-abandoned-lease-recovery.yml"
+          test "$(jq -er .event <<< "${run_json}")" = "workflow_dispatch"
+          test "$(jq -er .head_branch <<< "${run_json}")" = "main"
+          test "$(jq -er .head_sha <<< "${run_json}")" = "${GITHUB_SHA}"
+          test "$(jq -er .repository.full_name <<< "${run_json}")" \
+            = "${SOURCE_CONTROL_REPOSITORY}"
+          test "$(jq -er .head_repository.full_name <<< "${run_json}")" \
+            = "${SOURCE_CONTROL_REPOSITORY}"
+          echo "control_sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout only the trusted recovery control implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ steps.control.outputs.control_sha }}
+
+      - name: Setup pinned Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Validate the exact owner recovery approval
+        shell: bash
+        env:
+          CONTROL_SHA: ${{ steps.control.outputs.control_sha }}
+          OWNER_APPROVAL: ${{ inputs.owner_approval }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${CONTROL_SHA}"
+          test "${OWNER_APPROVAL}" = "RELEASE ABANDONED ELECTRON LEASE"
+
+      - name: Discover the current lease and prove its holder is terminally abandoned
+        id: held
+        shell: bash
+        env:
+          CONTROL_SHA: ${{ steps.control.outputs.control_sha }}
+          EXPECTED_CLEANUP_JOB_NAME: Release an unmutated source lease after recovery-store failure
+          EXPECTED_MUTATION_STEP_NAME: Submit the latest mutation without converting an unknown acknowledgement to success
+          EXPECTED_PUBLISH_JOB_NAME: Compare-and-swap public latest into non-terminal provisional state
+          PUBLIC_GH_TOKEN: ${{ github.token }}
+          SOURCE_GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(git rev-parse HEAD)" = "${CONTROL_SHA}"
+          root="${PWD}/abandoned-lease-recovery"
+          mkdir -p "${root}/held"
+          lease="${root}/held/electron-production-public-latest-lease.json"
+
+          repository_json="$(GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}")"
+          test "$(jq -er .full_name <<< "${repository_json}")" \
+            = "${PUBLIC_RELEASE_REPOSITORY}"
+          test "$(jq -r .private <<< "${repository_json}")" = "false"
+          test "$(jq -er .visibility <<< "${repository_json}")" = "public"
+          test "$(jq -er .default_branch <<< "${repository_json}")" = "main"
+          main_ref="$(GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/heads/main")"
+          test "$(jq -er .object.type <<< "${main_ref}")" = "commit"
+          [[ "$(jq -er .object.sha <<< "${main_ref}")" =~ ^[0-9a-f]{40}$ ]]
+
+          lease_api="$(GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/contents/releases/electron-production-public-latest-lease.json?ref=main")"
+          test "$(jq -er .type <<< "${lease_api}")" = "file"
+          test "$(jq -er .name <<< "${lease_api}")" \
+            = "electron-production-public-latest-lease.json"
+          test "$(jq -er .path <<< "${lease_api}")" \
+            = "releases/electron-production-public-latest-lease.json"
+          test "$(jq -er .encoding <<< "${lease_api}")" = "base64"
+          [[ "$(jq -er .sha <<< "${lease_api}")" =~ ^[0-9a-f]{40}$ ]]
+          lease_bytes="$(jq -er .size <<< "${lease_api}")"
+          [[ "${lease_bytes}" =~ ^[1-9][0-9]*$ ]]
+          test "${lease_bytes}" -le 1048576
+          jq -er .content <<< "${lease_api}" | tr -d '\n' | \
+            base64 --decode > "${lease}"
+          test "$(wc -c < "${lease}" | tr -d ' ')" = "${lease_bytes}"
+          lease_sha256="$(sha256sum "${lease}" | cut -d ' ' -f 1)"
+
+          LEASE_PATH="${lease}" \
+          LEASE_SHA256="${lease_sha256}" \
+          node --input-type=module <<'NODE' >> "${GITHUB_OUTPUT}"
+          import {
+            readElectronProductionPublicLatestLease
+          } from "./scripts/electronProductionPublicLatestLease.mjs";
+
+          const file = await readElectronProductionPublicLatestLease({
+            expectedSha256: process.env.LEASE_SHA256,
+            leasePath: process.env.LEASE_PATH
+          });
+          const lease = file.lease;
+          if (
+            lease.status !== "held" ||
+            lease.purpose !== "electron-v23-provisional-publication" ||
+            lease.holder.repository !== "rion-tw/rion-studio-source" ||
+            lease.holder.workflow !==
+              ".github/workflows/electron-production-provisional-publish.yml" ||
+            lease.source.runtime !== "tauri-v22" ||
+            lease.target.runtime !== "electron-v23"
+          ) {
+            throw new Error("The current lease is not an abandoned provisional lease candidate.");
+          }
+          const outputs = {
+            generation: lease.generation,
+            holder_head_sha: lease.holder.headSha,
+            holder_run_attempt: lease.holder.runAttempt,
+            holder_run_id: lease.holder.runId,
+            lease_id: lease.leaseId,
+            lease_sha256: file.leaseIdentity.sha256,
+            source_state_sha256: lease.source.stateSha256,
+            source_version: lease.source.version,
+            target_state_sha256: lease.target.stateSha256,
+            target_version: lease.target.version,
+            transaction_id: lease.transactionId
+          };
+          for (const [name, value] of Object.entries(outputs)) {
+            process.stdout.write(`${name}=${value}\n`);
+          }
+          NODE
+
+          holder_run_id="$(jq -er .holder.runId "${lease}")"
+          holder_run_attempt="$(jq -er .holder.runAttempt "${lease}")"
+          holder_head_sha="$(jq -er .holder.headSha "${lease}")"
+          current_run="$(GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${holder_run_id}")"
+          exact_attempt="$(GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${holder_run_id}/attempts/${holder_run_attempt}")"
+          for run_json in "${current_run}" "${exact_attempt}"; do
+            test "$(jq -er .id <<< "${run_json}")" = "${holder_run_id}"
+            test "$(jq -er .run_attempt <<< "${run_json}")" \
+              = "${holder_run_attempt}"
+            test "$(jq -er .path <<< "${run_json}")" \
+              = ".github/workflows/electron-production-provisional-publish.yml"
+            test "$(jq -er .event <<< "${run_json}")" = "workflow_dispatch"
+            test "$(jq -er .status <<< "${run_json}")" = "completed"
+            case "$(jq -er .conclusion <<< "${run_json}")" in
+              failure|cancelled) ;;
+              *) exit 1 ;;
+            esac
+            test "$(jq -er .head_branch <<< "${run_json}")" = "main"
+            test "$(jq -er .head_sha <<< "${run_json}")" = "${holder_head_sha}"
+            test "$(jq -er .repository.full_name <<< "${run_json}")" \
+              = "${SOURCE_CONTROL_REPOSITORY}"
+            test "$(jq -er .head_repository.full_name <<< "${run_json}")" \
+              = "${SOURCE_CONTROL_REPOSITORY}"
+          done
+
+          jobs_root="${root}/holder-jobs"
+          mkdir -p "${jobs_root}"
+          jobs_endpoint="repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${holder_run_id}/attempts/${holder_run_attempt}/jobs"
+          GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+            "${jobs_endpoint}?per_page=100&page=1" > "${jobs_root}/page-1.json"
+          test "$(wc -c < "${jobs_root}/page-1.json" | tr -d ' ')" \
+            -le 2097152
+          total_count="$(jq -er .total_count "${jobs_root}/page-1.json")"
+          [[ "${total_count}" =~ ^[1-9][0-9]*$ ]]
+          test "${total_count}" -le 256
+          page_count="$(( (total_count + 99) / 100 ))"
+          for ((page = 2; page <= page_count; page += 1)); do
+            GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+              "${jobs_endpoint}?per_page=100&page=${page}" \
+              > "${jobs_root}/page-${page}.json"
+            test "$(wc -c < "${jobs_root}/page-${page}.json" | tr -d ' ')" \
+              -le 2097152
+          done
+          for page_json in "${jobs_root}"/page-*.json; do
+            test "$(jq -er .total_count "${page_json}")" = "${total_count}"
+            jq -e '.jobs | type == "array" and length <= 100' \
+              "${page_json}" > /dev/null
+          done
+          jq -s '[.[] | .jobs[]]' "${jobs_root}"/page-*.json \
+            > "${jobs_root}/all-jobs.json"
+          jq -e --argjson total_count "${total_count}" '
+            length == $total_count and
+            ([.[].id] | length) == $total_count and
+            ([.[].id] | unique | length) == $total_count
+          ' "${jobs_root}/all-jobs.json" > /dev/null
+          jq -e --arg name "${EXPECTED_PUBLISH_JOB_NAME}" '
+            [.[] | select(.name == $name)] |
+            if length == 1 then .[0] else error("publish job is not unique") end
+          ' "${jobs_root}/all-jobs.json" \
+            > "${jobs_root}/publish-provisional-job.json"
+          jq -e --arg name "${EXPECTED_CLEANUP_JOB_NAME}" '
+            [.[] | select(.name == $name)] |
+            if length == 1 then .[0] else error("cleanup job is not unique") end
+          ' "${jobs_root}/all-jobs.json" \
+            > "${jobs_root}/cleanup-held-lease-job.json"
+          publish_job="${jobs_root}/publish-provisional-job.json"
+          cleanup_job="${jobs_root}/cleanup-held-lease-job.json"
+          publish_job_id="$(jq -er .id "${publish_job}")"
+          cleanup_job_id="$(jq -er .id "${cleanup_job}")"
+          [[ "${publish_job_id}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${cleanup_job_id}" =~ ^[1-9][0-9]*$ ]]
+          test "${cleanup_job_id}" != "${publish_job_id}"
+          test "$(jq -er .run_id "${publish_job}")" = "${holder_run_id}"
+          test "$(jq -er .run_url "${publish_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${holder_run_id}"
+          test "$(jq -er .url "${publish_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/jobs/${publish_job_id}"
+          test "$(jq -er .workflow_name "${publish_job}")" \
+            = "Electron Production Provisional Publish"
+          test "$(jq -er .head_sha "${publish_job}")" = "${holder_head_sha}"
+          test "$(jq -er .head_branch "${publish_job}")" = "main"
+          test "$(jq -er .name "${publish_job}")" \
+            = "${EXPECTED_PUBLISH_JOB_NAME}"
+          test "$(jq -er .status "${publish_job}")" = "completed"
+          test "$(jq -er .conclusion "${publish_job}")" = "skipped"
+          jq -e '.steps | type == "array" and length == 0' \
+            "${publish_job}" > /dev/null
+          test "$(jq --arg name "${EXPECTED_MUTATION_STEP_NAME}" \
+            '[.steps[]? | select(.name == $name)] | length' "${publish_job}")" \
+            = "0"
+          test "$(jq -er .run_id "${cleanup_job}")" = "${holder_run_id}"
+          test "$(jq -er .run_url "${cleanup_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${holder_run_id}"
+          test "$(jq -er .url "${cleanup_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/jobs/${cleanup_job_id}"
+          test "$(jq -er .workflow_name "${cleanup_job}")" \
+            = "Electron Production Provisional Publish"
+          test "$(jq -er .head_sha "${cleanup_job}")" = "${holder_head_sha}"
+          test "$(jq -er .head_branch "${cleanup_job}")" = "main"
+          test "$(jq -er .name "${cleanup_job}")" \
+            = "${EXPECTED_CLEANUP_JOB_NAME}"
+          test "$(jq -er .status "${cleanup_job}")" = "completed"
+          test "$(jq -er .conclusion "${cleanup_job}")" = "skipped"
+          jq -e '.steps | type == "array" and length == 0' \
+            "${cleanup_job}" > /dev/null
+          echo "cleanup_job_id=${cleanup_job_id}" >> "${GITHUB_OUTPUT}"
+          echo "publish_job_id=${publish_job_id}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create the sole narrow public lease-write credential
+        id: public-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.RION_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}
+          owner: rion-tw
+          repositories: rion-studio
+          permission-contents: write
+
+      - name: Submit the single fenced lease release and preserve its exact outcome
+        id: release
+        continue-on-error: true
+        shell: bash
+        env:
+          CONTROL_SHA: ${{ steps.control.outputs.control_sha }}
+          EXPECTED_CLEANUP_JOB_NAME: Release an unmutated source lease after recovery-store failure
+          EXPECTED_MUTATION_STEP_NAME: Submit the latest mutation without converting an unknown acknowledgement to success
+          EXPECTED_PUBLISH_JOB_NAME: Compare-and-swap public latest into non-terminal provisional state
+          HELD_LEASE_SHA256: ${{ steps.held.outputs.lease_sha256 }}
+          HOLDER_CLEANUP_JOB_ID: ${{ steps.held.outputs.cleanup_job_id }}
+          HOLDER_HEAD_SHA: ${{ steps.held.outputs.holder_head_sha }}
+          HOLDER_PUBLISH_JOB_ID: ${{ steps.held.outputs.publish_job_id }}
+          HOLDER_RUN_ATTEMPT: ${{ steps.held.outputs.holder_run_attempt }}
+          HOLDER_RUN_ID: ${{ steps.held.outputs.holder_run_id }}
+          HELD_SOURCE_STATE_SHA256: ${{ steps.held.outputs.source_state_sha256 }}
+          HELD_SOURCE_VERSION: ${{ steps.held.outputs.source_version }}
+          PUBLIC_GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          SOURCE_GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(git rev-parse HEAD)" = "${CONTROL_SHA}"
+          root="${PWD}/abandoned-lease-recovery"
+          held="${root}/held/electron-production-public-latest-lease.json"
+          released_root="${root}/released"
+          operation_root="${root}/operation"
+          source_root="${root}/source-latest"
+          assets_root="${source_root}/assets"
+          mkdir -p "${released_root}" "${operation_root}" "${assets_root}"
+          released="${released_root}/electron-production-public-latest-lease.json"
+          summary="${operation_root}/electron-production-public-latest-lease-release-summary.json"
+          source_snapshot="${source_root}/source-public-latest-snapshot.json"
+          initial_release="${source_root}/initial-release-api.json"
+          initial_tag_ref="${source_root}/initial-tag-ref-api.json"
+          closing_release="${operation_root}/closing-release-api.json"
+          closing_tag_ref="${operation_root}/closing-tag-ref-api.json"
+          final_release="${operation_root}/final-release-api.json"
+
+          GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" \
+            > "${initial_release}"
+          initial_release_bytes="$(wc -c < "${initial_release}" | tr -d ' ')"
+          [[ "${initial_release_bytes}" =~ ^[1-9][0-9]*$ ]]
+          test "${initial_release_bytes}" -le 1048576
+          initial_tag="$(jq -er .tag_name "${initial_release}")"
+          test "${initial_tag}" = "v${HELD_SOURCE_VERSION}"
+          GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${initial_tag}" \
+            > "${initial_tag_ref}"
+          initial_tag_bytes="$(wc -c < "${initial_tag_ref}" | tr -d ' ')"
+          [[ "${initial_tag_bytes}" =~ ^[1-9][0-9]*$ ]]
+          test "${initial_tag_bytes}" -le 262144
+          test "$(jq -er .object.type "${initial_tag_ref}")" = "commit"
+          initial_tag_commit="$(jq -er .object.sha "${initial_tag_ref}")"
+          [[ "${initial_tag_commit}" =~ ^[0-9a-f]{40}$ ]]
+          names=(
+            Rion.Studio-mac.app.tar.gz
+            Rion.Studio-mac.app.tar.gz.sig
+            Rion.Studio-mac.dmg
+            Rion.Studio-win.exe
+            Rion.Studio-win.exe.sig
+            SHA256SUMS.txt
+            latest.json
+          )
+          test "$(jq '.assets | length' "${initial_release}")" = "7"
+          for name in "${names[@]}"; do
+            test "$(jq --arg name "${name}" \
+              '[.assets[] | select(.name == $name)] | length' \
+              "${initial_release}")" = "1"
+            asset_id="$(jq -er --arg name "${name}" \
+              '.assets[] | select(.name == $name) | .id' \
+              "${initial_release}")"
+            expected_bytes="$(jq -er --arg name "${name}" \
+              '.assets[] | select(.name == $name) | .size' \
+              "${initial_release}")"
+            [[ "${asset_id}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${expected_bytes}" =~ ^[1-9][0-9]*$ ]]
+            test "${expected_bytes}" -le 1073741824
+            GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+              -H "Accept: application/octet-stream" \
+              "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/assets/${asset_id}" | \
+              head -c "$((expected_bytes + 1))" > "${assets_root}/${name}"
+            test "$(wc -c < "${assets_root}/${name}" | tr -d ' ')" \
+              = "${expected_bytes}"
+          done
+          RELEASE_API="${initial_release}" \
+          TAG_COMMIT="${initial_tag_commit}" \
+          node --input-type=module <<'NODE' > "${source_root}/release-metadata.json"
+          import { readFile } from "node:fs/promises";
+          import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
+
+          const release = JSON.parse(
+            await readFile(process.env.RELEASE_API, "utf8")
+          );
+          process.stdout.write(serializeCanonicalJson({
+            repository: "rion-tw/rion-studio",
+            id: String(release.id),
+            tag: release.tag_name,
+            targetCommitish: process.env.TAG_COMMIT,
+            isLatest: true,
+            draft: release.draft,
+            prerelease: release.prerelease,
+            assets: release.assets.map((asset) => ({
+              id: String(asset.id),
+              name: asset.name,
+              bytes: asset.size,
+              digest: asset.digest,
+              url: asset.browser_download_url,
+              contentType: asset.content_type
+            }))
+          }));
+          NODE
+          node scripts/electronProductionPublicationCli.mjs snapshot \
+            --asset-directory "${assets_root}" \
+            --release-json "${source_root}/release-metadata.json" \
+            --output "${source_snapshot}"
+          source_snapshot_sha256="$(sha256sum "${source_snapshot}" | cut -d ' ' -f 1)"
+          find "${assets_root}" -mindepth 1 -maxdepth 1 -type f -delete
+          rmdir "${assets_root}"
+
+          GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" \
+            > "${closing_release}"
+          closing_release_bytes="$(wc -c < "${closing_release}" | tr -d ' ')"
+          [[ "${closing_release_bytes}" =~ ^[1-9][0-9]*$ ]]
+          test "${closing_release_bytes}" -le 1048576
+          closing_tag="$(jq -er .tag_name "${closing_release}")"
+          test "${closing_tag}" = "v${HELD_SOURCE_VERSION}"
+          GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/git/ref/tags/${closing_tag}" \
+            > "${closing_tag_ref}"
+          closing_tag_bytes="$(wc -c < "${closing_tag_ref}" | tr -d ' ')"
+          [[ "${closing_tag_bytes}" =~ ^[1-9][0-9]*$ ]]
+          test "${closing_tag_bytes}" -le 262144
+
+          final_current_run="${operation_root}/final-current-run.json"
+          final_exact_attempt="${operation_root}/final-exact-attempt.json"
+          GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${HOLDER_RUN_ID}" \
+            > "${final_current_run}"
+          GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${HOLDER_RUN_ID}/attempts/${HOLDER_RUN_ATTEMPT}" \
+            > "${final_exact_attempt}"
+          for final_run in "${final_current_run}" "${final_exact_attempt}"; do
+            final_run_bytes="$(wc -c < "${final_run}" | tr -d ' ')"
+            [[ "${final_run_bytes}" =~ ^[1-9][0-9]*$ ]]
+            test "${final_run_bytes}" -le 2097152
+            test "$(jq -er .id "${final_run}")" = "${HOLDER_RUN_ID}"
+            test "$(jq -er .run_attempt "${final_run}")" \
+              = "${HOLDER_RUN_ATTEMPT}"
+            test "$(jq -er .path "${final_run}")" \
+              = ".github/workflows/electron-production-provisional-publish.yml"
+            test "$(jq -er .event "${final_run}")" = "workflow_dispatch"
+            test "$(jq -er .status "${final_run}")" = "completed"
+            case "$(jq -er .conclusion "${final_run}")" in
+              failure|cancelled) ;;
+              *) exit 1 ;;
+            esac
+            test "$(jq -er .head_branch "${final_run}")" = "main"
+            test "$(jq -er .head_sha "${final_run}")" = "${HOLDER_HEAD_SHA}"
+            test "$(jq -er .repository.full_name "${final_run}")" \
+              = "${SOURCE_CONTROL_REPOSITORY}"
+            test "$(jq -er .head_repository.full_name "${final_run}")" \
+              = "${SOURCE_CONTROL_REPOSITORY}"
+          done
+
+          final_jobs_root="${operation_root}/final-holder-jobs"
+          mkdir -p "${final_jobs_root}"
+          final_jobs_endpoint="repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${HOLDER_RUN_ID}/attempts/${HOLDER_RUN_ATTEMPT}/jobs"
+          GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+            "${final_jobs_endpoint}?per_page=100&page=1" \
+            > "${final_jobs_root}/page-1.json"
+          final_total_count="$(jq -er .total_count \
+            "${final_jobs_root}/page-1.json")"
+          [[ "${final_total_count}" =~ ^[1-9][0-9]*$ ]]
+          test "${final_total_count}" -le 256
+          final_page_count="$(( (final_total_count + 99) / 100 ))"
+          for ((page = 2; page <= final_page_count; page += 1)); do
+            GH_TOKEN="${SOURCE_GH_TOKEN}" gh api \
+              "${final_jobs_endpoint}?per_page=100&page=${page}" \
+              > "${final_jobs_root}/page-${page}.json"
+          done
+          for page_json in "${final_jobs_root}"/page-*.json; do
+            page_bytes="$(wc -c < "${page_json}" | tr -d ' ')"
+            [[ "${page_bytes}" =~ ^[1-9][0-9]*$ ]]
+            test "${page_bytes}" -le 2097152
+            test "$(jq -er .total_count "${page_json}")" \
+              = "${final_total_count}"
+            jq -e '.jobs | type == "array" and length <= 100' \
+              "${page_json}" > /dev/null
+          done
+          jq -s '[.[] | .jobs[]]' "${final_jobs_root}"/page-*.json \
+            > "${final_jobs_root}/all-jobs.json"
+          jq -e --argjson total_count "${final_total_count}" '
+            length == $total_count and
+            ([.[].id] | length) == $total_count and
+            ([.[].id] | unique | length) == $total_count
+          ' "${final_jobs_root}/all-jobs.json" > /dev/null
+          jq -e --arg name "${EXPECTED_PUBLISH_JOB_NAME}" '
+            [.[] | select(.name == $name)] |
+            if length == 1 then .[0] else error("publish job is not unique") end
+          ' "${final_jobs_root}/all-jobs.json" \
+            > "${final_jobs_root}/publish-provisional-job.json"
+          jq -e --arg name "${EXPECTED_CLEANUP_JOB_NAME}" '
+            [.[] | select(.name == $name)] |
+            if length == 1 then .[0] else error("cleanup job is not unique") end
+          ' "${final_jobs_root}/all-jobs.json" \
+            > "${final_jobs_root}/cleanup-held-lease-job.json"
+          final_holder_job="${final_jobs_root}/publish-provisional-job.json"
+          final_cleanup_job="${final_jobs_root}/cleanup-held-lease-job.json"
+          test "$(jq -er .id "${final_holder_job}")" \
+            = "${HOLDER_PUBLISH_JOB_ID}"
+          test "$(jq -er .run_id "${final_holder_job}")" = "${HOLDER_RUN_ID}"
+          test "$(jq -er .run_url "${final_holder_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${HOLDER_RUN_ID}"
+          test "$(jq -er .url "${final_holder_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/jobs/${HOLDER_PUBLISH_JOB_ID}"
+          test "$(jq -er .workflow_name "${final_holder_job}")" \
+            = "Electron Production Provisional Publish"
+          test "$(jq -er .head_sha "${final_holder_job}")" \
+            = "${HOLDER_HEAD_SHA}"
+          test "$(jq -er .head_branch "${final_holder_job}")" = "main"
+          test "$(jq -er .name "${final_holder_job}")" \
+            = "${EXPECTED_PUBLISH_JOB_NAME}"
+          test "$(jq -er .status "${final_holder_job}")" = "completed"
+          test "$(jq -er .conclusion "${final_holder_job}")" = "skipped"
+          jq -e '.steps | type == "array" and length == 0' \
+            "${final_holder_job}" > /dev/null
+          test "$(jq --arg name "${EXPECTED_MUTATION_STEP_NAME}" \
+            '[.steps[]? | select(.name == $name)] | length' \
+            "${final_holder_job}")" = "0"
+          test "$(jq -er .id "${final_cleanup_job}")" \
+            = "${HOLDER_CLEANUP_JOB_ID}"
+          test "$(jq -er .run_id "${final_cleanup_job}")" = "${HOLDER_RUN_ID}"
+          test "$(jq -er .run_url "${final_cleanup_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/runs/${HOLDER_RUN_ID}"
+          test "$(jq -er .url "${final_cleanup_job}")" \
+            = "https://api.github.com/repos/${SOURCE_CONTROL_REPOSITORY}/actions/jobs/${HOLDER_CLEANUP_JOB_ID}"
+          test "$(jq -er .workflow_name "${final_cleanup_job}")" \
+            = "Electron Production Provisional Publish"
+          test "$(jq -er .head_sha "${final_cleanup_job}")" \
+            = "${HOLDER_HEAD_SHA}"
+          test "$(jq -er .head_branch "${final_cleanup_job}")" = "main"
+          test "$(jq -er .name "${final_cleanup_job}")" \
+            = "${EXPECTED_CLEANUP_JOB_NAME}"
+          test "$(jq -er .status "${final_cleanup_job}")" = "completed"
+          test "$(jq -er .conclusion "${final_cleanup_job}")" = "skipped"
+          jq -e '.steps | type == "array" and length == 0' \
+            "${final_cleanup_job}" > /dev/null
+          jq -S . "${root}/holder-jobs/publish-provisional-job.json" \
+            > "${operation_root}/initial-publish-job-identity.json"
+          jq -S . "${final_holder_job}" \
+            > "${operation_root}/final-publish-job-identity.json"
+          cmp "${operation_root}/initial-publish-job-identity.json" \
+            "${operation_root}/final-publish-job-identity.json"
+          jq -S . "${root}/holder-jobs/cleanup-held-lease-job.json" \
+            > "${operation_root}/initial-cleanup-job-identity.json"
+          jq -S . "${final_cleanup_job}" \
+            > "${operation_root}/final-cleanup-job-identity.json"
+          cmp "${operation_root}/initial-cleanup-job-identity.json" \
+            "${operation_root}/final-cleanup-job-identity.json"
+          jq -S '[.[].id] | sort' "${root}/holder-jobs/all-jobs.json" \
+            > "${operation_root}/initial-job-ids.json"
+          jq -S '[.[].id] | sort' "${final_jobs_root}/all-jobs.json" \
+            > "${operation_root}/final-job-ids.json"
+          cmp "${operation_root}/initial-job-ids.json" \
+            "${operation_root}/final-job-ids.json"
+
+          GH_TOKEN="${PUBLIC_GH_TOKEN}" gh api \
+            "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" \
+            > "${final_release}"
+          final_release_bytes="$(wc -c < "${final_release}" | tr -d ' ')"
+          [[ "${final_release_bytes}" =~ ^[1-9][0-9]*$ ]]
+          test "${final_release_bytes}" -le 1048576
+          CLOSING_RELEASE="${closing_release}" \
+          CLOSING_TAG_REF="${closing_tag_ref}" \
+          FINAL_RELEASE="${final_release}" \
+          HELD_SOURCE_STATE_SHA256="${HELD_SOURCE_STATE_SHA256}" \
+          HELD_SOURCE_VERSION="${HELD_SOURCE_VERSION}" \
+          INITIAL_RELEASE="${initial_release}" \
+          INITIAL_TAG_REF="${initial_tag_ref}" \
+          SOURCE_SNAPSHOT="${source_snapshot}" \
+          SOURCE_SNAPSHOT_SHA256="${source_snapshot_sha256}" \
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          import { isDeepStrictEqual } from "node:util";
+          import {
+            readElectronProductionPublicLatestSnapshot
+          } from "./scripts/electronProductionPublicLatestSnapshot.mjs";
+          import {
+            requiredRfc3339
+          } from "./scripts/electronUpdaterCompatibilityReceiptIo.mjs";
+
+          const snapshotFile =
+            await readElectronProductionPublicLatestSnapshot({
+              expectedFileSha256: process.env.SOURCE_SNAPSHOT_SHA256,
+              snapshotPath: process.env.SOURCE_SNAPSHOT
+            });
+          const snapshot = snapshotFile.snapshot;
+          if (
+            snapshot.stateSha256 !== process.env.HELD_SOURCE_STATE_SHA256 ||
+            snapshot.observationKind !== "observed-release" ||
+            snapshot.release.isLatest !== true ||
+            snapshot.candidateReceipt !== null ||
+            snapshot.latestJson.version !== process.env.HELD_SOURCE_VERSION
+          ) {
+            throw new Error("The closing source snapshot is not the held Tauri source.");
+          }
+          const initialRelease = JSON.parse(
+            await readFile(process.env.INITIAL_RELEASE, "utf8")
+          );
+          const closingRelease = JSON.parse(
+            await readFile(process.env.CLOSING_RELEASE, "utf8")
+          );
+          const finalRelease = JSON.parse(
+            await readFile(process.env.FINAL_RELEASE, "utf8")
+          );
+          const releaseIdentity = (release, label) => {
+            if (
+              !Number.isSafeInteger(release?.id) || release.id <= 0 ||
+              release.tag_name !== snapshot.release.tag ||
+              release.draft !== false || release.prerelease !== false ||
+              !Array.isArray(release.assets) ||
+              release.assets.length !== snapshot.assets.length
+            ) throw new Error(`The ${label} latest release identity changed.`);
+            const updatedAt = requiredRfc3339(
+              release.updated_at,
+              `${label} latest release updated time`
+            );
+            const observedIds = new Set();
+            const observedNames = new Set();
+            const assets = release.assets.map((asset) => {
+              if (
+                !Number.isSafeInteger(asset?.id) || asset.id <= 0 ||
+                !Number.isSafeInteger(asset.size) || asset.size <= 0 ||
+                asset.state !== "uploaded" ||
+                observedIds.has(asset.id) || observedNames.has(asset.name)
+              ) throw new Error(`The ${label} latest asset identity is invalid.`);
+              observedIds.add(asset.id);
+              observedNames.add(asset.name);
+              return {
+                bytes: asset.size,
+                contentType: asset.content_type,
+                digest: asset.digest,
+                id: String(asset.id),
+                name: asset.name,
+                url: asset.browser_download_url
+              };
+            }).sort((left, right) => left.name < right.name ? -1 :
+              left.name > right.name ? 1 : 0);
+            if (!isDeepStrictEqual(assets, snapshot.assets)) {
+              throw new Error(`The ${label} latest release asset identities changed.`);
+            }
+            return {
+              assets,
+              draft: release.draft,
+              id: String(release.id),
+              prerelease: release.prerelease,
+              tag: release.tag_name,
+              updatedAt
+            };
+          };
+          const initialIdentity = releaseIdentity(initialRelease, "initial");
+          const closingIdentity = releaseIdentity(closingRelease, "closing");
+          const finalIdentity = releaseIdentity(finalRelease, "final");
+          if (
+            !isDeepStrictEqual(closingIdentity, initialIdentity) ||
+            !isDeepStrictEqual(finalIdentity, closingIdentity)
+          ) throw new Error("The final latest reread changed after the tag read.");
+          const initialTagReference = JSON.parse(
+            await readFile(process.env.INITIAL_TAG_REF, "utf8")
+          );
+          const closingTagReference = JSON.parse(
+            await readFile(process.env.CLOSING_TAG_REF, "utf8")
+          );
+          const tagIdentity = (reference, label) => {
+            if (
+              reference?.ref !== `refs/tags/${snapshot.release.tag}` ||
+              reference.object?.type !== "commit" ||
+              reference.object?.sha !== snapshot.release.targetCommitish
+            ) throw new Error(`The ${label} latest tag identity changed.`);
+            return {
+              ref: reference.ref,
+              sha: reference.object.sha,
+              type: reference.object.type
+            };
+          };
+          const initialTagIdentity = tagIdentity(initialTagReference, "initial");
+          const closingTagIdentity = tagIdentity(closingTagReference, "closing");
+          if (!isDeepStrictEqual(closingTagIdentity, initialTagIdentity)) {
+            throw new Error("The closing latest tag identity changed.");
+          }
+          NODE
+          attempted_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          set +e
+          GH_TOKEN="${PUBLIC_GH_TOKEN}" \
+          node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs release \
+            --held-lease "${held}" \
+            --held-lease-sha256 "${HELD_LEASE_SHA256}" \
+            --recorded-at "${attempted_at}" \
+            --output "${released}" > "${summary}"
+          command_exit_code="$?"
+          set -e
+          echo "command_exit_code=${command_exit_code}" >> "${GITHUB_OUTPUT}"
+          echo "attempted_at=${attempted_at}" >> "${GITHUB_OUTPUT}"
+          test -s "${summary}"
+          if test "${command_exit_code}" != "0"; then
+            test ! -e "${released}"
+            outcome="$(jq -er .outcome "${summary}")"
+            case "${outcome}" in
+              rejected|indeterminate) ;;
+              *) exit 1 ;;
+            esac
+            exit 0
+          fi
+          test "$(jq -er .command "${summary}")" = "release"
+          test "$(jq -er .outcome "${summary}")" = "applied"
+          test -f "${released}"
+          released_sha256="$(sha256sum "${released}" | cut -d ' ' -f 1)"
+          ATTEMPTED_AT="${attempted_at}" \
+          HELD_PATH="${held}" \
+          HELD_SHA256="${HELD_LEASE_SHA256}" \
+          RELEASED_PATH="${released}" \
+          RELEASED_SHA256="${released_sha256}" \
+          node --input-type=module <<'NODE'
+          import { isDeepStrictEqual } from "node:util";
+          import {
+            electronProductionPublicLatestLeaseEventSha256,
+            readElectronProductionPublicLatestLease
+          } from "./scripts/electronProductionPublicLatestLease.mjs";
+
+          const held = await readElectronProductionPublicLatestLease({
+            expectedSha256: process.env.HELD_SHA256,
+            leasePath: process.env.HELD_PATH
+          });
+          const released = await readElectronProductionPublicLatestLease({
+            expectedSha256: process.env.RELEASED_SHA256,
+            leasePath: process.env.RELEASED_PATH
+          });
+          const expected = {
+            ...held.lease,
+            status: "released",
+            revision: held.lease.revision + 1,
+            previousEventSha256:
+              electronProductionPublicLatestLeaseEventSha256(held.lease),
+            recordedAt: process.env.ATTEMPTED_AT
+          };
+          if (!isDeepStrictEqual(released.lease, expected)) {
+            throw new Error("The released lease is not the exact held successor.");
+          }
+          NODE
+
+      - name: Upload the non-secret held, source, and release evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-production-abandoned-lease-recovery-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          path: abandoned-lease-recovery
+
+      - name: Fail closed unless the exact release was confirmed
+        if: ${{ always() }}
+        shell: bash
+        env:
+          COMMAND_EXIT_CODE: ${{ steps.release.outputs.command_exit_code }}
+          RELEASE_STEP_OUTCOME: ${{ steps.release.outcome }}
+        run: |
+          set -euo pipefail
+          test "${RELEASE_STEP_OUTCOME}" = "success"
+          test "${COMMAND_EXIT_CODE}" = "0"

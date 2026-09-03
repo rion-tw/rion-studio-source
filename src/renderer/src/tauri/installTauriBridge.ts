@@ -3,8 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 
 import type { RionStudioApi } from "../../../shared/api";
 import {
+  toGameCreateInput,
+  toGameUpdateInput,
   toMacroCreateInput,
   toMacroUpdateInput,
+  toRoleCreateInput,
+  toRoleUpdateInput,
   toWorkspaceCreateInput,
   toWorkspaceUpdateInput
 } from "../../../shared/domainInputs";
@@ -19,12 +23,8 @@ import type {
   SystemRuntimeOperationSummaryRecord
 } from "../../../shared/generated";
 import type {
-  CreateGameInput,
-  CreateRoleInput,
   MacroRunStatus,
-  RendererLogEvent,
-  UpdateGameInput,
-  UpdateRoleInput
+  RendererLogEvent
 } from "../../../shared/types";
 import { withTimeout } from "../app/withTimeout";
 import { handleSystemRuntimeReceipt } from "../app/systemRuntimeReceipt";
@@ -76,79 +76,10 @@ export async function registerBridgeListeners(
   };
 }
 
-export function gameCreateInput(input: CreateGameInput): Extract<
-  CoreCommand,
-  { type: "gameCreate" }
->["input"] {
-  return {
-    name: input.name,
-    defaultLaunchUrl: input.defaultLaunchUrl,
-    ...(typeof input.iconImageDataUrl === "string"
-      ? { iconImageDataUrl: input.iconImageDataUrl }
-      : {}),
-    ...(typeof input.coverImageDataUrl === "string"
-      ? { coverImageDataUrl: input.coverImageDataUrl }
-      : {}),
-  };
-}
-
-function gameUpdateInput(input: UpdateGameInput): Extract<
-  CoreCommand,
-  { type: "gameUpdate" }
->["input"] {
-  return {
-    ...(input.name === undefined ? {} : { name: input.name }),
-    ...(input.defaultLaunchUrl === undefined
-      ? {}
-      : { defaultLaunchUrl: input.defaultLaunchUrl }),
-    ...(typeof input.iconImageDataUrl === "string"
-      ? { iconImageDataUrl: input.iconImageDataUrl }
-      : {}),
-    setIconImageDataUrl: input.iconImageDataUrl !== undefined,
-    ...(typeof input.coverImageDataUrl === "string"
-      ? { coverImageDataUrl: input.coverImageDataUrl }
-      : {}),
-    setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
-  };
-}
-
-function roleCreateInput(input: CreateRoleInput): Extract<
-  CoreCommand,
-  { type: "roleCreate" }
->["input"] {
-  return {
-    gameId: input.gameId,
-    name: input.name,
-    ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
-    ...(input.notes === undefined ? {} : { notes: input.notes }),
-    ...(typeof input.coverImageDataUrl === "string"
-      ? { coverImageDataUrl: input.coverImageDataUrl }
-      : {}),
-    ...(typeof input.coverImageDominantColor === "string"
-      ? { coverImageDominantColor: input.coverImageDominantColor }
-      : {})
-  };
-}
-
-export function roleUpdateInput(input: UpdateRoleInput): Extract<
-  CoreCommand,
-  { type: "roleUpdate" }
->["input"] {
-  return {
-    ...(input.gameId === undefined ? {} : { gameId: input.gameId }),
-    ...(input.name === undefined ? {} : { name: input.name }),
-    ...(input.launchUrl === undefined ? {} : { launchUrl: input.launchUrl }),
-    ...(input.notes === undefined ? {} : { notes: input.notes }),
-    ...(typeof input.coverImageDataUrl === "string"
-      ? { coverImageDataUrl: input.coverImageDataUrl }
-      : {}),
-    setCoverImageDataUrl: input.coverImageDataUrl !== undefined,
-    ...(typeof input.coverImageDominantColor === "string"
-      ? { coverImageDominantColor: input.coverImageDominantColor }
-      : {}),
-    setCoverImageDominantColor: input.coverImageDominantColor !== undefined
-  };
-}
+export {
+  toGameCreateInput as gameCreateInput,
+  toRoleUpdateInput as roleUpdateInput
+} from "../../../shared/domainInputs";
 
 function rendererLogRecord(event: RendererLogEvent): Extract<
   CoreCommand,
@@ -601,16 +532,16 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     resolveQuickAccessRequest: (requestId, resolution) =>
       invokeShell("resolveQuickAccessRequest", [requestId, resolution]),
     listGames: () => invokeCore({ type: "gamesList" }),
-    createGame: (input) => invokeCore({ type: "gameCreate", input: gameCreateInput(input) }),
+    createGame: (input) => invokeCore({ type: "gameCreate", input: toGameCreateInput(input) }),
     updateGame: (id, input) =>
-      invokeCore({ type: "gameUpdate", id, input: gameUpdateInput(input) }),
+      invokeCore({ type: "gameUpdate", id, input: toGameUpdateInput(input) }),
     resetBuiltinGame: (id) => invokeCore({ type: "gameResetBuiltin", id }),
     deleteGame: (id) => invokeCore({ type: "gameDelete", id }).then(() => undefined),
     deleteGames: (input) => invokeCore({ type: "gamesDelete", ids: input.ids }),
     listRoles: () => invokeCore({ type: "rolesList" }),
-    createRole: (input) => invokeCore({ type: "roleCreate", input: roleCreateInput(input) }),
+    createRole: (input) => invokeCore({ type: "roleCreate", input: toRoleCreateInput(input) }),
     updateRole: (id, input) =>
-      invokeCore({ type: "roleUpdate", id, input: roleUpdateInput(input) }),
+      invokeCore({ type: "roleUpdate", id, input: toRoleUpdateInput(input) }),
     reorderRoles: (input) =>
       invokeCore({ type: "roleReorder", orderedIds: input.orderedIds }),
     deleteRole: (id) => invokeCore({ type: "roleDelete", id }).then(() => undefined),

@@ -1,0 +1,78 @@
+import { readFile } from "node:fs/promises";
+
+import { beforeAll, describe, expect, it } from "vitest";
+
+let bridge = "";
+let e2eMain = "";
+let manifest = "";
+let productionMain = "";
+let productionPreload = "";
+let shellSpec = "";
+let wdioConfig = "";
+
+beforeAll(async () => {
+  [bridge, e2eMain, manifest, productionMain, productionPreload, shellSpec,
+    wdioConfig] =
+    await Promise.all([
+      readFile("src/electron/e2e/desktopE2eBridge.ts", "utf8"),
+      readFile("src/electron/e2e/index.ts", "utf8"),
+      readFile("docs/e2e-coverage.json", "utf8"),
+      readFile("src/electron/main/index.ts", "utf8"),
+      readFile("src/electron/preload/index.ts", "utf8"),
+      readFile("e2e/desktop/specs/chromium-shell.e2e.ts", "utf8"),
+      readFile("e2e/desktop/wdio.electron.conf.ts", "utf8")
+    ]);
+});
+
+describe("Chromium application-shortcut E2E journey", () => {
+  it("uses visible Quick Access and exact focused-runtime OS input", () => {
+    expect(shellSpec).toContain("launchChromiumRoleVisible");
+    expect(shellSpec).toContain('rendererCall("getEmbeddedRuntimeState")');
+    expect(shellSpec).toContain("empty.coreTabIds.length === 0");
+    expect(shellSpec).not.toContain(
+      '(await rendererCall("listGameWindows"))\n      .filter'
+    );
+    expect(shellSpec).toContain('targetMode: "focused-runtime"');
+    expect(shellSpec).toContain("electronDesktopE2eApplicationShortcutRuntime");
+    expect(shellSpec).not.toContain('rendererCall("getCurrentWindowState")');
+    expect(shellSpec).not.toContain("devicePixelRatio");
+  });
+
+  it("asserts exact receipts, stable native ownership, and an unchanged main window", () => {
+    expect(shellSpec).toContain("expectExactZoomReceipt");
+    expect(shellSpec).toContain("expectStableShortcutOwners");
+    expect(shellSpec).toContain("expectLauncherMainWindowUnchanged");
+    expect(shellSpec).toContain("expectExactSurfaceZoomFactors");
+    expect(shellSpec).toContain(
+      "expect(current.mainWindow.zoomFactor).toBe(initial.mainWindow.zoomFactor)"
+    );
+    expect(shellSpec).toContain("popupSurfaceCount: 0");
+    expect(shellSpec).toContain("current.coreWindow.windowZoomFactor");
+    expect(shellSpec).toContain("initial.nativeWindow.appKitIdentity");
+  });
+
+  it("keeps the read-only endpoint E2E-only under the existing paired journeys", () => {
+    expect(bridge).toContain("applicationShortcutRuntime");
+    expect(e2eMain).toContain("applicationShortcutRuntimeObserver.install()");
+    expect(productionMain).not.toContain("applicationShortcutRuntime");
+    expect(productionPreload).not.toContain("applicationShortcutRuntime");
+    expect(manifest).toContain("CHROMIUM-MACOS-APPKIT-APPLICATION-SHORTCUTS-030");
+    expect(manifest).toContain("CHROMIUM-WINDOWS-APPLICATION-SHORTCUTS-030");
+    expect(wdioConfig).toContain("captureMainProcessLogs: true");
+  });
+
+  it("observes terminal phases without replacing immutable native hosts", () => {
+    expect(e2eMain).toContain("ChromiumRuntimeEffectExecutor.prototype");
+    expect(e2eMain).toContain("execute = async function (effect, context)");
+    expect(e2eMain).toContain(
+      "originalExecuteRuntimeEffect.call(this, effect, context)"
+    );
+    expect(e2eMain).toContain('action.type === "embeddedFollowRoleOwnership"');
+    expect(e2eMain).toContain('action.type === "embeddedApplyAppKitProjection"');
+    expect(e2eMain).not.toContain("Object.create(host)");
+    expect(e2eMain).not.toContain("hostFactory.create =");
+    expect(e2eMain).not.toContain("hostFactory.createEmpty =");
+    expect(e2eMain).not.toContain("host.applyAppKitPhaseProjection =");
+    expect(e2eMain).not.toContain("host.applyWindowsChromeProjection =");
+  });
+});

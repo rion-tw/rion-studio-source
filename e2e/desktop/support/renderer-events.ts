@@ -138,14 +138,21 @@ export async function installRendererEventJournal(): Promise<void> {
       if (entries.length > 256) entries.shift();
       for (const waiter of [...journal.waiters]) waiter();
     };
+    const recordSnapshot = (value: AppSnapshot): void => {
+      record(journal.snapshots, value);
+      record(journal.gameWindows, value.gameWindows);
+      record(journal.macroStatuses, value.macroStatuses);
+      record(journal.roleStatuses, value.roleStatuses);
+      record(journal.runtimeStates, value.embeddedRuntimeState);
+    };
     const api = window.rionStudio;
-    api.onAppSnapshotChanged((value) => record(journal.snapshots, value));
+    api.onAppSnapshotChanged(recordSnapshot);
     api.onGameWindowsChanged((value) => record(journal.gameWindows, value));
     api.onMacroStatusChanged((value) => record(journal.macroStatuses, value));
     api.onRoleStatusChanged((value) => record(journal.roleStatuses, value));
     api.onEmbeddedRuntimeStateChanged((value) => record(journal.runtimeStates, value));
     api.onSurfaceRecoveryAttemptChanged((value) => record(journal.recoveries, value));
-    void api.getAppSnapshot().then((value) => record(journal.snapshots, value));
+    void api.getAppSnapshot().then(recordSnapshot);
     void api.listGameWindows().then((value) => record(journal.gameWindows, value));
     void api.listMacroStatuses().then((value) => record(journal.macroStatuses, value));
     void api.listRoleStatuses().then((value) => record(journal.roleStatuses, value));

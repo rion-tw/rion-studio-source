@@ -26,6 +26,7 @@ pub struct AppCoreOptions {
 pub enum ResolvedBrowserEngine {
     Webview2,
     Wkwebview,
+    Chromium,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -33,6 +34,8 @@ pub enum ResolvedBrowserEngine {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum BrowserHostKind {
     SystemNative,
+    AppkitChromium,
+    BundledChromium,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -53,6 +56,43 @@ pub enum SystemWebViewIssueReason {
     MacroInputUnavailable,
     RuntimeCreationFailed,
     RuntimeCrashed,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserRuntimeFailureReason {
+    TrustedInputUnavailable,
+    MacroInputUnavailable,
+    SessionMigrationRequired,
+    RuntimeCreationFailed,
+    RuntimeCrashed,
+}
+
+impl From<SystemWebViewIssueReason> for BrowserRuntimeFailureReason {
+    fn from(reason: SystemWebViewIssueReason) -> Self {
+        match reason {
+            SystemWebViewIssueReason::WebkitSpiUnavailable => Self::TrustedInputUnavailable,
+            SystemWebViewIssueReason::MacroInputUnavailable => Self::MacroInputUnavailable,
+            SystemWebViewIssueReason::RuntimeCreationFailed => Self::RuntimeCreationFailed,
+            SystemWebViewIssueReason::RuntimeCrashed => Self::RuntimeCrashed,
+        }
+    }
+}
+
+impl From<BrowserRuntimeFailureReason> for SystemWebViewIssueReason {
+    fn from(reason: BrowserRuntimeFailureReason) -> Self {
+        match reason {
+            BrowserRuntimeFailureReason::TrustedInputUnavailable => Self::WebkitSpiUnavailable,
+            BrowserRuntimeFailureReason::MacroInputUnavailable => Self::MacroInputUnavailable,
+            // Contract v22 has no session-migration launch state. This arm is
+            // unreachable for a valid v22 registration/status projection and
+            // remains fail-closed if a caller crosses that contract boundary.
+            BrowserRuntimeFailureReason::SessionMigrationRequired => Self::RuntimeCreationFailed,
+            BrowserRuntimeFailureReason::RuntimeCreationFailed => Self::RuntimeCreationFailed,
+            BrowserRuntimeFailureReason::RuntimeCrashed => Self::RuntimeCrashed,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -82,7 +122,7 @@ pub struct BrowserEngineResolutionRecord {
     pub host_kind: BrowserHostKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub issue_reason: Option<SystemWebViewIssueReason>,
+    pub issue_reason: Option<BrowserRuntimeFailureReason>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -113,6 +153,67 @@ pub struct SystemWebViewRuntimeRegistrationRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub failure_reason: Option<SystemWebViewIssueReason>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserRuntimeRegistrationRecord {
+    pub contract_version: u32,
+    #[ts(type = "\"macos\" | \"windows\"")]
+    pub platform: String,
+    pub engine: ResolvedBrowserEngine,
+    pub adapter_version: String,
+    pub available: bool,
+    pub capabilities: EngineCapabilitySnapshotRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_reason: Option<BrowserRuntimeFailureReason>,
+}
+
+#[cfg(test)]
+mod browser_runtime_failure_reason_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_system_webview_reasons_map_explicitly_to_generic_runtime_reasons() {
+        for (legacy, generic, serialized) in [
+            (
+                SystemWebViewIssueReason::WebkitSpiUnavailable,
+                BrowserRuntimeFailureReason::TrustedInputUnavailable,
+                "trusted-input-unavailable",
+            ),
+            (
+                SystemWebViewIssueReason::MacroInputUnavailable,
+                BrowserRuntimeFailureReason::MacroInputUnavailable,
+                "macro-input-unavailable",
+            ),
+            (
+                SystemWebViewIssueReason::RuntimeCreationFailed,
+                BrowserRuntimeFailureReason::RuntimeCreationFailed,
+                "runtime-creation-failed",
+            ),
+            (
+                SystemWebViewIssueReason::RuntimeCrashed,
+                BrowserRuntimeFailureReason::RuntimeCrashed,
+                "runtime-crashed",
+            ),
+        ] {
+            assert_eq!(BrowserRuntimeFailureReason::from(legacy), generic);
+            assert_eq!(SystemWebViewIssueReason::from(generic), legacy);
+            assert_eq!(serde_json::to_value(generic).unwrap(), serialized);
+        }
+        assert_eq!(
+            serde_json::to_value(BrowserRuntimeFailureReason::SessionMigrationRequired).unwrap(),
+            "session-migration-required"
+        );
+        assert_eq!(
+            SystemWebViewIssueReason::from(
+                BrowserRuntimeFailureReason::SessionMigrationRequired
+            ),
+            SystemWebViewIssueReason::RuntimeCreationFailed
+        );
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

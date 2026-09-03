@@ -9,6 +9,7 @@ const runtimeSource = await readFile(
 );
 
 interface RuntimeDocumentFixture {
+  activateDocumentElement: () => void;
   addedFaces: unknown[];
   context: RuntimeContext;
   createCanvasContext: () => TestCanvasContext;
@@ -50,6 +51,7 @@ interface RuntimeFixtureOptions {
   canvasTextMethodThrows?: TestCanvasCall["method"];
   canvasTextQualityAccessorsThrow?: boolean;
   offscreenCanvas?: boolean;
+  documentElementInitiallyUnavailable?: boolean;
   platform: "macos" | "windows";
 }
 
@@ -134,8 +136,14 @@ function createRuntimeDocumentFixture(
       if (name === "data-rion-studio-fonts") delete this.dataset.rionStudioFonts;
     }
   };
+  let currentDocumentElement = options.documentElementInitiallyUnavailable
+    ? null
+    : documentElement;
+  const documentListeners = new Map<string, Set<() => void>>();
   const document = {
-    documentElement,
+    get documentElement() {
+      return currentDocumentElement;
+    },
     fonts: {
       add(face: unknown) {
         addedFaces.push(face);
@@ -160,7 +168,14 @@ function createRuntimeDocumentFixture(
         ? { style: createFontStyleFixture() }
         : { id: "", textContent: "" };
     },
-    addEventListener: vi.fn()
+    addEventListener: vi.fn((name: string, listener: () => void) => {
+      const listeners = documentListeners.get(name) ?? new Set<() => void>();
+      listeners.add(listener);
+      documentListeners.set(name, listeners);
+    }),
+    removeEventListener: vi.fn((name: string, listener: () => void) => {
+      documentListeners.get(name)?.delete(listener);
+    })
   };
   const createCanvasContextConstructor = (): (new () => TestCanvasContext) => {
     const fontKerningValues = new WeakMap<object, string>();
@@ -300,6 +315,10 @@ function createRuntimeDocumentFixture(
   if (options.offscreenCanvas) context.OffscreenCanvasRenderingContext2D = OffscreenCanvasContext;
   vm.createContext(context);
   return {
+    activateDocumentElement: () => {
+      currentDocumentElement = documentElement;
+      for (const listener of documentListeners.get("readystatechange") ?? []) listener();
+    },
     addedFaces,
     context,
     createCanvasContext: () => new CanvasContext(),
@@ -309,6 +328,92 @@ function createRuntimeDocumentFixture(
 }
 
 describe("browser font document-start runtime", () => {
+it("consumes one-shot Chromium payloads without exposing or calling the Tauri bridge", async () => {
+    class LoadedFontFace {
+      async load(): Promise<this> {
+        return this;
+      }
+    }
+    const invoke = vi.fn(async () => {
+      throw new Error("the injected runtime must not call Tauri");
+    });
+    const fixture = createRuntimeDocumentFixture(invoke, LoadedFontFace, {
+      platform: "macos"
+    });
+    Object.defineProperty(
+      fixture.context,
+      "__rionStudioBrowserFontsInjectedPayloadV1",
+      {
+        configurable: true,
+        value: {
+          settings: {
+            mode: "custom",
+            cjkVariant: "auto",
+            fontSmoothingEnabled: true,
+            slots: { latin: { source: "system", family: "Helvetica Neue" } }
+          },
+          faces: []
+        }
+      }
+    );
+
+    const first = await vm.runInContext(runtimeSource, fixture.context) as {
+      fontMode: string;
+      runtimeVersion: number;
+      status: string;
+      styleInstalled: boolean;
+    };
+    expect(first).toMatchObject({
+      fontMode: "custom",
+      runtimeVersion: 7,
+      status: "applied",
+      styleInstalled: true
+    });
+    expect(invoke).not.toHaveBeenCalled();
+    expect("__rionStudioBrowserFontsInjectedPayloadV1" in fixture.context).toBe(false);
+    expect(fixture.styles).toHaveLength(1);
+    const runtimeDescriptor = Object.getOwnPropertyDescriptor(
+      fixture.context,
+      "__rionStudioBrowserFonts"
+    );
+    expect(runtimeDescriptor).toMatchObject({
+      configurable: false,
+      enumerable: false,
+      writable: false
+    });
+    expect(Object.isFrozen(fixture.context.__rionStudioBrowserFonts)).toBe(true);
+    expect(fixture.context.__rionStudioBrowserFonts).not.toHaveProperty("faces");
+
+    Object.defineProperty(
+      fixture.context,
+      "__rionStudioBrowserFontsInjectedPayloadV1",
+      {
+        configurable: true,
+        value: {
+          settings: {
+            mode: "default",
+            cjkVariant: "auto",
+            fontSmoothingEnabled: false,
+            slots: {}
+          },
+          faces: []
+        }
+      }
+    );
+    const second = await vm.runInContext(runtimeSource, fixture.context) as {
+      fontMode: string;
+      status: string;
+      styleInstalled: boolean;
+    };
+    expect(second).toMatchObject({
+      fontMode: "default",
+      status: "applied",
+      styleInstalled: false
+    });
+    expect(fixture.styles).toHaveLength(0);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
 it.each([
     { platform: "windows" as const, expectedKerning: "normal", expectedRendering: "optimizeLegibility" },
     { platform: "macos" as const, expectedKerning: undefined, expectedRendering: undefined }
@@ -449,6 +554,92 @@ it("does not attach a stale face after a newer refresh wins", async () => {
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(fixture.addedFaces).toHaveLength(0);
     expect(fixture.styles).toHaveLength(0);
+  });
+
+  it("does not acknowledge a Chromium payload until its document style is installed", async () => {
+    class LoadedFontFace {
+      async load(): Promise<this> {
+        return this;
+      }
+    }
+    const fixture = createRuntimeDocumentFixture(vi.fn(), LoadedFontFace, {
+      documentElementInitiallyUnavailable: true,
+      platform: "macos"
+    });
+    Object.defineProperty(
+      fixture.context,
+      "__rionStudioBrowserFontsInjectedPayloadV1",
+      {
+        configurable: true,
+        value: {
+          settings: {
+            mode: "default",
+            cjkVariant: "auto",
+            fontSmoothingEnabled: true,
+            slots: {}
+          },
+          faces: []
+        }
+      }
+    );
+
+    const applied = vm.runInContext(runtimeSource, fixture.context) as Promise<{
+      status: string;
+      styleInstalled: boolean;
+    }>;
+    await Promise.resolve();
+    expect(fixture.styles).toHaveLength(0);
+
+    fixture.activateDocumentElement();
+
+    await expect(applied).resolves.toMatchObject({
+      status: "applied",
+      styleInstalled: true
+    });
+    expect(fixture.styles).toHaveLength(1);
+  });
+
+  it("reports every failed cached Google face in Chromium application evidence", async () => {
+    class RejectedFontFace {
+      async load(): Promise<this> {
+        throw new Error("invalid fixture face");
+      }
+    }
+    const fixture = createRuntimeDocumentFixture(vi.fn(), RejectedFontFace, {
+      platform: "windows"
+    });
+    Object.defineProperty(
+      fixture.context,
+      "__rionStudioBrowserFontsInjectedPayloadV1",
+      {
+        configurable: true,
+        value: {
+          settings: {
+            mode: "custom",
+            cjkVariant: "auto",
+            fontSmoothingEnabled: true,
+            slots: {
+              latin: { source: "google", catalogId: "inter" }
+            }
+          },
+          faces: [{
+            catalogId: "inter",
+            family: "Inter",
+            style: "normal",
+            weight: "400",
+            unicodeRange: "U+0000-024F",
+            dataBase64: btoa("wOF2fixture")
+          }]
+        }
+      }
+    );
+
+    await expect(vm.runInContext(runtimeSource, fixture.context)).resolves.toMatchObject({
+      failedFaceCount: 1,
+      loadedCatalogIds: [],
+      loadedFaceCount: 0,
+      status: "applied"
+    });
   });
 
 it("routes Canvas 2D text while preserving font shorthand, page fallbacks, and context state", async () => {

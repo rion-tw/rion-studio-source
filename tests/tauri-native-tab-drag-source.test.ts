@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 describe("native tab drag latest-intent transaction", () => {
   it("exposes each custom AppKit tab as an actionable accessibility control", async () => {
     const macController = await readFile(
-      new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
+      new URL("../crates/rion-appkit/native/macos/RionRuntimeTabsController.mm", import.meta.url),
       "utf8"
     );
 
@@ -20,6 +20,8 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("- (BOOL)accessibilityPerformShowMenu {");
     expect(macController).toContain("withObject:self.tabIdentifier");
     expect(macController).toContain("NSAccessibilityShowMenuAction");
+    expect(macController).toContain("NSAccessibilityDeleteAction");
+    expect(macController).toContain("[self performAccessibilityClose]");
     expect(macController).toContain("NSAccessibilityIncrementAction");
     expect(macController).toContain("NSAccessibilityDecrementAction");
     expect(macController).toContain("accessibilityCustomActions");
@@ -80,7 +82,7 @@ describe("native tab drag latest-intent transaction", () => {
 
   it("uses a lightweight cross-window insertion slot without freezing the viewport", async () => {
     const macController = await readFile(
-      new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
+      new URL("../crates/rion-appkit/native/macos/RionRuntimeTabsController.mm", import.meta.url),
       "utf8"
     );
 
@@ -257,7 +259,7 @@ describe("native tab drag latest-intent transaction", () => {
   it("uses the live macOS native window preview without a frozen window snapshot", async () => {
     const [macController, handler] = await Promise.all([
       readFile(
-        new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
+        new URL("../crates/rion-appkit/native/macos/RionRuntimeTabsController.mm", import.meta.url),
         "utf8"
       ),
       readFile(
@@ -289,9 +291,9 @@ describe("native tab drag latest-intent transaction", () => {
 
   it("carries an exact terminal order across the macOS bridge", async () => {
     const [header, bridge, rustBridge] = await Promise.all([
-      readFile(new URL("../src-tauri/native/macos/RionRuntimeTabsController.h", import.meta.url), "utf8"),
+      readFile(new URL("../crates/rion-appkit/native/macos/RionRuntimeTabsController.h", import.meta.url), "utf8"),
       readFile(
-        new URL("../src-tauri/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm", import.meta.url),
+        new URL("../crates/rion-appkit/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm", import.meta.url),
         "utf8"
       ),
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8")

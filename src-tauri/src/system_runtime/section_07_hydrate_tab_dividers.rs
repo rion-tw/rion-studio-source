@@ -327,13 +327,47 @@ impl SystemRuntimeExecutor {
             CoreEffectAction::EmbeddedCreateTab { tab } => Some(tab.tab_id.clone()),
             _ => None,
         };
+        let destructive_clear = matches!(
+            &effect.action,
+            CoreEffectAction::RoleBrowserDataClearSession { .. }
+        );
+        let destructive_content_fingerprint = match &effect.action {
+            CoreEffectAction::RoleBrowserDataClearSession {
+                role_id,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+            } => Some(role_browser_data_clear_fingerprint(
+                role_id,
+                webview2_user_data_dir,
+                webkit_data_store_identifier,
+            )),
+            _ => None,
+        };
         // Core cancellation removes an unstarted effect from its pending set.
         // The native queue may still contain that envelope, so admit create work
         // only while the exact effect/operation pair remains pending.
-        if (created_tab_id.is_some() || is_surface_close_effect(&effect.action))
-            && !self.create_effect_is_still_pending(&effect)
+        if created_tab_id.is_some()
+            || is_surface_close_effect(&effect.action)
+            || destructive_clear
         {
-            return;
+            match self.create_effect_pending_status(&effect) {
+                Some(true) => {}
+                Some(false) => {
+                    if destructive_clear {
+                        self.destructive_native_work
+                            .tombstone_core_terminal(&effect.effect_id, &effect.operation_id);
+                    }
+                    return;
+                }
+                None => {
+                    // Unknown Core ownership can never authorize a destructive mutation. Keep
+                    // its queued registry entry outstanding so checked shutdown also fails closed.
+                    if destructive_clear {
+                        self.health.mark_unhealthy();
+                    }
+                    return;
+                }
+            }
         }
         let shutdown_accepting = RuntimeShutdownState::from_raw(
             self.shutdown_state.load(Ordering::Acquire),
@@ -353,7 +387,7 @@ impl SystemRuntimeExecutor {
                     "The System WebView runtime is shutting down and cancelled queued native work.",
                 )
             };
-            let _ = self.core.dispatch_core_effect_results(vec![CoreEffectResult {
+            let result = CoreEffectResult {
                 effect_id: effect.effect_id,
                 operation_id: effect.operation_id,
                 ok: false,
@@ -362,7 +396,16 @@ impl SystemRuntimeExecutor {
                     code: code.to_owned(),
                     message: message.to_owned(),
                 }),
-            }]);
+            };
+            if destructive_clear
+                && !self
+                    .destructive_native_work
+                    .complete_queued_from_effect_result(&result)
+            {
+                self.health.mark_unhealthy();
+                return;
+            }
+            let _ = self.core.dispatch_core_effect_results(vec![result]);
             return;
         }
         if matches!(effect.action, CoreEffectAction::EmbeddedLoadRoles { .. }) {
@@ -376,6 +419,51 @@ impl SystemRuntimeExecutor {
         }
         let effect_id = effect.effect_id.clone();
         let operation_id = effect.operation_id.clone();
+        let mut destructive_clear_permit = if destructive_clear {
+            match self
+                .destructive_native_work
+                .begin(
+                    &effect_id,
+                    &operation_id,
+                    destructive_content_fingerprint
+                        .as_deref()
+                        .expect("destructive clear effects have a content fingerprint"),
+                )
+            {
+                DestructiveNativeWorkBegin::Started(permit) => Some(permit),
+                DestructiveNativeWorkBegin::AlreadyStarted => return,
+                DestructiveNativeWorkBegin::Cancelled => return,
+                DestructiveNativeWorkBegin::Draining => {
+                    let result = CoreEffectResult {
+                        effect_id,
+                        operation_id,
+                        ok: false,
+                        value_json: None,
+                        error: Some(rion_core::CoreErrorPayload {
+                            code: "SYSTEM_RUNTIME_SHUTTING_DOWN".to_owned(),
+                            message: "Application shutdown cancelled queued browser-data clear work."
+                                .to_owned(),
+                        }),
+                    };
+                    if !self
+                        .destructive_native_work
+                        .complete_queued_from_effect_result(&result)
+                    {
+                        self.health.mark_unhealthy();
+                        return;
+                    }
+                    let _ = self.core.dispatch_core_effect_results(vec![result]);
+                    return;
+                }
+                DestructiveNativeWorkBegin::IdentityMismatch
+                | DestructiveNativeWorkBegin::Unknown => {
+                    self.health.mark_unhealthy();
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let close_effect = is_surface_close_effect(&effect.action);
         let started = Instant::now();
         let scope = native_effect_scope(&effect);
@@ -405,6 +493,11 @@ impl SystemRuntimeExecutor {
             .then(|| self.persist_restore_session(false).err())
             .flatten();
         let result = finalize_persisted_effect_result(result, persist_runtime, persistence_error);
+        if let Some(permit) = destructive_clear_permit.as_mut() {
+            // Retain the exact receipt sent back to Core. Replays must not re-run the native
+            // clear even when post-mutation restore-session persistence changed its outcome.
+            permit.complete_from_effect_result(&result);
+        }
         let succeeded = result.ok;
         let error_payload = result.error.clone();
         eprintln!(

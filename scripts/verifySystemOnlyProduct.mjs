@@ -2,12 +2,11 @@ import { access, readFile, readdir } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { TAURI_COMPATIBILITY_RENDERER_DOCUMENTS } from "./verifyElectronRendererBundle.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const removedPaths = [
-  "crates/rion-node",
   "electron-builder.config.d.mts",
-  "electron-builder.config.mjs",
-  "electron.vite.config.ts",
   "native/macos/runtime-tabs",
   "native/windows/webview2",
   "build/Install Help.txt",
@@ -63,16 +62,18 @@ const removedPaths = [
 
 const sourceRoots = [
   ".github/workflows",
+  "crates/rion-node/src",
   "crates/rion-core/src",
   "crates/rion-platform/src",
   "scripts",
+  "src/electron",
   "src-tauri",
   "src/renderer/runtime-shell",
   "src/renderer/src",
   "src/shared"
 ];
 const sourceExtensions = new Set([
-  ".c", ".cc", ".cpp", ".h", ".json", ".m", ".mjs", ".mm", ".nsh", ".rs", ".toml", ".ts",
+  ".c", ".cc", ".cjs", ".cpp", ".h", ".json", ".m", ".mjs", ".mm", ".nsh", ".rs", ".toml", ".ts",
   ".tsx", ".yaml", ".yml"
 ]);
 const forbiddenTokens = [
@@ -96,16 +97,27 @@ const forbiddenTokens = [
   "build:tauri:renderer",
   "dev:tauri",
   "remote-debugging-port",
+  "remote-debugging-pipe",
   "RuntimeTabChromeState",
   "game-tabs-chrome",
   "native-chrome",
   "runtimeTabsChrome"
 ];
+const forbiddenTokenAllowlists = new Map([
+  ["remote-debugging-port", new Set([
+    "src/electron/main/chromiumCommandLinePolicy.ts"
+  ])],
+  ["remote-debugging-pipe", new Set([
+    "src/electron/main/chromiumCommandLinePolicy.ts"
+  ])]
+]);
 const migrationOnlyTokens = new Map([
   ["cdnCompatibility", new Set([
     "crates/rion-core/src/database/state.rs"
   ])],
   ["electron", new Set([
+    "crates/rion-core/src/app/section_05_delete_workspaces_runtime_aware.rs",
+    "crates/rion-core/src/app/tests/behavior_03_role_creation_and_selected_browser_directory_reset.rs",
     "crates/rion-core/src/database/state.rs",
     "crates/rion-core/src/model.rs",
     "crates/rion-core/src/portable.rs",
@@ -118,15 +130,48 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs"
   ])]
 ]);
+const migrationElectronPrefixes = [
+  ".github/workflows/",
+  "crates/rion-node/",
+  "crates/rion-core/src/app/tests/behavior_25_runtime_ui_actions.rs",
+  "scripts/checkDesktopE2eCoverage.mjs",
+  "scripts/buildElectron",
+  "scripts/buildElectronDesktopE2e.mjs",
+  "scripts/desktopE2eChromium",
+  "scripts/desktopE2eRuntimeTarget",
+  "scripts/electron",
+  "scripts/eventTopologyPolicy.mjs",
+  "scripts/finalizeMacosElectronUpdaterCompatibilityReceipt",
+  "scripts/finalizeWindowsElectronUpdaterCompatibilityReceipt",
+  "scripts/packagedElectron",
+  "scripts/prepareElectron",
+  "scripts/publicReleaseRuntimePolicy.mjs",
+  "scripts/runElectron",
+  "scripts/runDesktopE2e.mjs",
+  "scripts/runPackagedElectron",
+  "scripts/restoreElectron",
+  "scripts/runtimeEnvironmentPolicy.mjs",
+  "scripts/tauriV22PublicLineage.mjs",
+  "scripts/verifyDesktopE2eIsolation.mjs",
+  "scripts/verifyDesktopE2eBuild",
+  "scripts/verifyElectron",
+  "scripts/verifyTauriV22UpdaterInput.mjs",
+  "scripts/windowsElectronInstallerPayloadProof",
+  "src/electron/",
+  "src/renderer/src/electron.tsx",
+  "src/renderer/src/app/windowGestureMode.ts",
+  "src/renderer/src/global.d.ts",
+  "tests/electron-"
+];
 
 const probePath = optionValue("--probe");
 if (probePath) {
   const source = await readFile(probePath, "utf8");
   const findings = inspectSource("tests/system-only-negative-fixture.ts", source);
   if (findings.length > 0) {
-    throw new Error(`System-only product gate failed:\n- ${findings.join("\n- ")}`);
+    throw new Error(`Desktop shell migration gate failed:\n- ${findings.join("\n- ")}`);
   }
-  console.log("System-only probe contains no retired capability tokens.");
+  console.log("Desktop shell migration probe contains no retired capability tokens.");
   process.exit(0);
 }
 
@@ -155,16 +200,17 @@ const directPackages = {
 };
 for (const name of [
   "@electron/osx-sign",
-  "electron",
-  "electron-builder",
   "electron-updater",
-  "electron-vite",
   "node-gyp"
 ]) {
   if (name in directPackages) failures.push(`package.json contains retired dependency ${name}`);
 }
 for (const name of Object.keys(directPackages)) {
-  if (name.startsWith("@electron/") || name.toLowerCase().includes("napi")) {
+  if ((name.startsWith("@electron/") && !new Set([
+    "@electron/asar",
+    "@electron/fuses"
+  ]).has(name)) ||
+      name.toLowerCase().includes("napi")) {
     failures.push(`package.json contains retired native-shell dependency ${name}`);
   }
 }
@@ -172,18 +218,48 @@ for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
   if (/^(?:dev|build):tauri(?::|$)/i.test(name)) {
     failures.push(`package.json contains retired transitional script ${name}`);
   }
-  if (/electron(?:-builder|-vite)?|node-gyp|buildRustCore|buildMacRuntimeTabs|buildWindowsWebView2/i.test(command)) {
-    failures.push(`package script ${name} invokes a retired Electron build path`);
+  if (/node-gyp|buildMacRuntimeTabs|buildWindowsWebView2/i.test(command)) {
+    failures.push(`package script ${name} invokes a retired native-shell build path`);
   }
+  if (/electron(?:-builder|-vite)?/i.test(command) && !/electron/i.test(name)) {
+    failures.push(`package script ${name} hides an Electron migration command behind a non-Electron name`);
+  }
+}
+
+const [electronViteSource, electronRendererEntry, tauriRendererEntry, rendererDocument] =
+  await Promise.all([
+    readFile(join(repositoryRoot, "electron.vite.config.ts"), "utf8"),
+    readFile(join(repositoryRoot, "src/renderer/src/electron.tsx"), "utf8"),
+    readFile(join(repositoryRoot, "src/renderer/src/main.tsx"), "utf8"),
+    readFile(join(repositoryRoot, "src/renderer/index.html"), "utf8")
+  ]);
+for (const token of ["@tauri-apps/api", "__TAURI_INTERNALS__", "installTauriBridgeIfNeeded"]) {
+  if (electronRendererEntry.includes(token)) {
+    failures.push(`Electron renderer entry contains Tauri compatibility token ${token}`);
+  }
+}
+if (!electronViteSource.includes('src="/src/electron.tsx"')) {
+  failures.push("electron.vite.config.ts does not select the pure Electron renderer entry");
+}
+for (const document of TAURI_COMPATIBILITY_RENDERER_DOCUMENTS) {
+  if (electronViteSource.includes(`src/renderer/${document}`)) {
+    failures.push(`electron.vite.config.ts includes Tauri compatibility document ${document}`);
+  }
+}
+if (
+  !rendererDocument.includes('src="/src/main.tsx"') ||
+  !tauriRendererEntry.includes("installTauriBridgeIfNeeded")
+) {
+  failures.push("The stable Tauri compatibility renderer entry is not preserved");
 }
 
 const cargoWorkspace = await readFile(join(repositoryRoot, "Cargo.toml"), "utf8");
 for (const token of ["crates/rion-node", "napi =", "napi-build", "napi-derive"]) {
-  if (cargoWorkspace.includes(token)) failures.push(`Cargo workspace contains ${token}`);
+  if (!cargoWorkspace.includes(token)) failures.push(`Cargo workspace is missing migration dependency ${token}`);
 }
 const pnpmWorkspace = await readFile(join(repositoryRoot, "pnpm-workspace.yaml"), "utf8");
-if (/^\s*(?:electron|electron-winstaller):|^\s*-\s*electron\s*$/mu.test(pnpmWorkspace)) {
-  failures.push("pnpm-workspace.yaml permits a retired Electron install script");
+if (!/^\s*electron:\s*true\s*$/mu.test(pnpmWorkspace)) {
+  failures.push("pnpm-workspace.yaml must explicitly allow the pinned Electron install script");
 }
 
 const resolvedEngine = await readFile(
@@ -320,9 +396,9 @@ for (const [path, retiredContract] of [
 }
 
 if (failures.length > 0) {
-  throw new Error(`System-only product gate failed:\n- ${failures.join("\n- ")}`);
+  throw new Error(`Desktop shell migration gate failed:\n- ${failures.join("\n- ")}`);
 }
-console.log("Verified Tauri-only System WebView boundary: one-time ChromeProfileImport transfer is bounded and no Electron, CDN, External Chrome, or profile runtime fallback remains.");
+console.log("Verified stable Tauri boundary plus scoped Electron migration: Rust remains authoritative and no External Chrome, unguarded remote-debugging transport, CDN, proxy, or profile runtime fallback is present.");
 
 async function exists(path) {
   try {
@@ -348,6 +424,7 @@ async function readRustSourceTree(path, visited = new Set()) {
 }
 
 async function sourceFiles(root) {
+  if (!await exists(root)) return [];
   const files = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
@@ -364,10 +441,18 @@ function inspectSource(repositoryPath, source) {
   if (repositoryPath === "scripts/verifySystemOnlyProduct.mjs") return [];
   const findings = [];
   for (const token of forbiddenTokens) {
-    if (source.includes(token)) findings.push(`${repositoryPath} contains ${token}`);
+    if (
+      source.includes(token) &&
+      !forbiddenTokenAllowlists.get(token)?.has(repositoryPath)
+    ) {
+      findings.push(`${repositoryPath} contains ${token}`);
+    }
   }
   for (const [token, allowlist] of migrationOnlyTokens) {
-    if (source.toLowerCase().includes(token.toLowerCase()) && !allowlist.has(repositoryPath)) {
+    const migrationElectronSource = token === "electron" &&
+      migrationElectronPrefixes.some((prefix) => repositoryPath.startsWith(prefix));
+    if (source.toLowerCase().includes(token.toLowerCase()) &&
+        !allowlist.has(repositoryPath) && !migrationElectronSource) {
       findings.push(`${repositoryPath} contains migration-only token ${token}`);
     }
   }

@@ -35,6 +35,7 @@ impl AppCore {
                 launch_preview_id: None,
                 launch_tab_id: None,
                 launch_attempt_id: uuid::Uuid::new_v4().to_string(),
+                presentation_intent: EmbeddedLaunchPresentationIntent::Foreground,
                 restore_role_slots: None,
             },
         )? {

@@ -260,7 +260,6 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
       startX: event.clientX,
       startY: event.clientY
     };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
   }, [scrollContainerRef]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>): void => {
@@ -276,6 +275,7 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
         return;
       }
       state.hasStarted = true;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
       document.body.classList.add("list-marquee-active");
       runAutoScroll();
     }

@@ -14,6 +14,10 @@ pub struct BrowserRuntimeWindowRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserRuntimeTabRecord {
     pub id: String,
+    pub audio_muted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub attempt_generation: Option<String>,
     pub source_id: String,
     pub name: String,
     pub window_id: String,
@@ -25,6 +29,8 @@ pub struct BrowserRuntimeTabRecord {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub slots: Vec<RuntimeRoleSlotRecord>,
+    #[serde(default)]
+    pub web_surfaces: Vec<EmbeddedWebSurfaceIdentityRecord>,
     pub hidden: bool,
 }
 

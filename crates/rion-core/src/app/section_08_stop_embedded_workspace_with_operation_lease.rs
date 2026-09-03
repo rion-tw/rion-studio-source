@@ -7,6 +7,16 @@ struct EmbeddedRuntimeTransition {
     parent_operation_id: Option<String>,
 }
 
+struct SystemLaunchRequest<'a> {
+    tab_id: &'a str,
+    tab: EmbeddedTabEffectRecord,
+    roles: &'a [StateRoleRecord],
+    runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
+    global_web_profile: Option<crate::model::GlobalWebProfilePathsRecord>,
+    presentation_intent: EmbeddedLaunchPresentationIntent,
+    resolved_engine: crate::model::ResolvedBrowserEngine,
+}
+
 impl AppCore {
     fn stop_embedded_workspace_with_operation_lease(
         &self,
@@ -40,6 +50,19 @@ impl AppCore {
                 workspace.workspace_id == workspace_id && workspace.runtime == "embedded"
             })
             .map(|workspace| workspace.tab_id.clone());
+        let initial_window_id = initial_tab_id.as_deref().and_then(|tab_id| {
+            initial_snapshot
+                .tabs
+                .iter()
+                .find(|tab| tab.id == tab_id)
+                .map(|tab| tab.window_id.clone())
+        });
+        let logical_close_operation_id = parent_operation_id.map_or_else(
+            || format!("workspace-stop:{workspace_id}:{}", uuid::Uuid::new_v4()),
+            str::to_owned,
+        );
+        let reload_admission =
+            self.supersede_controlled_role_reloads(&initial_role_ids, "tabStop")?;
         self.cancel_embedded_operations(&initial_role_ids)?;
         let lease = acquire_operation_lease
             .then(|| {
@@ -52,6 +75,17 @@ impl AppCore {
             })
             .transpose()?;
         let result = (|| {
+            let logical_close = match (initial_tab_id.as_deref(), initial_window_id.as_deref()) {
+                (Some(tab_id), Some(window_id)) => self.prepare_runtime_logical_close(
+                    &logical_close_operation_id,
+                    window_id,
+                    None,
+                    None,
+                    tab_id,
+                    None,
+                )?,
+                _ => None,
+            };
             let prepared = {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
                 let snapshot = self
@@ -95,6 +129,7 @@ impl AppCore {
                     None
                 }
             };
+            drop(reload_admission);
 
             let Some((owned_roles, tab_id)) = prepared else {
                 // Cancelling an in-flight launch removes its speculative Core
@@ -103,7 +138,7 @@ impl AppCore {
                 // Core sequence lease so the native acknowledgement cannot
                 // deadlock against runtime-state finalization.
                 if let Some(tab_id) = initial_tab_id.as_deref() {
-                    self.run_embedded_runtime_effect(
+                    let native_close = self.run_embedded_runtime_effect(
                         tab_id,
                         CoreEffectAction::EmbeddedDestroyTab {
                             tab_id: tab_id.to_owned(),
@@ -112,7 +147,33 @@ impl AppCore {
                         },
                         None,
                         parent_operation_id,
-                    )?;
+                    );
+                    match native_close {
+                        Ok(_) => {
+                            if let Some(close) = logical_close.as_ref() {
+                                self.finish_runtime_logical_close(close, "closed")?;
+                            }
+                        }
+                        Err(error) => {
+                            if let Some(close) = logical_close.as_ref() {
+                                let _ = self.finish_runtime_logical_close(close, "failed");
+                            }
+                            return Err(error);
+                        }
+                    }
+                    let _sequence = self.embedded_runtime_sequence.acquire()?;
+                    let current = self
+                        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                        .snapshot;
+                    if current.tabs.iter().any(|tab| {
+                        tab.id == tab_id
+                            && tab.tab_type == "workspace"
+                            && tab.source_id == workspace_id
+                    }) {
+                        self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                            tab_id: tab_id.to_owned(),
+                        })?;
+                    }
                     for role_id in &initial_role_ids {
                         self.macro_runtime.release_role(role_id)?;
                     }
@@ -123,7 +184,7 @@ impl AppCore {
             // Keep durability behind native isolation. The final runtime commit
             // below persists the coalesced workspace removal.
             self.emit_browser_statuses();
-            self.run_embedded_runtime_effect(
+            let native_close = self.run_embedded_runtime_effect(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
@@ -132,7 +193,20 @@ impl AppCore {
                 },
                 None,
                 parent_operation_id,
-            )?;
+            );
+            match native_close {
+                Ok(_) => {
+                    if let Some(close) = logical_close.as_ref() {
+                        self.finish_runtime_logical_close(close, "closed")?;
+                    }
+                }
+                Err(error) => {
+                    if let Some(close) = logical_close.as_ref() {
+                        let _ = self.finish_runtime_logical_close(close, "failed");
+                    }
+                    return Err(error);
+                }
+            }
 
             {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
@@ -144,10 +218,7 @@ impl AppCore {
                         .roles
                         .iter()
                         .find(|role| role.role_id == owned.role_id)
-                        .is_none_or(|role| {
-                            role.owner.tab_id != tab_id
-                                || role.state != "stopping"
-                        })
+                        .is_none_or(|role| role.owner.tab_id != tab_id || role.state != "stopping")
                 }) {
                     return Err(CoreError::Domain {
                         code: "SYSTEM_SURFACE_CLOSE_STALE",
@@ -223,6 +294,7 @@ impl AppCore {
             .collect::<Vec<_>>();
         role_ids.sort();
         role_ids.dedup();
+        let reload_admission = self.supersede_controlled_role_reloads(&role_ids, "windowClose")?;
         self.cancel_embedded_operations(&role_ids)?;
         for role_id in &role_ids {
             self.macro_runtime.request_stop_role(role_id)?;
@@ -304,6 +376,7 @@ impl AppCore {
                 return Err(error);
             }
         };
+        drop(reload_admission);
         self.browser_runtime_snapshot_without_persistence()?;
         Ok(request)
     }
@@ -440,14 +513,44 @@ impl AppCore {
 
     fn start_system_launch(
         &self,
-        tab_id: &str,
-        tab: EmbeddedTabEffectRecord,
-        roles: &[StateRoleRecord],
-        runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
+        request: SystemLaunchRequest<'_>,
     ) -> CoreResult<crate::operation_actor::OperationHandle> {
+        let SystemLaunchRequest {
+            tab_id,
+            mut tab,
+            roles,
+            runtime_snapshot,
+            global_web_profile,
+            presentation_intent,
+            resolved_engine,
+        } = request;
+        let web_surface_load = embedded_web_surface_load_plan(&tab, global_web_profile)?;
+        if let Some((window_generation, topology_revision)) =
+            self.ensure_chromium_runtime_launch_topology(&tab)?
+        {
+            tab.appkit_window_generation = Some(window_generation);
+            tab.appkit_topology_revision = Some(topology_revision);
+        }
+        // Stable System WebView launch previews already own WindowAndContent focus. Chromium has
+        // no shell-side preview, so only a fresh foreground Chromium launch receives this exact
+        // post-topology focus projection; restore hydration must preserve the current key window.
+        let foreground_windows = (presentation_intent
+            == EmbeddedLaunchPresentationIntent::Foreground
+            && self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            && resolved_engine == crate::model::ResolvedBrowserEngine::Chromium)
+            .then(|| self.embedded_runtime_window_projections())
+            .transpose()?;
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         self.start_effect_plan_for_roles(
-            embedded_launch_effects(tab_id, tab.clone(), roles, runtime_snapshot.clone()),
+            embedded_launch_effects(
+                tab_id,
+                tab.clone(),
+                roles,
+                runtime_snapshot.clone(),
+                self.application_lifecycle_epoch.load(Ordering::Acquire),
+                web_surface_load,
+                foreground_windows,
+            )?,
             &role_ids,
         )
     }
@@ -456,18 +559,22 @@ impl AppCore {
         &self,
         handle: crate::operation_actor::OperationHandle,
         roles: &[StateRoleRecord],
+        tab_id: &str,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         let launch = self.finish_effect_plan_for_roles(handle, &role_ids);
         let error = match launch {
-            Ok(outcome) => return Ok(outcome),
+            Ok(outcome) => {
+                self.complete_chromium_runtime_launch(tab_id, &role_ids)?;
+                return Ok(outcome);
+            }
             Err(error) => error,
         };
         if matches!(error.code(), "LAUNCH_CANCELLED" | "LAUNCH_PREVIEW_STALE") {
             return Err(error);
         }
-        let failure_reason = crate::model::SystemWebViewIssueReason::RuntimeCreationFailed;
-        self.record_system_webview_issue(&role_ids, failure_reason)?;
+        let failure_reason = crate::model::BrowserRuntimeFailureReason::RuntimeCreationFailed;
+        self.record_browser_runtime_issue(&role_ids, failure_reason)?;
         Err(error)
     }
 
@@ -475,21 +582,25 @@ impl AppCore {
         &self,
         handle: crate::operation_actor::OperationHandle,
         roles: &[StateRoleRecord],
+        tab_id: &str,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         let launch = self
             .finish_effect_plan_for_roles_async(handle, &role_ids)
             .await;
         let error = match launch {
-            Ok(outcome) => return Ok(outcome),
+            Ok(outcome) => {
+                self.complete_chromium_runtime_launch(tab_id, &role_ids)?;
+                return Ok(outcome);
+            }
             Err(error) => error,
         };
         if error.code() == "LAUNCH_CANCELLED" {
             return Err(error);
         }
-        self.record_system_webview_issue(
+        self.record_browser_runtime_issue(
             &role_ids,
-            crate::model::SystemWebViewIssueReason::RuntimeCreationFailed,
+            crate::model::BrowserRuntimeFailureReason::RuntimeCreationFailed,
         )?;
         Err(error)
     }
@@ -498,7 +609,13 @@ impl AppCore {
         &self,
         role_id: &str,
         reason: Option<&str>,
+        expected_tab_id: Option<&str>,
+        expected_owner_generation: Option<u64>,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+        let authority_guard = self
+            .runtime_authority_barrier
+            .write()
+            .map_err(|_| CoreError::Internal("runtime authority barrier poisoned".to_owned()))?;
         let snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
@@ -510,50 +627,102 @@ impl AppCore {
                 code: "EMBEDDED_ROLE_NOT_RUNNING",
                 message: "The embedded role is not running.".to_owned(),
             })?;
-        let role_ids = snapshot
+        match (expected_tab_id, expected_owner_generation) {
+            (None, None) => {}
+            (Some(tab_id), Some(owner_generation))
+                if runtime_role.owner.tab_id == tab_id
+                    && runtime_role.owner.generation == owner_generation => {}
+            (Some(_), Some(_)) => {
+                return Err(CoreError::Domain {
+                    code: "RUNTIME_ROLE_OWNER_STALE",
+                    message: "The failed system surface no longer owns this runtime role."
+                        .to_owned(),
+                });
+            }
+            _ => {
+                return Err(CoreError::Domain {
+                    code: "RUNTIME_ROLE_OWNER_FENCE_INVALID",
+                    message: "Both runtime role owner fences are required together.".to_owned(),
+                });
+            }
+        }
+        let owner_tab = snapshot
             .tabs
             .iter()
             .find(|tab| runtime_role.owner.tab_id == tab.id)
-            .map(|tab| {
-                tab.slots
-                    .iter()
-                    .map(|slot| slot.role_id.clone())
-                    .collect::<Vec<_>>()
-            })
             .ok_or_else(|| CoreError::Domain {
                 code: "RUNTIME_TAB_NOT_FOUND",
                 message: "Runtime tab was not found.".to_owned(),
             })?;
-        let _ = self.macro_runtime.stop_role(role_id);
+        if !owner_tab
+            .slots
+            .iter()
+            .any(|slot| slot.slot_id == runtime_role.owner.slot_id && slot.role_id == role_id)
+        {
+            return Err(CoreError::Domain {
+                code: "RUNTIME_ROLE_OWNER_STALE",
+                message: "The failed system surface no longer owns this runtime role.".to_owned(),
+            });
+        }
+        let project_chromium_failure = self.degrade_chromium_runtime_role_failure_activation(
+            &authority_guard,
+            role_id,
+            &owner_tab.id,
+            &owner_tab.window_id,
+            runtime_role.owner.generation,
+        )?;
+        let reload_admission =
+            self.supersede_controlled_role_reloads(&[role_id.to_owned()], "surfaceRecovery")?;
+        let affected_role_ids = [role_id.to_owned()];
+        #[cfg(test)]
+        let after_owner_fence = self
+            .system_surface_failure_after_owner_fence_hook
+            .lock()
+            .map_err(|_| {
+                CoreError::Internal("system surface failure hook lock poisoned".to_owned())
+            })?
+            .clone();
+        #[cfg(test)]
+        if let Some(hook) = after_owner_fence {
+            hook();
+        }
+        self.macro_runtime
+            .terminalize_role_after_navigation_failure(role_id)?;
         let failure_reason = if reason == Some("popup-unsupported") {
-            crate::model::SystemWebViewIssueReason::RuntimeCreationFailed
+            crate::model::BrowserRuntimeFailureReason::RuntimeCreationFailed
         } else {
-            crate::model::SystemWebViewIssueReason::RuntimeCrashed
+            crate::model::BrowserRuntimeFailureReason::RuntimeCrashed
         };
         {
-            let mut ready_roles = self.system_webview_ready_roles.write().map_err(|_| {
-                CoreError::Internal("system WebView readiness lock poisoned".to_owned())
+            let mut ready_roles = self.browser_runtime_ready_roles.write().map_err(|_| {
+                CoreError::Internal("browser runtime readiness lock poisoned".to_owned())
             })?;
-            for role_id in &role_ids {
+            for role_id in &affected_role_ids {
                 ready_roles.remove(role_id);
             }
         }
         {
-            let mut issues = self.system_webview_issues.write().map_err(|_| {
-                CoreError::Internal("system WebView issue lock poisoned".to_owned())
+            let mut issues = self.browser_runtime_issues.write().map_err(|_| {
+                CoreError::Internal("browser runtime issue lock poisoned".to_owned())
             })?;
-            for role_id in &role_ids {
+            for role_id in &affected_role_ids {
                 issues.insert(role_id.clone(), failure_reason);
             }
         }
         let statuses = self
             .browser_statuses()?
             .into_iter()
-            .filter(|status| role_ids.contains(&status.role_id))
+            .filter(|status| affected_role_ids.contains(&status.role_id))
             .collect::<Vec<_>>();
-        self.emit(vec![CoreEvent::BrowserStatuses {
-            statuses: self.browser_statuses()?,
-        }]);
+        drop(reload_admission);
+        if project_chromium_failure {
+            drop(authority_guard);
+            self.project_embedded_runtime_snapshot_without_persistence(None)?;
+        } else {
+            self.emit(vec![CoreEvent::BrowserStatuses {
+                statuses: self.browser_statuses()?,
+            }]);
+        }
         Ok(statuses)
     }
 
@@ -587,16 +756,16 @@ impl AppCore {
                 message: "Runtime tab was not found.".to_owned(),
             })?;
         {
-            let mut issues = self.system_webview_issues.write().map_err(|_| {
-                CoreError::Internal("system WebView issue lock poisoned".to_owned())
+            let mut issues = self.browser_runtime_issues.write().map_err(|_| {
+                CoreError::Internal("browser runtime issue lock poisoned".to_owned())
             })?;
             for role_id in &role_ids {
                 issues.remove(role_id);
             }
         }
         {
-            let mut ready_roles = self.system_webview_ready_roles.write().map_err(|_| {
-                CoreError::Internal("system WebView readiness lock poisoned".to_owned())
+            let mut ready_roles = self.browser_runtime_ready_roles.write().map_err(|_| {
+                CoreError::Internal("browser runtime readiness lock poisoned".to_owned())
             })?;
             ready_roles.extend(role_ids.iter().cloned());
         }
@@ -711,13 +880,11 @@ impl AppCore {
                     error: outcome
                         .error
                         .as_ref()
-                        .map(|error| {
-                            crate::model::LogErrorDetails {
-                                name: error.code.clone(),
-                                message: error.message.clone(),
-                                stack: None,
-                                cause: None,
-                            }
+                        .map(|error| crate::model::LogErrorDetails {
+                            name: error.code.clone(),
+                            message: error.message.clone(),
+                            stack: None,
+                            cause: None,
                         }),
                 }],
             });
@@ -734,7 +901,10 @@ impl AppCore {
             });
         }
         if let Some(error) = &outcome.error {
-            if error.code == "CORE_OPERATION_CANCELLED" {
+            if matches!(
+                error.code.as_str(),
+                "CORE_OPERATION_CANCELLED" | "CHROMIUM_RUNTIME_EFFECT_CANCELLED"
+            ) {
                 return Err(CoreError::Effect {
                     code: "LAUNCH_CANCELLED".to_owned(),
                     message: "Browser launch was cancelled.".to_owned(),
@@ -814,5 +984,4 @@ impl AppCore {
         // prerequisite for saving a newly detached live window.
         self.mutate_state(StateMutation::GameWindowSaveRuntime(input))
     }
-
 }

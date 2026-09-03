@@ -9,6 +9,7 @@ type OverlayController = {
   clearSuppressedMiddleButtonShortcut(dispatchId: string): boolean;
   dispose(): void;
   refresh(): Promise<void>;
+  refreshFromNative(refreshId: string): Promise<void>;
   suppressNextMiddleButtonShortcut(dispatchId: string): boolean;
 };
 type OverlayStatus = {
@@ -79,6 +80,60 @@ async function installCoordinateModuleUrl() {
 }
 
 describe("shell-neutral macro overlay runtime", () => {
+  it("emits an exact native refresh receipt only after state and presentation apply", async () => {
+    const pending = (() => {
+      let resolve!: (value: unknown) => void;
+      const promise = new Promise<unknown>((resolvePromise) => {
+        resolve = resolvePromise;
+      });
+      return { promise, resolve };
+    })();
+    let listCount = 0;
+    const binding = vi.fn((request: OverlayRequest) => {
+      if (request.type !== "list") return Promise.resolve({});
+      listCount += 1;
+      if (listCount === 1) {
+        return Promise.resolve({
+          macroBadgePosition: {},
+          macros: [],
+          resolvedTheme: "dark",
+          statuses: []
+        });
+      }
+      return pending.promise;
+    });
+    const refreshReceipt = vi.fn(async () => undefined);
+    Object.assign(binding, { refreshReceipt });
+    (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
+
+    (0, eval)(await overlayRuntimeSource());
+    await vi.waitFor(() => expect(listCount).toBe(1));
+    const refreshId = "00000000-0000-4000-8000-000000000001";
+    const refresh = overlayController().refreshFromNative(refreshId);
+    await Promise.resolve();
+    expect(refreshReceipt).not.toHaveBeenCalled();
+
+    pending.resolve({
+      macroBadgePosition: {},
+      macros: [],
+      resolvedTheme: "light",
+      statuses: []
+    });
+    await refresh;
+    expect(refreshReceipt).toHaveBeenCalledWith({
+      inputContext: {
+        documentInstanceId: "",
+        revision: 1,
+        target: "document"
+      },
+      refreshId,
+      requestVersion: 2,
+      status: "applied"
+    });
+    expect(document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v62")
+      ?.dataset.theme).toBe("light");
+  });
+
   it("applies resolved themes to the isolated host and preserves the current theme on invalid input", async () => {
     let resolvedTheme = "dark";
     const binding = vi.fn(async () => ({

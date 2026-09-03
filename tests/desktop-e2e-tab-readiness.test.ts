@@ -15,6 +15,7 @@ describe("desktop E2E restored tab readiness", () => {
     expect(wait).toContain("events: events.slice(-24)");
     expect(wait).toContain("roleState: input.roleId ? state[input.roleId] ?? null : null");
     expect(wait).toContain("Fixture event wait aborted");
+    expect(wait).toContain("{ cause: error }");
     expect(wait).not.toContain("return ((await response.json()) as { event: FixtureEvent }).event;\n  } catch");
   });
 

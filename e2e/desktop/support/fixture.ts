@@ -122,7 +122,8 @@ export async function waitFixtureEvent(input: {
     }
     throw new Error(
       `Fixture event wait aborted (${query.toString()}): ${String(error)}; ` +
-        `diagnostic=${JSON.stringify(diagnostic)}`
+        `diagnostic=${JSON.stringify(diagnostic)}`,
+      { cause: error }
     );
   }
   if (!response.ok) throw new Error(`Fixture event wait failed with ${response.status}`);

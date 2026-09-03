@@ -175,6 +175,8 @@ describe("Chromium Workspace cutover paired replacements", () => {
     expect(aggregate).toContain("validateChromiumWorkspaceCutoverRuntimeEvidence(input)");
     expect(aggregate).toContain("validateChromiumWorkspaceCutoverSqliteEvidence(");
     expect(evidence).toContain("ready/degraded/visible-reopen ordering");
+    expect(evidence).toContain("observation.placeholders.length <= 1");
+    expect(evidence).toContain("zero-placeholder transfer gap");
     expect(evidence).toContain("terminal Core owner transfer");
     expect(evidence).toContain("failure isolation, no-auto-recovery");
   });

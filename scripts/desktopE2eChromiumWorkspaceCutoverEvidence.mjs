@@ -245,9 +245,16 @@ function validateSharedRoleHistory(phase, observations, platform) {
   requireRuntime(
     Array.isArray(observations) && observations.length >= 2 &&
       observations.every((observation) => validRoleObservation(observation, platform)) &&
-      observations.every((observation) => observation.placeholders.length === 1),
+      observations.every((observation) => observation.placeholders.length <= 1) &&
+      observations[0].placeholders.length === 1 &&
+      observations.at(-1).placeholders.length === 1,
     `${phase}: malformed shared-Role placeholder history`
   );
+  // Core ownership and the retained-host placeholder are separate ordered
+  // projections. A sampled interior revision may therefore have retired the
+  // target placeholder before the source placeholder for the new owner is
+  // visible. Only that zero-placeholder transfer gap is admissible; both
+  // authoritative endpoints still require one exact placeholder.
   const before = observations[0];
   const after = observations.at(-1);
   requireRuntime(

@@ -938,10 +938,16 @@ impl AppCore {
                     )
                 })
                 .and_then(|snapshot| {
-                    self.complete_chromium_runtime_launch(
+                    let topology_changed = self.complete_chromium_runtime_launch(
                         tab_id,
                         std::slice::from_ref(&role_id),
                     )?;
+                    if topology_changed {
+                        // Ready advances the Core window revision even though
+                        // membership is unchanged. Project the terminal fence
+                        // before exposing the completed launch.
+                        self.project_embedded_runtime_snapshot_without_persistence(None)?;
+                    }
                     Ok(snapshot)
                 });
             match completion {

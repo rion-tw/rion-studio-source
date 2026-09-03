@@ -89,83 +89,93 @@ impl AppCore {
         &self,
         tab_id: &str,
         loaded_role_ids: &[String],
-    ) -> CoreResult<()> {
+    ) -> CoreResult<bool> {
         if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
-            return Ok(());
+            return Ok(false);
         }
-        let _authority_guard = self
-            .runtime_authority_barrier
-            .write()
-            .map_err(|_| CoreError::Internal("runtime authority barrier poisoned".to_owned()))?;
-        let snapshot = self.browser_runtime.snapshot()?;
-        let activation = snapshot.tab_activations.get(tab_id).ok_or_else(|| {
-            chromium_launch_window_context_error(
-                "CHROMIUM_LAUNCH_ACTIVATION_STALE",
-                "The Chromium tab activation retired before launch completion.",
-            )
-        })?;
-        if loaded_role_ids.iter().any(|role_id| {
-            !snapshot.browser_runtime.roles.iter().any(|role| {
-                role.role_id == *role_id
-                    && role.runtime == "embedded"
-                    && role.owner.tab_id == tab_id
-            })
-        }) {
-            return Err(chromium_launch_window_context_error(
-                "CHROMIUM_LAUNCH_ACTIVATION_STALE",
-                "A loaded Chromium Role lost its exact tab owner before launch completion.",
-            ));
-        }
-        if matches!(
-            activation.phase,
-            crate::model::RuntimeTabActivationPhaseRecord::Dormant
-                | crate::model::RuntimeTabActivationPhaseRecord::Failed
-        ) {
-            return Err(CoreError::Domain {
-                code: "CHROMIUM_LAUNCH_ACTIVATION_STALE",
-                message: "The Chromium tab activation changed before launch completion.".to_owned(),
-            });
-        }
-        if matches!(
-            activation.phase,
-            crate::model::RuntimeTabActivationPhaseRecord::Activating
-                | crate::model::RuntimeTabActivationPhaseRecord::Attaching
-                | crate::model::RuntimeTabActivationPhaseRecord::Loading
-        ) {
-            let commit =
-                self.browser_runtime
-                    .apply(crate::RuntimeIntent::SetTabActivationPhase {
-                        activation_attempt_id: activation.attempt_id.clone(),
-                        operation_id: format!(
-                            "chromium-launch-ready:{}:{}",
-                            tab_id,
-                            activation.attempt_id.as_str()
-                        ),
-                        phase: crate::model::RuntimeTabActivationPhaseRecord::Ready,
-                        tab_id: crate::RuntimeTabId::new(tab_id.to_owned())
-                            .map_err(CoreError::InvalidInput)?,
-                    })?;
-            if commit.status == crate::RuntimeCommitStatus::Superseded {
+        let topology_changed = {
+            let _authority_guard = self
+                .runtime_authority_barrier
+                .write()
+                .map_err(|_| {
+                    CoreError::Internal("runtime authority barrier poisoned".to_owned())
+                })?;
+            let snapshot = self.browser_runtime.snapshot()?;
+            let activation = snapshot.tab_activations.get(tab_id).ok_or_else(|| {
+                chromium_launch_window_context_error(
+                    "CHROMIUM_LAUNCH_ACTIVATION_STALE",
+                    "The Chromium tab activation retired before launch completion.",
+                )
+            })?;
+            if loaded_role_ids.iter().any(|role_id| {
+                !snapshot.browser_runtime.roles.iter().any(|role| {
+                    role.role_id == *role_id
+                        && role.runtime == "embedded"
+                        && role.owner.tab_id == tab_id
+                })
+            }) {
+                return Err(chromium_launch_window_context_error(
+                    "CHROMIUM_LAUNCH_ACTIVATION_STALE",
+                    "A loaded Chromium Role lost its exact tab owner before launch completion.",
+                ));
+            }
+            if matches!(
+                activation.phase,
+                crate::model::RuntimeTabActivationPhaseRecord::Dormant
+                    | crate::model::RuntimeTabActivationPhaseRecord::Failed
+            ) {
                 return Err(CoreError::Domain {
                     code: "CHROMIUM_LAUNCH_ACTIVATION_STALE",
                     message: "The Chromium tab activation changed before launch completion."
                         .to_owned(),
                 });
             }
-        }
-        {
-            let mut issues = self.browser_runtime_issues.write().map_err(|_| {
-                CoreError::Internal("browser runtime issue lock poisoned".to_owned())
-            })?;
-            for role_id in loaded_role_ids {
-                issues.remove(role_id);
+            let mut topology_changed = false;
+            if matches!(
+                activation.phase,
+                crate::model::RuntimeTabActivationPhaseRecord::Activating
+                    | crate::model::RuntimeTabActivationPhaseRecord::Attaching
+                    | crate::model::RuntimeTabActivationPhaseRecord::Loading
+            ) {
+                let commit =
+                    self.browser_runtime
+                        .apply(crate::RuntimeIntent::SetTabActivationPhase {
+                            activation_attempt_id: activation.attempt_id.clone(),
+                            operation_id: format!(
+                                "chromium-launch-ready:{}:{}",
+                                tab_id,
+                                activation.attempt_id.as_str()
+                            ),
+                            phase: crate::model::RuntimeTabActivationPhaseRecord::Ready,
+                            tab_id: crate::RuntimeTabId::new(tab_id.to_owned())
+                                .map_err(CoreError::InvalidInput)?,
+                        })?;
+                if commit.status == crate::RuntimeCommitStatus::Superseded {
+                    return Err(CoreError::Domain {
+                        code: "CHROMIUM_LAUNCH_ACTIVATION_STALE",
+                        message: "The Chromium tab activation changed before launch completion."
+                            .to_owned(),
+                    });
+                }
+                topology_changed = commit.status == crate::RuntimeCommitStatus::Applied;
             }
-        }
-        self.browser_runtime_ready_roles
-            .write()
-            .map_err(|_| CoreError::Internal("browser runtime readiness lock poisoned".to_owned()))?
-            .extend(loaded_role_ids.iter().cloned());
-        Ok(())
+            {
+                let mut issues = self.browser_runtime_issues.write().map_err(|_| {
+                    CoreError::Internal("browser runtime issue lock poisoned".to_owned())
+                })?;
+                for role_id in loaded_role_ids {
+                    issues.remove(role_id);
+                }
+            }
+            self.browser_runtime_ready_roles
+                .write()
+                .map_err(|_| {
+                    CoreError::Internal("browser runtime readiness lock poisoned".to_owned())
+                })?
+                .extend(loaded_role_ids.iter().cloned());
+            topology_changed
+        };
+        Ok(topology_changed)
     }
 
     fn degrade_chromium_runtime_role_failure_activation(

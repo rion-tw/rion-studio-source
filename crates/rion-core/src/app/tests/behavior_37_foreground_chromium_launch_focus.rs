@@ -180,9 +180,33 @@ fn fresh_chromium_role_launch_focuses_after_tab_creation_before_navigation() {
                 )
             })
             .unwrap();
+        let (ready_index, ready_window) = actions
+            .iter()
+            .enumerate()
+            .find_map(|(index, action)| match action {
+                CoreEffectAction::EmbeddedFollowRoleOwnership { windows, .. } => windows
+                    .iter()
+                    .find(|window| {
+                        window.window_id == window_id
+                            && window.tab_phases.iter().any(|phase| {
+                                phase.tab_id == tab_id
+                                    && phase.phase
+                                        == crate::model::RuntimeTabActivationPhaseRecord::Ready
+                            })
+                    })
+                    .map(|window| (index, window)),
+                _ => None,
+            })
+            .expect("launch completion must project its terminal ready fence");
 
         assert!(
             create_index < focus_index && focus_index < load_index,
+            "{platform}"
+        );
+        assert!(load_index < ready_index, "{platform}");
+        assert_eq!(
+            ready_window.topology_revision,
+            core.browser_runtime.snapshot().unwrap().windows[&window_id].revision,
             "{platform}"
         );
         assert!(

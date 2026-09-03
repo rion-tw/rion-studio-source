@@ -565,7 +565,9 @@ impl AppCore {
         let launch = self.finish_effect_plan_for_roles(handle, &role_ids);
         let error = match launch {
             Ok(outcome) => {
-                self.complete_chromium_runtime_launch(tab_id, &role_ids)?;
+                if self.complete_chromium_runtime_launch(tab_id, &role_ids)? {
+                    self.project_embedded_runtime_snapshot_without_persistence(None)?;
+                }
                 return Ok(outcome);
             }
             Err(error) => error,
@@ -590,7 +592,10 @@ impl AppCore {
             .await;
         let error = match launch {
             Ok(outcome) => {
-                self.complete_chromium_runtime_launch(tab_id, &role_ids)?;
+                if self.complete_chromium_runtime_launch(tab_id, &role_ids)? {
+                    self.project_embedded_runtime_snapshot_without_persistence_async()
+                        .await?;
+                }
                 return Ok(outcome);
             }
             Err(error) => error,

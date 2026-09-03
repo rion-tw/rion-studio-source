@@ -108,6 +108,32 @@ impl AppCore {
         Ok(snapshot)
     }
 
+    async fn project_embedded_runtime_snapshot_without_persistence_async(
+        &self,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        let step = effect_step(
+            "embedded-runtime-projection",
+            CoreEffectAction::EmbeddedFollowRoleOwnership {
+                lifecycle_epoch: self.application_lifecycle_epoch.load(Ordering::Acquire),
+                roles: snapshot.roles.clone(),
+                windows: self.embedded_runtime_window_projections()?,
+                target: None,
+                reveal_window_ids: Vec::new(),
+                focus_window_ids: Vec::new(),
+                focus_tab_id: None,
+            },
+            Duration::from_secs(15),
+            None,
+        );
+        let handle = self.start_effect_plan_for_roles(vec![step], &[])?;
+        self.finish_effect_plan_for_roles_async(handle, &[]).await?;
+        self.emit_browser_statuses();
+        Ok(snapshot)
+    }
+
     fn browser_runtime_snapshot_without_persistence(
         &self,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {

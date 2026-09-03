@@ -633,10 +633,10 @@ fn applied_recovery_quarantines_only_source_changed_cleanup() {
     );
     assert_eq!(changed.can_retry_install, Some(false));
 
-    for cleanup in [
-        InstallJournalCleanup::Removed,
-        InstallJournalCleanup::AlreadyAbsent,
-    ] {
+    let mut successful_cleanups = vec![InstallJournalCleanup::AlreadyAbsent];
+    #[cfg(unix)]
+    successful_cleanups.push(InstallJournalCleanup::Removed);
+    for cleanup in successful_cleanups {
         let mut status = UpdateStatusRecord::idle(&semver::Version::new(2, 0, 0), true, true);
         apply_applied_recovery_status(&mut status, &applied, cleanup, false);
         assert_eq!(status.state, "idle");

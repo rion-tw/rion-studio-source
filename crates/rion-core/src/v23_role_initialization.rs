@@ -379,4 +379,33 @@ mod tests {
         assert!(prepare_empty_store(directory.path(), &evidence).is_err());
         assert!(!directory.path().join("escape").exists());
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_filesystem_primitives_publish_one_exact_empty_role_tree() {
+        let directory = tempfile::tempdir().unwrap();
+        let evidence = new_evidence(
+            "10000000-0000-4000-8000-000000000004".to_owned(),
+            rion_platform::Platform::Windows,
+        );
+        let roles = directory.path().join("roles");
+        ensure_roles_directory(&roles).expect("create and protect roles directory");
+        let stage = roles.join(format!(
+            ".v23-role-initializing-{}-{}",
+            evidence.role_id, evidence.transition_id
+        ));
+        let destination = roles.join(&evidence.role_id);
+        fs::create_dir(&stage).expect("create role staging directory");
+        let browser = stage.join("browser");
+        fs::create_dir(&browser).expect("create role browser directory");
+        for name in ["system", "webview2", "chromium"] {
+            fs::create_dir(browser.join(name)).expect("create empty engine store");
+        }
+        write_marker(&stage.join(MARKER_FILE_NAME), &evidence).expect("write durable role marker");
+        rion_platform::restrict_directory_to_current_user(&stage)
+            .expect("protect role staging tree");
+        verify_tree(&stage, &evidence, true).expect("verify protected staging tree");
+        fs::rename(&stage, &destination).expect("publish role tree");
+        verify_tree(&destination, &evidence, true).expect("verify published role tree");
+    }
 }

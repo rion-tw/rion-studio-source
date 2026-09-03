@@ -489,8 +489,15 @@ fn apply_applied_recovery_status(
         return;
     }
     let code = match cleanup {
-        InstallJournalCleanup::Removed
-        | InstallJournalCleanup::AlreadyAbsent
+        #[cfg(unix)]
+        InstallJournalCleanup::Removed => {
+            status.state = "idle".to_owned();
+            status.error = None;
+            status.error_code = None;
+            status.can_retry_install = None;
+            return;
+        }
+        InstallJournalCleanup::AlreadyAbsent
         | InstallJournalCleanup::Retained
         | InstallJournalCleanup::DurabilityUncertain => {
             status.state = "idle".to_owned();

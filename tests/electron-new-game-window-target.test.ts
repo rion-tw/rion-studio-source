@@ -70,4 +70,35 @@ describe("Electron New Game Window target", () => {
       code: "ELECTRON_APPLICATION_SHORTCUT_DISPLAY_STALE"
     }));
   });
+
+  it("retains native-frame placement margin on a compact work area", () => {
+    const workArea = { x: 0, y: 31, width: 1024, height: 677 };
+    const result = resolveElectronNewGameWindowTarget({
+      createWindowId: () => "window-compact",
+      gameWindows: [],
+      nativeDisplay: { id: 1, scaleFactor: 1, workArea },
+      topology: {
+        revision: 1,
+        capturedAt: "2026-09-03T00:00:00.000Z",
+        cause: "test",
+        displays: [{
+          id: 1,
+          label: "Compact",
+          bounds: { x: 0, y: 0, width: 1024, height: 708 },
+          workArea,
+          resolution: { width: 1024, height: 708 },
+          scaleFactor: 1,
+          isPrimary: true,
+          isInternal: false
+        }]
+      }
+    });
+
+    expect(result.bounds).toEqual({
+      x: 102,
+      y: 98,
+      width: 819,
+      height: 542
+    });
+  });
 });

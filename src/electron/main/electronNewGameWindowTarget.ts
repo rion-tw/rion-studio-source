@@ -35,13 +35,16 @@ function sameBounds(
 
 function windowExtent(
   available: number,
-  preferredMinimum: number,
   hardMinimum: number
 ): number {
-  const preferred = available >= preferredMinimum
-    ? Math.max(Math.round(available * 0.8), preferredMinimum)
-    : available;
-  return Math.min(preferred, available, Math.max(hardMinimum, available));
+  // Keep the retained 80-percent placement margin even on compact displays.
+  // AppKit and Win32 add native frame chrome outside the requested content
+  // size; consuming nearly the entire work area lets the OS constrain the
+  // authoritative bounds immediately after the window becomes visible.
+  return Math.min(
+    available,
+    Math.max(hardMinimum, Math.round(available * 0.8))
+  );
 }
 
 /** Mirrors the retained v22 New Game Window placement using a fenced display. */
@@ -76,8 +79,8 @@ export function resolveElectronNewGameWindowTarget(
   const existingOnDisplay = input.gameWindows.filter(
     (window) => window.targetDisplay.id === display.id
   ).length;
-  const width = windowExtent(display.workArea.width, 960, 640);
-  const height = windowExtent(display.workArea.height, 640, 480);
+  const width = windowExtent(display.workArea.width, 640);
+  const height = windowExtent(display.workArea.height, 480);
   const cascade = Math.min(existingOnDisplay * 24, 240);
   const maximumX = display.workArea.x + Math.max(display.workArea.width - width, 0);
   const maximumY = display.workArea.y + Math.max(display.workArea.height - height, 0);

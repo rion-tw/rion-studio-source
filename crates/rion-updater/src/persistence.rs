@@ -220,6 +220,7 @@ pub struct InstallTerminalReceiptRecord {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum InstallJournalCleanup {
+    #[cfg(unix)]
     Removed,
     AlreadyAbsent,
     Retained,
@@ -289,6 +290,7 @@ pub(crate) fn write_install_journal(
     )
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn read_install_attempt(path: &Path) -> Result<InstallAttemptRecord, PersistenceError> {
     let journal = read_bounded_json::<InstallJournal>(path)?;
     if journal.schema_version != INSTALL_JOURNAL_SCHEMA_VERSION || !valid_attempt(&journal.attempt)

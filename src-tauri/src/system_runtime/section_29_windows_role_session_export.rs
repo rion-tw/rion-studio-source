@@ -836,11 +836,13 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<Webview2ExportKeeper> {
         let sequence = POPUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let suffix = format!("{role_id}:{sequence}");
+        let window_label = runtime_label("webview2-export-keeper-window", &suffix);
+        let webview_label = runtime_label("webview2-export-keeper", &suffix);
         let window_app = self.app.clone();
         let window = self.create_window_bounded(role_id, move || {
             WindowBuilder::new(
                 &window_app,
-                runtime_label("webview2-export-keeper-window", &suffix),
+                window_label,
             )
             .inner_size(1.0, 1.0)
             .visible(false)
@@ -848,7 +850,7 @@ impl SystemRuntimeExecutor {
         })?;
         let builder = self
             .webview_builder(
-                runtime_label("webview2-export-keeper", &suffix),
+                webview_label,
                 paths,
                 None,
                 WebviewSurfaceFeaturePolicy::Utility,

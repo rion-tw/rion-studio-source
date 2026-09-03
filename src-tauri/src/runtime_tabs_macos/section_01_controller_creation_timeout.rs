@@ -188,37 +188,12 @@ struct NativeTabInput {
 }
 
 #[cfg(feature = "desktop-e2e")]
-#[derive(Clone, Copy, Debug, Default)]
-#[repr(C)]
-struct NativeDesktopE2eTitlebarGeometry {
-    root_min_x: f64,
-    root_width: f64,
-    tab_min_x: f64,
-    tab_min_y: f64,
-    tab_max_x: f64,
-    tab_max_y: f64,
-    window_name_max_x: f64,
-    traffic_lights_max_x: f64,
-    title_hidden: bool,
-    valid: bool,
-}
+type NativeDesktopE2eTitlebarGeometry =
+    rion_appkit::RuntimeTabsDesktopE2ETitlebarGeometry;
 
 #[cfg(feature = "desktop-e2e")]
-#[derive(Clone, Copy, Debug, Default)]
-#[repr(C)]
-struct NativeDesktopE2eFullscreenToolbarState {
-    accessory_visible_height: f64,
-    always_show_in_full_screen: bool,
-    accessory_on_screen: bool,
-    fullscreen: bool,
-    fullscreen_host_ready: bool,
-    presentation_auto_hide_toolbar: bool,
-    reveal_locked: bool,
-    tab_strip_on_screen: bool,
-    toolbar_pinned: bool,
-    visible_traffic_light_count: u32,
-    valid: bool,
-}
+type NativeDesktopE2eFullscreenToolbarState =
+    rion_appkit::RuntimeTabsDesktopE2EFullscreenToolbarState;
 
 #[cfg(feature = "desktop-e2e")]
 #[derive(Clone, Copy, Debug)]

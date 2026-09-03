@@ -34,6 +34,12 @@ describe("native application shortcut target modes", () => {
     );
     expect(launcherBranch).toContain('attribute "AXFocusedWindow"');
     expect(launcherBranch).toContain('attribute "AXMainWindow"');
+    expect(launcherBranch).toContain(
+      "launcherWindow is not missing value and launcherMainWindow is not missing value"
+    );
+    expect(launcherBranch).toContain(
+      "exact Rion launcher AXWindow unavailable after activation"
+    );
     expect(launcherBranch).toContain("launcherMainWindow is not launcherWindow");
     expect(launcherBranch).toContain(
       'menu bar items of menu bar 1 of targetProcess whose name is "File"'
@@ -85,6 +91,19 @@ describe("native application shortcut target modes", () => {
     expect(focusedBranch).not.toContain("set frontmost of targetProcess");
     expect(source).toContain(
       "key code 3 using {control down, command down}"
+    );
+    expect(source).toContain("set expectedFullscreen to not focusedWindowFullscreen");
+    expect(source).toContain(
+      'value of attribute "AXFullScreen" of focusedWindow is true'
+    );
+    expect(source).toContain(
+      "currentFullscreenRead is true and currentFullscreen is expectedFullscreen"
+    );
+    expect(source).toContain(
+      "currentFocusedWindow is focusedWindow and frontmost of targetProcess is true"
+    );
+    expect(source).toContain(
+      "exact AppKit fullscreen transition did not reach its native terminal state"
     );
     expect(source).toContain("key code 40 using command down");
     expect(source).toContain(

@@ -171,13 +171,22 @@ on run argv
     set targetProcess to item 1 of matchingProcesses
     if targetMode is "launcher" then
       set frontmost of targetProcess to true
-      if frontmost of targetProcess is not true then error "Rion launcher process is not frontmost"
-      set launcherWindow to value of attribute "AXFocusedWindow" of targetProcess
-      if launcherWindow is missing value then error "exact Rion launcher AXWindow unavailable"
+      -- Process activation and AXFocusedWindow publication are separate AppKit
+      -- events. Fence the exact native terminal state before reading NSMenu.
+      set activationExpiry to (current date) + 10
+      repeat
+        set launcherWindow to missing value
+        set launcherMainWindow to missing value
+        try
+          set launcherWindow to value of attribute "AXFocusedWindow" of targetProcess
+          set launcherMainWindow to value of attribute "AXMainWindow" of targetProcess
+        end try
+        if frontmost of targetProcess is true and launcherWindow is not missing value and launcherMainWindow is not missing value then exit repeat
+        if (current date) is greater than activationExpiry then error "exact Rion launcher AXWindow unavailable after activation"
+        delay 0.05
+      end repeat
       if value of attribute "AXRole" of launcherWindow is not "AXWindow" then error "focused Rion launcher owner is not an AXWindow"
       if value of attribute "AXMain" of launcherWindow is not true then error "exact Rion launcher AXWindow is not main"
-      set launcherMainWindow to value of attribute "AXMainWindow" of targetProcess
-      if launcherMainWindow is missing value then error "exact Rion launcher main AXWindow unavailable"
       if launcherMainWindow is not launcherWindow then error "focused Rion launcher AXWindow is not the exact main AXWindow"
       set fileMenuItems to menu bar items of menu bar 1 of targetProcess whose name is "File"
       if (count of fileMenuItems) is not 1 then error "exact Rion File NSMenu unavailable"
@@ -263,6 +272,24 @@ on run argv
       -- Physical ANSI F preserves Control+Command+F under non-Latin input
       -- sources while still exercising the installed native accelerator.
       key code 3 using {control down, command down}
+      -- AXFullScreen is the authoritative native presentation readback. Do not
+      -- return the input transaction while AppKit is still transferring the
+      -- window between Spaces: a Chromium driver request issued in that gap can
+      -- lose its callback even though the native transition completes.
+      set expectedFullscreen to not focusedWindowFullscreen
+      set transitionExpiry to (current date) + 10
+      repeat
+        set currentFullscreen to false
+        set currentFullscreenRead to false
+        try
+          set currentFullscreen to (value of attribute "AXFullScreen" of focusedWindow is true)
+          set currentFullscreenRead to true
+        end try
+        set currentFocusedWindow to value of attribute "AXFocusedWindow" of targetProcess
+        if currentFullscreenRead is true and currentFullscreen is expectedFullscreen and currentFocusedWindow is focusedWindow and frontmost of targetProcess is true then exit repeat
+        if (current date) is greater than transitionExpiry then error "exact AppKit fullscreen transition did not reach its native terminal state"
+        delay 0.05
+      end repeat
     else if commandName is "zoomIn" then
       keystroke "+" using command down
     else if commandName is "zoomReset" then
@@ -280,7 +307,7 @@ end run`;
     input.command,
     input.targetMode ?? "launcher",
     input.runtimeTabName ?? ""
-  ], { encoding: "utf8", timeout: 10_000 });
+  ], { encoding: "utf8", timeout: 15_000 });
   if (input.command === "escape") {
     const swift = `
 import CoreGraphics

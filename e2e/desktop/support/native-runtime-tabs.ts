@@ -246,6 +246,11 @@ export interface VisibleMacosRuntimeTabCloseEvidence {
   readonly y: number;
 }
 
+// The AppKit geometry projection follows the same externally bounded Chromium
+// navigation as the surrounding desktop journey. Keep this evidence wait above
+// the 40-second navigation deadline so a terminal surface projection can win.
+const APPKIT_CLOSE_GEOMETRY_TIMEOUT_MS = 45_000;
+
 /** Reads exact AppKit close geometry without submitting the user action. */
 export async function readVisibleMacosRuntimeTabCloseEvidence(input: Readonly<{
   tabId: string;
@@ -294,7 +299,7 @@ export async function readVisibleMacosRuntimeTabCloseEvidence(input: Readonly<{
     return true;
   }, {
     interval: 100,
-    timeout: 10_000,
+    timeout: APPKIT_CLOSE_GEOMETRY_TIMEOUT_MS,
     timeoutMsg: `The exact AppKit tab ${input.tabName} has no native close geometry`
   });
   if (!result) {

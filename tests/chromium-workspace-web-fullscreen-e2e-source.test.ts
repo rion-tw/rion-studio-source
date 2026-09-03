@@ -206,6 +206,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(nativeTabs).toContain("[data-tab-id='${tabId}']");
     expect(nativeTabs).toContain("input.mainWindowHandle, input.tabId");
     expect(nativeTabs).toContain("stale preference, presentation, or native fences");
+    expect(nativeTabs).toContain("APPKIT_CLOSE_GEOMETRY_TIMEOUT_MS = 45_000");
     expect(nativeTabs).toContain("await browser.waitUntil(async () =>");
   });
 

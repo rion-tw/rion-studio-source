@@ -36,10 +36,12 @@ describe("Windows Chromium physical input candidate gate", () => {
     expect(nativeSubmission).toContain("f64::from(dpi) / 96.0");
     expect(nativeSubmission).toContain("SendMessageTimeoutW");
     expect(nativeAttachment).toContain("SetParent(");
-    expect(nativeAttachment).toContain("windows_sys::Win32::UI::WindowsAndMessaging::GetParent");
     expect(nativeAttachment).toContain("SetLastError(WIN32_ERROR(0))");
     expect(nativeAttachment).not.toContain(
       "Electron did not retain the exact requested runtime parent owner."
+    );
+    expect(nativeAttachment).not.toContain(
+      "Win32 changed an unexpected Chromium input-surface parent."
     );
     expect(nativeAttachment).toContain("SetWindowLongPtrW(");
     expect(nativeAttachment).toContain("SetWindowPos(");

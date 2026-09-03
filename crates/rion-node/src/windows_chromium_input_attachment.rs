@@ -35,10 +35,10 @@ pub fn attach_windows_chromium_input_hwnd(
         UI::{
             Input::KeyboardAndMouse::{GetActiveWindow, GetFocus},
             WindowsAndMessaging::{
-                GWL_EXSTYLE, GWL_STYLE, GetClientRect, GetForegroundWindow, GetWindowLongPtrW,
-                GetWindowThreadProcessId, IsWindow, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-                SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOZORDER, SetWindowLongPtrW,
-                SetWindowPos,
+                GWL_EXSTYLE, GWL_STYLE, GWLP_HWNDPARENT, GetClientRect, GetForegroundWindow,
+                GetWindowLongPtrW, GetWindowThreadProcessId, IsWindow, SWP_FRAMECHANGED,
+                SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOZORDER,
+                SetWindowLongPtrW, SetWindowPos,
             },
         },
     };
@@ -65,7 +65,7 @@ pub fn attach_windows_chromium_input_hwnd(
         Ok(())
     }
 
-    fn set_parent(window: HWND, parent: Option<HWND>) -> Result<Option<HWND>> {
+    fn set_parent(window: HWND, parent: Option<HWND>) -> Result<()> {
         // The high-level `windows` binding treats a null previous parent as an
         // error. User32 documents that null is also the successful result when
         // a top-level Electron surface had no prior native owner, so call the
@@ -83,7 +83,7 @@ pub fn attach_windows_chromium_input_hwnd(
                     "Win32 rejected the exact Chromium input-surface parent attachment.",
                 ));
             }
-            Ok((!previous.is_null()).then_some(HWND(previous)))
+            Ok(())
         }
     }
 
@@ -128,8 +128,8 @@ pub fn attach_windows_chromium_input_hwnd(
             ));
         }
         let original_parent = {
-            let raw = windows_sys::Win32::UI::WindowsAndMessaging::GetParent(surface.0);
-            (!raw.is_null()).then_some(HWND(raw))
+            let raw = GetWindowLongPtrW(surface, GWLP_HWNDPARENT);
+            (raw != 0).then_some(HWND(raw as *mut core::ffi::c_void))
         };
         let foreground_before = GetForegroundWindow();
         let active_before = GetActiveWindow();
@@ -170,13 +170,7 @@ pub fn attach_windows_chromium_input_hwnd(
         let attach_result = (|| -> Result<()> {
             set_window_long(surface, GWL_STYLE, desired_style)?;
             set_window_long(surface, GWL_EXSTYLE, desired_extended_style)?;
-            let prior_parent = set_parent(surface, Some(parent))?;
-            if prior_parent != original_parent {
-                return Err(probe_error(
-                    Status::GenericFailure,
-                    "Win32 changed an unexpected Chromium input-surface parent.",
-                ));
-            }
+            set_parent(surface, Some(parent))?;
             SetWindowPos(
                 surface,
                 None,

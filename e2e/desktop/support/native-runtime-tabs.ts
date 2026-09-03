@@ -252,32 +252,55 @@ export async function readVisibleMacosRuntimeTabCloseEvidence(input: Readonly<{
   tabName: string;
   windowId: string;
 }>): Promise<VisibleMacosRuntimeTabCloseEvidence> {
-  const [toolbar, runtimeInspection] = await Promise.all([
-    electronDesktopE2eFullscreenToolbarRuntime(input.windowId),
-    electronDesktopE2eGameWindowRuntime(input.windowId)
-  ]);
-  const runtime = runtimeInspection.currentRuntime;
-  const appKit = toolbar.native.appKit;
-  const anchor = appKit?.tabAnchors?.[input.tabId];
-  const tabScreenBounds = appKit?.tabScreenBounds;
-  if (!runtime || runtime.hostKind !== "appkit-chromium" ||
-      runtime.windowId !== input.windowId ||
-      !runtime.nativeTabIds.includes(input.tabId) ||
-      toolbar.hostKind !== "appkit" || !toolbar.tabIds.includes(input.tabId) ||
-      !anchor || !tabScreenBounds) {
+  let result: VisibleMacosRuntimeTabCloseEvidence | undefined;
+  await browser.waitUntil(async () => {
+    let toolbar: Awaited<ReturnType<
+      typeof electronDesktopE2eFullscreenToolbarRuntime
+    >>;
+    let runtimeInspection: Awaited<ReturnType<
+      typeof electronDesktopE2eGameWindowRuntime
+    >>;
+    try {
+      [toolbar, runtimeInspection] = await Promise.all([
+        electronDesktopE2eFullscreenToolbarRuntime(input.windowId),
+        electronDesktopE2eGameWindowRuntime(input.windowId)
+      ]);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(
+        "stale preference, presentation, or native fences"
+      )) return false;
+      throw error;
+    }
+    const runtime = runtimeInspection.currentRuntime;
+    const appKit = toolbar.native.appKit;
+    const anchor = appKit?.tabAnchors?.[input.tabId];
+    const tabScreenBounds = appKit?.tabScreenBounds;
+    if (!runtime || runtime.hostKind !== "appkit-chromium" ||
+        runtime.windowId !== input.windowId ||
+        !runtime.nativeTabIds.includes(input.tabId) ||
+        toolbar.hostKind !== "appkit" || !toolbar.tabIds.includes(input.tabId) ||
+        !anchor || !tabScreenBounds) return false;
+    const bounds = runtime.nativeDisplay.bounds;
+    result = Object.freeze({
+      tabId: input.tabId,
+      windowId: input.windowId,
+      // The native anchor is the tab's right-centre point. AppKit lays the
+      // 20 pt close slot 8 pt inside that edge, so its visible centre is 18 pt left.
+      // Its horizontal offset is window-relative; the titlebar observer supplies
+      // the vertical centre in CoreGraphics' top-left screen coordinate space.
+      x: bounds.x + anchor.x - 18,
+      y: tabScreenBounds.y + tabScreenBounds.height / 2
+    });
+    return true;
+  }, {
+    interval: 100,
+    timeout: 10_000,
+    timeoutMsg: `The exact AppKit tab ${input.tabName} has no native close geometry`
+  });
+  if (!result) {
     throw new Error(`The exact AppKit tab ${input.tabName} has no native close geometry`);
   }
-  const bounds = runtime.nativeDisplay.bounds;
-  return Object.freeze({
-    tabId: input.tabId,
-    windowId: input.windowId,
-    // The native anchor is the tab's right-centre point. AppKit lays the
-    // 20 pt close slot 8 pt inside that edge, so its visible centre is 18 pt left.
-    // Its horizontal offset is window-relative; the titlebar observer supplies
-    // the vertical centre in CoreGraphics' top-left screen coordinate space.
-    x: bounds.x + anchor.x - 18,
-    y: tabScreenBounds.y + tabScreenBounds.height / 2
-  });
+  return result;
 }
 
 async function closeMacosAppKitTab(

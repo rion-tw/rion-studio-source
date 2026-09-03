@@ -8,12 +8,13 @@ let manifest = "";
 let macroSupport = "";
 let productionMain = "";
 let productionPreload = "";
+let roleSurfaceLifecycleObserver = "";
 let shellSpec = "";
 let wdioConfig = "";
 
 beforeAll(async () => {
   [bridge, e2eMain, manifest, macroSupport, productionMain, productionPreload,
-    shellSpec, wdioConfig] =
+    roleSurfaceLifecycleObserver, shellSpec, wdioConfig] =
     await Promise.all([
       readFile("src/electron/e2e/desktopE2eBridge.ts", "utf8"),
       readFile("src/electron/e2e/index.ts", "utf8"),
@@ -21,6 +22,7 @@ beforeAll(async () => {
       readFile("e2e/desktop/specs/chromium-macro-cutover-support.ts", "utf8"),
       readFile("src/electron/main/index.ts", "utf8"),
       readFile("src/electron/preload/index.ts", "utf8"),
+      readFile("src/electron/e2e/roleSurfaceLifecycleObserver.ts", "utf8"),
       readFile("e2e/desktop/specs/chromium-shell.e2e.ts", "utf8"),
       readFile("e2e/desktop/wdio.electron.conf.ts", "utf8")
     ]);
@@ -41,6 +43,15 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(macroSupport).toContain("chromiumRoleLaunchDiagnostic");
     expect(macroSupport).toContain("electronDesktopE2eRolePlaceholderRuntime");
     expect(macroSupport).toContain("projectionOutcome");
+    expect(e2eMain).toContain(
+      "installElectronDesktopE2eRoleSurfaceLifecycleObserver(app, artifactDirectory)"
+    );
+    expect(roleSurfaceLifecycleObserver).toContain('"did-start-navigation"');
+    expect(roleSurfaceLifecycleObserver).toContain('"did-fail-provisional-load"');
+    expect(roleSurfaceLifecycleObserver).toContain('"render-process-gone"');
+    expect(roleSurfaceLifecycleObserver).toContain(
+      '"electron-role-surface-lifecycle-observations.json"'
+    );
   });
 
   it("asserts exact receipts, stable native ownership, and an unchanged main window", () => {

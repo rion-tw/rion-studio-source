@@ -308,6 +308,7 @@ jobs:
           path: |
             .desktop-e2e-artifacts
             !.desktop-e2e-artifacts/**/roles/*/browser/**
+            !.desktop-e2e-artifacts/**/user-data/**
 
       - name: Build macOS Electron Chromium release artifacts
         if: runner.os == 'macOS'

@@ -98,6 +98,8 @@ import { ElectronDesktopE2eAppKitTabMenuRuntimeObserver } from
   "./appKitTabMenuRuntimeObserver";
 import { readElectronDesktopE2eRoleSessionMigration } from
   "./roleSessionMigrationInspection";
+import { installElectronDesktopE2eRoleSurfaceLifecycleObserver } from
+  "./roleSurfaceLifecycleObserver";
 
 authorizeDesktopE2eChromiumCommandLine();
 app.commandLine.appendSwitch("force-renderer-accessibility");
@@ -1560,6 +1562,7 @@ installElectronDesktopE2eDiagnosticsExportObserver();
 installElectronDesktopE2eLaunchCompletionObserver();
 installElectronDesktopE2eApplicationLifecycleObserver();
 installElectronDesktopE2eRoleRuntimeObserver();
+installElectronDesktopE2eRoleSurfaceLifecycleObserver(app, artifactDirectory);
 installElectronDesktopE2eTrustedInputObserver();
 installElectronDesktopE2eWorkspaceWebObserver();
 installElectronDesktopE2ePopupLifecycleObserver();

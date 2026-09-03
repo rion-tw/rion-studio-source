@@ -179,6 +179,9 @@ describe("desktop shell migration workflows", () => {
     expect(desktopE2e).toContain("path: |");
     expect(desktopE2e).toContain(".desktop-e2e-artifacts");
     expect(desktopE2e).toContain("!.desktop-e2e-artifacts/**/roles/*/browser/**");
+    expect(electronChecks).toContain(
+      "!.desktop-e2e-artifacts/**/user-data/**"
+    );
     expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
     expect(windowsLoaderDiagnostic).toContain("/imports $testBinary.FullName");
     expect(windowsLoaderDiagnostic).toContain("/dependents $testBinary.FullName");

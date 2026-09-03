@@ -98,9 +98,33 @@ export async function waitFixtureEvent(input: {
   const query = new URLSearchParams({ afterSequence: String(input.afterSequence) });
   if (input.kind) query.set("kind", input.kind);
   if (input.roleId) query.set("roleId", input.roleId);
-  const response = await fetch(fixtureUrl(`/api/events?${query}`), {
-    signal: AbortSignal.timeout(input.timeoutMs ?? 45_000)
-  });
+  let response: Response;
+  try {
+    response = await fetch(fixtureUrl(`/api/events?${query}`), {
+      signal: AbortSignal.timeout(input.timeoutMs ?? 45_000)
+    });
+  } catch (error) {
+    let diagnostic: unknown;
+    try {
+      const [events, state] = await Promise.all([
+        fixtureEvents({
+          afterSequence: input.afterSequence,
+          ...(input.roleId ? { roleId: input.roleId } : {})
+        }),
+        fixtureState()
+      ]);
+      diagnostic = {
+        events: events.slice(-24),
+        roleState: input.roleId ? state[input.roleId] ?? null : null
+      };
+    } catch (diagnosticError) {
+      diagnostic = { unavailable: String(diagnosticError) };
+    }
+    throw new Error(
+      `Fixture event wait aborted (${query.toString()}): ${String(error)}; ` +
+        `diagnostic=${JSON.stringify(diagnostic)}`
+    );
+  }
   if (!response.ok) throw new Error(`Fixture event wait failed with ${response.status}`);
   return ((await response.json()) as { event: FixtureEvent }).event;
 }

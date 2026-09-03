@@ -47,7 +47,7 @@ export const config = {
     // event. Do not let ChromeDriver block a window switch on the document's
     // unrelated page-load strategy, especially while Windows is restoring a
     // hidden runtime host beside the launcher.
-    pageLoadStrategy: "none",
+    pageLoadStrategy: process.platform === "win32" ? "none" : "normal",
     "wdio:electronServiceOptions": {
       ...electronApplication,
       captureMainProcessLogs: true,

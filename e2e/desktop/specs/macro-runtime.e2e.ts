@@ -787,6 +787,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
     macroRoleIndexes: [0],
     name: "E2E Keyboard Lifecycle Child",
     repeat: { type: "once" },
+    resetConsumerInputOnContextLoss: process.platform === "win32",
     steps: [
       { action: "tap", code: "Digit1", id: "nested-one", type: "key" },
       { action: "tap", code: "Digit0", id: "nested-zero", type: "key" }

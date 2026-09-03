@@ -34,6 +34,16 @@ export function decodeTauriPublicKey(encodedPublicKey) {
   return lines[1];
 }
 
+export function encodeEphemeralUpdaterCiPassword(entropy) {
+  if (!Buffer.isBuffer(entropy) || entropy.length !== 24) {
+    throw new Error("The ephemeral updater password requires 24 bytes of entropy.");
+  }
+  // A raw base64url value can begin with "-", which command-line parsers may
+  // treat as another option even when it follows --password. Keep the random
+  // entropy intact while guaranteeing an unambiguous argv value.
+  return `rion-ci-${entropy.toString("base64url")}`;
+}
+
 export async function prepareElectronUpdaterCiFixture(environment = process.env) {
   if (environment.CI !== "true" || environment.GITHUB_ACTIONS !== "true") {
     throw new Error("The ephemeral Electron updater fixture is restricted to GitHub CI.");
@@ -43,7 +53,7 @@ export async function prepareElectronUpdaterCiFixture(environment = process.env)
   assertProductionSigningEnvironmentAbsent(environment);
   const fixtureRoot = await mkdtemp(join(runnerTemporary, "rion-electron-updater-"));
   const privateKeyPath = join(fixtureRoot, "ephemeral-updater.key");
-  const password = randomBytes(24).toString("base64url");
+  const password = encodeEphemeralUpdaterCiPassword(randomBytes(24));
   const signerHome = join(fixtureRoot, "signer-home");
   await Promise.all([
     mkdir(join(signerHome, "appdata"), { recursive: true }),

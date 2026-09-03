@@ -6,6 +6,8 @@ export interface ElectronUpdaterCiFixture {
 
 export function decodeTauriPublicKey(encodedPublicKey: string): string;
 
+export function encodeEphemeralUpdaterCiPassword(entropy: Buffer): string;
+
 export function prepareElectronUpdaterCiFixture(
   environment?: NodeJS.ProcessEnv
 ): Promise<ElectronUpdaterCiFixture>;

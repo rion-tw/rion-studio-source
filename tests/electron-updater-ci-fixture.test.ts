@@ -20,6 +20,7 @@ import { buildElectronUpdaterPreviousFixtures } from
   "../scripts/buildElectronUpdaterPreviousFixtures.mjs";
 import {
   decodeTauriPublicKey,
+  encodeEphemeralUpdaterCiPassword,
   prepareElectronUpdaterCiFixture
 } from "../scripts/prepareElectronUpdaterCiFixture.mjs";
 import {
@@ -337,6 +338,18 @@ describe("Electron updater CI fixtures", () => {
       `trusted comment: fixture\n${PUBLIC_KEY}\n`,
       "utf8"
     ).toString("base64"))).toThrow("invalid");
+  });
+
+  it("keeps random updater passwords unambiguous as command-line values", () => {
+    const entropy = Buffer.alloc(24);
+    entropy[0] = 0xf8;
+    const password = encodeEphemeralUpdaterCiPassword(entropy);
+
+    expect(entropy.toString("base64url")).toMatch(/^-/u);
+    expect(password).toBe(`rion-ci-${entropy.toString("base64url")}`);
+    expect(password).not.toMatch(/^-/u);
+    expect(() => encodeEphemeralUpdaterCiPassword(Buffer.alloc(23)))
+      .toThrow("requires 24 bytes");
   });
 
   it("keeps key generation and packaged transactions CI-only", async () => {

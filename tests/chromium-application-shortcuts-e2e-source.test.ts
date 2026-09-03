@@ -61,6 +61,18 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(wdioConfig).toContain("captureMainProcessLogs: true");
   });
 
+  it("selects the launcher without entering hidden Chromium targets and closes event-bound", () => {
+    expect(wdioConfig).toContain("await runnerBrowser.getPuppeteer()");
+    expect(wdioConfig).toContain("target.url()");
+    expect(wdioConfig).not.toContain("url: await browser.getUrl()");
+    expect(wdioConfig).toContain("await requestElectronDesktopE2eClose()");
+    expect(wdioConfig).toContain("beforeSession:");
+    expect(wdioConfig).toContain(
+      'overwriteStubCommand("deleteSession", async () => undefined)'
+    );
+    expect(wdioConfig).not.toContain("runnerBrowser.overwriteCommand(");
+  });
+
   it("observes terminal phases without replacing immutable native hosts", () => {
     expect(e2eMain).toContain("ChromiumRuntimeEffectExecutor.prototype");
     expect(e2eMain).toContain("execute = async function (effect, context)");

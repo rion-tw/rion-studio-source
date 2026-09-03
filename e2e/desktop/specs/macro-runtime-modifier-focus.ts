@@ -125,10 +125,16 @@ export async function verifyModifierFocusReconciliation(
     roleId: input.fixtureRoleId
   });
   await input.release("ShiftLeft");
-  await waitFixtureCode({
+  const releasedShiftUp = await waitFixtureCode({
     afterSequence: reassertedShiftDown.sequence,
     code: "ShiftLeft",
     kind: "keyup",
+    roleId: input.fixtureRoleId
+  });
+  await waitFixtureCode({
+    afterSequence: releasedShiftUp.sequence,
+    code: "ShiftLeft",
+    kind: "consumer-keyup",
     roleId: input.fixtureRoleId
   });
   const stillHeldState = (await fixtureState())[input.fixtureRoleId];

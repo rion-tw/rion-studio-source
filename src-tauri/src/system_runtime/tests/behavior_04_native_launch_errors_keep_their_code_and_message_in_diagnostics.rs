@@ -611,6 +611,12 @@
             b"complete"
         );
 
+        write_private_file(&transaction, "committed", b"replacement").unwrap();
+        assert_eq!(
+            fs::read(transaction.join("committed")).unwrap(),
+            b"replacement"
+        );
+
         fs::remove_file(transaction.join("committed")).unwrap();
         fs::create_dir(transaction.join("committed")).unwrap();
         assert!(write_private_file(&transaction, "committed", b"partial").is_err());

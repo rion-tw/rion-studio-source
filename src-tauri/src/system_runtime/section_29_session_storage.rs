@@ -172,6 +172,7 @@ fn write_private_file(directory: &Path, name: &str, value: &[u8]) -> RuntimeResu
         let mut file = options.open(&temporary).map_err(RuntimeError::io)?;
         file.write_all(value).map_err(RuntimeError::io)?;
         file.sync_all().map_err(RuntimeError::io)?;
+        drop(file);
         rion_platform::atomic_replace_file(&temporary, &destination)
             .map_err(|error| RuntimeError::new("SESSION_IMPORT_BACKUP_FAILED", error.to_string()))
     })();

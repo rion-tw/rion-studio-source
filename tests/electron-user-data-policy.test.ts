@@ -17,16 +17,16 @@ describe("Electron user-data policy", () => {
 
   it("does not send DELETE to an Electron session after the app-owned clean close", async () => {
     const config = await readFile("e2e/desktop/wdio.electron.conf.ts", "utf8");
-    const closeSubmission = config.indexOf("await requestElectronDesktopE2eClose()");
-    const overrideAdapter = config.indexOf("const overwriteProtocolCommand");
+    const stubHook = config.indexOf("beforeSession:");
     const sessionDetach = config.indexOf(
-      'overwriteProtocolCommand("deleteSession", async () => undefined)'
+      'overwriteStubCommand("deleteSession", async () => undefined)'
     );
+    const closeSubmission = config.indexOf("await requestElectronDesktopE2eClose()");
 
-    expect(overrideAdapter).toBeGreaterThan(0);
-    expect(sessionDetach).toBeGreaterThan(overrideAdapter);
+    expect(stubHook).toBeGreaterThan(0);
+    expect(sessionDetach).toBeGreaterThan(stubHook);
     expect(closeSubmission).toBeGreaterThan(sessionDetach);
-    expect(config).toContain("Electron has already completed its authoritative final flush");
+    expect(config).toContain("completed its authoritative final flush");
   });
 
   it.each([

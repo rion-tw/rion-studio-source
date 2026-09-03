@@ -66,34 +66,39 @@ export const config = {
   mochaOpts: {
     timeout: 8 * 60_000
   },
-  before: async (): Promise<void> => {
-    await browser.setTimeout({ script: 55_000 });
-    const windows = [];
-    for (const handle of await browser.getWindowHandles()) {
-      await browser.switchToWindow(handle);
-      // @wdio/electron-service otherwise restores the first Chromium page target
-      // before getUrl. Windows can create the hidden runtime host before the launcher.
-      browser.electron.windowHandle = handle;
-      windows.push({ handle, url: await browser.getUrl() });
-    }
+  beforeSession: (): void => {
+    if (packaged) return;
+    // WDIO replays commands registered on this protocol stub onto the concrete
+    // browser before the real session is returned to Runner.endSession().
+    const overwriteStubCommand = browser.overwriteCommand as unknown as (
+      name: string,
+      command: (originalCommand: () => Promise<void>) => Promise<void>
+    ) => void;
+    overwriteStubCommand("deleteSession", async () => undefined);
+  },
+  before: async (
+    _capabilities: unknown,
+    _specs: string[],
+    runnerBrowser: WebdriverIO.Browser
+  ): Promise<void> => {
+    await runnerBrowser.setTimeout({ script: 55_000 });
+    const puppeteer = await runnerBrowser.getPuppeteer();
+    const windows = puppeteer.targets()
+      .filter((target) => target.type() === "page")
+      .map((target) => ({
+        handle: (target as typeof target & { _targetId: string })._targetId,
+        url: target.url()
+    }));
     const launcherHandle = electronLauncherWindowHandle(windows);
-    await browser.switchToWindow(launcherHandle);
-    browser.electron.windowHandle = launcherHandle;
-    if (!packaged) {
-      const overwriteProtocolCommand = browser.overwriteCommand as unknown as (
-        name: string,
-        command: (originalCommand: () => Promise<void>) => Promise<void>
-      ) => void;
-      overwriteProtocolCommand("deleteSession", async () => undefined);
-    }
+    await runnerBrowser.switchToWindow(launcherHandle);
+    runnerBrowser.electron.windowHandle = launcherHandle;
   },
   after: async (): Promise<void> => {
     if (packaged) return;
     if (process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT === "1") return;
     await requestElectronDesktopE2eClose();
-    // Electron has already completed its authoritative final flush and now owns
-    // shutdown. ChromeDriver 150 never acknowledges DELETE after that process
-    // exits, so the non-packaged runner uses the no-op override installed above.
+    // Electron has completed its authoritative final flush and now owns shutdown.
+    // The protocol-stub override keeps Runner from sending DELETE to an exited app.
   },
   afterTest: async (
     test: { title: string },

@@ -98,8 +98,12 @@ import { ElectronDesktopE2eAppKitTabMenuRuntimeObserver } from
   "./appKitTabMenuRuntimeObserver";
 import { readElectronDesktopE2eRoleSessionMigration } from
   "./roleSessionMigrationInspection";
-import { installElectronDesktopE2eRoleSurfaceLifecycleObserver } from
-  "./roleSurfaceLifecycleObserver";
+import {
+  installElectronDesktopE2eNativeAttachmentLifecycleObserver,
+  installElectronDesktopE2eRoleSurfaceLifecycleObserver
+} from "./roleSurfaceLifecycleObserver";
+import { WindowsChromiumInputSurfaceAttachmentCoordinator } from
+  "../main/windowsChromiumInputSurfaceAttachmentCoordinator";
 
 authorizeDesktopE2eChromiumCommandLine();
 app.commandLine.appendSwitch("force-renderer-accessibility");
@@ -1518,8 +1522,33 @@ async function readFullscreenToolbarRuntime(
       inspection.hostKind !== "windows" || inspection.native.appKit !== undefined
     ))
   ) {
+    const diagnostic = {
+      browserTabIds: browserWindow.tabIds,
+      coreTabIds,
+      inspection: {
+        hostKind: inspection.hostKind,
+        presentation: inspection.presentation,
+        surfaceCount: inspection.surfaces.length,
+        tabIds: inspection.tabIds,
+        topologyRevision: inspection.topologyRevision,
+        windowGeneration: inspection.windowGeneration
+      },
+      logical: {
+        presentation: logical.presentation,
+        revision: logical.revision,
+        windowGeneration: logical.windowGeneration
+      },
+      native: {
+        presentation: nativeWindow.presentation,
+        tabIds: nativeWindow.tabIds,
+        topologyRevision: nativeWindow.topologyRevision,
+        windowGeneration: nativeWindow.windowGeneration
+      },
+      preference: preferences.alwaysShowToolbarInFullScreen,
+      projectedPreference: inspection.native.alwaysShowToolbarInFullScreen
+    };
     throw new Error(
-      `Fullscreen toolbar ${windowId} has stale preference, presentation, or native fences.`
+      `Fullscreen toolbar ${windowId} has stale preference, presentation, or native fences: ${JSON.stringify(diagnostic)}`
     );
   }
   const prior = fullscreenToolbarRuntimeObservations.at(-1);
@@ -1563,6 +1592,10 @@ installElectronDesktopE2eLaunchCompletionObserver();
 installElectronDesktopE2eApplicationLifecycleObserver();
 installElectronDesktopE2eRoleRuntimeObserver();
 installElectronDesktopE2eRoleSurfaceLifecycleObserver(app, artifactDirectory);
+installElectronDesktopE2eNativeAttachmentLifecycleObserver(
+  WindowsChromiumInputSurfaceAttachmentCoordinator.prototype,
+  artifactDirectory
+);
 installElectronDesktopE2eTrustedInputObserver();
 installElectronDesktopE2eWorkspaceWebObserver();
 installElectronDesktopE2ePopupLifecycleObserver();

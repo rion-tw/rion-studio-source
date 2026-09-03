@@ -46,12 +46,19 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(e2eMain).toContain(
       "installElectronDesktopE2eRoleSurfaceLifecycleObserver(app, artifactDirectory)"
     );
+    expect(e2eMain).toContain(
+      "installElectronDesktopE2eNativeAttachmentLifecycleObserver("
+    );
     expect(roleSurfaceLifecycleObserver).toContain('"did-start-navigation"');
     expect(roleSurfaceLifecycleObserver).toContain('"did-fail-provisional-load"');
     expect(roleSurfaceLifecycleObserver).toContain('"render-process-gone"');
     expect(roleSurfaceLifecycleObserver).toContain(
       '"electron-role-surface-lifecycle-observations.json"'
     );
+    expect(roleSurfaceLifecycleObserver).toContain(
+      '"electron-windows-role-attachment-observations.json"'
+    );
+    expect(roleSurfaceLifecycleObserver).toContain('"attach-resolved"');
   });
 
   it("asserts exact receipts, stable native ownership, and an unchanged main window", () => {

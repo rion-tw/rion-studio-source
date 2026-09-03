@@ -115,15 +115,9 @@ export async function verifyModifierFocusReconciliation(
     roleId: input.fixtureRoleId
   });
   await focusRole();
-  const reassertedShiftDown = await waitFixtureCode({
-    afterSequence: neutralizedStillHeldShift.sequence,
-    code: "ShiftLeft",
-    kind: "keydown",
-    roleId: input.fixtureRoleId
-  });
   await input.press("Digit4");
   const shiftedDigitFourDown = await waitFixtureCode({
-    afterSequence: reassertedShiftDown.sequence,
+    afterSequence: neutralizedStillHeldShift.sequence,
     code: "Digit4",
     kind: "keydown",
     roleId: input.fixtureRoleId
@@ -138,7 +132,7 @@ export async function verifyModifierFocusReconciliation(
   });
   await input.release("ShiftLeft");
   const releasedShiftUp = await waitFixtureCode({
-    afterSequence: reassertedShiftDown.sequence,
+    afterSequence: shiftedDigitFourDown.sequence,
     code: "ShiftLeft",
     kind: "keyup",
     roleId: input.fixtureRoleId

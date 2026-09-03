@@ -2,9 +2,13 @@ import type { App, WebContents } from "electron";
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
+import type { ChromiumRoleSurfaceNativeAttachmentInput } from
+  "../main/chromiumRoleSurfacePorts";
+
 const ROLE_SESSION_PATTERN = /(?:^|\/)roles\/([^/]+)\/browser\/chromium$/u;
 
 interface RoleSurfaceLifecycleObservation {
+  readonly capturedAt: string;
   readonly destroyed: boolean;
   readonly details?: Readonly<Record<string, boolean | number | string>>;
   readonly isLoading: boolean;
@@ -43,6 +47,7 @@ export function installElectronDesktopE2eRoleSurfaceLifecycleObserver(
     ): void => {
       const destroyed = contents.isDestroyed();
       observations.push(Object.freeze({
+        capturedAt: new Date().toISOString(),
         destroyed,
         ...(details === undefined ? {} : { details }),
         isLoading: destroyed ? false : contents.isLoading(),
@@ -95,4 +100,77 @@ export function installElectronDesktopE2eRoleSurfaceLifecycleObserver(
     contents.on("responsive", () => capture("responsive"));
     contents.on("destroyed", () => capture("destroyed"));
   });
+}
+
+interface NativeAttachmentPrototype {
+  attach: (input: ChromiumRoleSurfaceNativeAttachmentInput) => Promise<void>;
+}
+
+interface NativeAttachmentObservation {
+  readonly capturedAt: string;
+  readonly details?: string;
+  readonly generation: number;
+  readonly parentId: number;
+  readonly roleId: string;
+  readonly sequence: number;
+  readonly stage: "attach-entered" | "attach-returned" | "attach-resolved" |
+    "attach-rejected" | "attach-threw";
+  readonly webContentsId: number | null;
+}
+
+/** Records the Windows native-attachment Promise boundary without changing it. */
+export function installElectronDesktopE2eNativeAttachmentLifecycleObserver(
+  prototype: NativeAttachmentPrototype,
+  artifactDirectory: string | undefined
+): void {
+  if (!artifactDirectory || !isAbsolute(artifactDirectory)) return;
+  const observations: NativeAttachmentObservation[] = [];
+  const outputPath = join(
+    artifactDirectory,
+    "electron-windows-role-attachment-observations.json"
+  );
+  const originalAttach = prototype.attach;
+  let nextSequence = 1;
+  const capture = (
+    input: ChromiumRoleSurfaceNativeAttachmentInput,
+    stage: NativeAttachmentObservation["stage"],
+    details?: string
+  ): void => {
+    observations.push(Object.freeze({
+      capturedAt: new Date().toISOString(),
+      ...(details === undefined ? {} : { details }),
+      generation: input.generation,
+      parentId: input.parent.id,
+      roleId: input.roleId,
+      sequence: nextSequence++,
+      stage,
+      webContentsId: input.view?.webContents.id ?? null
+    }));
+    writeFileSync(outputPath, `${JSON.stringify(observations, null, 2)}\n`);
+  };
+  prototype.attach = function (
+    this: NativeAttachmentPrototype,
+    input: ChromiumRoleSurfaceNativeAttachmentInput
+  ): Promise<void> {
+    capture(input, "attach-entered");
+    let completion: Promise<void>;
+    try {
+      completion = originalAttach.call(this, input);
+      capture(input, "attach-returned");
+    } catch (error) {
+      capture(input, "attach-threw", error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+    return completion.then(
+      () => capture(input, "attach-resolved"),
+      (error: unknown) => {
+        capture(
+          input,
+          "attach-rejected",
+          error instanceof Error ? error.message : String(error)
+        );
+        throw error;
+      }
+    );
+  };
 }

@@ -2,6 +2,7 @@ import { $, browser } from "@wdio/globals";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import {
   electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eGameWindowRuntime,
@@ -243,12 +244,14 @@ export async function readVisibleMacosRuntimeTabCloseEvidence(input: Readonly<{
     electronDesktopE2eGameWindowRuntime(input.windowId)
   ]);
   const runtime = runtimeInspection.currentRuntime;
-  const anchor = toolbar.native.appKit?.tabAnchors?.[input.tabId];
+  const appKit = toolbar.native.appKit;
+  const anchor = appKit?.tabAnchors?.[input.tabId];
+  const tabScreenBounds = appKit?.tabScreenBounds;
   if (!runtime || runtime.hostKind !== "appkit-chromium" ||
       runtime.windowId !== input.windowId ||
       !runtime.nativeTabIds.includes(input.tabId) ||
       toolbar.hostKind !== "appkit" || !toolbar.tabIds.includes(input.tabId) ||
-      !anchor) {
+      !anchor || !tabScreenBounds) {
     throw new Error(`The exact AppKit tab ${input.tabName} has no native close geometry`);
   }
   const bounds = runtime.nativeDisplay.bounds;
@@ -257,8 +260,10 @@ export async function readVisibleMacosRuntimeTabCloseEvidence(input: Readonly<{
     windowId: input.windowId,
     // The native anchor is the tab's right-centre point. AppKit lays the
     // 20 pt close slot 8 pt inside that edge, so its visible centre is 18 pt left.
+    // Its horizontal offset is window-relative; the titlebar observer supplies
+    // the vertical centre in CoreGraphics' top-left screen coordinate space.
     x: bounds.x + anchor.x - 18,
-    y: bounds.y + anchor.y
+    y: tabScreenBounds.y + tabScreenBounds.height / 2
   });
 }
 
@@ -690,20 +695,15 @@ public static class RionWindowReadback {
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
 }
 '@
-$targetPid = [uint32]$args[0]
+$targetPid = [uint32]$payload.processId
 $matches = New-Object System.Collections.Generic.List[System.IntPtr]
 [RionWindowReadback]::EnumWindows({ param($hwnd, $value) $pid = 0; [RionWindowReadback]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null; if ($pid -eq $targetPid -and [RionWindowReadback]::IsIconic($hwnd)) { $matches.Add($hwnd) }; return $true }, [IntPtr]::Zero) | Out-Null
 if ($matches.Count -ne 1) { throw "exact minimized runtime window unavailable" }
 Write-Output "true"
 `;
-  const result = await executeFile("powershell.exe", [
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    script,
-    processId
-  ], { encoding: "utf8", timeout: 10_000 });
-  return result.stdout.trim() === "true";
+  return await runEncodedPowerShellJson(script, { processId }, {
+    timeoutMilliseconds: 10_000
+  }) === "true";
 }
 
 /** Drags the visible native titlebar; Windows uses its local no-content drag region. */
@@ -781,26 +781,22 @@ public static class RionExactVisibleResize {
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
 }
 '@
-$right = [int]$args[0]
-$bottom = [int]$args[1]
-$deltaWidth = [int]$args[2]
-$deltaHeight = [int]$args[3]
+$right = [int]$payload.right
+$bottom = [int]$payload.bottom
+$deltaWidth = [int]$payload.deltaWidth
+$deltaHeight = [int]$payload.deltaHeight
 [RionExactVisibleResize]::SetCursorPos($right - 2, $bottom - 2) | Out-Null
 [RionExactVisibleResize]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
 [RionExactVisibleResize]::SetCursorPos($right + $deltaWidth, $bottom + $deltaHeight) | Out-Null
 [RionExactVisibleResize]::mouse_event(0x0001, 0, 0, 0, [UIntPtr]::Zero)
 [RionExactVisibleResize]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 `;
-    await executeFile("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      script,
-      String(rect.x + rect.width),
-      String(rect.y + rect.height),
-      String(input.deltaWidth),
-      String(input.deltaHeight)
-    ], { encoding: "utf8", timeout: 10_000 });
+    await runEncodedPowerShellJson(script, {
+      bottom: rect.y + rect.height,
+      deltaHeight: input.deltaHeight,
+      deltaWidth: input.deltaWidth,
+      right: rect.x + rect.width
+    }, { timeoutMilliseconds: 10_000 });
   });
 }
 
@@ -826,7 +822,7 @@ public static class RionVisibleResize {
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
 }
 '@
-$targetPid = [uint32]$args[0]
+$targetPid = [uint32]$payload.processId
 $matches = New-Object System.Collections.Generic.List[System.IntPtr]
 [RionVisibleResize]::EnumWindows({ param($hwnd, $value) $pid = 0; [RionVisibleResize]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null; $title = New-Object System.Text.StringBuilder 256; [RionVisibleResize]::GetWindowText($hwnd, $title, 256) | Out-Null; if ($pid -eq $targetPid -and $title.ToString() -eq "Rion Studio Game Window") { $matches.Add($hwnd) }; return $true }, [IntPtr]::Zero) | Out-Null
 if ($matches.Count -ne 1) { throw "exact visible runtime window unavailable" }
@@ -838,9 +834,9 @@ $rect = New-Object RionVisibleResize+RECT
 [RionVisibleResize]::mouse_event(0x0001, 0, 0, 0, [UIntPtr]::Zero)
 [RionVisibleResize]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 `;
-    await executeFile("powershell.exe", [
-      "-NoProfile", "-NonInteractive", "-Command", script, processId
-    ], { encoding: "utf8", timeout: 10_000 });
+    await runEncodedPowerShellJson(script, { processId }, {
+      timeoutMilliseconds: 10_000
+    });
     return;
   }
   const geometry = await readAppKitAction(`

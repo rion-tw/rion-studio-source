@@ -445,6 +445,19 @@ const invalidRequestCases: Array<[
 ];
 
 describe("Windows Electron Chromium runtime-host factory", () => {
+  it("rejects a legacy runtime-host document name before native creation", () => {
+    const browserWindows = new FakeBrowserWindows();
+
+    expect(() => new WindowsElectronChromiumRuntimeHostFactory(
+      browserWindows.port,
+      "/Rion/out/renderer/runtime-window.html",
+      displays
+    )).toThrowError(expect.objectContaining({
+      code: "ELECTRON_RUNTIME_HOST_DOCUMENT_INVALID"
+    }));
+    expect(browserWindows.windows).toHaveLength(0);
+  });
+
   it("requires exact Win32 foreground before reporting Electron focus", async () => {
     const browserWindows = new FakeBrowserWindows();
     const foreground = new FakeRuntimeForegroundProbe();

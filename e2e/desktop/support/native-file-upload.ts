@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import { promisify } from "node:util";
 
+import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
+
 const executeFile = promisify(execFile);
 
 const FIXTURE_FILE_NAME = "rion-e2e.txt";
@@ -374,8 +376,8 @@ async function selectWindowsFile(
   const script = String.raw`
 Add-Type -AssemblyName UIAutomationClient
 $root = [System.Windows.Automation.AutomationElement]::RootElement
-$targetPid = [int]$args[0]
-$fixturePath = $args[1]
+$targetPid = [int]$payload.processId
+$fixturePath = [string]$payload.fixturePath
 $processCondition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
 $windowCondition = New-Object System.Windows.Automation.PropertyCondition(
@@ -429,15 +431,9 @@ do {
   Start-Sleep -Milliseconds 50
 } while ($true)
 `;
-  await executeFile("powershell.exe", [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    script,
-    String(processId),
-    fixturePath
-  ], { encoding: "utf8", timeout: 15_000 });
+  await runEncodedPowerShellJson(script, { fixturePath, processId }, {
+    timeoutMilliseconds: 15_000
+  });
 }
 
 /**

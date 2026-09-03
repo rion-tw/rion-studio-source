@@ -381,7 +381,7 @@ function windowsBootstrapPorts() {
       throw new Error("The fixture has no visible Windows display projection.");
     },
     lifecycleEpoch: () => 1,
-    runtimeDocumentPath: "C:\\Rion\\out\\runtime-window.html",
+    runtimeDocumentPath: "C:\\Rion\\out\\runtime-windows-host.html",
     runtimeHostPreloadPath: "C:\\Rion\\out\\runtime-window-preload.cjs",
     onWindowControl: async () => {
       throw new Error("The fixture has no visible Windows runtime host.");

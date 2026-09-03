@@ -353,7 +353,10 @@ describe("desktop shell migration workflows", () => {
     expect(workflow).toContain("$env:RION_TAURI_V22_INPUT_ROOT,");
     expect(workflow).toContain("$env:RION_UPDATER_PREPARED_INPUT_ROOT");
     expect(workflow).toContain(
-      "CARGO_TARGET_DIR: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime/cargo-target"
+      'echo "CARGO_TARGET_DIR=${child_root}/cargo-target"'
+    );
+    expect(workflow).toContain(
+      'boundary_root="${RUNNER_TEMP}/rion-electron-updater-compatibility-boundary"'
     );
     expect(windowsDerivation).toContain(
       "tauriV22WindowsInstallContract.mjs"
@@ -633,7 +636,10 @@ describe("desktop shell migration workflows", () => {
     );
     expect(windowsBlackBoxStep).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(candidate).toContain(
-      "RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-"
+      'echo "RION_STUDIO_E2E_ARTIFACT_ROOT=${signing_root}/black-box"'
+    );
+    expect(candidate).toContain(
+      'signing_root="${RUNNER_TEMP}/rion-electron-production-signing-input-${UPLOAD_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"'
     );
     expect(isolatedProfileRunner).toContain(
       "Deny-PathMutationRecursively $resolvedRepository"

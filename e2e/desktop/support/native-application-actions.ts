@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import { electronDesktopE2eProbe } from "./electron-driver";
 
 const executeFile = promisify(execFile);
@@ -61,7 +62,7 @@ async function cancelWindowsNativeSaveDialog(processId: number): Promise<void> {
   const script = String.raw`
 Add-Type -AssemblyName UIAutomationClient
 $root = [System.Windows.Automation.AutomationElement]::RootElement
-$targetPid = [int]$args[0]
+$targetPid = [int]$payload.processId
 $processCondition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
 $windowCondition = New-Object System.Windows.Automation.PropertyCondition(
@@ -103,14 +104,9 @@ do {
   Start-Sleep -Milliseconds 50
 } while ($true)
 `;
-  await executeFile("powershell.exe", [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    script,
-    String(processId)
-  ], { encoding: "utf8", timeout: 15_000 });
+  await runEncodedPowerShellJson(script, { processId }, {
+    timeoutMilliseconds: 15_000
+  });
 }
 
 /** Cancels the unique native diagnostics save panel owned by the exact app PID. */
@@ -332,9 +328,9 @@ public static class RionNativeShortcutInput {
   [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 }
 '@
-$targetPid = [uint32]$args[0]
-$command = $args[1]
-$targetMode = $args[2]
+$targetPid = [uint32]$payload.processId
+$command = [string]$payload.command
+$targetMode = [string]$payload.targetMode
 $inputWindow = [IntPtr]::Zero
 if ($targetMode -eq 'launcher') {
   $matches = New-Object System.Collections.Generic.List[System.IntPtr]
@@ -389,16 +385,11 @@ if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, 0, 0, [UIntPtr]::
 [RionNativeShortcutInput]::keybd_event($key, 0, $KEYUP, [UIntPtr]::Zero)
 if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, 0, $KEYUP, [UIntPtr]::Zero) }
 `;
-  await executeFile("powershell.exe", [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    script,
-    String(input.processId),
-    input.command,
-    input.targetMode ?? "launcher"
-  ], { encoding: "utf8", timeout: 10_000 });
+  await runEncodedPowerShellJson(script, {
+    command: input.command,
+    processId: input.processId,
+    targetMode: input.targetMode ?? "launcher"
+  }, { timeoutMilliseconds: 10_000 });
 }
 
 /**
@@ -441,7 +432,7 @@ public static class RionNativeQuitInput {
   [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 }
 '@
-$targetPid = [uint32]$args[0]
+$targetPid = [uint32]$payload.processId
 $matches = New-Object System.Collections.Generic.List[System.IntPtr]
 [RionNativeQuitInput]::EnumWindows({
   param($hwnd, $value)
@@ -458,12 +449,7 @@ $KEYUP = [uint32]2
 [RionNativeQuitInput]::keybd_event(0x51, 0, $KEYUP, [UIntPtr]::Zero)
 [RionNativeQuitInput]::keybd_event(0x11, 0, $KEYUP, [UIntPtr]::Zero)
 `;
-  await executeFile("powershell.exe", [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    script,
-    String(probe.processId)
-  ], { encoding: "utf8", timeout: 10_000 });
+  await runEncodedPowerShellJson(script, { processId: probe.processId }, {
+    timeoutMilliseconds: 10_000
+  });
 }

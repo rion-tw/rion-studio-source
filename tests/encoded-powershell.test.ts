@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
@@ -76,5 +77,19 @@ describe("encoded PowerShell JSON transport", () => {
     expect(() => createEncodedPowerShellJsonInvocation("exit 0", {
       value: "x".repeat(13 * 1024)
     })).toThrow("safe bound");
+  });
+
+  it("carries all desktop E2E PowerShell payloads without trailing command arguments", async () => {
+    const supportSources = await Promise.all([
+      "e2e/desktop/support/native-application-actions.ts",
+      "e2e/desktop/support/native-file-upload.ts",
+      "e2e/desktop/support/native-runtime-tabs.ts"
+    ].map((path) => readFile(path, "utf8")));
+
+    for (const source of supportSources) {
+      expect(source).toContain("runEncodedPowerShellJson");
+      expect(source).not.toContain('executeFile("powershell.exe"');
+      expect(source).not.toMatch(/\$args\[\d+\]/u);
+    }
   });
 });

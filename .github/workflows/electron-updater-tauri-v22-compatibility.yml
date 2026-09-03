@@ -101,13 +101,20 @@ jobs:
             platform: windows-x86_64
             upload_name: windows-x64
     env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/rion-electron-updater-compatibility-build/cargo-target
       RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.target_version }}
       RION_STUDIO_UPDATER_ENDPOINT: ${{ inputs.target_updater_endpoint }}
       RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
-      RION_UPDATER_CI_FIXTURE_ROOT: ${{ runner.temp }}/rion-electron-updater-prior-v23
       RION_UPDATER_PRIOR_V23_VERSION: ${{ inputs.prior_v23_version }}
     steps:
+      - name: Initialize runner-local target paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "CARGO_TARGET_DIR=${RUNNER_TEMP}/rion-electron-updater-compatibility-build/cargo-target"
+            echo "RION_UPDATER_CI_FIXTURE_ROOT=${RUNNER_TEMP}/rion-electron-updater-prior-v23"
+          } >> "${GITHUB_ENV}"
+
       - name: Checkout the exact untrusted candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -230,9 +237,15 @@ jobs:
             upload_name: macos-arm64
           - platform: windows-x86_64
             upload_name: windows-x64
-    env:
-      RION_COMPATIBILITY_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-input-${{ matrix.upload_name }}
     steps:
+      - name: Initialize runner-local attestation path
+        shell: bash
+        env:
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          echo "RION_COMPATIBILITY_SIGNING_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-updater-compatibility-signing-input-${UPLOAD_NAME}" >> "${GITHUB_ENV}"
+
       - name: Checkout the exact trusted default-branch attestation control plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -336,12 +349,21 @@ jobs:
             application: release/electron/win-unpacked
             artifact: release/electron/Rion.Studio-win.exe
     env:
-      RION_COMPATIBILITY_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-input-${{ matrix.upload_name }}
-      RION_UPDATER_CI_FIXTURE_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-runtime
-      RION_UPDATER_PREPARED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-production-input
-      RION_UPDATER_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-unsigned
       RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.target_version }}
     steps:
+      - name: Initialize runner-local signing paths
+        shell: bash
+        env:
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "RION_COMPATIBILITY_SIGNING_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-updater-compatibility-signing-input-${UPLOAD_NAME}"
+            echo "RION_UPDATER_CI_FIXTURE_ROOT=${RUNNER_TEMP}/rion-electron-updater-compatibility-signing-runtime"
+            echo "RION_UPDATER_PREPARED_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-updater-production-input"
+            echo "RION_UPDATER_UNSIGNED_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-updater-compatibility-unsigned"
+          } >> "${GITHUB_ENV}"
+
       - name: Checkout the exact trusted default-branch signing control plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -527,19 +549,30 @@ jobs:
             signature: Rion.Studio-win.exe.sig
             running_executable_derivation: windows-isolated-current-user-nsis-install
     env:
-      CARGO_TARGET_DIR: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime/cargo-target
       RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.target_version }}
       RION_STUDIO_UPDATER_ENDPOINT: ${{ inputs.target_updater_endpoint }}
       RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
       RION_UPDATER_PRIOR_V23_VERSION: ${{ inputs.prior_v23_version }}
-      RION_UPDATER_COMPATIBILITY_BOUNDARY_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary
-      RION_UPDATER_CI_FIXTURE_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime
-      RION_UPDATER_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-unsigned
-      RION_COMPATIBILITY_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-signing-input-${{ matrix.upload_name }}
-      RION_UPDATER_PREPARED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-updater-production-input
-      RION_UPDATER_PROVISIONAL_RECEIPT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime/provisional-layout-probe-receipt.json
-      RION_TAURI_V22_LINEAGE_RECEIPT: ${{ runner.temp }}/rion-tauri-v22-lineage/tauri-v22-public-lineage-receipt.json
     steps:
+      - name: Initialize runner-local compatibility paths
+        shell: bash
+        env:
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          boundary_root="${RUNNER_TEMP}/rion-electron-updater-compatibility-boundary"
+          child_root="${boundary_root}/child-runtime"
+          {
+            echo "CARGO_TARGET_DIR=${child_root}/cargo-target"
+            echo "RION_UPDATER_COMPATIBILITY_BOUNDARY_ROOT=${boundary_root}"
+            echo "RION_UPDATER_CI_FIXTURE_ROOT=${child_root}"
+            echo "RION_UPDATER_UNSIGNED_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-updater-compatibility-unsigned"
+            echo "RION_COMPATIBILITY_SIGNING_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-updater-compatibility-signing-input-${UPLOAD_NAME}"
+            echo "RION_UPDATER_PREPARED_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-updater-production-input"
+            echo "RION_UPDATER_PROVISIONAL_RECEIPT=${child_root}/provisional-layout-probe-receipt.json"
+            echo "RION_TAURI_V22_LINEAGE_RECEIPT=${RUNNER_TEMP}/rion-tauri-v22-lineage/tauri-v22-public-lineage-receipt.json"
+          } >> "${GITHUB_ENV}"
+
       - name: Checkout the exact trusted default-branch compatibility control plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

@@ -194,14 +194,26 @@ jobs:
             artifact: release/electron/Rion.Studio-win.exe
             upload_name: windows-x64
     env:
-      RION_STUDIO_CANDIDATE_CONTROL_ROOT: ${{ runner.temp }}/rion-electron-production-control-${{ github.run_id }}-${{ github.run_attempt }}
-      RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
       RION_STUDIO_ELECTRON_PACKAGE_VERSION: ${{ inputs.version }}
-      RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}/black-box
-      RION_STUDIO_ELECTRON_PAYLOAD_PROOF_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}/windows-proof
-      RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-unsigned-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
       RION_STUDIO_UPDATER_ENDPOINT: ${{ needs.validate.outputs.updater_endpoint }}
     steps:
+      - name: Initialize runner-local candidate paths
+        shell: bash
+        env:
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          control_root="${RUNNER_TEMP}/rion-electron-production-control-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          signing_root="${RUNNER_TEMP}/rion-electron-production-signing-input-${UPLOAD_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          unsigned_root="${RUNNER_TEMP}/rion-electron-production-unsigned-${UPLOAD_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "RION_STUDIO_CANDIDATE_CONTROL_ROOT=${control_root}"
+            echo "RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT=${signing_root}"
+            echo "RION_STUDIO_E2E_ARTIFACT_ROOT=${signing_root}/black-box"
+            echo "RION_STUDIO_ELECTRON_PAYLOAD_PROOF_ROOT=${signing_root}/windows-proof"
+            echo "RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT=${unsigned_root}"
+          } >> "${GITHUB_ENV}"
+
       - name: Checkout exact candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -412,9 +424,15 @@ jobs:
             upload_name: macos-arm64
           - platform: windows-x86_64
             upload_name: windows-x64
-    env:
-      RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Initialize runner-local attestation path
+        shell: bash
+        env:
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          echo "RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-production-signing-input-${UPLOAD_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_ENV}"
+
       - name: Checkout the exact trusted default-branch control plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -515,10 +533,18 @@ jobs:
             application: release/electron/win-unpacked
             artifact: release/electron/Rion.Studio-win.exe
             upload_name: windows-x64
-    env:
-      RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-signing-input-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-      RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT: ${{ runner.temp }}/rion-electron-production-unsigned-${{ matrix.upload_name }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Initialize runner-local signing paths
+        shell: bash
+        env:
+          UPLOAD_NAME: ${{ matrix.upload_name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "RION_STUDIO_CANDIDATE_SIGNING_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-production-signing-input-${UPLOAD_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "RION_STUDIO_ELECTRON_UNSIGNED_INPUT_ROOT=${RUNNER_TEMP}/rion-electron-production-unsigned-${UPLOAD_NAME}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          } >> "${GITHUB_ENV}"
+
       - name: Checkout the exact trusted default-branch signing control plane
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

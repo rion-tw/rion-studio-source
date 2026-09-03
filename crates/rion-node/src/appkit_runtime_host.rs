@@ -186,10 +186,15 @@ pub struct AppKitMouseDispatchProbeReceipt {
 struct ValidatedTabProjection {
     tab_id: String,
     fingerprint: TabProjectionFingerprint,
+    #[cfg(target_os = "macos")]
     tab_id_c: CString,
+    #[cfg(target_os = "macos")]
     name_c: CString,
+    #[cfg(target_os = "macos")]
     phase_c: CString,
+    #[cfg(target_os = "macos")]
     tab_type_c: CString,
+    #[cfg(target_os = "macos")]
     workspace_template_c: Option<CString>,
 }
 
@@ -1215,12 +1220,17 @@ fn validate_tab_projection(
                 "The AppKit tab projection contains malformed or duplicate metadata.",
             ));
         }
+        #[cfg(target_os = "macos")]
         let tab_id_c =
             CString::new(tab.tab_id.as_str()).map_err(|_| malformed_projection_error())?;
+        #[cfg(target_os = "macos")]
         let name_c = CString::new(tab.name.as_str()).map_err(|_| malformed_projection_error())?;
+        #[cfg(target_os = "macos")]
         let phase_c = CString::new(tab.phase.as_str()).map_err(|_| malformed_projection_error())?;
+        #[cfg(target_os = "macos")]
         let tab_type_c =
             CString::new(tab.tab_type.as_str()).map_err(|_| malformed_projection_error())?;
+        #[cfg(target_os = "macos")]
         let workspace_template_c = tab
             .workspace_template
             .as_deref()
@@ -1236,10 +1246,15 @@ fn validate_tab_projection(
                 workspace_template: tab.workspace_template,
             },
             tab_id: tab.tab_id,
+            #[cfg(target_os = "macos")]
             tab_id_c,
+            #[cfg(target_os = "macos")]
             name_c,
+            #[cfg(target_os = "macos")]
             phase_c,
+            #[cfg(target_os = "macos")]
             tab_type_c,
+            #[cfg(target_os = "macos")]
             workspace_template_c,
         });
     }

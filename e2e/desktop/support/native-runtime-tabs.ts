@@ -225,11 +225,50 @@ on run argv
 end run`, windowIdentifier, processId);
 }
 
+export interface VisibleMacosRuntimeTabCloseEvidence {
+  readonly tabId: string;
+  readonly windowId: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Reads exact AppKit close geometry without submitting the user action. */
+export async function readVisibleMacosRuntimeTabCloseEvidence(input: Readonly<{
+  tabId: string;
+  tabName: string;
+  windowId: string;
+}>): Promise<VisibleMacosRuntimeTabCloseEvidence> {
+  const [toolbar, runtimeInspection] = await Promise.all([
+    electronDesktopE2eFullscreenToolbarRuntime(input.windowId),
+    electronDesktopE2eGameWindowRuntime(input.windowId)
+  ]);
+  const runtime = runtimeInspection.currentRuntime;
+  const anchor = toolbar.native.appKit?.tabAnchors?.[input.tabId];
+  if (!runtime || runtime.hostKind !== "appkit-chromium" ||
+      runtime.windowId !== input.windowId ||
+      !runtime.nativeTabIds.includes(input.tabId) ||
+      toolbar.hostKind !== "appkit" || !toolbar.tabIds.includes(input.tabId) ||
+      !anchor) {
+    throw new Error(`The exact AppKit tab ${input.tabName} has no native close geometry`);
+  }
+  const bounds = runtime.nativeDisplay.bounds;
+  return Object.freeze({
+    tabId: input.tabId,
+    windowId: input.windowId,
+    // The native anchor is the tab's right-centre point. AppKit lays the
+    // 20 pt close slot 8 pt inside that edge, so its visible centre is 18 pt left.
+    x: bounds.x + anchor.x - 18,
+    y: bounds.y + anchor.y
+  });
+}
+
 async function closeMacosAppKitTab(
+  mainWindowHandle: string,
   windowId: string,
   tabId: string,
   tabName: string,
-  exactProcessId?: number
+  exactProcessId?: number,
+  preloadedEvidence?: VisibleMacosRuntimeTabCloseEvidence
 ): Promise<void> {
   if (exactProcessId !== undefined &&
       (!Number.isSafeInteger(exactProcessId) || exactProcessId < 1)) {
@@ -238,23 +277,15 @@ async function closeMacosAppKitTab(
   const processId = String(
     exactProcessId ?? (await electronDesktopE2eProbe()).processId
   );
-  const [toolbar, runtimeInspection] = await Promise.all([
-    electronDesktopE2eFullscreenToolbarRuntime(windowId),
-    electronDesktopE2eGameWindowRuntime(windowId)
-  ]);
-  const runtime = runtimeInspection.currentRuntime;
-  const anchor = toolbar.native.appKit?.tabAnchors?.[tabId];
-  if (!runtime || runtime.hostKind !== "appkit-chromium" ||
-      runtime.windowId !== windowId || !runtime.nativeTabIds.includes(tabId) ||
-      toolbar.hostKind !== "appkit" || !toolbar.tabIds.includes(tabId) || !anchor) {
-    throw new Error(`The exact AppKit tab ${tabName} has no native close geometry`);
+  const evidence = preloadedEvidence ??
+    await readVisibleMacosRuntimeTabCloseEvidence({ tabId, tabName, windowId });
+  if (evidence.tabId !== tabId || evidence.windowId !== windowId ||
+      !Number.isFinite(evidence.x) || !Number.isFinite(evidence.y)) {
+    throw new Error("The preloaded AppKit tab close evidence changed identity");
   }
   const expectedWindowIdentifier =
     `com.rionstudio.runtime.appkit-window.v1:${windowId}`;
-  let lastRaiseError = "";
-  await browser.waitUntil(async () => {
-    try {
-      await readAppKitAction(`
+  await readAppKitAction(`
 on run argv
   set expectedWindowIdentifier to item 1 of argv
   set targetPid to (item 2 of argv) as integer
@@ -278,30 +309,15 @@ on run argv
     return "raised"
   end tell
 end run`, expectedWindowIdentifier, processId);
-      return true;
-    } catch (error) {
-      const commandError = error as Error & { stderr?: string };
-      lastRaiseError = [commandError.message, commandError.stderr]
-        .filter((value) => value && value.trim().length > 0)
-        .join("; ");
-      return false;
-    }
-  }, {
-    interval: 100,
-    timeout: 10_000,
-    timeoutMsg: `The exact AppKit close window was not exposed (${lastRaiseError})`
-  });
-  const bounds = runtime.nativeDisplay.bounds;
-  // The native anchor is the tab's right-centre point. AppKit lays the 20 pt
-  // close slot 8 pt inside that edge, so its visible centre is 18 pt left.
-  await clickMacosScreenPoint(bounds.x + anchor.x - 18, bounds.y + anchor.y);
+  await clickMacosScreenPoint(evidence.x, evidence.y);
+  await switchTrackedWindow(mainWindowHandle);
   await browser.waitUntil(async () => {
     const observed = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime;
     return !observed || !observed.nativeTabIds.includes(tabId);
   }, {
     interval: 100,
     timeout: 10_000,
-    timeoutMsg: `The visible AppKit close control did not close ${tabName}`
+    timeoutMsg: `The visible AppKit close control did not close ${tabName} (${tabId})`
   });
 }
 
@@ -369,6 +385,7 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
 /** Closes one exact tab through its retained AppKit or bundled Windows chrome. */
 export async function closeVisibleRuntimeTab(input: Readonly<{
   mainWindowHandle: string;
+  macosCloseEvidence?: VisibleMacosRuntimeTabCloseEvidence;
   platform: "macos" | "windows";
   processId?: number;
   tabId: string;
@@ -377,10 +394,12 @@ export async function closeVisibleRuntimeTab(input: Readonly<{
 }>): Promise<void> {
   if (input.platform === "macos") {
     await closeMacosAppKitTab(
+      input.mainWindowHandle,
       input.windowId,
       input.tabId,
       input.tabName,
-      input.processId
+      input.processId,
+      input.macosCloseEvidence
     );
     return;
   }

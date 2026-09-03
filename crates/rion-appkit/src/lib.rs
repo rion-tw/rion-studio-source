@@ -1068,6 +1068,13 @@ pub unsafe fn runtime_tabs_desktop_e2e_fullscreen_toolbar_state(
     Ok(state)
 }
 
+/// Reads the native status presentation for desktop E2E assertions. This
+/// symbol is absent from production archives.
+///
+/// # Safety
+///
+/// `controller` must be the exact live controller and this function must run
+/// on the AppKit main thread.
 #[cfg(all(target_os = "macos", feature = "desktop-e2e"))]
 pub unsafe fn runtime_tabs_desktop_e2e_status_presentation(
     controller: NonNull<c_void>,

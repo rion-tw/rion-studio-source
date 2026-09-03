@@ -10,6 +10,8 @@ use napi::{
     bindgen_prelude::{Error, Result},
 };
 
+#[cfg(target_os = "macos")]
+use super::malformed_projection_error;
 #[cfg(feature = "desktop-e2e")]
 use super::{
     AppKitDesktopE2EFullscreenToolbarState, AppKitDesktopE2ETabAnchor,
@@ -18,7 +20,7 @@ use super::{
 use super::{
     AppKitKeyDispatchProbeReceipt, AppKitMouseDispatchProbeReceipt, AppKitNativeViewTreeNode,
     NativeHostState, ValidatedHostIdentity, ValidatedTabProjection, adapter_error,
-    host_destroyed_error, malformed_projection_error,
+    host_destroyed_error,
 };
 
 pub(super) fn controller_pointer(state: &NativeHostState) -> Result<NonNull<c_void>> {

@@ -90,6 +90,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "contained-popup-ready",
       "closeVisibleRuntimeTab",
       "closeVisibleRuntimeWindow",
+      "readVisibleMacosRuntimeTabCloseEvidence",
       'fixtureRequest("/api/gate"',
       "/api/gates/${POPUP_FIXTURE_ID}/waiting",
       "electronDesktopE2ePopupLifecycleJournal",

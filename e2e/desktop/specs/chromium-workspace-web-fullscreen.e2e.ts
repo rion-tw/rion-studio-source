@@ -30,7 +30,8 @@ import {
 } from "../support/native-file-upload";
 import {
   closeVisibleRuntimeTab,
-  closeVisibleRuntimeWindow
+  closeVisibleRuntimeWindow,
+  readVisibleMacosRuntimeTabCloseEvidence
 } from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
 import {
@@ -787,6 +788,13 @@ async function exerciseContainedFullscreen(input: Readonly<{
   );
   const popupBaselineSequence =
     popupJournalBaseline.observations.at(-1)?.sequence ?? 0;
+  const pendingPopupParentCloseEvidence = platform === "macos"
+    ? await readVisibleMacosRuntimeTabCloseEvidence({
+        tabId: input.tabId,
+        tabName: WORKSPACE_NAME,
+        windowId: before.windowId
+      })
+    : undefined;
   await fixtureRequest("/api/gate", { roleId: POPUP_FIXTURE_ID });
   try {
     const popupRequestAfter = await fixtureCursor();
@@ -820,6 +828,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
     if (platform === "macos") {
       await closeVisibleRuntimeTab({
         mainWindowHandle,
+        macosCloseEvidence: pendingPopupParentCloseEvidence,
         platform,
         processId,
         tabId: input.tabId,

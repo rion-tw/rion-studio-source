@@ -33,6 +33,15 @@ fn stable_system_webview_accepts_only_topology_neutral_window_projections() {
     ]));
 }
 
+#[test]
+fn native_window_generation_advances_beyond_a_reseeded_live_generation() {
+    let sequence = AtomicU64::new(4);
+
+    assert_eq!(next_monotonic_value_at_least(&sequence, 1), 5);
+    assert_eq!(next_monotonic_value_at_least(&sequence, 14), 14);
+    assert_eq!(next_monotonic_value_at_least(&sequence, 3), 15);
+}
+
 fn topology_tab(id: &str) -> LiveTabRecord {
     LiveTabRecord {
         audio_muted: false,

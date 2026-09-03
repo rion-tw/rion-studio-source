@@ -47,8 +47,10 @@ describe("Chromium native tab exact replacements", () => {
     expect(helper).toContain(
       "if focusedIdentifier is not targetIdentifier then"
     );
-    expect(helper).toContain("toolbar.native.appKit?.tabAnchors?.[tabId]");
+    expect(helper).toContain("toolbar.native.appKit?.tabAnchors?.[input.tabId]");
     expect(helper).toContain("bounds.x + anchor.x - 18");
+    expect(helper).toContain("evidence.tabId !== tabId");
+    expect(helper).toContain("await switchTrackedWindow(mainWindowHandle)");
     expect(helper).toContain("The visible AppKit close control did not close");
     expect(appKitTabs).toContain("self.accessibilityIdentifier = tab.identifier;");
     expect(helper).toContain('whose subrole is "AXCloseButton"');

@@ -762,9 +762,16 @@ impl SystemRuntimeExecutor {
                 false
             }
         };
-        let window_generation = WINDOW_GENERATION_SEQUENCE
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
+        // Late placement/focus events can re-seed a retired live-window record
+        // before its saved window is shown again. The new native host remains
+        // authoritative for identity, so allocate beyond both the process-wide
+        // sequence and any surviving live generation.
+        let minimum_window_generation = self
+            .presentation
+            .existing(&target.window_id)
+            .map(|window| window.window_generation.saturating_add(1))
+            .unwrap_or(1);
+        let window_generation = next_window_generation_at_least(minimum_window_generation);
         #[cfg(windows)]
         {
             let runtime = self.self_weak.get().cloned().ok_or_else(|| {

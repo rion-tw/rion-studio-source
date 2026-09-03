@@ -168,6 +168,22 @@ struct FocusSnapshot {
 }
 
 #[cfg(windows)]
+struct ExactBaseReceiptInput<'a> {
+    identity: SurfaceIdentity,
+    request_id: String,
+    input_epoch: String,
+    delivery_mode: DeliveryMode,
+    probe_revision: String,
+    submitted_at_ms: u64,
+    before_probe: &'a WindowsChromiumInputHwndProbeReceipt,
+    after_probe: &'a WindowsChromiumInputHwndProbeReceipt,
+    before: FocusSnapshot,
+    after: FocusSnapshot,
+    surface: windows::Win32::Foundation::HWND,
+    parent: windows::Win32::Foundation::HWND,
+}
+
+#[cfg(windows)]
 #[napi(js_name = "submitWindowsChromiumBackgroundKey")]
 pub fn submit_windows_chromium_background_key(
     surface_handle: Buffer,
@@ -273,20 +289,20 @@ pub fn submit_windows_chromium_background_key(
             "The native key dispatch completed after the Core deadline.",
         ));
     }
-    let base = exact_base_receipt(
-        request.identity,
-        request.request_id,
-        request.input_epoch,
-        request.delivery_mode,
-        request.probe_revision,
+    let base = exact_base_receipt(ExactBaseReceiptInput {
+        identity: request.identity,
+        request_id: request.request_id,
+        input_epoch: request.input_epoch,
+        delivery_mode: request.delivery_mode,
+        probe_revision: request.probe_revision,
         submitted_at_ms,
-        &probe,
-        &after_probe,
+        before_probe: &probe,
+        after_probe: &after_probe,
         before,
         after,
         surface,
         parent,
-    )?;
+    })?;
     serde_json::to_string(&KeySubmissionReceipt {
         base,
         event_type: request.event_type,
@@ -395,20 +411,20 @@ pub fn submit_windows_chromium_background_mouse(
             "The native mouse dispatch completed after the Core deadline.",
         ));
     }
-    let base = exact_base_receipt(
-        request.identity,
-        request.request_id,
-        request.input_epoch,
-        request.delivery_mode,
-        request.probe_revision,
+    let base = exact_base_receipt(ExactBaseReceiptInput {
+        identity: request.identity,
+        request_id: request.request_id,
+        input_epoch: request.input_epoch,
+        delivery_mode: request.delivery_mode,
+        probe_revision: request.probe_revision,
         submitted_at_ms,
-        &probe,
-        &after_probe,
+        before_probe: &probe,
+        after_probe: &after_probe,
         before,
         after,
         surface,
         parent,
-    )?;
+    })?;
     serde_json::to_string(&MouseSubmissionReceipt {
         base,
         button: request.button,
@@ -496,20 +512,21 @@ fn require_delivery_projection(
 }
 
 #[cfg(windows)]
-fn exact_base_receipt(
-    identity: SurfaceIdentity,
-    request_id: String,
-    input_epoch: String,
-    delivery_mode: DeliveryMode,
-    probe_revision: String,
-    submitted_at_ms: u64,
-    before_probe: &WindowsChromiumInputHwndProbeReceipt,
-    after_probe: &WindowsChromiumInputHwndProbeReceipt,
-    before: FocusSnapshot,
-    after: FocusSnapshot,
-    surface: windows::Win32::Foundation::HWND,
-    parent: windows::Win32::Foundation::HWND,
-) -> Result<SubmissionReceiptBase> {
+fn exact_base_receipt(input: ExactBaseReceiptInput<'_>) -> Result<SubmissionReceiptBase> {
+    let ExactBaseReceiptInput {
+        identity,
+        request_id,
+        input_epoch,
+        delivery_mode,
+        probe_revision,
+        submitted_at_ms,
+        before_probe,
+        after_probe,
+        before,
+        after,
+        surface,
+        parent,
+    } = input;
     if before_probe.surface_handle_token != after_probe.surface_handle_token
         || before_probe.parent_handle_token != after_probe.parent_handle_token
         || before_probe.process_id != after_probe.process_id

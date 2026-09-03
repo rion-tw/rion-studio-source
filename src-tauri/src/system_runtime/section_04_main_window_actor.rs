@@ -227,9 +227,7 @@ impl MainWindowActor {
         operations: Arc<NativeOperationRegistry>,
         focus_broker: Arc<NativeFocusBroker>,
     ) -> Result<Arc<Self>, String> {
-        let generation = WINDOW_GENERATION_SEQUENCE
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
+        let generation = next_window_generation_at_least(1);
         let projection = Arc::new(MainWindowStateProjection::new(generation));
         if let Err(error) = projection.refresh(&window) {
             if !main_window_initial_projection_can_defer(&error) {

@@ -144,6 +144,20 @@ static WINDOWS_TAB_CHROME_REVISION: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]
 static WINDOWS_LIVE_RESIZE_PLAN_REVISION: AtomicU64 = AtomicU64::new(1);
 
+fn next_monotonic_value_at_least(sequence: &AtomicU64, minimum: u64) -> u64 {
+    let minimum = minimum.max(1);
+    sequence
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            Some(current.saturating_add(1).max(minimum))
+        })
+        .map(|current| current.saturating_add(1).max(minimum))
+        .unwrap_or(u64::MAX)
+}
+
+fn next_window_generation_at_least(minimum: u64) -> u64 {
+    next_monotonic_value_at_least(&WINDOW_GENERATION_SEQUENCE, minimum)
+}
+
 fn point_in_runtime_tab_control_row(
     left: f64,
     top: f64,

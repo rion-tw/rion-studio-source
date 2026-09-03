@@ -120,7 +120,7 @@ complete parent window/tab/surface/AppKit generation fence, and operation plus
 lifecycle terminality; transport cancellation is corroboration, not lifecycle
 authority. Windows
 foreground trusted input is `supported`: Core first requests Focus, Electron
-focuses the exact visible Role host, and Win32 ABI v3 must prove that host's
+focuses the exact visible Role host, and Win32 ABI v4 must prove that host's
 parent HWND equals `GetForegroundWindow()` before Focus can acknowledge and
 again before every native submission. The isolated preload must then report the
 exact trusted DOM sequence. Windows `backgroundInput` is a distinct supported

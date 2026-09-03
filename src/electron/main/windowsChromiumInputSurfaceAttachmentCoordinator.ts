@@ -59,6 +59,10 @@ export interface RawWindowsChromiumInputHwndProbeReceipt {
 
 export interface RawWindowsChromiumTrustedInputAddon {
   windowsChromiumInputProbeAbiVersion: () => number;
+  attachWindowsChromiumInputHwnd: (
+    surfaceHandle: Buffer,
+    parentHandle: Buffer
+  ) => RawWindowsChromiumInputHwndProbeReceipt;
   probeWindowsChromiumInputHwnd: (
     surfaceHandle: Buffer,
     parentHandle: Buffer
@@ -597,7 +601,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     }
     const surfaceHandle = Buffer.from(child.getNativeWindowHandle());
     const parentHandle = Buffer.from(parentBinding.window.getNativeWindowHandle());
-    const probe = this.#probeRaw(surfaceHandle, parentHandle);
+    const probe = this.#attachRaw(surfaceHandle, parentHandle);
     this.#requireProbeBounds(child, probe);
     return { child, parentBinding, surfaceHandle, parentHandle, probe };
   }
@@ -1061,10 +1065,25 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     surfaceHandle: Buffer,
     parentHandle: Buffer
   ): RawWindowsChromiumInputHwndProbeReceipt {
-    const raw = this.#addon.probeWindowsChromiumInputHwnd(
+    return this.#validateRawProbe(this.#addon.probeWindowsChromiumInputHwnd(
       Buffer.from(surfaceHandle),
       Buffer.from(parentHandle)
-    );
+    ));
+  }
+
+  #attachRaw(
+    surfaceHandle: Buffer,
+    parentHandle: Buffer
+  ): RawWindowsChromiumInputHwndProbeReceipt {
+    return this.#validateRawProbe(this.#addon.attachWindowsChromiumInputHwnd(
+      Buffer.from(surfaceHandle),
+      Buffer.from(parentHandle)
+    ));
+  }
+
+  #validateRawProbe(
+    raw: RawWindowsChromiumInputHwndProbeReceipt
+  ): RawWindowsChromiumInputHwndProbeReceipt {
     if (!raw || raw.abiVersion !== WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION ||
       !HANDLE_TOKEN_PATTERN.test(raw.surfaceHandleToken) ||
       !HANDLE_TOKEN_PATTERN.test(raw.parentHandleToken) ||

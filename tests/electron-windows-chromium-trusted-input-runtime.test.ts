@@ -19,11 +19,14 @@ function capabilities(
 }
 
 function configuration(
-  abiVersion = 3
+  abiVersion = 4
 ): WindowsChromiumTrustedInputRuntimeConfiguration {
   return {
     addon: {
       windowsChromiumInputProbeAbiVersion: () => abiVersion,
+      attachWindowsChromiumInputHwnd: () => {
+        throw new Error("not attached");
+      },
       probeWindowsChromiumInputHwnd: () => {
         throw new Error("not attached");
       },

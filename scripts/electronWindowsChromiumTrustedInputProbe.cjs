@@ -33,7 +33,7 @@ function parsedReceipt(value, operation) {
 function exactProbe(receipt, surfaceHandle, parentHandle) {
   if (
     !receipt ||
-    receipt.abiVersion !== 3 ||
+    receipt.abiVersion !== 4 ||
     !receipt.currentProcessOwned ||
     !receipt.exactParent ||
     !receipt.childWindowStyle ||
@@ -140,7 +140,7 @@ void (async () => {
     );
     await app.whenReady();
     const addon = require(addonPath);
-    if (addon.windowsChromiumInputProbeAbiVersion() !== 3) {
+    if (addon.windowsChromiumInputProbeAbiVersion() !== 4) {
       throw new Error("The Win32 trusted-input probe ABI does not match Electron.");
     }
 
@@ -175,7 +175,7 @@ void (async () => {
     const surfaceHandle = Buffer.from(child.getNativeWindowHandle());
     const parentHandle = Buffer.from(parent.getNativeWindowHandle());
     const beforeAttachProbe = exactProbe(
-      addon.probeWindowsChromiumInputHwnd(surfaceHandle, parentHandle),
+      addon.attachWindowsChromiumInputHwnd(surfaceHandle, parentHandle),
       surfaceHandle,
       parentHandle
     );
@@ -524,6 +524,11 @@ void (async () => {
       throw new Error("The sibling Role did not retain exact foreground ownership.");
     }
     const controlHandle = Buffer.from(control.getNativeWindowHandle());
+    exactProbe(
+      addon.attachWindowsChromiumInputHwnd(controlHandle, parentHandle),
+      controlHandle,
+      parentHandle
+    );
     const controlProbe = exactProbe(
       addon.probeWindowsChromiumInputHwnd(controlHandle, parentHandle),
       controlHandle,

@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 #[cfg(windows)]
 use std::mem::size_of;
 
-const WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION: u32 = 3;
+const WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION: u32 = 4;
 
 #[napi(object)]
 pub struct WindowsChromiumInputHwndProbeReceipt {
@@ -336,12 +336,12 @@ pub fn probe_windows_chromium_input_hwnd(
         Ok(WindowsChromiumInputHwndProbeReceipt {
             abi_version: WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION,
             surface_handle_token: native_handle_token(
-                b"rion-windows-chromium-input-surface-v3",
+                b"rion-windows-chromium-input-surface-v4",
                 surface_address,
                 current_process_id,
             ),
             parent_handle_token: native_handle_token(
-                b"rion-windows-chromium-input-parent-v3",
+                b"rion-windows-chromium-input-parent-v4",
                 parent_address,
                 current_process_id,
             ),
@@ -381,7 +381,7 @@ pub fn probe_windows_chromium_input_hwnd(
 }
 
 #[cfg(windows)]
-fn parse_electron_native_handle(buffer: &Buffer, field: &str) -> Result<usize> {
+pub(crate) fn parse_electron_native_handle(buffer: &Buffer, field: &str) -> Result<usize> {
     if buffer.len() != size_of::<usize>() {
         return Err(probe_error(
             Status::InvalidArg,
@@ -486,7 +486,7 @@ fn windows_runtime_foreground_error(error: WindowsRuntimeForegroundFactError) ->
     probe_error(status, message)
 }
 
-fn probe_error(status: Status, message: impl Into<String>) -> Error {
+pub(crate) fn probe_error(status: Status, message: impl Into<String>) -> Error {
     Error::new(status, message.into())
 }
 
@@ -614,6 +614,6 @@ mod tests {
 
     #[test]
     fn probe_abi_is_stable_without_advertising_platform_capability() {
-        assert_eq!(windows_chromium_input_probe_abi_version(), 3);
+        assert_eq!(windows_chromium_input_probe_abi_version(), 4);
     }
 }

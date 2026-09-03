@@ -5,7 +5,7 @@ import type {
   ChromiumNativeTrustedInputRequest
 } from "./chromiumTrustedInputCoordinator";
 
-export const WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 3;
+export const WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 4;
 
 export type WindowsChromiumInputDeliveryMode = "foreground" | "background";
 
@@ -46,7 +46,7 @@ export interface WindowsChromiumInputSurfaceIdentity {
 export interface WindowsChromiumInputSurfaceProbeReceipt
   extends WindowsChromiumInputSurfaceIdentity {
   readonly status: "verified";
-  readonly abiVersion: 3;
+  readonly abiVersion: 4;
   readonly deliveryMode: WindowsChromiumInputDeliveryMode;
   readonly probeRevision: string;
   readonly processId: number;

@@ -4,10 +4,15 @@ import { describe, expect, it } from "vitest";
 
 describe("Windows Chromium physical input candidate gate", () => {
   it("uses exact public Electron ownership plus read-only Win32 proof", async () => {
-    const [probe, preload, nativeProbe, nativeSubmission] = await Promise.all([
+    const [probe, preload, nativeAttachment, nativeProbe, nativeSubmission] =
+      await Promise.all([
       readFile("scripts/electronWindowsChromiumTrustedInputProbe.cjs", "utf8"),
       readFile(
         "scripts/electronWindowsChromiumTrustedInputProbePreload.cjs",
+        "utf8"
+      ),
+      readFile(
+        "crates/rion-node/src/windows_chromium_input_attachment.rs",
         "utf8"
       ),
       readFile("crates/rion-node/src/windows_chromium_input_probe.rs", "utf8"),
@@ -18,6 +23,7 @@ describe("Windows Chromium physical input candidate gate", () => {
     expect(probe).toContain("parent,");
     expect(probe).toContain("child.contentView.addChildView(view)");
     expect(probe).toContain("child.contentView.children.length !== 1");
+    expect(probe).toContain("addon.attachWindowsChromiumInputHwnd");
     expect(probe).toContain("addon.probeWindowsChromiumInputHwnd");
     expect(probe).toContain("targetWasForeground");
     expect(probe).toContain("parentWasForeground");
@@ -29,6 +35,12 @@ describe("Windows Chromium physical input candidate gate", () => {
     expect(preload).toContain("event.isTrusted");
     expect(nativeSubmission).toContain("f64::from(dpi) / 96.0");
     expect(nativeSubmission).toContain("SendMessageTimeoutW");
+    expect(nativeAttachment).toContain("SetParent(");
+    expect(nativeAttachment).toContain("SetWindowLongPtrW(");
+    expect(nativeAttachment).toContain("SetWindowPos(");
+    expect(nativeAttachment).toContain("SWP_NOACTIVATE");
+    expect(nativeAttachment).not.toContain("EnumChildWindows");
+    expect(nativeAttachment).not.toContain("FindWindow");
     for (const forbiddenMutation of [
       "SetParent(", "SetWindowLong", "SetWindowPos(", "ShowWindow(",
       "PostMessage", "EnumChildWindows", "FindWindow"

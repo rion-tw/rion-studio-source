@@ -133,7 +133,7 @@ function probe(
   parentHandle: Buffer
 ): RawWindowsChromiumInputHwndProbeReceipt {
   return {
-    abiVersion: 3,
+    abiVersion: 4,
     surfaceHandleToken: token(surfaceHandle, 0),
     parentHandleToken: token(parentHandle, 1),
     processId: 42,
@@ -201,24 +201,26 @@ function harness() {
   let nowMs = 1_000;
   const timers = new Map<number, () => void>();
   let nextTimer = 0;
+  const readProbe = (surfaceHandle: Buffer, parentHandle: Buffer) => {
+    const receipt = probe(surfaceHandle, parentHandle);
+    const child = windowsById.get(Number(surfaceHandle.readBigUInt64LE()))!;
+    const parent = windowsById.get(Number(parentHandle.readBigUInt64LE()))!;
+    const bounds = child.getContentBounds();
+    const deviceScale = receipt.dpi / 96;
+    return {
+      ...receipt,
+      parentWasForeground: nativeForegroundOverride ?? parent.isFocused(),
+      parentVisible: parent.isVisible(),
+      surfaceVisible: child.isVisible(),
+      clientWidth: Math.round(bounds.width * deviceScale),
+      clientHeight: Math.round(bounds.height * deviceScale)
+    };
+  };
   const coordinator = new WindowsChromiumInputSurfaceAttachmentCoordinator({
     addon: {
-      windowsChromiumInputProbeAbiVersion: () => 3,
-      probeWindowsChromiumInputHwnd: (surfaceHandle, parentHandle) => {
-        const receipt = probe(surfaceHandle, parentHandle);
-        const child = windowsById.get(Number(surfaceHandle.readBigUInt64LE()))!;
-        const parent = windowsById.get(Number(parentHandle.readBigUInt64LE()))!;
-        const bounds = child.getContentBounds();
-        const deviceScale = receipt.dpi / 96;
-        return {
-          ...receipt,
-          parentWasForeground: nativeForegroundOverride ?? parent.isFocused(),
-          parentVisible: parent.isVisible(),
-          surfaceVisible: child.isVisible(),
-          clientWidth: Math.round(bounds.width * deviceScale),
-          clientHeight: Math.round(bounds.height * deviceScale)
-        };
-      },
+      windowsChromiumInputProbeAbiVersion: () => 4,
+      attachWindowsChromiumInputHwnd: readProbe,
+      probeWindowsChromiumInputHwnd: readProbe,
       submitWindowsChromiumBackgroundKey: (_surface, _parent, requestJson) => {
         keyRequests.push(JSON.parse(requestJson) as Record<string, unknown>);
         return JSON.stringify({ status: "submitted", kind: "key" });

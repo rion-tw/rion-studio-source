@@ -18,6 +18,7 @@ use rion_core::{
 mod appkit_runtime_host;
 mod chrome_profile_import_helper_launcher;
 mod updater;
+pub mod windows_chromium_input_attachment;
 pub mod windows_chromium_input_probe;
 pub mod windows_chromium_input_submission;
 

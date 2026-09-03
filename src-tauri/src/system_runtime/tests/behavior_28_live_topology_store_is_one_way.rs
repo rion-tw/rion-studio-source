@@ -1,3 +1,38 @@
+fn empty_runtime_window_projection() -> EmbeddedRuntimeWindowProjectionRecord {
+    EmbeddedRuntimeWindowProjectionRecord {
+        window_id: "empty-window".to_owned(),
+        window_generation: 1,
+        topology_revision: 1,
+        tab_ids: Vec::new(),
+        tab_phases: Vec::new(),
+        hidden_tab_ids: Vec::new(),
+        workspace_tabs: Vec::new(),
+        active_tab_id: None,
+    }
+}
+
+#[test]
+fn stable_system_webview_accepts_only_topology_neutral_window_projections() {
+    assert!(stable_system_webview_window_projection_supported(&[]));
+
+    let empty = empty_runtime_window_projection();
+    assert!(stable_system_webview_window_projection_supported(
+        std::slice::from_ref(&empty)
+    ));
+
+    let mut tabbed = empty.clone();
+    tabbed.tab_ids.push("chromium-tab".to_owned());
+    assert!(!stable_system_webview_window_projection_supported(&[
+        tabbed
+    ]));
+
+    let mut active = empty;
+    active.active_tab_id = Some("chromium-tab".to_owned());
+    assert!(!stable_system_webview_window_projection_supported(&[
+        active
+    ]));
+}
+
 fn topology_tab(id: &str) -> LiveTabRecord {
     LiveTabRecord {
         audio_muted: false,

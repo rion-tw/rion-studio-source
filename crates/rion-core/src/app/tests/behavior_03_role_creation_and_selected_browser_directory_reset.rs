@@ -1115,16 +1115,18 @@ fn portable_game_window_import_is_blocked_while_a_role_is_running() {
     core.shutdown();
 }
 
+#[cfg(any(target_os = "macos", windows))]
 #[test]
 fn privileged_core_session_migration_mutations_are_absent_from_public_commands() {
-    let (_directory, core) = core();
+    let (platform, migration_platform, source_engine) = native_session_migration_test_runtime();
+    let (_directory, core) = core_for_platform(platform);
     let role_id = create_role(&core, &first_game_id(&core), 1);
     let transfer_id = uuid::Uuid::new_v4().to_string();
     let start_input = crate::RoleSessionMigrationStartInput {
         role_id: role_id.clone(),
         transfer_id: transfer_id.clone(),
-        platform: crate::RoleSessionMigrationPlatform::Macos,
-        source_engine: crate::RoleSessionMigrationEngine::Wkwebview,
+        platform: migration_platform,
+        source_engine,
         target_engine: crate::RoleSessionMigrationEngine::Chromium,
         source_revision: 1,
     };
@@ -1138,8 +1140,8 @@ fn privileged_core_session_migration_mutations_are_absent_from_public_commands()
         &core,
         &role_id,
         &transfer_id,
-        crate::RoleSessionMigrationPlatform::Macos,
-        crate::RoleSessionMigrationEngine::Wkwebview,
+        migration_platform,
+        source_engine,
     );
 
     assert_eq!(started.journal_revision, 1);

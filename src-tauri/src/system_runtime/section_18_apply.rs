@@ -1,3 +1,15 @@
+fn stable_system_webview_window_projection_supported(
+    windows: &[EmbeddedRuntimeWindowProjectionRecord],
+) -> bool {
+    windows.iter().all(|window| {
+        window.tab_ids.is_empty()
+            && window.tab_phases.is_empty()
+            && window.hidden_tab_ids.is_empty()
+            && window.workspace_tabs.is_empty()
+            && window.active_tab_id.is_none()
+    })
+}
+
 impl SystemRuntimeExecutor {
     async fn apply_event_bound_close(
         &self,
@@ -254,7 +266,7 @@ impl SystemRuntimeExecutor {
                 focus_window_ids,
                 focus_tab_id,
             } => {
-                if !windows.is_empty() {
+                if !stable_system_webview_window_projection_supported(&windows) {
                     return Err(RuntimeError::new(
                         "CHROMIUM_WINDOW_TOPOLOGY_EFFECT_UNAVAILABLE",
                         "Core emitted Chromium window topology to the stable System WebView runtime.",

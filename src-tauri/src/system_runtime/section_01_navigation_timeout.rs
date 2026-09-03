@@ -28,7 +28,7 @@ use rion_core::{
     DisplayTargetRecord,
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
     EmbeddedRoleLoadEffectRecord, EmbeddedRoleSlotEffectRecord, EmbeddedTabEffectRecord,
-    EmbeddedTabAudioMuteRoleEffectRecord,
+    EmbeddedRuntimeWindowProjectionRecord, EmbeddedTabAudioMuteRoleEffectRecord,
     EngineCapabilitySnapshotRecord,
     EngineCapabilityEvidenceRecord, EngineCapabilityStatus,
     GameWindowPlacementRecord, GameWindowRuntimeSnapshotBatchCommitInputRecord,

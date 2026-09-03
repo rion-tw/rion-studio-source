@@ -28,7 +28,10 @@ import {
   selectVisibleNativeUploadFile,
   writeVisibleFileUploadEvidence
 } from "../support/native-file-upload";
-import { closeVisibleRuntimeTab } from "../support/native-runtime-tabs";
+import {
+  closeVisibleRuntimeTab,
+  closeVisibleRuntimeWindow
+} from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
@@ -758,12 +761,11 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expect(popupRestored.popups).toEqual(popupBefore!.popups);
 
   const popup = popupRestored.popups[0]!;
-  await closeVisibleRuntimeTab({
+  await closeVisibleRuntimeWindow({
     mainWindowHandle,
     platform,
     tabId: popup.popupId,
-    tabName: new URL(popupUrl()).hostname,
-    windowId: before.windowId
+    tabName: new URL(popupUrl()).hostname
   });
   let restoredParent: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {

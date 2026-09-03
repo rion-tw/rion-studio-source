@@ -109,6 +109,7 @@ fn verified_migration_transition(
     }
 }
 
+#[cfg(any(target_os = "macos", windows))]
 fn publish_empty_session_transfer_vault(
     core: &AppCore,
     role_id: &str,
@@ -121,6 +122,7 @@ fn publish_empty_session_transfer_vault(
         .unwrap()
 }
 
+#[cfg(any(target_os = "macos", windows))]
 fn empty_session_transfer_envelope(
     role_id: &str,
     transfer_id: &str,
@@ -146,6 +148,7 @@ fn empty_session_transfer_envelope(
     }
 }
 
+#[cfg(any(target_os = "macos", windows))]
 fn target_migration_transition(
     role_id: &str,
     transfer_id: &str,
@@ -172,6 +175,32 @@ fn target_migration_transition(
         .then(|| format!("chromium-cookie-flush:{transfer_id}:1")),
         occurred_at: occurred_at.to_owned(),
     }
+}
+
+#[cfg(target_os = "macos")]
+fn native_session_migration_test_runtime() -> (
+    &'static str,
+    crate::RoleSessionMigrationPlatform,
+    crate::RoleSessionMigrationEngine,
+) {
+    (
+        "darwin",
+        crate::RoleSessionMigrationPlatform::Macos,
+        crate::RoleSessionMigrationEngine::Wkwebview,
+    )
+}
+
+#[cfg(windows)]
+fn native_session_migration_test_runtime() -> (
+    &'static str,
+    crate::RoleSessionMigrationPlatform,
+    crate::RoleSessionMigrationEngine,
+) {
+    (
+        "win32",
+        crate::RoleSessionMigrationPlatform::Windows,
+        crate::RoleSessionMigrationEngine::Webview2,
+    )
 }
 
 #[test]
@@ -633,19 +662,22 @@ fn failed_chromium_navigation_keeps_the_downgrade_fence_and_v22_rolls_back_its_b
     stable.shutdown();
 }
 
+#[cfg(any(target_os = "macos", windows))]
 #[test]
 fn import_admission_rejects_v22_and_opposite_platform_without_advancing() {
+    let (platform, migration_platform, source_engine) = native_session_migration_test_runtime();
     let directory = tempfile::tempdir().unwrap();
-    let stable =
-        Arc::new(AppCore::create(migration_gate_options(directory.path(), "darwin", 22)).unwrap());
+    let stable = Arc::new(
+        AppCore::create(migration_gate_options(directory.path(), platform, 22)).unwrap(),
+    );
     let role_id = create_role(&stable, &first_game_id(&stable), 1);
     let transfer_id = uuid::Uuid::new_v4().to_string();
     stable
         .start_role_session_migration(crate::RoleSessionMigrationStartInput {
             role_id: role_id.clone(),
             transfer_id: transfer_id.clone(),
-            platform: crate::RoleSessionMigrationPlatform::Macos,
-            source_engine: crate::RoleSessionMigrationEngine::Wkwebview,
+            platform: migration_platform,
+            source_engine,
             target_engine: crate::RoleSessionMigrationEngine::Chromium,
             source_revision: 1,
         })
@@ -686,8 +718,8 @@ fn import_admission_rejects_v22_and_opposite_platform_without_advancing() {
         &stable,
         &role_id,
         &transfer_id,
-        crate::RoleSessionMigrationPlatform::Macos,
-        crate::RoleSessionMigrationEngine::Wkwebview,
+        migration_platform,
+        source_engine,
     );
     assert_eq!(
         stable
@@ -738,8 +770,14 @@ fn import_admission_rejects_v22_and_opposite_platform_without_advancing() {
     );
     stable.shutdown();
 
-    let wrong_platform =
-        Arc::new(AppCore::create(migration_gate_options(directory.path(), "win32", 23)).unwrap());
+    let opposite_platform = if platform == "darwin" {
+        "win32"
+    } else {
+        "darwin"
+    };
+    let wrong_platform = Arc::new(
+        AppCore::create(migration_gate_options(directory.path(), opposite_platform, 23)).unwrap(),
+    );
     assert_eq!(
         wrong_platform
             .begin_role_session_migration_import_internal(input)
@@ -754,20 +792,21 @@ fn import_admission_rejects_v22_and_opposite_platform_without_advancing() {
     wrong_platform.shutdown();
 }
 
+#[cfg(any(target_os = "macos", windows))]
 #[test]
 fn source_privileged_boundaries_require_exact_v22_without_mutating_journal_or_vault() {
+    let (platform, migration_platform, source_engine) = native_session_migration_test_runtime();
     for runtime_contract_version in [21, 23] {
         let directory = tempfile::tempdir().unwrap();
-        let stable = Arc::new(
-            AppCore::create(migration_gate_options(directory.path(), "darwin", 22)).unwrap(),
-        );
+        let stable =
+            Arc::new(AppCore::create(migration_gate_options(directory.path(), platform, 22)).unwrap());
         let role_id = create_role(&stable, &first_game_id(&stable), 1);
         let transfer_id = uuid::Uuid::new_v4().to_string();
         let start = crate::RoleSessionMigrationStartInput {
             role_id: role_id.clone(),
             transfer_id: transfer_id.clone(),
-            platform: crate::RoleSessionMigrationPlatform::Macos,
-            source_engine: crate::RoleSessionMigrationEngine::Wkwebview,
+            platform: migration_platform,
+            source_engine,
             target_engine: crate::RoleSessionMigrationEngine::Chromium,
             source_revision: 1,
         };
@@ -775,8 +814,8 @@ fn source_privileged_boundaries_require_exact_v22_without_mutating_journal_or_va
         let envelope = empty_session_transfer_envelope(
             &role_id,
             &transfer_id,
-            crate::RoleSessionMigrationPlatform::Macos,
-            crate::RoleSessionMigrationEngine::Wkwebview,
+            migration_platform,
+            source_engine,
         );
         let canonical_envelope = envelope.canonical_envelope_json().unwrap();
         let evidence = stable
@@ -798,7 +837,7 @@ fn source_privileged_boundaries_require_exact_v22_without_mutating_journal_or_va
 
         let unauthorized = AppCore::create(migration_gate_options(
             directory.path(),
-            "darwin",
+            platform,
             runtime_contract_version,
         ))
         .unwrap();
@@ -879,19 +918,22 @@ fn source_privileged_boundaries_require_exact_v22_without_mutating_journal_or_va
     }
 }
 
+#[cfg(any(target_os = "macos", windows))]
 #[test]
 fn exported_exact_replay_reauthenticates_a_deleted_or_replaced_committed_vault() {
+    let (platform, migration_platform, source_engine) = native_session_migration_test_runtime();
     let directory = tempfile::tempdir().unwrap();
-    let stable =
-        Arc::new(AppCore::create(migration_gate_options(directory.path(), "darwin", 22)).unwrap());
+    let stable = Arc::new(
+        AppCore::create(migration_gate_options(directory.path(), platform, 22)).unwrap(),
+    );
     let role_id = create_role(&stable, &first_game_id(&stable), 1);
     let transfer_id = uuid::Uuid::new_v4().to_string();
     stable
         .start_role_session_migration(crate::RoleSessionMigrationStartInput {
             role_id: role_id.clone(),
             transfer_id: transfer_id.clone(),
-            platform: crate::RoleSessionMigrationPlatform::Macos,
-            source_engine: crate::RoleSessionMigrationEngine::Wkwebview,
+            platform: migration_platform,
+            source_engine,
             target_engine: crate::RoleSessionMigrationEngine::Chromium,
             source_revision: 1,
         })
@@ -900,8 +942,8 @@ fn exported_exact_replay_reauthenticates_a_deleted_or_replaced_committed_vault()
         &stable,
         &role_id,
         &transfer_id,
-        crate::RoleSessionMigrationPlatform::Macos,
-        crate::RoleSessionMigrationEngine::Wkwebview,
+        migration_platform,
+        source_engine,
     );
     let export = verified_migration_transition(
         &role_id,
@@ -963,19 +1005,22 @@ fn exported_exact_replay_reauthenticates_a_deleted_or_replaced_committed_vault()
     stable.shutdown();
 }
 
+#[cfg(any(target_os = "macos", windows))]
 #[test]
 fn a_fully_verified_import_journal_allows_launch_without_new_role_evidence() {
+    let (platform, migration_platform, source_engine) = native_session_migration_test_runtime();
     let directory = tempfile::tempdir().unwrap();
-    let stable =
-        Arc::new(AppCore::create(migration_gate_options(directory.path(), "darwin", 22)).unwrap());
+    let stable = Arc::new(
+        AppCore::create(migration_gate_options(directory.path(), platform, 22)).unwrap(),
+    );
     let role_id = create_role(&stable, &first_game_id(&stable), 1);
     let transfer_id = uuid::Uuid::new_v4().to_string();
     stable
         .start_role_session_migration(crate::RoleSessionMigrationStartInput {
             role_id: role_id.clone(),
             transfer_id: transfer_id.clone(),
-            platform: crate::RoleSessionMigrationPlatform::Macos,
-            source_engine: crate::RoleSessionMigrationEngine::Wkwebview,
+            platform: migration_platform,
+            source_engine,
             target_engine: crate::RoleSessionMigrationEngine::Chromium,
             source_revision: 1,
         })
@@ -984,8 +1029,8 @@ fn a_fully_verified_import_journal_allows_launch_without_new_role_evidence() {
         &stable,
         &role_id,
         &transfer_id,
-        crate::RoleSessionMigrationPlatform::Macos,
-        crate::RoleSessionMigrationEngine::Wkwebview,
+        migration_platform,
+        source_engine,
     );
     stable
         .transition_role_session_migration(verified_migration_transition(
@@ -1000,8 +1045,9 @@ fn a_fully_verified_import_journal_allows_launch_without_new_role_evidence() {
         .unwrap();
     stable.shutdown();
 
-    let chromium =
-        Arc::new(AppCore::create(migration_gate_options(directory.path(), "darwin", 23)).unwrap());
+    let chromium = Arc::new(
+        AppCore::create(migration_gate_options(directory.path(), platform, 23)).unwrap(),
+    );
     let bypass = verified_migration_transition(
         &role_id,
         &transfer_id,
@@ -1112,7 +1158,7 @@ fn a_fully_verified_import_journal_allows_launch_without_new_role_evidence() {
     );
     chromium
         .invoke(CoreCommand::BrowserRuntimeRegister {
-            registration: chromium_registration("darwin", true),
+            registration: chromium_registration(platform, true),
         })
         .unwrap();
     let (launch, actions) = drive_command(

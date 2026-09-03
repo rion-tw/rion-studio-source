@@ -1,15 +1,3 @@
-fn stable_system_webview_window_projection_supported(
-    windows: &[EmbeddedRuntimeWindowProjectionRecord],
-) -> bool {
-    windows.iter().all(|window| {
-        window.tab_ids.is_empty()
-            && window.tab_phases.is_empty()
-            && window.hidden_tab_ids.is_empty()
-            && window.workspace_tabs.is_empty()
-            && window.active_tab_id.is_none()
-    })
-}
-
 impl SystemRuntimeExecutor {
     async fn apply_event_bound_close(
         &self,
@@ -260,18 +248,16 @@ impl SystemRuntimeExecutor {
             CoreEffectAction::EmbeddedFollowRoleOwnership {
                 lifecycle_epoch: _,
                 roles,
-                windows,
+                windows: _,
                 target,
                 reveal_window_ids,
                 focus_window_ids,
                 focus_tab_id,
             } => {
-                if !stable_system_webview_window_projection_supported(&windows) {
-                    return Err(RuntimeError::new(
-                        "CHROMIUM_WINDOW_TOPOLOGY_EFFECT_UNAVAILABLE",
-                        "Core emitted Chromium window topology to the stable System WebView runtime.",
-                    ));
-                }
+                // The shared Core effect also carries its authoritative v23
+                // window projection. The stable v22 executor deliberately
+                // consumes only role ownership and retains its existing
+                // AppKit/WKWebView or Win32/WebView2 presentation path.
                 self.apply_runtime(
                     roles,
                     target,

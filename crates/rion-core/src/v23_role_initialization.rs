@@ -58,33 +58,40 @@ pub(crate) fn prepare_empty_store(
     user_data_dir: &Path,
     evidence: &V23RoleInitializationEvidence,
 ) -> CoreResult<()> {
-    validate_evidence_identity(evidence)?;
-    require_real_directory(user_data_dir)?;
+    validate_evidence_identity(evidence)
+        .map_err(|_| initialization_stage_error("validate-evidence"))?;
+    require_real_directory(user_data_dir)
+        .map_err(|_| initialization_stage_error("validate-user-data-root"))?;
     let roles = user_data_dir.join("roles");
-    ensure_roles_directory(&roles)?;
+    ensure_roles_directory(&roles).map_err(|_| initialization_stage_error("prepare-roles-root"))?;
     let stage = roles.join(format!(
         ".v23-role-initializing-{}-{}",
         evidence.role_id, evidence.transition_id
     ));
     let destination = roles.join(&evidence.role_id);
-    require_absent(&stage)?;
-    require_absent(&destination)?;
+    require_absent(&stage).map_err(|_| initialization_stage_error("require-absent-stage"))?;
+    require_absent(&destination)
+        .map_err(|_| initialization_stage_error("require-absent-destination"))?;
 
     let outcome = (|| {
-        fs::create_dir(&stage).map_err(initialization_io)?;
+        fs::create_dir(&stage).map_err(|_| initialization_stage_error("create-stage"))?;
         let browser = stage.join("browser");
-        fs::create_dir(&browser).map_err(initialization_io)?;
+        fs::create_dir(&browser).map_err(|_| initialization_stage_error("create-browser-root"))?;
         for name in ["system", "webview2", "chromium"] {
-            fs::create_dir(browser.join(name)).map_err(initialization_io)?;
+            fs::create_dir(browser.join(name))
+                .map_err(|_| initialization_stage_error("create-engine-store"))?;
         }
         let marker = stage.join(MARKER_FILE_NAME);
-        write_marker(&marker, evidence)?;
+        write_marker(&marker, evidence).map_err(|_| initialization_stage_error("write-marker"))?;
         rion_platform::restrict_directory_to_current_user(&stage)
-            .map_err(|_| initialization_error())?;
-        verify_tree(&stage, evidence, true)?;
-        fs::rename(&stage, &destination).map_err(initialization_io)?;
-        sync_directory(&roles)?;
+            .map_err(|_| initialization_stage_error("protect-stage"))?;
+        verify_tree(&stage, evidence, true)
+            .map_err(|_| initialization_stage_error("verify-stage"))?;
+        fs::rename(&stage, &destination)
+            .map_err(|_| initialization_stage_error("publish-role-tree"))?;
+        sync_directory(&roles).map_err(|_| initialization_stage_error("sync-roles-root"))?;
         verify_tree(&destination, evidence, true)
+            .map_err(|_| initialization_stage_error("verify-published-tree"))
     })();
 
     if outcome.is_err() {
@@ -315,6 +322,15 @@ fn initialization_error() -> CoreError {
         code: "V23_ROLE_INITIALIZATION_EVIDENCE_INVALID",
         message: "The v23 role initialization evidence is incomplete or changed identity."
             .to_owned(),
+    }
+}
+
+fn initialization_stage_error(stage: &'static str) -> CoreError {
+    CoreError::Domain {
+        code: "V23_ROLE_INITIALIZATION_EVIDENCE_INVALID",
+        message: format!(
+            "The v23 role initialization evidence is incomplete or changed identity (stage: {stage})."
+        ),
     }
 }
 

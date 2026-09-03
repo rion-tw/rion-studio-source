@@ -140,7 +140,14 @@ fn empty_session_transfer_envelope(
             source_engine,
             target_engine: crate::RoleSessionMigrationEngine::Chromium,
             source_revision: 1,
-            source_evidence: None,
+            source_evidence: (platform == crate::RoleSessionMigrationPlatform::Windows)
+                .then(|| crate::RoleSessionTransferSourceEvidenceRecord {
+                    kind: crate::RoleSessionTransferSourceEvidenceKind::Webview2StorageGetCookies,
+                    runtime_version: "151.0.3900.0".to_owned(),
+                    protocol_version: "1.3".to_owned(),
+                    partition_capability:
+                        crate::RoleSessionTransferCookiePartitionCapability::NetworkCookiePartitionKeyAndOpaque,
+                }),
         },
         inventory: crate::RoleSessionTransferInventoryRecord {
             cookies: Vec::new(),

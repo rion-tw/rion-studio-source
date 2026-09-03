@@ -149,6 +149,15 @@ fn chrome_profile_ready_evidence(
     }
 }
 
+fn path_ends_with_role_chromium_store(path: &str, role_id: &str) -> bool {
+    std::path::Path::new(path).ends_with(
+        std::path::Path::new("roles")
+            .join(role_id)
+            .join("browser")
+            .join("chromium"),
+    )
+}
+
 fn unused_chrome_profile_role_input(core: &AppCore) -> crate::model::RoleCreateInputRecord {
     crate::model::RoleCreateInputRecord {
         game_id: flyff_game_id(core),
@@ -184,10 +193,10 @@ fn chromium_import_contract_fences_pending_role_path_vault_and_fresh_process_com
     assert_eq!(descriptor.cookie_count, 1);
     assert_eq!(descriptor.local_storage_count, 1);
     assert_eq!(descriptor.unsupported.partitioned_cookie_count, 2);
-    assert!(descriptor
-        .role_paths
-        .chromium_user_data_dir
-        .ends_with(&format!("roles/{role_id}/browser/chromium")));
+    assert!(path_ends_with_role_chromium_store(
+        &descriptor.role_paths.chromium_user_data_dir,
+        &role_id,
+    ));
     assert!(core
         .acquire_chrome_profile_import_transaction_internal(
             crate::ChromeProfileImportTransactionAcquireInput {
@@ -757,7 +766,7 @@ fn v23_recovery_after_restart_applies_only_the_exact_encrypted_backup_fence() {
         } if current_role == &role_id
             && current_transaction == &transaction_id
             && phase == "applying"
-            && path.ends_with(&format!("roles/{role_id}/browser/chromium"))
+            && path_ends_with_role_chromium_store(path, &role_id)
     )));
     assert!(core
         .with_runtime(|runtime| runtime.state.operation_journals())

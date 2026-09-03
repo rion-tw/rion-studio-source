@@ -827,6 +827,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
 
     if (platform === "macos") {
       await closeVisibleRuntimeTab({
+        deferMacosRendererVerification: true,
         mainWindowHandle,
         macosCloseEvidence: pendingPopupParentCloseEvidence,
         platform,
@@ -835,6 +836,14 @@ async function exerciseContainedFullscreen(input: Readonly<{
         tabName: WORKSPACE_NAME,
         windowId: before.windowId
       });
+      expect(await waitFixtureEvent({
+        afterSequence: transportCursor,
+        kind: "gated-navigation-transport-cancelled",
+        roleId: POPUP_FIXTURE_ID
+      })).toEqual(expect.objectContaining({
+        kind: "gated-navigation-transport-cancelled",
+        roleId: POPUP_FIXTURE_ID
+      }));
       await restoreElectronMainWindowTarget(mainWindowHandle);
     }
 
@@ -909,14 +918,16 @@ async function exerciseContainedFullscreen(input: Readonly<{
       parent: nativeReady.parent,
       phase: "closing"
     }));
-    expect(await waitFixtureEvent({
-      afterSequence: transportCursor,
-      kind: "gated-navigation-transport-cancelled",
-      roleId: POPUP_FIXTURE_ID
-    })).toEqual(expect.objectContaining({
-      kind: "gated-navigation-transport-cancelled",
-      roleId: POPUP_FIXTURE_ID
-    }));
+    if (platform === "windows") {
+      expect(await waitFixtureEvent({
+        afterSequence: transportCursor,
+        kind: "gated-navigation-transport-cancelled",
+        roleId: POPUP_FIXTURE_ID
+      })).toEqual(expect.objectContaining({
+        kind: "gated-navigation-transport-cancelled",
+        roleId: POPUP_FIXTURE_ID
+      }));
+    }
   } finally {
     await fixtureRequest("/api/release", { roleId: POPUP_FIXTURE_ID });
   }

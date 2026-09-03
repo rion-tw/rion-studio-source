@@ -44,7 +44,8 @@ export async function assertDirectoryNodeIdentity(directoryPath, expected, label
   }
   const actual = await lstat(directoryPath, { bigint: true });
   if (!actual.isDirectory() || actual.isSymbolicLink() ||
-      actual.dev !== expected.dev || actual.ino !== expected.ino) {
+      actual.dev !== expected.dev || actual.ino !== expected.ino ||
+      actual.birthtimeNs !== expected.birthtimeNs) {
     throw new Error(`The ${label} identity changed during materialization.`);
   }
 }
@@ -58,7 +59,8 @@ export async function removeMaterializationRootIfSame(outputRoot, expected) {
     throw error;
   }
   if (!actual.isDirectory() || actual.isSymbolicLink() ||
-      actual.dev !== expected.dev || actual.ino !== expected.ino) {
+      actual.dev !== expected.dev || actual.ino !== expected.ino ||
+      actual.birthtimeNs !== expected.birthtimeNs) {
     return;
   }
   await rm(outputRoot, { force: false, recursive: true });

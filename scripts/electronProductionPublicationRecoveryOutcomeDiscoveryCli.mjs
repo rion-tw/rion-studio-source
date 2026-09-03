@@ -287,8 +287,9 @@ async function materializeLatestOutcome(
     identity = { dev: opened.dev, ino: opened.ino };
     await handle.writeFile(source);
     await handle.sync();
-    await handle.close();
-    handle = null;
+    // Retain the original handle until the post-write path identity check.
+    // Otherwise an unlink/create race may reuse the just-freed inode and make
+    // a detached replacement appear to be the file we created.
     const reread = await rereadLatestFile(
       outputPath,
       ELECTRON_PRODUCTION_PUBLICATION_RECOVERY_MAX_OUTCOME_BYTES,
@@ -304,6 +305,8 @@ async function materializeLatestOutcome(
     ) {
       throw new Error("The latest recovery outcome inode changed after materialization.");
     }
+    await handle.close();
+    handle = null;
     return Object.freeze({
       path: outputPath,
       identity,

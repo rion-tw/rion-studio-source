@@ -268,7 +268,8 @@ async function closeMacosAppKitTab(
   tabId: string,
   tabName: string,
   exactProcessId?: number,
-  preloadedEvidence?: VisibleMacosRuntimeTabCloseEvidence
+  preloadedEvidence?: VisibleMacosRuntimeTabCloseEvidence,
+  deferRendererVerification = false
 ): Promise<void> {
   if (exactProcessId !== undefined &&
       (!Number.isSafeInteger(exactProcessId) || exactProcessId < 1)) {
@@ -282,6 +283,9 @@ async function closeMacosAppKitTab(
   if (evidence.tabId !== tabId || evidence.windowId !== windowId ||
       !Number.isFinite(evidence.x) || !Number.isFinite(evidence.y)) {
     throw new Error("The preloaded AppKit tab close evidence changed identity");
+  }
+  if (deferRendererVerification && preloadedEvidence === undefined) {
+    throw new Error("A deferred AppKit close requires preloaded native evidence");
   }
   const expectedWindowIdentifier =
     `com.rionstudio.runtime.appkit-window.v1:${windowId}`;
@@ -310,6 +314,7 @@ on run argv
   end tell
 end run`, expectedWindowIdentifier, processId);
   await clickMacosScreenPoint(evidence.x, evidence.y);
+  if (deferRendererVerification) return;
   await switchTrackedWindow(mainWindowHandle);
   await browser.waitUntil(async () => {
     const observed = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime;
@@ -384,6 +389,7 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
 
 /** Closes one exact tab through its retained AppKit or bundled Windows chrome. */
 export async function closeVisibleRuntimeTab(input: Readonly<{
+  deferMacosRendererVerification?: boolean;
   mainWindowHandle: string;
   macosCloseEvidence?: VisibleMacosRuntimeTabCloseEvidence;
   platform: "macos" | "windows";
@@ -399,7 +405,8 @@ export async function closeVisibleRuntimeTab(input: Readonly<{
       input.tabId,
       input.tabName,
       input.processId,
-      input.macosCloseEvidence
+      input.macosCloseEvidence,
+      input.deferMacosRendererVerification
     );
     return;
   }

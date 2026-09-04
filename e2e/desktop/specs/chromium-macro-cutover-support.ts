@@ -440,7 +440,11 @@ export async function showChromiumMacroWindow(window: GameWindow): Promise<void>
 export async function launchChromiumRoleVisible(
   role: Role,
   fixtureId: string,
-  window: Readonly<Pick<GameWindow, "id"> & Partial<Pick<GameWindow, "name">>>
+  window: Readonly<Pick<GameWindow, "id"> & Partial<Pick<GameWindow, "name">>>,
+  options?: Readonly<{
+    /** Runs after remote readiness but before WebDriver re-enters the launcher. */
+    beforeRendererInspection?: () => Promise<void>;
+  }>
 ): Promise<ChromiumRoleTab> {
   await openChromiumSection("Home", "/dashboard");
   await $("[data-testid='quick-access-trigger']").click();
@@ -462,26 +466,34 @@ export async function launchChromiumRoleVisible(
     "physical"
   );
   let projectionOutcome = "pending";
-  const projection = waitForRoleProjection({
-    afterSequence: projectionAfter,
-    roleId: role.id,
-    state: "running"
-  }).then(
-    () => {
+  const waitProjection = async (): Promise<void> => {
+    try {
+      await waitForRoleProjection({
+        afterSequence: projectionAfter,
+        roleId: role.id,
+        state: "running"
+      });
       projectionOutcome = "fulfilled";
-    },
-    (error: unknown) => {
+    } catch (error) {
       projectionOutcome = error instanceof Error
         ? `rejected:${error.name}:${error.message}`
         : `rejected:${String(error)}`;
       throw error;
     }
-  );
+  };
   try {
-    await Promise.all([
-      waitFixtureEvent({ afterSequence: fixtureAfter, kind: "session", roleId: fixtureId }),
-      projection
-    ]);
+    const sessionReady = waitFixtureEvent({
+      afterSequence: fixtureAfter,
+      kind: "session",
+      roleId: fixtureId
+    });
+    if (options?.beforeRendererInspection) {
+      await sessionReady;
+      await options.beforeRendererInspection();
+      await waitProjection();
+    } else {
+      await Promise.all([sessionReady, waitProjection()]);
+    }
   } catch (error) {
     const diagnostic = await chromiumRoleLaunchDiagnostic(
       role.id,

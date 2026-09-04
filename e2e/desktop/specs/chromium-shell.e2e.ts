@@ -8,11 +8,17 @@ import {
   type ElectronDesktopE2eApplicationShortcutRuntimeInspection
 } from "../support/electron-driver";
 import {
+  focusVisibleMacosAppKitRuntime,
   pressVisibleMacosApplicationShortcut,
-  pressVisibleWindowsApplicationShortcut
+  pressVisibleWindowsApplicationShortcut,
+  waitForFocusedMacosAppKitRuntime
 } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
+import {
+  installRuntimeTabShellErrorJournal,
+  runtimeTabShellErrors
+} from "../support/native-runtime-tabs";
 import {
   bootstrapChromiumMacroCutover,
   launchChromiumRoleVisible,
@@ -90,8 +96,16 @@ async function waitApplicationShortcutRuntime(
       }
     }, { timeout: 20_000, timeoutMsg });
   } catch (error) {
+    let shellErrors: readonly unknown[] = [];
+    try {
+      shellErrors = await runtimeTabShellErrors();
+    } catch {
+      // Preserve the authoritative runtime timeout when the diagnostic sender
+      // has already retired with the failed desktop phase.
+    }
     throw new Error(
-      `${timeoutMsg}; last coherent runtime=${JSON.stringify(inspection ?? null)}`,
+      `${timeoutMsg}; last coherent runtime=${JSON.stringify(inspection ?? null)}; ` +
+        `shell errors=${JSON.stringify(shellErrors.slice(-8))}`,
       { cause: error }
     );
   }
@@ -107,7 +121,6 @@ function expectStableShortcutOwners(
   expect(current.nativeWindow).toEqual(expect.objectContaining({
     activeTabId: initial.nativeWindow.activeTabId,
     appKitIdentity: initial.nativeWindow.appKitIdentity,
-    focused: true,
     hostKind: initial.nativeWindow.hostKind,
     parentNativeHostId: initial.nativeWindow.parentNativeHostId,
     tabIds: initial.nativeWindow.tabIds,
@@ -115,6 +128,7 @@ function expectStableShortcutOwners(
     windowGeneration: initial.nativeWindow.windowGeneration,
     windowId: initial.windowId
   }));
+  if (platform === "windows") expect(current.nativeWindow.focused).toBe(true);
   expect(current.roleSurfaces.map((surface) => ({
     baseZoomFactor: surface.baseZoomFactor,
     generation: surface.generation,
@@ -246,17 +260,26 @@ async function createFocusedApplicationShortcutRuntime(input: Readonly<{
     timeoutMsg: "The native New Window shortcut did not create one exact empty Game Window"
   });
   if (!windowId) throw new Error("The native New Window Game Window is unavailable");
+  const exactWindowId = windowId;
   expect((await rendererCall("listGameWindows")).map((window) => window.id))
     .toEqual(persistedWindowIds);
   const launched = await launchChromiumRoleVisible(
     role,
     SHORTCUT_FIXTURE_ID,
-    { id: windowId }
+    { id: exactWindowId },
+    input.platform === "macos" ? {
+      beforeRendererInspection: () => waitForFocusedMacosAppKitRuntime({
+        processId: input.processId,
+        runtimeTabName: SHORTCUT_ROLE_NAME,
+        windowId: exactWindowId
+      })
+    } : undefined
   );
-  expect(launched.windowId).toBe(windowId);
+  expect(launched.windowId).toBe(exactWindowId);
   const initial = await waitApplicationShortcutRuntime(
-    windowId,
-    (runtime) => runtime.nativeWindow.focused && runtime.nativeWindow.visible &&
+    exactWindowId,
+    (runtime) => (input.platform === "macos" || runtime.nativeWindow.focused) &&
+      runtime.nativeWindow.visible &&
       runtime.nativeWindow.activeTabId === launched.tabId &&
       runtime.roleSurfaces.length === 1 && runtime.roleSurfaces[0]?.roleId === role.id &&
       runtime.roleSurfaces[0].visible,
@@ -274,7 +297,7 @@ async function createFocusedApplicationShortcutRuntime(input: Readonly<{
   if (input.platform === "macos") {
     expect(initial.nativeWindow.hostKind).toBe("appkit-chromium");
     expect(initial.nativeWindow.appKitIdentity).toEqual(expect.objectContaining({
-      logicalWindowId: windowId,
+      logicalWindowId: exactWindowId,
       nativeGeneration: expect.any(Number)
     }));
   } else {
@@ -282,7 +305,21 @@ async function createFocusedApplicationShortcutRuntime(input: Readonly<{
     expect(initial.nativeWindow.appKitIdentity).toBeNull();
   }
   expectExactSurfaceZoomFactors(initial);
-  return { windowId, initial };
+  return { initial, windowId: exactWindowId };
+}
+
+async function restoreMacosShortcutFocus(input: Readonly<{
+  fullscreen?: boolean;
+  platform: ChromiumShellPlatform;
+  processId: number;
+  windowId: string;
+}>): Promise<void> {
+  if (input.platform !== "macos") return;
+  await focusVisibleMacosAppKitRuntime({
+    processId: input.processId,
+    ...(input.fullscreen ? {} : { runtimeTabName: SHORTCUT_ROLE_NAME }),
+    windowId: input.windowId
+  });
 }
 
 async function verifyFocusedApplicationShortcuts(input: Readonly<{
@@ -291,6 +328,7 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
 }>): Promise<void> {
   const { windowId, initial } = await createFocusedApplicationShortcutRuntime(input);
   const initialSequence = initial.zoomJournal.observations.at(-1)?.sequence ?? 0;
+  await restoreMacosShortcutFocus({ ...input, windowId });
   await pressApplicationShortcut({
     ...input,
     command: "zoomIn",
@@ -310,6 +348,7 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   expectExactZoomReceipt(initial, zoomed, "in", initialSequence);
 
   const zoomedSequence = zoomed.zoomJournal.observations.at(-1)!.sequence;
+  await restoreMacosShortcutFocus({ ...input, windowId });
   await pressApplicationShortcut({
     ...input,
     command: "zoomReset",
@@ -328,6 +367,7 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   expectExactZoomReceipt(zoomed, reset, "reset", zoomedSequence);
 
   const resetSequence = reset.zoomJournal.observations.at(-1)!.sequence;
+  await restoreMacosShortcutFocus({ ...input, windowId });
   await pressApplicationShortcut({
     ...input,
     command: "toggleFullscreen",
@@ -338,7 +378,8 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
     windowId,
     (runtime) => runtime.nativeWindow.presentation === "fullscreen" &&
       runtime.coreWindow.presentation === "fullscreen" &&
-      runtime.nativeWindow.focused && runtime.nativeWindow.visible,
+      (input.platform === "macos" || runtime.nativeWindow.focused) &&
+      runtime.nativeWindow.visible,
     "The focused native fullscreen shortcut did not reach the exact runtime host"
   );
   expectStableShortcutOwners(fullscreen, initial, input.platform);
@@ -346,6 +387,7 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   expectExactSurfaceZoomFactors(fullscreen);
   expect(fullscreen.zoomJournal.observations.at(-1)?.sequence).toBe(resetSequence);
 
+  await restoreMacosShortcutFocus({ ...input, fullscreen: true, windowId });
   await pressApplicationShortcut({
     ...input,
     command: "toggleFullscreen",
@@ -356,7 +398,8 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
     windowId,
     (runtime) => runtime.nativeWindow.presentation === "normal" &&
       runtime.coreWindow.presentation === "normal" &&
-      runtime.nativeWindow.focused && runtime.nativeWindow.visible,
+      (input.platform === "macos" || runtime.nativeWindow.focused) &&
+      runtime.nativeWindow.visible,
     "The focused native fullscreen shortcut did not restore the exact runtime host"
   );
   expectStableShortcutOwners(restored, initial, input.platform);
@@ -404,6 +447,7 @@ describe("Chromium desktop shell", () => {
 
     const root = await $("#root");
     await expect(root).toExist();
+    await installRuntimeTabShellErrorJournal();
     const desktop = await electronDesktopE2eProbe();
     await verifyFocusedApplicationShortcuts({
       platform: desktop.platform,

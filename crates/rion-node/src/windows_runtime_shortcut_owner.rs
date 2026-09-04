@@ -73,7 +73,12 @@ fn classify_f11_transition(
 ) -> (WindowsRuntimeF11Action, bool) {
     if released {
         return if captured_down {
-            (WindowsRuntimeF11Action::Consume, false)
+            // The key-up is the exact terminal event for the captured native
+            // chord. Dispatch only after SendInput and the low-level hook have
+            // finished the complete key cycle; entering Chromium fullscreen
+            // from the key-down callback can otherwise remain re-entrant with
+            // the originating Windows input transaction.
+            (WindowsRuntimeF11Action::EmitAndConsume, false)
         } else {
             (WindowsRuntimeF11Action::PassThrough, false)
         };
@@ -82,7 +87,7 @@ fn classify_f11_transition(
         return (WindowsRuntimeF11Action::Consume, true);
     }
     if plain_f11 {
-        (WindowsRuntimeF11Action::EmitAndConsume, true)
+        (WindowsRuntimeF11Action::Consume, true)
     } else {
         (WindowsRuntimeF11Action::PassThrough, false)
     }
@@ -782,7 +787,7 @@ mod tests {
     fn f11_transition_owns_one_plain_key_cycle_without_stealing_modifiers() {
         assert_eq!(
             classify_f11_transition(true, false, false),
-            (WindowsRuntimeF11Action::EmitAndConsume, true)
+            (WindowsRuntimeF11Action::Consume, true)
         );
         assert_eq!(
             classify_f11_transition(false, false, true),
@@ -790,7 +795,7 @@ mod tests {
         );
         assert_eq!(
             classify_f11_transition(false, true, true),
-            (WindowsRuntimeF11Action::Consume, false)
+            (WindowsRuntimeF11Action::EmitAndConsume, false)
         );
         assert_eq!(
             classify_f11_transition(false, false, false),

@@ -167,6 +167,110 @@ export type VisibleApplicationShortcutTargetMode =
   | "focused-runtime"
   | "launcher";
 
+async function settleMacosAppKitRuntimeFocus(input: Readonly<{
+  activate: boolean;
+  processId: number;
+  runtimeTabName?: string;
+  windowId: string;
+}>): Promise<void> {
+  if (
+    process.platform !== "darwin" || !validProcessId(input.processId) ||
+    input.windowId.trim() !== input.windowId || input.windowId.length === 0 ||
+    (input.runtimeTabName !== undefined &&
+      (input.runtimeTabName.trim() !== input.runtimeTabName ||
+        input.runtimeTabName.length === 0))
+  ) {
+    throw new Error("The AppKit runtime focus fence is invalid");
+  }
+  const expectedWindowIdentifier =
+    `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
+  const script = String.raw`
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  set expectedWindowIdentifier to item 2 of argv
+  set runtimeTabName to item 3 of argv
+  set shouldActivate to item 4 of argv is "activate"
+  set expiry to (current date) + 10
+  tell application "System Events"
+    set matchingProcesses to application processes whose unix id is targetPid
+    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
+    set targetProcess to item 1 of matchingProcesses
+    repeat
+      set targetWindow to missing value
+      set targetCount to 0
+      repeat with appWindow in windows of targetProcess
+        try
+          if value of attribute "AXIdentifier" of appWindow is expectedWindowIdentifier then
+            set targetWindow to appWindow
+            set targetCount to targetCount + 1
+          end if
+        end try
+      end repeat
+      if targetCount is greater than 1 then error "ambiguous exact AppKit runtime window"
+      if targetCount is 1 then
+        if shouldActivate then
+          set frontmost of targetProcess to true
+          perform action "AXRaise" of targetWindow
+        end if
+        set focusedWindow to missing value
+        set mainWindow to missing value
+        try
+          set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
+          set mainWindow to value of attribute "AXMainWindow" of targetProcess
+        end try
+        if frontmost of targetProcess is true and focusedWindow is targetWindow and mainWindow is targetWindow then
+          set matchingTabCount to 0
+          if runtimeTabName is not "" then
+            set runtimeElements to get entire contents of targetWindow
+            repeat with candidateReference in runtimeElements
+              set candidate to contents of candidateReference
+              try
+                if value of attribute "AXRole" of candidate is "AXRadioButton" and value of attribute "AXDescription" of candidate is runtimeTabName then
+                  set matchingTabCount to matchingTabCount + 1
+                end if
+              end try
+            end repeat
+          else
+            set matchingTabCount to 1
+          end if
+          if matchingTabCount is 1 then return "focused"
+          if matchingTabCount is greater than 1 then error "ambiguous exact AppKit runtime tab"
+        end if
+      end if
+      if (current date) is greater than expiry then error "exact AppKit runtime focus did not settle"
+      delay 0.05
+    end repeat
+  end tell
+end run`;
+  await executeFile("/usr/bin/osascript", [
+    "-e",
+    script,
+    "--",
+    String(input.processId),
+    expectedWindowIdentifier,
+    input.runtimeTabName ?? "",
+    input.activate ? "activate" : "observe"
+  ], { encoding: "utf8", timeout: 15_000 });
+}
+
+/** Observes Quick Access' exact AppKit focus result without touching the launcher. */
+export function waitForFocusedMacosAppKitRuntime(input: Readonly<{
+  processId: number;
+  runtimeTabName: string;
+  windowId: string;
+}>): Promise<void> {
+  return settleMacosAppKitRuntimeFocus({ ...input, activate: false });
+}
+
+/** Restores the exact visible AppKit host after a diagnostic launcher read. */
+export function focusVisibleMacosAppKitRuntime(input: Readonly<{
+  processId: number;
+  runtimeTabName?: string;
+  windowId: string;
+}>): Promise<void> {
+  return settleMacosAppKitRuntimeFocus({ ...input, activate: true });
+}
+
 /** Sends one native accelerator to the selected exact-PID macOS window mode. */
 export async function pressVisibleMacosApplicationShortcut(input: Readonly<{
   command: VisibleMacosApplicationShortcut;

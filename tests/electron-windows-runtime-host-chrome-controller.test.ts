@@ -1000,4 +1000,34 @@ describe("Windows runtime-host chrome controller", () => {
         code: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_OBSERVER_INVALID"
       }));
   });
+
+  it("does not persist transition resize events as user placement", async () => {
+    const subject = harness();
+    const placement = vi.fn(async () => undefined);
+    subject.controller.bindPlacement(placement);
+    await subject.controller.applyCoreProjection({
+      activeTabId: tabId,
+      contentBounds: { height: 640, width: 960, x: 0, y: 40 },
+      moveTargets: [],
+      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      topologyRevision: 9,
+      windowGeneration: 4,
+      workspaceDividers: [],
+      windowId
+    });
+
+    const fullscreen = subject.controller.setPresentation({
+      presentation: "fullscreen",
+      topologyRevision: 9,
+      windowGeneration: 4,
+      windowId
+    });
+    await subject.controller.nativeBoundsChanged();
+    expect(placement).not.toHaveBeenCalled();
+
+    await subject.controller.nativePresentationChanged();
+    await fullscreen;
+    await subject.controller.nativeBoundsChanged();
+    expect(placement).toHaveBeenCalledOnce();
+  });
 });

@@ -223,6 +223,7 @@ interface WindowsHostRecord {
   chrome: WindowsRuntimeHostChromeController;
   windowState: WindowsRuntimeWindowStateStream;
   shortcutOwnerInstalled: boolean;
+  lastNativeLayoutSignature: string | null;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -896,7 +897,8 @@ implements ChromiumRuntimeHostFactoryPort {
       popupObserver: null,
       chrome: undefined as unknown as WindowsRuntimeHostChromeController,
       windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
-      shortcutOwnerInstalled: false
+      shortcutOwnerInstalled: false,
+      lastNativeLayoutSignature: null
     };
     record.chrome = new WindowsRuntimeHostChromeController({
       documentUrl: record.documentUrl,
@@ -1477,6 +1479,17 @@ implements ChromiumRuntimeHostFactoryPort {
   }
 
   #publishNativeLayout(record: WindowsHostRecord): void {
+    const signature = JSON.stringify([
+      record.native.getBounds(),
+      record.native.getContentBounds(),
+      record.native.getNormalBounds(),
+      record.native.isFullScreen(),
+      record.native.isMaximized(),
+      record.native.isMinimized(),
+      record.native.isVisible()
+    ]);
+    if (record.lastNativeLayoutSignature === signature) return;
+    record.lastNativeLayoutSignature = signature;
     this.#publishPopupLayout(record);
     void record.chrome.nativeBoundsChanged().catch((error) =>
       this.#onPresentationFailure(record, error)

@@ -1048,7 +1048,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(factory.resolveWindowsInputParent(host)).toBeNull();
   });
 
-  it("publishes move and resize through exact native placement readback", async () => {
+  it("publishes changed native geometry once through exact placement readback", async () => {
     const browserWindows = new FakeBrowserWindows();
     const observations: unknown[] = [];
     const factory = new ChromiumPlatformRuntimeHostFactory({
@@ -1063,6 +1063,8 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const creation = factory.create(target(), tab(target()));
     const window = browserWindows.windows[0]!;
     const host = await finishCreation(creation, window);
+    const relayout = vi.fn(async () => undefined);
+    host.bindRuntimeWindowLayout?.(relayout);
     await host.applyWindowsChromeProjection?.({
       activeTabId: "tab-1",
       contentBounds: { x: 0, y: 40, width: 960, height: 640 },
@@ -1083,7 +1085,10 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     window.contentBounds = { x: 140, y: 110, width: 1000, height: 720 };
     window.liveBounds = { ...window.contentBounds };
     window.emit("move");
+    window.emit("resize");
+    window.emit("resize");
     await vi.waitFor(() => expect(observations).toHaveLength(1));
+    expect(relayout).toHaveBeenCalledOnce();
 
     expect(observations[0]).toEqual({
       nativeHostId: window.id,
@@ -1096,6 +1101,12 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       savedWorkArea: { x: 0, y: 0, width: 1920, height: 1080 },
       presentation: "normal"
     });
+
+    window.contentBounds = { x: 140, y: 110, width: 1024, height: 740 };
+    window.liveBounds = { ...window.contentBounds };
+    window.emit("resize");
+    await vi.waitFor(() => expect(observations).toHaveLength(2));
+    expect(relayout).toHaveBeenCalledTimes(2);
   });
 
   it("projects a hidden popup host and binds exact close/layout receipts", async () => {

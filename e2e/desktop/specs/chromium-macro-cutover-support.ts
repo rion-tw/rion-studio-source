@@ -501,7 +501,9 @@ export async function launchChromiumRoleVisible(
       projectionOutcome
     );
     throw new Error(
-      `Visible Chromium Role launch failed: diagnostic=${JSON.stringify(diagnostic)}`,
+      `Visible Chromium Role launch failed: cause=${JSON.stringify(
+        error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      )}; diagnostic=${JSON.stringify(diagnostic)}`,
       { cause: error }
     );
   }

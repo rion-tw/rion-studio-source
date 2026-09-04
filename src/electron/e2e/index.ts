@@ -51,6 +51,8 @@ import { ChromiumRuntimeEffectExecutor } from
   "../main/chromiumRuntimeEffectExecutor";
 import { ChromiumRuntimeLaunchCoordinator } from
   "../main/chromiumRuntimeLaunchCoordinator";
+import { ChromiumRuntimeNativeWindowController } from
+  "../main/chromiumRuntimeNativeWindowController";
 import type { ChromiumRuntimeExecutorSnapshot } from
   "../main/chromiumRuntimeSnapshot";
 import {
@@ -585,6 +587,53 @@ function installElectronDesktopE2eWorkspaceWebObserver(): void {
       receipt: created.receipt
     }));
     return created;
+  };
+}
+
+function installElectronDesktopE2eNativeWindowControlObserver(): void {
+  const controller = ChromiumRuntimeNativeWindowController.prototype;
+  const originalToggleFullscreenForTab = controller.toggleFullscreenForTab;
+  controller.toggleFullscreenForTab = function (tabId, focusAdmission) {
+    const identity = nextCoreFlowIdentity(`native-fullscreen:${tabId}`);
+    appendCoreFlowObservation({
+      boundary: "native-window-control",
+      details: { focusAdmission: focusAdmission ?? null, tabId },
+      identity,
+      status: "started",
+      type: "toggleFullscreenForTab"
+    });
+    let operation: ReturnType<typeof originalToggleFullscreenForTab>;
+    try {
+      operation = originalToggleFullscreenForTab.call(this, tabId, focusAdmission);
+    } catch (error) {
+      appendCoreFlowObservation({
+        boundary: "native-window-control",
+        error: describeCoreFlowError(error),
+        identity,
+        status: "rejected",
+        type: "toggleFullscreenForTab"
+      });
+      throw error;
+    }
+    return operation.then((result) => {
+      appendCoreFlowObservation({
+        boundary: "native-window-control",
+        details: { result },
+        identity,
+        status: "completed",
+        type: "toggleFullscreenForTab"
+      });
+      return result;
+    }, (error: unknown) => {
+      appendCoreFlowObservation({
+        boundary: "native-window-control",
+        error: describeCoreFlowError(error),
+        identity,
+        status: "rejected",
+        type: "toggleFullscreenForTab"
+      });
+      throw error;
+    });
   };
 }
 
@@ -1605,6 +1654,7 @@ installElectronDesktopE2eNativeAttachmentLifecycleObserver(
 );
 installElectronDesktopE2eTrustedInputObserver();
 installElectronDesktopE2eWorkspaceWebObserver();
+installElectronDesktopE2eNativeWindowControlObserver();
 installElectronDesktopE2ePopupLifecycleObserver();
 installElectronDesktopE2eRolePlaceholderObserver();
 applicationShortcutRuntimeObserver.install();

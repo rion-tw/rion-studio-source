@@ -256,7 +256,7 @@ end run`;
 /** Observes Quick Access' exact AppKit focus result without touching the launcher. */
 export function waitForFocusedMacosAppKitRuntime(input: Readonly<{
   processId: number;
-  runtimeTabName: string;
+  runtimeTabName?: string;
   windowId: string;
 }>): Promise<void> {
   return settleMacosAppKitRuntimeFocus({ ...input, activate: false });

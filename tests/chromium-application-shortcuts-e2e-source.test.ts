@@ -51,6 +51,10 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(e2eMain).toContain(
       "installElectronDesktopE2eNativeAttachmentLifecycleObserver("
     );
+    expect(e2eMain).toContain(
+      "installElectronDesktopE2eNativeWindowControlObserver()"
+    );
+    expect(e2eMain).toContain("toggleFullscreenForTab");
     expect(roleSurfaceLifecycleObserver).toContain('"did-start-navigation"');
     expect(roleSurfaceLifecycleObserver).toContain('"did-fail-provisional-load"');
     expect(roleSurfaceLifecycleObserver).toContain('"render-process-gone"');

@@ -270,7 +270,6 @@ async function createFocusedApplicationShortcutRuntime(input: Readonly<{
     input.platform === "macos" ? {
       beforeRendererInspection: () => waitForFocusedMacosAppKitRuntime({
         processId: input.processId,
-        runtimeTabName: SHORTCUT_ROLE_NAME,
         windowId: exactWindowId
       })
     } : undefined

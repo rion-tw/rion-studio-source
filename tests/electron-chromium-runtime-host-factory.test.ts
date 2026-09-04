@@ -118,7 +118,7 @@ class FakeWebContents {
 }
 
 class FakeWindow {
-  readonly webContents = new FakeWebContents();
+  readonly contents = new FakeWebContents();
   readonly listeners = new Map<string, Set<Listener>>();
   readonly loadedFiles: string[] = [];
   readonly contentView = {
@@ -157,6 +157,11 @@ class FakeWindow {
   get id(): number {
     if (this.destroyed) throw new Error("Object has been destroyed");
     return this.nativeId;
+  }
+
+  get webContents(): FakeWebContents {
+    if (this.destroyed) throw new Error("Object has been destroyed");
+    return this.contents;
   }
 
   close(): void {
@@ -223,7 +228,7 @@ class FakeWindow {
 
   loadFile(path: string): Promise<void> {
     this.loadedFiles.push(path);
-    this.webContents.currentUrl = pathToFileURL(path).href;
+    this.contents.currentUrl = pathToFileURL(path).href;
     return this.loadResult;
   }
 

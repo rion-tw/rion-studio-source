@@ -78,7 +78,8 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(windowOptions).toContain("contextIsolation: true");
     expect(windowOptions).toContain("nodeIntegration: false");
     expect(factory).toContain("WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL");
-    expect(factory).toContain("native.webContents.getURL()");
+    expect(factory).toContain("contents: native.webContents");
+    expect(factory).toContain("record.contents.getURL()");
     expect(controller).toContain("#commandLane");
     expect(controller).toContain("await this.#requestWindowControl(command.type)");
     expect(controller).toContain("this.#pendingMinimize = null");

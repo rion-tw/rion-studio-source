@@ -205,6 +205,7 @@ interface WindowsHostRecord {
   readonly ownerRevision: string;
   readonly target: EmbeddedLaunchTargetRecord;
   readonly native: WindowsRuntimeHostWindowPort;
+  readonly contents: WindowsRuntimeHostWebContentsPort;
   readonly nativeHandle: Buffer;
   readonly nativeId: number;
   readonly documentUrl: string;
@@ -832,7 +833,7 @@ implements ChromiumRuntimeHostFactoryPort {
       return record.creation.promise;
     }
 
-    if (native.webContents.session.storagePath !== null) {
+    if (record.contents.session.storagePath !== null) {
       this.#failCreation(
         record,
         "ELECTRON_RUNTIME_HOST_SESSION_PERSISTENT",
@@ -841,7 +842,7 @@ implements ChromiumRuntimeHostFactoryPort {
       return record.creation.promise;
     }
     try {
-      installDenyByDefaultPolicy(native.webContents);
+      installDenyByDefaultPolicy(record.contents);
       void record.chrome.applyPreferences(this.#windowPreferences).catch((error) => {
         this.#failCreation(
           record,
@@ -880,6 +881,7 @@ implements ChromiumRuntimeHostFactoryPort {
       ownerRevision,
       target,
       native,
+      contents: native.webContents,
       nativeId,
       nativeHandle,
       documentUrl: this.#runtimeDocumentUrl,
@@ -914,7 +916,7 @@ implements ChromiumRuntimeHostFactoryPort {
       requestWorkspaceDividerPointer: this.#onWorkspaceDividerPointer,
       nativeHostId: record.nativeId,
       hostGeneration: record.nativeGeneration,
-      send: (channel, projection) => native.webContents.send(channel, projection),
+      send: (channel, projection) => record.contents.send(channel, projection),
       windowId: record.logicalWindowId
     });
     record.windowState = new WindowsRuntimeWindowStateStream({
@@ -1081,7 +1083,7 @@ implements ChromiumRuntimeHostFactoryPort {
           return;
         }
         void record.chrome.handleCommand(
-          native.webContents.getURL(),
+          record.contents.getURL(),
           args[0]
         ).catch((error) => this.#onCommandError(error));
       },
@@ -1183,7 +1185,7 @@ implements ChromiumRuntimeHostFactoryPort {
   }
 
   #installListeners(record: WindowsHostRecord): void {
-    const { native, listeners } = record;
+    const { contents, native, listeners } = record;
     native.on("blur", listeners.blurred);
     native.on("close", listeners.close);
     native.on("closed", listeners.closed);
@@ -1200,14 +1202,14 @@ implements ChromiumRuntimeHostFactoryPort {
     native.on("show", listeners.shown);
     native.on("unmaximize", listeners.unmaximized);
     native.on("unresponsive", listeners.unresponsive);
-    native.webContents.on("before-input-event", listeners.beforeInputEvent);
-    native.webContents.on("did-fail-load", listeners.didFailLoad);
-    native.webContents.on("did-finish-load", listeners.didFinishLoad);
-    native.webContents.on("ipc-message", listeners.ipcMessage);
-    native.webContents.on("render-process-gone", listeners.renderProcessGone);
-    native.webContents.on("will-attach-webview", listeners.willAttachWebview);
-    native.webContents.on("will-navigate", listeners.willNavigate);
-    native.webContents.on("will-redirect", listeners.willRedirect);
+    contents.on("before-input-event", listeners.beforeInputEvent);
+    contents.on("did-fail-load", listeners.didFailLoad);
+    contents.on("did-finish-load", listeners.didFinishLoad);
+    contents.on("ipc-message", listeners.ipcMessage);
+    contents.on("render-process-gone", listeners.renderProcessGone);
+    contents.on("will-attach-webview", listeners.willAttachWebview);
+    contents.on("will-navigate", listeners.willNavigate);
+    contents.on("will-redirect", listeners.willRedirect);
   }
 
   #installRuntimeShortcutOwner(record: WindowsHostRecord): void {
@@ -1330,7 +1332,7 @@ implements ChromiumRuntimeHostFactoryPort {
 
   #onDidFinishLoad(record: WindowsHostRecord): void {
     if (record.state !== "opening") return;
-    if (record.native.webContents.getURL() !== record.documentUrl) {
+    if (record.contents.getURL() !== record.documentUrl) {
       this.#failCreation(
         record,
         "ELECTRON_RUNTIME_HOST_DOCUMENT_MISMATCH",
@@ -1339,7 +1341,7 @@ implements ChromiumRuntimeHostFactoryPort {
       return;
     }
     try {
-      record.chrome.documentLoaded(record.native.webContents.getURL());
+      record.chrome.documentLoaded(record.contents.getURL());
     } catch {
       this.#failCreation(
         record,
@@ -1564,15 +1566,15 @@ implements ChromiumRuntimeHostFactoryPort {
   }
 
   #removeReadinessListeners(record: WindowsHostRecord): void {
-    const { native, listeners } = record;
+    const { contents, native, listeners } = record;
     native.removeListener("ready-to-show", listeners.readyToShow);
-    native.webContents.removeListener("did-fail-load", listeners.didFailLoad);
-    native.webContents.removeListener("did-finish-load", listeners.didFinishLoad);
+    contents.removeListener("did-fail-load", listeners.didFailLoad);
+    contents.removeListener("did-finish-load", listeners.didFinishLoad);
   }
 
   #removeAllListeners(record: WindowsHostRecord): void {
     this.#removeReadinessListeners(record);
-    const { native, listeners } = record;
+    const { contents, native, listeners } = record;
     native.removeListener("blur", listeners.blurred);
     native.removeListener("close", listeners.close);
     native.removeListener("closed", listeners.closed);
@@ -1588,12 +1590,12 @@ implements ChromiumRuntimeHostFactoryPort {
     native.removeListener("show", listeners.shown);
     native.removeListener("unmaximize", listeners.unmaximized);
     native.removeListener("unresponsive", listeners.unresponsive);
-    native.webContents.removeListener("before-input-event", listeners.beforeInputEvent);
-    native.webContents.removeListener("ipc-message", listeners.ipcMessage);
-    native.webContents.removeListener("render-process-gone", listeners.renderProcessGone);
-    native.webContents.removeListener("will-attach-webview", listeners.willAttachWebview);
-    native.webContents.removeListener("will-navigate", listeners.willNavigate);
-    native.webContents.removeListener("will-redirect", listeners.willRedirect);
+    contents.removeListener("before-input-event", listeners.beforeInputEvent);
+    contents.removeListener("ipc-message", listeners.ipcMessage);
+    contents.removeListener("render-process-gone", listeners.renderProcessGone);
+    contents.removeListener("will-attach-webview", listeners.willAttachWebview);
+    contents.removeListener("will-navigate", listeners.willNavigate);
+    contents.removeListener("will-redirect", listeners.willRedirect);
   }
 
   #nextNativeGeneration(logicalWindowId: string): number {

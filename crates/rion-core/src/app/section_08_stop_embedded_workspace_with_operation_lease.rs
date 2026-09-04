@@ -559,21 +559,11 @@ impl AppCore {
         &self,
         handle: crate::operation_actor::OperationHandle,
         roles: &[StateRoleRecord],
-        tab_id: &str,
-        presentation_intent: EmbeddedLaunchPresentationIntent,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         let launch = self.finish_effect_plan_for_roles(handle, &role_ids);
         let error = match launch {
-            Ok(outcome) => {
-                if self.complete_chromium_runtime_launch(tab_id, &role_ids)? {
-                    self.project_completed_chromium_runtime_launch(
-                        tab_id,
-                        presentation_intent,
-                    )?;
-                }
-                return Ok(outcome);
-            }
+            Ok(outcome) => return Ok(outcome),
             Err(error) => error,
         };
         if matches!(error.code(), "LAUNCH_CANCELLED" | "LAUNCH_PREVIEW_STALE") {
@@ -588,24 +578,13 @@ impl AppCore {
         &self,
         handle: crate::operation_actor::OperationHandle,
         roles: &[StateRoleRecord],
-        tab_id: &str,
-        presentation_intent: EmbeddedLaunchPresentationIntent,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         let launch = self
             .finish_effect_plan_for_roles_async(handle, &role_ids)
             .await;
         let error = match launch {
-            Ok(outcome) => {
-                if self.complete_chromium_runtime_launch(tab_id, &role_ids)? {
-                    self.project_completed_chromium_runtime_launch_async(
-                        tab_id,
-                        presentation_intent,
-                    )
-                    .await?;
-                }
-                return Ok(outcome);
-            }
+            Ok(outcome) => return Ok(outcome),
             Err(error) => error,
         };
         if error.code() == "LAUNCH_CANCELLED" {

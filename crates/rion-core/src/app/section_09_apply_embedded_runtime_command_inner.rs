@@ -168,19 +168,6 @@ impl AppCore {
         Ok(snapshot)
     }
 
-    async fn project_completed_chromium_runtime_launch_async(
-        &self,
-        tab_id: &str,
-        presentation_intent: EmbeddedLaunchPresentationIntent,
-    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        let (snapshot, step) =
-            self.completed_chromium_runtime_projection_step(tab_id, presentation_intent)?;
-        let handle = self.start_effect_plan_for_roles(vec![step], &[])?;
-        self.finish_effect_plan_for_roles_async(handle, &[]).await?;
-        self.emit_browser_statuses();
-        Ok(snapshot)
-    }
-
     fn browser_runtime_snapshot_without_persistence(
         &self,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {

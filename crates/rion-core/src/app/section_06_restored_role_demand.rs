@@ -119,17 +119,18 @@ impl AppCore {
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
-        if let Err(error) = self.finish_system_launch(
-            handle,
-            &[],
-            &tab_id,
-            EmbeddedLaunchPresentationIntent::RestoreHydration,
-        ) {
+        if let Err(error) = self.finish_system_launch(handle, &[]) {
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                 tab_id: tab_id.clone(),
             });
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
+        }
+        if self.complete_chromium_runtime_launch(&tab_id, &[])? {
+            self.project_completed_chromium_runtime_launch(
+                &tab_id,
+                EmbeddedLaunchPresentationIntent::RestoreHydration,
+            )?;
         }
         if let Err(error) =
             self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))

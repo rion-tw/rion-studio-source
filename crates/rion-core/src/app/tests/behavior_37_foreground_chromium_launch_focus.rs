@@ -24,6 +24,14 @@ fn drive_launch_through_terminal(
     core: Arc<AppCore>,
     command: CoreCommand,
 ) -> (Value, Vec<CoreEffectAction>) {
+    drive_launch_through_terminal_with(core, command, |_| {})
+}
+
+fn drive_launch_through_terminal_with(
+    core: Arc<AppCore>,
+    command: CoreCommand,
+    mut observe_action: impl FnMut(&CoreEffectAction),
+) -> (Value, Vec<CoreEffectAction>) {
     let receiver = core.subscribe().unwrap();
     let invocation_core = Arc::clone(&core);
     let mut invocation = Some(thread::spawn(move || {
@@ -68,6 +76,7 @@ fn drive_launch_through_terminal(
             match event {
                 CoreEvent::CoreEffects { effects } => {
                     results.extend(effects.into_iter().map(|effect| {
+                        observe_action(&effect.action);
                         actions.push(effect.action.clone());
                         effect_result(effect, None)
                     }));
@@ -149,12 +158,14 @@ fn terminal_ready_focus_action<'a>(
 ) -> (
     usize,
     &'a crate::model::EmbeddedRuntimeWindowProjectionRecord,
+    &'a [crate::model::BrowserRuntimeRoleRecord],
 ) {
     actions
         .iter()
         .enumerate()
         .find_map(|(index, action)| match action {
             CoreEffectAction::EmbeddedFollowRoleOwnership {
+                roles,
                 windows,
                 reveal_window_ids,
                 focus_window_ids,
@@ -172,10 +183,84 @@ fn terminal_ready_focus_action<'a>(
                                     == crate::model::RuntimeTabActivationPhaseRecord::Ready
                         })
                 })
-                .map(|window| (index, window)),
+                .map(|window| (index, window, roles.as_slice())),
             _ => None,
         })
         .expect("foreground launch must project and preserve terminal native focus")
+}
+
+#[test]
+fn appkit_ready_projection_follows_terminal_running_role_owner() {
+    let (_directory, core) = core_for_platform_contract("darwin", 23);
+    let role_id = create_role(&core, &first_game_id(&core), 1);
+    let window_id = "appkit-ready-launching-role-window";
+    let captured = Arc::new(Mutex::new(None));
+    let capture = Arc::clone(&captured);
+    let observer_core = Arc::clone(&core);
+    let expected_role_id = role_id.clone();
+    let (admission, _) = drive_launch_through_terminal_with(
+        Arc::clone(&core),
+        CoreCommand::BrowserRoleLaunch {
+            role_id: role_id.clone(),
+            target: launch_focus_target(window_id),
+            launch_preview_id: None,
+            launch_tab_id: None,
+            zoom_factor: None,
+            restore_role_slots: None,
+        },
+        move |action| {
+            let CoreEffectAction::EmbeddedFollowRoleOwnership {
+                roles, windows, ..
+            } = action
+            else {
+                return;
+            };
+            let Some(window_projection) = windows.iter().find(|window| {
+                window.window_id == window_id
+                    && window.tab_phases.iter().any(|phase| {
+                        phase.phase == crate::model::RuntimeTabActivationPhaseRecord::Ready
+                    })
+            }) else {
+                return;
+            };
+            assert!(roles.iter().any(|role| {
+                role.role_id == expected_role_id && role.state == "running"
+            }));
+            let mut observation = appkit_test_observation(window_id, 1);
+            observation.window_generation = window_projection.window_generation;
+            observation.topology_revision = window_projection.topology_revision;
+            let event = crate::model::AppKitRuntimeEventRecord {
+                event_id: uuid::Uuid::new_v4().to_string(),
+                adapter_sequence: 1,
+                hosts: vec![observation],
+                action: crate::model::AppKitRuntimeEventActionRecord::Layout {
+                    layout_sequence: 1,
+                },
+            };
+            *capture.lock().unwrap() = Some(
+                observer_core
+                    .build_appkit_projection(&event)
+                    .unwrap()
+                    .windows
+                    .into_iter()
+                    .next()
+                    .unwrap(),
+            );
+        },
+    );
+    let tab_id = admission["tabId"].as_str().unwrap();
+    let projection = captured.lock().unwrap().take().unwrap();
+    assert_eq!(projection.active_tab_id.as_deref(), Some(tab_id));
+    assert!(projection.roles.iter().any(|role| {
+        role.role_id == role_id && role.tab_id == tab_id && role.owner_generation > 0
+    }));
+    assert!(core
+        .browser_runtime_snapshot()
+        .unwrap()
+        .roles
+        .iter()
+        .any(|role| role.role_id == role_id && role.state == "running"));
+    core.shutdown();
 }
 
 #[test]
@@ -216,7 +301,7 @@ fn fresh_chromium_role_launch_focuses_after_tab_creation_before_navigation() {
                 )
             })
             .unwrap();
-        let (ready_index, ready_window) =
+        let (ready_index, ready_window, terminal_roles) =
             terminal_ready_focus_action(&actions, &window_id, tab_id);
 
         assert!(
@@ -235,6 +320,9 @@ fn fresh_chromium_role_launch_focuses_after_tab_creation_before_navigation() {
             }),
             "{platform}"
         );
+        assert!(terminal_roles.iter().any(|role| {
+            role.role_id == role_id && role.state == "running" && role.owner.tab_id == tab_id
+        }), "{platform}");
         core.shutdown();
     }
 }
@@ -278,7 +366,7 @@ fn fresh_chromium_web_only_workspace_focuses_before_web_surface_navigation() {
                 )
             })
             .unwrap();
-        let (ready_index, ready_window) =
+        let (ready_index, ready_window, terminal_roles) =
             terminal_ready_focus_action(&actions, &window_id, tab_id);
 
         assert!(
@@ -292,6 +380,7 @@ fn fresh_chromium_web_only_workspace_focuses_before_web_surface_navigation() {
             "{platform}"
         );
         assert!(roles.is_empty(), "{platform}");
+        assert!(terminal_roles.is_empty(), "{platform}");
         core.shutdown();
     }
 }

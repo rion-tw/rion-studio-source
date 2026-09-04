@@ -921,12 +921,7 @@ impl AppCore {
                         let completion_source_id = workspace_id.clone();
                         let persistence_window_id = window_id.clone();
                         let launch = core
-                            .finish_system_launch_async(
-                                handle,
-                                &roles,
-                                &tab_id,
-                                presentation_intent,
-                            )
+                            .finish_system_launch_async(handle, &roles)
                             .await;
                         let completion_core = Arc::clone(&core);
                         let completion = tokio::task::spawn_blocking(move || {
@@ -935,6 +930,7 @@ impl AppCore {
                                 tab_id,
                                 persistence_window_id,
                                 workspace_id,
+                                presentation_intent,
                                 launch,
                             );
                             let lease_completion =

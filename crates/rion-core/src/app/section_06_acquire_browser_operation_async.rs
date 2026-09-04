@@ -1057,8 +1057,6 @@ impl AppCore {
                         .finish_system_launch_async(
                             handle,
                             std::slice::from_ref(&role),
-                            &tab_id,
-                            presentation_intent,
                         )
                         .await;
                     let completion_core = Arc::clone(&core);
@@ -1067,6 +1065,7 @@ impl AppCore {
                             role,
                             tab_id,
                             persistence_window_id,
+                            presentation_intent,
                             launch,
                         );
                         let lease_completion =
@@ -1411,9 +1410,13 @@ impl AppCore {
         let launch = self.finish_system_launch(
             handle,
             std::slice::from_ref(&role),
-            &tab_id,
-            presentation_intent,
         );
-        self.commit_embedded_role_launch_outcome(role, tab_id, window_id, launch)
+        self.commit_embedded_role_launch_outcome(
+            role,
+            tab_id,
+            window_id,
+            presentation_intent,
+            launch,
+        )
     }
 }

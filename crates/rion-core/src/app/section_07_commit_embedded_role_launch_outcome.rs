@@ -24,6 +24,7 @@ impl AppCore {
         role: StateRoleRecord,
         tab_id: String,
         window_id: String,
+        presentation_intent: EmbeddedLaunchPresentationIntent,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         if let Err(error) = launch {
@@ -65,9 +66,19 @@ impl AppCore {
                 launched_at: Some(launched_at.clone()),
             })
             .and_then(|_| {
-                self.commit_embedded_runtime_snapshot_without_native_effect(
-                    &std::collections::HashSet::new(),
-                )
+                if self.complete_chromium_runtime_launch(
+                    &tab_id,
+                    std::slice::from_ref(&role.id),
+                )? {
+                    self.project_completed_chromium_runtime_launch(
+                        &tab_id,
+                        presentation_intent,
+                    )
+                } else {
+                    self.commit_embedded_runtime_snapshot_without_native_effect(
+                        &std::collections::HashSet::new(),
+                    )
+                }
             })
             .and_then(|_| {
                 self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))
@@ -581,13 +592,13 @@ impl AppCore {
             window_id,
             workspace_id,
         } = pending;
-        let launch =
-            self.finish_system_launch(handle, &roles, &tab_id, presentation_intent);
+        let launch = self.finish_system_launch(handle, &roles);
         self.commit_embedded_workspace_launch_outcome(
             role_ids,
             tab_id,
             window_id,
             workspace_id,
+            presentation_intent,
             launch,
         )
     }
@@ -598,6 +609,7 @@ impl AppCore {
         tab_id: String,
         window_id: String,
         _workspace_id: String,
+        presentation_intent: EmbeddedLaunchPresentationIntent,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         if let Err(error) = launch {
@@ -644,9 +656,16 @@ impl AppCore {
             .into_iter()
             .try_for_each(|command| self.invoke_browser_runtime(command).map(|_| ()))
             .and_then(|_| {
-                self.commit_embedded_runtime_snapshot_without_native_effect(
-                    &std::collections::HashSet::new(),
-                )
+                if self.complete_chromium_runtime_launch(&tab_id, &role_ids)? {
+                    self.project_completed_chromium_runtime_launch(
+                        &tab_id,
+                        presentation_intent,
+                    )
+                } else {
+                    self.commit_embedded_runtime_snapshot_without_native_effect(
+                        &std::collections::HashSet::new(),
+                    )
+                }
             })
             .and_then(|_| {
                 self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))

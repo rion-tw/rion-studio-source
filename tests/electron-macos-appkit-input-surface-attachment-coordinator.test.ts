@@ -24,6 +24,7 @@ function harness() {
   let failCancelRole: string | null = null;
   let failRetireRole: string | null = null;
   const owned = new Map<string, number>();
+  let focused = false;
   const native: RawNativeAppKitInputSurfaceHost = {
     beginInputSurfaceCapture: (_identity, roleId, surfaceGeneration) => {
       order.push(`begin:${roleId}`);
@@ -74,7 +75,12 @@ function harness() {
       launchGeneration: "launch-1",
       nativeGeneration: 1
     },
-    native
+    native,
+    focus: () => {
+      order.push("focus:window-1");
+      focused = true;
+    },
+    isFocused: () => focused
   };
   const host = parent(1);
   const targetHost = parent(2);
@@ -84,7 +90,9 @@ function harness() {
       launchGeneration: "launch-2",
       nativeGeneration: 2
     },
-    native
+    native,
+    focus: () => order.push("focus:window-2"),
+    isFocused: () => false
   };
   const coordinator = new MacosAppKitInputSurfaceAttachmentCoordinator({
     resolve: (candidate) => candidate === host
@@ -113,6 +121,7 @@ function harness() {
       failCommitWindow = windowId;
     },
     setCancelFailure: (roleId: string | null) => { failCancelRole = roleId; },
+    setFocused: (value: boolean) => { focused = value; },
     setRetireFailure: (roleId: string | null) => { failRetireRole = roleId; }
   };
 }
@@ -132,6 +141,28 @@ describe("macOS AppKit input-surface attachment coordinator", () => {
     expect(subject.coordinator.resolveOwnedInputHost("role-1", 1))
       .toBe(subject.binding);
     expect(subject.coordinator.resolveOwnedInputHost("role-1", 2)).toBeNull();
+  });
+
+  it("restores exact foreground ownership only when attachment displaced it", async () => {
+    const foreground = harness();
+    foreground.setFocused(true);
+    const input = foreground.input("role-1");
+    await foreground.coordinator.attach({
+      ...input,
+      attach: () => {
+        foreground.order.push("add:role-1");
+        foreground.setFocused(false);
+      }
+    });
+    expect(foreground.order).toEqual([
+      "begin:role-1", "add:role-1", "commit:role-1", "focus:window-1"
+    ]);
+
+    const background = harness();
+    await background.coordinator.attach(background.input("role-1"));
+    expect(background.order).toEqual([
+      "begin:role-1", "add:role-1", "commit:role-1"
+    ]);
   });
 
   it("serializes a non-input Web surface add between role capture intervals", async () => {

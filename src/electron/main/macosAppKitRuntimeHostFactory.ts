@@ -435,7 +435,12 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       }
       record.inputBinding = Object.freeze({
         identity: record.identity,
-        native: record.controller
+        native: record.controller,
+        focus: () => this.#withCurrent(record, () => {
+          requireNativeController(record, "input-surface focus preservation")
+            .focusWindow(record.identity);
+        }),
+        isFocused: () => this.#withCurrent(record, () => record.native.isFocused())
       });
       if (popupAdmission) {
         record.projectedTabs.set(

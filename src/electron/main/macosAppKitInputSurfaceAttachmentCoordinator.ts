@@ -49,6 +49,8 @@ export interface RawNativeAppKitInputSurfaceHost {
 export interface MacosAppKitInputHostBinding {
   readonly identity: AppKitRuntimeHostIdentity;
   readonly native: RawNativeAppKitInputSurfaceHost;
+  readonly focus: () => void;
+  readonly isFocused: () => boolean;
 }
 
 export interface MacosAppKitInputHostResolverPort {
@@ -241,6 +243,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
         input.roleId,
         input.generation
       );
+      const preserveFocus = binding.isFocused();
       let attached = false;
       let nativeCommitted = false;
       try {
@@ -271,6 +274,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
           binding,
           generation: input.generation
         });
+        if (preserveFocus && !binding.isFocused()) binding.focus();
       } catch (error) {
         let rollbackError: RionBridgeError | null = null;
         let detachPending: (() => void) | null = null;

@@ -456,10 +456,11 @@ describe("macOS AppKit Chromium runtime host", () => {
       windowId: "window-1"
     });
     expect(fixture.order).toContain("controller-fullscreen-toolbar-readback");
-    expect(fixture.factory.resolveInputHost(host)).toEqual({
+    expect(fixture.factory.resolveInputHost(host)).toMatchObject({
       identity: host.appKitIdentity,
       native: fixture.addon.controllers[0]
     });
+    expect(fixture.factory.resolveInputHost(host)?.isFocused()).toBe(false);
     host.show();
     expect(fixture.order.at(-1)).toBe("window-show");
     host.focus();
@@ -1212,7 +1213,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     expect(foreignController.destroyed).toBe(false);
     expect(fixture.windows[0]!.closeCalls).toBe(0);
     expect(fixture.windows[0]!.destroyCalls).toBe(0);
-    expect(fixture.factory.resolveInputHost(firstHost)).toEqual({
+    expect(fixture.factory.resolveInputHost(firstHost)).toMatchObject({
       identity: firstHost.appKitIdentity,
       native: foreignController
     });

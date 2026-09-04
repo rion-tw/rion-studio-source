@@ -604,6 +604,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     window.visible = true;
     window.focused = true;
     shortcutOwner.registrations[0]?.callback();
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
     expect(requestFullscreen).toHaveBeenCalledOnce();
     expect(requestFullscreen).toHaveBeenCalledWith(
@@ -618,6 +619,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     window.emit("closed");
     await close;
     shortcutOwner.registrations[0]?.callback();
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(shortcutOwner.acknowledgementCalls).toHaveLength(1);
   });
 
@@ -638,6 +640,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const host = await finishCreation(creation, window);
     await applyWindowFence(host);
     shortcutOwner.registrations[0]?.callback();
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(requestFullscreen).toHaveBeenCalledOnce();
     expect(requestFullscreen).toHaveBeenCalledWith(
       "tab-1",

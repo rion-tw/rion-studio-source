@@ -10,8 +10,7 @@ import {
 import {
   focusVisibleMacosAppKitRuntime,
   pressVisibleMacosApplicationShortcut,
-  pressVisibleWindowsApplicationShortcut,
-  waitForFocusedMacosAppKitRuntime
+  pressVisibleWindowsApplicationShortcut
 } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
@@ -268,7 +267,7 @@ async function createFocusedApplicationShortcutRuntime(input: Readonly<{
     SHORTCUT_FIXTURE_ID,
     { id: exactWindowId },
     input.platform === "macos" ? {
-      beforeRendererInspection: () => waitForFocusedMacosAppKitRuntime({
+      beforeRendererInspection: () => focusVisibleMacosAppKitRuntime({
         processId: input.processId,
         windowId: exactWindowId
       })

@@ -1235,7 +1235,7 @@ implements ChromiumRuntimeHostFactoryPort {
           // runs only after the native hook frame has returned; dispatch now
           // while this exact HWND/revision fence is still current.
           this.#dispatchRuntimeFullscreenShortcut(
-            record, "windows-native-foreground"
+            record, "windows-native-foreground", true
           );
         } catch (error) {
           this.#onCommandError(error);
@@ -1284,12 +1284,15 @@ implements ChromiumRuntimeHostFactoryPort {
 
   #dispatchRuntimeFullscreenShortcut(
     record: WindowsHostRecord,
-    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission,
+    ownerAcknowledged = false
   ): void {
     if (
-      record.state !== "active" || record.native.isDestroyed() ||
-      this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
-      this.#ownerByNativeId.get(record.nativeId) !== record
+      !ownerAcknowledged && (
+        record.state !== "active" || record.native.isDestroyed() ||
+        this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
+        this.#ownerByNativeId.get(record.nativeId) !== record
+      )
     ) {
       return;
     }

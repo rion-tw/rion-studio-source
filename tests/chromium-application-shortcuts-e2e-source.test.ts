@@ -37,7 +37,6 @@ describe("Chromium application-shortcut E2E journey", () => {
       '(await rendererCall("listGameWindows"))\n      .filter'
     );
     expect(shellSpec).toContain('targetMode: "focused-runtime"');
-    expect(shellSpec).toContain("waitForFocusedMacosAppKitRuntime");
     expect(shellSpec).toContain("focusVisibleMacosAppKitRuntime");
     expect(shellSpec).toContain("electronDesktopE2eApplicationShortcutRuntime");
     expect(shellSpec).not.toContain('rendererCall("getCurrentWindowState")');

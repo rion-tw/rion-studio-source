@@ -212,13 +212,15 @@ on run argv
           set frontmost of targetProcess to true
           perform action "AXRaise" of targetWindow
         end if
-        set focusedWindow to missing value
-        set mainWindow to missing value
+        set focusedWindowIdentifier to ""
+        set mainWindowIdentifier to ""
         try
           set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
           set mainWindow to value of attribute "AXMainWindow" of targetProcess
+          set focusedWindowIdentifier to value of attribute "AXIdentifier" of focusedWindow as text
+          set mainWindowIdentifier to value of attribute "AXIdentifier" of mainWindow as text
         end try
-        if frontmost of targetProcess is true and focusedWindow is targetWindow and mainWindow is targetWindow then
+        if frontmost of targetProcess is true and focusedWindowIdentifier is expectedWindowIdentifier and mainWindowIdentifier is expectedWindowIdentifier then
           set matchingTabCount to 0
           if runtimeTabName is not "" then
             set runtimeElements to get entire contents of targetWindow
@@ -293,33 +295,51 @@ on run argv
   set commandName to item 2 of argv
   set targetMode to item 3 of argv
   set runtimeTabName to item 4 of argv
+  set appKitWindowPrefix to "com.rionstudio.runtime.appkit-window.v1:"
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
     set targetProcess to item 1 of matchingProcesses
     if targetMode is "launcher" then
       set frontmost of targetProcess to true
-      -- Process activation and AXFocusedWindow publication are separate AppKit
-      -- events. Fence the exact native terminal state before reading NSMenu.
+      -- Chromium can leave the process-level AXFocusedWindow and AXMainWindow
+      -- proxies unpublished while its child owns focus. Fence the one
+      -- non-AppKit AXWindow and its AXMain state before native accelerator input.
       set activationExpiry to (current date) + 10
       repeat
         set launcherWindow to missing value
-        set launcherMainWindow to missing value
-        try
-          set launcherWindow to value of attribute "AXFocusedWindow" of targetProcess
-          set launcherMainWindow to value of attribute "AXMainWindow" of targetProcess
-        end try
-        if frontmost of targetProcess is true and launcherWindow is not missing value and launcherMainWindow is not missing value then exit repeat
+        set launcherWindowCount to 0
+        repeat with appWindow in windows of targetProcess
+          set appWindowIdentifier to ""
+          try
+            set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
+          end try
+          if appWindowIdentifier does not start with appKitWindowPrefix then
+            if value of attribute "AXRole" of appWindow is "AXWindow" then
+              set launcherWindow to appWindow
+              set launcherWindowCount to launcherWindowCount + 1
+            end if
+          end if
+        end repeat
+        if launcherWindowCount is greater than 1 then error "ambiguous exact Rion launcher AXWindow"
+        if launcherWindowCount is 1 then
+          perform action "AXRaise" of launcherWindow
+          try
+            if frontmost of targetProcess is true and value of attribute "AXMain" of launcherWindow is true then exit repeat
+          end try
+        end if
         if (current date) is greater than activationExpiry then error "exact Rion launcher AXWindow unavailable after activation"
         delay 0.05
       end repeat
       if value of attribute "AXRole" of launcherWindow is not "AXWindow" then error "focused Rion launcher owner is not an AXWindow"
       if value of attribute "AXMain" of launcherWindow is not true then error "exact Rion launcher AXWindow is not main"
-      if launcherMainWindow is not launcherWindow then error "focused Rion launcher AXWindow is not the exact main AXWindow"
       set fileMenuItems to menu bar items of menu bar 1 of targetProcess whose name is "File"
       if (count of fileMenuItems) is not 1 then error "exact Rion File NSMenu unavailable"
       set newWindowItems to menu items of menu 1 of item 1 of fileMenuItems whose name is "New Game Window"
-      if (count of newWindowItems) is not 1 then error "exact Rion New Game Window NSMenu item unavailable"
+      if (count of newWindowItems) is not 1 then
+        set menuItemNames to name of every menu item of menu 1 of item 1 of fileMenuItems
+        error "exact Rion New Game Window NSMenu item unavailable; items=" & menuItemNames
+      end if
       if enabled of item 1 of newWindowItems is not true then error "exact Rion New Game Window NSMenu item is disabled"
     else if targetMode is "focused-runtime" then
       if frontmost of targetProcess is not true then error "exact Rion runtime process is not frontmost"
@@ -332,7 +352,10 @@ on run argv
       if value of attribute "AXMain" of focusedWindow is not true then error "exact Rion runtime AXWindow is not main"
       set mainWindow to value of attribute "AXMainWindow" of targetProcess
       if mainWindow is missing value then error "exact Rion main AXWindow unavailable"
-      if mainWindow is not focusedWindow then error "focused Rion runtime AXWindow is not the exact main AXWindow"
+      set focusedWindowIdentifier to value of attribute "AXIdentifier" of focusedWindow as text
+      set mainWindowIdentifier to value of attribute "AXIdentifier" of mainWindow as text
+      if focusedWindowIdentifier does not start with appKitWindowPrefix then error "focused Rion AXWindow is not an AppKit runtime"
+      if mainWindowIdentifier is not focusedWindowIdentifier then error "focused Rion runtime AXWindow is not the exact main AXWindow"
       set focusedWindowFullscreen to false
       try
         set focusedWindowFullscreen to (value of attribute "AXFullScreen" of focusedWindow is true)
@@ -371,7 +394,8 @@ on run argv
         set runtimeTabWindow to value of attribute "AXWindow" of runtimeTab
         if runtimeTabWindow is missing value then error "exact AppKit runtime tab has no AXWindow owner"
         if value of attribute "AXRole" of runtimeTabWindow is not "AXWindow" then error "exact AppKit runtime tab owner is not an AXWindow"
-        if runtimeTabWindow is not focusedWindow then error "exact AppKit runtime tab does not belong to the focused AXWindow"
+        set runtimeTabWindowIdentifier to value of attribute "AXIdentifier" of runtimeTabWindow as text
+        if runtimeTabWindowIdentifier is not focusedWindowIdentifier then error "exact AppKit runtime tab does not belong to the focused AXWindow"
       end if
       if commandName is "toggleFullscreen" then
         set viewMenuItems to menu bar items of menu bar 1 of targetProcess whose name is "View"

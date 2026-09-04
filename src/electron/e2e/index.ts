@@ -51,8 +51,6 @@ import { ChromiumRuntimeEffectExecutor } from
   "../main/chromiumRuntimeEffectExecutor";
 import { ChromiumRuntimeLaunchCoordinator } from
   "../main/chromiumRuntimeLaunchCoordinator";
-import { ChromiumRuntimeNativeWindowController } from
-  "../main/chromiumRuntimeNativeWindowController";
 import type { ChromiumRuntimeExecutorSnapshot } from
   "../main/chromiumRuntimeSnapshot";
 import {
@@ -104,6 +102,8 @@ import {
   installElectronDesktopE2eNativeAttachmentLifecycleObserver,
   installElectronDesktopE2eRoleSurfaceLifecycleObserver
 } from "./roleSurfaceLifecycleObserver";
+import { installElectronDesktopE2eNativeWindowControlObserver } from
+  "./nativeWindowControlObserver";
 import { WindowsChromiumInputSurfaceAttachmentCoordinator } from
   "../main/windowsChromiumInputSurfaceAttachmentCoordinator";
 import type { WindowsRuntimeShortcutOwnerDiagnostic } from
@@ -587,53 +587,6 @@ function installElectronDesktopE2eWorkspaceWebObserver(): void {
       receipt: created.receipt
     }));
     return created;
-  };
-}
-
-function installElectronDesktopE2eNativeWindowControlObserver(): void {
-  const controller = ChromiumRuntimeNativeWindowController.prototype;
-  const originalToggleFullscreenForTab = controller.toggleFullscreenForTab;
-  controller.toggleFullscreenForTab = function (tabId, focusAdmission) {
-    const identity = nextCoreFlowIdentity(`native-fullscreen:${tabId}`);
-    appendCoreFlowObservation({
-      boundary: "command",
-      details: { focusAdmission: focusAdmission ?? null, tabId },
-      identity,
-      status: "started",
-      type: "toggleFullscreenForTab"
-    });
-    let operation: ReturnType<typeof originalToggleFullscreenForTab>;
-    try {
-      operation = originalToggleFullscreenForTab.call(this, tabId, focusAdmission);
-    } catch (error) {
-      appendCoreFlowObservation({
-        boundary: "command",
-        error: describeCoreFlowError(error),
-        identity,
-        status: "rejected",
-        type: "toggleFullscreenForTab"
-      });
-      throw error;
-    }
-    return operation.then((result) => {
-      appendCoreFlowObservation({
-        boundary: "command",
-        details: { result },
-        identity,
-        status: "completed",
-        type: "toggleFullscreenForTab"
-      });
-      return result;
-    }, (error: unknown) => {
-      appendCoreFlowObservation({
-        boundary: "command",
-        error: describeCoreFlowError(error),
-        identity,
-        status: "rejected",
-        type: "toggleFullscreenForTab"
-      });
-      throw error;
-    });
   };
 }
 

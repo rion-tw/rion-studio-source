@@ -47,7 +47,9 @@ export function appendCoreFlowObservation(
     const routineRead = coreFlowObservations.findIndex((candidate) =>
       candidate.boundary === "command" &&
       (candidate.type === "appSnapshot" ||
-        candidate.type === "runtimeWindowPreferencesGet")
+        candidate.type === "runtimeWindowPreferencesGet" ||
+        candidate.type === "layoutCreateDividers" ||
+        candidate.type === "layoutResolve")
     );
     coreFlowObservations.splice(routineRead < 0 ? 0 : routineRead, 1);
   }

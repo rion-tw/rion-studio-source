@@ -32,15 +32,15 @@ describe("native application shortcut target modes", () => {
       'if targetMode is "launcher" then',
       'else if targetMode is "focused-runtime" then'
     );
-    expect(launcherBranch).toContain('attribute "AXFocusedWindow"');
-    expect(launcherBranch).toContain('attribute "AXMainWindow"');
+    expect(launcherBranch).toContain("appKitWindowPrefix");
     expect(launcherBranch).toContain(
-      "launcherWindow is not missing value and launcherMainWindow is not missing value"
+      "launcherWindowCount is greater than 1"
     );
     expect(launcherBranch).toContain(
       "exact Rion launcher AXWindow unavailable after activation"
     );
-    expect(launcherBranch).toContain("launcherMainWindow is not launcherWindow");
+    expect(launcherBranch).toContain('attribute "AXMain" of launcherWindow');
+    expect(launcherBranch).toContain('perform action "AXRaise" of launcherWindow');
     expect(launcherBranch).toContain(
       'menu bar items of menu bar 1 of targetProcess whose name is "File"'
     );
@@ -61,7 +61,9 @@ describe("native application shortcut target modes", () => {
     expect(focusedBranch).not.toContain('attribute "AXFocused" of focusedWindow');
     expect(focusedBranch).toContain('attribute "AXMain"');
     expect(focusedBranch).toContain('attribute "AXMainWindow"');
-    expect(focusedBranch).toContain("mainWindow is not focusedWindow");
+    expect(focusedBranch).toContain(
+      "mainWindowIdentifier is not focusedWindowIdentifier"
+    );
     expect(focusedBranch).toContain('attribute "AXFullScreen" of focusedWindow');
     expect(focusedBranch).toContain("fullscreenRestoreOwner is false");
     expect(focusedBranch).toContain(
@@ -80,7 +82,9 @@ describe("native application shortcut target modes", () => {
     );
     expect(focusedBranch).toContain("runtimeTabCount is not 1");
     expect(focusedBranch).toContain('attribute "AXWindow" of runtimeTab');
-    expect(focusedBranch).toContain("runtimeTabWindow is not focusedWindow");
+    expect(focusedBranch).toContain(
+      "runtimeTabWindowIdentifier is not focusedWindowIdentifier"
+    );
     expect(focusedBranch).toContain(
       'menu bar items of menu bar 1 of targetProcess whose name is "View"'
     );

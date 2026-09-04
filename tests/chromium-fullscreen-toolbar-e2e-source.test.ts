@@ -32,7 +32,9 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(appKitUi).toContain("fullscreenControlScreenBounds");
     expect(appKitUi).toContain("click at {clickX, clickY}");
     expect(nativeActions).toContain('whose name is "Toggle Full Screen"');
-    expect(nativeActions).toContain("key code 3 using {control down, command down}");
+    expect(nativeActions).toContain(
+      "key code 3 using {control down, command down}"
+    );
     expect(appKitUi).toMatch(
       /movePointerToMacosFullscreenRevealEdge[\s\S]*?CGEvent\(mouseEventSource: source/u
     );

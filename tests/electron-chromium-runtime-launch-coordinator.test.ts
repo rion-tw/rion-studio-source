@@ -1505,6 +1505,26 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(launchCommands[0]!.target.bounds).toEqual(liveBounds);
   });
 
+  it("accepts Core-committed native work-area fitting and reuses its geometry", async () => {
+    const liveBounds = { x: 120, y: 70, width: 1080, height: 692 };
+    const { coordinator, launchCommands, state } = launchHarness({
+      onRegister: (_command, harness) => {
+        advanceWindowTopology(harness, 1, { bounds: liveBounds });
+      }
+    });
+    const saved = emptySavedWindow();
+    state.coreSnapshot.state.gameWindows.push(saved);
+
+    await expect(coordinator.openEmptySavedGameWindow(saved)).resolves.toBeUndefined();
+    await expect(coordinator.launchRole(ROLE_ID, {
+      kind: "game-window",
+      windowId: WINDOW_ID
+    })).resolves.toMatchObject({ windowId: WINDOW_ID });
+
+    expect(state.coreSnapshot.logicalWindows[0]!.revision).toBeGreaterThan(1);
+    expect(launchCommands[0]!.target.bounds).toEqual(liveBounds);
+  });
+
   it("retires and does not cache a transient empty window whose receipt diverges", async () => {
     const { coordinator, coreInvoke, launchCommands, state } = launchHarness({
       onRegister: (_command, harness) => {

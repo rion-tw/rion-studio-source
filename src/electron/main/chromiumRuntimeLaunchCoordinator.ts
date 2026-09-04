@@ -290,7 +290,7 @@ function safePositiveInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
 }
 
-function sameTarget(
+function sameTargetEnvelope(
   left: EmbeddedLaunchTargetRecord,
   right: EmbeddedLaunchTargetRecord
 ): boolean {
@@ -299,8 +299,19 @@ function sameTarget(
     left.displayId === right.displayId &&
     left.scaleFactor === right.scaleFactor &&
     left.presentation === right.presentation &&
-    sameBounds(left.workArea, right.workArea) &&
-    sameNormalBounds(left.bounds, right.bounds);
+    sameBounds(left.workArea, right.workArea);
+}
+
+function registeredGeometryAccepted(
+  initial: EmbeddedLaunchTargetRecord,
+  current: EmbeddedLaunchTargetRecord,
+  topologyRevision: number
+): boolean {
+  if (sameNormalBounds(initial.bounds, current.bounds)) return true;
+  // The registration projection begins at revision 1. A later revision is
+  // exact evidence that Core accepted an authoritative native window-state
+  // event, including AppKit's work-area fitting of a newly framed window.
+  return topologyRevision > 1;
 }
 
 function runtimeWindowAbsent(
@@ -788,7 +799,8 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         logicalMatches.length !== 1 || runtimeMatches.length !== 1 ||
         liveMatches.length !== 1 || nativeMatches.length !== 1 ||
         !logical || !runtime || !live || !native || !currentTarget ||
-        !storedIdentityMatches || !sameTarget(currentTarget, target) ||
+        !storedIdentityMatches || !sameTargetEnvelope(currentTarget, target) ||
+        !registeredGeometryAccepted(target, currentTarget, logical.revision) ||
         !live.visible || live.tabCount !== 0 ||
         logical.tabs.length !== 0 || logical.activeTabId !== undefined ||
         logical.presentation !== target.presentation ||
@@ -798,7 +810,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         native.tabIds.length !== 0 || native.activeTabId !== "" ||
         native.displayId !== target.displayId ||
         native.presentation !== target.presentation ||
-        !sameNormalBounds(native.bounds, target.bounds) ||
+        !sameNormalBounds(native.bounds, currentTarget.bounds) ||
         logical.windowGeneration !== native.windowGeneration ||
         logical.revision !== native.topologyRevision
       ) {

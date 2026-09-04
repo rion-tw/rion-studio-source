@@ -120,6 +120,7 @@ export interface WindowsRuntimeHostWindowPort {
   readonly contentView: ChromiumRuntimeHostPort["contentView"];
   readonly webContents: WindowsRuntimeHostWebContentsPort;
   close: () => void;
+  destroy: () => void;
   focus: () => void;
   getBounds: () => ChromiumRoleSurfaceBounds;
   getContentBounds: () => ChromiumRoleSurfaceBounds;

@@ -133,6 +133,8 @@ class FakeWindow {
   };
   readonly nativeId: number;
   closeCalls = 0;
+  destroyCalls = 0;
+  destroyEmitsClosed = true;
   focusCalls = 0;
   showCalls = 0;
   showInactiveCalls = 0;
@@ -162,9 +164,10 @@ class FakeWindow {
   }
 
   destroy(): void {
+    this.destroyCalls += 1;
     this.destroyed = true;
     this.visible = false;
-    this.emit("closed");
+    if (this.destroyEmitsClosed) this.emit("closed");
   }
 
   focus(): void {
@@ -1413,7 +1416,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     await rejection;
   });
 
-  it("uses the exact closed event for one idempotent close operation", async () => {
+  it("terminally destroys an active host and resolves from its exact closed event", async () => {
     const browserWindows = new FakeBrowserWindows();
     const launchTarget = target();
     const factory = new WindowsElectronChromiumRuntimeHostFactory(
@@ -1425,11 +1428,13 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const window = browserWindows.windows[0];
     const host = await finishCreation(creation, window);
     const retainedNativeId = window.id;
+    window.destroyEmitsClosed = false;
 
     const first = host.close();
     const second = host.close();
     expect(first).toBe(second);
-    expect(window.closeCalls).toBe(1);
+    expect(window.closeCalls).toBe(0);
+    expect(window.destroyCalls).toBe(1);
     await expectPending(first);
     window.emit("closed");
     await expect(first).resolves.toBeUndefined();

@@ -1383,6 +1383,7 @@ implements ChromiumRuntimeHostFactoryPort {
   #close(record: WindowsHostRecord): Promise<void> {
     if (record.state === "closed") return record.closed.promise;
     if (record.closePromise) return record.closePromise;
+    const terminalDestroy = record.state === "active";
     if (record.state === "active" || record.state === "opening") {
       record.state = "closing";
     }
@@ -1395,7 +1396,14 @@ implements ChromiumRuntimeHostFactoryPort {
     record.closePromise = completion.promise;
     const submitNativeClose = (): void => {
       try {
-        record.native.close();
+        if (terminalDestroy) {
+          // Core has already terminalized the role session, surface, and placeholders.
+          // Electron close() is user-cancellable; this drained internal host must emit
+          // the exact closed event without consulting renderer unload handlers again.
+          record.native.destroy();
+        } else {
+          record.native.close();
+        }
       } catch {
         record.closePromise = null;
         completion.reject(hostError(
@@ -1412,7 +1420,16 @@ implements ChromiumRuntimeHostFactoryPort {
     } else {
       submitNativeClose();
     }
-    void record.closed.promise.then(completion.resolve);
+    void record.closed.promise.then(() => {
+      if (!record.native.isDestroyed()) {
+        completion.reject(hostError(
+          "ELECTRON_RUNTIME_HOST_CLOSE_READBACK_FAILED",
+          "Electron emitted closed without destroying the exact Windows runtime host."
+        ));
+        return;
+      }
+      completion.resolve();
+    });
     return completion.promise;
   }
 

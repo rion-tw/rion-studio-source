@@ -174,6 +174,21 @@ describe("shared AppKit runtime controller", () => {
     expect(bootstrap).not.toContain("...WINDOWS_CHROMIUM_BOOTSTRAP_CAPABILITIES,");
   });
 
+  it("leaves AppKit's private fullscreen transition window under AppKit ownership", async () => {
+    const layout = await readFile(
+      "crates/rion-appkit/native/macos/RionRuntimeTabsController/05_layout.mm",
+      "utf8"
+    );
+    const settle = layout.slice(
+      layout.indexOf("- (void)settleWindowedTitlebarAfterFullScreenExit"),
+      layout.indexOf("- (nullable NSView *)toolbarHostView")
+    );
+
+    expect(settle).toContain("[self detachAccessoryController]");
+    expect(settle).toContain("[self installFreshToolbarForWindowedMode]");
+    expect(settle).not.toContain("orderOut:");
+  });
+
   it("retires all native tab projection indexes after a visible close", async () => {
     const controller = await readFile(
       "crates/rion-appkit/native/macos/RionRuntimeTabsController/06_fullscreen.mm",

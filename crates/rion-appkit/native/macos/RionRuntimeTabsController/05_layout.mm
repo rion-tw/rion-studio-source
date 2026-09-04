@@ -212,11 +212,6 @@ NS_ASSUME_NONNULL_BEGIN
       } else if ([notification.name
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
         strongSelf->_fullscreenHostReady = NO;
-        NSWindow *titlebarHost = strongSelf->_accessoryController.view.window;
-        if ([NSStringFromClass(titlebarHost.class)
-                isEqualToString:@"NSToolbarFullScreenWindow"]) {
-          strongSelf->_fullscreenTitlebarHostWindow = titlebarHost;
-        }
         [strongSelf detachTitlebarWidgetInsetOverrides];
         [strongSelf updateTrafficLightObservation];
         strongSelf->_toolbar.visible = NO;
@@ -487,21 +482,12 @@ NS_ASSUME_NONNULL_BEGIN
     return;
   }
 
-  // On macOS 26 the accessory can still be parented by the transition's
-  // NSToolbarFullScreenWindow after DidExitFullScreen. Replacing the toolbar
-  // immediately in the notification is not enough: the old auxiliary host
-  // then survives as a detached 55pt strip containing the fullscreen-exit
-  // control. Detach from that exact host, dismiss only that window, and build
-  // the normal toolbar again once the AppKit animation has settled.
-  NSWindow *staleHost = _fullscreenTitlebarHostWindow ?:
-      _accessoryController.view.window;
+  // On macOS 26 the accessory can remain parented by AppKit's transition host
+  // after DidExitFullScreen. Detach only the Rion-owned accessory and replace
+  // only the Rion-owned toolbar. The private NSToolbarFullScreenWindow belongs
+  // to AppKit; ordering that window out during Space teardown can synchronously
+  // stall Electron's UI/IPC thread even after Core observed normal placement.
   [self detachAccessoryController];
-  if (staleHost != _window &&
-      [NSStringFromClass(staleHost.class)
-          isEqualToString:@"NSToolbarFullScreenWindow"]) {
-    [staleHost orderOut:nil];
-  }
-  _fullscreenTitlebarHostWindow = nil;
 
   [self installFreshToolbarForWindowedMode];
   [self applyLiquidGlassTitlebarAppearance];
@@ -548,7 +534,6 @@ NS_ASSUME_NONNULL_BEGIN
     // switch to pinned must explicitly restore that same host; redrawing its
     // views alone does not make the window visible again.
     [titlebarHost orderFront:nil];
-    _fullscreenTitlebarHostWindow = titlebarHost;
   }
   if (fullScreen && _toolbar.visible) {
     // AppKit retains the accessory controller while its auto-hide host is

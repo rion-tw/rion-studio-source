@@ -279,7 +279,6 @@ NS_ASSUME_NONNULL_BEGIN
   RionRuntimeBackdropView *_titlebarBackdrop;
   __weak NSView *_titlebarFrameView;
   NSHashTable<NSView *> *_titlebarWidgetInsetFrameViews;
-  __weak NSWindow *_fullscreenTitlebarHostWindow;
   NSWindowTitleVisibility _previousTitleVisibility;
   NSString *_previousWindowAccessibilityIdentifier;
   BOOL _previousTitlebarAppearsTransparent;

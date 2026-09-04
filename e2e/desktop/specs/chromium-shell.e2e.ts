@@ -2,11 +2,16 @@ import { $, browser, expect } from "@wdio/globals";
 
 import type { AppSnapshot } from "../../../src/shared/types";
 import {
+  electronDesktopE2eArmApplicationShortcutFullscreenExit,
   electronDesktopE2eApplicationShortcutRuntime,
   electronDesktopE2eGameWindowRuntime,
   electronDesktopE2eProbe,
   type ElectronDesktopE2eApplicationShortcutRuntimeInspection
 } from "../support/electron-driver";
+import {
+  readElectronDesktopE2eTerminalJson,
+  waitForElectronDesktopE2eTerminalNativeQuit
+} from "../support/electron-terminal-native-quit";
 import {
   focusVisibleMacosAppKitRuntime,
   pressVisibleMacosApplicationShortcut,
@@ -110,6 +115,29 @@ async function waitApplicationShortcutRuntime(
   }
   if (!inspection) throw new Error(timeoutMsg);
   return inspection;
+}
+
+async function waitForTerminalMacosFullscreenExit(
+  windowId: string
+): Promise<ElectronDesktopE2eApplicationShortcutRuntimeInspection> {
+  await waitForElectronDesktopE2eTerminalNativeQuit();
+  const candidates = await readElectronDesktopE2eTerminalJson(
+    "electron-application-shortcut-runtime-observations.json"
+  );
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error("The AppKit fullscreen-exit terminal observation is missing");
+  }
+  const candidate = candidates.at(-1) as Partial<
+    ElectronDesktopE2eApplicationShortcutRuntimeInspection
+  > | undefined;
+  if (
+    !candidate || candidate.windowId !== windowId || !candidate.nativeWindow ||
+    !candidate.coreWindow || candidate.nativeWindow.presentation !== "normal" ||
+    candidate.coreWindow.presentation !== "normal"
+  ) {
+    throw new Error("The AppKit fullscreen-exit terminal observation is stale");
+  }
+  return candidate as ElectronDesktopE2eApplicationShortcutRuntimeInspection;
 }
 
 function expectStableShortcutOwners(
@@ -386,20 +414,25 @@ async function verifyFocusedApplicationShortcuts(input: Readonly<{
   expect(fullscreen.zoomJournal.observations.at(-1)?.sequence).toBe(resetSequence);
 
   await restoreMacosShortcutFocus({ ...input, fullscreen: true, windowId });
+  if (input.platform === "macos") {
+    await electronDesktopE2eArmApplicationShortcutFullscreenExit(windowId);
+    process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT = "1";
+  }
   await pressApplicationShortcut({
     ...input,
     command: "toggleFullscreen",
     runtimeTabName: SHORTCUT_ROLE_NAME,
     targetMode: "focused-runtime"
   });
-  const restored = await waitApplicationShortcutRuntime(
-    windowId,
-    (runtime) => runtime.nativeWindow.presentation === "normal" &&
-      runtime.coreWindow.presentation === "normal" &&
-      (input.platform === "macos" || runtime.nativeWindow.focused) &&
-      runtime.nativeWindow.visible,
-    "The focused native fullscreen shortcut did not restore the exact runtime host"
-  );
+  const restored = input.platform === "macos"
+    ? await waitForTerminalMacosFullscreenExit(windowId)
+    : await waitApplicationShortcutRuntime(
+        windowId,
+        (runtime) => runtime.nativeWindow.presentation === "normal" &&
+          runtime.coreWindow.presentation === "normal" &&
+          runtime.nativeWindow.focused && runtime.nativeWindow.visible,
+        "The focused native fullscreen shortcut did not restore the exact runtime host"
+      );
   expectStableShortcutOwners(restored, initial, input.platform);
   expectLauncherMainWindowUnchanged(restored, initial);
   expectExactSurfaceZoomFactors(restored);

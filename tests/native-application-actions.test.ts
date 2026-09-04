@@ -96,26 +96,10 @@ describe("native application shortcut target modes", () => {
     expect(source).toContain(
       "key code 3 using {control down, command down}"
     );
-    expect(source).toContain("set focusedWindowPosition to position of focusedWindow");
-    expect(source).toContain("set focusedWindowSize to size of focusedWindow");
-    expect(source).toContain("set currentWindows to windows of targetProcess");
-    expect(source).toContain(
-      'attribute "AXIdentifier" of currentWindow as text) is focusedWindowIdentifier'
-    );
-    expect(source).toContain("currentRuntimeWindowCount is greater than 1");
-    expect(source).toContain(
-      "exact AppKit runtime AXIdentifier became ambiguous during fullscreen transition"
-    );
-    expect(source).not.toContain(
-      'set currentMainWindow to value of attribute "AXMainWindow" of targetProcess'
-    );
-    expect(source).toContain(
-      "currentWindowPosition is not focusedWindowPosition or currentWindowSize is not focusedWindowSize then exit repeat"
-    );
-    expect(source).toContain(
-      "exact AppKit fullscreen transition did not publish a native frame edge"
-    );
+    expect(source).not.toContain("set currentWindows to windows of targetProcess");
+    expect(source).not.toContain("set transitionExpiry to (current date) + 10");
     expect(source).toContain("PresentationOnly:");
+    expect(source).toContain("the caller separately requires revision-fenced Core");
     expect(source).toContain("delay 2");
     expect(source).toContain("key code 40 using command down");
     expect(source).toContain(

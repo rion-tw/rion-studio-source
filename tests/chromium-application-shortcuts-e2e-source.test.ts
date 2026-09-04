@@ -69,6 +69,11 @@ describe("Chromium application-shortcut E2E journey", () => {
       "mainWindow is not focusedWindow"
     );
     expect(shellSpec).toContain("electronDesktopE2eApplicationShortcutRuntime");
+    expect(shellSpec).toContain(
+      "electronDesktopE2eArmApplicationShortcutFullscreenExit"
+    );
+    expect(shellSpec).toContain("waitForTerminalMacosFullscreenExit");
+    expect(shellSpec).toContain("RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT");
     expect(shellSpec).not.toContain('rendererCall("getCurrentWindowState")');
     expect(shellSpec).not.toContain("devicePixelRatio");
     expect(macroSupport).toContain("chromiumRoleLaunchDiagnostic");
@@ -90,6 +95,7 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(cleanExitDiagnostics).toContain("cleanExitRuntimeExecutor");
     expect(cleanExitDiagnostics).toContain("cleanExitRoleSurface");
     expect(cleanExitDiagnostics).toContain("cleanExitRoleSession");
+    expect(cleanExitDiagnostics).toContain("cleanExitRolePlaceholders");
     expect(cleanExitDiagnostics).toContain("cleanExitCoreShutdown");
     expect(nativeWindowControlObserver).toContain("toggleFullscreenForTab");
     expect(nativeWindowControlObserver).toContain("readWindowsShortcutActiveTab");

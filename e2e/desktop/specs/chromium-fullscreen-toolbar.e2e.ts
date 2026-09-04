@@ -2,11 +2,16 @@ import { $, browser, expect } from "@wdio/globals";
 
 import type { Role, RoleStatus } from "../../../src/shared/types";
 import {
+  electronDesktopE2eArmApplicationShortcutFullscreenExit,
   electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eProbe,
   electronDesktopE2eRoleSessionRuntime,
   type ElectronDesktopE2eFullscreenToolbarRuntimeInspection
 } from "../support/electron-driver";
+import {
+  readElectronDesktopE2eTerminalJson,
+  waitForElectronDesktopE2eTerminalNativeQuit
+} from "../support/electron-terminal-native-quit";
 import {
   clickVisibleElectronRolePageButton,
   movePointerToWindowsRuntimeHostRevealEdge,
@@ -193,25 +198,50 @@ async function exitFullscreen(input: Readonly<{
   platform: "macos" | "windows";
   role: Role;
   windowId: string;
-}>): Promise<void> {
+}>): Promise<ElectronDesktopE2eFullscreenToolbarRuntimeInspection> {
   if (input.platform === "windows") {
     await submitElectronRolePageFullscreenShortcut(
       input.role.launchUrl,
       input.mainWindowHandle
     );
-    return;
+    return waitForToolbar(
+      input.windowId,
+      (inspection) => inspection.presentation === "normal" &&
+        !inspection.native.fullscreen,
+      "Visible fullscreen exit did not reach the exact native normal event"
+    );
   }
   await movePointerToMacosFullscreenRevealEdge(input.windowId);
   await waitForToolbar(input.windowId, (inspection) =>
     inspection.presentation === "fullscreen" &&
     inspection.native.nativeControlsVisible && inspection.native.toolbarVisible,
   "The AppKit fullscreen control did not become visibly revealed");
+  await electronDesktopE2eArmApplicationShortcutFullscreenExit(input.windowId);
+  process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT = "1";
   await pressVisibleMacosApplicationShortcut({
     command: "toggleFullscreen",
     processId: (await electronDesktopE2eProbe()).processId,
     runtimeTabName: input.role.name,
     targetMode: "focused-runtime"
   });
+  await waitForElectronDesktopE2eTerminalNativeQuit();
+  const candidates = await readElectronDesktopE2eTerminalJson(
+    "electron-fullscreen-toolbar-observations.json"
+  );
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error("The AppKit toolbar terminal observation is missing");
+  }
+  const candidate = candidates.at(-1) as Partial<
+    ElectronDesktopE2eFullscreenToolbarRuntimeInspection
+  > | undefined;
+  if (
+    !candidate || candidate.windowId !== input.windowId ||
+    candidate.presentation !== "normal" || candidate.native?.fullscreen !== false ||
+    candidate.native.alwaysShowToolbarInFullScreen !== false
+  ) {
+    throw new Error("The AppKit toolbar terminal observation is stale");
+  }
+  return candidate as ElectronDesktopE2eFullscreenToolbarRuntimeInspection;
 }
 
 function hiddenToolbar(
@@ -258,12 +288,6 @@ async function proveHiddenAndExit(input: Readonly<{
     expect(events.some((event) => event.code === "F11")).toBe(false);
   }
   await exitFullscreen(input);
-  await waitForToolbar(
-    input.windowId,
-    (inspection) => inspection.presentation === "normal" &&
-      !inspection.native.fullscreen,
-    "Visible fullscreen exit did not reach the exact native normal event"
-  );
 }
 
 async function seedPhase(input: Readonly<{
@@ -351,11 +375,6 @@ async function seedPhase(input: Readonly<{
     "Reverse preference update did not hide every live toolbar"
   );
   await exitFullscreen(input);
-  await waitForToolbar(input.windowId, (inspection) =>
-    inspection.presentation === "normal" && !inspection.native.fullscreen,
-  "Fullscreen exit did not terminalize from the exact native event");
-  expect((await rendererCall("getRuntimeWindowPreferences"))
-    .alwaysShowToolbarInFullScreen).toBe(false);
 }
 
 describe("Chromium fullscreen Game Window toolbar parity", () => {

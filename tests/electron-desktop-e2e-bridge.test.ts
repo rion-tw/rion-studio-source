@@ -508,6 +508,7 @@ function registrationFixture(overrides: Partial<Parameters<
     | undefined;
   const removeHandler = vi.fn();
   const input = {
+    armApplicationShortcutFullscreenExit: vi.fn(async () => undefined),
     authorizeSenderUrl: (url: string) => url === "file:///renderer/index.html",
     chromeVersion: "128.0.0.0",
     electronVersion: "32.0.0",
@@ -582,6 +583,13 @@ describe("Electron desktop E2E-only bridge", () => {
       sender: { getURL: () => "file:///renderer/index.html", id: 5 }
     };
 
+    await expect(fixture.listener(sender, {
+      action: "armApplicationShortcutFullscreenExit",
+      token: TOKEN,
+      windowId: WINDOW_ID
+    })).resolves.toBeUndefined();
+    expect(fixture.input.armApplicationShortcutFullscreenExit)
+      .toHaveBeenCalledWith(WINDOW_ID, sender.sender);
     await expect(fixture.listener(sender, {
       action: "applicationShortcutRuntime",
       token: TOKEN,

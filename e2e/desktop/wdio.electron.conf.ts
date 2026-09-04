@@ -112,7 +112,8 @@ export const config = {
     _context: unknown,
     result: { passed: boolean }
   ): Promise<void> => {
-    if (result.passed) return;
+    if (result.passed ||
+        process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT === "1") return;
     const safeTitle = test.title.replaceAll(/[^a-z0-9]+/giu, "-").replaceAll(/^-|-$/gu, "");
     await browser.saveScreenshot(resolve(artifactDir, "screenshots", `${safeTitle}.png`));
   }

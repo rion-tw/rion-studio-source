@@ -220,7 +220,8 @@ type ElectronDesktopE2eRequest =
     windowId: string;
   }>
   | Readonly<{
-    action: "applicationShortcutRuntime" | "fullscreenToolbarRuntime" | "gameWindowRuntime" |
+    action: "applicationShortcutRuntime" | "armApplicationShortcutFullscreenExit" |
+      "fullscreenToolbarRuntime" | "gameWindowRuntime" |
       "popupLifecycleJournal" | "runtimeTabReload" | "workspaceWebRuntime" |
       "workspaceWebSecurityPolicy";
     token: string;
@@ -278,6 +279,10 @@ interface ElectronDesktopE2eContextBridgePort {
 }
 
 export interface ElectronDesktopE2ePreloadApi {
+  armApplicationShortcutFullscreenExit: (
+    token: string,
+    windowId: string
+  ) => Promise<void>;
   applicationShortcutRuntime: (
     token: string,
     windowId: string
@@ -348,6 +353,10 @@ export interface ElectronDesktopE2ePreloadApi {
 }
 
 export interface RegisterElectronDesktopE2eBridgeInput {
+  armApplicationShortcutFullscreenExit: (
+    windowId: string,
+    sender: ElectronDesktopE2eSenderPort
+  ) => Promise<void>;
   authorizeSenderUrl: (url: string) => boolean;
   chromeVersion: string;
   electronVersion: string;
@@ -423,6 +432,7 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
   ]).has(action);
   const requiresWindowId = new Set([
     "applicationShortcutRuntime",
+    "armApplicationShortcutFullscreenExit",
     "fullscreenToolbarRuntime",
     "gameWindowRuntime",
     "popupLifecycleJournal",
@@ -446,6 +456,7 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
       "close",
       "applicationLifecycleSignal",
       "applicationShortcutRuntime",
+      "armApplicationShortcutFullscreenExit",
       "diagnosticsExportJournal",
       "failNextRuntimeTabReload",
       "focusMainWindow",
@@ -482,7 +493,8 @@ function parseRequest(candidate: unknown): ElectronDesktopE2eRequest {
   }
   if (requiresWindowId) {
     return {
-      action: action as "applicationShortcutRuntime" | "fullscreenToolbarRuntime" |
+      action: action as "applicationShortcutRuntime" |
+        "armApplicationShortcutFullscreenExit" | "fullscreenToolbarRuntime" |
         "gameWindowRuntime" |
         "popupLifecycleJournal" | "runtimeTabReload" | "workspaceWebRuntime" |
         "workspaceWebSecurityPolicy",
@@ -637,6 +649,9 @@ export function registerElectronDesktopE2eBridge(
     }
     if (request.action === "applicationShortcutRuntime") {
       return input.readApplicationShortcutRuntime(request.windowId, event.sender);
+    }
+    if (request.action === "armApplicationShortcutFullscreenExit") {
+      return input.armApplicationShortcutFullscreenExit(request.windowId, event.sender);
     }
     if (request.action === "gameWindowRuntime") {
       return input.readGameWindowRuntime(request.windowId);
@@ -1350,6 +1365,15 @@ export function createElectronDesktopE2ePreloadApi(
   ipcRenderer: ElectronDesktopE2eIpcRendererPort
 ): Readonly<ElectronDesktopE2ePreloadApi> {
   return Object.freeze({
+    armApplicationShortcutFullscreenExit: async (
+      token: string,
+      windowId: string
+    ) => {
+      await ipcRenderer.invoke(
+        ELECTRON_DESKTOP_E2E_CHANNEL,
+        { action: "armApplicationShortcutFullscreenExit", token, windowId }
+      );
+    },
     applicationShortcutRuntime: async (token: string, windowId: string) =>
       parseElectronDesktopE2eApplicationShortcutRuntimeInspection(
         await ipcRenderer.invoke(

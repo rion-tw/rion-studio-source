@@ -1618,6 +1618,14 @@ runtimeTabReloadObserver.install();
 appKitTabMenuRuntimeObserver.install();
 const mainRuntime = await import("../main/index");
 const { focusElectronMainWindow, prepareElectronMainQuit } = mainRuntime;
+applicationShortcutRuntimeObserver.bindTerminalFullscreenExit(async (windowId) => {
+  if (phase?.startsWith("chromium-fullscreen-toolbar-")) {
+    await readFullscreenToolbarRuntime(windowId);
+  }
+  await prepareElectronMainQuit();
+  writeFinalFlushMarker();
+  setImmediate(() => app.quit());
+});
 readWindowsShortcutOwnerDiagnostic =
   mainRuntime.readWindowsRuntimeShortcutOwnerDiagnostic;
 
@@ -1625,6 +1633,8 @@ const mainRendererUrl = pathToFileURL(
   join(import.meta.dirname, "../renderer/index.html")
 ).href;
 const registration = registerElectronDesktopE2eBridge({
+  armApplicationShortcutFullscreenExit: (windowId, sender) =>
+    applicationShortcutRuntimeObserver.armFullscreenExit(windowId, sender),
   authorizeSenderUrl: (url) => {
     try {
       const candidate = new URL(url);

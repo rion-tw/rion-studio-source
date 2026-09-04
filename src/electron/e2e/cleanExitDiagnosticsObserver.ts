@@ -13,6 +13,8 @@ import { ChromiumRuntimeEffectExecutor } from
   "../main/chromiumRuntimeEffectExecutor";
 import { ChromiumRuntimeRestoreSessionCoordinator } from
   "../main/chromiumRuntimeRestoreSessionCoordinator";
+import { ChromiumRuntimeRolePlaceholderRegistry } from
+  "../main/chromiumRuntimeRolePlaceholderRegistry";
 import { ChromiumWorkspaceWebNavigationFailureReporter } from
   "../main/chromiumWorkspaceWebNavigationFailureReporter";
 import { CoreEffectCoordinator } from "../main/coreEffectCoordinator";
@@ -153,6 +155,15 @@ export function installElectronDesktopE2eCleanExitDiagnosticsObserver(): void {
     return observeCleanExit(
       "cleanExitRoleSession",
       () => originalReleaseRole.call(this, roleId, chromiumUserDataDir)
+    );
+  };
+
+  const rolePlaceholders = ChromiumRuntimeRolePlaceholderRegistry.prototype;
+  const originalReconcilePlaceholders = rolePlaceholders.reconcile;
+  rolePlaceholders.reconcile = function (descriptors) {
+    return observeCleanExit(
+      "cleanExitRolePlaceholders",
+      () => originalReconcilePlaceholders.call(this, descriptors)
     );
   };
 

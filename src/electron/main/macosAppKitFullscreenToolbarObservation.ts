@@ -66,7 +66,7 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
   }
   const toolbarVisible = state.accessoryOnScreen && state.tabStripOnScreen;
   let geometry: RawAppKitDesktopE2ETitlebarGeometry | undefined;
-  if (!state.fullscreen || state.fullscreenHostReady) {
+  if (!state.fullscreen || (state.fullscreenHostReady && toolbarVisible)) {
     try {
       geometry = input.readTitlebarGeometry?.(input.identity);
     } catch (error) {
@@ -96,7 +96,7 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
       "The AppKit titlebar observer returned malformed native screen geometry."
     );
   }
-  const tabAnchors = input.readTabAnchor && input.tabIds
+  const tabAnchors = geometry && input.readTabAnchor && input.tabIds
     ? Object.fromEntries(input.tabIds.map((tabId) => {
         const anchor = input.readTabAnchor!(input.identity, tabId);
         if (!Number.isFinite(anchor.x) || !Number.isFinite(anchor.y) ||

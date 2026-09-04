@@ -8,6 +8,10 @@ import type { ChromiumGlobalWebPresentationRegistry } from
   "../main/chromiumGlobalWebPresentationRegistry";
 import type { ChromiumRuntimeBootstrap } from "../main/chromiumRuntimeBootstrap";
 import type { ChromiumRuntimeHostPort } from "../main/chromiumRuntimeHostPorts";
+import { MacosAppKitRuntimeEventBridge } from
+  "../main/macosAppKitRuntimeEventBridge";
+import type { AppKitRuntimeActionEvent } from
+  "../main/macosAppKitRuntimeHostFactory";
 import type { WindowsRuntimeShortcutOwnerDiagnostic } from
   "../main/windowsRuntimeHostNativePorts";
 import { ChromiumRuntimeNativeWindowController } from
@@ -54,6 +58,12 @@ export interface ElectronDesktopE2eApplicationShortcutRuntimeObserverInput {
   readonly roleSurfaceOwners: ReadonlyMap<string, RoleSurfaceOwner>;
 }
 
+interface FullscreenExitArm {
+  readonly sender: ElectronDesktopE2eSenderPort;
+  readonly sourceTopologyRevision: number;
+  readonly windowId: string;
+}
+
 function finiteZoom(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) &&
     value >= 0.25 && value <= 5;
@@ -77,12 +87,25 @@ export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
     windowId: string;
   }>> = [];
   readonly #zoomJournal = new ElectronDesktopE2eWindowZoomJournal();
+  #fullscreenExitArm: FullscreenExitArm | null = null;
+  #terminalFullscreenExit: ((windowId: string) => Promise<void>) | null = null;
 
   constructor(input: ElectronDesktopE2eApplicationShortcutRuntimeObserverInput) {
     this.#input = input;
   }
 
   install(): void {
+    const appKitEvents = MacosAppKitRuntimeEventBridge.prototype;
+    const originalReceiveAction = appKitEvents.receiveAction;
+    const completeAppKitFullscreenExit = (
+      bridge: MacosAppKitRuntimeEventBridge,
+      event: AppKitRuntimeActionEvent
+    ): void => this.#completeArmedAppKitFullscreenExit(bridge, event);
+    appKitEvents.receiveAction = function (event) {
+      originalReceiveAction.call(this, event);
+      completeAppKitFullscreenExit(this, event);
+    };
+
     const controller = ChromiumRuntimeNativeWindowController.prototype;
     const originalZoomRuntimeWindow = controller.zoomRuntimeWindow;
     const appendZoomReceipt = (receipt: RuntimeWindowZoomReceiptRecord): void =>
@@ -92,6 +115,37 @@ export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
       appendZoomReceipt(receipt);
       return receipt;
     };
+  }
+
+  bindTerminalFullscreenExit(operation: (windowId: string) => Promise<void>): void {
+    if (this.#terminalFullscreenExit || typeof operation !== "function") {
+      throw new Error("The application-shortcut terminal exit owner is invalid.");
+    }
+    this.#terminalFullscreenExit = operation;
+  }
+
+  async armFullscreenExit(
+    windowId: string,
+    sender: ElectronDesktopE2eSenderPort
+  ): Promise<void> {
+    if (this.#input.platform() !== "darwin" || !this.#terminalFullscreenExit) {
+      throw new Error("The AppKit fullscreen-exit terminal owner is unavailable.");
+    }
+    if (this.#fullscreenExitArm) {
+      throw new Error("An AppKit fullscreen-exit observation is already armed.");
+    }
+    const inspection = await this.read(windowId, sender);
+    if (
+      inspection.nativeWindow.presentation !== "fullscreen" ||
+      inspection.coreWindow.presentation !== "fullscreen"
+    ) {
+      throw new Error("The AppKit fullscreen-exit observation requires fullscreen.");
+    }
+    this.#fullscreenExitArm = Object.freeze({
+      sender,
+      sourceTopologyRevision: inspection.nativeWindow.topologyRevision,
+      windowId
+    });
   }
 
   async read(
@@ -327,6 +381,48 @@ export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
     writeFileSync(
       join(directory, "electron-application-shortcut-runtime-observations.json"),
       `${JSON.stringify(this.#observations, null, 2)}\n`
+    );
+  }
+
+  #completeArmedAppKitFullscreenExit(
+    bridge: MacosAppKitRuntimeEventBridge,
+    event: AppKitRuntimeActionEvent
+  ): void {
+    const arm = this.#fullscreenExitArm;
+    const actionType = event.action.type;
+    const host = event.hosts.find(
+      (candidate) => candidate.identity.logicalWindowId === arm?.windowId
+    );
+    if (
+      !arm || actionType !== "windowPlacementChanged" || !host ||
+      host.presentation !== "normal"
+    ) {
+      return;
+    }
+    this.#fullscreenExitArm = null;
+    void bridge.settleCurrentEvents()
+      .then(() => this.read(arm.windowId, arm.sender))
+      .then(async (inspection) => {
+        if (
+          inspection.nativeWindow.presentation !== "normal" ||
+          inspection.coreWindow.presentation !== "normal" ||
+          inspection.nativeWindow.topologyRevision <= arm.sourceTopologyRevision
+        ) {
+          throw new Error(
+            "The AppKit fullscreen-exit receipt did not retain its terminal projection."
+          );
+        }
+        await this.#terminalFullscreenExit!(arm.windowId);
+      })
+      .catch((error: unknown) => this.#writeTerminalFullscreenExitError(error));
+  }
+
+  #writeTerminalFullscreenExitError(error: unknown): void {
+    const directory = this.#input.artifactDirectory;
+    if (!directory || !isAbsolute(directory)) return;
+    writeFileSync(
+      join(directory, "electron-application-shortcut-terminal-error.txt"),
+      `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`
     );
   }
 

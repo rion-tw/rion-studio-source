@@ -22,6 +22,11 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(spec).toContain("movePointerToMacosFullscreenRevealEdge");
     expect(spec).toContain("movePointerToMacosRuntimeContent");
     expect(spec).toContain("electronDesktopE2eFullscreenToolbarRuntime");
+    expect(spec).toContain(
+      "electronDesktopE2eArmApplicationShortcutFullscreenExit"
+    );
+    expect(spec).toContain("waitForElectronDesktopE2eTerminalNativeQuit");
+    expect(spec).toContain("electron-fullscreen-toolbar-observations.json");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("runtimeUiAction(");
     expect(roleSurface).toContain('browser.action("key").down(Key.F11).up(Key.F11)');

@@ -880,6 +880,49 @@ export async function electronDesktopE2eApplicationShortcutRuntime(
   return result.value;
 }
 
+export async function electronDesktopE2eArmApplicationShortcutFullscreenExit(
+  windowId: string
+): Promise<void> {
+  const token = required("RION_STUDIO_E2E_SESSION_TOKEN");
+  const result = await browser.executeAsync(
+    (
+      sessionToken: string,
+      targetWindowId: string,
+      done: (result: ElectronBridgeResult<void>) => void
+    ) => {
+      const api = (window as typeof window & {
+        rionStudioDesktopE2e?: {
+          armApplicationShortcutFullscreenExit: (
+            token: string,
+            windowId: string
+          ) => Promise<void>;
+        };
+      }).rionStudioDesktopE2e;
+      if (!api) {
+        done({ error: "Electron desktop E2E preload bridge is unavailable", ok: false });
+        return;
+      }
+      void api.armApplicationShortcutFullscreenExit(
+        sessionToken,
+        targetWindowId
+      ).then(
+        () => done({ ok: true }),
+        (error: unknown) => done({
+          error: error instanceof Error ? error.message : String(error),
+          ok: false
+        })
+      );
+    },
+    token,
+    windowId
+  ) as ElectronBridgeResult<void>;
+  if (!result.ok) {
+    throw new Error(
+      result.error ?? "Electron desktop E2E fullscreen-exit arm failed"
+    );
+  }
+}
+
 export async function electronDesktopE2eFullscreenToolbarRuntime(
   windowId: string
 ): Promise<ElectronDesktopE2eFullscreenToolbarRuntimeInspection> {

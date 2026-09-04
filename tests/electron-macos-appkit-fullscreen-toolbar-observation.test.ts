@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { readMacosAppKitFullscreenToolbar } from
   "../src/electron/main/macosAppKitFullscreenToolbarObservation";
@@ -154,6 +154,37 @@ describe("retained AppKit fullscreen-toolbar observation", () => {
       topologyRevision: 8,
       windowGeneration: 2
     })).toThrowError("InvalidLayout");
+  });
+
+  it("omits unavailable screen geometry while fullscreen chrome is off screen", () => {
+    const readTitlebarGeometry = vi.fn(() => {
+      throw new Error("InvalidLayout");
+    });
+    const readTabAnchor = vi.fn(() => {
+      throw new Error("InvalidLayout");
+    });
+    const observation = readMacosAppKitFullscreenToolbar({
+      identity,
+      nativeFullscreen: true,
+      nativeProjectionRevision: 9,
+      read: () => ({
+        ...state(),
+        accessoryOnScreen: false,
+        tabStripOnScreen: false,
+        visibleTrafficLightCount: 0
+      }),
+      readTitlebarGeometry,
+      readTabAnchor,
+      tabIds: [tabId],
+      topologyRevision: 8,
+      windowGeneration: 2
+    });
+
+    expect(readTitlebarGeometry).not.toHaveBeenCalled();
+    expect(readTabAnchor).not.toHaveBeenCalled();
+    expect(observation.toolbarVisible).toBe(false);
+    expect(observation.appKit).not.toHaveProperty("tabScreenBounds");
+    expect(observation.appKit).not.toHaveProperty("tabAnchors");
   });
 
   it.each([

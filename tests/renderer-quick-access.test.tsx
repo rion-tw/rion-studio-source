@@ -218,6 +218,28 @@ describe("quick access palette", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
+
+  it("does not restore launcher focus after committing a runtime destination", async () => {
+    const user = userEvent.setup();
+    const onExecute = vi.fn(() => new Promise<boolean>(() => undefined));
+    render(<PaletteHarness onExecute={onExecute} onSetPinned={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Open palette" }));
+    await user.type(screen.getByRole("combobox"), "Role One");
+    const roleOption = screen.getByRole("option", { name: /Role One/ });
+    const openIn = roleOption.parentElement?.querySelector<HTMLButtonElement>(
+      "button[aria-label='Open in…']"
+    );
+    if (!openIn) throw new Error("Role destination menu is unavailable");
+    await user.click(openIn);
+    await user.click(screen.getByRole("menuitem", { name: /New Game Window/ }));
+
+    await waitFor(() => expect(onExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "role:r1" }),
+      { kind: "new-window" }
+    ));
+    expect(document.activeElement).not.toBe(openIn);
+  });
 });
 
 function PaletteHarness({

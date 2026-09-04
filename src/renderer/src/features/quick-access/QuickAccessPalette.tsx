@@ -347,7 +347,12 @@ function QuickAccessDestinationMenu({
   onSelect: (destination: RuntimeLaunchDestination) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const destinationCommittedRef = useRef(false);
   const model = createRuntimeLaunchDestinationModel(gameWindows, runtime, source, t);
+  const selectDestination = (destination: RuntimeLaunchDestination): void => {
+    destinationCommittedRef.current = true;
+    onSelect(destination);
+  };
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
@@ -368,11 +373,22 @@ function QuickAccessDestinationMenu({
           <MoreHorizontal size={14} />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-64" portalContainer={portalContainer}>
+      <DropdownMenuContent
+        align="end"
+        className="min-w-64"
+        portalContainer={portalContainer}
+        onCloseAutoFocus={(event) => {
+          // A committed launch transfers native focus to its Game Window. The
+          // dropdown's default trigger restoration runs after selection and
+          // would otherwise reclaim the launcher after that exact transfer.
+          if (destinationCommittedRef.current) event.preventDefault();
+          destinationCommittedRef.current = false;
+        }}
+      >
         <DropdownMenuItem
           className="gap-2"
           data-testid="quick-access-destination-option-new-window"
-          onSelect={() => onSelect({ kind: "new-window" })}
+          onSelect={() => selectDestination({ kind: "new-window" })}
         >
           <Plus size={14} />
           <DestinationText
@@ -392,7 +408,7 @@ function QuickAccessDestinationMenu({
                   ? `quick-access-destination-option-window-${option.destination.windowId}`
                   : undefined}
                 disabled={option.disabled}
-                onSelect={() => onSelect(option.destination)}
+                onSelect={() => selectDestination(option.destination)}
               >
                 <AppWindow size={14} />
                 <DestinationText detail={option.detail} label={option.label} />
@@ -412,7 +428,7 @@ function QuickAccessDestinationMenu({
                   ? `quick-access-destination-option-window-${option.destination.windowId}`
                   : undefined}
                 disabled={option.disabled}
-                onSelect={() => onSelect(option.destination)}
+                onSelect={() => selectDestination(option.destination)}
               >
                 <Save size={14} />
                 <DestinationText detail={option.detail} label={option.label} />

@@ -1368,9 +1368,10 @@ async function awaitWindowsElectronProcessExit(marker, phase) {
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    `$process = Get-Process -Id ${marker.pid} -ErrorAction SilentlyContinue; ` +
-      "if ($null -ne $process) { " +
-      "Wait-Process -InputObject $process -Timeout 45 -ErrorAction Stop }"
+    `$target = Get-Process -Id ${marker.pid} -ErrorAction SilentlyContinue; ` +
+      "if ($null -ne $target -and -not $target.HasExited -and " +
+      "-not $target.WaitForExit(45000)) { " +
+      "throw 'Electron process exit deadline elapsed' }"
   ]);
   if (wait.code !== 0) {
     throw new Error(

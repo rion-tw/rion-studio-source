@@ -31,7 +31,8 @@ describe("Electron user-data policy", () => {
     expect(closeSubmission).toBeGreaterThan(sessionDetach);
     expect(config).toContain("completed its authoritative final flush");
     expect(runner).toContain("awaitWindowsElectronProcessExit");
-    expect(runner).toContain("Wait-Process -InputObject $process -Timeout 45");
+    expect(runner).toContain("$target.HasExited");
+    expect(runner).toContain("$target.WaitForExit(45000)");
     expect(runner.indexOf("awaitWindowsElectronProcessExit(electronFinalFlush, phase)"))
       .toBeGreaterThan(runner.indexOf("acceptedElectronFinalFlush(phaseDir, phase)"));
   });

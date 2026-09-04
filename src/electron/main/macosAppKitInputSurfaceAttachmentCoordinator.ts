@@ -274,7 +274,10 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
           binding,
           generation: input.generation
         });
-        if (preserveFocus && !binding.isFocused()) binding.focus();
+        // addChildView may enqueue AppKit's blur after this synchronous native
+        // transaction returns, so the captured foreground owner must always
+        // be reasserted rather than guarded by an immediate focus readback.
+        if (preserveFocus) binding.focus();
       } catch (error) {
         let rollbackError: RionBridgeError | null = null;
         let detachPending: (() => void) | null = null;

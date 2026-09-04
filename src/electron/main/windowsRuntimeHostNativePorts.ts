@@ -155,6 +155,23 @@ export interface WindowsRuntimeShortcutOwnerReceipt {
   readonly uiThreadId: number;
 }
 
+export interface WindowsRuntimeShortcutOwnerDiagnostic {
+  readonly callbackRejections: number;
+  readonly callbackSubmissions: number;
+  readonly f11Events: number;
+  readonly foregroundMatches: number;
+  readonly hookCallbacks: number;
+  readonly ownerRevision: string;
+  readonly plainKeyDowns: number;
+  readonly uiThreadId: number;
+}
+
+export interface WindowsRuntimeShortcutOwnerDiagnosticPort {
+  readWindowsRuntimeShortcutOwner: (
+    parentHandle: Buffer
+  ) => WindowsRuntimeShortcutOwnerDiagnostic;
+}
+
 export interface WindowsRuntimeShortcutOwnerPort {
   registerWindowsRuntimeShortcutOwner: (
     parentHandle: Buffer,

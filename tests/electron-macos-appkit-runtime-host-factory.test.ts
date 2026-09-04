@@ -136,13 +136,13 @@ describe("macOS AppKit Chromium runtime host", () => {
 
     const lease = fixture.factory.captureChromiumSurfaceFocusLease();
     expect(lease).not.toBeNull();
-    fixture.windows[0]!.focused = false;
     lease!.restore();
 
     expect(fixture.order.at(-1)).toBe("controller-window-focus");
     expect(() => lease!.restore()).toThrowError(expect.objectContaining({
       code: "ELECTRON_MACOS_APPKIT_FOCUS_LEASE_REPLAYED"
     }));
+    fixture.windows[0]!.focused = false;
     expect(fixture.factory.captureChromiumSurfaceFocusLease()).toBeNull();
   });
 

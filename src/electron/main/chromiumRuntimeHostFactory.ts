@@ -75,6 +75,8 @@ export type {
   WindowsBrowserWindowFactoryPort,
   WindowsRuntimeHostDisplayResolverPort,
   WindowsRuntimeHostWindowPort,
+  WindowsRuntimeShortcutOwnerDiagnostic,
+  WindowsRuntimeShortcutOwnerDiagnosticPort,
   WindowsRuntimeShortcutOwnerPort
 } from "./windowsRuntimeHostNativePorts";
 export type {

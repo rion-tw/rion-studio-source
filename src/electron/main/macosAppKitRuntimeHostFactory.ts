@@ -202,9 +202,10 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
             "The focused AppKit host retired during Chromium surface creation."
           );
         }
-        if (!record.native.isFocused()) {
-          record.controller.focusWindow(record.identity);
-        }
+        // Chromium can publish its blur after WebContentsView construction
+        // returns. Reassert the exact pre-construction key owner even while
+        // Electron's immediate readback still reports it as focused.
+        record.controller.focusWindow(record.identity);
       }
     });
   }

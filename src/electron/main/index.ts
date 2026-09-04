@@ -63,6 +63,8 @@ import type {
 import type {
   WindowsRuntimeForegroundProbePort,
   WindowsRuntimeHostWindowPort,
+  WindowsRuntimeShortcutOwnerDiagnostic,
+  WindowsRuntimeShortcutOwnerDiagnosticPort,
   WindowsRuntimeShortcutOwnerPort
 } from "./chromiumRuntimeHostFactory";
 import type {
@@ -168,7 +170,8 @@ interface NativeAppCoreOptions {
 interface LoadedRionNodeAddon
   extends RawNodeApiCoreFactory<NativeAppCoreOptions>, RawAppKitRuntimeAddon,
     RawChromiumUpdaterFactory, RawWindowsChromiumTrustedInputAddon,
-    WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort {}
+    WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort,
+    WindowsRuntimeShortcutOwnerDiagnosticPort {}
 
 const APP_NAME = "Rion Studio";
 const requireNativeModule = createRequire(import.meta.url);
@@ -442,6 +445,27 @@ export function focusElectronMainWindow(): void {
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
+}
+
+export function readWindowsRuntimeShortcutOwnerDiagnostic(
+  parentNativeHostId: number
+): WindowsRuntimeShortcutOwnerDiagnostic | null {
+  if (process.platform !== "win32") return null;
+  if (!Number.isSafeInteger(parentNativeHostId) || parentNativeHostId < 1) {
+    throw new RionBridgeError({
+      code: "ELECTRON_RUNTIME_SHORTCUT_DIAGNOSTIC_HOST_INVALID",
+      message: "The Windows shortcut diagnostic requires one exact native host."
+    });
+  }
+  const addon = nativeAddon;
+  const owner = BrowserWindow.fromId(parentNativeHostId);
+  if (!addon || !owner || owner.isDestroyed()) {
+    throw new RionBridgeError({
+      code: "ELECTRON_RUNTIME_SHORTCUT_DIAGNOSTIC_OWNER_MISSING",
+      message: "The Windows shortcut diagnostic owner is no longer active."
+    });
+  }
+  return addon.readWindowsRuntimeShortcutOwner(owner.getNativeWindowHandle());
 }
 
 function activeRuntimeRestoreSession(): ChromiumRuntimeRestoreSessionCoordinator {

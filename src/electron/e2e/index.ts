@@ -104,6 +104,8 @@ import {
 } from "./roleSurfaceLifecycleObserver";
 import { WindowsChromiumInputSurfaceAttachmentCoordinator } from
   "../main/windowsChromiumInputSurfaceAttachmentCoordinator";
+import type { WindowsRuntimeShortcutOwnerDiagnostic } from
+  "../main/windowsRuntimeHostNativePorts";
 
 authorizeDesktopE2eChromiumCommandLine();
 app.commandLine.appendSwitch("force-renderer-accessibility");
@@ -204,6 +206,9 @@ let observedRuntime: Pick<
   "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" | "snapshot"
 > | null = null;
 let observedPopupLifecycle: ChromiumPopupLifecycleCoordinator | null = null;
+let readWindowsShortcutOwnerDiagnostic: (
+  parentNativeHostId: number
+) => WindowsRuntimeShortcutOwnerDiagnostic | null = () => null;
 const trustedInputObservationsByRole = new Map<
   string,
   ElectronDesktopE2eTrustedInputObservation[]
@@ -216,6 +221,8 @@ const applicationShortcutRuntimeObserver =
     popupHostOwners: workspacePopupHostOwners,
     readCore: () => observedCore,
     readRuntime: () => observedRuntime,
+    readWindowsShortcutOwner: (parentNativeHostId) =>
+      readWindowsShortcutOwnerDiagnostic(parentNativeHostId),
     roleSurfaceOwners: workspaceRoleSurfaceOwners
   });
 const runtimeTabReloadObserver = new ElectronDesktopE2eRuntimeTabReloadObserver({
@@ -1603,8 +1610,10 @@ installElectronDesktopE2eRolePlaceholderObserver();
 applicationShortcutRuntimeObserver.install();
 runtimeTabReloadObserver.install();
 appKitTabMenuRuntimeObserver.install();
-const { focusElectronMainWindow, prepareElectronMainQuit } =
-  await import("../main/index");
+const mainRuntime = await import("../main/index");
+const { focusElectronMainWindow, prepareElectronMainQuit } = mainRuntime;
+readWindowsShortcutOwnerDiagnostic =
+  mainRuntime.readWindowsRuntimeShortcutOwnerDiagnostic;
 
 const mainRendererUrl = pathToFileURL(
   join(import.meta.dirname, "../renderer/index.html")

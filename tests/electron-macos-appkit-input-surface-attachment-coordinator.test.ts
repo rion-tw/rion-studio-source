@@ -143,17 +143,10 @@ describe("macOS AppKit input-surface attachment coordinator", () => {
     expect(subject.coordinator.resolveOwnedInputHost("role-1", 2)).toBeNull();
   });
 
-  it("restores exact foreground ownership only when attachment displaced it", async () => {
+  it("reasserts exact foreground ownership after attachment before a queued blur", async () => {
     const foreground = harness();
     foreground.setFocused(true);
-    const input = foreground.input("role-1");
-    await foreground.coordinator.attach({
-      ...input,
-      attach: () => {
-        foreground.order.push("add:role-1");
-        foreground.setFocused(false);
-      }
-    });
+    await foreground.coordinator.attach(foreground.input("role-1"));
     expect(foreground.order).toEqual([
       "begin:role-1", "add:role-1", "commit:role-1", "focus:window-1"
     ]);

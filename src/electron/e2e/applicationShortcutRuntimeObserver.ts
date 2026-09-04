@@ -8,6 +8,8 @@ import type { ChromiumGlobalWebPresentationRegistry } from
   "../main/chromiumGlobalWebPresentationRegistry";
 import type { ChromiumRuntimeBootstrap } from "../main/chromiumRuntimeBootstrap";
 import type { ChromiumRuntimeHostPort } from "../main/chromiumRuntimeHostPorts";
+import type { WindowsRuntimeShortcutOwnerDiagnostic } from
+  "../main/windowsRuntimeHostNativePorts";
 import { ChromiumRuntimeNativeWindowController } from
   "../main/chromiumRuntimeNativeWindowController";
 import type { ChromiumRoleSurfaceRegistry } from
@@ -44,6 +46,9 @@ export interface ElectronDesktopE2eApplicationShortcutRuntimeObserverInput {
   readonly platform: () => "darwin" | "win32";
   readonly readCore: () => CoreAddonClient | null;
   readonly readRuntime: () => Pick<ChromiumRuntimeBootstrap, "snapshot"> | null;
+  readonly readWindowsShortcutOwner: (
+    parentNativeHostId: number
+  ) => WindowsRuntimeShortcutOwnerDiagnostic | null;
   readonly globalWebSurfaceOwners: ReadonlyMap<string, GlobalWebSurfaceOwner>;
   readonly popupHostOwners: ReadonlyMap<string, PopupHostOwner>;
   readonly roleSurfaceOwners: ReadonlyMap<string, RoleSurfaceOwner>;
@@ -66,6 +71,11 @@ function sameNumber(left: number, right: number): boolean {
 export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
   readonly #input: ElectronDesktopE2eApplicationShortcutRuntimeObserverInput;
   readonly #observations: ElectronDesktopE2eApplicationShortcutRuntimeInspection[] = [];
+  readonly #windowsShortcutOwnerObservations: Array<Readonly<{
+    diagnostic: WindowsRuntimeShortcutOwnerDiagnostic;
+    sequence: number;
+    windowId: string;
+  }>> = [];
   readonly #zoomJournal = new ElectronDesktopE2eWindowZoomJournal();
 
   constructor(input: ElectronDesktopE2eApplicationShortcutRuntimeObserverInput) {
@@ -138,6 +148,15 @@ export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
       (platform === "win32" && native.appKitIdentity)
     ) {
       throw new Error(`Runtime window ${windowId} has an invalid native shortcut host.`);
+    }
+    if (platform === "win32") {
+      const diagnostic = this.#input.readWindowsShortcutOwner(
+        native.parentNativeHostId!
+      );
+      if (!diagnostic) {
+        throw new Error(`Runtime window ${windowId} has no Win32 shortcut receipt.`);
+      }
+      this.#appendWindowsShortcutOwnerObservation(windowId, diagnostic);
     }
     if (
       !finiteZoom(logical.windowZoomFactor) ||
@@ -308,6 +327,30 @@ export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
     writeFileSync(
       join(directory, "electron-application-shortcut-runtime-observations.json"),
       `${JSON.stringify(this.#observations, null, 2)}\n`
+    );
+  }
+
+  #appendWindowsShortcutOwnerObservation(
+    windowId: string,
+    diagnostic: WindowsRuntimeShortcutOwnerDiagnostic
+  ): void {
+    const prior = this.#windowsShortcutOwnerObservations.at(-1);
+    if (
+      prior?.windowId === windowId &&
+      JSON.stringify(prior.diagnostic) === JSON.stringify(diagnostic)
+    ) {
+      return;
+    }
+    this.#windowsShortcutOwnerObservations.push(Object.freeze({
+      diagnostic: Object.freeze({ ...diagnostic }),
+      sequence: this.#windowsShortcutOwnerObservations.length + 1,
+      windowId
+    }));
+    const directory = this.#input.artifactDirectory;
+    if (!directory || !isAbsolute(directory)) return;
+    writeFileSync(
+      join(directory, "electron-windows-runtime-shortcut-owner-observations.json"),
+      `${JSON.stringify(this.#windowsShortcutOwnerObservations, null, 2)}\n`
     );
   }
 }

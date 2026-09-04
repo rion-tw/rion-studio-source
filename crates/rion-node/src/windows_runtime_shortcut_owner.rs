@@ -34,6 +34,18 @@ pub struct WindowsRuntimeShortcutOwnerReceipt {
     pub registered: bool,
 }
 
+#[napi(object)]
+pub struct WindowsRuntimeShortcutOwnerDiagnostic {
+    pub owner_revision: String,
+    pub ui_thread_id: u32,
+    pub hook_callbacks: u32,
+    pub f11_events: u32,
+    pub foreground_matches: u32,
+    pub plain_key_downs: u32,
+    pub callback_submissions: u32,
+    pub callback_rejections: u32,
+}
+
 #[cfg(any(windows, test))]
 fn parse_owner_revision(value: &str) -> Result<u64> {
     let parsed = value.parse::<u64>().map_err(|_| {
@@ -119,9 +131,13 @@ mod platform {
 
     struct ShortcutOwner {
         callback: WindowsRuntimeShortcutCallback,
+        callback_rejections: u32,
+        callback_submissions: u32,
         captured_f11_down: bool,
         failure_callback: WindowsRuntimeShortcutFailureCallback,
+        foreground_matches: u32,
         owner_revision: u64,
+        plain_key_downs: u32,
         failed: bool,
     }
 
@@ -130,6 +146,7 @@ mod platform {
             if self.failed {
                 return;
             }
+            self.callback_submissions = self.callback_submissions.saturating_add(1);
             let revision = self.owner_revision.to_string();
             if self
                 .callback
@@ -139,6 +156,7 @@ mod platform {
                 return;
             }
             self.failed = true;
+            self.callback_rejections = self.callback_rejections.saturating_add(1);
             let _ = self.failure_callback.call(
                 "The bounded Windows runtime shortcut callback queue rejected F11.".to_owned(),
                 ThreadsafeFunctionCallMode::NonBlocking,
@@ -148,7 +166,9 @@ mod platform {
 
     #[derive(Default)]
     struct ShortcutRegistry {
+        f11_events: u32,
         hook: Option<HHOOK>,
+        hook_callbacks: u32,
         owners: HashMap<usize, ShortcutOwner>,
     }
 
@@ -222,21 +242,28 @@ mod platform {
             // SAFETY: WH_KEYBOARD_LL supplies a valid KBDLLHOOKSTRUCT pointer
             // for HC_ACTION and retains it for the duration of this callback.
             let keyboard = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
-            if keyboard.vkCode != VK_F11.0 as u32 {
-                return false;
-            }
-            // SAFETY: this thread-local hook reads only the exact current
-            // foreground HWND and never enumerates or guesses Chromium HWNDs.
-            let foreground = unsafe { GetForegroundWindow() };
             SHORTCUT_REGISTRY.with(|registry| {
                 let mut registry = registry.borrow_mut();
+                registry.hook_callbacks = registry.hook_callbacks.saturating_add(1);
+                if keyboard.vkCode != VK_F11.0 as u32 {
+                    return false;
+                }
+                registry.f11_events = registry.f11_events.saturating_add(1);
+                // SAFETY: this hook reads only the exact current foreground
+                // HWND and never enumerates or guesses Chromium HWNDs.
+                let foreground = unsafe { GetForegroundWindow() };
                 let Some(owner) = registry.owners.get_mut(&hwnd_key(foreground)) else {
                     return false;
                 };
+                owner.foreground_matches = owner.foreground_matches.saturating_add(1);
                 let released = keyboard.flags.contains(LLKHF_UP)
                     || (wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize);
+                let plain = plain_f11();
+                if plain && !released && !owner.captured_f11_down {
+                    owner.plain_key_downs = owner.plain_key_downs.saturating_add(1);
+                }
                 let (action, captured_f11_down) =
-                    classify_f11_transition(plain_f11(), released, owner.captured_f11_down);
+                    classify_f11_transition(plain, released, owner.captured_f11_down);
                 owner.captured_f11_down = captured_f11_down;
                 if action == WindowsRuntimeF11Action::EmitAndConsume {
                     owner.emit()
@@ -341,6 +368,8 @@ mod platform {
                         "Win32 could not install the runtime keyboard shortcut owner.",
                     )
                 })?;
+                registry.hook_callbacks = 0;
+                registry.f11_events = 0;
                 registry.hook = Some(hook);
                 true
             } else {
@@ -373,9 +402,13 @@ mod platform {
                 key,
                 ShortcutOwner {
                     callback,
+                    callback_rejections: 0,
+                    callback_submissions: 0,
                     captured_f11_down: false,
                     failure_callback,
+                    foreground_matches: 0,
                     owner_revision,
+                    plain_key_downs: 0,
                     failed: false,
                 },
             );
@@ -427,6 +460,29 @@ mod platform {
                 })?;
             }
             Ok(true)
+        })
+    }
+
+    pub(super) fn read(parent: HWND) -> Result<WindowsRuntimeShortcutOwnerDiagnostic> {
+        let ui_thread_id = validate_parent(parent)?;
+        SHORTCUT_REGISTRY.with(|registry| {
+            let registry = registry.borrow();
+            let Some(owner) = registry.owners.get(&hwnd_key(parent)) else {
+                return Err(probe_error(
+                    Status::InvalidArg,
+                    "The Windows runtime HWND has no active shortcut owner.",
+                ));
+            };
+            Ok(WindowsRuntimeShortcutOwnerDiagnostic {
+                owner_revision: owner.owner_revision.to_string(),
+                ui_thread_id,
+                hook_callbacks: registry.hook_callbacks,
+                f11_events: registry.f11_events,
+                foreground_matches: owner.foreground_matches,
+                plain_key_downs: owner.plain_key_downs,
+                callback_submissions: owner.callback_submissions,
+                callback_rejections: owner.callback_rejections,
+            })
         })
     }
 
@@ -497,6 +553,26 @@ pub fn unregister_windows_runtime_shortcut_owner(
         ui_thread_id,
         registered,
     })
+}
+
+#[cfg(windows)]
+#[napi(js_name = "readWindowsRuntimeShortcutOwner")]
+pub fn read_windows_runtime_shortcut_owner(
+    parent_handle: Buffer,
+) -> Result<WindowsRuntimeShortcutOwnerDiagnostic> {
+    let parent_address = parse_electron_native_handle(&parent_handle, "parent")?;
+    platform::read(platform::hwnd(parent_address))
+}
+
+#[cfg(not(windows))]
+#[napi(js_name = "readWindowsRuntimeShortcutOwner")]
+pub fn read_windows_runtime_shortcut_owner(
+    _parent_handle: Buffer,
+) -> Result<WindowsRuntimeShortcutOwnerDiagnostic> {
+    Err(probe_error(
+        Status::GenericFailure,
+        "The Win32 runtime shortcut owner is available only on Windows.",
+    ))
 }
 
 #[cfg(not(windows))]

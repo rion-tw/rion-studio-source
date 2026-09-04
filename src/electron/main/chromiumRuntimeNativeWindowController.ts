@@ -228,13 +228,18 @@ export class ChromiumRuntimeNativeWindowController {
     target?: ChromiumRuntimeWindowActionTarget,
     focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
   ): Promise<SystemRuntimeOperationSummaryRecord> {
-    const prior = this.#presentationLanes.get(windowId) ?? Promise.resolve();
-    const operation = prior.then(() => this.#setPresentationNow(
+    const prior = this.#presentationLanes.get(windowId);
+    // The first event-bound presentation ingress is already serialized by the
+    // absence of a lane. Start it in the current native callback turn so a
+    // Win32 TSFN delivery cannot lose its exact HWND/revision fence behind an
+    // otherwise unnecessary Promise microtask. Contended requests still chain.
+    const begin = () => this.#setPresentationNow(
       windowId,
       presentation,
       target,
       focusAdmission
-    ));
+    );
+    const operation = prior ? prior.then(begin) : begin();
     const tail = operation.then(() => undefined, () => undefined);
     this.#presentationLanes.set(windowId, tail);
     return operation.finally(() => {

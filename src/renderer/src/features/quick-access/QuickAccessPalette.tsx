@@ -353,11 +353,13 @@ function QuickAccessDestinationMenu({
   onSelect: (destination: RuntimeLaunchDestination) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
-  const destinationCommittedRef = useRef(false);
+  const pendingDestinationRef = useRef<RuntimeLaunchDestination | null>(null);
   const model = createRuntimeLaunchDestinationModel(gameWindows, runtime, source, t);
   const selectDestination = (destination: RuntimeLaunchDestination): void => {
-    destinationCommittedRef.current = true;
-    onSelect(destination);
+    // Base UI terminalizes selection by closing the dropdown after this
+    // callback. Keep the launch pending until onCloseAutoFocus can suppress
+    // its launcher focus restoration before native AppKit/Chromium focus moves.
+    pendingDestinationRef.current = destination;
   };
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
@@ -384,11 +386,11 @@ function QuickAccessDestinationMenu({
         className="min-w-64"
         portalContainer={portalContainer}
         onCloseAutoFocus={(event) => {
-          // A committed launch transfers native focus to its Game Window. The
-          // dropdown's default trigger restoration runs after selection and
-          // would otherwise reclaim the launcher after that exact transfer.
-          if (destinationCommittedRef.current) event.preventDefault();
-          destinationCommittedRef.current = false;
+          const destination = pendingDestinationRef.current;
+          if (!destination) return;
+          event.preventDefault();
+          pendingDestinationRef.current = null;
+          onSelect(destination);
         }}
       >
         <DropdownMenuItem

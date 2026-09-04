@@ -242,10 +242,15 @@ describe("Core-owned native runtime-window controls", () => {
       }
     });
 
-    await expect(subject.toggleFullscreenForTab(
+    const terminal = subject.toggleFullscreenForTab(
       tabId,
       "windows-native-foreground"
-    )).resolves.toMatchObject({ status: "applied", topologyRevision: 10 });
+    );
+    expect(invoke).toHaveBeenCalledWith({ type: "appSnapshot" });
+    await expect(terminal).resolves.toMatchObject({
+      status: "applied",
+      topologyRevision: 10
+    });
     expect(invoke).toHaveBeenLastCalledWith(expect.objectContaining({
       presentation: "fullscreen",
       type: "embeddedWindowPresentation",

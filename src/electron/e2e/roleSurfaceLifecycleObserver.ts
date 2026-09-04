@@ -1,4 +1,4 @@
-import type { App, WebContents } from "electron";
+import type { App, Event, Input, WebContents } from "electron";
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
@@ -24,6 +24,17 @@ function roleIdFor(contents: WebContents): string | null {
   const storagePath = contents.session.storagePath;
   if (typeof storagePath !== "string") return null;
   return ROLE_SESSION_PATTERN.exec(storagePath.replaceAll("\\", "/"))?.[1] ?? null;
+}
+
+function isObservedApplicationShortcut(input: Input): boolean {
+  if (input.code === "F11" || input.key === "F11") return true;
+  if ((!input.control && !input.meta) || input.alt) return false;
+  return [
+    "Digit0", "Equal", "KeyK", "Minus", "Numpad0", "NumpadAdd",
+    "NumpadSubtract"
+  ].includes(input.code) || ["+", "-", "0", "=", "k"].includes(
+    input.key.toLowerCase()
+  );
 }
 
 /** Records native WebContents events without changing the role-surface lifecycle. */
@@ -61,6 +72,25 @@ export function installElectronDesktopE2eRoleSurfaceLifecycleObserver(
       writeFileSync(outputPath, `${JSON.stringify(observations, null, 2)}\n`);
     };
     capture("created", { type: contents.getType() });
+    contents.on("before-input-event", (inputEvent: Event, input: Input) => {
+      if (!isObservedApplicationShortcut(input)) return;
+      const details = Object.freeze({
+        alt: input.alt,
+        code: input.code,
+        control: input.control,
+        isAutoRepeat: input.isAutoRepeat,
+        key: input.key,
+        meta: input.meta,
+        shift: input.shift,
+        type: input.type
+      });
+      // Observe after every synchronous product listener has had the chance to
+      // claim the same native event; this microtask records but never owns it.
+      queueMicrotask(() => capture("before-input-event", {
+        ...details,
+        defaultPrevented: inputEvent.defaultPrevented
+      }));
+    });
     contents.on(
       "did-start-navigation",
       (_navigationEvent, url, isSameDocument, isMainFrame) => capture(

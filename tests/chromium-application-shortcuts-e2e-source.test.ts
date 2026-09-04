@@ -52,6 +52,11 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(roleSurfaceLifecycleObserver).toContain('"did-start-navigation"');
     expect(roleSurfaceLifecycleObserver).toContain('"did-fail-provisional-load"');
     expect(roleSurfaceLifecycleObserver).toContain('"render-process-gone"');
+    expect(roleSurfaceLifecycleObserver).toContain('"before-input-event"');
+    expect(roleSurfaceLifecycleObserver).toContain("queueMicrotask");
+    expect(roleSurfaceLifecycleObserver).toContain(
+      "defaultPrevented: inputEvent.defaultPrevented"
+    );
     expect(roleSurfaceLifecycleObserver).toContain(
       '"electron-role-surface-lifecycle-observations.json"'
     );

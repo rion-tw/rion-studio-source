@@ -632,6 +632,17 @@ export class ChromiumRuntimeBootstrap {
                     "The Core-owned Windows tab control lane is unavailable."
                   ));
             },
+            onRuntimeTabFullscreen: (tabId) => {
+              requireNativeActionIngress();
+              const request = input.onRuntimeTabFullscreen;
+              if (!request) {
+                throw bootstrapError(
+                  "ELECTRON_CHROMIUM_FULLSCREEN_UNAVAILABLE",
+                  "The Core-owned Windows fullscreen shortcut lane is unavailable."
+                );
+              }
+              request(tabId);
+            },
             onWorkspaceDividerPointer: (event) => {
               requireNativeActionIngress();
               return input.core.invoke({

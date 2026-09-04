@@ -531,6 +531,10 @@ export class WindowsRuntimeHostChromeController {
     });
   }
 
+  readActiveTabId(): string | null {
+    return this.#activeTabId;
+  }
+
   async #applyToolbarCommand(
     command: WindowsRuntimeHostToolbarCommand
   ): Promise<void> {

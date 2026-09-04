@@ -521,6 +521,60 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(observations).toHaveLength(1);
   });
 
+  it("owns Windows F11 above the runtime host and routes one exact active tab", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const requestFullscreen = vi.fn();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      onRuntimeTabFullscreen: requestFullscreen,
+      runtimeDocumentPath
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    await applyWindowFence(host);
+    const events = [
+      { type: "keyDown", isAutoRepeat: false },
+      { type: "keyDown", isAutoRepeat: true },
+      { type: "keyUp", isAutoRepeat: false }
+    ] as const;
+    const nativeEvents = events.map(() => preventableEvent());
+    events.forEach((input, index) => window.webContents.emit(
+      "before-input-event",
+      nativeEvents[index],
+      {
+        alt: false,
+        code: "",
+        control: false,
+        isAutoRepeat: input.isAutoRepeat,
+        key: "F11",
+        meta: false,
+        shift: false,
+        type: input.type
+      }
+    ));
+    const wrongKey = preventableEvent();
+    window.webContents.emit("before-input-event", wrongKey, {
+      alt: false,
+      code: "F10",
+      control: false,
+      isAutoRepeat: false,
+      key: "F10",
+      meta: false,
+      shift: false,
+      type: "keyDown"
+    });
+
+    expect(nativeEvents.every(
+      (event) => event.preventDefault.mock.calls.length === 1
+    )).toBe(true);
+    expect(wrongKey.preventDefault).not.toHaveBeenCalled();
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(requestFullscreen).toHaveBeenCalledWith("tab-1");
+  });
+
   it("streams exact native state events and retires observers before replacement", async () => {
     const browserWindows = new FakeBrowserWindows();
     const foreground = new FakeRuntimeForegroundProbe();

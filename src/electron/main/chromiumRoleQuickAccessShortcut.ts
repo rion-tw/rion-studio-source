@@ -14,7 +14,8 @@ export function isChromiumRoleFullscreenShortcut(
   input: ChromiumRoleSurfaceInputEvent,
   platform: "darwin" | "win32"
 ): boolean {
-  return platform === "win32" && input.code === "F11" &&
+  return platform === "win32" &&
+    (input.code === "F11" || input.key === "F11") &&
     !input.alt && !input.control && !input.meta && !input.shift;
 }
 

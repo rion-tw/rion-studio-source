@@ -63,6 +63,8 @@ import {
   WindowsRuntimeWindowStateStream,
   type WindowsRuntimeForegroundProbePort
 } from "./windowsRuntimeWindowState";
+import { isChromiumRoleFullscreenShortcut } from
+  "./chromiumRoleQuickAccessShortcut";
 export {
   buildWindowsRuntimeHostWindowOptions,
   type WindowsRuntimeHostMaterial
@@ -147,6 +149,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
         event: BrowserWorkspaceDividerPointerRecord
       ) => Promise<BrowserWorkspaceDividerPointerReceiptRecord>;
       onRuntimeWindowPlacement?: (host: ChromiumRuntimeHostPort) => Promise<void>;
+      onRuntimeTabFullscreen?: (tabId: string) => void;
       runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
     }>
   | Readonly<{
@@ -155,6 +158,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
     }>;
 
 interface WindowsHostListeners {
+  readonly beforeInputEvent: RuntimeHostWebContentsEventMap["before-input-event"];
   readonly blurred: () => void;
   readonly close: RuntimeHostWindowEventMap["close"];
   readonly closed: () => void;
@@ -491,6 +495,7 @@ implements ChromiumRuntimeHostFactoryPort {
   readonly #onRuntimeWindowPlacement: ((
     host: ChromiumRuntimeHostPort
   ) => Promise<void>) | null;
+  readonly #onRuntimeTabFullscreen: (tabId: string) => void;
   readonly #runtimeForegroundProbe: WindowsRuntimeForegroundProbePort | null;
   #windowPreferences: RuntimeWindowPreferencesRecord = Object.freeze({
     alwaysHideTabCloseButton: false,
@@ -536,7 +541,8 @@ implements ChromiumRuntimeHostFactoryPort {
     onTabReload?: (fence: ControlledRuntimeTabReloadFence) => Promise<void>,
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
-    runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort
+    runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
+    onRuntimeTabFullscreen?: (tabId: string) => void
   ) {
     this.#windows = windows;
     this.#displays = displays;
@@ -556,6 +562,12 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#lifecycleEpoch = lifecycleEpoch ?? (() => 1);
     this.#onCommandError = onCommandError ?? (() => undefined);
     this.#runtimeForegroundProbe = runtimeForegroundProbe ?? null;
+    this.#onRuntimeTabFullscreen = onRuntimeTabFullscreen ?? (() => {
+      throw hostError(
+        "ELECTRON_RUNTIME_HOST_FULLSCREEN_UNAVAILABLE",
+        "The Core-owned Windows fullscreen shortcut lane is unavailable."
+      );
+    });
   }
 
   static fromElectronBrowserWindow(
@@ -578,14 +590,16 @@ implements ChromiumRuntimeHostFactoryPort {
     onTabReload?: (fence: ControlledRuntimeTabReloadFence) => Promise<void>,
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
-    runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort
+    runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
+    onRuntimeTabFullscreen?: (tabId: string) => void
   ): WindowsElectronChromiumRuntimeHostFactory {
     return new WindowsElectronChromiumRuntimeHostFactory({
       create: (options) => new BrowserWindowConstructor(options) as unknown as
         WindowsRuntimeHostWindowPort
     }, runtimeDocumentPath, displays, runtimeHostPreloadPath, onWindowControl,
     onWorkspaceDividerPointer, onTabControl, onRuntimeWindowPlacement,
-    onTabReload, lifecycleEpoch, onCommandError, runtimeForegroundProbe);
+    onTabReload, lifecycleEpoch, onCommandError, runtimeForegroundProbe,
+    onRuntimeTabFullscreen);
   }
 
   async applyWindowPreferences(
@@ -939,6 +953,24 @@ implements ChromiumRuntimeHostFactoryPort {
       record.chrome.bindPlacement(() => this.#onRuntimeWindowPlacement!(record.host));
     }
     record.listeners = {
+      beforeInputEvent: (event, input) => {
+        if (!isChromiumRoleFullscreenShortcut(input, "win32")) return;
+        // Own both halves above Chromium's default F11 BrowserWindow toggle.
+        event.preventDefault();
+        if (input.type !== "keyDown" || input.isAutoRepeat) return;
+        try {
+          const tabId = record.chrome.readActiveTabId();
+          if (record.state !== "active" || !tabId) {
+            throw hostError(
+              "ELECTRON_RUNTIME_HOST_FULLSCREEN_TARGET_UNAVAILABLE",
+              "The Windows fullscreen shortcut has no exact active runtime tab."
+            );
+          }
+          this.#onRuntimeTabFullscreen(tabId);
+        } catch (error) {
+          this.#onCommandError(error);
+        }
+      },
       blurred: () => record.windowState.publish("blur"),
       close: (event) => {
         if (record.state === "closing" || record.state === "closed") return;
@@ -1122,6 +1154,7 @@ implements ChromiumRuntimeHostFactoryPort {
     native.on("show", listeners.shown);
     native.on("unmaximize", listeners.unmaximized);
     native.on("unresponsive", listeners.unresponsive);
+    native.webContents.on("before-input-event", listeners.beforeInputEvent);
     native.webContents.on("did-fail-load", listeners.didFailLoad);
     native.webContents.on("did-finish-load", listeners.didFinishLoad);
     native.webContents.on("ipc-message", listeners.ipcMessage);
@@ -1365,6 +1398,7 @@ implements ChromiumRuntimeHostFactoryPort {
     native.removeListener("show", listeners.shown);
     native.removeListener("unmaximize", listeners.unmaximized);
     native.removeListener("unresponsive", listeners.unresponsive);
+    native.webContents.removeListener("before-input-event", listeners.beforeInputEvent);
     native.webContents.removeListener("ipc-message", listeners.ipcMessage);
     native.webContents.removeListener("render-process-gone", listeners.renderProcessGone);
     native.webContents.removeListener("will-attach-webview", listeners.willAttachWebview);
@@ -1421,7 +1455,8 @@ implements ChromiumRuntimeHostFactoryPort {
           input.onTabReload,
           input.lifecycleEpoch,
           input.onError,
-          input.runtimeForegroundProbe
+          input.runtimeForegroundProbe,
+          input.onRuntimeTabFullscreen
         )
       : null;
     this.#appKit = input.platform === "darwin" ? input.appKit ?? null : null;

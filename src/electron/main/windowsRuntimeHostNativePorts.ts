@@ -32,6 +32,10 @@ export interface RuntimeHostSessionPort {
 }
 
 export interface RuntimeHostWebContentsEventMap {
+  readonly "before-input-event": (
+    event: RuntimeHostPreventableEvent,
+    input: RuntimeHostInputEvent
+  ) => void;
   readonly "did-finish-load": () => void;
   readonly "did-fail-load": (
     event: unknown,
@@ -58,6 +62,17 @@ export interface RuntimeHostWebContentsEventMap {
     frameProcessId: number,
     frameRoutingId: number
   ) => void;
+}
+
+export interface RuntimeHostInputEvent {
+  readonly alt: boolean;
+  readonly code: string;
+  readonly control: boolean;
+  readonly isAutoRepeat: boolean;
+  readonly key: string;
+  readonly meta: boolean;
+  readonly shift: boolean;
+  readonly type: "keyDown" | "keyUp";
 }
 
 export interface RuntimeHostWindowEventMap {

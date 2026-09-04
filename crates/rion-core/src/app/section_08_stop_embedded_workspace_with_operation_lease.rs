@@ -560,13 +560,17 @@ impl AppCore {
         handle: crate::operation_actor::OperationHandle,
         roles: &[StateRoleRecord],
         tab_id: &str,
+        presentation_intent: EmbeddedLaunchPresentationIntent,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         let launch = self.finish_effect_plan_for_roles(handle, &role_ids);
         let error = match launch {
             Ok(outcome) => {
                 if self.complete_chromium_runtime_launch(tab_id, &role_ids)? {
-                    self.project_embedded_runtime_snapshot_without_persistence(None)?;
+                    self.project_completed_chromium_runtime_launch(
+                        tab_id,
+                        presentation_intent,
+                    )?;
                 }
                 return Ok(outcome);
             }
@@ -585,6 +589,7 @@ impl AppCore {
         handle: crate::operation_actor::OperationHandle,
         roles: &[StateRoleRecord],
         tab_id: &str,
+        presentation_intent: EmbeddedLaunchPresentationIntent,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         let launch = self
@@ -593,8 +598,11 @@ impl AppCore {
         let error = match launch {
             Ok(outcome) => {
                 if self.complete_chromium_runtime_launch(tab_id, &role_ids)? {
-                    self.project_embedded_runtime_snapshot_without_persistence_async()
-                        .await?;
+                    self.project_completed_chromium_runtime_launch_async(
+                        tab_id,
+                        presentation_intent,
+                    )
+                    .await?;
                 }
                 return Ok(outcome);
             }

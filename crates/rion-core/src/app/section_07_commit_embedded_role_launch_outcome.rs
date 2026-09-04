@@ -553,6 +553,7 @@ impl AppCore {
             PendingEmbeddedWorkspaceLaunch {
                 handle,
                 lease_id,
+                presentation_intent,
                 role_ids: launch_roles.iter().map(|role| role.id.clone()).collect(),
                 roles: launch_roles,
                 tab_id,
@@ -571,6 +572,7 @@ impl AppCore {
         let PendingEmbeddedWorkspaceLaunch {
             handle,
             lease_id: _,
+            presentation_intent,
             role_ids,
             roles,
             tab_id,
@@ -579,7 +581,8 @@ impl AppCore {
             window_id,
             workspace_id,
         } = pending;
-        let launch = self.finish_system_launch(handle, &roles, &tab_id);
+        let launch =
+            self.finish_system_launch(handle, &roles, &tab_id, presentation_intent);
         self.commit_embedded_workspace_launch_outcome(
             role_ids,
             tab_id,

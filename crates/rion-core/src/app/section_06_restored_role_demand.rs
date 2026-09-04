@@ -119,7 +119,12 @@ impl AppCore {
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
-        if let Err(error) = self.finish_system_launch(handle, &[], &tab_id) {
+        if let Err(error) = self.finish_system_launch(
+            handle,
+            &[],
+            &tab_id,
+            EmbeddedLaunchPresentationIntent::RestoreHydration,
+        ) {
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                 tab_id: tab_id.clone(),
             });

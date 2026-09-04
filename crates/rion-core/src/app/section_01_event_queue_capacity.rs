@@ -252,6 +252,7 @@ struct ChromeImportRollbackContext {
 struct PendingEmbeddedRoleLaunch {
     handle: crate::operation_actor::OperationHandle,
     lease_id: String,
+    presentation_intent: EmbeddedLaunchPresentationIntent,
     role: StateRoleRecord,
     tab_id: String,
     target: EmbeddedLaunchTargetRecord,
@@ -261,6 +262,7 @@ struct PendingEmbeddedRoleLaunch {
 struct PendingEmbeddedWorkspaceLaunch {
     handle: crate::operation_actor::OperationHandle,
     lease_id: String,
+    presentation_intent: EmbeddedLaunchPresentationIntent,
     role_ids: Vec<String>,
     roles: Vec<StateRoleRecord>,
     tab_id: String,

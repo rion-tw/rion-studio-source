@@ -1043,6 +1043,7 @@ impl AppCore {
                     let PendingEmbeddedRoleLaunch {
                         handle,
                         lease_id,
+                        presentation_intent,
                         role,
                         tab_id,
                         target,
@@ -1053,7 +1054,12 @@ impl AppCore {
                     let completion_title = role.name.clone();
                     let persistence_window_id = window_id.clone();
                     let launch = core
-                        .finish_system_launch_async(handle, std::slice::from_ref(&role), &tab_id)
+                        .finish_system_launch_async(
+                            handle,
+                            std::slice::from_ref(&role),
+                            &tab_id,
+                            presentation_intent,
+                        )
                         .await;
                     let completion_core = Arc::clone(&core);
                     let completion = tokio::task::spawn_blocking(move || {
@@ -1380,6 +1386,7 @@ impl AppCore {
             PendingEmbeddedRoleLaunch {
                 handle,
                 lease_id,
+                presentation_intent,
                 role,
                 tab_id,
                 target,
@@ -1395,12 +1402,18 @@ impl AppCore {
         let PendingEmbeddedRoleLaunch {
             handle,
             lease_id: _,
+            presentation_intent,
             role,
             tab_id,
             target: _,
             window_id,
         } = pending;
-        let launch = self.finish_system_launch(handle, std::slice::from_ref(&role), &tab_id);
+        let launch = self.finish_system_launch(
+            handle,
+            std::slice::from_ref(&role),
+            &tab_id,
+            presentation_intent,
+        );
         self.commit_embedded_role_launch_outcome(role, tab_id, window_id, launch)
     }
 }

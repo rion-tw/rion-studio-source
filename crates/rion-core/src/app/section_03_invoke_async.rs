@@ -908,6 +908,7 @@ impl AppCore {
                         let PendingEmbeddedWorkspaceLaunch {
                             handle,
                             lease_id,
+                            presentation_intent,
                             role_ids,
                             roles,
                             tab_id,
@@ -920,7 +921,12 @@ impl AppCore {
                         let completion_source_id = workspace_id.clone();
                         let persistence_window_id = window_id.clone();
                         let launch = core
-                            .finish_system_launch_async(handle, &roles, &tab_id)
+                            .finish_system_launch_async(
+                                handle,
+                                &roles,
+                                &tab_id,
+                                presentation_intent,
+                            )
                             .await;
                         let completion_core = Arc::clone(&core);
                         let completion = tokio::task::spawn_blocking(move || {

@@ -1565,6 +1565,7 @@ describe("macOS AppKit runtime-host boundary", () => {
       nativeHostKind: "rust-napi-appkit",
       applyWindowName: vi.fn(),
       applyWindowPreferences: vi.fn(),
+      captureChromiumSurfaceFocusLease: vi.fn(() => null),
       captureHostObservations: vi.fn(() => []),
       create: vi.fn(async () => appKitHost),
       createEmpty: vi.fn(async () => appKitHost),

@@ -169,6 +169,46 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       );
     }
   }
+
+  captureChromiumSurfaceFocusLease(): Readonly<{ restore: () => void }> | null {
+    const focused = [...this.#activeByLogicalWindow.values()].filter((record) =>
+      record.state === "active" && !!record.controller &&
+      this.#isExactOwner(record) && record.native.isFocused()
+    );
+    if (focused.length > 1) {
+      fail(
+        "ELECTRON_MACOS_APPKIT_FOCUS_OWNER_CONFLICT",
+        "More than one AppKit runtime host reported key-window ownership."
+      );
+    }
+    const record = focused[0];
+    if (!record) return null;
+    let restored = false;
+    return Object.freeze({
+      restore: () => {
+        if (restored) {
+          fail(
+            "ELECTRON_MACOS_APPKIT_FOCUS_LEASE_REPLAYED",
+            "The AppKit Chromium-surface focus lease was already consumed."
+          );
+        }
+        restored = true;
+        if (
+          record.state !== "active" || !record.controller ||
+          record.native.isDestroyed() || !this.#isExactOwner(record)
+        ) {
+          fail(
+            "ELECTRON_MACOS_APPKIT_FOCUS_LEASE_STALE",
+            "The focused AppKit host retired during Chromium surface creation."
+          );
+        }
+        if (!record.native.isFocused()) {
+          record.controller.focusWindow(record.identity);
+        }
+      }
+    });
+  }
+
   static fromElectronBaseWindow(
     addon: RawAppKitRuntimeAddon,
     BaseWindowConstructor: ElectronBaseWindowConstructor,

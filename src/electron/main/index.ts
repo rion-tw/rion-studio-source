@@ -882,9 +882,27 @@ async function bootstrapReadyPhase(
       }
     },
     views: {
-      create: (options) => new WebContentsView(
-        options as Electron.WebContentsViewConstructorOptions
-      ) as unknown as ChromiumRoleWebContentsViewPort
+      create: (options) => {
+        const focusLease = runtimePlatform === "darwin"
+          ? appKit!.hostFactory.captureChromiumSurfaceFocusLease()
+          : null;
+        let view: WebContentsView;
+        try {
+          view = new WebContentsView(
+            options as Electron.WebContentsViewConstructorOptions
+          );
+        } catch (error) {
+          focusLease?.restore();
+          throw error;
+        }
+        try {
+          focusLease?.restore();
+        } catch (error) {
+          view.webContents.close({ waitForBeforeUnload: false });
+          throw error;
+        }
+        return view as unknown as ChromiumRoleWebContentsViewPort;
+      }
     },
     ...(runtimePlatform === "win32"
       ? {

@@ -125,6 +125,27 @@ describe("macOS AppKit Chromium runtime host", () => {
     expect(fixture.order).not.toContain("window-focus");
   });
 
+  it("restores the exact focused AppKit host after Chromium surface creation", async () => {
+    const fixture = new Fixture();
+    await fixture.factory.createEmpty(target(), {
+      attemptGeneration: "launch-generation-1",
+      windowGeneration: 1,
+      topologyRevision: 1
+    });
+    fixture.windows[0]!.focused = true;
+
+    const lease = fixture.factory.captureChromiumSurfaceFocusLease();
+    expect(lease).not.toBeNull();
+    fixture.windows[0]!.focused = false;
+    lease!.restore();
+
+    expect(fixture.order.at(-1)).toBe("controller-window-focus");
+    expect(() => lease!.restore()).toThrowError(expect.objectContaining({
+      code: "ELECTRON_MACOS_APPKIT_FOCUS_LEASE_REPLAYED"
+    }));
+    expect(fixture.factory.captureChromiumSurfaceFocusLease()).toBeNull();
+  });
+
   it("keeps Core bounds while AppKit installs its native chrome", async () => {
     const fixture = new Fixture();
     const creation = fixture.factory.createEmpty(target(), {

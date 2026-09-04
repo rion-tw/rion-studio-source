@@ -103,6 +103,9 @@ interface Deferred<Value> {
 export interface MacosAppKitRuntimeHostFactoryPort
   extends ChromiumRuntimeHostFactoryPort {
   readonly nativeHostKind: "rust-napi-appkit";
+  captureChromiumSurfaceFocusLease: () => Readonly<{
+    restore: () => void;
+  }> | null;
   applyWindowName: (
     expected: AppKitRuntimeHostIdentityRecord,
     name: string

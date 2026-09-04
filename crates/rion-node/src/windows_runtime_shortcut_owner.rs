@@ -62,11 +62,9 @@ enum WindowsRuntimeF11Action {
 #[cfg(any(windows, test))]
 fn classify_f11_transition(
     plain_f11: bool,
-    lparam_bits: usize,
+    released: bool,
     captured_down: bool,
 ) -> (WindowsRuntimeF11Action, bool) {
-    let released = lparam_bits & (1usize << 31) != 0;
-    let repeated = lparam_bits & (1usize << 30) != 0;
     if released {
         return if captured_down {
             (WindowsRuntimeF11Action::Consume, false)
@@ -74,12 +72,8 @@ fn classify_f11_transition(
             (WindowsRuntimeF11Action::PassThrough, false)
         };
     }
-    if repeated {
-        return if captured_down {
-            (WindowsRuntimeF11Action::Consume, true)
-        } else {
-            (WindowsRuntimeF11Action::PassThrough, false)
-        };
+    if captured_down {
+        return (WindowsRuntimeF11Action::Consume, true);
     }
     if plain_f11 {
         (WindowsRuntimeF11Action::EmitAndConsume, true)
@@ -98,18 +92,26 @@ mod platform {
 
     use windows::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
-        System::Threading::{GetCurrentProcessId, GetCurrentThreadId},
+        System::{
+            LibraryLoader::{
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleHandleExW,
+            },
+            Threading::{GetCurrentProcessId, GetCurrentThreadId},
+        },
         UI::{
             Input::KeyboardAndMouse::{
-                GetKeyState, VK_CONTROL, VK_F11, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+                GetAsyncKeyState, VK_CONTROL, VK_F11, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
             Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
             WindowsAndMessaging::{
                 CallNextHookEx, GetForegroundWindow, GetWindowThreadProcessId, HC_ACTION, HHOOK,
-                IsWindow, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD, WM_NCDESTROY,
+                IsWindow, KBDLLHOOKSTRUCT, LLKHF_UP, SetWindowsHookExW, UnhookWindowsHookEx,
+                WH_KEYBOARD_LL, WM_KEYDOWN, WM_NCDESTROY, WM_SYSKEYDOWN,
             },
         },
     };
+    use windows::core::PCWSTR;
 
     use super::*;
 
@@ -164,9 +166,10 @@ mod platform {
     }
 
     fn modifier_is_down(key: i32) -> bool {
-        // SAFETY: GetKeyState reads the calling UI thread's keyboard state and
-        // does not retain the virtual-key value.
-        unsafe { GetKeyState(key) < 0 }
+        // SAFETY: the low-level keyboard callback runs before the state of its
+        // current key is updated, so prior modifier transitions are already
+        // reflected without retaining the virtual-key value.
+        unsafe { GetAsyncKeyState(key) < 0 }
     }
 
     fn plain_f11() -> bool {
@@ -207,13 +210,19 @@ mod platform {
         unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
     }
 
-    unsafe extern "system" fn runtime_keyboard_hook(
+    unsafe extern "system" fn runtime_low_level_keyboard_hook(
         code: i32,
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
         let captured = catch_unwind(AssertUnwindSafe(|| {
-            if code != HC_ACTION as i32 || wparam.0 != VK_F11.0 as usize {
+            if code != HC_ACTION as i32 {
+                return false;
+            }
+            // SAFETY: WH_KEYBOARD_LL supplies a valid KBDLLHOOKSTRUCT pointer
+            // for HC_ACTION and retains it for the duration of this callback.
+            let keyboard = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
+            if keyboard.vkCode != VK_F11.0 as u32 {
                 return false;
             }
             // SAFETY: this thread-local hook reads only the exact current
@@ -224,11 +233,10 @@ mod platform {
                 let Some(owner) = registry.owners.get_mut(&hwnd_key(foreground)) else {
                     return false;
                 };
-                let (action, captured_f11_down) = classify_f11_transition(
-                    plain_f11(),
-                    lparam.0 as usize,
-                    owner.captured_f11_down,
-                );
+                let released = keyboard.flags.contains(LLKHF_UP)
+                    || (wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize);
+                let (action, captured_f11_down) =
+                    classify_f11_transition(plain_f11(), released, owner.captured_f11_down);
                 owner.captured_f11_down = captured_f11_down;
                 if action == WindowsRuntimeF11Action::EmitAndConsume {
                     owner.emit()
@@ -243,6 +251,29 @@ mod platform {
         // SAFETY: unmatched messages must continue through the current thread's
         // keyboard-hook chain. Passing None is documented for this operation.
         unsafe { CallNextHookEx(None, code, wparam, lparam) }
+    }
+
+    fn hook_module() -> Result<windows::Win32::Foundation::HINSTANCE> {
+        let mut module = windows::Win32::Foundation::HMODULE::default();
+        let callback_address = runtime_low_level_keyboard_hook as *const () as *const u16;
+        // SAFETY: FROM_ADDRESS treats the pointer as an address inside the
+        // loaded rion_node module rather than reading it as a string. The
+        // unchanged-refcount flag makes this a non-owning module lookup.
+        unsafe {
+            GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                    | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                PCWSTR(callback_address),
+                &mut module,
+            )
+        }
+        .map_err(|_| {
+            probe_error(
+                Status::GenericFailure,
+                "Win32 could not resolve the runtime shortcut hook module.",
+            )
+        })?;
+        Ok(windows::Win32::Foundation::HINSTANCE(module.0))
     }
 
     fn validate_parent(parent: HWND) -> Result<u32> {
@@ -290,10 +321,19 @@ mod platform {
             }
 
             let installed_hook = if registry.hook.is_none() {
-                // SAFETY: a null module handle is valid for a hook confined to
-                // the current UI thread. The callback is a static function.
+                let module = hook_module()?;
+                // SAFETY: WH_KEYBOARD_LL is desktop-scoped but owned by
+                // Electron's message-loop thread. The static callback forwards
+                // every key except plain F11 while an exact registered Rion
+                // runtime HWND is foreground, retains no unrelated input, and
+                // remains valid while the rion_node module is loaded.
                 let hook = unsafe {
-                    SetWindowsHookExW(WH_KEYBOARD, Some(runtime_keyboard_hook), None, ui_thread_id)
+                    SetWindowsHookExW(
+                        WH_KEYBOARD_LL,
+                        Some(runtime_low_level_keyboard_hook),
+                        Some(module),
+                        0,
+                    )
                 }
                 .map_err(|_| {
                     probe_error(
@@ -490,23 +530,23 @@ mod tests {
     #[test]
     fn f11_transition_owns_one_plain_key_cycle_without_stealing_modifiers() {
         assert_eq!(
-            classify_f11_transition(true, 0, false),
+            classify_f11_transition(true, false, false),
             (WindowsRuntimeF11Action::EmitAndConsume, true)
         );
         assert_eq!(
-            classify_f11_transition(false, 1usize << 30, true),
+            classify_f11_transition(false, false, true),
             (WindowsRuntimeF11Action::Consume, true)
         );
         assert_eq!(
-            classify_f11_transition(false, 1usize << 31, true),
+            classify_f11_transition(false, true, true),
             (WindowsRuntimeF11Action::Consume, false)
         );
         assert_eq!(
-            classify_f11_transition(false, 0, false),
+            classify_f11_transition(false, false, false),
             (WindowsRuntimeF11Action::PassThrough, false)
         );
         assert_eq!(
-            classify_f11_transition(true, 1usize << 31, false),
+            classify_f11_transition(true, true, false),
             (WindowsRuntimeF11Action::PassThrough, false)
         );
     }

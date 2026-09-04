@@ -79,16 +79,22 @@ async function waitApplicationShortcutRuntime(
   timeoutMsg: string
 ): Promise<ElectronDesktopE2eApplicationShortcutRuntimeInspection> {
   let inspection: ElectronDesktopE2eApplicationShortcutRuntimeInspection | undefined;
-  await browser.waitUntil(async () => {
-    try {
-      const candidate = await electronDesktopE2eApplicationShortcutRuntime(windowId);
-      if (!predicate(candidate)) return false;
-      inspection = candidate;
-      return true;
-    } catch {
-      return false;
-    }
-  }, { timeout: 20_000, timeoutMsg });
+  try {
+    await browser.waitUntil(async () => {
+      try {
+        const candidate = await electronDesktopE2eApplicationShortcutRuntime(windowId);
+        inspection = candidate;
+        return predicate(candidate);
+      } catch {
+        return false;
+      }
+    }, { timeout: 20_000, timeoutMsg });
+  } catch (error) {
+    throw new Error(
+      `${timeoutMsg}; last coherent runtime=${JSON.stringify(inspection ?? null)}`,
+      { cause: error }
+    );
+  }
   if (!inspection) throw new Error(timeoutMsg);
   return inspection;
 }

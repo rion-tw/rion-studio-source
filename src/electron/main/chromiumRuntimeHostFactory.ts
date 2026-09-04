@@ -1230,12 +1230,13 @@ implements ChromiumRuntimeHostFactoryPort {
               record.ownerRevision
             );
           this.#validateShortcutOwnerReceipt(record, delivered, true);
-          // EventBound: leave the N-API TSFN callback frame before invoking
-          // the async Core bridge; the exact HWND/revision remains fenced by
-          // #dispatchRuntimeFullscreenShortcut on the next Node check turn.
-          setImmediate(() => this.#dispatchRuntimeFullscreenShortcut(
+          // EventBound: the low-level hook emits from the terminal F11 key-up
+          // through its dedicated dispatcher. The TSFN callback therefore
+          // runs only after the native hook frame has returned; dispatch now
+          // while this exact HWND/revision fence is still current.
+          this.#dispatchRuntimeFullscreenShortcut(
             record, "windows-native-foreground"
-          ));
+          );
         } catch (error) {
           this.#onCommandError(error);
         }

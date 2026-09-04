@@ -34,6 +34,7 @@ beforeAll(() => {
       configurable: true,
       value: function close(this: HTMLDialogElement): void {
         this.removeAttribute("open");
+        queueMicrotask(() => this.dispatchEvent(new Event("close")));
       }
     },
     showModal: {
@@ -158,13 +159,18 @@ describe("quick access palette", () => {
   it("settles modal focus restoration before launch and reopens only after failure", async () => {
     const user = userEvent.setup();
     let finishExecution!: (succeeded: boolean) => void;
+    let dialogCloseCompleted = false;
     const onExecute = vi.fn(() => new Promise<boolean>((resolve) => {
+      expect(dialogCloseCompleted).toBe(true);
       finishExecution = resolve;
     }));
     render(<PaletteHarness onExecute={onExecute} onSetPinned={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Open palette" }));
     const dialog = screen.getByTestId("quick-access-palette");
+    dialog.addEventListener("close", () => {
+      dialogCloseCompleted = true;
+    }, { once: true });
     const execution = user.keyboard("{Enter}");
     await waitFor(() => expect(onExecute).toHaveBeenCalledOnce());
     expect(dialog.hasAttribute("open")).toBe(false);

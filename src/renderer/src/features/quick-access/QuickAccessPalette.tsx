@@ -134,7 +134,13 @@ export function QuickAccessPalette({
     // browser event before a launch can transfer authoritative native focus to
     // the target Game Window; closing after the awaited launch would steal the
     // focus back from the retained AppKit or Windows Chromium host.
-    if (dialog?.open) dialog.close();
+    if (dialog?.open) {
+      const didClose = new Promise<void>((resolve) => {
+        dialog.addEventListener("close", () => resolve(), { once: true });
+      });
+      dialog.close();
+      await didClose;
+    }
     const succeeded = await onExecute(item, destination);
     if (succeeded) {
       onClose("complete");

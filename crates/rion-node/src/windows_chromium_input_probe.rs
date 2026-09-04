@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 #[cfg(windows)]
 use std::mem::size_of;
 
-const WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION: u32 = 4;
+const WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION: u32 = 5;
 
 #[napi(object)]
 pub struct WindowsChromiumInputHwndProbeReceipt {
@@ -336,12 +336,12 @@ pub fn probe_windows_chromium_input_hwnd(
         Ok(WindowsChromiumInputHwndProbeReceipt {
             abi_version: WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION,
             surface_handle_token: native_handle_token(
-                b"rion-windows-chromium-input-surface-v4",
+                b"rion-windows-chromium-input-surface-v5",
                 surface_address,
                 current_process_id,
             ),
             parent_handle_token: native_handle_token(
-                b"rion-windows-chromium-input-parent-v4",
+                b"rion-windows-chromium-input-parent-v5",
                 parent_address,
                 current_process_id,
             ),
@@ -614,6 +614,6 @@ mod tests {
 
     #[test]
     fn probe_abi_is_stable_without_advertising_platform_capability() {
-        assert_eq!(windows_chromium_input_probe_abi_version(), 4);
+        assert_eq!(windows_chromium_input_probe_abi_version(), 5);
     }
 }

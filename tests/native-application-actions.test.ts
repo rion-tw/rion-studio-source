@@ -101,6 +101,17 @@ describe("native application shortcut target modes", () => {
     );
     expect(source).toContain("set expectedFullscreen to not focusedWindowFullscreen");
     expect(source).toContain("set currentFullscreenRead to false");
+    expect(source).toContain("set currentWindows to windows of targetProcess");
+    expect(source).toContain(
+      'attribute "AXIdentifier" of currentWindow as text) is focusedWindowIdentifier'
+    );
+    expect(source).toContain("currentRuntimeWindowCount is greater than 1");
+    expect(source).toContain(
+      "exact AppKit runtime AXIdentifier became ambiguous during fullscreen transition"
+    );
+    expect(source).not.toContain(
+      'set currentMainWindow to value of attribute "AXMainWindow" of targetProcess'
+    );
     expect(source).toContain(
       "currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat"
     );

@@ -212,6 +212,166 @@ pub fn attach_windows_chromium_input_hwnd(
     probe_windows_chromium_input_hwnd(surface_handle, parent_handle)
 }
 
+/// Projects an already-attached Chromium `WS_CHILD` into the exact runtime
+/// parent client area without asking Electron to reinterpret it as a top-level
+/// `BaseWindow`.
+///
+/// Fullscreen transitions can rebuild the parent's non-client frame while the
+/// native child identity remains stable. The same Win32 owner that performed
+/// `SetParent` therefore owns subsequent bounds and visibility projection and
+/// returns a complete focus-preserving readback receipt.
+#[cfg(windows)]
+#[napi(js_name = "projectWindowsChromiumInputHwnd")]
+pub fn project_windows_chromium_input_hwnd(
+    surface_handle: Buffer,
+    parent_handle: Buffer,
+    visible: bool,
+) -> Result<WindowsChromiumInputHwndProbeReceipt> {
+    use windows::Win32::{
+        Foundation::{HWND, RECT},
+        System::Threading::{GetCurrentProcessId, GetCurrentThreadId},
+        UI::{
+            Input::KeyboardAndMouse::{GetActiveWindow, GetFocus},
+            WindowsAndMessaging::{
+                GWL_EXSTYLE, GWL_STYLE, GetClientRect, GetForegroundWindow, GetParent,
+                GetWindowLongPtrW, GetWindowThreadProcessId, IsWindow, SWP_HIDEWINDOW,
+                SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOZORDER,
+                SWP_SHOWWINDOW, SetWindowPos, WS_CHILD, WS_EX_NOACTIVATE, WS_POPUP,
+            },
+        },
+    };
+
+    let surface_address = parse_electron_native_handle(&surface_handle, "surface")?;
+    let parent_address = parse_electron_native_handle(&parent_handle, "parent")?;
+    if surface_address == parent_address {
+        return Err(probe_error(
+            Status::InvalidArg,
+            "The Windows Chromium input surface cannot be its own parent.",
+        ));
+    }
+    let surface = HWND(surface_address as *mut core::ffi::c_void);
+    let parent = HWND(parent_address as *mut core::ffi::c_void);
+
+    // SAFETY: the opaque Electron handles are validated as an exact
+    // same-process, same-thread WS_CHILD relationship before SetWindowPos.
+    // The mutation is synchronous on Electron's UI thread and bracketed by
+    // foreground, active-window, and focus observations.
+    let expected_client = unsafe {
+        if !IsWindow(Some(surface)).as_bool() || !IsWindow(Some(parent)).as_bool() {
+            return Err(probe_error(
+                Status::InvalidArg,
+                "Electron supplied a stale or invalid Windows native handle.",
+            ));
+        }
+        let current_process_id = GetCurrentProcessId();
+        let current_thread_id = GetCurrentThreadId();
+        let mut surface_process_id = 0;
+        let surface_thread_id =
+            GetWindowThreadProcessId(surface, Some(&raw mut surface_process_id));
+        let mut parent_process_id = 0;
+        let parent_thread_id = GetWindowThreadProcessId(parent, Some(&raw mut parent_process_id));
+        let exact_parent = GetParent(surface).is_ok_and(|owner| owner == parent);
+        let style = GetWindowLongPtrW(surface, GWL_STYLE) as u32;
+        let extended_style = GetWindowLongPtrW(surface, GWL_EXSTYLE) as u32;
+        if surface_thread_id == 0
+            || parent_thread_id == 0
+            || surface_process_id != current_process_id
+            || parent_process_id != current_process_id
+            || surface_thread_id != parent_thread_id
+            || surface_thread_id != current_thread_id
+            || !exact_parent
+            || style & WS_CHILD.0 == 0
+            || style & WS_POPUP.0 != 0
+            || extended_style & WS_EX_NOACTIVATE.0 == 0
+        {
+            return Err(probe_error(
+                Status::InvalidArg,
+                "Only the exact attached no-activate Chromium WS_CHILD may be projected.",
+            ));
+        }
+
+        let mut parent_client = RECT::default();
+        GetClientRect(parent, &raw mut parent_client).map_err(|_| {
+            probe_error(
+                Status::GenericFailure,
+                "Win32 could not read the exact runtime-parent client bounds.",
+            )
+        })?;
+        let width = parent_client
+            .right
+            .checked_sub(parent_client.left)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                probe_error(
+                    Status::InvalidArg,
+                    "The exact runtime parent has no positive client width.",
+                )
+            })?;
+        let height = parent_client
+            .bottom
+            .checked_sub(parent_client.top)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                probe_error(
+                    Status::InvalidArg,
+                    "The exact runtime parent has no positive client height.",
+                )
+            })?;
+        let foreground_before = GetForegroundWindow();
+        let active_before = GetActiveWindow();
+        let focus_before = GetFocus();
+        let visibility_flag = if visible {
+            SWP_SHOWWINDOW
+        } else {
+            SWP_HIDEWINDOW
+        };
+        SetWindowPos(
+            surface,
+            None,
+            0,
+            0,
+            width,
+            height,
+            SWP_NOACTIVATE
+                | SWP_NOOWNERZORDER
+                | SWP_NOSENDCHANGING
+                | SWP_NOZORDER
+                | visibility_flag,
+        )
+        .map_err(|_| {
+            probe_error(
+                Status::GenericFailure,
+                "Win32 rejected the exact Chromium child presentation projection.",
+            )
+        })?;
+        if GetForegroundWindow() != foreground_before
+            || GetActiveWindow() != active_before
+            || GetFocus() != focus_before
+        {
+            return Err(probe_error(
+                Status::GenericFailure,
+                "The Windows Chromium child projection changed focus or activation.",
+            ));
+        }
+        (width as u32, height as u32)
+    };
+
+    let receipt = probe_windows_chromium_input_hwnd(surface_handle, parent_handle)?;
+    if receipt.client_width != expected_client.0 || receipt.client_height != expected_client.1 {
+        return Err(probe_error(
+            Status::GenericFailure,
+            "Win32 did not retain the exact runtime-parent client bounds.",
+        ));
+    }
+    if receipt.surface_visible != visible {
+        return Err(probe_error(
+            Status::GenericFailure,
+            "Win32 did not retain the requested Chromium child visibility.",
+        ));
+    }
+    Ok(receipt)
+}
+
 #[cfg(not(windows))]
 #[napi(js_name = "attachWindowsChromiumInputHwnd")]
 pub fn attach_windows_chromium_input_hwnd(
@@ -221,6 +381,19 @@ pub fn attach_windows_chromium_input_hwnd(
     Err(probe_error(
         Status::GenericFailure,
         "The Win32 Chromium input-surface attachment is available only on Windows.",
+    ))
+}
+
+#[cfg(not(windows))]
+#[napi(js_name = "projectWindowsChromiumInputHwnd")]
+pub fn project_windows_chromium_input_hwnd(
+    _surface_handle: Buffer,
+    _parent_handle: Buffer,
+    _visible: bool,
+) -> Result<WindowsChromiumInputHwndProbeReceipt> {
+    Err(probe_error(
+        Status::GenericFailure,
+        "The Win32 Chromium input-surface projection is available only on Windows.",
     ))
 }
 

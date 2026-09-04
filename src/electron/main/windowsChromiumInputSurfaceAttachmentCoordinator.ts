@@ -63,6 +63,11 @@ export interface RawWindowsChromiumTrustedInputAddon {
     surfaceHandle: Buffer,
     parentHandle: Buffer
   ) => RawWindowsChromiumInputHwndProbeReceipt;
+  projectWindowsChromiumInputHwnd: (
+    surfaceHandle: Buffer,
+    parentHandle: Buffer,
+    visible: boolean
+  ) => RawWindowsChromiumInputHwndProbeReceipt;
   probeWindowsChromiumInputHwnd: (
     surfaceHandle: Buffer,
     parentHandle: Buffer
@@ -607,7 +612,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     const surfaceHandle = Buffer.from(child.getNativeWindowHandle());
     const parentHandle = Buffer.from(parentBinding.window.getNativeWindowHandle());
     const probe = this.#attachRaw(surfaceHandle, parentHandle);
-    this.#requireProbeBounds(child, probe);
+    this.#requireProbeMatchesParent(parentBinding.window, probe);
     return { child, parentBinding, surfaceHandle, parentHandle, probe };
   }
 
@@ -783,15 +788,14 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     try {
       this.#requireLiveRecord(record);
       const native = this.#probeRaw(record.surfaceHandle, record.parentHandle);
-      this.#requireProbeBounds(record.child, native);
+      this.#requireProbeMatchesParent(record.parentBinding.window, native);
       this.#captureProbeChange(record, native);
       if (!native.parentWasForeground || !native.parentVisible ||
         !record.parentBinding.window.isVisible() ||
         !record.parentBinding.window.isFocused()) return null;
-      const childVisible = record.child.isVisible();
       const viewVisible = record.view.getVisible();
-      if (native.surfaceVisible && childVisible && viewVisible) return "foreground";
-      if (!native.surfaceVisible && !childVisible && !viewVisible &&
+      if (native.surfaceVisible && viewVisible) return "foreground";
+      if (!native.surfaceVisible && !viewVisible &&
         !native.targetWasForeground && !native.targetHadThreadFocus) {
         return "background";
       }
@@ -861,7 +865,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     this.#requireExpected(record, expected);
     this.#requireLiveRecord(record);
     const raw = this.#probeRaw(record.surfaceHandle, record.parentHandle);
-    this.#requireProbeBounds(record.child, raw);
+    this.#requireProbeMatchesParent(record.parentBinding.window, raw);
     this.#captureProbeChange(record, raw);
     if (!raw.parentWasForeground || !raw.parentVisible ||
       this.#currentInputDeliveryMode(record) !== deliveryMode) {
@@ -1010,28 +1014,21 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
       );
     }
     record.projectionStale = true;
-    let mutated = false;
     const previousVisible = record.probe.surfaceVisible;
-    if (!sameBounds(record.child.getBounds(), bounds)) {
-      record.child.setBounds({ ...bounds });
-      mutated = true;
-    }
     const shouldShow = currentParent.window.isVisible() && record.view.getVisible();
-    if (shouldShow !== record.child.isVisible()) {
-      if (shouldShow) record.child.showInactive();
-      else record.child.hide();
-      mutated = true;
-    }
-    if (!sameBounds(record.child.getBounds(), bounds) ||
-      record.child.isVisible() !== shouldShow) {
+    const probe = this.#projectRaw(
+      record.surfaceHandle,
+      record.parentHandle,
+      shouldShow
+    );
+    this.#requireProbeMatchesParent(currentParent.window, probe);
+    if (probe.surfaceVisible !== shouldShow) {
       fail(
         "ELECTRON_WINDOWS_INPUT_CHILD_PROJECTION_FAILED",
-        "Electron did not retain exact child bounds or visibility."
+        "Win32 did not retain the exact Chromium child visibility."
       );
     }
-    const probe = this.#probeRaw(record.surfaceHandle, record.parentHandle);
-    this.#requireProbeBounds(record.child, probe);
-    if (mutated || this.#rawProjectionChanged(record.probe, probe)) {
+    if (this.#rawProjectionChanged(record.probe, probe)) {
       record.probeRevision = this.#revision();
     }
     record.probe = probe;
@@ -1091,6 +1088,25 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     ));
   }
 
+  #projectRaw(
+    surfaceHandle: Buffer,
+    parentHandle: Buffer,
+    visible: boolean
+  ): RawWindowsChromiumInputHwndProbeReceipt {
+    try {
+      return this.#validateRawProbe(this.#addon.projectWindowsChromiumInputHwnd(
+        Buffer.from(surfaceHandle),
+        Buffer.from(parentHandle),
+        visible
+      ));
+    } catch {
+      fail(
+        "ELECTRON_WINDOWS_INPUT_CHILD_PROJECTION_FAILED",
+        "Win32 did not apply the exact Chromium child presentation projection."
+      );
+    }
+  }
+
   #validateRawProbe(
     raw: RawWindowsChromiumInputHwndProbeReceipt
   ): RawWindowsChromiumInputHwndProbeReceipt {
@@ -1121,11 +1137,11 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     return Object.freeze({ ...raw });
   }
 
-  #requireProbeBounds(
-    child: WindowsChromiumInputBaseWindowPort,
+  #requireProbeMatchesParent(
+    parent: WindowsChromiumInputBaseWindowPort,
     probe: RawWindowsChromiumInputHwndProbeReceipt
   ): void {
-    const bounds = child.getContentBounds();
+    const bounds = parent.getContentBounds();
     const deviceScale = probe.dpi / 96;
     const physicalWidth = Math.round(bounds.width * deviceScale);
     const physicalHeight = Math.round(bounds.height * deviceScale);
@@ -1135,7 +1151,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
       probe.clientHeight !== physicalHeight) {
       fail(
         "ELECTRON_WINDOWS_INPUT_NATIVE_BOUNDS_MISMATCH",
-        "The Win32 client pixels do not match the DPI-scaled Electron child bounds."
+        "The Win32 child pixels do not match the DPI-scaled runtime-parent client bounds."
       );
     }
   }

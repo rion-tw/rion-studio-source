@@ -433,18 +433,33 @@ on run argv
       repeat
         set currentFullscreen to false
         set currentFullscreenRead to false
-        set currentMainWindow to missing value
+        set currentRuntimeWindow to missing value
+        set currentRuntimeWindowCount to 0
         try
           -- AppKit republishes AXWindow proxy objects across Space changes, so
-          -- reacquire the exact current main owner after every native event.
-          set currentMainWindow to value of attribute "AXMainWindow" of targetProcess
-          if currentMainWindow is not missing value then
-            if value of attribute "AXRole" of currentMainWindow is "AXWindow" then
-              set currentFullscreen to (value of attribute "AXFullScreen" of currentMainWindow is true)
-              set currentFullscreenRead to true
-            end if
-          end if
+          -- reacquire the already-fenced identifier after every native event.
+          -- AXMainWindow can temporarily point at the launcher while AppKit
+          -- transfers the runtime owner between Spaces.
+          set currentWindows to windows of targetProcess
+          repeat with currentWindowReference in currentWindows
+            set currentWindow to contents of currentWindowReference
+            try
+              if value of attribute "AXRole" of currentWindow is "AXWindow" then
+                if (value of attribute "AXIdentifier" of currentWindow as text) is focusedWindowIdentifier then
+                  set currentRuntimeWindow to currentWindow
+                  set currentRuntimeWindowCount to currentRuntimeWindowCount + 1
+                end if
+              end if
+            end try
+          end repeat
         end try
+        if currentRuntimeWindowCount is greater than 1 then error "exact AppKit runtime AXIdentifier became ambiguous during fullscreen transition"
+        if currentRuntimeWindowCount is 1 then
+          try
+            set currentFullscreen to (value of attribute "AXFullScreen" of currentRuntimeWindow is true)
+            set currentFullscreenRead to true
+          end try
+        end if
         if currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat
         if (current date) is greater than transitionExpiry then error "exact AppKit fullscreen transition did not reach its native terminal state"
         delay 0.05

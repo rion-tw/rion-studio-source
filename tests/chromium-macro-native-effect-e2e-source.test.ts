@@ -119,7 +119,7 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     expect(bootstrap).toMatch(
       /trustedInput: "supported",\n\s+backgroundInput: "supported"/u
     );
-    expect(contract).toContain("WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 4");
+    expect(contract).toContain("WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 5");
     expect(contract).toContain("readonly parentWasForeground: true");
     expect(coordinator).toContain("native.parentWasForeground");
     expect(coordinator).toContain("timer-driven success");
@@ -131,7 +131,8 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     expect(physicalProbe).toContain(
       'candidateEvidence: "foreground-and-hidden-product-path"'
     );
-    expect(physicalProbe).toContain("receipt.abiVersion !== 4");
+    expect(physicalProbe).toContain("receipt.abiVersion !== 5");
+    expect(physicalProbe).toContain("projectWindowsChromiumInputHwnd");
     expect(physicalProbe).not.toContain("receipt.abiVersion !== 1");
     expect(physicalProbe).toContain("parentWasForeground");
     expect(runner).toContain("chromiumJourneyPhaseDependencies");

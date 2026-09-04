@@ -119,7 +119,7 @@ function harness() {
   const probe = (): WindowsChromiumInputSurfaceProbeReceipt => ({
     ...identity,
     status: "verified",
-    abiVersion: 4,
+    abiVersion: 5,
     deliveryMode,
     probeRevision,
     processId: 100,

@@ -338,8 +338,11 @@ function createNativePorts() {
 function windowsTrustedInput(): WindowsChromiumTrustedInputRuntimeConfiguration {
   return {
     addon: {
-      windowsChromiumInputProbeAbiVersion: () => 4,
+      windowsChromiumInputProbeAbiVersion: () => 5,
       attachWindowsChromiumInputHwnd: () => {
+        throw new Error("The fixture has no attached Windows input surface.");
+      },
+      projectWindowsChromiumInputHwnd: () => {
         throw new Error("The fixture has no attached Windows input surface.");
       },
       probeWindowsChromiumInputHwnd: () => {

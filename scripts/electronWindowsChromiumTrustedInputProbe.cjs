@@ -33,7 +33,7 @@ function parsedReceipt(value, operation) {
 function exactProbe(receipt, surfaceHandle, parentHandle) {
   if (
     !receipt ||
-    receipt.abiVersion !== 4 ||
+    receipt.abiVersion !== 5 ||
     !receipt.currentProcessOwned ||
     !receipt.exactParent ||
     !receipt.childWindowStyle ||
@@ -140,7 +140,7 @@ void (async () => {
     );
     await app.whenReady();
     const addon = require(addonPath);
-    if (addon.windowsChromiumInputProbeAbiVersion() !== 4) {
+    if (addon.windowsChromiumInputProbeAbiVersion() !== 5) {
       throw new Error("The Win32 trusted-input probe ABI does not match Electron.");
     }
 
@@ -319,7 +319,11 @@ void (async () => {
 
     const parentFocused = new Promise((resolve) => parent.once("focus", resolve));
     parent.show();
-    child.showInactive();
+    exactProbe(
+      addon.projectWindowsChromiumInputHwnd(surfaceHandle, parentHandle, true),
+      surfaceHandle,
+      parentHandle
+    );
     parent.focus();
     await parentFocused;
     view.webContents.focus();
@@ -513,7 +517,11 @@ void (async () => {
     );
     control.showInactive();
     view.setVisible(false);
-    child.hide();
+    exactProbe(
+      addon.projectWindowsChromiumInputHwnd(surfaceHandle, parentHandle, false),
+      surfaceHandle,
+      parentHandle
+    );
     controlView.webContents.focus();
     const foregroundRoleFocused = await controlView.webContents.executeJavaScript(
       "document.querySelector('#foreground-role').focus(); document.hasFocus()",
@@ -526,6 +534,11 @@ void (async () => {
     const controlHandle = Buffer.from(control.getNativeWindowHandle());
     exactProbe(
       addon.attachWindowsChromiumInputHwnd(controlHandle, parentHandle),
+      controlHandle,
+      parentHandle
+    );
+    exactProbe(
+      addon.projectWindowsChromiumInputHwnd(controlHandle, parentHandle, true),
       controlHandle,
       parentHandle
     );

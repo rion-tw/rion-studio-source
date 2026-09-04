@@ -138,7 +138,7 @@ function probe(
   parentHandle: Buffer
 ): RawWindowsChromiumInputHwndProbeReceipt {
   return {
-    abiVersion: 4,
+    abiVersion: 5,
     surfaceHandleToken: token(surfaceHandle, 0),
     parentHandleToken: token(parentHandle, 1),
     processId: 42,
@@ -221,10 +221,31 @@ function harness() {
       clientHeight: Math.round(bounds.height * deviceScale)
     };
   };
+  const project = (
+    surfaceHandle: Buffer,
+    parentHandle: Buffer,
+    visible: boolean
+  ) => {
+    const child = windowsById.get(Number(surfaceHandle.readBigUInt64LE()))!;
+    const parent = windowsById.get(Number(parentHandle.readBigUInt64LE()))!;
+    const parentBounds = parent.getContentBounds();
+    child.setBounds({
+      x: 0,
+      y: 0,
+      width: parentBounds.width,
+      height: parentBounds.height
+    });
+    if (visible) child.showInactive();
+    else child.hide();
+    return readProbe(surfaceHandle, parentHandle);
+  };
+  const attachNative = (surfaceHandle: Buffer, parentHandle: Buffer) =>
+    project(surfaceHandle, parentHandle, false);
   const coordinator = new WindowsChromiumInputSurfaceAttachmentCoordinator({
     addon: {
-      windowsChromiumInputProbeAbiVersion: () => 4,
-      attachWindowsChromiumInputHwnd: readProbe,
+      windowsChromiumInputProbeAbiVersion: () => 5,
+      attachWindowsChromiumInputHwnd: attachNative,
+      projectWindowsChromiumInputHwnd: project,
       probeWindowsChromiumInputHwnd: readProbe,
       submitWindowsChromiumBackgroundKey: (_surface, _parent, requestJson) => {
         keyRequests.push(JSON.parse(requestJson) as Record<string, unknown>);
@@ -319,7 +340,7 @@ describe("Windows Chromium input child-host ownership", () => {
     const child = subject.children[0]!;
     expect(subject.physicalParent()).toBe(child);
     expect(child.contentView.children).toEqual([subject.view]);
-    expect(child.getBounds()).toEqual(subject.parentA.getContentBounds());
+    expect(child.getBounds()).toEqual({ x: 0, y: 0, width: 800, height: 600 });
     expect(child.isVisible()).toBe(true);
 
     const binding = subject.coordinator.resolve("role-1", 3)!;
@@ -567,7 +588,7 @@ describe("Windows Chromium input child-host ownership", () => {
     const target = subject.children[1]!;
     expect(source.isDestroyed()).toBe(true);
     expect(target.contentView.children).toEqual([subject.view]);
-    expect(target.getBounds()).toEqual(subject.parentB.getContentBounds());
+    expect(target.getBounds()).toEqual({ x: 0, y: 0, width: 900, height: 700 });
     const after = subject.coordinator.resolve("role-1", 3)!;
     expect(after.identity.nativeGeneration).toBeGreaterThan(
       before.identity.nativeGeneration
@@ -587,7 +608,7 @@ describe("Windows Chromium input child-host ownership", () => {
     subject.parentA.setContentBounds({ x: 30, y: 40, width: 700, height: 500 });
     subject.parentA.emit("resize");
     expect(subject.children[0]!.getBounds()).toEqual({
-      x: 30, y: 40, width: 700, height: 500
+      x: 0, y: 0, width: 700, height: 500
     });
     const nextRevision = binding.native.probeExactInputSurface(
       binding.identity,
@@ -611,7 +632,7 @@ describe("Windows Chromium input child-host ownership", () => {
 
     expect(subject.coordinator.resolve("role-1", 3)).toBeNull();
     expect(subject.onError).toHaveBeenCalledWith(expect.objectContaining({
-      code: "ELECTRON_WINDOWS_INPUT_CHILD_PROJECTION_FAILED"
+      code: "ELECTRON_WINDOWS_INPUT_NATIVE_BOUNDS_MISMATCH"
     }));
     subject.parentA.emit("resize");
     expect(subject.coordinator.resolve("role-1", 3)).toBeNull();
@@ -624,7 +645,7 @@ describe("Windows Chromium input child-host ownership", () => {
       view: subject.view
     });
 
-    expect(child.getBounds()).toEqual({ x: 30, y: 40, width: 700, height: 500 });
+    expect(child.getBounds()).toEqual({ x: 0, y: 0, width: 700, height: 500 });
     expect(subject.coordinator.resolve("role-1", 3)).toEqual(binding);
   });
 

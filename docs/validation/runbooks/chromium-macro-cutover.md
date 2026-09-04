@@ -26,7 +26,7 @@ The paired macOS and Windows profiles run the same product scenarios:
 
 The topology and cleanup pairs use separate persistent namespaces. Their restart
 phase is not valid without the matching seed phase. Windows must complete
-`chromium-windows-trusted-input-physical` before these phases; its ABI-v3 evidence
+`chromium-windows-trusted-input-physical` before these phases; its ABI-v5 evidence
 must prove the exact foreground parent, trusted key and mouse DOM delivery, then
 trusted hidden-key delivery while the target remains hidden and unfocused behind
 one visible sibling and the same foreground owner is preserved.

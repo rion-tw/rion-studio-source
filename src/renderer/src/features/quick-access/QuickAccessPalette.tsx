@@ -129,11 +129,18 @@ export function QuickAccessPalette({
   ): Promise<void> {
     if (item.disabled || isExecuting) return;
     setIsExecuting(true);
+    const dialog = dialogRef.current;
+    // Closing a modal dialog restores its launcher-side focus. Complete that
+    // browser event before a launch can transfer authoritative native focus to
+    // the target Game Window; closing after the awaited launch would steal the
+    // focus back from the retained AppKit or Windows Chromium host.
+    if (dialog?.open) dialog.close();
     const succeeded = await onExecute(item, destination);
     if (succeeded) {
       onClose("complete");
     } else {
       setIsExecuting(false);
+      if (open && dialog && !dialog.open) dialog.showModal();
       inputRef.current?.focus();
     }
   }

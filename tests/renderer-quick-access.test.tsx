@@ -155,6 +155,26 @@ describe("quick access model", () => {
 });
 
 describe("quick access palette", () => {
+  it("settles modal focus restoration before launch and reopens only after failure", async () => {
+    const user = userEvent.setup();
+    let finishExecution!: (succeeded: boolean) => void;
+    const onExecute = vi.fn(() => new Promise<boolean>((resolve) => {
+      finishExecution = resolve;
+    }));
+    render(<PaletteHarness onExecute={onExecute} onSetPinned={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Open palette" }));
+    const dialog = screen.getByTestId("quick-access-palette");
+    const execution = user.keyboard("{Enter}");
+    await waitFor(() => expect(onExecute).toHaveBeenCalledOnce());
+    expect(dialog.hasAttribute("open")).toBe(false);
+
+    finishExecution(false);
+    await execution;
+    await waitFor(() => expect(dialog.hasAttribute("open")).toBe(true));
+    expect(document.activeElement).toBe(screen.getByRole("combobox"));
+  });
+
   it("supports mouse and keyboard, preserves failed queries, and restores focus on close", async () => {
     const user = userEvent.setup();
     const onExecute = vi.fn().mockResolvedValue(false);

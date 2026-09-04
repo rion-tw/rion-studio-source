@@ -1047,14 +1047,14 @@ implements ChromiumRuntimeHostFactoryPort {
           record.presentationReady = true;
           this.#completeCreationIfReady(record);
         }
-        void record.chrome.nativePresentationChanged().catch((error) =>
+        void record.chrome.nativePresentationChanged("enteredFullscreen").catch((error) =>
           this.#onPresentationFailure(record, error)
         );
       },
       focused: () => record.windowState.publish("focus"),
       hidden: () => record.windowState.publish("hide"),
       leftFullScreen: () => {
-        void record.chrome.nativePresentationChanged().catch((error) =>
+        void record.chrome.nativePresentationChanged("leftFullscreen").catch((error) =>
           this.#onPresentationFailure(record, error)
         );
       },
@@ -1063,7 +1063,7 @@ implements ChromiumRuntimeHostFactoryPort {
           record.presentationReady = true;
           this.#completeCreationIfReady(record);
         }
-        void record.chrome.nativePresentationChanged().catch((error) =>
+        void record.chrome.nativePresentationChanged("maximized").catch((error) =>
           this.#onPresentationFailure(record, error)
         );
       },
@@ -1072,7 +1072,7 @@ implements ChromiumRuntimeHostFactoryPort {
         record.windowState.publish("minimize");
       },
       unmaximized: () => {
-        void record.chrome.nativePresentationChanged().catch((error) =>
+        void record.chrome.nativePresentationChanged("unmaximized").catch((error) =>
           this.#onPresentationFailure(record, error)
         );
       },

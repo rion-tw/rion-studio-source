@@ -58,6 +58,12 @@ interface ActiveWorkspaceDividerGesture {
   readonly tabId: string;
 }
 
+type WindowsNativePresentationEvent =
+  | "enteredFullscreen"
+  | "leftFullscreen"
+  | "maximized"
+  | "unmaximized";
+
 function deferred<Value>(): Deferred<Value> {
   let resolve!: (value: Value) => void;
   let reject!: (error: unknown) => void;
@@ -125,10 +131,11 @@ export class WindowsRuntimeHostChromeController {
   #placementLane: Promise<void> = Promise.resolve();
   #commandLane: Promise<void> = Promise.resolve();
   #pendingMinimize: Deferred<void> | null = null;
-  #pending: Readonly<{
-    request: ChromiumRuntimeWindowPresentationRequest;
-    completion: Deferred<ChromiumRuntimeHostProjection>;
-  }> | null = null;
+  #pending: {
+    readonly request: ChromiumRuntimeWindowPresentationRequest;
+    readonly completion: Deferred<ChromiumRuntimeHostProjection>;
+    expectedEvent: WindowsNativePresentationEvent | null;
+  } | null = null;
 
   constructor(input: Readonly<{
     documentUrl: string;
@@ -439,7 +446,7 @@ export class WindowsRuntimeHostChromeController {
       return this.#readProjection();
     }
     const completion = deferred<ChromiumRuntimeHostProjection>();
-    this.#pending = Object.freeze({ request, completion });
+    this.#pending = { request, completion, expectedEvent: null };
     try {
       this.#drivePendingPresentation();
     } catch (error) {
@@ -449,10 +456,25 @@ export class WindowsRuntimeHostChromeController {
     return completion.promise;
   }
 
-  async nativePresentationChanged(): Promise<void> {
-    await this.#syncNativePresentation();
+  async nativePresentationChanged(event: WindowsNativePresentationEvent): Promise<void> {
     const pending = this.#pending;
-    if (!pending) return;
+    if (!pending) {
+      await this.#syncNativePresentation();
+      return;
+    }
+    // Only the exact event armed before the native mutation may advance this
+    // transaction. Clearing it before relayout coalesces reentrant duplicate
+    // events caused by Chromium view geometry updates.
+    if (pending.expectedEvent !== event) return;
+    pending.expectedEvent = null;
+    try {
+      await this.#syncNativePresentation();
+    } catch (error) {
+      if (this.#pending === pending) this.#pending = null;
+      pending.completion.reject(error);
+      throw error;
+    }
+    if (this.#pending !== pending) return;
     if (nativePresentation(this.#native) === pending.request.presentation) {
       this.#pending = null;
       pending.completion.resolve(this.#readProjection());
@@ -832,16 +854,21 @@ export class WindowsRuntimeHostChromeController {
   }
 
   #drivePendingPresentation(): void {
-    const desired = this.#pending?.request.presentation;
-    if (!desired) return;
+    const pending = this.#pending;
+    if (!pending) return;
+    const desired = pending.request.presentation;
     const current = nativePresentation(this.#native);
     if (desired === "fullscreen") {
+      pending.expectedEvent = "enteredFullscreen";
       this.#native.setFullScreen(true);
     } else if (current === "fullscreen") {
+      pending.expectedEvent = "leftFullscreen";
       this.#native.setFullScreen(false);
     } else if (desired === "maximized") {
+      pending.expectedEvent = "maximized";
       this.#native.maximize();
     } else {
+      pending.expectedEvent = "unmaximized";
       this.#native.unmaximize();
     }
   }

@@ -835,7 +835,11 @@ describe("Windows runtime-host chrome controller", () => {
     expect(settled).toBe(false);
     expect(subject.native.setFullScreen).toHaveBeenCalledWith(true);
 
-    await subject.controller.nativePresentationChanged();
+    await subject.controller.nativePresentationChanged("unmaximized");
+    expect(settled).toBe(false);
+    expect(subject.relayout).not.toHaveBeenCalled();
+
+    await subject.controller.nativePresentationChanged("enteredFullscreen");
     await expect(fullscreen).resolves.toEqual(subject.readProjection());
     await expect(subject.controller.setPresentation({
       presentation: "fullscreen",
@@ -1026,7 +1030,7 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.relayout).not.toHaveBeenCalled();
     expect(placement).not.toHaveBeenCalled();
 
-    await subject.controller.nativePresentationChanged();
+    await subject.controller.nativePresentationChanged("enteredFullscreen");
     await fullscreen;
     expect(subject.relayout).toHaveBeenCalledOnce();
     await subject.controller.nativeBoundsChanged();

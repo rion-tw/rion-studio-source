@@ -16,7 +16,10 @@ describe("Electron user-data policy", () => {
   });
 
   it("does not send DELETE to an Electron session after the app-owned clean close", async () => {
-    const config = await readFile("e2e/desktop/wdio.electron.conf.ts", "utf8");
+    const [config, runner] = await Promise.all([
+      readFile("e2e/desktop/wdio.electron.conf.ts", "utf8"),
+      readFile("scripts/runDesktopE2e.mjs", "utf8")
+    ]);
     const stubHook = config.indexOf("beforeSession:");
     const sessionDetach = config.indexOf(
       'overwriteStubCommand("deleteSession", async () => undefined)'
@@ -27,6 +30,10 @@ describe("Electron user-data policy", () => {
     expect(sessionDetach).toBeGreaterThan(stubHook);
     expect(closeSubmission).toBeGreaterThan(sessionDetach);
     expect(config).toContain("completed its authoritative final flush");
+    expect(runner).toContain("awaitWindowsElectronProcessExit");
+    expect(runner).toContain("Wait-Process -InputObject $process -Timeout 45");
+    expect(runner.indexOf("awaitWindowsElectronProcessExit(electronFinalFlush, phase)"))
+      .toBeGreaterThan(runner.indexOf("acceptedElectronFinalFlush(phaseDir, phase)"));
   });
 
   it.each([

@@ -1361,6 +1361,24 @@ async function acceptedElectronFinalFlush(phaseDir, phase) {
   throw new Error(`Electron phase ${phase} ended without final-flush evidence`);
 }
 
+async function awaitWindowsElectronProcessExit(marker, phase) {
+  if (process.platform !== "win32") return;
+  const wait = await run("pwsh", [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    `$process = Get-Process -Id ${marker.pid} -ErrorAction SilentlyContinue; ` +
+      "if ($null -ne $process) { " +
+      "Wait-Process -InputObject $process -Timeout 45 -ErrorAction Stop }"
+  ]);
+  if (wait.code !== 0) {
+    throw new Error(
+      `Electron phase ${phase} did not release its exact Windows process boundary`
+    );
+  }
+}
+
 function blockedReason(output) {
   const matches = [...output.matchAll(/BLOCKED:[^\r\n]*/gu)];
   return matches.at(-1)?.[0];
@@ -1429,6 +1447,12 @@ try {
       && !forcedTermination
       ? await acceptedElectronFinalFlush(phaseDir, phase)
       : undefined;
+    if (electronFinalFlush) {
+      // DeadlineBound external-liveness fence: final flush is authoritative for
+      // persisted state, while the Windows process handle is authoritative for
+      // releasing Chromium's same-profile singleton before the next phase.
+      await awaitWindowsElectronProcessExit(electronFinalFlush, phase);
+    }
     const nativeRuntimeEvidence = executionPlan.driver === "electron"
       && (result.code === 0 || Boolean(forcedTermination))
       ? await validateChromiumJourneyRuntimeEvidence({

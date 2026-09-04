@@ -407,19 +407,23 @@ if (-not [RionNativeShortcutInput]::IsWindowVisible($foregroundWindow)) {
   throw 'exact Rion foreground window is not visible'
 }
 $CTRL = [byte]0x11
+$SHIFT = [byte]0x10
 $KEYUP = [uint32]2
 $modifier = $true
+$shiftModifier = $false
 switch ($command) {
   'escape' { $key = [byte]0x1B; $modifier = $false }
   'newGameWindow' { $key = [byte]0x4E }
   'toggleFullscreen' { $key = [byte]0x7A; $modifier = $false }
-  'zoomIn' { $key = [byte]0xBB }
+  'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }
   'zoomReset' { $key = [byte]0x30 }
   default { throw 'unsupported Windows application shortcut' }
 }
 if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, 0, 0, [UIntPtr]::Zero) }
+if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, 0, [UIntPtr]::Zero) }
 [RionNativeShortcutInput]::keybd_event($key, 0, 0, [UIntPtr]::Zero)
 [RionNativeShortcutInput]::keybd_event($key, 0, $KEYUP, [UIntPtr]::Zero)
+if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, $KEYUP, [UIntPtr]::Zero) }
 if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, 0, $KEYUP, [UIntPtr]::Zero) }
 `;
   await runEncodedPowerShellJson(script, {

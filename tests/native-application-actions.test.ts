@@ -135,4 +135,16 @@ describe("native application shortcut target modes", () => {
     expect(focusedBranch).not.toContain("SetForegroundWindow(");
     expect(source).toContain("foregroundPid -ne $targetPid");
   });
+
+  it("sends the physical Windows plus chord with its required Shift modifier", () => {
+    expect(source).toContain(
+      "'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }"
+    );
+    expect(source).toContain(
+      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, 0, [UIntPtr]::Zero) }"
+    );
+    expect(source).toContain(
+      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, $KEYUP, [UIntPtr]::Zero) }"
+    );
+  });
 });

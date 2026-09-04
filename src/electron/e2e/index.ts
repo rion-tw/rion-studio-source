@@ -596,7 +596,7 @@ function installElectronDesktopE2eNativeWindowControlObserver(): void {
   controller.toggleFullscreenForTab = function (tabId, focusAdmission) {
     const identity = nextCoreFlowIdentity(`native-fullscreen:${tabId}`);
     appendCoreFlowObservation({
-      boundary: "native-window-control",
+      boundary: "command",
       details: { focusAdmission: focusAdmission ?? null, tabId },
       identity,
       status: "started",
@@ -607,7 +607,7 @@ function installElectronDesktopE2eNativeWindowControlObserver(): void {
       operation = originalToggleFullscreenForTab.call(this, tabId, focusAdmission);
     } catch (error) {
       appendCoreFlowObservation({
-        boundary: "native-window-control",
+        boundary: "command",
         error: describeCoreFlowError(error),
         identity,
         status: "rejected",
@@ -617,7 +617,7 @@ function installElectronDesktopE2eNativeWindowControlObserver(): void {
     }
     return operation.then((result) => {
       appendCoreFlowObservation({
-        boundary: "native-window-control",
+        boundary: "command",
         details: { result },
         identity,
         status: "completed",
@@ -626,7 +626,7 @@ function installElectronDesktopE2eNativeWindowControlObserver(): void {
       return result;
     }, (error: unknown) => {
       appendCoreFlowObservation({
-        boundary: "native-window-control",
+        boundary: "command",
         error: describeCoreFlowError(error),
         identity,
         status: "rejected",

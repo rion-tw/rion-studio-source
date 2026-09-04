@@ -362,6 +362,7 @@ public static class RionNativeShortcutInput {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
   [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 }
 '@
@@ -419,12 +420,16 @@ switch ($command) {
   'zoomReset' { $key = [byte]0x30 }
   default { throw 'unsupported Windows application shortcut' }
 }
-if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, 0, 0, [UIntPtr]::Zero) }
-if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, 0, [UIntPtr]::Zero) }
-[RionNativeShortcutInput]::keybd_event($key, 0, 0, [UIntPtr]::Zero)
-[RionNativeShortcutInput]::keybd_event($key, 0, $KEYUP, [UIntPtr]::Zero)
-if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, $KEYUP, [UIntPtr]::Zero) }
-if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, 0, $KEYUP, [UIntPtr]::Zero) }
+$keyScan = [byte][RionNativeShortcutInput]::MapVirtualKey($key, 0)
+$ctrlScan = [byte][RionNativeShortcutInput]::MapVirtualKey($CTRL, 0)
+$shiftScan = [byte][RionNativeShortcutInput]::MapVirtualKey($SHIFT, 0)
+if ($keyScan -eq 0) { throw 'Windows shortcut has no physical scan code' }
+if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, $ctrlScan, 0, [UIntPtr]::Zero) }
+if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, 0, [UIntPtr]::Zero) }
+[RionNativeShortcutInput]::keybd_event($key, $keyScan, 0, [UIntPtr]::Zero)
+[RionNativeShortcutInput]::keybd_event($key, $keyScan, $KEYUP, [UIntPtr]::Zero)
+if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, $KEYUP, [UIntPtr]::Zero) }
+if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, $ctrlScan, $KEYUP, [UIntPtr]::Zero) }
 `;
   await runEncodedPowerShellJson(script, {
     command: input.command,

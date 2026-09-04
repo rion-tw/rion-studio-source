@@ -141,10 +141,25 @@ describe("native application shortcut target modes", () => {
       "'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }"
     );
     expect(source).toContain(
-      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, 0, [UIntPtr]::Zero) }"
+      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, 0, [UIntPtr]::Zero) }"
     );
     expect(source).toContain(
-      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, 0, $KEYUP, [UIntPtr]::Zero) }"
+      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, $KEYUP, [UIntPtr]::Zero) }"
+    );
+  });
+
+  it("maps Windows virtual keys to physical scan codes before native injection", () => {
+    expect(source).toContain(
+      "public static extern uint MapVirtualKey(uint code, uint mapType);"
+    );
+    expect(source).toContain(
+      "$keyScan = [byte][RionNativeShortcutInput]::MapVirtualKey($key, 0)"
+    );
+    expect(source).toContain(
+      "[RionNativeShortcutInput]::keybd_event($key, $keyScan, 0, [UIntPtr]::Zero)"
+    );
+    expect(source).toContain(
+      "if ($keyScan -eq 0) { throw 'Windows shortcut has no physical scan code' }"
     );
   });
 });

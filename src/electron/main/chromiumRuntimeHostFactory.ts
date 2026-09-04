@@ -39,8 +39,10 @@ import type {
   ChromiumRuntimeWindowChromeProjection,
   ChromiumRuntimeWindowPresentationRequest
 } from "./chromiumRuntimeFullscreenToolbar";
-import type { ChromiumRuntimeNativeTabAction } from
-  "./chromiumRuntimeNativeWindowController";
+import type {
+  ChromiumRuntimeFullscreenFocusAdmission,
+  ChromiumRuntimeNativeTabAction
+} from "./chromiumRuntimeNativeWindowController";
 import type { ControlledRuntimeTabReloadFence } from
   "./controlledRuntimeTabReload";
 import {
@@ -157,7 +159,10 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
         event: BrowserWorkspaceDividerPointerRecord
       ) => Promise<BrowserWorkspaceDividerPointerReceiptRecord>;
       onRuntimeWindowPlacement?: (host: ChromiumRuntimeHostPort) => Promise<void>;
-      onRuntimeTabFullscreen?: (tabId: string) => void;
+      onRuntimeTabFullscreen?: (
+        tabId: string,
+        focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+      ) => void;
       runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
       runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort;
     }>
@@ -218,7 +223,6 @@ interface WindowsHostRecord {
   chrome: WindowsRuntimeHostChromeController;
   windowState: WindowsRuntimeWindowStateStream;
   shortcutOwnerInstalled: boolean;
-  nativeFullscreenShortcutPending: boolean;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -507,7 +511,10 @@ implements ChromiumRuntimeHostFactoryPort {
   readonly #onRuntimeWindowPlacement: ((
     host: ChromiumRuntimeHostPort
   ) => Promise<void>) | null;
-  readonly #onRuntimeTabFullscreen: (tabId: string) => void;
+  readonly #onRuntimeTabFullscreen: (
+    tabId: string,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+  ) => void;
   readonly #runtimeForegroundProbe: WindowsRuntimeForegroundProbePort | null;
   readonly #runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort | null;
   #windowPreferences: RuntimeWindowPreferencesRecord = Object.freeze({
@@ -555,7 +562,10 @@ implements ChromiumRuntimeHostFactoryPort {
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
-    onRuntimeTabFullscreen?: (tabId: string) => void,
+    onRuntimeTabFullscreen?: (
+      tabId: string,
+      focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+    ) => void,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort
   ) {
     this.#windows = windows;
@@ -606,7 +616,10 @@ implements ChromiumRuntimeHostFactoryPort {
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
-    onRuntimeTabFullscreen?: (tabId: string) => void,
+    onRuntimeTabFullscreen?: (
+      tabId: string,
+      focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+    ) => void,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort
   ): WindowsElectronChromiumRuntimeHostFactory {
     return new WindowsElectronChromiumRuntimeHostFactory({
@@ -883,8 +896,7 @@ implements ChromiumRuntimeHostFactoryPort {
       popupObserver: null,
       chrome: undefined as unknown as WindowsRuntimeHostChromeController,
       windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
-      shortcutOwnerInstalled: false,
-      nativeFullscreenShortcutPending: false
+      shortcutOwnerInstalled: false
     };
     record.chrome = new WindowsRuntimeHostChromeController({
       documentUrl: record.documentUrl,
@@ -1037,10 +1049,7 @@ implements ChromiumRuntimeHostFactoryPort {
           this.#onPresentationFailure(record, error)
         );
       },
-      focused: () => {
-        record.windowState.publish("focus");
-        this.#flushAdmittedRuntimeFullscreenShortcut(record);
-      },
+      focused: () => record.windowState.publish("focus"),
       hidden: () => record.windowState.publish("hide"),
       leftFullScreen: () => {
         void record.chrome.nativePresentationChanged().catch((error) =>
@@ -1212,7 +1221,20 @@ implements ChromiumRuntimeHostFactoryPort {
           ));
           return;
         }
-        this.#admitRuntimeFullscreenShortcut(record);
+        try {
+          const delivered = this.#runtimeShortcutOwner!
+            .acknowledgeWindowsRuntimeShortcutOwner(
+              Buffer.from(record.nativeHandle),
+              record.ownerRevision
+            );
+          this.#validateShortcutOwnerReceipt(record, delivered, true);
+          this.#dispatchRuntimeFullscreenShortcut(
+            record,
+            "windows-native-foreground"
+          );
+        } catch (error) {
+          this.#onCommandError(error);
+        }
       },
       (message) => {
         this.#onCommandError(hostError(
@@ -1255,7 +1277,10 @@ implements ChromiumRuntimeHostFactoryPort {
     }
   }
 
-  #dispatchRuntimeFullscreenShortcut(record: WindowsHostRecord): void {
+  #dispatchRuntimeFullscreenShortcut(
+    record: WindowsHostRecord,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+  ): void {
     if (
       record.state !== "active" || record.native.isDestroyed() ||
       this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
@@ -1271,49 +1296,14 @@ implements ChromiumRuntimeHostFactoryPort {
           "The Windows fullscreen shortcut has no exact active runtime tab."
         );
       }
-      this.#onRuntimeTabFullscreen(tabId);
+      if (focusAdmission) {
+        this.#onRuntimeTabFullscreen(tabId, focusAdmission);
+      } else {
+        this.#onRuntimeTabFullscreen(tabId);
+      }
     } catch (error) {
       this.#onCommandError(error);
     }
-  }
-
-  #admitRuntimeFullscreenShortcut(record: WindowsHostRecord): void {
-    if (
-      record.nativeFullscreenShortcutPending ||
-      record.state !== "active" || record.native.isDestroyed() ||
-      this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
-      this.#ownerByNativeId.get(record.nativeId) !== record
-    ) {
-      return;
-    }
-    // Win32 admitted this action only while the exact registered runtime HWND
-    // was foreground. A low-level hook callback reaches JavaScript after the
-    // physical key cycle returns; an input helper or Windows focus handoff can
-    // publish blur in that gap. Reassert the already-admitted owner and settle
-    // only from its authoritative focus event/readback before entering Core.
-    record.nativeFullscreenShortcutPending = true;
-    try {
-      if (!record.windowState.read().focused) record.native.focus();
-      this.#flushAdmittedRuntimeFullscreenShortcut(record);
-    } catch (error) {
-      record.nativeFullscreenShortcutPending = false;
-      this.#onCommandError(error);
-    }
-  }
-
-  #flushAdmittedRuntimeFullscreenShortcut(record: WindowsHostRecord): void {
-    if (!record.nativeFullscreenShortcutPending) return;
-    if (
-      record.state !== "active" || record.native.isDestroyed() ||
-      this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
-      this.#ownerByNativeId.get(record.nativeId) !== record
-    ) {
-      record.nativeFullscreenShortcutPending = false;
-      return;
-    }
-    if (!record.windowState.read().focused) return;
-    record.nativeFullscreenShortcutPending = false;
-    this.#dispatchRuntimeFullscreenShortcut(record);
   }
 
   #applyInitialPresentation(record: WindowsHostRecord): void {
@@ -1386,7 +1376,6 @@ implements ChromiumRuntimeHostFactoryPort {
     if (record.state === "active" || record.state === "opening") {
       record.state = "closing";
     }
-    record.nativeFullscreenShortcutPending = false;
     try {
       this.#uninstallRuntimeShortcutOwner(record);
     } catch (error) {

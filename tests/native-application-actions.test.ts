@@ -106,6 +106,9 @@ describe("native application shortcut target modes", () => {
       "currentMainWindow is currentFocusedWindow"
     );
     expect(source).toContain(
+      "currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat"
+    );
+    expect(source).not.toContain(
       "currentFullscreen is expectedFullscreen and frontmost of targetProcess is true"
     );
     expect(source).toContain(

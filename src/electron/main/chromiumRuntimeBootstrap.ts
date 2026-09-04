@@ -64,8 +64,10 @@ import {
   type WindowsRuntimeShortcutOwnerPort
 } from "./chromiumRuntimeHostFactory";
 import { ChromiumRuntimeLayoutResolver } from "./chromiumRuntimeLayoutResolver";
-import type { ChromiumRuntimeNativeTabAction } from
-  "./chromiumRuntimeNativeWindowController";
+import type {
+  ChromiumRuntimeFullscreenFocusAdmission,
+  ChromiumRuntimeNativeTabAction
+} from "./chromiumRuntimeNativeWindowController";
 import {
   CoreEffectCoordinator,
   createCoreEffectProcessReceiptLedger,
@@ -317,7 +319,10 @@ export interface ChromiumRuntimeBootstrapInput {
   ) => void;
   readonly onNativeProjectionChanged?: () => void;
   readonly onRuntimeTabQuickAccess?: (tabId: string) => void;
-  readonly onRuntimeTabFullscreen?: (tabId: string) => void;
+  readonly onRuntimeTabFullscreen?: (
+    tabId: string,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+  ) => void;
   readonly platform: RuntimePlatform;
   readonly rolePreloadPath: string;
   /** Main-process startup quit fence; production supplies it before Core recovery. */
@@ -634,7 +639,7 @@ export class ChromiumRuntimeBootstrap {
                     "The Core-owned Windows tab control lane is unavailable."
                   ));
             },
-            onRuntimeTabFullscreen: (tabId) => {
+            onRuntimeTabFullscreen: (tabId, focusAdmission) => {
               requireNativeActionIngress();
               const request = input.onRuntimeTabFullscreen;
               if (!request) {
@@ -643,7 +648,7 @@ export class ChromiumRuntimeBootstrap {
                   "The Core-owned Windows fullscreen shortcut lane is unavailable."
                 );
               }
-              request(tabId);
+              request(tabId, focusAdmission);
             },
             onWorkspaceDividerPointer: (event) => {
               requireNativeActionIngress();

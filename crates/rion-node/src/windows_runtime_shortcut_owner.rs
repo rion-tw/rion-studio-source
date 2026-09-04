@@ -38,6 +38,7 @@ pub struct WindowsRuntimeShortcutOwnerReceipt {
 pub struct WindowsRuntimeShortcutOwnerDiagnostic {
     pub owner_revision: String,
     pub ui_thread_id: u32,
+    pub callback_deliveries: u32,
     pub hook_callbacks: u32,
     pub f11_events: u32,
     pub foreground_matches: u32,
@@ -131,6 +132,7 @@ mod platform {
 
     struct ShortcutOwner {
         callback: WindowsRuntimeShortcutCallback,
+        callback_deliveries: u32,
         callback_rejections: u32,
         callback_submissions: u32,
         captured_f11_down: bool,
@@ -402,6 +404,7 @@ mod platform {
                 key,
                 ShortcutOwner {
                     callback,
+                    callback_deliveries: 0,
                     callback_rejections: 0,
                     callback_submissions: 0,
                     captured_f11_down: false,
@@ -476,6 +479,7 @@ mod platform {
             Ok(WindowsRuntimeShortcutOwnerDiagnostic {
                 owner_revision: owner.owner_revision.to_string(),
                 ui_thread_id,
+                callback_deliveries: owner.callback_deliveries,
                 hook_callbacks: registry.hook_callbacks,
                 f11_events: registry.f11_events,
                 foreground_matches: owner.foreground_matches,
@@ -483,6 +487,27 @@ mod platform {
                 callback_submissions: owner.callback_submissions,
                 callback_rejections: owner.callback_rejections,
             })
+        })
+    }
+
+    pub(super) fn acknowledge(parent: HWND, owner_revision: u64) -> Result<u32> {
+        let ui_thread_id = validate_parent(parent)?;
+        SHORTCUT_REGISTRY.with(|registry| {
+            let mut registry = registry.borrow_mut();
+            let Some(owner) = registry.owners.get_mut(&hwnd_key(parent)) else {
+                return Err(probe_error(
+                    Status::InvalidArg,
+                    "The Windows runtime HWND has no active shortcut owner.",
+                ));
+            };
+            if owner.owner_revision != owner_revision {
+                return Err(probe_error(
+                    Status::InvalidArg,
+                    "The Windows runtime shortcut delivery revision is stale.",
+                ));
+            }
+            owner.callback_deliveries = owner.callback_deliveries.saturating_add(1);
+            Ok(ui_thread_id)
         })
     }
 
@@ -564,11 +589,39 @@ pub fn read_windows_runtime_shortcut_owner(
     platform::read(platform::hwnd(parent_address))
 }
 
+#[cfg(windows)]
+#[napi(js_name = "acknowledgeWindowsRuntimeShortcutOwner")]
+pub fn acknowledge_windows_runtime_shortcut_owner(
+    parent_handle: Buffer,
+    owner_revision: String,
+) -> Result<WindowsRuntimeShortcutOwnerReceipt> {
+    let parent_address = parse_electron_native_handle(&parent_handle, "parent")?;
+    let parsed_revision = parse_owner_revision(&owner_revision)?;
+    let ui_thread_id = platform::acknowledge(platform::hwnd(parent_address), parsed_revision)?;
+    Ok(WindowsRuntimeShortcutOwnerReceipt {
+        owner_revision,
+        ui_thread_id,
+        registered: true,
+    })
+}
+
 #[cfg(not(windows))]
 #[napi(js_name = "readWindowsRuntimeShortcutOwner")]
 pub fn read_windows_runtime_shortcut_owner(
     _parent_handle: Buffer,
 ) -> Result<WindowsRuntimeShortcutOwnerDiagnostic> {
+    Err(probe_error(
+        Status::GenericFailure,
+        "The Win32 runtime shortcut owner is available only on Windows.",
+    ))
+}
+
+#[cfg(not(windows))]
+#[napi(js_name = "acknowledgeWindowsRuntimeShortcutOwner")]
+pub fn acknowledge_windows_runtime_shortcut_owner(
+    _parent_handle: Buffer,
+    _owner_revision: String,
+) -> Result<WindowsRuntimeShortcutOwnerReceipt> {
     Err(probe_error(
         Status::GenericFailure,
         "The Win32 runtime shortcut owner is available only on Windows.",

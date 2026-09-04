@@ -319,7 +319,12 @@ on run argv
             end if
           end if
         end try
-        if currentFullscreenRead is true and currentFullscreen is expectedFullscreen and frontmost of targetProcess is true then exit repeat
+        -- The exact process and focused AppKit owner were fenced before input.
+        -- During Space teardown System Events can clear its process-level
+        -- frontmost bit before it republishes the window proxy, even though
+        -- AXFullScreen already reached the requested native terminal value.
+        -- The caller separately requires the runtime host to remain focused.
+        if currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat
         if (current date) is greater than transitionExpiry then error "exact AppKit fullscreen transition did not reach its native terminal state"
         delay 0.05
       end repeat

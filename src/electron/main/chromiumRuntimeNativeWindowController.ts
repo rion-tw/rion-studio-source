@@ -38,6 +38,9 @@ export interface ChromiumRuntimeWindowActionTarget {
   readonly windowId: string;
 }
 
+export type ChromiumRuntimeFullscreenFocusAdmission =
+  "windows-native-foreground";
+
 /** Routes native menu/toolbar actions back through the same Core-owned lanes. */
 export class ChromiumRuntimeNativeWindowController {
   readonly #core: ElectronCoreCommandPort;
@@ -61,8 +64,15 @@ export class ChromiumRuntimeNativeWindowController {
   }
 
   async toggleFullscreenForTab(
-    tabId: string
+    tabId: string,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
   ): Promise<SystemRuntimeOperationSummaryRecord> {
+    if (focusAdmission && this.#platform !== "win32") {
+      throw controlError(
+        "ELECTRON_RUNTIME_FULLSCREEN_ADMISSION_INVALID",
+        "Only the exact Win32 shortcut owner may admit a blurred fullscreen target."
+      );
+    }
     const native = this.#readNativeSnapshot().tabs.find((tab) => tab.tabId === tabId);
     if (!native) {
       throw controlError(
@@ -79,7 +89,7 @@ export class ChromiumRuntimeNativeWindowController {
         "The managed Role tab lost its exact native host identity."
       );
     }
-    return this.toggleFullscreenForTarget(Object.freeze({
+    const target = Object.freeze({
       activeTabId: window.activeTabId,
       ...(window.appKitIdentity
         ? { appKitIdentity: Object.freeze({ ...window.appKitIdentity }) }
@@ -88,7 +98,13 @@ export class ChromiumRuntimeNativeWindowController {
       topologyRevision: window.topologyRevision,
       windowGeneration: window.windowGeneration,
       windowId: window.windowId
-    }));
+    });
+    return this.#setPresentation(
+      target.windowId,
+      window.presentation === "fullscreen" ? "normal" : "fullscreen",
+      target,
+      focusAdmission
+    );
   }
 
   toggleFullscreenForTarget(
@@ -209,13 +225,15 @@ export class ChromiumRuntimeNativeWindowController {
   async #setPresentation(
     windowId: string,
     presentation: "fullscreen" | "maximized" | "normal",
-    target?: ChromiumRuntimeWindowActionTarget
+    target?: ChromiumRuntimeWindowActionTarget,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
   ): Promise<SystemRuntimeOperationSummaryRecord> {
     const prior = this.#presentationLanes.get(windowId) ?? Promise.resolve();
     const operation = prior.then(() => this.#setPresentationNow(
       windowId,
       presentation,
-      target
+      target,
+      focusAdmission
     ));
     const tail = operation.then(() => undefined, () => undefined);
     this.#presentationLanes.set(windowId, tail);
@@ -229,9 +247,23 @@ export class ChromiumRuntimeNativeWindowController {
   async #setPresentationNow(
     windowId: string,
     presentation: "fullscreen" | "maximized" | "normal",
-    target?: ChromiumRuntimeWindowActionTarget
+    target?: ChromiumRuntimeWindowActionTarget,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
   ): Promise<SystemRuntimeOperationSummaryRecord> {
-    if (target) this.#requireExplicitWindowTarget(target);
+    const requireFocused = focusAdmission === undefined;
+    if (focusAdmission && this.#platform !== "win32") {
+      throw controlError(
+        "ELECTRON_RUNTIME_FULLSCREEN_ADMISSION_INVALID",
+        "The native fullscreen focus admission is not valid on this platform."
+      );
+    }
+    if (target) {
+      this.#requireExplicitWindowTarget(
+        target,
+        target.topologyRevision,
+        requireFocused
+      );
+    }
     const core = await this.#core.invoke({ type: "appSnapshot" });
     const logical = core.logicalWindows.find((window) => window.windowId === windowId);
     const native = this.#readNativeSnapshot().windows.find(
@@ -271,7 +303,11 @@ export class ChromiumRuntimeNativeWindowController {
           "Core omitted the exact runtime-window presentation revision."
         );
       }
-      this.#requireExplicitWindowTarget(target, summary.topologyRevision!);
+      this.#requireExplicitWindowTarget(
+        target,
+        summary.topologyRevision!,
+        requireFocused
+      );
     }
     return summary;
   }
@@ -320,7 +356,8 @@ export class ChromiumRuntimeNativeWindowController {
 
   #requireExplicitWindowTarget(
     target: ChromiumRuntimeWindowActionTarget,
-    topologyRevision: number = target.topologyRevision
+    topologyRevision: number = target.topologyRevision,
+    requireFocused = true
   ): ChromiumRuntimeExecutorSnapshot["windows"][number] {
     const native = this.#readNativeSnapshot().windows.find((candidate) =>
       candidate.windowId === target.windowId);
@@ -332,7 +369,8 @@ export class ChromiumRuntimeNativeWindowController {
       : target.appKitIdentity === undefined && native?.appKitIdentity === undefined;
     if (
       !native || native.activeTabId !== target.activeTabId ||
-      !native.visible || !native.focused || target.activeTabId.length === 0 ||
+      !native.visible || (requireFocused && !native.focused) ||
+      target.activeTabId.length === 0 ||
       !native.tabIds.includes(target.activeTabId) ||
       !Number.isSafeInteger(target.parentNativeHostId) ||
       target.parentNativeHostId < 1 ||

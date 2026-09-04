@@ -51,8 +51,10 @@ import {
 } from "./chromiumRuntimeBootstrap";
 import { createCoreOwnedChromiumRuntimeActions } from
   "./chromiumRuntimeActionsFactory";
-import type { ChromiumRuntimeNativeTabAction } from
-  "./chromiumRuntimeNativeWindowController";
+import type {
+  ChromiumRuntimeFullscreenFocusAdmission,
+  ChromiumRuntimeNativeTabAction
+} from "./chromiumRuntimeNativeWindowController";
 import {
   installMacosRuntimeWindowPreferencesMenu,
   type MacosRuntimeWindowPreferencesMenuHandle
@@ -819,7 +821,10 @@ async function bootstrapReadyPhase(
   );
   installChromiumSessionSecurityPolicy(webChromeShellSession);
   let beginRuntimeTabQuickAccess: ((tabId: string) => void) | null = null;
-  let beginRuntimeTabFullscreen: ((tabId: string) => void) | null = null;
+  let beginRuntimeTabFullscreen: ((
+    tabId: string,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+  ) => void) | null = null;
   let requestRuntimeWindowControl: ((
     windowId: string,
     action: "closeWindow" | "toggleMaximizeWindow"
@@ -887,7 +892,7 @@ async function bootstrapReadyPhase(
       }
       begin(tabId);
     },
-    onRuntimeTabFullscreen: (tabId) => {
+    onRuntimeTabFullscreen: (tabId, focusAdmission) => {
       const begin = beginRuntimeTabFullscreen;
       if (!begin) {
         throw new RionBridgeError({
@@ -895,7 +900,7 @@ async function bootstrapReadyPhase(
           message: "The managed Chromium fullscreen lane is not ready."
         });
       }
-      begin(tabId);
+      begin(tabId, focusAdmission);
     },
     shellEffects: overlayShellEffects,
     sessions: {
@@ -1494,8 +1499,11 @@ async function bootstrapReadyPhase(
     ? (tabId) => { runtimeActionServices.beginRuntimeTabQuickAccess(tabId); }
     : null;
   beginRuntimeTabFullscreen = runtimeActionServices
-    ? (tabId) => {
-        void runtimeActionServices.toggleRuntimeTabFullscreen(tabId).catch(
+    ? (tabId, focusAdmission) => {
+        void runtimeActionServices.toggleRuntimeTabFullscreen(
+          tabId,
+          focusAdmission
+        ).catch(
           revealShellError
         );
       }

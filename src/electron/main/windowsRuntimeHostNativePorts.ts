@@ -156,6 +156,7 @@ export interface WindowsRuntimeShortcutOwnerReceipt {
 }
 
 export interface WindowsRuntimeShortcutOwnerDiagnostic {
+  readonly callbackDeliveries: number;
   readonly callbackRejections: number;
   readonly callbackSubmissions: number;
   readonly f11Events: number;
@@ -173,6 +174,10 @@ export interface WindowsRuntimeShortcutOwnerDiagnosticPort {
 }
 
 export interface WindowsRuntimeShortcutOwnerPort {
+  acknowledgeWindowsRuntimeShortcutOwner: (
+    parentHandle: Buffer,
+    ownerRevision: string
+  ) => WindowsRuntimeShortcutOwnerReceipt;
   registerWindowsRuntimeShortcutOwner: (
     parentHandle: Buffer,
     ownerRevision: string,

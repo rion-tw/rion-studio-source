@@ -217,6 +217,42 @@ describe("Core-owned native runtime-window controls", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("retains exact Win32 foreground admission across callback delivery blur", async () => {
+    let applied = false;
+    const invoke = vi.fn(async (command: { type: string }) => {
+      if (command.type === "appSnapshot") return appSnapshot();
+      if (command.type === "embeddedWindowPresentation") {
+        applied = true;
+        return { status: "applied", topologyRevision: 10 };
+      }
+      throw new Error(`Unexpected command ${command.type}`);
+    });
+    const subject = new ChromiumRuntimeNativeWindowController({
+      backend: { execute: vi.fn() } as never,
+      core: { invoke } as never,
+      platform: "win32",
+      readNativeSnapshot: () => {
+        const snapshot = explicitNativeSnapshot(false, applied ? 10 : 9);
+        return applied
+          ? {
+              ...snapshot,
+              windows: [{ ...snapshot.windows[0], presentation: "fullscreen" }]
+            }
+          : snapshot;
+      }
+    });
+
+    await expect(subject.toggleFullscreenForTab(
+      tabId,
+      "windows-native-foreground"
+    )).resolves.toMatchObject({ status: "applied", topologyRevision: 10 });
+    expect(invoke).toHaveBeenLastCalledWith(expect.objectContaining({
+      presentation: "fullscreen",
+      type: "embeddedWindowPresentation",
+      windowId
+    }));
+  });
+
   it("rejects a mismatched Core zoom receipt before native terminal readback", async () => {
     const invoke = vi.fn(async (command: { operationId: string }) => ({
       operationId: command.operationId,

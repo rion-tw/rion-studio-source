@@ -385,6 +385,9 @@ function windowsBootstrapPorts() {
     },
     lifecycleEpoch: () => 1,
     runtimeShortcutOwner: {
+      acknowledgeWindowsRuntimeShortcutOwner: () => {
+        throw new Error("Windows shortcut ownership is unavailable on macOS");
+      },
       registerWindowsRuntimeShortcutOwner: () => {
         throw new Error("The fixture has no visible Windows runtime shortcut host.");
       },

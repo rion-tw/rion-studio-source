@@ -36,6 +36,7 @@ import type { ChromiumRuntimeRestoreSessionMutationPort } from
   "./chromiumRuntimeRestoreSessionCoordinator";
 import {
   ChromiumRuntimeNativeWindowController,
+  type ChromiumRuntimeFullscreenFocusAdmission,
   type ChromiumRuntimeNativeTabAction,
   type ChromiumRuntimeWindowActionTarget
 } from "./chromiumRuntimeNativeWindowController";
@@ -81,7 +82,8 @@ export interface ChromiumRuntimeActionsServices {
   readonly setAlwaysShowToolbarInFullScreen: (value: boolean) =>
     Promise<RuntimeWindowPreferencesRecord>;
   readonly toggleRuntimeTabFullscreen: (
-    tabId: string
+    tabId: string,
+    focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
   ) => Promise<SystemRuntimeOperationSummaryRecord>;
   readonly toggleRuntimeWindowFullscreen: (
     target: ChromiumRuntimeWindowActionTarget
@@ -158,8 +160,10 @@ export function createCoreOwnedChromiumRuntimeActions(
       nativeWindows.requestTabControl(tabId, action),
     setAlwaysShowToolbarInFullScreen: (value: boolean) =>
       nativeWindows.setAlwaysShowToolbarInFullScreen(value),
-    toggleRuntimeTabFullscreen: (tabId: string) =>
-      nativeWindows.toggleFullscreenForTab(tabId),
+    toggleRuntimeTabFullscreen: (
+      tabId: string,
+      focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
+    ) => nativeWindows.toggleFullscreenForTab(tabId, focusAdmission),
     toggleRuntimeWindowFullscreen: (target: ChromiumRuntimeWindowActionTarget) =>
       nativeWindows.toggleFullscreenForTarget(target),
     zoomRuntimeWindow: (

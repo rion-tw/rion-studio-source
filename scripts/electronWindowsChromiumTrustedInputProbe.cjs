@@ -319,6 +319,7 @@ void (async () => {
 
     const parentFocused = new Promise((resolve) => parent.once("focus", resolve));
     parent.show();
+    child.showInactive();
     exactProbe(
       addon.projectWindowsChromiumInputHwnd(surfaceHandle, parentHandle, true),
       surfaceHandle,
@@ -517,6 +518,7 @@ void (async () => {
     );
     control.showInactive();
     view.setVisible(false);
+    child.hide();
     exactProbe(
       addon.projectWindowsChromiumInputHwnd(surfaceHandle, parentHandle, false),
       surfaceHandle,

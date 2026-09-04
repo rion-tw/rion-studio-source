@@ -1016,6 +1016,13 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     record.projectionStale = true;
     const previousVisible = record.probe.surfaceVisible;
     const shouldShow = currentParent.window.isVisible() && record.view.getVisible();
+    // Keep Electron's compositor lifecycle informed, then let the native
+    // WS_CHILD owner apply and attest the final HWND presentation. Bounds must
+    // not flow back through Electron after SetParent.
+    if (shouldShow !== record.child.isVisible()) {
+      if (shouldShow) record.child.showInactive();
+      else record.child.hide();
+    }
     const probe = this.#projectRaw(
       record.surfaceHandle,
       record.parentHandle,

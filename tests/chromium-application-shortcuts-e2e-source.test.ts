@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it } from "vitest";
 
 let bridge = "";
+let cleanExitDiagnostics = "";
 let coreFlowDiagnostics = "";
 let e2eMain = "";
 let manifest = "";
@@ -16,11 +17,12 @@ let shellSpec = "";
 let wdioConfig = "";
 
 beforeAll(async () => {
-  [bridge, coreFlowDiagnostics, e2eMain, manifest, macroSupport,
+  [bridge, cleanExitDiagnostics, coreFlowDiagnostics, e2eMain, manifest, macroSupport,
     nativeApplicationActions, nativeWindowControlObserver, productionMain,
     productionPreload, roleSurfaceLifecycleObserver, shellSpec, wdioConfig] =
     await Promise.all([
       readFile("src/electron/e2e/desktopE2eBridge.ts", "utf8"),
+      readFile("src/electron/e2e/cleanExitDiagnosticsObserver.ts", "utf8"),
       readFile("src/electron/e2e/coreFlowDiagnosticsObserver.ts", "utf8"),
       readFile("src/electron/e2e/index.ts", "utf8"),
       readFile("docs/e2e-coverage.json", "utf8"),
@@ -81,6 +83,12 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(e2eMain).toContain(
       "installElectronDesktopE2eNativeWindowControlObserver()"
     );
+    expect(e2eMain).toContain(
+      "installElectronDesktopE2eCleanExitDiagnosticsObserver()"
+    );
+    expect(cleanExitDiagnostics).toContain("cleanExitRuntimePrepare");
+    expect(cleanExitDiagnostics).toContain("cleanExitRuntimeExecutor");
+    expect(cleanExitDiagnostics).toContain("cleanExitCoreShutdown");
     expect(nativeWindowControlObserver).toContain("toggleFullscreenForTab");
     expect(nativeWindowControlObserver).toContain("readWindowsShortcutActiveTab");
     expect(nativeWindowControlObserver).toContain("runtimeFullscreenIngress");

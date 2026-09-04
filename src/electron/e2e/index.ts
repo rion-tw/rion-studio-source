@@ -104,6 +104,8 @@ import {
 } from "./roleSurfaceLifecycleObserver";
 import { installElectronDesktopE2eNativeWindowControlObserver } from
   "./nativeWindowControlObserver";
+import { installElectronDesktopE2eCleanExitDiagnosticsObserver } from
+  "./cleanExitDiagnosticsObserver";
 import { WindowsChromiumInputSurfaceAttachmentCoordinator } from
   "../main/windowsChromiumInputSurfaceAttachmentCoordinator";
 import type { WindowsRuntimeShortcutOwnerDiagnostic } from
@@ -1595,6 +1597,7 @@ function readRoleSessionRuntime(
 
 const retainedV22Precondition = await seedRetainedV22Role();
 installElectronDesktopE2eReceiptObserver();
+installElectronDesktopE2eCleanExitDiagnosticsObserver();
 installElectronDesktopE2eGuardedQuitObserver(writeFinalFlushMarker);
 installElectronDesktopE2eDiagnosticsExportObserver();
 installElectronDesktopE2eLaunchCompletionObserver();

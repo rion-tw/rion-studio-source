@@ -467,11 +467,12 @@ export class WindowsRuntimeHostChromeController {
   }
 
   async nativeBoundsChanged(): Promise<void> {
-    await this.#relayout();
     // Resize/move events emitted by a programmatic presentation transition
-    // belong to that pending event-bound transaction. Persisting them as an
-    // independent user placement can deadlock the Core presentation effect.
+    // belong to that pending event-bound transaction. Their intermediate
+    // geometry must not enqueue relayout work ahead of the exact native
+    // presentation event; that event applies the one authoritative layout.
     if (this.#pending) return;
+    await this.#relayout();
     const observer = this.#placementObserver;
     if (!observer || this.#windowGeneration < 1 || this.#topologyRevision < 1) return;
     const next = this.#placementLane.then(observer);

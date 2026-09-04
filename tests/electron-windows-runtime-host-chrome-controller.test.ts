@@ -1001,7 +1001,7 @@ describe("Windows runtime-host chrome controller", () => {
       }));
   });
 
-  it("does not persist transition resize events as user placement", async () => {
+  it("does not relayout or persist intermediate presentation geometry", async () => {
     const subject = harness();
     const placement = vi.fn(async () => undefined);
     subject.controller.bindPlacement(placement);
@@ -1023,11 +1023,14 @@ describe("Windows runtime-host chrome controller", () => {
       windowId
     });
     await subject.controller.nativeBoundsChanged();
+    expect(subject.relayout).not.toHaveBeenCalled();
     expect(placement).not.toHaveBeenCalled();
 
     await subject.controller.nativePresentationChanged();
     await fullscreen;
+    expect(subject.relayout).toHaveBeenCalledOnce();
     await subject.controller.nativeBoundsChanged();
+    expect(subject.relayout).toHaveBeenCalledTimes(2);
     expect(placement).toHaveBeenCalledOnce();
   });
 });

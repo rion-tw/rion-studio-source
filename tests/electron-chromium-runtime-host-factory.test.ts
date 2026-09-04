@@ -1216,7 +1216,8 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       useContentSize: true,
       show: false,
       frame: false,
-      transparent: true,
+      fullscreenable: true,
+      transparent: false,
       backgroundMaterial: "mica",
       autoHideMenuBar: true,
       webPreferences: {

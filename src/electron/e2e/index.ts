@@ -1513,7 +1513,7 @@ async function readFullscreenToolbarRuntime(
   const coreTabIds = logical.tabs.map((tab) => tab.id);
   const platform = e2ePlatform();
   if (
-    coreTabIds.length === 0 || inspection.surfaces.length === 0 ||
+    coreTabIds.length === 0 ||
     logical.windowGeneration !== inspection.windowGeneration ||
     logical.revision !== inspection.topologyRevision ||
     nativeWindow.windowGeneration !== inspection.windowGeneration ||

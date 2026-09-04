@@ -63,8 +63,14 @@ export function buildWindowsRuntimeHostWindowOptions(
     useContentSize: true,
     show: false,
     focusable: true,
+    fullscreenable: true,
     frame: false,
-    transparent: material === "mica",
+    // Electron documents transparent Windows hosts as non-resizable and not
+    // maximizable through normal Windows presentation paths. Keep the native
+    // host opaque so Core-owned maximize/fullscreen effects receive their
+    // exact BrowserWindow events; Electron 43 draws Mica as the system
+    // background material without requiring a transparent HWND.
+    transparent: false,
     backgroundColor: material === "mica" ? "#00000000" : "#111318",
     backgroundMaterial: material === "mica" ? "mica" : "none",
     autoHideMenuBar: true,

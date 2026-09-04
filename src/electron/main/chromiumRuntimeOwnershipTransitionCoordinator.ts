@@ -260,12 +260,18 @@ export class ChromiumRuntimeOwnershipTransitionCoordinator {
     try {
       for (const window of pendingWindows) {
         if (pending.settled) break;
-        if (window.applied) continue;
+        if (window.applied && window.mode !== "focus") continue;
         switch (window.mode) {
           case "focus":
             window.submitted = true;
-            window.binding.host.showInactive!();
-            if (pending.settled) break;
+            // Focus is an imperative ownership claim, not only a state query.
+            // A just-attached Chromium surface or the physical launcher action
+            // can still deliver a queued blur after the initial read. Re-submit
+            // the exact native focus claim even when that read is satisfied.
+            if (!window.applied) {
+              window.binding.host.showInactive!();
+              if (pending.settled) break;
+            }
             window.binding.host.focus();
             break;
           case "hide":

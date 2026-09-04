@@ -191,6 +191,31 @@ describe("Chromium runtime ownership transition coordinator", () => {
     await expect(continuation.completion).resolves.toMatchObject({ status: "applied" });
   });
 
+  it("re-submits an exact focus claim when the initial native state is already focused", async () => {
+    const test = harness();
+    const window = new FakeHost("window-1", 1, "macos");
+    window.observation = Object.freeze({
+      ...window.observation,
+      visible: true,
+      focused: true,
+      foreground: true
+    });
+    test.coordinator.synchronize([window.host]);
+    const continuation = test.coordinator.begin(effect("effect-1"), 1, [{
+      host: window.host,
+      mode: "focus",
+      windowGeneration: 1,
+      topologyRevision: 1
+    }]);
+
+    await expect(continuation.completion).resolves.toMatchObject({
+      status: "applied",
+      windows: [expect.objectContaining({ focused: true, foreground: true })]
+    });
+    expect(window.showInactive).not.toHaveBeenCalled();
+    expect(window.focus).toHaveBeenCalledOnce();
+  });
+
   it("supersedes the older process-global focus lease and ignores its late event", async () => {
     const test = harness();
     const first = new FakeHost("window-1", 1);

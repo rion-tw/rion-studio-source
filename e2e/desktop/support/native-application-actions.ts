@@ -357,13 +357,78 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class RionNativeShortcutInput {
   public delegate bool EnumProc(IntPtr hwnd, IntPtr value);
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MouseInput {
+    public int dx;
+    public int dy;
+    public uint mouseData;
+    public uint flags;
+    public uint time;
+    public UIntPtr extra;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KeyboardInput {
+    public ushort virtualKey;
+    public ushort scanCode;
+    public uint flags;
+    public uint time;
+    public UIntPtr extra;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct HardwareInput {
+    public uint message;
+    public ushort low;
+    public ushort high;
+  }
+  [StructLayout(LayoutKind.Explicit)]
+  public struct InputUnion {
+    [FieldOffset(0)] public MouseInput mouse;
+    [FieldOffset(0)] public KeyboardInput keyboard;
+    [FieldOffset(0)] public HardwareInput hardware;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct Input {
+    public uint type;
+    public InputUnion value;
+  }
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr value);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
-  [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern uint SendInput(uint count, Input[] inputs, int size);
+  private static Input ScanCodeInput(ushort scanCode, bool keyUp) {
+    const uint Keyboard = 1;
+    const uint KeyUp = 0x0002;
+    const uint ScanCode = 0x0008;
+    return new Input {
+      type = Keyboard,
+      value = new InputUnion {
+        keyboard = new KeyboardInput {
+          virtualKey = 0,
+          scanCode = scanCode,
+          flags = ScanCode | (keyUp ? KeyUp : 0),
+          time = 0,
+          extra = UIntPtr.Zero
+        }
+      }
+    };
+  }
+  public static bool SendScanChord(ushort[] scanCodes) {
+    if (scanCodes == null || scanCodes.Length == 0) return false;
+    Input[] inputs = new Input[scanCodes.Length * 2];
+    for (int index = 0; index < scanCodes.Length; index++) {
+      inputs[index] = ScanCodeInput(scanCodes[index], false);
+      inputs[inputs.Length - index - 1] = ScanCodeInput(scanCodes[index], true);
+    }
+    return SendInput(
+      (uint)inputs.Length,
+      inputs,
+      Marshal.SizeOf(typeof(Input))
+    ) == (uint)inputs.Length;
+  }
 }
 '@
 $targetPid = [uint32]$payload.processId
@@ -409,7 +474,6 @@ if (-not [RionNativeShortcutInput]::IsWindowVisible($foregroundWindow)) {
 }
 $CTRL = [byte]0x11
 $SHIFT = [byte]0x10
-$KEYUP = [uint32]2
 $modifier = $true
 $shiftModifier = $false
 switch ($command) {
@@ -420,16 +484,19 @@ switch ($command) {
   'zoomReset' { $key = [byte]0x30 }
   default { throw 'unsupported Windows application shortcut' }
 }
-$keyScan = [byte][RionNativeShortcutInput]::MapVirtualKey($key, 0)
-$ctrlScan = [byte][RionNativeShortcutInput]::MapVirtualKey($CTRL, 0)
-$shiftScan = [byte][RionNativeShortcutInput]::MapVirtualKey($SHIFT, 0)
+$keyScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($key, 0)
+$ctrlScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($CTRL, 0)
+$shiftScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($SHIFT, 0)
 if ($keyScan -eq 0) { throw 'Windows shortcut has no physical scan code' }
-if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, $ctrlScan, 0, [UIntPtr]::Zero) }
-if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, 0, [UIntPtr]::Zero) }
-[RionNativeShortcutInput]::keybd_event($key, $keyScan, 0, [UIntPtr]::Zero)
-[RionNativeShortcutInput]::keybd_event($key, $keyScan, $KEYUP, [UIntPtr]::Zero)
-if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, $KEYUP, [UIntPtr]::Zero) }
-if ($modifier) { [RionNativeShortcutInput]::keybd_event($CTRL, $ctrlScan, $KEYUP, [UIntPtr]::Zero) }
+if ($modifier -and $ctrlScan -eq 0) { throw 'Windows Control has no physical scan code' }
+if ($shiftModifier -and $shiftScan -eq 0) { throw 'Windows Shift has no physical scan code' }
+$scanCodes = [System.Collections.Generic.List[System.UInt16]]::new()
+if ($modifier) { $scanCodes.Add($ctrlScan) }
+if ($shiftModifier) { $scanCodes.Add($shiftScan) }
+$scanCodes.Add($keyScan)
+if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
+  throw 'Windows shortcut scan-code chord injection failed'
+}
 `;
   await runEncodedPowerShellJson(script, {
     command: input.command,

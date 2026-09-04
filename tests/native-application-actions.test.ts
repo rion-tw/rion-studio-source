@@ -141,22 +141,31 @@ describe("native application shortcut target modes", () => {
       "'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }"
     );
     expect(source).toContain(
-      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, 0, [UIntPtr]::Zero) }"
+      "if ($shiftModifier) { $scanCodes.Add($shiftScan) }"
     );
     expect(source).toContain(
-      "if ($shiftModifier) { [RionNativeShortcutInput]::keybd_event($SHIFT, $shiftScan, $KEYUP, [UIntPtr]::Zero) }"
+      "inputs[inputs.Length - index - 1] = ScanCodeInput(scanCodes[index], true);"
     );
   });
 
-  it("maps Windows virtual keys to physical scan codes before native injection", () => {
+  it("maps Windows virtual keys into SendInput physical scan-code events", () => {
     expect(source).toContain(
       "public static extern uint MapVirtualKey(uint code, uint mapType);"
     );
     expect(source).toContain(
-      "$keyScan = [byte][RionNativeShortcutInput]::MapVirtualKey($key, 0)"
+      "$keyScan = [uint16][RionNativeShortcutInput]::MapVirtualKey($key, 0)"
     );
     expect(source).toContain(
-      "[RionNativeShortcutInput]::keybd_event($key, $keyScan, 0, [UIntPtr]::Zero)"
+      "public static extern uint SendInput(uint count, Input[] inputs, int size);"
+    );
+    expect(source).toContain(
+      "const uint ScanCode = 0x0008;"
+    );
+    expect(source).toContain(
+      "virtualKey = 0"
+    );
+    expect(source).toContain(
+      "[RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())"
     );
     expect(source).toContain(
       "if ($keyScan -eq 0) { throw 'Windows shortcut has no physical scan code' }"

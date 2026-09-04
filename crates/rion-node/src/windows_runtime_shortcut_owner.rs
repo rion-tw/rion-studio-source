@@ -101,6 +101,12 @@ mod platform {
         cell::RefCell,
         collections::HashMap,
         panic::{AssertUnwindSafe, catch_unwind},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicU32, Ordering},
+            mpsc::{SyncSender, TrySendError, sync_channel},
+        },
+        thread::{self, JoinHandle},
     };
 
     use windows::Win32::{
@@ -130,39 +136,142 @@ mod platform {
 
     const RION_RUNTIME_SHORTCUT_SUBCLASS_ID: usize = 0x5249_4f4e;
 
+    #[derive(Default)]
+    struct ShortcutDispatchState {
+        callback_rejections: AtomicU32,
+        callback_submissions: AtomicU32,
+        failed: AtomicBool,
+        failure_pending: AtomicBool,
+    }
+
+    enum ShortcutDispatchMessage {
+        Emit(String),
+        Shutdown,
+    }
+
+    struct ShortcutDispatchWorker {
+        sender: SyncSender<ShortcutDispatchMessage>,
+        state: Arc<ShortcutDispatchState>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    impl ShortcutDispatchWorker {
+        fn start(
+            owner_revision: u64,
+            callback: WindowsRuntimeShortcutCallback,
+            failure_callback: WindowsRuntimeShortcutFailureCallback,
+        ) -> Result<Self> {
+            let (sender, receiver) = sync_channel(WINDOWS_RUNTIME_SHORTCUT_QUEUE_CAPACITY);
+            let state = Arc::new(ShortcutDispatchState::default());
+            let worker_state = Arc::clone(&state);
+            let worker = thread::Builder::new()
+                .name(format!("rion-runtime-shortcut-{owner_revision}"))
+                .spawn(move || {
+                    let report_failure = || {
+                        if worker_state.failure_pending.swap(false, Ordering::AcqRel) {
+                            let _ = failure_callback.call(
+                                "The bounded Windows runtime shortcut callback queue rejected F11."
+                                    .to_owned(),
+                                ThreadsafeFunctionCallMode::NonBlocking,
+                            );
+                        }
+                    };
+                    while let Ok(message) = receiver.recv() {
+                        match message {
+                            ShortcutDispatchMessage::Emit(revision) => {
+                                if !worker_state.failed.load(Ordering::Acquire) {
+                                    worker_state
+                                        .callback_submissions
+                                        .fetch_add(1, Ordering::Relaxed);
+                                    if callback
+                                        .call(revision, ThreadsafeFunctionCallMode::NonBlocking)
+                                        != Status::Ok
+                                    {
+                                        worker_state
+                                            .callback_rejections
+                                            .fetch_add(1, Ordering::Relaxed);
+                                        worker_state.failed.store(true, Ordering::Release);
+                                        worker_state.failure_pending.store(true, Ordering::Release);
+                                    }
+                                }
+                                report_failure();
+                            }
+                            ShortcutDispatchMessage::Shutdown => {
+                                report_failure();
+                                break;
+                            }
+                        }
+                    }
+                })
+                .map_err(|_| {
+                    probe_error(
+                        Status::GenericFailure,
+                        "Win32 could not start the bounded runtime shortcut dispatcher.",
+                    )
+                })?;
+            Ok(Self {
+                sender,
+                state,
+                thread: Some(worker),
+            })
+        }
+
+        fn emit(&self, owner_revision: u64) {
+            if self.state.failed.load(Ordering::Acquire) {
+                return;
+            }
+            if let Err(error) = self
+                .sender
+                .try_send(ShortcutDispatchMessage::Emit(owner_revision.to_string()))
+            {
+                self.state
+                    .callback_rejections
+                    .fetch_add(1, Ordering::Relaxed);
+                self.state.failed.store(true, Ordering::Release);
+                self.state.failure_pending.store(true, Ordering::Release);
+                if matches!(error, TrySendError::Disconnected(_)) {
+                    self.state.failure_pending.store(false, Ordering::Release);
+                }
+            }
+        }
+
+        fn callback_submissions(&self) -> u32 {
+            self.state.callback_submissions.load(Ordering::Relaxed)
+        }
+
+        fn callback_rejections(&self) -> u32 {
+            self.state.callback_rejections.load(Ordering::Relaxed)
+        }
+
+        fn shutdown(mut self) -> Result<()> {
+            let submitted = self.sender.send(ShortcutDispatchMessage::Shutdown).is_ok();
+            let joined = self
+                .thread
+                .take()
+                .is_some_and(|worker| worker.join().is_ok());
+            if submitted && joined {
+                Ok(())
+            } else {
+                Err(probe_error(
+                    Status::GenericFailure,
+                    "The bounded Windows runtime shortcut dispatcher did not retire cleanly.",
+                ))
+            }
+        }
+    }
+
     struct ShortcutOwner {
-        callback: WindowsRuntimeShortcutCallback,
         callback_deliveries: u32,
-        callback_rejections: u32,
-        callback_submissions: u32,
         captured_f11_down: bool,
-        failure_callback: WindowsRuntimeShortcutFailureCallback,
+        dispatch: ShortcutDispatchWorker,
         foreground_matches: u32,
         owner_revision: u64,
         plain_key_downs: u32,
-        failed: bool,
     }
 
     impl ShortcutOwner {
         fn emit(&mut self) {
-            if self.failed {
-                return;
-            }
-            self.callback_submissions = self.callback_submissions.saturating_add(1);
-            let revision = self.owner_revision.to_string();
-            if self
-                .callback
-                .call(revision, ThreadsafeFunctionCallMode::NonBlocking)
-                == Status::Ok
-            {
-                return;
-            }
-            self.failed = true;
-            self.callback_rejections = self.callback_rejections.saturating_add(1);
-            let _ = self.failure_callback.call(
-                "The bounded Windows runtime shortcut callback queue rejected F11.".to_owned(),
-                ThreadsafeFunctionCallMode::NonBlocking,
-            );
+            self.dispatch.emit(self.owner_revision);
         }
     }
 
@@ -203,9 +312,9 @@ mod platform {
     }
 
     fn retire_destroyed_owner(hwnd: HWND) {
-        SHORTCUT_REGISTRY.with(|registry| {
+        let owner = SHORTCUT_REGISTRY.with(|registry| {
             let mut registry = registry.borrow_mut();
-            registry.owners.remove(&hwnd_key(hwnd));
+            let owner = registry.owners.remove(&hwnd_key(hwnd));
             if registry.owners.is_empty()
                 && let Some(hook) = registry.hook.take()
             {
@@ -213,7 +322,11 @@ mod platform {
                 // thread and is retired exactly when its final HWND dies.
                 let _ = unsafe { UnhookWindowsHookEx(hook) };
             }
+            owner
         });
+        if let Some(owner) = owner {
+            let _ = owner.dispatch.shutdown();
+        }
     }
 
     unsafe extern "system" fn runtime_window_subclass_proc(
@@ -400,19 +513,34 @@ mod platform {
                 ));
             }
 
+            let dispatch =
+                match ShortcutDispatchWorker::start(owner_revision, callback, failure_callback) {
+                    Ok(dispatch) => dispatch,
+                    Err(error) => {
+                        // SAFETY: both resources were installed above on this
+                        // exact UI thread and are compensated before returning.
+                        let _ = unsafe {
+                            RemoveWindowSubclass(
+                                parent,
+                                Some(runtime_window_subclass_proc),
+                                RION_RUNTIME_SHORTCUT_SUBCLASS_ID,
+                            )
+                        };
+                        if installed_hook && let Some(hook) = registry.hook.take() {
+                            let _ = unsafe { UnhookWindowsHookEx(hook) };
+                        }
+                        return Err(error);
+                    }
+                };
             registry.owners.insert(
                 key,
                 ShortcutOwner {
-                    callback,
                     callback_deliveries: 0,
-                    callback_rejections: 0,
-                    callback_submissions: 0,
                     captured_f11_down: false,
-                    failure_callback,
+                    dispatch,
                     foreground_matches: 0,
                     owner_revision,
                     plain_key_downs: 0,
-                    failed: false,
                 },
             );
             Ok(ui_thread_id)
@@ -420,11 +548,11 @@ mod platform {
     }
 
     pub(super) fn unregister(parent: HWND, owner_revision: u64) -> Result<bool> {
-        SHORTCUT_REGISTRY.with(|registry| {
+        let owner = SHORTCUT_REGISTRY.with(|registry| {
             let mut registry = registry.borrow_mut();
             let key = hwnd_key(parent);
             let Some(owner) = registry.owners.get(&key) else {
-                return Ok(false);
+                return Ok(None);
             };
             if owner.owner_revision != owner_revision {
                 return Err(probe_error(
@@ -450,7 +578,7 @@ mod platform {
                     "Win32 could not remove the exact runtime shortcut teardown owner.",
                 ));
             }
-            registry.owners.remove(&key);
+            let owner = registry.owners.remove(&key);
             if registry.owners.is_empty()
                 && let Some(hook) = registry.hook.take()
             {
@@ -462,8 +590,13 @@ mod platform {
                     )
                 })?;
             }
-            Ok(true)
-        })
+            Ok(owner)
+        })?;
+        let Some(owner) = owner else {
+            return Ok(false);
+        };
+        owner.dispatch.shutdown()?;
+        Ok(true)
     }
 
     pub(super) fn read(parent: HWND) -> Result<WindowsRuntimeShortcutOwnerDiagnostic> {
@@ -484,8 +617,8 @@ mod platform {
                 f11_events: registry.f11_events,
                 foreground_matches: owner.foreground_matches,
                 plain_key_downs: owner.plain_key_downs,
-                callback_submissions: owner.callback_submissions,
-                callback_rejections: owner.callback_rejections,
+                callback_submissions: owner.dispatch.callback_submissions(),
+                callback_rejections: owner.dispatch.callback_rejections(),
             })
         })
     }

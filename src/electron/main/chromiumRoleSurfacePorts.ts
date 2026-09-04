@@ -187,6 +187,11 @@ export interface ChromiumRoleSurfaceNativeRetirementInput
 
 export interface ChromiumRoleSurfaceNativeAttachmentPort {
   attach: (input: ChromiumRoleSurfaceNativeAttachmentInput) => Promise<void>;
+  initialLoadCommitted?: (
+    roleId: string,
+    generation: number,
+    parent: ChromiumRoleSurfaceParentPort
+  ) => void;
   reparent: (input: ChromiumRoleSurfaceNativeReparentInput) => Promise<void>;
   retire: (
     roleId: string,

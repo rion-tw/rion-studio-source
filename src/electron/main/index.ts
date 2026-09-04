@@ -303,7 +303,8 @@ function createMacosAppKitAdapter(
       }
     );
     attachments = new MacosAppKitInputSurfaceAttachmentCoordinator({
-      resolve: (parent) => hostFactory.resolveInputHost(parent)
+      resolve: (parent) => hostFactory.resolveInputHost(parent),
+      shouldRestoreInitialFocus: () => !!mainWindow?.isFocused()
     });
     appKitRuntimeEvents = eventBridge;
     return {
@@ -1065,8 +1066,6 @@ async function bootstrapReadyPhase(
       exitAfterHandoff: () => app.exit(0),
       restartAfterFailedDrain: async (failure) => {
         app.relaunch();
-        // Clean-drain rejection is already classified by lifecycle; only a
-        // post-clean updater handoff failure needs to claim fatal ownership here.
         if (failure === "handoff") await fatalTerminationCoordinator().forceTerminate();
       },
       publishStatus: (status) => {

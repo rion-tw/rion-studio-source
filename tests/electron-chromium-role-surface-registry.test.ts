@@ -550,6 +550,26 @@ describe("Electron Chromium role-surface registry", () => {
     expect(Object.isFrozen(await creation)).toBe(true);
   });
 
+  it("publishes initial native-load commitment before resolving the surface", async () => {
+    const initialLoadCommitted = vi.fn();
+    const nativeAttachments = {
+      ...fakeNativeAttachments(async () => undefined),
+      initialLoadCommitted
+    };
+    const subject = harness(undefined, undefined, nativeAttachments);
+    const creation = subject.registry.create(subject.input());
+
+    subject.views[0].webContents.finish("https://game.test/launch");
+
+    await expect(creation).resolves.toMatchObject({ roleId: "role-1" });
+    expect(initialLoadCommitted).toHaveBeenCalledOnce();
+    expect(initialLoadCommitted).toHaveBeenCalledWith(
+      "role-1",
+      1,
+      subject.parent
+    );
+  });
+
   it("authorizes only the exact live main frame and its Chromium frame token", async () => {
     const subject = harness();
     const creation = subject.registry.create(subject.input());

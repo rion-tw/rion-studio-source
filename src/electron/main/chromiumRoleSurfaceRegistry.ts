@@ -1197,6 +1197,19 @@ export class ChromiumRoleSurfaceRegistry {
       this.#failInitialLoad(record);
       return;
     }
+    try {
+      // EventBound: did-finish-load is the first exact terminal event after
+      // Chromium has completed the native child-view attachment that can
+      // asynchronously hand key ownership back to the launcher.
+      this.#nativeAttachments?.initialLoadCommitted?.(
+        record.roleId,
+        record.generation,
+        record.parent
+      );
+    } catch {
+      this.#failInitialLoad(record);
+      return;
+    }
     record.state = "active";
     record.loadSettled = true;
     record.creation.resolve(Object.freeze({

@@ -25,6 +25,7 @@ function harness() {
   let failRetireRole: string | null = null;
   const owned = new Map<string, number>();
   let focused = false;
+  let launcherFocused = false;
   const native: RawNativeAppKitInputSurfaceHost = {
     beginInputSurfaceCapture: (_identity, roleId, surfaceGeneration) => {
       order.push(`begin:${roleId}`);
@@ -97,7 +98,8 @@ function harness() {
   const coordinator = new MacosAppKitInputSurfaceAttachmentCoordinator({
     resolve: (candidate) => candidate === host
       ? binding
-      : candidate === targetHost ? targetBinding : null
+      : candidate === targetHost ? targetBinding : null,
+    shouldRestoreInitialFocus: () => launcherFocused
   });
   const input = (roleId: string) => ({
     roleId,
@@ -122,6 +124,7 @@ function harness() {
     },
     setCancelFailure: (roleId: string | null) => { failCancelRole = roleId; },
     setFocused: (value: boolean) => { focused = value; },
+    setLauncherFocused: (value: boolean) => { launcherFocused = value; },
     setRetireFailure: (roleId: string | null) => { failRetireRole = roleId; }
   };
 }
@@ -156,6 +159,44 @@ describe("macOS AppKit input-surface attachment coordinator", () => {
     expect(background.order).toEqual([
       "begin:role-1", "add:role-1", "commit:role-1"
     ]);
+  });
+
+  it("settles a captured focus lease at initial load only from the same-app launcher", async () => {
+    const subject = harness();
+    subject.setFocused(true);
+    await subject.coordinator.attach(subject.input("role-1"));
+    subject.setFocused(false);
+    subject.setLauncherFocused(true);
+
+    subject.coordinator.initialLoadCommitted(
+      "role-1",
+      1,
+      subject.input("x").parent
+    );
+    expect(subject.order).toEqual([
+      "begin:role-1", "add:role-1", "commit:role-1",
+      "focus:window-1", "focus:window-1"
+    ]);
+
+    subject.coordinator.initialLoadCommitted(
+      "role-1",
+      1,
+      subject.input("x").parent
+    );
+    expect(subject.order.filter((entry) => entry === "focus:window-1"))
+      .toHaveLength(2);
+
+    const external = harness();
+    external.setFocused(true);
+    await external.coordinator.attach(external.input("role-1"));
+    external.setFocused(false);
+    external.coordinator.initialLoadCommitted(
+      "role-1",
+      1,
+      external.input("x").parent
+    );
+    expect(external.order.filter((entry) => entry === "focus:window-1"))
+      .toHaveLength(1);
   });
 
   it("serializes a non-input Web surface add between role capture intervals", async () => {

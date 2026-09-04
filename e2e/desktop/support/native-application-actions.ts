@@ -10,6 +10,30 @@ function validProcessId(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
 }
 
+function boundedPowerShellFailure(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "unknown failure";
+  const failure = error as Readonly<{
+    code?: unknown;
+    killed?: unknown;
+    signal?: unknown;
+    stderr?: unknown;
+    stdout?: unknown;
+  }>;
+  const fields = [
+    `code=${String(failure.code ?? "unknown")}`,
+    `killed=${String(failure.killed ?? false)}`,
+    `signal=${String(failure.signal ?? "none")}`
+  ];
+  const output = [failure.stderr, failure.stdout]
+    .filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0
+    )
+    .join("\n")
+    .trim();
+  if (output.length > 0) fields.push(`output=${JSON.stringify(output.slice(-2_000))}`);
+  return fields.join(", ");
+}
+
 async function cancelMacosNativeSaveDialog(processId: number): Promise<void> {
   const script = String.raw`
 on filePanels(targetProcess)
@@ -281,17 +305,16 @@ on run argv
       repeat
         set currentFullscreen to false
         set currentFullscreenRead to false
-        set currentFocusedWindow to missing value
         set currentMainWindow to missing value
         try
           -- AppKit republishes AXWindow proxy objects across Space changes, so
-          -- reacquire the exact current main/focused owner instead of comparing
-          -- the new accessibility proxy with the pre-transition object.
-          set currentFocusedWindow to value of attribute "AXFocusedWindow" of targetProcess
+          -- reacquire the exact current main owner. AXFocusedWindow and
+          -- AXMainWindow can be distinct proxy objects during fullscreen exit
+          -- even after the native host has reached its terminal normal state.
           set currentMainWindow to value of attribute "AXMainWindow" of targetProcess
-          if currentFocusedWindow is not missing value and currentMainWindow is currentFocusedWindow then
-            if value of attribute "AXRole" of currentFocusedWindow is "AXWindow" and value of attribute "AXMain" of currentFocusedWindow is true then
-              set currentFullscreen to (value of attribute "AXFullScreen" of currentFocusedWindow is true)
+          if currentMainWindow is not missing value then
+            if value of attribute "AXRole" of currentMainWindow is "AXWindow" and value of attribute "AXMain" of currentMainWindow is true then
+              set currentFullscreen to (value of attribute "AXFullScreen" of currentMainWindow is true)
               set currentFullscreenRead to true
             end if
           end if
@@ -498,11 +521,29 @@ if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
   throw 'Windows shortcut scan-code chord injection failed'
 }
 `;
-  await runEncodedPowerShellJson(script, {
-    command: input.command,
-    processId: input.processId,
-    targetMode: input.targetMode ?? "launcher"
-  }, { timeoutMilliseconds: 10_000 });
+  try {
+    await runEncodedPowerShellJson(script, {
+      command: input.command,
+      processId: input.processId,
+      targetMode: input.targetMode ?? "launcher"
+    }, {
+      // DeadlineBound: Windows PowerShell may cold-start Add-Type while the CI
+      // runner is also linking the native runtime. Input submission itself is
+      // still terminalized synchronously by SendInput's exact inserted count.
+      timeoutMilliseconds: 30_000
+    });
+  } catch (error) {
+    // Avoid forwarding the rejected process message because it contains the
+    // entire encoded command; retain bounded native stdout/stderr instead.
+    const diagnostic = boundedPowerShellFailure(error);
+    if (error instanceof Error) {
+      error.message = diagnostic;
+      error.stack = `${error.name}: ${diagnostic}`;
+    }
+    throw new Error(`Windows native shortcut helper failed: ${diagnostic}`, {
+      cause: error
+    });
+  }
 }
 
 /**

@@ -100,10 +100,10 @@ describe("native application shortcut target modes", () => {
       "currentFullscreenRead is true and currentFullscreen is expectedFullscreen"
     );
     expect(source).toContain(
-      "currentMainWindow is currentFocusedWindow"
+      'attribute "AXFullScreen" of currentMainWindow is true'
     );
-    expect(source).toContain(
-      'attribute "AXFullScreen" of currentFocusedWindow is true'
+    expect(source).not.toContain(
+      "currentMainWindow is currentFocusedWindow"
     );
     expect(source).toContain(
       "currentFullscreen is expectedFullscreen and frontmost of targetProcess is true"
@@ -170,5 +170,8 @@ describe("native application shortcut target modes", () => {
     expect(source).toContain(
       "if ($keyScan -eq 0) { throw 'Windows shortcut has no physical scan code' }"
     );
+    expect(source).toContain("timeoutMilliseconds: 30_000");
+    expect(source).toContain("boundedPowerShellFailure(error)");
+    expect(source).toContain("output.slice(-2_000)");
   });
 });

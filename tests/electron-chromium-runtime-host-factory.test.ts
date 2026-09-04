@@ -565,6 +565,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
   it("owns physical Windows F11 on the exact native runtime host", async () => {
     const browserWindows = new FakeBrowserWindows();
     const shortcutOwner = new FakeRuntimeShortcutOwner();
+    const foreground = new FakeRuntimeForegroundProbe();
     const requestFullscreen = vi.fn();
     const onError = vi.fn();
     const factory = new ChromiumPlatformRuntimeHostFactory({
@@ -573,6 +574,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       displays,
       onError,
       onRuntimeTabFullscreen: requestFullscreen,
+      runtimeForegroundProbe: foreground,
       runtimeDocumentPath,
       runtimeShortcutOwner: shortcutOwner
     });
@@ -584,6 +586,10 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(shortcutOwner.registrations[0]).toMatchObject({ ownerRevision: "1" });
     expect(shortcutOwner.registrations[0]?.handle.readBigUInt64LE()).toBe(1n);
 
+    foreground.parentVisible = true;
+    foreground.parentWasForeground = true;
+    window.visible = true;
+    window.focused = true;
     shortcutOwner.registrations[0]?.callback("1");
     shortcutOwner.registrations[0]?.callback("stale");
 
@@ -598,6 +604,37 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(shortcutOwner.unregisterCalls[0]?.handle.readBigUInt64LE()).toBe(1n);
     window.emit("closed");
     await close;
+  });
+
+  it("reasserts an admitted native F11 owner before entering Core", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const shortcutOwner = new FakeRuntimeShortcutOwner();
+    const foreground = new FakeRuntimeForegroundProbe();
+    const requestFullscreen = vi.fn();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      onRuntimeTabFullscreen: requestFullscreen,
+      runtimeDocumentPath,
+      runtimeForegroundProbe: foreground,
+      runtimeShortcutOwner: shortcutOwner
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    await applyWindowFence(host);
+    window.visible = true;
+    foreground.parentVisible = true;
+
+    shortcutOwner.registrations[0]?.callback("1");
+    expect(window.focusCalls).toBe(1);
+    expect(requestFullscreen).not.toHaveBeenCalled();
+
+    foreground.parentWasForeground = true;
+    window.emit("focus");
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(requestFullscreen).toHaveBeenCalledWith("tab-1");
   });
 
   it("retains WebContents F11 suppression as a delivery fallback", async () => {

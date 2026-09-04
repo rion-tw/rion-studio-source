@@ -240,6 +240,20 @@ bool rion_runtime_tabs_set_window_interaction(
     if (!pointerPassthrough && focusWindow) {
       [NSApp activateIgnoringOtherApps:YES];
       [window makeKeyAndOrderFront:nil];
+      // EventBound: constructing or attaching an Electron WebContentsView can
+      // enqueue its internal AppKit focus transfer after the synchronous ABI
+      // returns. Reassert the exact already-focused host on the next main-queue
+      // turn, but never reactivate the application if the user selected an
+      // external application in the meantime.
+      __weak NSWindow *weakWindow = window;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        NSWindow *focusedWindow = weakWindow;
+        if (!focusedWindow || !NSApp.isActive || !focusedWindow.isVisible ||
+            focusedWindow.isKeyWindow) {
+          return;
+        }
+        [focusedWindow makeKeyAndOrderFront:nil];
+      });
     }
     return window.ignoresMouseEvents == pointerPassthrough;
   }

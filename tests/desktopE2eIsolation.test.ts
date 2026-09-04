@@ -383,6 +383,23 @@ describe("desktop E2E build isolation", () => {
     expect(drag).toContain("!sourceWindow.isVisible || !targetWindow.isVisible");
   });
 
+  it("reasserts retained AppKit focus after Chromium attachment drains", async () => {
+    const bridge = await readFile(
+      "crates/rion-appkit/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
+      "utf8"
+    );
+    const focus = bridge.slice(
+      bridge.indexOf("bool rion_runtime_tabs_set_window_interaction("),
+      bridge.indexOf("bool rion_runtime_tabs_set_reveal_locked(")
+    );
+
+    expect(focus).toContain("dispatch_async(dispatch_get_main_queue()")
+    expect(focus).toContain("!NSApp.isActive")
+    expect(focus).toContain("[focusedWindow makeKeyAndOrderFront:nil]")
+    expect(focus.indexOf("[window makeKeyAndOrderFront:nil]"))
+      .toBeLessThan(focus.indexOf("dispatch_async(dispatch_get_main_queue()"));
+  });
+
   it("posts AppKit menu input outside the modal main-thread tracking loop", async () => {
     const source = await readFile(
       "src-tauri/src/runtime_tabs_macos/section_01_controller_creation_timeout.rs",

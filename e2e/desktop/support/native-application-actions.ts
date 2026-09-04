@@ -313,7 +313,10 @@ on run argv
           -- even after the native host has reached its terminal normal state.
           set currentMainWindow to value of attribute "AXMainWindow" of targetProcess
           if currentMainWindow is not missing value then
-            if value of attribute "AXRole" of currentMainWindow is "AXWindow" and value of attribute "AXMain" of currentMainWindow is true then
+            -- AXMainWindow already selects the process's exact main owner.
+            -- AXMain can lag behind that authoritative reference while AppKit
+            -- republishes its proxy during fullscreen exit.
+            if value of attribute "AXRole" of currentMainWindow is "AXWindow" then
               set currentFullscreen to (value of attribute "AXFullScreen" of currentMainWindow is true)
               set currentFullscreenRead to true
             end if

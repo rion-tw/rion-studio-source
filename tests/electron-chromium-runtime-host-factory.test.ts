@@ -315,7 +315,7 @@ class FakeRuntimeShortcutOwner implements WindowsRuntimeShortcutOwnerPort {
     ownerRevision: string;
   }>> = [];
   readonly registrations: Array<Readonly<{
-    callback: (ownerRevision: string) => void;
+    callback: () => void;
     failureCallback: (message: string) => void;
     handle: Buffer;
     ownerRevision: string;
@@ -339,7 +339,7 @@ class FakeRuntimeShortcutOwner implements WindowsRuntimeShortcutOwnerPort {
   registerWindowsRuntimeShortcutOwner(
     handle: Buffer,
     ownerRevision: string,
-    callback: (ownerRevision: string) => void,
+    callback: () => void,
     failureCallback: (message: string) => void
   ) {
     this.registrations.push({
@@ -582,12 +582,10 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const shortcutOwner = new FakeRuntimeShortcutOwner();
     const foreground = new FakeRuntimeForegroundProbe();
     const requestFullscreen = vi.fn();
-    const onError = vi.fn();
     const factory = new ChromiumPlatformRuntimeHostFactory({
       platform: "win32",
       browserWindows: browserWindows.port,
       displays,
-      onError,
       onRuntimeTabFullscreen: requestFullscreen,
       runtimeForegroundProbe: foreground,
       runtimeDocumentPath,
@@ -605,8 +603,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     foreground.parentWasForeground = true;
     window.visible = true;
     window.focused = true;
-    shortcutOwner.registrations[0]?.callback("1");
-    shortcutOwner.registrations[0]?.callback("stale");
+    shortcutOwner.registrations[0]?.callback();
 
     expect(requestFullscreen).toHaveBeenCalledOnce();
     expect(requestFullscreen).toHaveBeenCalledWith(
@@ -614,15 +611,14 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       "windows-native-foreground"
     );
     expect(shortcutOwner.acknowledgementCalls).toHaveLength(1);
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      code: "ELECTRON_RUNTIME_HOST_SHORTCUT_OWNER_MISMATCH"
-    }));
     const close = host.close();
     expect(shortcutOwner.unregisterCalls).toHaveLength(1);
     expect(shortcutOwner.unregisterCalls[0]).toMatchObject({ ownerRevision: "1" });
     expect(shortcutOwner.unregisterCalls[0]?.handle.readBigUInt64LE()).toBe(1n);
     window.emit("closed");
     await close;
+    shortcutOwner.registrations[0]?.callback();
+    expect(shortcutOwner.acknowledgementCalls).toHaveLength(1);
   });
 
   it("carries exact native F11 foreground admission into Core", async () => {
@@ -641,7 +637,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const window = browserWindows.windows[0]!;
     const host = await finishCreation(creation, window);
     await applyWindowFence(host);
-    shortcutOwner.registrations[0]?.callback("1");
+    shortcutOwner.registrations[0]?.callback();
     expect(requestFullscreen).toHaveBeenCalledOnce();
     expect(requestFullscreen).toHaveBeenCalledWith(
       "tab-1",

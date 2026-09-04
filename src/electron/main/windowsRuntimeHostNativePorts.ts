@@ -181,7 +181,7 @@ export interface WindowsRuntimeShortcutOwnerPort {
   registerWindowsRuntimeShortcutOwner: (
     parentHandle: Buffer,
     ownerRevision: string,
-    callback: (ownerRevision: string) => void,
+    callback: () => void,
     failureCallback: (message: string) => void
   ) => WindowsRuntimeShortcutOwnerReceipt;
   unregisterWindowsRuntimeShortcutOwner: (

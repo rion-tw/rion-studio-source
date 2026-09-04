@@ -14,15 +14,8 @@ use crate::windows_chromium_input_probe::probe_error;
 const WINDOWS_RUNTIME_SHORTCUT_QUEUE_CAPACITY: usize = 32;
 
 #[cfg(windows)]
-type WindowsRuntimeShortcutCallback = ThreadsafeFunction<
-    String,
-    (),
-    (String,),
-    Status,
-    false,
-    false,
-    WINDOWS_RUNTIME_SHORTCUT_QUEUE_CAPACITY,
->;
+type WindowsRuntimeShortcutCallback =
+    ThreadsafeFunction<(), (), (), Status, false, false, WINDOWS_RUNTIME_SHORTCUT_QUEUE_CAPACITY>;
 #[cfg(windows)]
 type WindowsRuntimeShortcutFailureCallback =
     ThreadsafeFunction<String, (), (String,), Status, false, false, 1>;
@@ -145,7 +138,7 @@ mod platform {
     }
 
     enum ShortcutDispatchMessage {
-        Emit(String),
+        Emit,
         Shutdown,
     }
 
@@ -178,13 +171,12 @@ mod platform {
                     };
                     while let Ok(message) = receiver.recv() {
                         match message {
-                            ShortcutDispatchMessage::Emit(revision) => {
+                            ShortcutDispatchMessage::Emit => {
                                 if !worker_state.failed.load(Ordering::Acquire) {
                                     worker_state
                                         .callback_submissions
                                         .fetch_add(1, Ordering::Relaxed);
-                                    if callback
-                                        .call(revision, ThreadsafeFunctionCallMode::NonBlocking)
+                                    if callback.call((), ThreadsafeFunctionCallMode::NonBlocking)
                                         != Status::Ok
                                     {
                                         worker_state
@@ -216,14 +208,11 @@ mod platform {
             })
         }
 
-        fn emit(&self, owner_revision: u64) {
+        fn emit(&self) {
             if self.state.failed.load(Ordering::Acquire) {
                 return;
             }
-            if let Err(error) = self
-                .sender
-                .try_send(ShortcutDispatchMessage::Emit(owner_revision.to_string()))
-            {
+            if let Err(error) = self.sender.try_send(ShortcutDispatchMessage::Emit) {
                 self.state
                     .callback_rejections
                     .fetch_add(1, Ordering::Relaxed);
@@ -271,7 +260,7 @@ mod platform {
 
     impl ShortcutOwner {
         fn emit(&mut self) {
-            self.dispatch.emit(self.owner_revision);
+            self.dispatch.emit();
         }
     }
 
@@ -654,15 +643,15 @@ mod platform {
 pub fn register_windows_runtime_shortcut_owner(
     parent_handle: Buffer,
     owner_revision: String,
-    callback: Function<'_, (String,), ()>,
+    callback: Function<'_, (), ()>,
     failure_callback: Function<'_, (String,), ()>,
 ) -> Result<WindowsRuntimeShortcutOwnerReceipt> {
     let parent_address = parse_electron_native_handle(&parent_handle, "parent")?;
     let parsed_revision = parse_owner_revision(&owner_revision)?;
     let callback = callback
-        .build_threadsafe_function::<String>()
+        .build_threadsafe_function::<()>()
         .max_queue_size::<WINDOWS_RUNTIME_SHORTCUT_QUEUE_CAPACITY>()
-        .build_callback(|context| Ok((context.value,)))?;
+        .build_callback(|_| Ok(()))?;
     let failure_callback = failure_callback
         .build_threadsafe_function::<String>()
         .max_queue_size::<1>()
@@ -685,7 +674,7 @@ pub fn register_windows_runtime_shortcut_owner(
 pub fn register_windows_runtime_shortcut_owner(
     _parent_handle: Buffer,
     _owner_revision: String,
-    _callback: Function<'_, (String,), ()>,
+    _callback: Function<'_, (), ()>,
     _failure_callback: Function<'_, (String,), ()>,
 ) -> Result<WindowsRuntimeShortcutOwnerReceipt> {
     Err(probe_error(

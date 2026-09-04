@@ -103,6 +103,9 @@ describe("native application shortcut target modes", () => {
       'attribute "AXFullScreen" of currentMainWindow is true'
     );
     expect(source).not.toContain(
+      'attribute "AXRole" of currentMainWindow is "AXWindow" and value of attribute "AXMain"'
+    );
+    expect(source).not.toContain(
       "currentMainWindow is currentFocusedWindow"
     );
     expect(source).toContain(

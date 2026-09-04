@@ -1213,12 +1213,14 @@ implements ChromiumRuntimeHostFactoryPort {
     const receipt = this.#runtimeShortcutOwner.registerWindowsRuntimeShortcutOwner(
       Buffer.from(record.nativeHandle),
       record.ownerRevision,
-      (ownerRevision) => {
-        if (ownerRevision !== record.ownerRevision) {
-          this.#onCommandError(hostError(
-            "ELECTRON_RUNTIME_HOST_SHORTCUT_OWNER_MISMATCH",
-            "Win32 delivered F11 for a stale runtime-host owner revision."
-          ));
+      () => {
+        // This callback is owned by the exact native HWND registration. Keep
+        // its revision fence local instead of round-tripping it through N-API.
+        if (
+          record.state !== "active" || record.native.isDestroyed() ||
+          this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
+          this.#ownerByNativeId.get(record.nativeId) !== record
+        ) {
           return;
         }
         try {

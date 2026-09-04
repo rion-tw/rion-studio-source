@@ -3,6 +3,10 @@ import { ChromiumPopupLifecycleCoordinator } from
   "../main/chromiumPopupLifecycleCoordinator";
 import { ChromiumRoleNavigationFailureReporter } from
   "../main/chromiumRoleNavigationFailureReporter";
+import { ChromiumRoleSessionRegistry } from
+  "../main/chromiumRoleSessionRegistry";
+import { ChromiumRoleSurfaceRegistry } from
+  "../main/chromiumRoleSurfaceRegistry";
 import { ChromiumRuntimeBootstrap } from
   "../main/chromiumRuntimeBootstrap";
 import { ChromiumRuntimeEffectExecutor } from
@@ -131,6 +135,24 @@ export function installElectronDesktopE2eCleanExitDiagnosticsObserver(): void {
     return observeCleanExit(
       "cleanExitRuntimeExecutor",
       () => originalExecutorDispose.call(this)
+    );
+  };
+
+  const roleSurfaces = ChromiumRoleSurfaceRegistry.prototype;
+  const originalCloseRole = roleSurfaces.closeRole;
+  roleSurfaces.closeRole = function (roleId, generation) {
+    return observeCleanExit(
+      "cleanExitRoleSurface",
+      () => originalCloseRole.call(this, roleId, generation)
+    );
+  };
+
+  const roleSessions = ChromiumRoleSessionRegistry.prototype;
+  const originalReleaseRole = roleSessions.releaseRole;
+  roleSessions.releaseRole = function (roleId, chromiumUserDataDir) {
+    return observeCleanExit(
+      "cleanExitRoleSession",
+      () => originalReleaseRole.call(this, roleId, chromiumUserDataDir)
     );
   };
 

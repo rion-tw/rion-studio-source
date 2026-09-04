@@ -96,11 +96,8 @@ describe("native application shortcut target modes", () => {
     expect(source).toContain(
       "key code 3 using {control down, command down}"
     );
-    expect(source).toContain(
-      'value of attribute "AXFullScreen" of focusedWindow is true'
-    );
-    expect(source).toContain("set expectedFullscreen to not focusedWindowFullscreen");
-    expect(source).toContain("set currentFullscreenRead to false");
+    expect(source).toContain("set focusedWindowPosition to position of focusedWindow");
+    expect(source).toContain("set focusedWindowSize to size of focusedWindow");
     expect(source).toContain("set currentWindows to windows of targetProcess");
     expect(source).toContain(
       'attribute "AXIdentifier" of currentWindow as text) is focusedWindowIdentifier'
@@ -113,11 +110,13 @@ describe("native application shortcut target modes", () => {
       'set currentMainWindow to value of attribute "AXMainWindow" of targetProcess'
     );
     expect(source).toContain(
-      "currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat"
+      "currentWindowPosition is not focusedWindowPosition or currentWindowSize is not focusedWindowSize then exit repeat"
     );
     expect(source).toContain(
-      "exact AppKit fullscreen transition did not reach its native terminal state"
+      "exact AppKit fullscreen transition did not publish a native frame edge"
     );
+    expect(source).toContain("PresentationOnly:");
+    expect(source).toContain("delay 2");
     expect(source).toContain("key code 40 using command down");
     expect(source).toContain(
       "NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid"

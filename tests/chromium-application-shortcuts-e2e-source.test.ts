@@ -88,6 +88,8 @@ describe("Chromium application-shortcut E2E journey", () => {
     );
     expect(cleanExitDiagnostics).toContain("cleanExitRuntimePrepare");
     expect(cleanExitDiagnostics).toContain("cleanExitRuntimeExecutor");
+    expect(cleanExitDiagnostics).toContain("cleanExitRoleSurface");
+    expect(cleanExitDiagnostics).toContain("cleanExitRoleSession");
     expect(cleanExitDiagnostics).toContain("cleanExitCoreShutdown");
     expect(nativeWindowControlObserver).toContain("toggleFullscreenForTab");
     expect(nativeWindowControlObserver).toContain("readWindowsShortcutActiveTab");

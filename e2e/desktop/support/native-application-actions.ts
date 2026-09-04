@@ -356,6 +356,8 @@ on run argv
       set mainWindowIdentifier to value of attribute "AXIdentifier" of mainWindow as text
       if focusedWindowIdentifier does not start with appKitWindowPrefix then error "focused Rion AXWindow is not an AppKit runtime"
       if mainWindowIdentifier is not focusedWindowIdentifier then error "focused Rion runtime AXWindow is not the exact main AXWindow"
+      set focusedWindowPosition to position of focusedWindow
+      set focusedWindowSize to size of focusedWindow
       set focusedWindowFullscreen to false
       try
         set focusedWindowFullscreen to (value of attribute "AXFullScreen" of focusedWindow is true)
@@ -424,15 +426,12 @@ on run argv
       -- Physical ANSI F preserves Control+Command+F under non-Latin input
       -- sources while still exercising the installed native accelerator.
       key code 3 using {control down, command down}
-      -- AXFullScreen is the authoritative native presentation readback. Do not
-      -- return the input transaction while AppKit is still transferring the
-      -- window between Spaces: a Chromium driver request issued in that gap can
-      -- lose its callback even though the native transition completes.
-      set expectedFullscreen to not focusedWindowFullscreen
+      -- The retained AppKit Chromium host does not reliably publish
+      -- AXFullScreen. Use the exact window frame only to prove that the native
+      -- Space transition started; the caller observes revision-fenced Core and
+      -- AppKit presentation events as the authoritative terminal result.
       set transitionExpiry to (current date) + 10
       repeat
-        set currentFullscreen to false
-        set currentFullscreenRead to false
         set currentRuntimeWindow to missing value
         set currentRuntimeWindowCount to 0
         try
@@ -456,14 +455,17 @@ on run argv
         if currentRuntimeWindowCount is greater than 1 then error "exact AppKit runtime AXIdentifier became ambiguous during fullscreen transition"
         if currentRuntimeWindowCount is 1 then
           try
-            set currentFullscreen to (value of attribute "AXFullScreen" of currentRuntimeWindow is true)
-            set currentFullscreenRead to true
+            set currentWindowPosition to position of currentRuntimeWindow
+            set currentWindowSize to size of currentRuntimeWindow
+            if currentWindowPosition is not focusedWindowPosition or currentWindowSize is not focusedWindowSize then exit repeat
           end try
         end if
-        if currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat
-        if (current date) is greater than transitionExpiry then error "exact AppKit fullscreen transition did not reach its native terminal state"
+        if (current date) is greater than transitionExpiry then error "exact AppKit fullscreen transition did not publish a native frame edge"
         delay 0.05
       end repeat
+      -- PresentationOnly: keep ChromeDriver outside the AppKit Space animation;
+      -- this delay never decides product success or native terminality.
+      delay 2
     else if commandName is "zoomIn" then
       keystroke "+" using command down
     else if commandName is "zoomReset" then

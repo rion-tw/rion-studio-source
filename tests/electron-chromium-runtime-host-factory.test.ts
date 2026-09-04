@@ -26,6 +26,8 @@ import {
   type WindowsRuntimeForegroundProbePort,
   type WindowsRuntimeHostWindowPort
 } from "../src/electron/main/chromiumRuntimeHostFactory";
+import type { WindowsRuntimeShortcutOwnerPort } from
+  "../src/electron/main/windowsRuntimeHostNativePorts";
 
 type Listener = (...arguments_: unknown[]) => unknown;
 
@@ -307,6 +309,45 @@ class FakeRuntimeForegroundProbe implements WindowsRuntimeForegroundProbePort {
   });
 }
 
+class FakeRuntimeShortcutOwner implements WindowsRuntimeShortcutOwnerPort {
+  readonly registrations: Array<Readonly<{
+    callback: (ownerRevision: string) => void;
+    failureCallback: (message: string) => void;
+    handle: Buffer;
+    ownerRevision: string;
+  }>> = [];
+  readonly unregisterCalls: Array<Readonly<{
+    handle: Buffer;
+    ownerRevision: string;
+  }>> = [];
+
+  registerWindowsRuntimeShortcutOwner(
+    handle: Buffer,
+    ownerRevision: string,
+    callback: (ownerRevision: string) => void,
+    failureCallback: (message: string) => void
+  ) {
+    this.registrations.push({
+      callback,
+      failureCallback,
+      handle: Buffer.from(handle),
+      ownerRevision
+    });
+    return { ownerRevision, registered: true, uiThreadId: 17 };
+  }
+
+  unregisterWindowsRuntimeShortcutOwner(
+    handle: Buffer,
+    ownerRevision: string
+  ) {
+    this.unregisterCalls.push({
+      handle: Buffer.from(handle),
+      ownerRevision
+    });
+    return { ownerRevision, registered: true, uiThreadId: 17 };
+  }
+}
+
 const runtimeDocumentPath = resolve("/Rion/out/renderer/runtime-windows-host.html");
 const displays = {
   displayMatching: () => ({
@@ -521,7 +562,45 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(observations).toHaveLength(1);
   });
 
-  it("owns Windows F11 above the runtime host and routes one exact active tab", async () => {
+  it("owns physical Windows F11 on the exact native runtime host", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const shortcutOwner = new FakeRuntimeShortcutOwner();
+    const requestFullscreen = vi.fn();
+    const onError = vi.fn();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32",
+      browserWindows: browserWindows.port,
+      displays,
+      onError,
+      onRuntimeTabFullscreen: requestFullscreen,
+      runtimeDocumentPath,
+      runtimeShortcutOwner: shortcutOwner
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    await applyWindowFence(host);
+    expect(shortcutOwner.registrations).toHaveLength(1);
+    expect(shortcutOwner.registrations[0]).toMatchObject({ ownerRevision: "1" });
+    expect(shortcutOwner.registrations[0]?.handle.readBigUInt64LE()).toBe(1n);
+
+    shortcutOwner.registrations[0]?.callback("1");
+    shortcutOwner.registrations[0]?.callback("stale");
+
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(requestFullscreen).toHaveBeenCalledWith("tab-1");
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_RUNTIME_HOST_SHORTCUT_OWNER_MISMATCH"
+    }));
+    const close = host.close();
+    expect(shortcutOwner.unregisterCalls).toHaveLength(1);
+    expect(shortcutOwner.unregisterCalls[0]).toMatchObject({ ownerRevision: "1" });
+    expect(shortcutOwner.unregisterCalls[0]?.handle.readBigUInt64LE()).toBe(1n);
+    window.emit("closed");
+    await close;
+  });
+
+  it("retains WebContents F11 suppression as a delivery fallback", async () => {
     const browserWindows = new FakeBrowserWindows();
     const requestFullscreen = vi.fn();
     const factory = new ChromiumPlatformRuntimeHostFactory({

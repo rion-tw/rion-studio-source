@@ -384,6 +384,14 @@ function windowsBootstrapPorts() {
       throw new Error("The fixture has no visible Windows display projection.");
     },
     lifecycleEpoch: () => 1,
+    runtimeShortcutOwner: {
+      registerWindowsRuntimeShortcutOwner: () => {
+        throw new Error("The fixture has no visible Windows runtime shortcut host.");
+      },
+      unregisterWindowsRuntimeShortcutOwner: () => {
+        throw new Error("The fixture has no visible Windows runtime shortcut host.");
+      }
+    },
     runtimeDocumentPath: "C:\\Rion\\out\\runtime-windows-host.html",
     runtimeHostPreloadPath: "C:\\Rion\\out\\preload\\runtimeWindowsHost.cjs",
     onWindowControl: async () => {

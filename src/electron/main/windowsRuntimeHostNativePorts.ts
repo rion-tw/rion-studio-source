@@ -149,6 +149,25 @@ export interface WindowsRuntimeHostWindowPort {
   unmaximize: () => void;
 }
 
+export interface WindowsRuntimeShortcutOwnerReceipt {
+  readonly ownerRevision: string;
+  readonly registered: boolean;
+  readonly uiThreadId: number;
+}
+
+export interface WindowsRuntimeShortcutOwnerPort {
+  registerWindowsRuntimeShortcutOwner: (
+    parentHandle: Buffer,
+    ownerRevision: string,
+    callback: (ownerRevision: string) => void,
+    failureCallback: (message: string) => void
+  ) => WindowsRuntimeShortcutOwnerReceipt;
+  unregisterWindowsRuntimeShortcutOwner: (
+    parentHandle: Buffer,
+    ownerRevision: string
+  ) => WindowsRuntimeShortcutOwnerReceipt;
+}
+
 export interface WindowsRuntimeHostDisplayResolverPort {
   displayMatching: (bounds: ChromiumRoleSurfaceBounds) => Readonly<{
     id: number;

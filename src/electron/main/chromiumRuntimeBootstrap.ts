@@ -60,7 +60,8 @@ import {
   type MacosAppKitRuntimeHostFactoryPort,
   type WindowsBrowserWindowFactoryPort,
   type WindowsRuntimeForegroundProbePort,
-  type WindowsRuntimeHostDisplayResolverPort
+  type WindowsRuntimeHostDisplayResolverPort,
+  type WindowsRuntimeShortcutOwnerPort
 } from "./chromiumRuntimeHostFactory";
 import { ChromiumRuntimeLayoutResolver } from "./chromiumRuntimeLayoutResolver";
 import type { ChromiumRuntimeNativeTabAction } from
@@ -344,6 +345,7 @@ export interface ChromiumRuntimeBootstrapInput {
       action: ChromiumRuntimeNativeTabAction
     ) => Promise<void>;
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
+    runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort;
     trustedInput?: WindowsChromiumTrustedInputRuntimeConfiguration;
   }>;
 }
@@ -655,6 +657,7 @@ export class ChromiumRuntimeBootstrap {
               return windowPlacement!.observe(host);
             },
             runtimeForegroundProbe: input.windows!.runtimeForegroundProbe,
+            runtimeShortcutOwner: input.windows!.runtimeShortcutOwner,
             lifecycleEpoch: input.windows!.lifecycleEpoch,
             onTabReload: (fence) => {
               requireNativeActionIngress();

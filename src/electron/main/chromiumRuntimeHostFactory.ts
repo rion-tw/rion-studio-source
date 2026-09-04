@@ -57,7 +57,9 @@ import type {
   WindowsBrowserWindowFactoryPort,
   WindowsRuntimeHostDisplayResolverPort,
   WindowsRuntimeHostWebContentsPort,
-  WindowsRuntimeHostWindowPort
+  WindowsRuntimeHostWindowPort,
+  WindowsRuntimeShortcutOwnerPort,
+  WindowsRuntimeShortcutOwnerReceipt
 } from "./windowsRuntimeHostNativePorts";
 import {
   WindowsRuntimeWindowStateStream,
@@ -72,7 +74,8 @@ export {
 export type {
   WindowsBrowserWindowFactoryPort,
   WindowsRuntimeHostDisplayResolverPort,
-  WindowsRuntimeHostWindowPort
+  WindowsRuntimeHostWindowPort,
+  WindowsRuntimeShortcutOwnerPort
 } from "./windowsRuntimeHostNativePorts";
 export type {
   WindowsRuntimeForegroundProbePort,
@@ -151,6 +154,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
       onRuntimeWindowPlacement?: (host: ChromiumRuntimeHostPort) => Promise<void>;
       onRuntimeTabFullscreen?: (tabId: string) => void;
       runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
+      runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort;
     }>
   | Readonly<{
       platform: "darwin";
@@ -191,6 +195,7 @@ interface WindowsHostRecord {
   readonly ownerRevision: string;
   readonly target: EmbeddedLaunchTargetRecord;
   readonly native: WindowsRuntimeHostWindowPort;
+  readonly nativeHandle: Buffer;
   readonly nativeId: number;
   readonly documentUrl: string;
   readonly creation: Deferred<ChromiumRuntimeHostPort>;
@@ -207,6 +212,7 @@ interface WindowsHostRecord {
   popupObserver: ChromiumPopupHostLifecycleObserver | null;
   chrome: WindowsRuntimeHostChromeController;
   windowState: WindowsRuntimeWindowStateStream;
+  shortcutOwnerInstalled: boolean;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -497,6 +503,7 @@ implements ChromiumRuntimeHostFactoryPort {
   ) => Promise<void>) | null;
   readonly #onRuntimeTabFullscreen: (tabId: string) => void;
   readonly #runtimeForegroundProbe: WindowsRuntimeForegroundProbePort | null;
+  readonly #runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort | null;
   #windowPreferences: RuntimeWindowPreferencesRecord = Object.freeze({
     alwaysHideTabCloseButton: false,
     alwaysShowToolbarInFullScreen: false,
@@ -542,7 +549,8 @@ implements ChromiumRuntimeHostFactoryPort {
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
-    onRuntimeTabFullscreen?: (tabId: string) => void
+    onRuntimeTabFullscreen?: (tabId: string) => void,
+    runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort
   ) {
     this.#windows = windows;
     this.#displays = displays;
@@ -562,6 +570,7 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#lifecycleEpoch = lifecycleEpoch ?? (() => 1);
     this.#onCommandError = onCommandError ?? (() => undefined);
     this.#runtimeForegroundProbe = runtimeForegroundProbe ?? null;
+    this.#runtimeShortcutOwner = runtimeShortcutOwner ?? null;
     this.#onRuntimeTabFullscreen = onRuntimeTabFullscreen ?? (() => {
       throw hostError(
         "ELECTRON_RUNTIME_HOST_FULLSCREEN_UNAVAILABLE",
@@ -591,7 +600,8 @@ implements ChromiumRuntimeHostFactoryPort {
     lifecycleEpoch?: () => number,
     onCommandError?: (error: unknown) => void,
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort,
-    onRuntimeTabFullscreen?: (tabId: string) => void
+    onRuntimeTabFullscreen?: (tabId: string) => void,
+    runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort
   ): WindowsElectronChromiumRuntimeHostFactory {
     return new WindowsElectronChromiumRuntimeHostFactory({
       create: (options) => new BrowserWindowConstructor(options) as unknown as
@@ -599,7 +609,7 @@ implements ChromiumRuntimeHostFactoryPort {
     }, runtimeDocumentPath, displays, runtimeHostPreloadPath, onWindowControl,
     onWorkspaceDividerPointer, onTabControl, onRuntimeWindowPlacement,
     onTabReload, lifecycleEpoch, onCommandError, runtimeForegroundProbe,
-    onRuntimeTabFullscreen);
+    onRuntimeTabFullscreen, runtimeShortcutOwner);
   }
 
   async applyWindowPreferences(
@@ -759,6 +769,16 @@ implements ChromiumRuntimeHostFactoryPort {
         "Electron returned an invalid native Windows runtime host."
       );
     }
+    let nativeHandle: Buffer;
+    try {
+      nativeHandle = Buffer.from(native.getNativeWindowHandle());
+    } catch {
+      native.close();
+      return Promise.reject(hostError(
+        "ELECTRON_RUNTIME_HOST_NATIVE_HANDLE_UNAVAILABLE",
+        "Electron could not expose the exact Windows runtime-host handle."
+      ));
+    }
 
     const record = this.#buildRecord(
       target,
@@ -767,6 +787,7 @@ implements ChromiumRuntimeHostFactoryPort {
       this.#nextOwnerRevision(),
       native,
       nativeId,
+      nativeHandle,
       popupId
     );
     const nativeOwner = this.#ownerByNativeWindow.get(native);
@@ -778,6 +799,18 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#ownerByNativeWindow.set(native, record);
     this.#ownerByNativeId.set(nativeId, record);
     this.#installListeners(record);
+    try {
+      this.#installRuntimeShortcutOwner(record);
+    } catch (error) {
+      this.#failCreation(
+        record,
+        "ELECTRON_RUNTIME_HOST_SHORTCUT_OWNER_FAILED",
+        error instanceof Error
+          ? error.message
+          : "Win32 could not install the exact runtime shortcut owner."
+      );
+      return record.creation.promise;
+    }
 
     if (native.webContents.session.storagePath !== null) {
       this.#failCreation(
@@ -817,6 +850,7 @@ implements ChromiumRuntimeHostFactoryPort {
     ownerRevision: string,
     native: WindowsRuntimeHostWindowPort,
     nativeId: number,
+    nativeHandle: Buffer,
     popupId: string | null
   ): WindowsHostRecord {
     const record: WindowsHostRecord = {
@@ -827,6 +861,7 @@ implements ChromiumRuntimeHostFactoryPort {
       target,
       native,
       nativeId,
+      nativeHandle,
       documentUrl: this.#runtimeDocumentUrl,
       creation: deferred<ChromiumRuntimeHostPort>(),
       closed: deferred<void>(),
@@ -841,7 +876,8 @@ implements ChromiumRuntimeHostFactoryPort {
       popupId,
       popupObserver: null,
       chrome: undefined as unknown as WindowsRuntimeHostChromeController,
-      windowState: undefined as unknown as WindowsRuntimeWindowStateStream
+      windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
+      shortcutOwnerInstalled: false
     };
     record.chrome = new WindowsRuntimeHostChromeController({
       documentUrl: record.documentUrl,
@@ -958,18 +994,7 @@ implements ChromiumRuntimeHostFactoryPort {
         // Own both halves above Chromium's default F11 BrowserWindow toggle.
         event.preventDefault();
         if (input.type !== "keyDown" || input.isAutoRepeat) return;
-        try {
-          const tabId = record.chrome.readActiveTabId();
-          if (record.state !== "active" || !tabId) {
-            throw hostError(
-              "ELECTRON_RUNTIME_HOST_FULLSCREEN_TARGET_UNAVAILABLE",
-              "The Windows fullscreen shortcut has no exact active runtime tab."
-            );
-          }
-          this.#onRuntimeTabFullscreen(tabId);
-        } catch (error) {
-          this.#onCommandError(error);
-        }
+        this.#dispatchRuntimeFullscreenShortcut(record);
       },
       blurred: () => record.windowState.publish("blur"),
       close: (event) => {
@@ -1164,6 +1189,84 @@ implements ChromiumRuntimeHostFactoryPort {
     native.webContents.on("will-redirect", listeners.willRedirect);
   }
 
+  #installRuntimeShortcutOwner(record: WindowsHostRecord): void {
+    if (!this.#runtimeShortcutOwner) return;
+    const receipt = this.#runtimeShortcutOwner.registerWindowsRuntimeShortcutOwner(
+      Buffer.from(record.nativeHandle),
+      record.ownerRevision,
+      (ownerRevision) => {
+        if (ownerRevision !== record.ownerRevision) {
+          this.#onCommandError(hostError(
+            "ELECTRON_RUNTIME_HOST_SHORTCUT_OWNER_MISMATCH",
+            "Win32 delivered F11 for a stale runtime-host owner revision."
+          ));
+          return;
+        }
+        this.#dispatchRuntimeFullscreenShortcut(record);
+      },
+      (message) => {
+        this.#onCommandError(hostError(
+          "ELECTRON_RUNTIME_HOST_SHORTCUT_CALLBACK_FAILED",
+          typeof message === "string" && message.length > 0
+            ? message
+            : "The Win32 runtime shortcut callback failed."
+        ));
+      }
+    );
+    record.shortcutOwnerInstalled = true;
+    this.#validateShortcutOwnerReceipt(record, receipt, true);
+  }
+
+  #uninstallRuntimeShortcutOwner(record: WindowsHostRecord): void {
+    if (!record.shortcutOwnerInstalled || !this.#runtimeShortcutOwner) return;
+    const receipt = this.#runtimeShortcutOwner.unregisterWindowsRuntimeShortcutOwner(
+      Buffer.from(record.nativeHandle),
+      record.ownerRevision
+    );
+    this.#validateShortcutOwnerReceipt(record, receipt);
+    record.shortcutOwnerInstalled = false;
+  }
+
+  #validateShortcutOwnerReceipt(
+    record: WindowsHostRecord,
+    receipt: WindowsRuntimeShortcutOwnerReceipt,
+    requireRegistered = false
+  ): void {
+    if (
+      !receipt || receipt.ownerRevision !== record.ownerRevision ||
+      typeof receipt.registered !== "boolean" ||
+      !Number.isSafeInteger(receipt.uiThreadId) || receipt.uiThreadId < 1 ||
+      (requireRegistered && !receipt.registered)
+    ) {
+      fail(
+        "ELECTRON_RUNTIME_HOST_SHORTCUT_RECEIPT_INVALID",
+        "Win32 returned an invalid runtime shortcut ownership receipt."
+      );
+    }
+  }
+
+  #dispatchRuntimeFullscreenShortcut(record: WindowsHostRecord): void {
+    if (
+      record.state !== "active" || record.native.isDestroyed() ||
+      this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
+      this.#ownerByNativeId.get(record.nativeId) !== record
+    ) {
+      return;
+    }
+    try {
+      const tabId = record.chrome.readActiveTabId();
+      if (!tabId) {
+        throw hostError(
+          "ELECTRON_RUNTIME_HOST_FULLSCREEN_TARGET_UNAVAILABLE",
+          "The Windows fullscreen shortcut has no exact active runtime tab."
+        );
+      }
+      this.#onRuntimeTabFullscreen(tabId);
+    } catch (error) {
+      this.#onCommandError(error);
+    }
+  }
+
   #applyInitialPresentation(record: WindowsHostRecord): void {
     switch (record.target.presentation) {
       case "normal":
@@ -1234,6 +1337,11 @@ implements ChromiumRuntimeHostFactoryPort {
     if (record.state === "active" || record.state === "opening") {
       record.state = "closing";
     }
+    try {
+      this.#uninstallRuntimeShortcutOwner(record);
+    } catch (error) {
+      this.#onCommandError(error);
+    }
     const completion = deferred<void>();
     record.closePromise = completion.promise;
     const submitNativeClose = (): void => {
@@ -1262,6 +1370,11 @@ implements ChromiumRuntimeHostFactoryPort {
   #onClosed(record: WindowsHostRecord): void {
     if (record.state === "closed") return;
     const wasOpening = record.state === "opening";
+    try {
+      this.#uninstallRuntimeShortcutOwner(record);
+    } catch (error) {
+      this.#onCommandError(error);
+    }
     record.windowState.close();
     record.state = "closed";
     this.#removeAllListeners(record);
@@ -1456,7 +1569,8 @@ implements ChromiumRuntimeHostFactoryPort {
           input.lifecycleEpoch,
           input.onError,
           input.runtimeForegroundProbe,
-          input.onRuntimeTabFullscreen
+          input.onRuntimeTabFullscreen,
+          input.runtimeShortcutOwner
         )
       : null;
     this.#appKit = input.platform === "darwin" ? input.appKit ?? null : null;

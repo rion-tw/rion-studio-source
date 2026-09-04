@@ -62,7 +62,8 @@ import type {
 } from "./chromiumRoleSurfacePorts";
 import type {
   WindowsRuntimeForegroundProbePort,
-  WindowsRuntimeHostWindowPort
+  WindowsRuntimeHostWindowPort,
+  WindowsRuntimeShortcutOwnerPort
 } from "./chromiumRuntimeHostFactory";
 import type {
   RawWindowsChromiumTrustedInputAddon,
@@ -167,7 +168,7 @@ interface NativeAppCoreOptions {
 interface LoadedRionNodeAddon
   extends RawNodeApiCoreFactory<NativeAppCoreOptions>, RawAppKitRuntimeAddon,
     RawChromiumUpdaterFactory, RawWindowsChromiumTrustedInputAddon,
-    WindowsRuntimeForegroundProbePort {}
+    WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort {}
 
 const APP_NAME = "Rion Studio";
 const requireNativeModule = createRequire(import.meta.url);
@@ -901,6 +902,7 @@ async function bootstrapReadyPhase(
             displayTopology: () => activeDisplayTopology().snapshot(),
             lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
             runtimeForegroundProbe: nativeAddon,
+            runtimeShortcutOwner: nativeAddon,
             runtimeDocumentPath: join(
               import.meta.dirname,
               "../renderer/runtime-windows-host.html"

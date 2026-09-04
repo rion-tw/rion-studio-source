@@ -66,7 +66,12 @@ export function installWindowsApplicationMenu(
         {
           accelerator: "F11",
           click: execute("toggleFullscreen"),
-          label: "Toggle Full Screen"
+          label: "Toggle Full Screen",
+          // Keep the discoverable menu label without registering Electron's
+          // native F11 accelerator. Chromium consumes that accelerator before
+          // the focused WebContents can fence the exact runtime tab, so the
+          // launcher renderer and runtime before-input owners handle F11.
+          registerAccelerator: false
         }
       ]
     },

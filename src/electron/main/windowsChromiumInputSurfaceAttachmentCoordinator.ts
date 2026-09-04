@@ -170,6 +170,7 @@ interface SurfaceRecord {
   probe: RawWindowsChromiumInputHwndProbeReceipt;
   probeRevision: string;
   closing: boolean;
+  projectionStale: boolean;
   quarantined: boolean;
 }
 
@@ -481,7 +482,11 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
   }
 
   syncPresentation(input: ChromiumRoleSurfaceNativePresentationInput): void {
-    const record = this.#requireRecord(input.roleId, input.generation);
+    // A Win32 fullscreen transition can emit an intermediate resize before its
+    // terminal entered/left-fullscreen event. That event may leave the child
+    // projection temporarily unreadable, but it does not revoke the exact HWND
+    // identity. Only this explicit layout lane may re-attest such a record.
+    const record = this.#requireRecord(input.roleId, input.generation, true);
     if (record.logicalParent !== input.parent || record.child !== input.physicalParent ||
       record.view !== input.view) {
       fail(
@@ -498,7 +503,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
   ): WindowsChromiumTrustedInputHostBinding | null {
     const record = this.#recordsByRole.get(roleId);
     if (!record || record.surfaceGeneration !== generation || record.closing ||
-      record.quarantined || this.#disposed) return null;
+      record.projectionStale || record.quarantined || this.#disposed) return null;
     try {
       this.#requireLiveRecord(record);
       return Object.freeze({ identity: record.identity, native: record.native });
@@ -637,6 +642,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
       probe: staged.probe,
       probeRevision: this.#revision(),
       closing: false,
+      projectionStale: false,
       quarantined: false,
       parentEventListener: () => this.#onParentProjection(record),
       childClosedListener: () => this.#onChildClosed(record),
@@ -771,7 +777,8 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
   #currentInputDeliveryMode(
     record: SurfaceRecord
   ): WindowsChromiumInputDeliveryMode | null {
-    if (record.closing || record.quarantined || this.#disposed ||
+    if (record.closing || record.projectionStale || record.quarantined ||
+      this.#disposed ||
       this.#recordsByRole.get(record.roleId) !== record) return null;
     try {
       this.#requireLiveRecord(record);
@@ -962,7 +969,8 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
   }
 
   #requireLiveRecord(record: SurfaceRecord): void {
-    if (record.closing || record.quarantined || record.child.isDestroyed() ||
+    if (record.closing || record.projectionStale || record.quarantined ||
+      record.child.isDestroyed() ||
       this.#recordsByRole.get(record.roleId) !== record) {
       fail(
         "ELECTRON_WINDOWS_INPUT_HOST_UNAVAILABLE",
@@ -1001,8 +1009,9 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
         "The runtime parent has no positive exact content bounds."
       );
     }
+    record.projectionStale = true;
     let mutated = false;
-    const previousVisible = record.child.isVisible();
+    const previousVisible = record.probe.surfaceVisible;
     if (!sameBounds(record.child.getBounds(), bounds)) {
       record.child.setBounds({ ...bounds });
       mutated = true;
@@ -1026,6 +1035,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
       record.probeRevision = this.#revision();
     }
     record.probe = probe;
+    record.projectionStale = false;
     if (previousVisible !== shouldShow) {
       const event = Object.freeze({
         roleId: record.roleId,
@@ -1159,11 +1169,16 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
       left.identity.ownerRevision === right.identity.ownerRevision;
   }
 
-  #requireRecord(roleId: string, generation: number): SurfaceRecord {
+  #requireRecord(
+    roleId: string,
+    generation: number,
+    allowProjectionStale = false
+  ): SurfaceRecord {
     validateGeneration(generation, "role surface");
     const record = this.#recordsByRole.get(roleId);
     if (!record || record.surfaceGeneration !== generation ||
-      record.closing || record.quarantined) {
+      record.closing || record.quarantined ||
+      (!allowProjectionStale && record.projectionStale)) {
       fail(
         "ELECTRON_WINDOWS_INPUT_HOST_UNAVAILABLE",
         "The role no longer owns the exact Win32 child input host."
@@ -1211,7 +1226,8 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
   }
 
   #onParentProjection(record: SurfaceRecord): void {
-    if (record.closing || record.quarantined || this.#disposed) return;
+    if (record.closing || record.projectionStale || record.quarantined ||
+      this.#disposed) return;
     try {
       if (record.parentBinding.window.isDestroyed()) {
         fail(
@@ -1222,11 +1238,28 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
       this.#synchronizePresentation(record);
       this.#completeFocusIfReady(record);
     } catch (error) {
-      this.#quarantine(record, error instanceof RionBridgeError ? error : attachmentError(
+      const bridge = error instanceof RionBridgeError ? error : attachmentError(
         "ELECTRON_WINDOWS_INPUT_PARENT_EVENT_FAILED",
         "The child host could not apply an exact parent projection event."
-      ));
+      );
+      if (bridge.code === "ELECTRON_WINDOWS_INPUT_CHILD_PROJECTION_FAILED" ||
+        bridge.code === "ELECTRON_WINDOWS_INPUT_NATIVE_BOUNDS_MISMATCH" ||
+        bridge.code === "ELECTRON_WINDOWS_INPUT_PARENT_BOUNDS_INVALID") {
+        this.#markProjectionStale(record, bridge);
+        return;
+      }
+      this.#quarantine(record, bridge);
     }
+  }
+
+  #markProjectionStale(record: SurfaceRecord, error: RionBridgeError): void {
+    record.projectionStale = true;
+    this.#cancelFocus(
+      record,
+      "BROWSER_ACTION_STALE",
+      "The foreground input host lost its exact presentation projection."
+    );
+    this.#onError(error);
   }
 
   #onChildClosed(record: SurfaceRecord): void {

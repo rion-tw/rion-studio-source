@@ -424,10 +424,31 @@ on run argv
       -- Physical ANSI F preserves Control+Command+F under non-Latin input
       -- sources while still exercising the installed native accelerator.
       key code 3 using {control down, command down}
-      -- PresentationOnly: avoid issuing Chromium driver IPC in the first Space
-      -- animation frame. The caller separately requires matching AppKit-native
-      -- and Core presentation terminal events; this delay establishes no truth.
-      delay 1
+      -- AXFullScreen is the authoritative native presentation readback. Do not
+      -- return the input transaction while AppKit is still transferring the
+      -- window between Spaces: a Chromium driver request issued in that gap can
+      -- lose its callback even though the native transition completes.
+      set expectedFullscreen to not focusedWindowFullscreen
+      set transitionExpiry to (current date) + 10
+      repeat
+        set currentFullscreen to false
+        set currentFullscreenRead to false
+        set currentMainWindow to missing value
+        try
+          -- AppKit republishes AXWindow proxy objects across Space changes, so
+          -- reacquire the exact current main owner after every native event.
+          set currentMainWindow to value of attribute "AXMainWindow" of targetProcess
+          if currentMainWindow is not missing value then
+            if value of attribute "AXRole" of currentMainWindow is "AXWindow" then
+              set currentFullscreen to (value of attribute "AXFullScreen" of currentMainWindow is true)
+              set currentFullscreenRead to true
+            end if
+          end if
+        end try
+        if currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat
+        if (current date) is greater than transitionExpiry then error "exact AppKit fullscreen transition did not reach its native terminal state"
+        delay 0.05
+      end repeat
     else if commandName is "zoomIn" then
       keystroke "+" using command down
     else if commandName is "zoomReset" then

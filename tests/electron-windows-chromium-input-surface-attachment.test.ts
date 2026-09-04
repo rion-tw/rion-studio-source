@@ -31,6 +31,7 @@ class FakeWindow implements WindowsChromiumInputBaseWindowPort {
   readonly #listeners = new Map<HostEvent, Set<() => void>>();
   focusCalls = 0;
   showCalls = 0;
+  retainNextBounds = true;
   #bounds: ChromiumRoleSurfaceBounds;
   #destroyed = false;
   #focused = false;
@@ -106,6 +107,10 @@ class FakeWindow implements WindowsChromiumInputBaseWindowPort {
   }
 
   setBounds(bounds: ChromiumRoleSurfaceBounds): void {
+    if (!this.retainNextBounds) {
+      this.retainNextBounds = true;
+      return;
+    }
     this.#bounds = { ...bounds };
   }
 
@@ -592,6 +597,35 @@ describe("Windows Chromium input child-host ownership", () => {
 
     subject.children[0]!.contentView.children.push({});
     expect(subject.coordinator.resolve("role-1", 3)).toBeNull();
+  });
+
+  it("re-attests a transient parent resize only from the explicit layout lane", async () => {
+    const subject = harness();
+    await subject.attach();
+    const child = subject.children[0]!;
+    const binding = subject.coordinator.resolve("role-1", 3)!;
+
+    subject.parentA.setContentBounds({ x: 30, y: 40, width: 700, height: 500 });
+    child.retainNextBounds = false;
+    subject.parentA.emit("resize");
+
+    expect(subject.coordinator.resolve("role-1", 3)).toBeNull();
+    expect(subject.onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_WINDOWS_INPUT_CHILD_PROJECTION_FAILED"
+    }));
+    subject.parentA.emit("resize");
+    expect(subject.coordinator.resolve("role-1", 3)).toBeNull();
+
+    subject.coordinator.syncPresentation({
+      roleId: "role-1",
+      generation: 3,
+      parent: subject.parentA,
+      physicalParent: child,
+      view: subject.view
+    });
+
+    expect(child.getBounds()).toEqual({ x: 30, y: 40, width: 700, height: 500 });
+    expect(subject.coordinator.resolve("role-1", 3)).toEqual(binding);
   });
 
   it("retires only through the exact physical owner receipt", async () => {

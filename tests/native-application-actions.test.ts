@@ -99,12 +99,12 @@ describe("native application shortcut target modes", () => {
     expect(source).toContain(
       'value of attribute "AXFullScreen" of focusedWindow is true'
     );
-    expect(source).toContain("PresentationOnly:");
-    expect(source).toContain("matching AppKit-native");
-    expect(source).toContain("delay 1");
-    expect(source).not.toContain("set expectedFullscreen");
-    expect(source).not.toContain("set currentFullscreenRead");
-    expect(source).not.toContain(
+    expect(source).toContain("set expectedFullscreen to not focusedWindowFullscreen");
+    expect(source).toContain("set currentFullscreenRead to false");
+    expect(source).toContain(
+      "currentFullscreenRead is true and currentFullscreen is expectedFullscreen then exit repeat"
+    );
+    expect(source).toContain(
       "exact AppKit fullscreen transition did not reach its native terminal state"
     );
     expect(source).toContain("key code 40 using command down");

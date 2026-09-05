@@ -36,6 +36,18 @@ describe("encoded PowerShell JSON transport", () => {
     expect(command).not.toContain(payload.outputPath);
     expect(command).not.toContain(payload.roleName);
     expect(invocation.arguments.join(" ")).not.toContain("Environment]::Exit");
+    expect(invocation.standardInputArguments).toEqual([
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "-"
+    ]);
+    expect(invocation.standardInput).toContain("ConvertFrom-Json");
+    expect(invocation.standardInput).toContain("$payload.roleName");
+    expect(invocation.standardInput).not.toContain(payload.buttonName);
+    expect(invocation.standardInput).not.toContain(payload.outputPath);
+    expect(invocation.standardInput).not.toContain(payload.roleName);
 
     const payloadValues = Object.values(invocation.environment);
     expect(payloadValues).toHaveLength(1);
@@ -45,6 +57,7 @@ describe("encoded PowerShell JSON transport", () => {
     expect(Object.isFrozen(invocation)).toBe(true);
     expect(Object.isFrozen(invocation.arguments)).toBe(true);
     expect(Object.isFrozen(invocation.environment)).toBe(true);
+    expect(Object.isFrozen(invocation.standardInputArguments)).toBe(true);
   });
 
   it("round-trips Unicode JSON without adding trailing command arguments", () => {

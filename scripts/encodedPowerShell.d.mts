@@ -1,6 +1,8 @@
 export interface EncodedPowerShellJsonInvocation {
   readonly arguments: readonly string[];
   readonly environment: Readonly<Record<string, string>>;
+  readonly standardInput: string;
+  readonly standardInputArguments: readonly string[];
 }
 
 export function createEncodedPowerShellJsonInvocation(

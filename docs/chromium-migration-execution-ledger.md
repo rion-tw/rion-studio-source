@@ -712,6 +712,22 @@ control. This preserves the real page click that opens the chooser and the
 visible native selection while avoiding unsupported Value/Invoke patterns on
 the generic `Pane` provider.
 
+The nineteenth exact-SHA Windows package run, `33995971341` at
+`33fff22550b8f1959c54c8231717c13dfc4d1b16`, reached the fullscreen upload
+phase but Node failed before launching PowerShell with `ENAMETOOLONG`. The
+expanded diagnostic script, encoded as UTF-16LE Base64 in `-EncodedCommand`,
+had crossed the Windows process command-line bound; therefore this run did not
+exercise or invalidate the exact native selectors above. The shared bounded
+PowerShell runner now passes its trusted source through redirected standard
+input using the fixed `-Command -` arguments, while keeping caller-controlled
+JSON payloads Base64-encoded in the process environment. Direct updater
+observers that need their own process/signal supervision retain the existing
+encoded-command invocation. This removes command-length dependence without
+placing fixture paths in command text or relaxing any native ownership,
+cardinality, visibility, or control fence. A new immutable Windows package run
+must physically prove the selection and continue through its remaining
+package gates.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

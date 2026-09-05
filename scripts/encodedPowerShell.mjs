@@ -1,8 +1,6 @@
 import { execFile } from "node:child_process";
 import process from "node:process";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
 const PAYLOAD_ENVIRONMENT_KEY =
   "RION_STUDIO_ENCODED_POWERSHELL_JSON_PAYLOAD";
 const MAX_PAYLOAD_BYTES = 12 * 1024;
@@ -64,6 +62,7 @@ export function createEncodedPowerShellJsonInvocation(trustedScript, payload) {
     `${payloadPrelude}\n${trustedScript}\n`,
     "utf16le"
   ).toString("base64");
+  const standardInput = `${payloadPrelude}\n${trustedScript}\n`;
   return Object.freeze({
     arguments: Object.freeze([
       "-NoLogo",
@@ -74,7 +73,43 @@ export function createEncodedPowerShellJsonInvocation(trustedScript, payload) {
     ]),
     environment: Object.freeze({
       [PAYLOAD_ENVIRONMENT_KEY]: payloadBytes.toString("base64")
-    })
+    }),
+    standardInput,
+    standardInputArguments: Object.freeze([
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "-"
+    ])
+  });
+}
+
+function executePowerShellStandardInput(invocation, timeoutMilliseconds) {
+  return new Promise((resolve, reject) => {
+    const child = execFile("powershell.exe", invocation.standardInputArguments, {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ...invocation.environment
+      },
+      timeout: timeoutMilliseconds,
+      windowsHide: true
+    }, (error, stdout, stderr) => {
+      if (error) {
+        Object.assign(error, { stderr, stdout });
+        reject(error);
+        return;
+      }
+      resolve({ stderr, stdout });
+    });
+    if (!child.stdin) {
+      child.kill();
+      reject(new Error("PowerShell standard input is unavailable."));
+      return;
+    }
+    child.stdin.on("error", () => undefined);
+    child.stdin.end(invocation.standardInput, "utf8");
   });
 }
 
@@ -94,14 +129,9 @@ export async function runEncodedPowerShellJson(
     trustedScript,
     payload
   );
-  const result = await execFileAsync("powershell.exe", invocation.arguments, {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      ...invocation.environment
-    },
-    timeout: timeoutMilliseconds,
-    windowsHide: true
-  });
+  const result = await executePowerShellStandardInput(
+    invocation,
+    timeoutMilliseconds
+  );
   return result.stdout.trim();
 }

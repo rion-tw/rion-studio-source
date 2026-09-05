@@ -504,6 +504,36 @@ verbatim device path instead of silently running a non-durable session. The next
 immutable matrix must prove both this Windows persistence correction and the
 already-corrected AppKit presentation geometry at one exact SHA.
 
+The tenth exact-SHA matrix, run `33987222000` at
+`299258f8a2bfa6ceb06760df644f391ea08a470f`, passed checks, renderer assets, the
+Linux sanitizer and concurrency soak, and both macOS and Windows desktop-E2E
+profiles. Its Windows package run physically proved that the ordinary absolute
+global-Web profile path restores both the cookie and LocalStorage across an app
+restart. Windows native validation then stopped only at a Windows-only Clippy
+`needless_return` finding; `2704c532de8562daf026c905e9f0bc7edc1d9b1f`
+removes that target-specific lint without changing path behavior.
+
+Both tenth-matrix package jobs advanced to later E2E tooling edges. The macOS
+journey passed through Workspace Web fullscreen and Web-only visible actions,
+then the evidence reader rejected one valid hidden `activating` projection
+sampled between the degraded surface and its visible reopen. The reader now
+accepts at most one such projection only inside that generation-fenced interval;
+the original CI artifact and a focused behavior test both pass, while a visible
+or misplaced activating projection remains rejected. The Windows journey passed
+global-Web seed and restart, then its exact-PID native file-dialog script failed
+PowerShell parsing before UI Automation ran because the nested dialog condition
+was missing one closing parenthesis. The script and its Windows-only portable
+source fence are corrected.
+
+The complete working-tree `chromium-macos-appkit-smoke` profile passes locally
+after both corrections, including retained AppKit Workspace Web file upload,
+fullscreen, tabs, trusted input, recovery, and all restart phases. Its artifact
+root is `.desktop-e2e-artifacts/2026-09-05T19-45-05-164Z-darwin`. This local
+evidence closes the macOS diagnosis but is not immutable candidate evidence; the
+next exact-SHA hosted matrix must still prove the Windows dialog correction,
+Windows lint, both native jobs, both package jobs, and the same AppKit profile
+together.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +9,7 @@ import {
   chromiumWorkspaceCutoverPhaseDependencies,
   chromiumWorkspaceCutoverPhaseNamespaces,
   isChromiumWorkspaceCutoverPhase,
+  validateChromiumWorkspaceCutoverRuntimeEvidence,
   validateChromiumWorkspaceCutoverSqliteEvidence
 } from "../scripts/desktopE2eChromiumWorkspaceCutoverEvidence.mjs";
 
@@ -19,7 +22,122 @@ const settings = [{
   payload: { cleanExit: true, liveWindowIds: [] }
 }];
 
+function webOnlyObservation(input: Readonly<{
+  attemptGeneration: string;
+  generation: number;
+  phase: "activating" | "degraded" | "ready";
+  visible: boolean;
+}>) {
+  const tabId = "00000000-0000-4000-8000-000000000031";
+  const windowId = "00000000-0000-4000-8000-000000000032";
+  const profile = "/tmp/web-profiles/global-web/chromium";
+  const contentUrl = input.phase === "degraded"
+    ? "http://127.0.0.1:1/rion-navigation-failure"
+    : "https://fixture.invalid/role/chromium-workspace-web-only";
+  return {
+    appKitIdentity: {
+      launchGeneration: input.attemptGeneration,
+      logicalWindowId: windowId,
+      nativeGeneration: input.generation
+    },
+    attemptGeneration: input.attemptGeneration,
+    coreSlots: [{
+      id: "slot-1",
+      rect: { height: 1, width: 1, x: 0, y: 0 },
+      roleId: null,
+      web: {
+        name: "Chromium Web Only App",
+        startUrl: "https://fixture.invalid/role/chromium-workspace-web-only"
+      }
+    }],
+    focused: input.visible,
+    hostKind: "appkit-chromium",
+    parentNativeHostId: 41,
+    phase: input.phase,
+    popups: [],
+    presentation: "normal",
+    role: null,
+    tabId,
+    topologyRevision: input.generation,
+    visible: input.visible,
+    web: {
+      canGoBack: input.phase === "degraded",
+      canGoForward: false,
+      chromeBounds: { height: 34, width: 960, x: 0, y: 8 },
+      chromeShellSession: "rion-web-chrome-shell:memory",
+      chromeShellStoragePath: null,
+      chromeShellUrl: "file:///runtime-web-chrome-electron.html",
+      chromeVisible: input.visible,
+      containedFullscreen: false,
+      containedFullscreenRevision: 0,
+      contentBounds: { height: 598, width: 960, x: 0, y: 42 },
+      contentProfilePath: profile,
+      contentSession: "global-web-persistent",
+      contentSessionStoragePath: profile,
+      contentUrl,
+      contentVisible: input.visible,
+      generation: input.generation,
+      isolatedSessions: true,
+      slotBounds: { height: 632, width: 960, x: 0, y: 8 },
+      slotId: "slot-1",
+      surfaceId: `web-${tabId}-1`,
+      tabId,
+      visible: input.visible
+    },
+    windowBounds: { height: 640, width: 960, x: 32, y: 50 },
+    windowGeneration: input.generation,
+    windowId
+  };
+}
+
+async function validateWebOnlyHistory(
+  observations: readonly ReturnType<typeof webOnlyObservation>[]
+) {
+  const directory = await mkdtemp(join(tmpdir(), "rion-web-only-evidence-"));
+  try {
+    await writeFile(
+      join(directory, "electron-workspace-web-only-observations.json"),
+      JSON.stringify(observations)
+    );
+    return await validateChromiumWorkspaceCutoverRuntimeEvidence({
+      phase: "chromium-workspace-web-only-seed",
+      phaseDirectory: directory,
+      platform: "macos"
+    });
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+}
+
 describe("Chromium Workspace cutover paired replacements", () => {
+  it("accepts only the hidden activating projection sampled during visible reopen", async () => {
+    const ready = webOnlyObservation({
+      attemptGeneration: "attempt-1", generation: 1, phase: "ready", visible: true
+    });
+    const degraded = webOnlyObservation({
+      attemptGeneration: "attempt-1", generation: 1, phase: "degraded", visible: true
+    });
+    const activating = webOnlyObservation({
+      attemptGeneration: "attempt-2", generation: 2, phase: "activating", visible: false
+    });
+    const recovered = webOnlyObservation({
+      attemptGeneration: "attempt-2", generation: 2, phase: "ready", visible: true
+    });
+
+    await expect(validateWebOnlyHistory([
+      ready, degraded, activating, recovered
+    ])).resolves.toMatchObject({ navigationFailureRecovered: true });
+    await expect(validateWebOnlyHistory([
+      ready, degraded, recovered
+    ])).resolves.toMatchObject({ navigationFailureRecovered: true });
+    await expect(validateWebOnlyHistory([
+      ready,
+      degraded,
+      { ...activating, focused: true, visible: true },
+      recovered
+    ])).rejects.toThrow("malformed Core/native Web-only history");
+  });
+
   it("routes independent Web-only, shared-Role, and recovery phase state", () => {
     const routes = {
       "chromium-workspace-shared-role":

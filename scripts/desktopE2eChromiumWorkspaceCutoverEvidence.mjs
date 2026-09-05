@@ -86,7 +86,7 @@ function validWebOnlyObservation(observation, platform) {
   ]) || !Array.isArray(observation.coreSlots) || observation.coreSlots.length !== 1 ||
       !Array.isArray(observation.popups) || observation.popups.length !== 0 ||
       observation.role !== null || observation.presentation !== "normal" ||
-      !["degraded", "ready"].includes(observation.phase) ||
+      !["activating", "degraded", "ready"].includes(observation.phase) ||
       !validBounds(observation.windowBounds, false) ||
       !Number.isSafeInteger(observation.parentNativeHostId) ||
       observation.parentNativeHostId < 1 ||
@@ -126,9 +126,11 @@ function validWebOnlyObservation(observation, platform) {
       observation.phase === "degraded" &&
       web.contentUrl === "http://127.0.0.1:1/rion-navigation-failure") &&
     web.isolatedSessions === true && (
-      observation.visible === true && web.visible === true &&
+      observation.phase !== "activating" && observation.visible === true &&
+        web.visible === true &&
         web.chromeVisible === true && web.contentVisible === true ||
-      observation.phase === "ready" && observation.focused === false &&
+      ["activating", "ready"].includes(observation.phase) &&
+        observation.focused === false &&
         observation.visible === false && web.visible === false &&
         web.chromeVisible === false && web.contentVisible === false
     ) &&
@@ -225,11 +227,22 @@ function validateWebOnlyHistory(phase, observations, platform) {
     (observation, index) => index > degraded && observation.phase === "ready" &&
       observation.visible
   );
+  const activating = observations.filter(
+    (observation) => observation.phase === "activating"
+  );
   const terminal = observations.at(-1);
   if (phase.endsWith("-seed")) {
     requireRuntime(
       ready >= 0 && degraded > ready && recovered > degraded &&
         terminal.phase === "ready" && terminal.visible === true &&
+        observations.every((observation, index) =>
+          observation.phase !== "activating" ||
+          index > degraded && index < recovered &&
+          observation.tabId === observations[ready].tabId &&
+          observation.web.generation > observations[degraded].web.generation &&
+          observation.web.generation === observations[recovered].web.generation &&
+          observation.attemptGeneration === observations[recovered].attemptGeneration
+        ) && activating.length <= 1 &&
         observations[degraded].tabId === observations[ready].tabId &&
         observations[recovered].tabId === observations[ready].tabId &&
         observations[recovered].web.generation > observations[degraded].web.generation,

@@ -1222,6 +1222,9 @@ async function bootstrapReadyPhase(
   const launchCoordinator = new ChromiumRuntimeLaunchCoordinator({
     core: activeCore(),
     launchCompletions: chromiumLaunchCompletions,
+    settleNativeEvents: async () => {
+      await restoredTabAppKit?.events.settleCurrentEvents();
+    },
     settleRuntimeProjection,
     waitForRuntimeProjection,
     ...restoredWindowPresentation,

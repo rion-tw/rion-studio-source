@@ -405,19 +405,14 @@ impl AppCore {
         event: &crate::model::BrowserWorkspaceDividerPointerRecord,
     ) -> CoreResult<crate::model::BrowserWorkspaceDividerPointerReceiptRecord> {
         let gesture = self.exact_workspace_divider_gesture(event)?;
-        self.exact_workspace_divider_tab(event, gesture.current_topology_revision)?;
-        let saved = self
-            .app_snapshot()?
-            .state
-            .game_windows
-            .iter()
-            .any(|window| window.id == event.window_id);
-        let persistence = if saved {
-            self.persist_runtime_ui_windows(std::slice::from_ref(&event.window_id))
+        let (window, tab) =
+            self.exact_workspace_divider_tab(event, gesture.current_topology_revision)?;
+        let persistence = if tab.workspace_slots == gesture.workspace_slots {
+            self.persist_workspace_divider_window(&window)
         } else {
             Err(workspace_divider_error(
-                "WORKSPACE_DIVIDER_WINDOW_NOT_SAVED",
-                "A transient runtime window cannot durably store divider geometry.",
+                "WORKSPACE_DIVIDER_TOPOLOGY_STALE",
+                "The divider topology changed before its exact durability boundary.",
             ))
         };
         self.remove_workspace_divider_gesture(&event.gesture_id)?;
@@ -439,6 +434,51 @@ impl AppCore {
             gesture.workspace_slots,
             failure_code,
         ))
+    }
+
+    fn persist_workspace_divider_window(
+        &self,
+        window: &crate::RuntimeLiveWindowRecord,
+    ) -> CoreResult<()> {
+        let tabs = window
+            .tabs
+            .iter()
+            .map(|tab| crate::model::GameWindowTabRecord {
+                id: tab.id.clone(),
+                tab_type: tab.tab_type.clone(),
+                source_id: tab.source_id.clone(),
+                name: tab.title.clone(),
+                role_slots: tab.role_slots.clone(),
+                workspace_slots: tab.workspace_slots.clone(),
+                hidden: window.hidden_tab_ids.contains(&tab.id),
+                audio_muted: tab.audio_muted,
+            })
+            .collect::<Vec<_>>();
+        {
+            let _guard = self.state_mutation_guard()?;
+            let state = self.read_typed_snapshot()?;
+            if !state
+                .game_windows
+                .iter()
+                .any(|saved| saved.id == window.window_id)
+            {
+                return Err(workspace_divider_error(
+                    "WORKSPACE_DIVIDER_WINDOW_NOT_SAVED",
+                    "A transient runtime window cannot durably store divider geometry.",
+                ));
+            }
+            self.mutate_state_under_guard(StateMutation::GameWindowUpdate {
+                id: window.window_id.clone(),
+                input: crate::model::GameWindowUpdateInputRecord {
+                    name: None,
+                    target_display: None,
+                    placement: None,
+                    tabs: Some(tabs),
+                    active_tab_id: Some(window.selected_tab_id.clone()),
+                },
+            })?;
+        }
+        self.mark_runtime_ui_windows_live(std::slice::from_ref(&window.window_id))
     }
 
     fn cancel_workspace_divider_gesture(

@@ -498,6 +498,11 @@ impl AppCore {
             .iter()
             .map(|window| (window.window_id.as_str(), window))
             .collect::<std::collections::HashMap<_, _>>();
+        let touched_live_window_ids = window_ids
+            .iter()
+            .filter(|window_id| logical_by_id.contains_key(window_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
         let inputs = window_ids
             .iter()
             .map(|window_id| {
@@ -524,6 +529,10 @@ impl AppCore {
             // its strict latest-revision-wins contract.
             self.commit_authoritative_runtime_window_snapshot_batch_inner(inputs)?;
         }
+        self.mark_runtime_ui_windows_live(&touched_live_window_ids)
+    }
+
+    fn mark_runtime_ui_windows_live(&self, window_ids: &[String]) -> CoreResult<()> {
         // Persisted dormant window definitions are seeded into RuntimeKernel so that an
         // explicit restore can reconstruct them. They are not members of the current crash
         // recovery cohort. Retain the shell-authored live set and add only the windows that
@@ -532,12 +541,7 @@ impl AppCore {
             .runtime_restore_session()?
             .live_window_ids
             .unwrap_or_default();
-        live_window_ids.extend(
-            window_ids
-                .iter()
-                .filter(|window_id| logical_by_id.contains_key(window_id.as_str()))
-                .cloned(),
-        );
+        live_window_ids.extend(window_ids.iter().cloned());
         live_window_ids.sort();
         live_window_ids.dedup();
         let focused_window_id = window_ids

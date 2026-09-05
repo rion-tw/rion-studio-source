@@ -195,6 +195,13 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
         ),
     );
     assert!(moved_again.changed);
+    core.runtime_window_persistence_revisions
+        .lock()
+        .unwrap()
+        .insert(
+            window_id.clone(),
+            (window_generation.saturating_add(1), u64::MAX),
+        );
     let ended = drive_divider(
         Arc::clone(&core),
         gesture.event(

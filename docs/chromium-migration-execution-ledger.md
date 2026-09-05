@@ -348,6 +348,37 @@ journey and all of its focused lifecycle dependencies in
 paths and the next immutable branch head remain pending the next exact-SHA
 hosted matrix.
 
+The fifth exact-SHA matrix, run `33979452487` at
+`0021dc78cea254be8ba82f5f7c83a8c8d3c81f84`, passed renderer assets, checks,
+both native-validation jobs, both macOS and Windows desktop-E2E jobs, and the
+Linux sanitizer and concurrency soak. Its two package failures reached still
+later native boundaries. The Windows Chromium workspace-divider gesture
+committed the exact 55/45 geometry into Runtime Kernel while SQLite remained at
+50/50. Divider completion now persists the already-fenced Runtime Kernel window
+directly through the authoritative state mutation, rejects any topology change
+between motion and release, and remains independent of a stale shell snapshot
+revision. A Core regression test installs an impossible higher shell fence
+before release and proves that the exact saved divider geometry still commits.
+
+The macOS package failure showed that AppKit can create and reveal the retained
+native host, then enqueue its authoritative frame/window-state correction. The
+launch coordinator could compare Core against an intermediate revision and
+compensate by retiring an otherwise valid window. Coherent launch readback now
+first drains AppKit callbacks admitted before the event fence, then drains the
+Rust projection queue before comparing state. A coordinator regression test
+proves that no Core snapshot is read before that native fence. The focused
+physical macOS Chromium/AppKit `chromium-game-window-ui-restart` seed and restart
+journey passes with the correction in
+`.desktop-e2e-artifacts/2026-09-05T17-27-30-195Z-darwin`.
+
+The corrected tree passes source/document/dependency hygiene, TypeScript,
+ESLint with zero errors, all 427 Vitest files containing 3,226 tests, Rust
+formatting and clippy with warnings denied, the complete Rust workspace suite,
+the stable Tauri production build, the Electron production build, renderer
+purity, system-only boundary verification, and production desktop-E2E
+isolation. The sixth immutable branch head and its hosted package evidence
+remain pending.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

@@ -38,6 +38,7 @@ import {
 } from "./support/electronChromiumRuntimeLaunchFixtures";
 
 interface HarnessOptions {
+  readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
   readonly beginSavedWindowRestore?: (windowId: string) => void;
@@ -386,6 +387,9 @@ function launchHarness(options: HarnessOptions = {}) {
     core: {
       invoke: coreInvoke as unknown as ChromiumRuntimeLaunchCorePort["invoke"]
     },
+    ...(options.settleNativeEvents === undefined
+      ? {}
+      : { settleNativeEvents: options.settleNativeEvents }),
     ...(options.settleRuntimeProjection === undefined
       ? {}
       : { settleRuntimeProjection: options.settleRuntimeProjection }),
@@ -674,6 +678,26 @@ function emptyTransientTarget() {
 }
 
 describe("Electron Chromium runtime launch coordinator", () => {
+  it("settles admitted native host events before reading launch state", async () => {
+    let release!: () => void;
+    const nativeFence = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const settleNativeEvents = vi.fn(async () => nativeFence);
+    const { coordinator, coreInvoke } = launchHarness({ settleNativeEvents });
+
+    const launch = coordinator.launchRole(ROLE_ID, { kind: "new-window" });
+    await Promise.resolve();
+    expect(coreInvoke).not.toHaveBeenCalled();
+
+    release();
+    await expect(launch).resolves.toMatchObject({
+      launchReceipt: { status: "applied" },
+      windowId: WINDOW_ID
+    });
+    expect(settleNativeEvents).toHaveBeenCalled();
+  });
+
   it("waits for the current runtime projection fence before reading launch state", async () => {
     let release!: () => void;
     const projectionFence = new Promise<void>((resolve) => {

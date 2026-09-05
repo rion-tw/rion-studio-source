@@ -37,6 +37,7 @@ export interface ChromiumRuntimeLaunchCorePort {
 export interface ChromiumRuntimeLaunchCoordinatorInput {
   readonly core: ChromiumRuntimeLaunchCorePort;
   readonly createId?: () => string;
+  readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
   readonly beginSavedWindowRestore?: (windowId: string) => void;
@@ -1250,6 +1251,10 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
   }
 
   async #readCoherentSnapshot(): Promise<CoherentLaunchSnapshot> {
+    // AppKit may synchronously create a host and then enqueue an authoritative
+    // frame/window-state correction. Drain every callback admitted before this
+    // fence before comparing Core with the native Chromium projection.
+    await this.#input.settleNativeEvents?.();
     let projectionSequence = await this.#input.settleRuntimeProjection?.() ?? 0;
     while (true) {
       const core = await this.#input.core.invoke({ type: "appSnapshot" });

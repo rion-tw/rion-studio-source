@@ -217,15 +217,11 @@ export async function clickVisibleElectronPageElementKeepingTarget(
   }, false);
 }
 
-/**
- * Presses a visible page control through WebDriver's real mouse input source.
- * File inputs require this path because ChromeDriver reserves elementClick for
- * its non-native upload protocol, while Rion must exercise the OS file panel.
- */
-export async function clickVisibleElectronPageElementWithPointer(
+async function clickVisibleElectronPageElementWithPointerTarget(
   expectedUrl: string,
   mainWindowHandle: string,
-  selector: string
+  selector: string,
+  restoreMainWindow: boolean
 ): Promise<void> {
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const element = await $(selector);
@@ -237,7 +233,39 @@ export async function clickVisibleElectronPageElementWithPointer(
       .down("left")
       .up("left")
       .perform();
-  });
+  }, restoreMainWindow);
+}
+
+/**
+ * Presses a visible page control through WebDriver's real mouse input source.
+ * File inputs require this path because ChromeDriver reserves elementClick for
+ * its non-native upload protocol, while Rion must exercise the OS file panel.
+ */
+export async function clickVisibleElectronPageElementWithPointer(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string
+): Promise<void> {
+  await clickVisibleElectronPageElementWithPointerTarget(
+    expectedUrl,
+    mainWindowHandle,
+    selector,
+    true
+  );
+}
+
+/** Keeps the clicked Role target active while its native modal panel resolves. */
+export async function clickVisibleElectronPageElementWithPointerKeepingTarget(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string
+): Promise<void> {
+  await clickVisibleElectronPageElementWithPointerTarget(
+    expectedUrl,
+    mainWindowHandle,
+    selector,
+    false
+  );
 }
 
 /** Submits the visible Rion-owned Workspace Web address control. */

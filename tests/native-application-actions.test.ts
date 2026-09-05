@@ -20,6 +20,10 @@ function sourceBetween(start: string, end: string): string {
 }
 
 describe("native application shortcut target modes", () => {
+  it("forms the exact nested Windows native save-dialog condition", () => {
+    expect(source).toContain("$windowCondition, $classCondition)))");
+  });
+
   it("resolves macOS save-panel AX queries inside the System Events scope", () => {
     const saveDialogHelper = sourceBetween(
       "on filePanels(targetProcess)",

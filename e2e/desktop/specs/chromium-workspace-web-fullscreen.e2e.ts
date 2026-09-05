@@ -14,7 +14,7 @@ import {
 import {
   clickVisibleElectronPageElement,
   clickVisibleElectronPageElementKeepingTarget,
-  clickVisibleElectronPageElementWithPointer,
+  clickVisibleElectronPageElementWithPointerKeepingTarget,
   restoreElectronMainWindowTarget,
   submitElectronPageEscape
 } from "../support/electron-role-surface";
@@ -533,13 +533,16 @@ async function exerciseVisibleFileUpload(input: Readonly<{
     platform: input.platform,
     processId: probe.processId
   });
-  const visibleClick = clickVisibleElectronPageElementWithPointer(
+  const visibleClick = clickVisibleElectronPageElementWithPointerKeepingTarget(
     configuredWebUrl(),
     input.mainWindowHandle,
     "#file-upload"
   );
-  const [selection] = await Promise.all([nativeSelection, visibleClick]);
+  let selection: Awaited<ReturnType<
+    typeof selectVisibleNativeUploadFile
+  >> | undefined;
   try {
+    [selection] = await Promise.all([nativeSelection, visibleClick]);
     expect(await waitFixtureEvent({
       afterSequence,
       kind: "file-upload-requested",
@@ -569,7 +572,9 @@ async function exerciseVisibleFileUpload(input: Readonly<{
       processId: probe.processId
     });
   } finally {
-    await selection.cleanup();
+    if (!selection) selection = await nativeSelection.catch(() => undefined);
+    await selection?.cleanup();
+    await restoreElectronMainWindowTarget(input.mainWindowHandle);
   }
   return probe.processId;
 }

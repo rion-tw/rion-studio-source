@@ -109,7 +109,7 @@ $classCondition = New-Object System.Windows.Automation.PropertyCondition(
 $dialogCondition = New-Object System.Windows.Automation.AndCondition(
   $processCondition,
   (New-Object System.Windows.Automation.AndCondition(
-    $windowCondition, $classCondition))
+    $windowCondition, $classCondition)))
 $expiry = [DateTime]::UtcNow.AddSeconds(10)
 do {
   $dialogs = $root.FindAll(

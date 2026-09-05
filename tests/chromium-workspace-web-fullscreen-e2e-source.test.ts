@@ -81,7 +81,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "button[aria-label='Open workspace']",
       "clickVisibleElectronPageElement",
       "clickVisibleElectronPageElementKeepingTarget",
-      "clickVisibleElectronPageElementWithPointer",
+      "clickVisibleElectronPageElementWithPointerKeepingTarget",
       "restoreElectronMainWindowTarget",
       "submitElectronPageEscape",
       "#contained-fullscreen-enter",
@@ -121,6 +121,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     );
     expect(pageSurface).toContain('.down("left")');
     expect(pageSurface).toContain('.up("left")');
+    expect(pageSurface).toContain("selector,\n    false\n  );");
     expect(pageSurface).toContain('command: "escape"');
     expect(pageSurface).toContain('targetMode: "focused-runtime"');
     expect(fixture).toContain('target="_blank" rel="noopener"');
@@ -154,7 +155,10 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     ]) {
       expect(nativeUpload).toContain(nativeToken);
     }
-    expect(spec).toContain("await selection.cleanup()");
+    expect(spec).toContain("await selection?.cleanup()");
+    expect(spec).toContain(
+      "await restoreElectronMainWindowTarget(input.mainWindowHandle)"
+    );
     expect(spec).toContain("afterSequence,\n    kind: \"session\"");
     expect(spec).toContain("sessionCursor = await fixtureCursor()");
     expect(nativeUpload).not.toContain("Get-CimInstance");

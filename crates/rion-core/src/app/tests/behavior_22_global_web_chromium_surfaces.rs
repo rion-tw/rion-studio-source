@@ -210,8 +210,8 @@ fn v23_web_only_workspace_emits_an_explicit_global_chromium_surface_effect() {
             .join("global-web")
             .join("chromium");
         assert_eq!(
-            std::path::Path::new(&profile.chromium_user_data_dir),
-            expected_profile,
+            profile.chromium_user_data_dir,
+            crate::global_web_profile::chromium_engine_path(&expected_profile).unwrap(),
             "{platform}"
         );
         assert!(expected_profile.is_dir(), "{platform}");
@@ -324,9 +324,14 @@ fn v23_mixed_workspace_loads_managed_roles_before_explicit_web_surfaces() {
             "{platform}"
         );
         assert_eq!(surfaces[0].zoom_factor, 1.5, "{platform}");
-        assert!(
-            std::path::Path::new(&profile.chromium_user_data_dir)
-                .starts_with(fs::canonicalize(directory.path()).unwrap()),
+        let expected_profile = fs::canonicalize(directory.path())
+            .unwrap()
+            .join("web-profiles")
+            .join("global-web")
+            .join("chromium");
+        assert_eq!(
+            profile.chromium_user_data_dir,
+            crate::global_web_profile::chromium_engine_path(&expected_profile).unwrap(),
             "{platform}"
         );
         if platform == "darwin" {

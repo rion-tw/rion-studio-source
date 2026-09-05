@@ -534,6 +534,31 @@ next exact-SHA hosted matrix must still prove the Windows dialog correction,
 Windows lint, both native jobs, both package jobs, and the same AppKit profile
 together.
 
+The eleventh exact-SHA matrix, run `33989123321` at
+`c850847d391759342155d4cc61c7c75375efd182`, passed checks, renderer assets, the
+Linux sanitizer and concurrency soak, both hosted desktop-E2E profiles, and
+macOS native validation. Windows native validation passed target Clippy and 954
+of 956 Rust Core tests. Its two failures were stale test expectations from the
+ordinary Windows Chromium-path correction: they compared the serialized engine
+path with `fs::canonicalize`'s verbatim device path instead of the same
+`chromium_engine_path` contract used by production. Both assertions now use the
+authoritative conversion and pass locally; the Windows host remains the required
+proof.
+
+The eleventh Windows package run reached the real visible file-upload action.
+Fixture evidence proves that the trusted pointer down/up and default click
+arrived, while the WebDriver log proves it switched back to the main renderer
+three milliseconds before the input's default action requested its OS chooser.
+The upload-only pointer path now retains the exact Role target until the
+exact-PID native chooser selects and closes, then restores the main target in a
+`finally` boundary. Other pointer actions retain their existing immediate
+restore behavior. The same nested Windows UI Automation condition in the later
+diagnostics save-panel helper also receives its missing parser parenthesis and a
+portable source fence. The focused macOS AppKit dependency, file-upload,
+fullscreen seed, and fullscreen restart chain passes with the retained target
+in `.desktop-e2e-artifacts/2026-09-05T20-20-44-010Z-darwin`; Windows physical
+proof and the complete next immutable matrix remain pending.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

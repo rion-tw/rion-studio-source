@@ -8,11 +8,12 @@ async function source(path: string): Promise<string> {
 
 describe("Chromium native tab exact replacements", () => {
   it("shares one visible-UI journey across retained AppKit and Windows Chromium", async () => {
-    const [spec, helper, appKitHelper, appKitTabs] = await Promise.all([
+    const [spec, helper, appKitHelper, appKitTabs, appKitDrag] = await Promise.all([
       source("e2e/desktop/specs/chromium-tabs-parity.e2e.ts"),
       source("e2e/desktop/support/native-runtime-tabs.ts"),
       source("e2e/desktop/support/macos-appkit-ui.ts"),
-      source("crates/rion-appkit/native/macos/RionRuntimeTabsController/03_shortcut_model.mm")
+      source("crates/rion-appkit/native/macos/RionRuntimeTabsController/03_shortcut_model.mm"),
+      source("crates/rion-appkit/native/macos/RionRuntimeTabsController/07_drag_drop.mm")
     ]);
     for (const marker of [
       "CHROMIUM-MACOS-APPKIT-TABS-VISIBLE-ACTIVATION-019",
@@ -61,6 +62,8 @@ describe("Chromium native tab exact replacements", () => {
     expect(helper).toContain("The visible AppKit close control did not close");
     expect(appKitTabs).toContain("com.rionstudio.runtime.appkit-tab.v1:%@");
     expect(appKitTabs).not.toContain("self.accessibilityIdentifier = tab.identifier;");
+    expect(appKitDrag).toContain("surface.layer.presentationLayer");
+    expect(appKitDrag).toContain("surface.superview convertRect:visibleSurfaceFrame");
     expect(helper).toContain('whose subrole is "AXCloseButton"');
     expect(helper).toContain("[data-runtime-tab-activate]");
     expect(helper).toContain("[data-runtime-tab-close]");

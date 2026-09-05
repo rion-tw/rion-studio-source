@@ -437,8 +437,9 @@ branch head and its exact-SHA hosted matrix remain pending.
 The eighth exact-SHA matrix, run `33984444918` at
 `4a4bdd499d90a89692051fe314235cc1943d7a35`, passed checks, renderer assets, the
 Linux sanitizer and concurrency soak, both macOS and Windows native validation,
-and both hosted desktop-E2E profiles. Its Windows Chromium package failed while
-restoring the saved mixed Workspace before any packaged release step. Core
+and both hosted desktop-E2E profiles. Its two Chromium package jobs failed in
+separate late shell-E2E paths before any packaged release step. The Windows job
+failed while restoring the saved mixed Workspace: Core
 created the dormant Game Window at generation zero, then asked the shell to load
 its global Web surfaces before the later ownership follower projected the
 committed positive generation. The shell correctly rejected that stale identity
@@ -454,6 +455,19 @@ ordering. The focused macOS AppKit Workspace Web seed and restart phases pass
 locally in `.desktop-e2e-artifacts/2026-09-05T18-55-40-254Z-darwin`. This local
 run cannot replace the failed Windows package evidence; the ninth immutable
 branch head and full hosted matrix remain pending.
+
+The macOS package completed the preceding Chromium/AppKit journeys and reached
+the final visible-tabs seed before rejecting a menu-click geometry fence. After
+a committed reorder or cross-window move, the titlebar observer read the current
+CALayer presentation frame while each tab anchor still came from its destination
+model frame. A still-visible AppKit animation could therefore make two otherwise
+valid native observations disagree. The desktop-E2E-only anchor now samples the
+same presentation layer as the titlebar observer, so the real CoreGraphics input
+targets the pixels currently on screen without traversing Chromium's
+Accessibility subtree. Native AppKit compilation and the focused tabs seed plus
+restart pass locally in
+`.desktop-e2e-artifacts/2026-09-05T19-03-54-908Z-darwin`. This correction is not
+part of the ninth immutable head; it requires the following exact-SHA matrix.
 
 ## Non-completion rules
 

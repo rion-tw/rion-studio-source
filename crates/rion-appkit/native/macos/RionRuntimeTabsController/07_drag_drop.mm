@@ -492,7 +492,18 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
   NSUInteger index = [_tabItems indexOfObjectIdenticalTo:item];
   if (index == NSNotFound || index >= _tabSurfaces.count) return NO;
   RionRuntimeSurfaceView *surface = _tabSurfaces[index];
-  NSRect tabWindowRect = [surface convertRect:surface.bounds toView:nil];
+  if (!surface.superview) return NO;
+  // A committed reorder or cross-window move can still be completing its
+  // CALayer presentation animation when desktop E2E submits the next visible
+  // action. Return the point of the pixels currently on screen, matching the
+  // titlebar geometry observer, instead of mixing a model-layer anchor with a
+  // presentation-layer tab boundary.
+  CALayer *presentationLayer = (CALayer *)surface.layer.presentationLayer;
+  NSRect visibleSurfaceFrame = presentationLayer
+      ? NSRectFromCGRect(presentationLayer.frame)
+      : surface.frame;
+  NSRect tabWindowRect =
+      [surface.superview convertRect:visibleSurfaceFrame toView:nil];
   NSRect tabScreenRect = [surface.window convertRectToScreen:tabWindowRect];
   NSRect windowScreenRect = _window.frame;
   NSPoint tabTopLeft = RionTopLeftScreenPoint(

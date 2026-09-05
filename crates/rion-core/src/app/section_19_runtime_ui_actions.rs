@@ -519,9 +519,9 @@ impl AppCore {
             .flatten()
             .collect::<Vec<_>>();
         if !inputs.is_empty() {
-            // These snapshots were read from RuntimeKernel, the logical authority. Reapply an
-            // equal revision so a later durability boundary can repair a stale follower without
-            // weakening the public latest-revision-wins command contract.
+            // These snapshots were read from RuntimeKernel, the logical authority. A stale shell
+            // persistence fence cannot supersede them; the public shell snapshot command retains
+            // its strict latest-revision-wins contract.
             self.commit_authoritative_runtime_window_snapshot_batch_inner(inputs)?;
         }
         // Persisted dormant window definitions are seeded into RuntimeKernel so that an

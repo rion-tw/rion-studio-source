@@ -228,11 +228,15 @@ async function dragEntityToThroughVisiblePointer(
   await source.moveTo();
   const handle = await source.$(`button[aria-label='${handleLabel}']`);
   await handle.waitForDisplayed({ timeout: 10_000 });
+  const targetX = await target.getLocation("x") + (await target.getSize("width")) / 2;
   await browser.action("pointer", { parameters: { pointerType: "mouse" } })
     .move({ duration: 250, origin: handle })
     .pause(200)
     .down("left")
+    .move({ duration: 700, origin: "viewport", x: Math.round(targetX), y: 8 })
+    .pause(1_600)
     .move({ duration: 700, origin: target })
+    .pause(200)
     .up("left")
     .perform();
 }

@@ -51,7 +51,11 @@ import {
   waitForRoleProjection,
   waitForRuntimeProjection
 } from "../support/renderer-events";
-import { readTranscriptEvents, waitForTranscriptEvent } from "../support/transcript";
+import {
+  captureTranscriptByteOffset,
+  readTranscriptEventsAfterByteOffset,
+  waitForTranscriptEvent
+} from "../support/transcript";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../support/ui";
 
 // [journey:RUNTIME-LAUNCH-DESTINATIONS-008]
@@ -1029,6 +1033,9 @@ async function topologyForcePhase(): Promise<void> {
 
   if (process.platform === "win32") {
     const geometryControl = await probe();
+    const geometryTranscriptOffset = await captureTranscriptByteOffset(
+      geometryControl.transcriptPath
+    );
     const workArea = detachedWindow.native.workArea;
     const narrowWidth = Math.max(500, Math.min(560, workArea.width - 80));
     const narrowHeight = Math.max(460, Math.min(520, workArea.height - 80));
@@ -1083,9 +1090,9 @@ async function topologyForcePhase(): Promise<void> {
     expectRoleSurfaceViewportsFitControllers(liveA);
     expectSingleRoleSurfaceFitsClient(detachedWindow, detachedRoleTab.sourceId);
 
-    const geometryEvents = await readTranscriptEvents(
+    const geometryEvents = await readTranscriptEventsAfterByteOffset(
       geometryControl.transcriptPath,
-      geometryControl.latestSequence
+      geometryTranscriptOffset
     );
     const windowsUnderTest = new Set([WINDOW_A, detached.windowId]);
     const failedReceipts = geometryEvents.filter((event) =>

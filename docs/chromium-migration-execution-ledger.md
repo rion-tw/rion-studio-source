@@ -298,11 +298,11 @@ the Linux sanitizer and concurrency soak, both native validation jobs, and the
 Windows desktop E2E. It therefore closed the preceding Windows native-menu and
 both-platform native-validation gaps. Its three later failures exposed exact
 terminal-boundary defects. The Windows package proved that the physical divider
-updated the authoritative Runtime Kernel topology to 55/45 while an equal-revision
-SQLite follower remained at 50/50. Internal Runtime Kernel snapshots may now
-replay an equal generation and revision to repair that stale follower, while the
-public commit API retains strict latest-wins duplicate supersession. A focused
-Core regression test covers both sides of that fence.
+updated the authoritative Runtime Kernel topology to 55/45 while a stale shell
+persistence fence left the SQLite follower at 50/50. Internal Runtime Kernel
+snapshots bypass that non-authoritative fence to repair the follower, while the
+public shell snapshot API retains strict latest-wins duplicate supersession. A
+focused Core regression test covers both sides of that boundary.
 
 The stable macOS cross-domain journey proved that two successive visible Quick
 Open launches could race after the native dialog closed but before React finished
@@ -320,12 +320,33 @@ corrected journeys pass locally on physical macOS: stable
 `chromium-workspace-web-slot-seed`. Windows packaging and the new branch head
 remain pending the next exact-SHA hosted matrix.
 
-The current correction tree passes 426 Vitest files containing 3,224 tests,
+The fourth exact-SHA matrix, run `33977476889` at
+`ea37c551d2b4955c34809f76f3412e1aefb80ca0`, passed checks, renderer assets,
+the Linux sanitizer and concurrency soak, both native validation jobs, and the
+macOS desktop E2E. Its three package/later-journey failures exposed independent
+incarnation and viewport boundaries. The Windows package confirmed that a
+higher stale shell persistence fence could still block the authoritative Rust
+Runtime Kernel snapshot; internal authoritative snapshots now bypass that
+non-authoritative fence, while public shell commits remain strict latest-wins.
+The stable Windows transcript appends multiple app incarnations whose sequence
+numbers each begin at one; geometry validation now captures an exact byte offset
+so an older incarnation's numerically larger failed receipt cannot leak into the
+current action. The macOS package accumulated enough Workspaces to push the
+visible reorder target outside the viewport; its physical pointer drag now uses
+the product's edge auto-scroll before releasing on the target instead of relying
+on an off-screen element origin.
+
+The current correction tree passes 427 Vitest files containing 3,225 tests,
 TypeScript, ESLint with zero errors, source/document/dependency hygiene, Rust
 formatting and clippy with warnings denied, the full Rust workspace suite,
 production Tauri and Electron builds, Electron renderer purity, and production
 desktop-E2E isolation. The local Core suite includes 955 tests, including the
-equal-revision authoritative-follower repair regression.
+authoritative-follower repair across a stale shell revision fence. A physical
+macOS Chromium/AppKit run passed the corrected `chromium-app-crud-mutations`
+journey and all of its focused lifecycle dependencies in
+`.desktop-e2e-artifacts/2026-09-05T16-49-16-871Z-darwin`. The corrected Windows
+paths and the next immutable branch head remain pending the next exact-SHA
+hosted matrix.
 
 ## Non-completion rules
 

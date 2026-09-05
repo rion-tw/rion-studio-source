@@ -38,6 +38,25 @@ export async function readTranscriptEvents(
   return parseEvents(source).filter((event) => event.sequence > afterSequence);
 }
 
+export async function captureTranscriptByteOffset(path: string): Promise<number> {
+  const source = await readFile(path).catch(() => Buffer.alloc(0));
+  return source.byteLength;
+}
+
+export async function readTranscriptEventsAfterByteOffset(
+  path: string,
+  byteOffset: number
+): Promise<DesktopE2eEvent[]> {
+  if (!Number.isSafeInteger(byteOffset) || byteOffset < 0) {
+    throw new Error("Desktop E2E transcript byte offset is invalid");
+  }
+  const source = await readFile(path).catch(() => Buffer.alloc(0));
+  if (byteOffset > source.byteLength) {
+    throw new Error("Desktop E2E transcript was truncated after its captured byte offset");
+  }
+  return parseEvents(source.subarray(byteOffset).toString("utf8"));
+}
+
 export async function waitForTranscriptEvent(
   path: string,
   predicate: (event: DesktopE2eEvent) => boolean,

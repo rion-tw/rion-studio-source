@@ -202,9 +202,9 @@ fn runtime_window_snapshot_commit_is_latest_revision_wins() {
 }
 
 #[test]
-fn authoritative_runtime_snapshot_can_repair_an_equal_revision() {
+fn authoritative_runtime_snapshot_repairs_a_stale_shell_revision_fence() {
     let (_directory, core) = core();
-    let window_id = create_saved_window(&core, "Equal revision repair");
+    let window_id = create_saved_window(&core, "Authoritative follower repair");
     let snapshot = |name: &str, x: i32| {
         serde_json::from_value::<crate::model::GameWindowRuntimeSnapshotCommitInputRecord>(json!({
             "snapshot": {
@@ -229,6 +229,10 @@ fn authoritative_runtime_snapshot_can_repair_an_equal_revision() {
         .commit_runtime_window_snapshot_batch_inner(vec![snapshot("First", 10)])
         .unwrap();
     assert_eq!(first.receipts[0].status, "applied");
+    core.runtime_window_persistence_revisions
+        .lock()
+        .unwrap()
+        .insert(window_id.clone(), (8, 99));
     let repaired = core
         .commit_authoritative_runtime_window_snapshot_batch_inner(vec![snapshot("Repaired", 20)])
         .unwrap();

@@ -26,6 +26,8 @@ describe("Chromium app CRUD desktop E2E boundary", () => {
 
     expect(source).toContain("browser.action(\"pointer\"");
     expect(source).toContain(".down(\"left\")");
+    expect(source).toContain('origin: "viewport"');
+    expect(source).toContain(".pause(1_600)");
     expect(source).toContain(".up(\"left\")");
     expect(source).toContain("Key.Command");
     expect(source).toContain("Key.Ctrl");

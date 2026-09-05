@@ -46,7 +46,7 @@ impl AppCore {
     fn commit_runtime_window_snapshot_batch_with_revision_fence(
         &self,
         inputs: Vec<GameWindowRuntimeSnapshotCommitInputRecord>,
-        supersede_equal_revision: bool,
+        enforce_revision_fence: bool,
     ) -> CoreResult<RuntimeWindowPersistenceBatchReceiptRecord> {
         if inputs.is_empty() {
             return Err(CoreError::InvalidInput(
@@ -76,14 +76,12 @@ impl AppCore {
             let window_id = input.snapshot.window_id.clone();
             let window_generation = input.snapshot.window_generation;
             let revision = input.snapshot.revision;
-            let superseded = revisions.get(&window_id).is_some_and(
-                |(saved_generation, saved_revision)| {
+            let superseded = enforce_revision_fence
+                && revisions.get(&window_id).is_some_and(|(saved_generation, saved_revision)| {
                     *saved_generation > window_generation
                         || (*saved_generation == window_generation
-                            && (*saved_revision > revision
-                                || (supersede_equal_revision && *saved_revision == revision)))
-                },
-            );
+                            && *saved_revision >= revision)
+                });
             receipts.push(RuntimeWindowPersistenceReceiptRecord {
                 window_id,
                 window_generation,

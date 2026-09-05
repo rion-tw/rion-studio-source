@@ -608,6 +608,33 @@ Chromium Accessibility node substitutes for the native action. The focused
 retained-AppKit seed plus restart chain passes locally in
 `.desktop-e2e-artifacts/2026-09-05T21-16-47-637Z-darwin`.
 
+The fourteenth exact-SHA Windows package run, `33992859467` at
+`dcea42c9f515f0024b6856d5cdc0e581d3306666`, passed the array-cardinality
+correction and again captured the trusted page input, but its ten-second UIA
+snapshot contained only the two Electron `Chrome_WidgetWin_1` windows and no
+top-level `#32770`; the foreground HWND belonged to a different process.
+Chromium's authoritative Windows contract presents the common-item dialog with
+`Show(owner)`, and Chromium's own native test identifies related windows by
+their direct `GW_OWNER`, not a stable class name. The helper now snapshots the
+exact top-level HWNDs belonging to the Electron app before the click, then
+accepts an out-of-process candidate only when its direct owner equals one of
+those handles and it uniquely contains both the file-name edit control `1148`
+and Open button `1`. The legacy same-process `#32770` path remains, but also
+requires those exact controls. Failure evidence now includes the foreground
+window's class, name, owner HWND, and owner PID. The next immutable Windows run
+must physically prove this stricter native-window ownership path.
+
+The same fourteenth run's macOS package stopped earlier in the Quick Access
+seed, independently of the AppKit tab correction. The exact localized Role
+action button existed and was visible in the failure screenshot, but its
+post-hover opacity transition had not completed when the test synchronously
+called `isDisplayed()`. Quick Access now follows the already-proven CRUD E2E
+pattern: select the unique existing localized action control, then wait for
+that real control to become clickable before clicking it. The focused entity
+seed/restart plus Quick Access seed/restart chain passes locally in
+`.desktop-e2e-artifacts/2026-09-05T21-38-06-887Z-darwin`; no renderer or product
+timing behavior changed.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

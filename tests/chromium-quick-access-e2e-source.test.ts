@@ -51,13 +51,17 @@ describe("Chromium Quick Access exact replacement source", () => {
       "data-quick-access-group='pinned'",
       "data-quick-access-group='recent'",
       "button=Clear recent",
-      "currentRuntime?.focused"
+      "currentRuntime?.focused",
+      "await actionTrigger.waitForClickable({ timeout: 10_000 })"
     ]) {
       expect(spec).toContain(marker);
     }
     expect(spec).not.toContain('rendererCall("setQuickAccessPinned"');
     expect(spec).not.toContain('rendererCall("recordQuickAccessUse"');
     expect(spec).not.toContain('rendererCall("clearQuickAccessRecent"');
+    expect(spec).not.toContain(
+      "await candidate.isExisting() && await candidate.isDisplayed()"
+    );
     expect(spec.indexOf("focusVisibleMacosAppKitRuntime({"))
       .toBeLessThan(spec.indexOf("pressVisibleMacosApplicationShortcut({"));
   });

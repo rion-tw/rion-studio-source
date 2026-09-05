@@ -490,7 +490,7 @@ function validFileUploadEvidence(evidence, platform, phaseDirectory, fixtureByte
   if (!fixtureBytes.equals(expectedPayload) || !exactKeys(evidence, [
     "dialogOwnership", "fixture", "nativeDialog", "observed", "platform",
     "processId", "selector", "visibleAction"
-  ]) || evidence.dialogOwnership !== "exact-app-process" ||
+  ]) || evidence.dialogOwnership !== "exact-application-native-owner" ||
       evidence.platform !== platform || !Number.isSafeInteger(evidence.processId) ||
       evidence.processId < 1 || evidence.selector !== "#file-upload" ||
       evidence.visibleAction !== true || evidence.nativeDialog !== (platform === "macos"

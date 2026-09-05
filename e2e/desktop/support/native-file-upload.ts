@@ -425,29 +425,78 @@ $commonDialogCondition = New-Object System.Windows.Automation.AndCondition(
 $directDialogCondition = New-Object System.Windows.Automation.AndCondition(
   $processCondition,
   $commonDialogCondition)
+$editCondition = New-Object System.Windows.Automation.AndCondition(
+  (New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Edit)),
+  (New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1148')))
+$openCondition = New-Object System.Windows.Automation.AndCondition(
+  (New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Button)),
+  (New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')))
 $observedWindows = [ordered]@{}
+$targetWindowHandles = @{}
+$targetWindows = $root.FindAll(
+  [System.Windows.Automation.TreeScope]::Children,
+  (New-Object System.Windows.Automation.AndCondition(
+    $processCondition, $windowCondition)))
+foreach ($targetWindow in $targetWindows) {
+  $targetHandle = [int64]$targetWindow.Current.NativeWindowHandle
+  if ($targetHandle -gt 0) { $targetWindowHandles[[string]$targetHandle] = $true }
+}
+
+function Get-OwnerNativeWindowHandle($candidate) {
+  $handle = [int64]$candidate.Current.NativeWindowHandle
+  if ($handle -eq 0) { return [int64]0 }
+  return [int64][RionFileDialogOwnership]::GetWindow([IntPtr]$handle, 4)
+}
+
+function Get-NativeWindowProcessId([int64]$handle) {
+  if ($handle -eq 0) { return 0 }
+  $windowProcessId = [uint32]0
+  [RionFileDialogOwnership]::GetWindowThreadProcessId(
+    [IntPtr]$handle, [ref]$windowProcessId) | Out-Null
+  return [int]$windowProcessId
+}
 
 function Get-OwnerProcessId($candidate) {
-  $handle = [int64]$candidate.Current.NativeWindowHandle
-  if ($handle -eq 0) { return 0 }
-  $ownerHandle = [RionFileDialogOwnership]::GetWindow([IntPtr]$handle, 4)
-  if ($ownerHandle -eq [IntPtr]::Zero) { return 0 }
-  $ownerProcessId = [uint32]0
-  [RionFileDialogOwnership]::GetWindowThreadProcessId(
-    $ownerHandle, [ref]$ownerProcessId) | Out-Null
-  return [int]$ownerProcessId
+  $ownerHandle = Get-OwnerNativeWindowHandle $candidate
+  return Get-NativeWindowProcessId $ownerHandle
+}
+
+function Test-ExactFileDialogControls($candidate) {
+  $edits = $candidate.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants, $editCondition)
+  if ($edits.Count -ne 1) { return $false }
+  $openButtons = $candidate.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants, $openCondition)
+  return $openButtons.Count -eq 1
 }
 
 function Read-ExactDialogs {
   $directDialogs = $root.FindAll(
     [System.Windows.Automation.TreeScope]::Children, $directDialogCondition)
   $matches = New-Object System.Collections.Generic.List[System.Windows.Automation.AutomationElement]
-  foreach ($candidate in $directDialogs) { $matches.Add($candidate) }
-  $commonDialogs = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $commonDialogCondition)
-  foreach ($candidate in $commonDialogs) {
-    if ($candidate.Current.ProcessId -eq $targetPid) { continue }
-    if ((Get-OwnerProcessId $candidate) -eq $targetPid) { $matches.Add($candidate) }
+  $matchedHandles = @{}
+  foreach ($candidate in $directDialogs) {
+    if (!(Test-ExactFileDialogControls $candidate)) { continue }
+    $handle = [int64]$candidate.Current.NativeWindowHandle
+    $matches.Add($candidate)
+    $matchedHandles[[string]$handle] = $true
+  }
+  $windows = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Children, $windowCondition)
+  foreach ($candidate in $windows) {
+    $handle = [int64]$candidate.Current.NativeWindowHandle
+    if ($handle -eq 0 -or $matchedHandles.ContainsKey([string]$handle)) { continue }
+    $ownerHandle = Get-OwnerNativeWindowHandle $candidate
+    if (!$targetWindowHandles.ContainsKey([string]$ownerHandle)) { continue }
+    if (!(Test-ExactFileDialogControls $candidate)) { continue }
+    $matches.Add($candidate)
+    $matchedHandles[[string]$handle] = $true
   }
   return $matches
 }
@@ -458,11 +507,14 @@ function Capture-WindowSnapshot {
   foreach ($candidate in $windows) {
     try {
       $current = $candidate.Current
-      if ($current.ProcessId -ne $targetPid -and $current.ClassName -ne '#32770') {
-        continue
-      }
       $handle = [int64]$current.NativeWindowHandle
+      $ownerHandle = Get-OwnerNativeWindowHandle $candidate
       $ownerProcessId = Get-OwnerProcessId $candidate
+      if (
+        $current.ProcessId -ne $targetPid -and
+        $current.ClassName -ne '#32770' -and
+        $ownerProcessId -ne $targetPid
+      ) { continue }
       $key = "$($current.ProcessId)|$handle|$($current.ClassName)|$($current.Name)"
       $observedWindows[$key] = [ordered]@{
         automationId = $current.AutomationId
@@ -471,6 +523,7 @@ function Capture-WindowSnapshot {
         isOffscreen = $current.IsOffscreen
         name = $current.Name
         nativeWindowHandle = $handle
+        ownerNativeWindowHandle = $ownerHandle
         ownerProcessId = $ownerProcessId
         processId = $current.ProcessId
       }
@@ -482,12 +535,29 @@ function Write-FailureSnapshot {
   Capture-WindowSnapshot
   $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
   $foregroundProcessId = [uint32]0
+  $foregroundOwnerHandle = [int64]0
+  $foregroundOwnerProcessId = 0
+  $foregroundClassName = ''
+  $foregroundName = ''
   if ($foregroundHandle -ne [IntPtr]::Zero) {
     [RionFileDialogOwnership]::GetWindowThreadProcessId(
       $foregroundHandle, [ref]$foregroundProcessId) | Out-Null
+    $foregroundOwnerHandle = [int64][RionFileDialogOwnership]::GetWindow(
+      $foregroundHandle, 4)
+    $foregroundOwnerProcessId = Get-NativeWindowProcessId $foregroundOwnerHandle
+    try {
+      $foregroundElement =
+        [System.Windows.Automation.AutomationElement]::FromHandle($foregroundHandle)
+      $foregroundClassName = $foregroundElement.Current.ClassName
+      $foregroundName = $foregroundElement.Current.Name
+    } catch {}
   }
   $snapshot = [ordered]@{
+    foregroundClassName = $foregroundClassName
     foregroundNativeWindowHandle = [int64]$foregroundHandle
+    foregroundName = $foregroundName
+    foregroundOwnerNativeWindowHandle = $foregroundOwnerHandle
+    foregroundOwnerProcessId = $foregroundOwnerProcessId
     foregroundProcessId = [int]$foregroundProcessId
     observedWindows = @($observedWindows.Values)
     targetProcessId = $targetPid
@@ -515,24 +585,12 @@ do {
   Start-Sleep -Milliseconds 50
 } while ($true)
 $dialog = $dialogs[0]
-$editCondition = New-Object System.Windows.Automation.AndCondition(
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Edit)),
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1148')))
 $edits = $dialog.FindAll(
   [System.Windows.Automation.TreeScope]::Descendants, $editCondition)
 if ($edits.Count -ne 1) { throw 'exact Windows file-name control unavailable' }
 $value = $edits[0].GetCurrentPattern(
   [System.Windows.Automation.ValuePattern]::Pattern)
 $value.SetValue($fixturePath)
-$openCondition = New-Object System.Windows.Automation.AndCondition(
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Button)),
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')))
 $openButtons = $dialog.FindAll(
   [System.Windows.Automation.TreeScope]::Descendants, $openCondition)
 if ($openButtons.Count -ne 1) { throw 'exact Windows Open control unavailable' }
@@ -566,9 +624,10 @@ do {
 }
 
 /**
- * Selects the isolated fixture through the unique OS-native dialog owned by the
- * exact Electron app PID. The deadline is an external-liveness failure only;
- * success requires the dialog's native close event/state.
+ * Selects the isolated fixture through the unique OS-native dialog owned by an
+ * exact native window of the Electron app PID. The deadline is an
+ * external-liveness failure only; success requires the dialog's native close
+ * event/state.
  */
 export async function selectVisibleNativeUploadFile(input: Readonly<{
   fixturePath: string;
@@ -590,7 +649,7 @@ export async function writeVisibleFileUploadEvidence(
   await writeFile(
     resolve(artifactDirectory(), EVIDENCE_FILE_NAME),
     `${JSON.stringify(Object.freeze({
-      dialogOwnership: "exact-app-process",
+      dialogOwnership: "exact-application-native-owner",
       fixture: input.fixture,
       nativeDialog: input.platform === "macos"
         ? "appkit-open-panel"

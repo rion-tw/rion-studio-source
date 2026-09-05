@@ -151,13 +151,16 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "$processCondition,\n  $commonDialogCondition)",
       "RionFileDialogOwnership",
       "GetWindow([IntPtr]$handle, 4)",
+      "$targetWindowHandles.ContainsKey([string]$ownerHandle)",
+      "Test-ExactFileDialogControls",
       "ownerProcessId = $ownerProcessId",
+      "ownerNativeWindowHandle = $ownerHandle",
       "windows-native-file-dialog-failure.json",
       "Write-FailureSnapshot",
       "$dialogs = @(Read-ExactDialogs)",
       "AutomationIdProperty, '1148'",
       "AutomationIdProperty, '1'",
-      "dialogOwnership: \"exact-app-process\""
+      "dialogOwnership: \"exact-application-native-owner\""
     ]) {
       expect(nativeUpload).toContain(nativeToken);
     }

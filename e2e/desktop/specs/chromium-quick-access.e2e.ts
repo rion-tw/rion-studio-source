@@ -89,19 +89,21 @@ async function clickEntityMenuAction(
   await entity.waitForDisplayed({ timeout: 10_000 });
   await entity.scrollIntoView({ block: "center", inline: "center" });
   await entity.moveTo();
-  let actionTriggerClicked = false;
+  let actionTrigger;
   for (const label of triggerLabels) {
     const candidate = await entity.$(`button[aria-label='${label}']`);
-    if (await candidate.isExisting() && await candidate.isDisplayed()) {
-      await candidate.waitForClickable({ timeout: 10_000 });
-      await candidate.click();
-      actionTriggerClicked = true;
+    if (await candidate.isExisting()) {
+      actionTrigger = candidate;
       break;
     }
   }
-  if (!actionTriggerClicked) {
+  if (!actionTrigger) {
     throw new Error(`Entity ${entityId} has no visible action trigger`);
   }
+  // The cover action fades in after hover. Presence identifies the exact
+  // localized control; clickability is the authoritative visible-UI fence.
+  await actionTrigger.waitForClickable({ timeout: 10_000 });
+  await actionTrigger.click();
   const action = await $(`//*[@role='menuitem' and normalize-space(.)='${actionLabel}']`);
   await action.waitForClickable({ timeout: 10_000 });
   await action.click();

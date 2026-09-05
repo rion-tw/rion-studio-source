@@ -487,6 +487,30 @@ function Read-ExactDialogs {
     $matches.Add($candidate)
     $matchedHandles[[string]$handle] = $true
   }
+  # The Windows common-item dialog can be absent from RootElement's direct
+  # children even while its HWND is the active foreground window. Resolve that
+  # exact HWND through UIA, then retain the same owner and semantic-control
+  # fences used for enumerated candidates.
+  $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
+  if ($foregroundHandle -ne [IntPtr]::Zero) {
+    try {
+      $candidate =
+        [System.Windows.Automation.AutomationElement]::FromHandle($foregroundHandle)
+      $current = $candidate.Current
+      $handle = [int64]$current.NativeWindowHandle
+      $ownerHandle = Get-OwnerNativeWindowHandle $candidate
+      if (
+        $handle -gt 0 -and
+        !$matchedHandles.ContainsKey([string]$handle) -and
+        $current.ClassName -eq '#32770' -and
+        $targetWindowHandles.ContainsKey([string]$ownerHandle) -and
+        (Test-ExactFileDialogControls $candidate)
+      ) {
+        $matches.Add($candidate)
+        $matchedHandles[[string]$handle] = $true
+      }
+    } catch {}
+  }
   $windows = $root.FindAll(
     [System.Windows.Automation.TreeScope]::Children, $windowCondition)
   foreach ($candidate in $windows) {

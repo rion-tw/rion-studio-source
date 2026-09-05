@@ -131,9 +131,9 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
   ), "utf8"));
   const rootKeys = [
     "continuityHold", "finalConsumerPressedCodes", "finalMacroStatuses",
-    "finalRoleStatuses", "firstCleanup", "firstHiddenEvent",
-    "firstHiddenKeydown", "firstHiddenPresentation", "firstHold",
-    "firstKeydown", "firstKeyup", "gameId", "gameWindowId",
+    "finalRoleStatuses", "firstCleanup", "firstConsumerKeydown",
+    "firstHiddenEvent", "firstHiddenKeydown", "firstHiddenPresentation",
+    "firstHold", "firstKeydown", "firstKeyup", "gameId", "gameWindowId",
     "hiddenStartPresentation", "macroId", "platform", "probe", "roleAId",
     "roleBId", "roleBDigit2Events", "roleBKeyup", "secondCleanup",
     "secondHiddenEvent", "secondHiddenPresentation", "secondHiddenStartHold",
@@ -168,6 +168,10 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
 
   requireTrustedKey(evidence.firstKeydown, {
     code: "Digit2", kind: "keydown", label: "first start", roleId: "chromium-background-a"
+  });
+  requireTrustedKey(evidence.firstConsumerKeydown, {
+    code: "Digit2", kind: "consumer-keydown", label: "first consumer start",
+    roleId: "chromium-background-a"
   });
   requireTrustedKey(evidence.firstKeyup, {
     code: "Digit2", kind: "keyup", label: "first stop", roleId: "chromium-background-a"

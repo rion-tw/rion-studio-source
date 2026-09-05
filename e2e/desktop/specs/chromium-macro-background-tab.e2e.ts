@@ -299,6 +299,12 @@ describe("Chromium Macro background-tab exact replacement", () => {
       phase: "hold",
       roleId: scenario.roles[0].id
     });
+    const firstConsumerKeydown = await waitExactTrustedKey({
+      afterSequence: firstKeydown.sequence,
+      code: "Digit2",
+      kind: "consumer-keydown",
+      roleId: ROLE_A_FIXTURE
+    });
     expect((await fixtureState())[ROLE_A_FIXTURE]!.consumerPressedCodes)
       .toContain("Digit2");
 
@@ -459,6 +465,7 @@ describe("Chromium Macro background-tab exact replacement", () => {
         finalMacroStatuses,
         finalRoleStatuses,
         firstCleanup,
+        firstConsumerKeydown,
         firstHiddenEvent,
         firstHiddenKeydown,
         firstHiddenPresentation,

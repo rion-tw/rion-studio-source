@@ -152,6 +152,8 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "RionFileDialogOwnership",
       "GetWindow([IntPtr]$handle, 4)",
       "$targetWindowHandles.ContainsKey([string]$ownerHandle)",
+      "AutomationElement]::FromHandle($foregroundHandle)",
+      "$current.ClassName -eq '#32770'",
       "Test-ExactFileDialogControls",
       "ownerProcessId = $ownerProcessId",
       "ownerNativeWindowHandle = $ownerHandle",

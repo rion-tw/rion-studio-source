@@ -635,6 +635,33 @@ seed/restart plus Quick Access seed/restart chain passes locally in
 `.desktop-e2e-artifacts/2026-09-05T21-38-06-887Z-darwin`; no renderer or product
 timing behavior changed.
 
+The fifteenth exact-SHA Windows package run, `33993690606` at
+`b673b26852a3a3254598d27f46775af1ed0d3860`, proved the stricter native owner
+relation without ambiguity. The foreground window was the native `Open`
+`#32770` in process `5124`, and its direct owner HWND `524362` was the exact
+Electron Game Window in process `4316`. Windows UI Automation nevertheless
+omitted that dialog from `RootElement`'s direct children for the full bounded
+observation. The helper now resolves the actual foreground HWND with
+`AutomationElement.FromHandle`, then admits it only when it remains a
+`#32770`, its direct owner is one of the snapshotted Electron HWNDs, and it
+uniquely contains the exact file-name edit `1148` and Open button `1`. The
+same-process and enumerated-owner paths remain unchanged, and multiple matches
+still fail closed. A new immutable Windows package run must complete the
+physical selection and subsequent packaged gates.
+
+The same fifteenth run's macOS package crossed the earlier Quick Access race
+and reached the background-tab Macro journey. Its retained AppKit host emitted
+the trusted `Digit2` keydown and Core recorded the exact applied hold receipt,
+but the E2E read the fixture's consumer state about 32 milliseconds before the
+page's independent `consumer-keydown` report arrived. The later hidden-start
+half of this journey already waits on that consumer event. The first start now
+uses the same authoritative boundary and persists that exact trusted consumer
+event in the validated runtime evidence before asserting held state. This is
+E2E observation ordering only; it does not delay or otherwise change Macro,
+trusted-input, Chromium, or AppKit runtime behavior. The corrected focused
+AppKit/Chromium phase passes locally in
+`.desktop-e2e-artifacts/2026-09-05T21-52-20-301Z-darwin`.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

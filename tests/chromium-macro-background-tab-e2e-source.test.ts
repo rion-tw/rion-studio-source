@@ -62,7 +62,7 @@ function inputObservation(input: Readonly<{
 
 function keyEvent(
   sequence: number,
-  kind: "keydown" | "keyup",
+  kind: "consumer-keydown" | "keydown" | "keyup",
   code: string,
   roleId: string
 ) {
@@ -149,6 +149,9 @@ function runtimeEvidence(platform: "macos" | "windows") {
       intent: "cleanup", ownerId: "owner-1", phase: "release", roleId: roleAId,
       sequence: 3
     }),
+    firstConsumerKeydown: keyEvent(
+      11, "consumer-keydown", "Digit2", "chromium-background-a"
+    ),
     firstHiddenEvent: {
       hidden: true, kind: "hidden", roleId: "chromium-background-a", sequence: 20
     },
@@ -205,6 +208,7 @@ describe("Chromium Macro background-tab exact replacement source", () => {
       "CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004",
       "activateChromiumRoleVisible",
       "submitElectronRoleKeyPhases",
+      "firstConsumerKeydown",
       "firstHiddenKeydown",
       "secondHiddenStartHold",
       'kind: "consumer-keydown"',

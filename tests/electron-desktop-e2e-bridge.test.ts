@@ -1090,6 +1090,22 @@ describe("Electron desktop E2E-only bridge", () => {
     await expect(api.workspaceWebRuntime(TOKEN, WINDOW_ID)).resolves.toEqual(navigated);
   });
 
+  it("accepts a Workspace tab whose shared AppKit host predates its attempt", async () => {
+    const mixedWindow = {
+      ...workspaceWebInspection,
+      appKitIdentity: {
+        ...workspaceWebInspection.appKitIdentity,
+        launchGeneration: WINDOW_LAUNCH_ID
+      }
+    };
+    const api = createElectronDesktopE2ePreloadApi({
+      invoke: vi.fn(async () => mixedWindow)
+    });
+
+    await expect(api.workspaceWebRuntime(TOKEN, WINDOW_ID))
+      .resolves.toEqual(mixedWindow);
+  });
+
   it("accepts an exact one-slot Web-only runtime without inventing a Role", async () => {
     const api = createElectronDesktopE2ePreloadApi({
       invoke: vi.fn(async () => webOnlyWorkspaceInspection)

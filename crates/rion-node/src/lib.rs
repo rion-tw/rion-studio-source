@@ -664,6 +664,7 @@ impl NativeAppCore {
         mut metadata_bytes: Buffer,
         mut secret_bytes: Buffer,
         cancellation_id: Option<String>,
+        helper_application_path: Option<String>,
     ) -> Result<ChromeProfileImportHelperProcessResult> {
         let mut metadata = metadata_bytes.to_vec();
         let mut secret = secret_bytes.to_vec();
@@ -694,7 +695,12 @@ impl NativeAppCore {
             }
         };
         let result = napi::tokio::task::spawn_blocking(move || {
-            chrome_profile_import_helper_launcher::launch(metadata, secret, registration)
+            chrome_profile_import_helper_launcher::launch(
+                metadata,
+                secret,
+                registration,
+                helper_application_path,
+            )
         })
         .await
         .map_err(join_error)?

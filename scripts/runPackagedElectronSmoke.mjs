@@ -159,7 +159,7 @@ try {
     ...isolation.environment
   });
   const spawnedAtMilliseconds = Date.now();
-  child = spawn(executablePath, [], {
+  child = spawn(executablePath, ["--force-renderer-accessibility"], {
     cwd: repositoryRoot,
     env: childEnvironment,
     stdio: ["ignore", "pipe", "pipe"],

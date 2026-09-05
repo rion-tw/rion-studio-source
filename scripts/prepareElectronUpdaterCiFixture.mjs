@@ -13,6 +13,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 const FIXTURE_VERSION = "8.5.0";
+const TAURI_V22_FIXTURE_VERSION = "8.3.0";
+const PRIOR_V23_FIXTURE_VERSION = "8.4.0";
 
 export function decodeTauriPublicKey(encodedPublicKey) {
   let keyFile;
@@ -89,6 +91,10 @@ export async function prepareElectronUpdaterCiFixture(environment = process.env)
       "https://updates.invalid/ci-fixture/latest.json",
     RION_STUDIO_UPDATER_PUBLIC_KEY: publicKey,
     RION_UPDATER_CI_FIXTURE_ROOT: fixtureRoot,
+    RION_UPDATER_PRIOR_V23_VERSION: PRIOR_V23_FIXTURE_VERSION,
+    RION_UPDATER_PROBE_PREVIOUS_VERSIONS:
+      `${TAURI_V22_FIXTURE_VERSION},${PRIOR_V23_FIXTURE_VERSION}`,
+    RION_UPDATER_TAURI_V22_VERSION: TAURI_V22_FIXTURE_VERSION,
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: password,
     TAURI_SIGNING_PRIVATE_KEY_PATH: privateKeyPath
   };
@@ -97,7 +103,13 @@ export async function prepareElectronUpdaterCiFixture(environment = process.env)
     Object.entries(entries).map(([name, value]) => `${name}=${value}\n`).join(""),
     { encoding: "utf8", mode: 0o600 }
   );
-  return { fixtureRoot, publicKey, version: FIXTURE_VERSION };
+  return {
+    fixtureRoot,
+    priorV23Version: PRIOR_V23_FIXTURE_VERSION,
+    publicKey,
+    tauriV22Version: TAURI_V22_FIXTURE_VERSION,
+    version: FIXTURE_VERSION
+  };
 }
 
 function assertProductionSigningEnvironmentAbsent(environment) {

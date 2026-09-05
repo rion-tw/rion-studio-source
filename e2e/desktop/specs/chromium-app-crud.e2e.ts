@@ -42,6 +42,13 @@ const WORKSPACE_ORDER = [
   EDITED_WORKSPACE_NAME,
   RECOVERY_WORKSPACE_NAME
 ];
+const CRUD_ROLE_NAMES = [PRIMARY_ROLE_NAME, ...ROLE_ORDER];
+const CRUD_WORKSPACE_NAMES = [PRIMARY_WORKSPACE_NAME, ...WORKSPACE_ORDER];
+const CRUD_MACRO_NAMES = [
+  PRIMARY_MACRO_NAME,
+  EDITED_MACRO_NAME,
+  COPIED_MACRO_NAME
+];
 
 function required(name: string): string {
   const value = process.env[name];
@@ -218,6 +225,7 @@ async function dragEntityToThroughVisiblePointer(
   await source.waitForDisplayed({ timeout: 10_000 });
   await target.waitForDisplayed({ timeout: 10_000 });
   await source.scrollIntoView({ block: "center" });
+  await source.moveTo();
   const handle = await source.$(`button[aria-label='${handleLabel}']`);
   await handle.waitForDisplayed({ timeout: 10_000 });
   await browser.action("pointer", { parameters: { pointerType: "mouse" } })
@@ -418,26 +426,28 @@ async function cleanupPhase(): Promise<void> {
 
   const snapshot = await rendererCall("getAppSnapshot");
   expect(snapshot.games.some((game) => CRUD_GAME_NAMES.includes(game.name))).toBe(false);
-  expect(snapshot.games.every((game) => game.source === "builtin")).toBe(true);
-  expect(snapshot.roles).toHaveLength(0);
-  expect(snapshot.launchWorkspaces).toHaveLength(0);
-  expect(snapshot.macros).toHaveLength(0);
+  expect(snapshot.roles.some((role) => CRUD_ROLE_NAMES.includes(role.name))).toBe(false);
+  expect(snapshot.launchWorkspaces.some((workspace) =>
+    CRUD_WORKSPACE_NAMES.includes(workspace.name)
+  )).toBe(false);
+  expect(snapshot.macros.some((macro) => CRUD_MACRO_NAMES.includes(macro.name))).toBe(false);
 }
 
 async function finalRestartPhase(): Promise<void> {
   await preparePhase();
   const snapshot = await rendererCall("getAppSnapshot");
   expect(snapshot.games.some((game) => CRUD_GAME_NAMES.includes(game.name))).toBe(false);
-  expect(snapshot.games.every((game) => game.source === "builtin")).toBe(true);
-  expect(snapshot.roles).toHaveLength(0);
-  expect(snapshot.launchWorkspaces).toHaveLength(0);
-  expect(snapshot.macros).toHaveLength(0);
+  expect(snapshot.roles.some((role) => CRUD_ROLE_NAMES.includes(role.name))).toBe(false);
+  expect(snapshot.launchWorkspaces.some((workspace) =>
+    CRUD_WORKSPACE_NAMES.includes(workspace.name)
+  )).toBe(false);
+  expect(snapshot.macros.some((macro) => CRUD_MACRO_NAMES.includes(macro.name))).toBe(false);
 
   for (const [label, route, names] of [
-    ["Games", "/games", [PRIMARY_GAME_NAME, UNUSED_GAME_NAME, RECOVERY_GAME_NAME]],
-    ["Roles", "/roles", [PRIMARY_ROLE_NAME, ...ROLE_ORDER]],
-    ["Workspaces", "/workspaces", [PRIMARY_WORKSPACE_NAME, ...WORKSPACE_ORDER]],
-    ["Macros", "/macros", [PRIMARY_MACRO_NAME, EDITED_MACRO_NAME, COPIED_MACRO_NAME]]
+    ["Games", "/games", CRUD_GAME_NAMES],
+    ["Roles", "/roles", CRUD_ROLE_NAMES],
+    ["Workspaces", "/workspaces", CRUD_WORKSPACE_NAMES],
+    ["Macros", "/macros", CRUD_MACRO_NAMES]
   ] as const) {
     await openSection(label, route);
     const visibleText = await $("body").getText();

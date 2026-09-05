@@ -1053,7 +1053,8 @@ describe("Electron Core addon client", () => {
     const launchChromeProfileImportHelperInternal = vi.fn((
       _metadataBytes: Buffer,
       _secretBytes: Buffer,
-      _cancellationId?: string
+      _cancellationId?: string,
+      _helperApplicationPath?: string
     ) => new Promise<Awaited<ReturnType<RawNodeApiCoreBinding[
       "launchChromeProfileImportHelperInternal"
     ]>>>((resolve) => {
@@ -1070,7 +1071,13 @@ describe("Electron Core addon client", () => {
       cancelChromeProfileImportHelperInternal,
       shutdown: vi.fn(async () => undefined)
     };
-    const client = await CoreAddonClient.create({ createAppCore: () => binding }, {});
+    const helperApplicationPath = "/workspace/out/main/index.js";
+    const client = await CoreAddonClient.create(
+      { createAppCore: () => binding },
+      {},
+      {},
+      { helperApplicationPath }
+    );
     const controller = new AbortController();
     const metadata = Buffer.from('{"kind":"clearAndVerify"}');
     const secret = Buffer.alloc(0);
@@ -1084,6 +1091,8 @@ describe("Electron Core addon client", () => {
     });
     const cancellationId = launchChromeProfileImportHelperInternal.mock.calls[0]?.[2];
     expect(cancellationId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(launchChromeProfileImportHelperInternal.mock.calls[0]?.[3])
+      .toBe(helperApplicationPath);
 
     controller.abort();
     expect(cancelChromeProfileImportHelperInternal)

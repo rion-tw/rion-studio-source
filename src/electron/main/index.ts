@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
 import { mkdtempSync, readFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -22,8 +21,7 @@ import {
 
 import type { CoreAppSnapshotRecord } from "../../shared/generated";
 import type { RendererLogEvent } from "../../shared/types";
-import { CoreAddonClient, type RawNodeApiCoreFactory } from
-  "../core/coreAddonClient";
+import { CoreAddonClient } from "../core/coreAddonClient";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import { createElectronBaselineDispatcher } from "./baselineDispatcher";
 import { enforceChromiumCommandLinePolicy } from "./chromiumCommandLinePolicy";
@@ -40,14 +38,15 @@ import { ElectronApplicationLifecycleController } from "./applicationLifecycleCo
 import { ChromiumRuntimeLaunchCoordinator } from "./chromiumRuntimeLaunchCoordinator";
 import { ChromiumRuntimeLaunchCompletionCoordinator } from "./chromiumRuntimeLaunchCompletionCoordinator";
 import { ChromiumRuntimeRestoreSessionCoordinator } from "./chromiumRuntimeRestoreSessionCoordinator";
+import { createChromiumSavedWindowRestorePresentation } from
+  "./chromiumSavedWindowRestorePresentation";
 import { WORKSPACE_WEB_CHROME_SHELL_SESSION } from "../../shared/workspaceWebChrome";
 import { RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION } from
   "../../shared/runtimeRolePlaceholder";
 import {
   ChromiumRuntimeBootstrap,
   MACOS_APPKIT_CHROMIUM_CAPABILITIES,
-  type MacosAppKitRuntimeBootstrapAdapter,
-  withElectronChromiumRuntimeContract
+  type MacosAppKitRuntimeBootstrapAdapter
 } from "./chromiumRuntimeBootstrap";
 import { createCoreOwnedChromiumRuntimeActions } from
   "./chromiumRuntimeActionsFactory";
@@ -63,18 +62,13 @@ import type {
   ChromiumRoleWebContentsViewPort
 } from "./chromiumRoleSurfacePorts";
 import type {
-  WindowsRuntimeForegroundProbePort,
   WindowsRuntimeHostWindowPort,
-  WindowsRuntimeShortcutOwnerDiagnostic,
-  WindowsRuntimeShortcutOwnerDiagnosticPort,
-  WindowsRuntimeShortcutOwnerPort
+  WindowsRuntimeShortcutOwnerDiagnostic
 } from "./chromiumRuntimeHostFactory";
-import type {
-  RawWindowsChromiumTrustedInputAddon,
-  WindowsChromiumInputBaseWindowPort
-} from "./windowsChromiumInputSurfaceAttachmentCoordinator";
+import type { WindowsChromiumInputBaseWindowPort } from
+  "./windowsChromiumInputSurfaceAttachmentCoordinator";
 import { MacosAppKitChromiumRuntimeHostFactory,
-  RION_APPKIT_RUNTIME_ABI_VERSION, type RawAppKitRuntimeAddon } from
+  RION_APPKIT_RUNTIME_ABI_VERSION } from
   "./macosAppKitRuntimeHostFactory";
 import { MacosAppKitRuntimeEventBridge } from "./macosAppKitRuntimeEventBridge";
 import { executeControlledRuntimeTabReload } from
@@ -142,8 +136,7 @@ import {
   parseMacosUpdaterRecoveryArguments,
   parseMacosUpdaterRelaunchArguments,
   runMacosUpdaterRelaunchHelper,
-  verifyMacosUpdaterRecoveryLocator,
-  type RawChromiumUpdaterFactory
+  verifyMacosUpdaterRecoveryLocator
 } from "./electronChromiumUpdater";
 import { createElectronUpdaterDispatcher } from "./electronUpdaterDispatcher";
 import {
@@ -156,27 +149,18 @@ import {
 } from "./chromeProfileImportHelperProcess";
 import { isChromeProfileImportHelperInvocation } from
   "./chromeProfileImportHelperMode";
+import {
+  createElectronCore,
+  loadElectronNativeAddon,
+  type LoadedRionNodeAddon
+} from "./electronCoreBootstrap";
+import { revealElectronMainWindowOnStartupReady } from
+  "./electronMainWindowReveal";
+import { applyElectronAccessibilityStartupRequest } from
+  "./electronAccessibilityStartup";
 import { runElectronReadyPhase } from "./electronReadyGate";
 
-interface NativeAppCoreOptions {
-  userDataDir: string;
-  platform: "darwin" | "win32";
-  appVersion: string;
-  buildCommit?: string;
-  packaged?: boolean;
-  runtimeContractVersion?: number;
-  performanceTelemetryPath?: string;
-  startupBackupLabel?: string;
-}
-
-interface LoadedRionNodeAddon
-  extends RawNodeApiCoreFactory<NativeAppCoreOptions>, RawAppKitRuntimeAddon,
-    RawChromiumUpdaterFactory, RawWindowsChromiumTrustedInputAddon,
-    WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort,
-    WindowsRuntimeShortcutOwnerDiagnosticPort {}
-
 const APP_NAME = "Rion Studio";
-const requireNativeModule = createRequire(import.meta.url);
 let core: CoreAddonClient | null = null;
 let lifecycle: ElectronMainLifecycle | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -232,30 +216,21 @@ function sharedUserDataDirectory(): string {
   return join(app.getPath("appData"), APP_NAME);
 }
 
-function nativeAddonPath(): string {
-  if (app.isPackaged) return join(process.resourcesPath, "native/rion-core.node");
-  return join(
-    import.meta.dirname,
-    `../../build/native/${process.platform}-${process.arch}/rion-core.node`
-  );
-}
-
 async function createCore(userDataDir: string): Promise<CoreAddonClient> {
-  const addon = loadNativeAddon();
-  nativeAddon = addon;
-  return CoreAddonClient.create(addon, withElectronChromiumRuntimeContract({
+  const initialized = await createElectronCore({
     userDataDir,
     platform: platform(),
     appVersion: app.getVersion(),
     packaged: app.isPackaged,
-    startupBackupLabel: "electron-chromium-foundation"
-  }), {
+    resourcesPath: process.resourcesPath,
     onEventBridgeError: revealShellError
   });
+  nativeAddon = initialized.addon;
+  return initialized.core;
 }
 
 function loadNativeAddon(): LoadedRionNodeAddon {
-  return requireNativeModule(nativeAddonPath()) as LoadedRionNodeAddon;
+  return loadElectronNativeAddon(app.isPackaged, process.resourcesPath);
 }
 
 function createMacosAppKitAdapter(
@@ -266,16 +241,26 @@ function createMacosAppKitAdapter(
   ) => Promise<void>
 ): MacosAppKitRuntimeBootstrapAdapter {
   try {
+    let hostFactory: MacosAppKitChromiumRuntimeHostFactory | null = null;
     const eventBridge = new MacosAppKitRuntimeEventBridge({
       core: coreClient,
-      beforeLayoutDispatch: async () => {
+      preparePassiveEventDispatch: async (capturedHosts) => {
         await chromiumRuntime?.settleCurrentApplicationEffects();
+        if (!hostFactory) {
+          throw new RionBridgeError({
+            code: "ELECTRON_MACOS_APPKIT_HOST_UNAVAILABLE",
+            message: "The AppKit host factory is unavailable for event dispatch."
+          });
+        }
+        return hostFactory.captureHostObservations(capturedHosts.map(
+          (host) => host.identity.logicalWindowId
+        ));
       },
       onOpenTabMenu,
       onError: revealShellError
     });
     let attachments: MacosAppKitInputSurfaceAttachmentCoordinator | null = null;
-    const hostFactory = MacosAppKitChromiumRuntimeHostFactory.fromElectronBaseWindow(
+    hostFactory = MacosAppKitChromiumRuntimeHostFactory.fromElectronBaseWindow(
       addon,
       BaseWindow,
       {
@@ -567,6 +552,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       devTools: !app.isPackaged
     })
   ));
+  revealElectronMainWindowOnStartupReady(window);
   mainWindow = window;
   const identity = identities.registerMainWindow(window, ++rendererGeneration);
   mainIdentity = identity;
@@ -752,6 +738,7 @@ async function bootstrapReadyPhase(
   userDataDirectory: string,
   startupQuitFence: ElectronStartupQuitFence
 ): Promise<void> {
+  applyElectronAccessibilityStartupRequest(app);
   installChromiumCertificatePolicy(app);
   displayTopology = new ElectronDisplayTopologyController({
     capture: () => ({
@@ -1227,11 +1214,17 @@ async function bootstrapReadyPhase(
   const restoredTabAppKit = runtimePlatform === "darwin" && appKit?.rendererActions
     ? { factory: appKit.hostFactory, events: appKit.rendererActions }
     : undefined;
+  const restoredWindowPresentation = createChromiumSavedWindowRestorePresentation({
+    core: activeCore(),
+    runtime: chromiumRuntime,
+    ...(restoredTabAppKit ? { appKit: restoredTabAppKit } : {})
+  });
   const launchCoordinator = new ChromiumRuntimeLaunchCoordinator({
     core: activeCore(),
     launchCompletions: chromiumLaunchCompletions,
     settleRuntimeProjection,
     waitForRuntimeProjection,
+    ...restoredWindowPresentation,
     activateExistingTab: async (fence) => {
       if (restoredTabAppKit) {
         const hosts = restoredTabAppKit.factory.captureHostObservations([
@@ -1289,20 +1282,6 @@ async function bootstrapReadyPhase(
         });
       }
     },
-    ...(restoredTabAppKit
-      ? {
-          activateRestoredTab: async (windowId: string, tabId: string) => {
-            const hosts = restoredTabAppKit.factory.captureHostObservations([windowId]);
-            const receipt = await restoredTabAppKit.events.activateTab(hosts, tabId);
-            if (!receipt.nativeApplied) {
-              throw new RionBridgeError({
-                code: "ELECTRON_MACOS_APPKIT_RESTORE_PROJECTION_STALE",
-                message: "The restored Game Window did not commit its exact AppKit projection."
-              });
-            }
-          }
-        }
-      : {}),
     projectAppSnapshot: (snapshot, native, displayTopology) =>
       projectCoreAppSnapshot(
         snapshot,

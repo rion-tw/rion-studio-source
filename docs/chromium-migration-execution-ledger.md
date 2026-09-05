@@ -6,19 +6,22 @@ requirements remain in [Chromium Runtime Migration](chromium-runtime-migration.m
 and [Updater Install Transaction](updater-transaction-contract.md); this file is
 only an execution view and must never be used to waive a gate.
 
-Last reconciled: 2026-09-03.
+Last reconciled: 2026-09-05.
 
 ## Current count
 
-- At least five necessary work packages remain before the migration can be called
+- Five release-cutover work packages remain before the migration can be called
   done. A failed native gate may add remediation work, but cannot remove a gate.
 - The known packages contain nine independently verifiable deliverables.
-- All currently executable local repository work is implemented. The one
-  remaining repository-mutation package is the deliberately gated sole-entry
+- Within the currently authorized candidate-branch scope, two execution steps
+  remain: commit and push the reconciled tree, then obtain a green exact-SHA
+  macOS/Windows CI matrix while correcting any native failure it reveals. No
+  known local macOS feature implementation or validation defect remains.
+- The one later repository-mutation package is the deliberately gated sole-entry
   cleanup, which cannot begin until the external native and release gates pass.
   The real-transaction producer and terminal-promotion finalizer are implemented
   as hard-disabled transition code but remain open execution gates. One package
-  is owner-controlled GitHub configuration. One package is current-SHA native
+  is owner-controlled GitHub configuration. One package is exact-candidate native
   and physical-platform evidence.
 - A passing portable or macOS-only test run does not reduce the Windows evidence
   count. Historical evidence does not count for the current source SHA.
@@ -156,6 +159,100 @@ either finalizer deliverable: the owner must first authorize and successfully
 run the upstream four-cell producer, then authorize this finalizer against the
 live public state. Unknown or failed mutation acknowledgement remains a durable
 recovery outcome and is never promoted by elapsed time or local inference.
+
+## 2026-09-04 current-branch validation hold
+
+The active candidate branch is `codex/electron-chromium-v23-cutover`. Remote
+commit `282751a3335d5a31be6c456912534a077e24314f` is not yet a completed candidate:
+CI run `33872639465` found package-profile failures after the narrower macOS and
+Windows desktop-E2E jobs passed. The Windows package failure is covered by an
+uncommitted exact-process-exit correction. The macOS package failure exposed a
+Quick Access foreground-focus gap which is also corrected in the working tree.
+
+A subsequent full local `chromium-macos-appkit-smoke` run deliberately continued
+past those known failures and exposed later validation defects. The Quick Access
+seed/restart and background-tab phases now pass locally. The restart half of
+`chromium-macro-cutover-topology` then exposed a saved-window hydration defect:
+a visible Show intent moved the persisted Game Window from `dormant` to
+`restoring`, but no native launch began. The exact cause was a schema-v2 restore
+path writing the complete GameWindow back into the schema-v1 compatibility
+snapshot field. Two valid workspace tabs shared one role; Rust normalization
+removed the later legacy snapshot tab, so exact receipt validation rejected the
+mutation before native hydration. The working correction persists only the
+schema-v2 in-progress identity and keeps GameWindow state authoritative. It also
+clears the full schema-v2 recovery cohort when the user discards all recovery.
+Focused tests cover both shared-role tabs and an empty legacy snapshot field.
+Foreground confirmation remains pending and the defect must not be bypassed by
+creating a duplicate workspace tab or extending a timeout.
+
+Foreground macOS automation is temporarily paused at the owner's request while
+another full-screen application is in use. Until the owner resumes foreground
+testing, work is limited to source/event-chain diagnosis, unit and static tests,
+repository hygiene, and Windows/CI remediation. Before the next candidate push,
+the complete local macOS AppKit smoke profile must pass from a clean start. Only
+then may a new current-SHA CI matrix be dispatched.
+
+The non-foreground working-tree validation after the correction is green:
+source hygiene, TypeScript, ESLint (zero errors), 424 Vitest files / 3,207 tests,
+Rust formatting and clippy, and the complete Rust workspace test suite. These
+checks do not replace the paused macOS foreground profile or Windows CI.
+
+The same hold also exposed and corrected a release-only AppKit ABI verifier
+drift: the native addon and production host require ABI 6, while
+`verifyElectronRuntime.mjs` still expected ABI 5. A pinned verifier regression
+test now requires 6 and cross-checks the Electron AppKit host constant. The
+release addon runtime probe, macOS arm64 Electron
+package build, final `.app` structure verifier, ad-hoc signature/linkage checks,
+DMG checksum, and tar payload inventory all pass locally.
+
+## 2026-09-05 local candidate closure
+
+The owner resumed foreground testing. The complete current-source
+`chromium-macos-appkit-smoke` profile passed from a fresh start, including
+saved-window seed/restart hydration, Quick Access foreground activation,
+shared-role tab restoration, browser-data cleanup, workspace-web surfaces,
+trusted input, macro terminal cleanup, native AppKit tab identity, and clean
+exit. Its artifact root is
+`.desktop-e2e-artifacts/2026-09-05T10-53-54-780Z-darwin`.
+
+The retained stable shell was then revalidated from the same tree. The macOS
+`smoke` profile passed fullscreen toolbar, contained fullscreen, seed, and
+restart journeys in
+`.desktop-e2e-artifacts/2026-09-05T14-30-52-724Z-darwin`. The complete macOS
+`full` profile also passed native macro input and cleanup, role-store isolation,
+workspace recovery, cross-domain lifecycle, system-settings boundaries, and
+Game Window seed, restart, force-terminate, crash-restart, and crash-discard
+journeys in `.desktop-e2e-artifacts/2026-09-05T14-33-20-538Z-darwin`. This
+preserves local evidence that the v22 AppKit/WKWebView fallback remains healthy
+while the v23 Chromium candidate retains AppKit presentation.
+
+The fresh 8.5.0 macOS Electron distribution then passed the pinned runtime,
+ASAR/fuse/native-addon/AppKit-linkage/package-structure verifier and the packaged
+black-box AppKit Role journey. The black-box accessibility probe now follows the
+actual retained native hierarchy through `AXScrollArea`, validates the prefixed
+AppKit window/tab identity before pressing content, and quits with the physical
+Command-Q key code.
+
+The packaged updater gate also passed locally with a CI-equivalent ephemeral
+trust fixture. It built a real ad-hoc-signed 8.3.0 Tauri v22 application with the
+`rion-tauri` executable and no Electron `app.asar`, then verified the 8.3.0 and
+8.4.0 source transitions into the signed 8.5.0 Electron archive, rollback,
+wrong-platform rejection, recovery journal removal, and audit-token-supervised
+active-zero process cleanup. The macOS helper sandbox now permits only its
+bundle executables, framework helpers, and the fixed `/usr/bin/codesign` needed
+to validate the replacement; unrelated external execution remains denied. The
+process admission bound is 10 seconds so a freshly copied app can complete the
+OS policy check, while the authoritative updater acknowledgement remains a
+separate fail-closed 120-second external boundary.
+
+The reconciled tree passes source/document/dependency hygiene with the
+owner-approved 3,200-line limit, TypeScript, ESLint with zero errors, all 426
+Vitest files containing 3,223 tests, Rust formatting and clippy with warnings
+denied, the full Rust workspace suite, production build, desktop-E2E build, and
+production renderer isolation. Coverage remains P0 70/70, P1 66/66, and both
+Chromium platform manifests 40/40. The remaining candidate work is the exact-SHA
+branch commit/push and hosted matrix; Windows native evidence remains pending
+that CI run, not inferred from this macOS host.
 
 ## Non-completion rules
 

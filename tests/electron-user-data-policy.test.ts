@@ -30,10 +30,15 @@ describe("Electron user-data policy", () => {
     expect(sessionDetach).toBeGreaterThan(stubHook);
     expect(closeSubmission).toBeGreaterThan(sessionDetach);
     expect(config).toContain("completed its authoritative final flush");
-    expect(runner).toContain("awaitWindowsElectronProcessExit");
+    expect(runner).toContain("awaitElectronProcessExit");
+    expect(runner).toContain("process.kill(marker.pid, 0)");
+    expect(runner).toContain('error?.code === "ESRCH"');
+    expect(runner).toContain("Date.now() + 45_000");
     expect(runner).toContain("$target.HasExited");
     expect(runner).toContain("$target.WaitForExit(45000)");
-    expect(runner.indexOf("awaitWindowsElectronProcessExit(electronFinalFlush, phase)"))
+    expect(runner).toContain("$target.HasExited) { exit 0 }");
+    expect(runner).toContain("deadline elapsed' }; exit 0");
+    expect(runner.indexOf("awaitElectronProcessExit(electronFinalFlush, phase)"))
       .toBeGreaterThan(runner.indexOf("acceptedElectronFinalFlush(phaseDir, phase)"));
   });
 

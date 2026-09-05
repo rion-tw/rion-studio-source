@@ -56,24 +56,39 @@ const phaseArgument = process.argv.find((argument) => argument.startsWith("--pha
 if (phaseArgument && !configuredPhases.includes(phaseArgument)) {
   throw new Error(`Desktop E2E phase ${phaseArgument} is not part of profile ${profile}.`);
 }
+const chromiumAppCrudFocusedDependencies = [
+  "chromium-entity-persistence-seed",
+  "chromium-entity-persistence-restart",
+  "chromium-workspace-web-slot-seed",
+  "chromium-workspace-web-slot-restart",
+  "chromium-workspace-web-fullscreen-seed",
+  "chromium-workspace-web-fullscreen-restart",
+  "chromium-fullscreen-toolbar-seed",
+  "chromium-fullscreen-toolbar-restart",
+  "chromium-quick-access-seed",
+  "chromium-quick-access-restart",
+  "chromium-settings-persistence-seed",
+  "chromium-settings-persistence-restart",
+  "chromium-macro-ui-seed",
+  "chromium-macro-ui-restart",
+  "chromium-macro-native-effect"
+];
 const focusedPhaseDependencies = new Map([
   [
     "chromium-app-crud-mutations",
-    ["chromium-entity-persistence-seed", "chromium-entity-persistence-restart"]
+    chromiumAppCrudFocusedDependencies
   ],
   [
     "chromium-app-crud-cleanup",
     [
-      "chromium-entity-persistence-seed",
-      "chromium-entity-persistence-restart",
+      ...chromiumAppCrudFocusedDependencies,
       "chromium-app-crud-mutations"
     ]
   ],
   [
     "chromium-app-crud-final-restart",
     [
-      "chromium-entity-persistence-seed",
-      "chromium-entity-persistence-restart",
+      ...chromiumAppCrudFocusedDependencies,
       "chromium-app-crud-mutations",
       "chromium-app-crud-cleanup"
     ]
@@ -689,20 +704,36 @@ function validateChromiumAppCrudMutationSqliteEvidence(phase, entities) {
 }
 
 function validateChromiumAppCrudCleanupSqliteEvidence(phase, entities) {
-  requireEvidence(
-    entities.games.every((game) => game.payload?.source === "builtin"),
-    `${phase}: Chromium app CRUD cleanup retained a custom Game`
-  );
-  for (const collection of ["roles", "workspaces", "macros"]) {
+  const deletedNames = {
+    games: [
+      "Chromium Entity Game",
+      "Chromium P1 Unused Game",
+      "Chromium P1 Recovery Game"
+    ],
+    macros: [
+      "Chromium Entity Macro Edited",
+      "Chromium P1 Macro Edited",
+      "Chromium P1 Macro Edited Copy"
+    ],
+    roles: [
+      "Chromium Entity Role Edited",
+      "Chromium P1 Role Edited",
+      "Chromium P1 Role Edited Copy",
+      "Chromium P1 Recovery Role"
+    ],
+    workspaces: [
+      "Chromium Entity Workspace Edited",
+      "Chromium P1 Workspace Edited",
+      "Chromium P1 Workspace Edited Copy",
+      "Chromium P1 Recovery Workspace"
+    ]
+  };
+  for (const [collection, names] of Object.entries(deletedNames)) {
     requireEvidence(
-      entities[collection].length === 0,
-      `${phase}: Chromium app CRUD cleanup retained ${collection}`
+      !entities[collection].some((entity) => names.includes(entity.name)),
+      `${phase}: Chromium app CRUD cleanup retained an owned ${collection} entity`
     );
   }
-  requireEvidence(
-    entities.gameWindows.length === 0,
-    `${phase}: Chromium app CRUD lifecycle unexpectedly retained a permanent Game Window`
-  );
   return {
     builtinGameCount: entities.games.length,
     cleanupComplete: true,
@@ -1361,7 +1392,24 @@ async function acceptedElectronFinalFlush(phaseDir, phase) {
   throw new Error(`Electron phase ${phase} ended without final-flush evidence`);
 }
 
-async function awaitWindowsElectronProcessExit(marker, phase) {
+async function awaitElectronProcessExit(marker, phase) {
+  if (process.platform === "darwin") {
+    const deadline = Date.now() + 45_000;
+    for (;;) {
+      try {
+        process.kill(marker.pid, 0);
+      } catch (error) {
+        if (error?.code === "ESRCH") return;
+        throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Electron phase ${phase} did not release its exact macOS process boundary`
+        );
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+    }
+  }
   if (process.platform !== "win32") return;
   const wait = await run("pwsh", [
     "-NoLogo",
@@ -1369,9 +1417,9 @@ async function awaitWindowsElectronProcessExit(marker, phase) {
     "-NonInteractive",
     "-Command",
     `$target = Get-Process -Id ${marker.pid} -ErrorAction SilentlyContinue; ` +
-      "if ($null -ne $target -and -not $target.HasExited -and " +
-      "-not $target.WaitForExit(45000)) { " +
-      "throw 'Electron process exit deadline elapsed' }"
+      "if ($null -eq $target -or $target.HasExited) { exit 0 }; " +
+      "if (-not $target.WaitForExit(45000)) { " +
+      "throw 'Electron process exit deadline elapsed' }; exit 0"
   ]);
   if (wait.code !== 0) {
     throw new Error(
@@ -1450,9 +1498,9 @@ try {
       : undefined;
     if (electronFinalFlush) {
       // DeadlineBound external-liveness fence: final flush is authoritative for
-      // persisted state, while the Windows process handle is authoritative for
+      // persisted state, while the exact native process is authoritative for
       // releasing Chromium's same-profile singleton before the next phase.
-      await awaitWindowsElectronProcessExit(electronFinalFlush, phase);
+      await awaitElectronProcessExit(electronFinalFlush, phase);
     }
     const nativeRuntimeEvidence = executionPlan.driver === "electron"
       && (result.code === 0 || Boolean(forcedTermination))

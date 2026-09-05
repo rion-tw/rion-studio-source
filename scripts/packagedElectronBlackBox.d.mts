@@ -12,6 +12,9 @@ export interface PackagedPngArtifact {
   readonly sha256: string;
 }
 
+export const MACOS_ACCESSIBILITY_TRAVERSAL_HANDLERS: string;
+export const MACOS_RETAINED_APPKIT_HANDLERS: string;
+
 export function seedPackagedElectronRole(input: {
   gameName: string;
   launchUrl: string;

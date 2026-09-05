@@ -21,7 +21,10 @@ describe("Chromium application quit-guard desktop E2E boundary", () => {
     expect(source).toContain("pressVisibleNativeApplicationQuit");
     expect(source.match(/pressVisibleNativeApplicationQuit\(\)/gu)).toHaveLength(1);
     expect(source.match(/openQuitDialog\(\)/gu)).toHaveLength(3);
-    expect(nativeActions).toContain("keystroke \"q\" using command down");
+    expect(nativeActions).toContain("key code 12 using command down");
+    expect(nativeActions).toContain(
+      "exact Rion launcher AXWindow unavailable before quit"
+    );
     expect(nativeActions).toContain("SetForegroundWindow");
     expect(nativeActions).toContain("keybd_event(0x51");
     expect(nativeActions).not.toContain("requestElectronDesktopE2eNativeQuit");

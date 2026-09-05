@@ -140,7 +140,8 @@ export async function openChromiumSection(
 async function pressVisibleControl(
   selector: string,
   expectedLabel?: string,
-  interaction: "accessibility" | "physical" = "accessibility"
+  interaction: "accessibility" | "physical" = "accessibility",
+  expectedAccessibilityRole?: "AXButton" | "AXMenuItem"
 ): Promise<void> {
   const control = await $(selector);
   await control.waitForClickable({ timeout: 10_000 });
@@ -148,13 +149,23 @@ async function pressVisibleControl(
     await control.click();
     return;
   }
-  const accessibleLabel = expectedLabel
-    ?? await control.getAttribute("aria-label")
-    ?? (await control.getText()).trim();
+  const accessibleLabel = [
+    expectedLabel,
+    await control.getAttribute("aria-label"),
+    await control.getComputedLabel(),
+    await control.getText()
+  ].find((candidate) => candidate?.trim())?.trim();
   if (!accessibleLabel) {
     throw new Error("The visible Chromium Macro control has no accessible label");
   }
   await electronDesktopE2eFocusMainWindow();
+  const focused = await browser.execute((target) => {
+    target.focus({ preventScroll: true });
+    return document.activeElement === target;
+  }, control);
+  if (!focused) {
+    throw new Error("The visible Chromium Macro control rejected exact focus");
+  }
   const probe = await electronDesktopE2eProbe();
   await executeFile("/usr/bin/osascript", [
     "-e",
@@ -192,6 +203,8 @@ import AppKit
 let targetPid = pid_t(${probe.processId})
 let expectedLabel = ${JSON.stringify(accessibleLabel)}
 let useAccessibilityAction = ${interaction === "accessibility"}
+let expectedRole = ${JSON.stringify(expectedAccessibilityRole ?? "")}
+let appKitWindowPrefix = "com.rionstudio.runtime.appkit-window.v1:"
 let application = AXUIElementCreateApplication(targetPid)
 
 guard let targetApplication = NSRunningApplication(processIdentifier: targetPid) else {
@@ -216,6 +229,15 @@ func stringAttribute(_ element: AXUIElement, _ attribute: CFString) -> String? {
   return value as? String
 }
 
+func boolAttribute(_ element: AXUIElement, _ attribute: CFString) -> Bool {
+  var value: CFTypeRef?
+  guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+      let number = value as? NSNumber else {
+    return false
+  }
+  return number.boolValue
+}
+
 func elementArrayAttribute(
   _ element: AXUIElement,
   _ attribute: CFString
@@ -226,16 +248,6 @@ func elementArrayAttribute(
     return []
   }
   return elements
-}
-
-func elementAttribute(_ element: AXUIElement, _ attribute: CFString) -> AXUIElement? {
-  var value: CFTypeRef?
-  guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
-      let rawValue = value,
-      CFGetTypeID(rawValue) == AXUIElementGetTypeID() else {
-    return nil
-  }
-  return (rawValue as! AXUIElement)
 }
 
 func pointAttribute(_ element: AXUIElement, _ attribute: CFString) -> CGPoint? {
@@ -270,7 +282,15 @@ let roots = elementArrayAttribute(application, kAXWindowsAttribute as CFString)
 guard !roots.isEmpty else {
   fatalError("exact Rion launcher AXWindow unavailable")
 }
-var queue = roots
+let launcherRoots = roots.filter { element in
+  stringAttribute(element, kAXRoleAttribute as CFString) == (kAXWindowRole as String)
+    && !(stringAttribute(element, kAXIdentifierAttribute as CFString)?
+      .hasPrefix(appKitWindowPrefix) ?? false)
+}
+guard launcherRoots.count == 1 else {
+  fatalError("exact Rion launcher AXWindow count was " + String(launcherRoots.count))
+}
+var queue = launcherRoots
 var cursor = 0
 var matches: [AXUIElement] = []
 while cursor < queue.count {
@@ -284,9 +304,15 @@ while cursor < queue.count {
     fatalError("accessibility control escaped the exact Rion process")
   }
   var actionValues: CFArray?
-  if AXUIElementCopyActionNames(element, &actionValues) == .success,
+  let elementRole = stringAttribute(element, kAXRoleAttribute as CFString)
+  let physicalRole = expectedRole.isEmpty
+    ? (kAXMenuItemRole as String)
+    : expectedRole
+  if (useAccessibilityAction || elementRole == physicalRole),
+      AXUIElementCopyActionNames(element, &actionValues) == .success,
       let actions = actionValues as? [String],
-      actions.contains(kAXPressAction as String) {
+      actions.contains(kAXPressAction as String),
+      boolAttribute(element, kAXFocusedAttribute as CFString) {
     let labels = [
       stringAttribute(element, kAXTitleAttribute as CFString),
       stringAttribute(element, kAXDescriptionAttribute as CFString),
@@ -299,7 +325,9 @@ while cursor < queue.count {
       return candidate == normalizedExpectedLabel
         || candidate.hasPrefix(normalizedExpectedLabel + " ")
     }) {
-      matches.append(element)
+      if !matches.contains(where: { CFEqual($0, element) }) {
+        matches.append(element)
+      }
     }
   }
   queue.append(contentsOf: elementArrayAttribute(
@@ -308,30 +336,15 @@ while cursor < queue.count {
   ))
 }
 guard matches.count == 1 else {
-  fatalError("exact Rion visible AXPress control count was " + String(matches.count))
+  fatalError("exact Rion focused AXPress control count was " + String(matches.count))
 }
-if useAccessibilityAction {
-  var ancestor: AXUIElement? = matches[0]
-  var raisedLauncherWindow = false
-  for _ in 0..<16 {
-    guard let element = ancestor else { break }
-    if stringAttribute(element, kAXRoleAttribute as CFString) == (kAXWindowRole as String) {
-      guard AXUIElementPerformAction(
-        element,
-        kAXRaiseAction as CFString
-      ) == .success else {
-        fatalError("exact Rion launcher AXWindow rejected AXRaise")
-      }
-      raisedLauncherWindow = true
-      break
-    }
-    ancestor = elementAttribute(element, kAXParentAttribute as CFString)
-  }
-  guard raisedLauncherWindow else {
-    fatalError("exact Rion launcher AXWindow is unavailable from the visible control")
-  }
-  RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+guard AXUIElementPerformAction(
+  launcherRoots[0],
+  kAXRaiseAction as CFString
+) == .success else {
+  fatalError("exact Rion launcher AXWindow rejected AXRaise")
 }
+RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 if useAccessibilityAction {
   guard AXUIElementPerformAction(
     matches[0],
@@ -343,8 +356,8 @@ if useAccessibilityAction {
   guard stringAttribute(
     matches[0],
     kAXRoleAttribute as CFString
-  ) == (kAXMenuItemRole as String) else {
-    fatalError("exact Rion destination is not a visible AXMenuItem")
+  ) == (expectedRole.isEmpty ? (kAXMenuItemRole as String) : expectedRole) else {
+    fatalError("exact Rion destination has an unexpected accessibility role")
   }
   guard let position = pointAttribute(matches[0], kAXPositionAttribute as CFString),
       let size = sizeAttribute(matches[0], kAXSizeAttribute as CFString),
@@ -429,12 +442,97 @@ export async function createChromiumMacroWindow(
 }
 
 export async function showChromiumMacroWindow(window: GameWindow): Promise<void> {
+  const expectedTabIds = window.tabs.map((tab) => tab.id);
+  const expectedActiveTabId = window.activeTabId ?? expectedTabIds.at(-1);
+  const waitForExactRestore = async (): Promise<void> => {
+    await browser.waitUntil(async () => {
+      try {
+        const [runtime, native] = await Promise.all([
+          rendererCall("getEmbeddedRuntimeState"),
+          electronDesktopE2eGameWindowRuntime(window.id)
+        ]);
+        const runtimeWindow = runtime.windows.find(
+          (candidate) => candidate.windowId === window.id
+        );
+        const runtimeTabIds = runtime.tabs
+          .filter((tab) => tab.windowId === window.id)
+          .map((tab) => tab.id);
+        const current = native.currentRuntime;
+        const sameIds = (ids: readonly string[]) =>
+          ids.length === expectedTabIds.length &&
+          ids.every((id, index) => id === expectedTabIds[index]);
+        return runtimeWindow?.visible === true && current?.visible === true &&
+          runtimeWindow.activeTabId === expectedActiveTabId &&
+          sameIds(runtimeTabIds) && sameIds(current.coreTabIds) &&
+          sameIds(current.nativeTabIds);
+      } catch {
+        return false;
+      }
+    }, {
+      timeout: 55_000,
+      timeoutMsg: `Game Window ${window.id} did not complete its exact saved restore`
+    });
+  };
   await openChromiumSection("Windows", "/game-windows");
-  const row = await $(`[data-selection-id='${window.id}']`);
-  await row.waitForDisplayed({ timeout: 10_000 });
-  const show = await row.$("button[aria-label='Show']");
+  if (window.tabs.length > 0) {
+    await browser.waitUntil(async () => {
+      const runtime = await rendererCall("getEmbeddedRuntimeState");
+      return runtime.windows.some((candidate) => candidate.windowId === window.id)
+        || runtime.savedWindows?.some((candidate) =>
+          candidate.id === window.id && candidate.state !== "restoring"
+        ) === true;
+    }, {
+      timeout: 10_000,
+      timeoutMsg: `Game Window ${window.id} did not finish saved-state projection`
+    });
+  }
+  const runtimeBeforeShow = await rendererCall("getEmbeddedRuntimeState");
+  if (runtimeBeforeShow.windows.some((candidate) => candidate.windowId === window.id)) {
+    await waitForExactRestore();
+    return;
+  }
+  const show = await $(
+    `[data-selection-id='${window.id}'] button[aria-label='Show']`
+  );
   await show.waitForClickable({ timeout: 10_000 });
-  await show.click();
+  await writeChromiumMacroEvidence("chromium-macro-window-show-before.json", {
+    ariaDisabled: await show.getAttribute("aria-disabled"),
+    disabled: await show.getAttribute("disabled"),
+    enabled: await show.isEnabled(),
+    runtime: runtimeBeforeShow,
+    windowId: window.id
+  });
+  await pressVisibleControl(
+    `[data-selection-id='${window.id}'] button[aria-label='Show']`,
+    "Show",
+    "physical",
+    "AXButton"
+  );
+  try {
+    await browser.waitUntil(async () => {
+      const alert = await $("[role='alert']");
+      if (await alert.isExisting() && await alert.isDisplayed()) {
+        throw new Error(`Visible Game Window Show failed: ${await alert.getText()}`);
+      }
+      const runtime = await rendererCall("getEmbeddedRuntimeState");
+      return runtime.windows.some((candidate) => candidate.windowId === window.id);
+    }, {
+      timeout: 20_000,
+      timeoutMsg: `Game Window ${window.id} did not become visibly live`
+    });
+    await waitForExactRestore();
+  } catch (error) {
+    const runtimeAfterShow = await rendererCall("getEmbeddedRuntimeState");
+    await writeChromiumMacroEvidence("chromium-macro-window-show-after.json", {
+      ariaDisabled: await show.getAttribute("aria-disabled"),
+      disabled: await show.getAttribute("disabled"),
+      enabled: await show.isEnabled(),
+      error: error instanceof Error ? error.message : String(error),
+      runtime: runtimeAfterShow,
+      windowId: window.id
+    });
+    throw error;
+  }
 }
 
 export async function launchChromiumRoleVisible(
@@ -462,7 +560,7 @@ export async function launchChromiumRoleVisible(
   const projectionAfter = await rendererEventCursor();
   await pressVisibleControl(
     `[data-testid='quick-access-destination-option-window-${window.id}']`,
-    window.name,
+    undefined,
     "physical"
   );
   let projectionOutcome = "pending";
@@ -540,7 +638,7 @@ export async function launchChromiumWorkspaceVisible(
   const projectionAfter = await rendererEventCursor();
   await pressVisibleControl(
     `[data-testid='quick-access-destination-option-window-${window.id}']`,
-    window.name,
+    undefined,
     "physical"
   );
   const sessions = fixtureIds.map((roleId) => waitFixtureEvent({

@@ -3,9 +3,11 @@ import { createContext, useCallback, useContext, useLayoutEffect, useRef } from 
 import type { ConfirmationOptions } from "./confirmation";
 
 export interface ApplicationQuitBlocker {
+  allowTerminalAction: () => void;
   enabled: boolean;
   locked: boolean;
   options: ConfirmationOptions;
+  restoreAfterTerminalActionFailure: () => void;
 }
 
 export type UpdateApplicationQuitBlocker = (
@@ -36,7 +38,9 @@ export function useGuardedApplicationAction(): RequestGuardedApplicationAction {
 export function useApplicationQuitBlocker(
   enabled: boolean,
   locked: boolean,
-  options: ConfirmationOptions
+  options: ConfirmationOptions,
+  allowTerminalAction: () => void,
+  restoreAfterTerminalActionFailure: () => void
 ): void {
   const guard = useContext(ApplicationQuitGuardContext);
   const idRef = useRef(Symbol("application-quit-blocker"));
@@ -47,7 +51,20 @@ export function useApplicationQuitBlocker(
     }
 
     const id = idRef.current;
-    guard.updateBlocker(id, { enabled, locked, options });
+    guard.updateBlocker(id, {
+      allowTerminalAction,
+      enabled,
+      locked,
+      options,
+      restoreAfterTerminalActionFailure
+    });
     return () => guard.updateBlocker(id, null);
-  }, [enabled, guard, locked, options]);
+  }, [
+    allowTerminalAction,
+    enabled,
+    guard,
+    locked,
+    options,
+    restoreAfterTerminalActionFailure
+  ]);
 }

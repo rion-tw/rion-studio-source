@@ -104,7 +104,9 @@ describe("Chromium zero-tab native host drain", () => {
       "src/electron/main/chromiumRuntimeEffectExecutor.ts",
       "utf8"
     );
-    const tabDrain = source.indexOf("tabIds.map((tabId) => this.#destroyTab(tabId))");
+    const tabDrain = source.indexOf(
+      "for (const tabId of tabIds) await this.#destroyTab(tabId)"
+    );
     const hostDrain = source.indexOf("await drainEmptyChromiumRuntimeHosts(this.#windows)");
     const surfaceDrain = source.indexOf("await this.#input.surfaces.dispose()");
 

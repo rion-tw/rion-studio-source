@@ -996,7 +996,13 @@ export class ChromiumRuntimeBootstrap {
           release: (reservation) =>
             sessions.releaseRoleBrowserDataMaintenanceReservation(reservation)
         },
-        platform: input.platform
+        platform: input.platform,
+        retainedSession: {
+          acquire: (clearInput) =>
+            sessions.acquireRoleBrowserDataMaintenance(clearInput),
+          release: (lease) =>
+            sessions.releaseRoleBrowserDataMaintenance(lease)
+        }
       });
       const globalWebBrowserDataClear =
         new ChromiumGlobalWebBrowserDataClearCoordinator({
@@ -1280,6 +1286,26 @@ export class ChromiumRuntimeBootstrap {
       );
     }
     return this.#executor.snapshot();
+  }
+
+  beginSavedWindowRestore(windowId: string): void {
+    if (this.#state !== "open") {
+      throw bootstrapError(
+        "ELECTRON_CHROMIUM_RUNTIME_DRAINING",
+        "The Chromium runtime cannot begin a saved-window restore while draining."
+      );
+    }
+    this.#executor.beginSavedWindowRestore(windowId);
+  }
+
+  finishSavedWindowRestore(windowId: string): void {
+    if (this.#state !== "open") {
+      throw bootstrapError(
+        "ELECTRON_CHROMIUM_RUNTIME_DRAINING",
+        "The Chromium runtime cannot finish a saved-window restore while draining."
+      );
+    }
+    this.#executor.finishSavedWindowRestore(windowId);
   }
 
   settleCurrentProjection(): Promise<number> {

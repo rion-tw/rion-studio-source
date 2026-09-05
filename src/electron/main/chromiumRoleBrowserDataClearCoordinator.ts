@@ -114,6 +114,7 @@ export interface ChromiumRoleBrowserDataClearCoordinatorInput {
   readonly launcher: ChromiumRoleBrowserDataClearFreshLauncherPort;
   readonly maintenance: ChromiumRoleBrowserDataMaintenanceReservationPort;
   readonly platform: SupportedPlatform;
+  readonly retainedSession: ChromiumRoleBrowserDataMaintenancePort;
 }
 
 interface ClearLane {
@@ -268,6 +269,17 @@ function reservationMatches(
     reservation.chromiumUserDataDir === snapshot.chromiumPath;
 }
 
+function maintenanceLeaseMatches(
+  lease: ChromiumRoleBrowserDataMaintenanceLease,
+  snapshot: ClearSnapshot
+): boolean {
+  return !!lease && typeof lease === "object" &&
+    lease.roleId === snapshot.input.roleId &&
+    lease.operationId === snapshot.input.operationId &&
+    lease.chromiumUserDataDir === snapshot.chromiumPath &&
+    !!lease.session && typeof lease.session === "object";
+}
+
 function promiseLike(value: unknown): value is PromiseLike<unknown> {
   return (
     (typeof value === "object" && value !== null) || typeof value === "function"
@@ -275,10 +287,10 @@ function promiseLike(value: unknown): value is PromiseLike<unknown> {
 }
 
 /**
- * Reserves one exact Rust-owned role path without opening it in the main
- * process. A fixed-mode fresh child performs the all-store clear, cookie flush,
- * empty readback, and Session drain. Success is accepted only after the native
- * launcher observes that exact child exit and pipe EOF.
+ * Reserves one exact Rust-owned role path while a fixed-mode fresh child clears
+ * and drains it. Once that child exits, the main process repeats the clear on
+ * Electron's retained Session identity so a previously used role cannot expose
+ * stale in-process storage. Both native lanes must terminalize before success.
  */
 export class ChromiumRoleBrowserDataClearCoordinator {
   readonly #fresh: ChromiumRoleBrowserDataClearFreshCoordinator;
@@ -361,19 +373,7 @@ export class ChromiumRoleBrowserDataClearCoordinator {
         result = failed(fresh.stableErrorCode);
       } else if (fresh.status === "indeterminate") {
         result = indeterminate(fresh.stableErrorCode);
-      } else {
-        result = Object.freeze({
-          status: "applied",
-          receipt: Object.freeze({
-            roleId: snapshot.input.roleId,
-            operationId: snapshot.input.operationId,
-            clearedStorages: CHROMIUM_ROLE_BROWSER_DATA_STORAGE_TYPES,
-            cookieReadbackCount: 0 as const,
-            evidence:
-              "electron-clear-storage-data-promise-and-cookie-readback" as const
-          })
-        });
-      }
+      } else result = this.#applied(snapshot);
     } catch {
       result = indeterminate(
         "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_EXECUTION_INDETERMINATE"
@@ -401,6 +401,116 @@ export class ChromiumRoleBrowserDataClearCoordinator {
     } catch {
       return indeterminate(
         "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RELEASE_INDETERMINATE"
+      );
+    }
+    if (signal?.aborted && result.status === "applied") {
+      return indeterminate("CHROMIUM_ROLE_BROWSER_DATA_CLEAR_CANCELLED");
+    }
+    return result.status === "applied"
+      ? this.#clearRetainedSession(snapshot, signal)
+      : result;
+  }
+
+  #applied(snapshot: ClearSnapshot): ChromiumRoleBrowserDataClearResult {
+    return Object.freeze({
+      status: "applied",
+      receipt: Object.freeze({
+        roleId: snapshot.input.roleId,
+        operationId: snapshot.input.operationId,
+        clearedStorages: CHROMIUM_ROLE_BROWSER_DATA_STORAGE_TYPES,
+        cookieReadbackCount: 0 as const,
+        evidence:
+          "electron-clear-storage-data-promise-and-cookie-readback" as const
+      })
+    });
+  }
+
+  async #clearRetainedSession(
+    snapshot: ClearSnapshot,
+    signal?: AbortSignal
+  ): Promise<ChromiumRoleBrowserDataClearResult> {
+    let acquisition: ChromiumRoleBrowserDataMaintenanceAcquireResult;
+    try {
+      acquisition = this.#input.retainedSession.acquire({
+        roleId: snapshot.input.roleId,
+        operationId: snapshot.input.operationId,
+        rolePaths: snapshot.input.rolePaths
+      });
+    } catch {
+      return indeterminate(
+        "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_ACQUIRE_INDETERMINATE"
+      );
+    }
+    if (acquisition.status !== "acquired") {
+      return indeterminate(
+        "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_ACQUIRE_INDETERMINATE"
+      );
+    }
+    const { lease } = acquisition;
+    let result: ChromiumRoleBrowserDataClearResult = this.#applied(snapshot);
+    try {
+      if (signal?.aborted || !maintenanceLeaseMatches(lease, snapshot)) {
+        result = indeterminate(signal?.aborted
+          ? "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_CANCELLED"
+          : "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_LEASE_INVALID");
+      } else {
+        const clearing = lease.session.clearStorageData();
+        if (!promiseLike(clearing)) {
+          result = indeterminate(
+            "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_ACK_UNAVAILABLE"
+          );
+        } else {
+          await clearing;
+          const flushing = lease.session.cookies.flushStore();
+          if (!promiseLike(flushing)) {
+            result = indeterminate(
+              "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_FLUSH_UNAVAILABLE"
+            );
+          } else {
+            await flushing;
+            const reading = lease.session.cookies.get({});
+            if (!promiseLike(reading)) {
+              result = indeterminate(
+                "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_READBACK_UNAVAILABLE"
+              );
+            } else {
+              const cookies = await reading;
+              if (!Array.isArray(cookies) || cookies.length !== 0) {
+                result = indeterminate(
+                  "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_READBACK_NONEMPTY"
+                );
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      result = indeterminate(
+        "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_INDETERMINATE"
+      );
+    }
+    let releasePromise: Promise<boolean>;
+    try {
+      releasePromise = this.#input.retainedSession.release(lease);
+    } catch {
+      return indeterminate(
+        "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_RELEASE_INDETERMINATE"
+      );
+    }
+    if (!promiseLike(releasePromise)) {
+      return indeterminate(
+        "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_RELEASE_INDETERMINATE"
+      );
+    }
+    try {
+      if (await releasePromise !== true) {
+        return indeterminate(
+          "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_RELEASE_INDETERMINATE"
+        );
+      }
+    } catch {
+      return indeterminate(
+        "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_RELEASE_INDETERMINATE"
       );
     }
     if (signal?.aborted && result.status === "applied") {

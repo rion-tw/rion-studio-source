@@ -204,13 +204,19 @@ export async function restartChromiumMacroTopologyCutover(): Promise<void> {
   const singleMacro = requireNamed(macros, NAMES.singleMacro);
   const workspaceB = requireNamed(workspaces, NAMES.workspaceB);
   const window = requireNamed(windows, NAMES.window);
+  const persistedTab = window.tabs.find((tab) => tab.sourceId === workspaceB.id);
+  if (!persistedTab || persistedTab.tabType !== "workspace") {
+    throw new Error("Persisted Chromium Macro Workspace B tab is unavailable");
+  }
+  expect(window.activeTabId).toBe(persistedTab.id);
   await showChromiumMacroWindow(window);
-  const tab = await launchChromiumWorkspaceVisible(workspaceB, [SHARED_FIXTURE], window);
+  const tab = { role: shared, tabId: persistedTab.id, windowId: window.id };
   const binding = await expectChromiumNativeRoleBinding(context, {
     role: shared,
     tabId: tab.tabId,
     windowId: tab.windowId
   });
+  await waitForChromiumMacroRoleReady(shared.id);
   const fixtureAfter = await fixtureCursor();
   await startChromiumMacroVisible(singleMacro, [shared.id]);
   const key = await waitFixtureEvent({

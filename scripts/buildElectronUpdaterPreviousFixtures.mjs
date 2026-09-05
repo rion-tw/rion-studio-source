@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { appendFile } from "node:fs/promises";
+import {
+  appendFile,
+  lstat,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -16,9 +24,11 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
   if (
     environment.CI !== "true" ||
     environment.GITHUB_ACTIONS !== "true" ||
-    process.platform !== "win32"
+    (process.platform !== "darwin" && process.platform !== "win32")
   ) {
-    throw new Error("Previous Electron updater fixtures are restricted to Windows GitHub CI.");
+    throw new Error(
+      "Previous updater fixtures are restricted to macOS or Windows GitHub CI."
+    );
   }
   const fixtureRoot = requiredAbsolutePath(
     environment.RION_UPDATER_CI_FIXTURE_ROOT,
@@ -38,6 +48,15 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
     priorV23Version,
     "Electron target application version"
   );
+  if (process.platform === "darwin") {
+    return buildMacosTauriV22Fixture({
+      environment,
+      fixtureRoot,
+      githubEnvironment,
+      priorV23Version,
+      targetVersion
+    });
+  }
   const installers = {};
   for (const [label, version] of [["V23", priorV23Version]]) {
     const output = join(fixtureRoot, `previous-${version}`);
@@ -72,6 +91,132 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
     { encoding: "utf8", mode: 0o600 }
   );
   return installers;
+}
+
+async function buildMacosTauriV22Fixture({
+  environment,
+  fixtureRoot,
+  githubEnvironment,
+  priorV23Version,
+  targetVersion
+}) {
+  const tauriV22Version = requiredSemanticVersion(
+    environment.RION_UPDATER_TAURI_V22_VERSION,
+    "RION_UPDATER_TAURI_V22_VERSION"
+  );
+  assertSemanticVersionIsNewer(
+    priorV23Version,
+    tauriV22Version,
+    "Prior Electron v23 application version"
+  );
+  assertSemanticVersionIsNewer(
+    targetVersion,
+    tauriV22Version,
+    "Electron target application version"
+  );
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "rion-tauri-v22-updater-fixture-")
+  );
+  const configPath = join(temporaryDirectory, "tauri.fixture.json");
+  const cargoTargetDirectory = join(fixtureRoot, "tauri-v22-target");
+  const application = join(
+    cargoTargetDirectory,
+    "release/bundle/macos/Rion Studio.app"
+  );
+  const buildEnvironment = {
+    ...environment,
+    CARGO_TARGET_DIR: cargoTargetDirectory
+  };
+  for (const name of [
+    "APPLE_API_ISSUER",
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_PATH",
+    "APPLE_ID",
+    "APPLE_PASSWORD",
+    "APPLE_SIGNING_IDENTITY",
+    "APPLE_TEAM_ID",
+    "TAURI_SIGNING_PRIVATE_KEY",
+    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
+    "TAURI_SIGNING_PRIVATE_KEY_PATH"
+  ]) {
+    delete buildEnvironment[name];
+  }
+  await writeFile(configPath, JSON.stringify({
+    bundle: {
+      createUpdaterArtifacts: false,
+      macOS: { signingIdentity: "-" }
+    },
+    version: tauriV22Version
+  }), { encoding: "utf8", mode: 0o600 });
+  try {
+    await execFileAsync("pnpm", [
+      "exec",
+      "tauri",
+      "build",
+      "--config",
+      configPath,
+      "--bundles",
+      "app"
+    ], {
+      cwd: resolve("."),
+      env: buildEnvironment,
+      maxBuffer: 64 * 1024 * 1024
+    });
+  } finally {
+    await rm(temporaryDirectory, { force: true, recursive: true });
+  }
+  await verifyTauriV22Application(application, tauriV22Version);
+  await appendFile(
+    githubEnvironment,
+    `RION_UPDATER_PROBE_PREVIOUS_APP=${application}\n` +
+      `RION_UPDATER_PROBE_PREVIOUS_VERSIONS=${tauriV22Version},${priorV23Version}\n`,
+    { encoding: "utf8", mode: 0o600 }
+  );
+  return { APP: application };
+}
+
+async function verifyTauriV22Application(application, expectedVersion) {
+  const applicationStat = await lstat(application);
+  if (!applicationStat.isDirectory() || applicationStat.isSymbolicLink()) {
+    throw new Error("The previous Tauri v22 updater fixture must be a real app directory.");
+  }
+  if (await realpath(application) !== resolve(application)) {
+    throw new Error("The previous Tauri v22 updater fixture must use its canonical path.");
+  }
+  const executable = join(application, "Contents/MacOS/rion-tauri");
+  const executableStat = await lstat(executable);
+  if (!executableStat.isFile() || (executableStat.mode & 0o111) === 0) {
+    throw new Error("The previous Tauri v22 updater fixture executable is invalid.");
+  }
+  try {
+    await lstat(join(application, "Contents/Resources/app.asar"));
+    throw new Error("The previous Tauri v22 updater fixture must not contain Electron app.asar.");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const plistPath = join(application, "Contents/Info.plist");
+  const [shortVersion, bundleVersion] = await Promise.all([
+    readPlistValue(plistPath, "CFBundleShortVersionString"),
+    readPlistValue(plistPath, "CFBundleVersion")
+  ]);
+  if (shortVersion !== expectedVersion || bundleVersion !== expectedVersion) {
+    throw new Error("The previous Tauri v22 updater fixture version is invalid.");
+  }
+  await execFileAsync("/usr/bin/codesign", [
+    "--verify",
+    "--deep",
+    "--strict",
+    application
+  ]);
+}
+
+async function readPlistValue(plistPath, key) {
+  const { stdout } = await execFileAsync("/usr/libexec/PlistBuddy", [
+    "-c",
+    `Print :${key}`,
+    plistPath
+  ], { encoding: "utf8" });
+  return stdout.trim();
 }
 
 function requiredAbsolutePath(value, name) {

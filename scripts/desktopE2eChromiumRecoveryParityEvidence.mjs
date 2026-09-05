@@ -283,13 +283,15 @@ async function validateWindowSqlite({ entities, phase, phaseDirectory, settings 
   }
   const session = settings.find(({ key }) => key === "runtimeRestoreSession")?.payload;
   const dormant = phase === "chromium-window-recovery-discard";
-  const liveWindowIds = dormant ? [] : lifecycle.windows.map(({ windowId }) => windowId);
+  const liveWindowIds = dormant
+    ? []
+    : lifecycle.windows.map(({ windowId }) => windowId).sort();
   requireSessionJournal(session, phase, {
     cleanExit: !new Set([
       "chromium-window-recovery-force",
       "chromium-window-recovery-restore-force"
     ]).has(phase),
-    lastFocusedWindowId: dormant ? null : lifecycle.windows.at(-1).windowId,
+    lastFocusedWindowId: dormant ? undefined : lifecycle.windows.at(-1).windowId,
     liveWindowIds
   });
   return {

@@ -98,6 +98,8 @@ import { ElectronDesktopE2eAppKitTabMenuRuntimeObserver } from
   "./appKitTabMenuRuntimeObserver";
 import { readElectronDesktopE2eRoleSessionMigration } from
   "./roleSessionMigrationInspection";
+import { installElectronDesktopE2eSavedWindowRestoreObserver } from
+  "./savedWindowRestoreDiagnosticsObserver";
 import {
   installElectronDesktopE2eNativeAttachmentLifecycleObserver,
   installElectronDesktopE2eRoleSurfaceLifecycleObserver
@@ -1613,6 +1615,7 @@ installElectronDesktopE2eWorkspaceWebObserver();
 installElectronDesktopE2eNativeWindowControlObserver();
 installElectronDesktopE2ePopupLifecycleObserver();
 installElectronDesktopE2eRolePlaceholderObserver();
+installElectronDesktopE2eSavedWindowRestoreObserver();
 applicationShortcutRuntimeObserver.install();
 runtimeTabReloadObserver.install();
 appKitTabMenuRuntimeObserver.install();

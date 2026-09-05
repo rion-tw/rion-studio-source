@@ -122,7 +122,9 @@ function validWebOnlyObservation(observation, platform) {
     web.contentProfilePath.replaceAll("\\", "/").toLowerCase()
       .endsWith("/web-profiles/global-web/chromium") &&
     web.chromeShellUrl.endsWith("/runtime-web-chrome-electron.html") &&
-    expectedUrl(web.contentUrl, "chromium-workspace-web-only") &&
+    (expectedUrl(web.contentUrl, "chromium-workspace-web-only") ||
+      observation.phase === "degraded" &&
+      web.contentUrl === "http://127.0.0.1:1/rion-navigation-failure") &&
     web.isolatedSessions === true && web.visible === true &&
     web.chromeVisible === true && web.contentVisible === true &&
     web.containedFullscreen === false && web.containedFullscreenRevision === 0 &&

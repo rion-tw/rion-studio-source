@@ -3,7 +3,6 @@ import type {
   CoreCommand,
   CoreCommandResult,
   RuntimeRestoreSessionRecord,
-  RuntimeRestoreWindowRecord,
   StateGameWindowRecord
 } from "../../shared/generated";
 import type {
@@ -35,34 +34,6 @@ export interface ChromiumSavedWindowRestoreControllerInput {
 
 function restoreError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
-}
-
-function restoreWindow(window: StateGameWindowRecord): RuntimeRestoreWindowRecord {
-  return {
-    id: window.id,
-    targetDisplay: structuredClone(window.targetDisplay),
-    wasVisible: true,
-    ...(window.activeTabId === undefined
-      ? {}
-      : {
-          activeSourceId: window.tabs.find(
-            (tab) => tab.id === window.activeTabId
-          )?.sourceId
-        }),
-    tabs: window.tabs.map((tab) => ({
-      tabType: tab.tabType,
-      sourceId: tab.sourceId,
-      name: tab.name,
-      roleIds: [...new Set([
-        ...tab.roleSlots.map((slot) => slot.roleId),
-        ...(tab.workspaceSlots ?? []).flatMap(
-          (slot) => slot.roleId === undefined ? [] : [slot.roleId]
-        )
-      ])],
-      hidden: tab.hidden,
-      audioMuted: tab.audioMuted
-    }))
-  };
 }
 
 /** Persists restore progress before each event-bound native hydration step. */
@@ -110,25 +81,30 @@ implements ChromiumSavedWindowActionPort {
 
   discard(input: DiscardSavedGameWindowsInput): Promise<void> {
     return this.#enqueue(async () => {
-      const session = await this.#input.restoreSession.inspect();
-      const discarded = input.scope === "all"
-        ? new Set((session.windows ?? []).map((window) => window.id))
-        : new Set([input.windowId]);
-      await this.#input.restoreSession.mutate((current) => ({
-        lastFocusedWindowId: current.lastFocusedWindowId !== undefined &&
-          discarded.has(current.lastFocusedWindowId)
-          ? undefined
-          : current.lastFocusedWindowId,
-        restoreInProgressWindowIds: current.restoreInProgressWindowIds.filter(
-          (windowId) => !discarded.has(windowId)
-        ),
-        liveWindowIds: (current.liveWindowIds ?? []).filter(
-          (windowId) => !discarded.has(windowId)
-        ),
-        windows: (current.windows ?? []).filter(
-          (window) => !discarded.has(window.id)
-        )
-      }));
+      await this.#input.restoreSession.mutate((current) => {
+        const discarded = input.scope === "all"
+          ? new Set([
+              ...(current.windows ?? []).map((window) => window.id),
+              ...(current.liveWindowIds ?? []),
+              ...current.restoreInProgressWindowIds
+            ])
+          : new Set([input.windowId]);
+        return {
+          lastFocusedWindowId: current.lastFocusedWindowId !== undefined &&
+            discarded.has(current.lastFocusedWindowId)
+            ? undefined
+            : current.lastFocusedWindowId,
+          restoreInProgressWindowIds: current.restoreInProgressWindowIds.filter(
+            (windowId) => !discarded.has(windowId)
+          ),
+          liveWindowIds: (current.liveWindowIds ?? []).filter(
+            (windowId) => !discarded.has(windowId)
+          ),
+          windows: (current.windows ?? []).filter(
+            (window) => !discarded.has(window.id)
+          )
+        };
+      });
     });
   }
 
@@ -189,12 +165,34 @@ implements ChromiumSavedWindowActionPort {
       return [exact];
     }
     if (input.scope === "all") return saved;
-    const visible = new Set(session.schemaVersion >= 2
-      ? (session.liveWindowIds ?? [])
+    const visible = new Set(session.liveWindowIds !== undefined
+      ? session.liveWindowIds
       : (session.windows ?? [])
           .filter((window) => window.wasVisible)
           .map((window) => window.id));
+    for (const windowId of session.restoreInProgressWindowIds) {
+      visible.add(windowId);
+    }
+    if (
+      session.cleanExit === false && session.liveWindowIds === undefined &&
+      (session.windows ?? []).length === 0
+    ) {
+      for (const window of saved) visible.add(window.id);
+    }
     const preferred = session.lastFocusedWindowId;
+    const recovery = session.cleanExit === false
+      ? saved.filter((window) => visible.has(window.id))
+      : [];
+    if (recovery.length > 0) {
+      const focusIndex = preferred === undefined
+        ? -1
+        : recovery.findIndex((window) => window.id === preferred);
+      if (focusIndex >= 0) {
+        const [focused] = recovery.splice(focusIndex, 1);
+        recovery.push(focused!);
+      }
+      return recovery;
+    }
     const selected = preferred && visible.has(preferred)
       ? saved.find((window) => window.id === preferred)
       : saved.find((window) => visible.has(window.id));
@@ -206,14 +204,14 @@ implements ChromiumSavedWindowActionPort {
     window: StateGameWindowRecord
   ): Promise<void> {
     await this.#input.restoreSession.mutate((current) => {
-      const windows = (current.windows ?? []).filter(
-        (candidate) => candidate.id !== window.id
-      );
-      windows.push(restoreWindow(window));
       return {
         cleanExit: false,
         lastFocusedWindowId: current.lastFocusedWindowId ?? prior.lastFocusedWindowId,
-        windows,
+        // Schema v2 restores from authoritative GameWindow state. The legacy
+        // snapshot field cannot represent two tabs that legitimately share a
+        // role, so retaining it would let Core normalization alter the receipt
+        // before native hydration begins.
+        windows: [],
         restoreInProgressWindowIds: [
           ...new Set([...current.restoreInProgressWindowIds, window.id])
         ]

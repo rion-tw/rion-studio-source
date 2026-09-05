@@ -57,7 +57,8 @@ export interface RawNodeApiCoreBinding {
   launchChromeProfileImportHelperInternal: (
     metadataBytes: Buffer,
     secretBytes: Buffer,
-    cancellationId?: string
+    cancellationId?: string,
+    helperApplicationPath?: string
   ) => Promise<RawChromeProfileImportHelperProcessResultInternal>;
   cancelChromeProfileImportHelperInternal?: (cancellationId: string) => boolean;
   beginRoleBrowserDataClearCommandDrain: () => void;
@@ -223,6 +224,10 @@ export interface CoreAddonClientObserver {
   onEventBridgeError?: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
 }
 
+export interface CoreAddonClientRuntimeOptions {
+  readonly helperApplicationPath?: string;
+}
+
 export interface CoreEventStreamFailure {
   readonly type: "eventStreamFailure";
   readonly error: CoreErrorPayload;
@@ -279,23 +284,34 @@ export class CoreAddonClient {
     (failure: CoreEventStreamFailure) => void
   >();
   readonly #observer: CoreAddonClientObserver;
+  readonly #runtimeOptions: CoreAddonClientRuntimeOptions;
   #eventBridgeStarted = false;
   #eventBridgeTerminal: "open" | "shutdown" | "failed" = "open";
   #eventBridgeFailure: CoreErrorPayload | null = null;
   #shutdownPromise: Promise<void> | null = null;
 
-  private constructor(binding: RawNodeApiCoreBinding, observer: CoreAddonClientObserver) {
+  private constructor(
+    binding: RawNodeApiCoreBinding,
+    observer: CoreAddonClientObserver,
+    runtimeOptions: CoreAddonClientRuntimeOptions
+  ) {
     this.#binding = binding;
     this.#observer = observer;
+    this.#runtimeOptions = runtimeOptions;
   }
 
   static async create<Options>(
     factory: RawNodeApiCoreFactory<Options>,
     options: Options,
-    observer: CoreAddonClientObserver = {}
+    observer: CoreAddonClientObserver = {},
+    runtimeOptions: CoreAddonClientRuntimeOptions = {}
   ): Promise<CoreAddonClient> {
     try {
-      return new CoreAddonClient(await factory.createAppCore(options), observer);
+      return new CoreAddonClient(
+        await factory.createAppCore(options),
+        observer,
+        runtimeOptions
+      );
     } catch (error) {
       rethrowStructuredCoreError(error);
     }
@@ -557,7 +573,8 @@ export class CoreAddonClient {
       launch = this.#binding.launchChromeProfileImportHelperInternal(
         ownedMetadata,
         ownedSecret,
-        cancellationId
+        cancellationId,
+        this.#runtimeOptions.helperApplicationPath
       );
     } catch (error) {
       if (onAbort) signal!.removeEventListener("abort", onAbort);

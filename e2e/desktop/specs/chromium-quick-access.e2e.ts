@@ -9,7 +9,10 @@ import {
 import { submitElectronRolePageQuickAccessShortcut } from
   "../support/electron-role-surface";
 import { fixtureCursor, fixtureEvents } from "../support/fixture";
-import { pressVisibleMacosApplicationShortcut } from
+import {
+  focusVisibleMacosAppKitRuntime,
+  pressVisibleMacosApplicationShortcut
+} from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
 import {
@@ -131,6 +134,17 @@ async function openManagedPageQuickAccess(
 ): Promise<number> {
   const afterSequence = await fixtureCursor();
   if (platform() === "macos") {
+    const runtime = (await readRuntime(role)).currentRuntime;
+    if (!runtime) {
+      throw new Error(`Role ${role.id} has no visible AppKit runtime to focus`);
+    }
+    // ChromeDriver's launcher-side diagnostic read can make the launcher main.
+    // Restore the exact Core-projected AppKit host before the physical shortcut.
+    await focusVisibleMacosAppKitRuntime({
+      processId,
+      runtimeTabName: role.name,
+      windowId: runtime.windowId
+    });
     await pressVisibleMacosApplicationShortcut({
       command: "quickAccess",
       processId,

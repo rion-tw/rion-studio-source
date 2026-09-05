@@ -309,10 +309,10 @@ async function forcePhase(input: Readonly<{
   await showWindow(lifecycle.windowId);
   await waitExactRuntime(lifecycle);
   await Promise.all([
+    waitSession(cursor, ROLE_TAB_FIXTURE, MARKERS.roleTab, true),
     waitSession(cursor, ROLE_WORKSPACE_FIXTURE, MARKERS.roleWorkspace, true),
     waitSession(cursor, WEB_FIXTURE, MARKERS.web, true)
   ]);
-  const roleCursor = await fixtureCursor();
   await activateTab({
     mainWindowHandle: input.mainWindowHandle,
     name: ROLE_TAB_NAME,
@@ -320,7 +320,6 @@ async function forcePhase(input: Readonly<{
     tabId: lifecycle.roleTab.tabId,
     windowId: lifecycle.windowId
   });
-  await waitSession(roleCursor, ROLE_TAB_FIXTURE, MARKERS.roleTab, true);
   await activateTab({
     mainWindowHandle: input.mainWindowHandle,
     name: WORKSPACE_NAME,
@@ -342,10 +341,11 @@ async function restorePhase(input: Readonly<{
   await navigate("/dashboard");
   const awaiting = await rendererCall("getEmbeddedRuntimeState");
   expect(awaiting.recovery).toEqual(expect.objectContaining({
-    interruptedWindowIds: [lifecycle.windowId],
+    reason: "unclean-exit",
     tabCount: 2,
     windowCount: 1
   }));
+  expect(awaiting.recovery?.interruptedWindowIds).toBeUndefined();
   expect(awaiting.savedWindows?.find(({ id }) => id === lifecycle.windowId)?.state)
     .toBe("awaiting-recovery");
   const cursor = await fixtureCursor();
@@ -354,10 +354,10 @@ async function restorePhase(input: Readonly<{
   await restore.click();
   await waitExactRuntime(lifecycle);
   await Promise.all([
+    waitSession(cursor, ROLE_TAB_FIXTURE, MARKERS.roleTab, true),
     waitSession(cursor, ROLE_WORKSPACE_FIXTURE, MARKERS.roleWorkspace, true),
     waitSession(cursor, WEB_FIXTURE, MARKERS.web, true)
   ]);
-  const roleCursor = await fixtureCursor();
   await activateTab({
     mainWindowHandle: input.mainWindowHandle,
     name: ROLE_TAB_NAME,
@@ -365,7 +365,6 @@ async function restorePhase(input: Readonly<{
     tabId: lifecycle.roleTab.tabId,
     windowId: lifecycle.windowId
   });
-  await waitSession(roleCursor, ROLE_TAB_FIXTURE, MARKERS.roleTab, true);
   await activateTab({
     mainWindowHandle: input.mainWindowHandle,
     name: WORKSPACE_NAME,

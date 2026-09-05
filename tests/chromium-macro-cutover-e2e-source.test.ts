@@ -97,6 +97,15 @@ describe("Chromium Macro paired cutover E2E source", () => {
       "clickVisibleElectronRolePageButton",
       "clickVisibleElectronPageElementWithPointer",
       "clickMacosVisibleRoleControl",
+      "Visible Game Window Show failed",
+      "chromium-macro-window-show-before.json",
+      "chromium-macro-window-show-after.json",
+      "[data-selection-id='${window.id}'] button[aria-label='Show']",
+      '"physical",',
+      '"AXButton"',
+      "CFEqual($0, element)",
+      "kAXFocusedAttribute",
+      "launcherRoots[0]",
       "completeVisibleElectronRoleVerification",
       "submitElectronRoleKeyPhases",
       "submitElectronRoleMiddleButtonPhase",
@@ -128,6 +137,21 @@ describe("Chromium Macro paired cutover E2E source", () => {
     ]) {
       expect(support).toContain(displayFingerprintField);
     }
+    expect(support).toContain("let launcherRoots = roots.filter");
+    expect(support).toContain("launcherRoots.count == 1");
+    expect(support).toContain("await control.getComputedLabel()");
+    expect(support).toContain(
+      "useAccessibilityAction || elementRole == physicalRole"
+    );
+    const topologyRestart = topology.slice(
+      topology.indexOf("export async function restartChromiumMacroTopologyCutover"),
+      topology.length
+    );
+    expect(topologyRestart).toContain(
+      "window.tabs.find((tab) => tab.sourceId === workspaceB.id)"
+    );
+    expect(topologyRestart).toContain("expect(window.activeTabId).toBe(persistedTab.id)");
+    expect(topologyRestart).not.toContain("launchChromiumWorkspaceVisible(");
     expect(evidence).toContain("chromium-windows-trusted-input-physical");
     expect(evidence).toContain(
       'candidateEvidence === "foreground-and-hidden-product-path"'

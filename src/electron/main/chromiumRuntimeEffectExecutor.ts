@@ -115,6 +115,7 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #rolePaths = new Map<string, RolePathsRecord>();
   readonly #lastGenerationByRole = new Map<string, number>();
   readonly #lastGenerationByWebSurface = new Map<string, number>();
+  readonly #savedWindowRestorePresentations = new Set<string>();
   readonly #ownershipTransitions: ChromiumRuntimeOwnershipTransitionCoordinator;
   #state: ExecutorState = "open";
   #disposePromise: Promise<void> | null = null;
@@ -205,6 +206,44 @@ export class ChromiumRuntimeEffectExecutor {
 
   desktopE2eStatusPresentation(windowId: string): number | undefined {
     return this.#windows.get(windowId)?.host.desktopE2eStatusPresentation?.(); }
+
+  beginSavedWindowRestore(windowId: string): void {
+    requireIdentifier(windowId, "saved-window restore");
+    if (this.#state !== "open") {
+      throw runtimeError(
+        "ELECTRON_CHROMIUM_RUNTIME_DRAINING",
+        "The Chromium runtime cannot begin a saved-window restore while draining."
+      );
+    }
+    this.#savedWindowRestorePresentations.add(windowId);
+  }
+
+  finishSavedWindowRestore(windowId: string): void {
+    requireIdentifier(windowId, "saved-window restore");
+    if (
+      this.#state !== "open" ||
+      !this.#savedWindowRestorePresentations.has(windowId)
+    ) {
+      throw runtimeError(
+        "ELECTRON_CHROMIUM_RESTORE_PRESENTATION_STALE",
+        "The saved-window restore presentation is no longer current."
+      );
+    }
+    const windowRecord = this.#windows.get(windowId);
+    if (!windowRecord || windowRecord.host.isDestroyed()) {
+      throw runtimeError(
+        "ELECTRON_CHROMIUM_RESTORE_PRESENTATION_STALE",
+        "The restored Game Window has no exact native host to reveal."
+      );
+    }
+    this.#savedWindowRestorePresentations.delete(windowId);
+    try {
+      this.#revealLoadedWindow(windowRecord);
+    } catch (error) {
+      this.#savedWindowRestorePresentations.add(windowId);
+      throw error;
+    }
+  }
   async commitTerminalRoleOwnership(
     projectedRoles: readonly BrowserRuntimeRoleRecord[]
   ): Promise<void> {
@@ -476,10 +515,18 @@ export class ChromiumRuntimeEffectExecutor {
     if (this.#disposePromise) return this.#disposePromise;
     if (this.#state === "disposed") return Promise.resolve();
     this.#state = "draining";
+    this.#savedWindowRestorePresentations.clear();
     this.#ownershipTransitions.close("actorStop");
-    const tabIds = [...this.#tabs.keys()];
+    const windowTabCohorts = [...this.#windows.values()].map(
+      (window) => [...window.tabIds]
+    );
     this.#disposePromise = Promise.allSettled(
-      tabIds.map((tabId) => this.#destroyTab(tabId))
+      windowTabCohorts.map(async (tabIds) => {
+        // Tabs sharing one native host must drain in order. Parallel destruction
+        // can resume a placeholder-layout projection after a sibling has closed
+        // the AppKit/Win32 host and invalidate its exact generation fence.
+        for (const tabId of tabIds) await this.#destroyTab(tabId);
+      })
     ).then(async (results) => {
       const failure = results.find(
         (result): result is PromiseRejectedResult => result.status === "rejected"
@@ -1543,6 +1590,10 @@ export class ChromiumRuntimeEffectExecutor {
   }
 
   #revealLoadedWindow(windowRecord: RuntimeWindowRecord): void {
+    if (this.#savedWindowRestorePresentations.has(windowRecord.host.logicalWindowId)) {
+      this.#applyWindowVisibility(windowRecord);
+      return;
+    }
     if (!windowRecord.host.isVisible()) windowRecord.host.show();
     if (!windowRecord.host.isVisible()) {
       throw runtimeError(

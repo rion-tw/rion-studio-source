@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 import {
+  MACOS_RETAINED_APPKIT_HANDLERS,
   parsePackagedScreenRectangle,
   runPackagedCoreOperation,
   validatePackagedPngArtifact
@@ -117,15 +118,11 @@ describe("packaged Electron smoke isolation", () => {
 
   const macosIt = process.platform === "darwin" ? it : it.skip;
   macosIt("compiles the retained AppKit accessibility identity probe", async () => {
-    const source = await readFile("scripts/packagedElectronBlackBox.mjs", "utf8");
-    const handlers = /const MACOS_RETAINED_APPKIT_HANDLERS = String\.raw`([\s\S]*?)`;/u
-      .exec(source)?.[1];
-    if (!handlers) throw new Error("The retained AppKit probe source is unavailable.");
     const directory = await mkdtemp(join(tmpdir(), "rion-appkit-probe-"));
     try {
       await executeFile("/usr/bin/osacompile", [
         "-e",
-        `${handlers}\non run argv\nreturn true\nend run`,
+        `${MACOS_RETAINED_APPKIT_HANDLERS}\non run argv\nreturn true\nend run`,
         "-o",
         join(directory, "probe.scpt")
       ]);
@@ -213,6 +210,7 @@ describe("packaged Electron smoke isolation", () => {
     expect(runner).not.toContain("RION_STUDIO_E2E_SESSION_TOKEN:");
     expect(runner).toContain("createPackagedElectronRuntimeEnvironment");
     expect(runner).toContain("seedPackagedElectronRole");
+    expect(runner).toContain('["--force-renderer-accessibility"]');
     expect(runner).toContain("launchRoleThroughNativeInput");
     expect(runner).toContain("pressPackagedRoleContent");
     expect(runner).toContain("packagedElectronSpawnOptions");
@@ -242,7 +240,15 @@ describe("packaged Electron smoke isolation", () => {
       .toBeLessThan(runner.indexOf("await writePassedReport"));
     expect(runner.lastIndexOf("await assertPackagedRuntimeUnchanged"))
       .toBeLessThan(runner.indexOf("await writePassedReport"));
-    expect(blackBox).toContain('keystroke "k" using command down');
+    expect(blackBox).toContain("key code 40 using command down");
+    expect(blackBox).toContain("set value of quickAccessCombo to roleName");
+    expect(blackBox).toContain("key code 36");
+    expect(blackBox).toContain("key code 12 using command down");
+    expect(blackBox).toContain("roleWindowCount is 1 then return");
+    expect(blackBox).toContain('perform action "AXRaise" of appWindow');
+    expect(blackBox).toContain("rionDescendants(appWindow)");
+    expect(blackBox).toContain("candidateDescription ends with roleName");
+    expect(blackBox).not.toContain("entire contents of appWindow");
     expect(blackBox).toContain("System.Windows.Automation.InvokePattern");
     expect(blackBox).toContain("runEncodedPowerShellJson");
     expect(blackBox).not.toContain('"-Command"');
@@ -260,6 +266,7 @@ describe("packaged Electron smoke isolation", () => {
     expect(blackBox).toContain("com.rionstudio.runtime.appkit-window.v1:");
     expect(blackBox).toContain("com.rionstudio.runtime.appkit-tab.v1:");
     expect(blackBox).toContain("com.rionstudio.runtime.appkit-tab-group.v1");
+    expect(blackBox).toContain('role of tabScrollArea is "AXScrollArea"');
     expect(blackBox).toContain("com.rionstudio.runtime.appkit-root.v1");
     expect(blackBox.match(/rionIsRetainedAppKitRoleWindow\(/gu))
       .toHaveLength(5);

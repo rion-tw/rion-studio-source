@@ -42,6 +42,7 @@ describe("Chromium Quick Access exact replacement source", () => {
       "CHROMIUM-WINDOWS-QUICK-ACCESS-015",
       "[data-testid='quick-access-trigger']",
       "submitElectronRolePageQuickAccessShortcut",
+      "focusVisibleMacosAppKitRuntime",
       "pressVisibleMacosApplicationShortcut",
       "fixtureEvents",
       "Key.Command",
@@ -57,6 +58,8 @@ describe("Chromium Quick Access exact replacement source", () => {
     expect(spec).not.toContain('rendererCall("setQuickAccessPinned"');
     expect(spec).not.toContain('rendererCall("recordQuickAccessUse"');
     expect(spec).not.toContain('rendererCall("clearQuickAccessRecent"');
+    expect(spec.indexOf("focusVisibleMacosAppKitRuntime({"))
+      .toBeLessThan(spec.indexOf("pressVisibleMacosApplicationShortcut({"));
   });
 
   it("keeps separate macOS AppKit and Windows replacement verdicts", async () => {

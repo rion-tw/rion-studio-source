@@ -14,7 +14,65 @@ const execFileAsync = promisify(execFile);
 const UI_ACTION_DEADLINE_MS = 35_000;
 const MAX_SCREENSHOT_BYTES = 64 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-const MACOS_RETAINED_APPKIT_HANDLERS = String.raw`
+export const MACOS_ACCESSIBILITY_TRAVERSAL_HANDLERS = String.raw`
+on rionDescendants(rootElement)
+  tell application "System Events"
+    set pendingElements to {rootElement}
+    set collectedElements to {}
+    set currentIndex to 1
+    repeat while currentIndex is less than or equal to (count of pendingElements)
+      set currentElement to contents of item currentIndex of pendingElements
+      set currentIndex to currentIndex + 1
+      try
+        set childElements to get UI elements of currentElement
+      on error
+        set childElements to {}
+      end try
+      repeat with childReference in childElements
+        set childElement to contents of childReference
+        set end of collectedElements to childElement
+        set end of pendingElements to childElement
+        if (count of collectedElements) is greater than 5000 then ¬
+          error "bounded accessibility traversal exceeded"
+      end repeat
+    end repeat
+    return collectedElements
+  end tell
+end rionDescendants
+
+on rionFindButton(rootElement, buttonName)
+  tell application "System Events"
+    set pendingElements to {rootElement}
+    set currentIndex to 1
+    set visitedCount to 0
+    repeat while currentIndex is less than or equal to (count of pendingElements)
+      set currentElement to contents of item currentIndex of pendingElements
+      set currentIndex to currentIndex + 1
+      set visitedCount to visitedCount + 1
+      if visitedCount is greater than 5000 then ¬
+        error "bounded accessibility button search exceeded"
+      try
+        if role of currentElement is "AXButton" and ¬
+            (name of currentElement is buttonName or ¬
+              description of currentElement is buttonName) then ¬
+          return currentElement
+      end try
+      try
+        set childElements to get UI elements of currentElement
+      on error
+        set childElements to {}
+      end try
+      repeat with childReference in childElements
+        set end of pendingElements to contents of childReference
+      end repeat
+    end repeat
+    return missing value
+  end tell
+end rionFindButton
+`;
+export const MACOS_RETAINED_APPKIT_HANDLERS = [
+  MACOS_ACCESSIBILITY_TRAVERSAL_HANDLERS,
+  String.raw`
 on rionAccessibilityIdentifier(targetElement)
   tell application "System Events"
     try
@@ -29,7 +87,15 @@ on rionIsRetainedAppKitRoleWindow(appWindow, roleName)
   tell application "System Events"
     if not ((my rionAccessibilityIdentifier(appWindow)) starts with ¬
         "com.rionstudio.runtime.appkit-window.v1:") then return false
-    repeat with candidate in entire contents of appWindow
+    set pendingElements to {appWindow}
+    set currentIndex to 1
+    set visitedCount to 0
+    repeat while currentIndex is less than or equal to (count of pendingElements)
+      set candidate to contents of item currentIndex of pendingElements
+      set currentIndex to currentIndex + 1
+      set visitedCount to visitedCount + 1
+      if visitedCount is greater than 5000 then ¬
+        error "bounded retained AppKit identity search exceeded"
       try
         if role of candidate is "AXRadioButton" and ¬
             description of candidate is roleName and ¬
@@ -39,18 +105,30 @@ on rionIsRetainedAppKitRoleWindow(appWindow, roleName)
           if role of tabGroup is "AXTabGroup" and ¬
               (my rionAccessibilityIdentifier(tabGroup)) is ¬
                 "com.rionstudio.runtime.appkit-tab-group.v1" then
-            set appKitRoot to value of attribute "AXParent" of tabGroup
-            if role of appKitRoot is "AXGroup" and ¬
-                (my rionAccessibilityIdentifier(appKitRoot)) is ¬
-                  "com.rionstudio.runtime.appkit-root.v1" then return true
+            set tabScrollArea to value of attribute "AXParent" of tabGroup
+            if role of tabScrollArea is "AXScrollArea" then
+              set appKitRoot to value of attribute "AXParent" of tabScrollArea
+              if role of appKitRoot is "AXGroup" and ¬
+                  (my rionAccessibilityIdentifier(appKitRoot)) is ¬
+                    "com.rionstudio.runtime.appkit-root.v1" then return true
+            end if
           end if
         end if
       end try
+      try
+        set childElements to get UI elements of candidate
+      on error
+        set childElements to {}
+      end try
+      repeat with childReference in childElements
+        set end of pendingElements to contents of childReference
+      end repeat
     end repeat
   end tell
   return false
 end rionIsRetainedAppKitRoleWindow
-`;
+`
+].join("\n");
 const PNG_CRC_TABLE = Uint32Array.from({ length: 256 }, (_, index) => {
   let value = index;
   for (let bit = 0; bit < 8; bit += 1) {
@@ -165,7 +243,7 @@ export async function runPackagedCoreOperation(core, operation) {
 
 export async function launchRoleThroughNativeInput(input) {
   if (input.platform === "darwin") {
-    await runAppleScript(`
+    await runAppleScript(`${MACOS_ACCESSIBILITY_TRAVERSAL_HANDLERS}
 on run argv
   set targetPid to (item 1 of argv) as integer
   set roleName to item 2 of argv
@@ -174,26 +252,90 @@ on run argv
       set matchingProcesses to application processes whose unix id is targetPid
       if (count of matchingProcesses) is 1 then
         set targetProcess to item 1 of matchingProcesses
-        set dashboardCount to 0
         repeat with appWindow in windows of targetProcess
-          repeat with candidate in entire contents of appWindow
+          set frontmost of targetProcess to true
+          perform action "AXRaise" of appWindow
+          repeat 200 times
             try
-              if role of candidate is "AXButton" and name of candidate is "Dashboard" then set dashboardCount to dashboardCount + 1
+              if frontmost of targetProcess is true and ¬
+                  value of attribute "AXMain" of appWindow is true then ¬
+                exit repeat
+            end try
+            delay 0.05
+          end repeat
+          if frontmost of targetProcess is not true or ¬
+              value of attribute "AXMain" of appWindow is not true then ¬
+            error "packaged launcher did not become the exact main window"
+          set roleActionAvailable to false
+          set appWindowElements to my rionDescendants(appWindow)
+          repeat with candidateReference in appWindowElements
+            set candidate to contents of candidateReference
+            try
+              if role of candidate is "AXButton" then
+                set candidateName to ""
+                set candidateDescription to ""
+                try
+                  set candidateName to name of candidate as text
+                end try
+                try
+                  set candidateDescription to description of candidate as text
+                end try
+                if candidateName ends with roleName or ¬
+                    candidateDescription ends with roleName then ¬
+                  if enabled of candidate is not true then ¬
+                    error "packaged launcher role action is disabled"
+                  set roleActionAvailable to true
+              end if
             end try
           end repeat
+          if roleActionAvailable then
+            key code 40 using command down
+            set quickAccessCombo to missing value
+            repeat 200 times
+              set comboCount to 0
+              set quickAccessElements to my rionDescendants(appWindow)
+              repeat with quickReference in quickAccessElements
+                set quickElement to contents of quickReference
+                try
+                  if role of quickElement is "AXComboBox" then
+                    set quickAccessCombo to quickElement
+                    set comboCount to comboCount + 1
+                  end if
+                end try
+              end repeat
+              if comboCount is 1 then exit repeat
+              if comboCount is greater than 1 then ¬
+                error "ambiguous packaged Quick Access input"
+              delay 0.05
+            end repeat
+            if quickAccessCombo is missing value then ¬
+              error "packaged Quick Access input did not become accessible"
+            set value of quickAccessCombo to roleName
+            delay 0.3
+            key code 36
+            repeat 200 times
+              set roleWindowCount to 0
+              repeat with launchedWindow in windows of targetProcess
+                try
+                  set launchedIdentifier to value of attribute ¬
+                    "AXIdentifier" of launchedWindow as text
+                  if launchedIdentifier starts with ¬
+                      "com.rionstudio.runtime.appkit-window.v1:" then ¬
+                    set roleWindowCount to roleWindowCount + 1
+                end try
+              end repeat
+              if roleWindowCount is 1 then return
+              if roleWindowCount is greater than 1 then ¬
+                error "ambiguous retained AppKit role launch"
+              delay 0.05
+            end repeat
+            error "retained AppKit role window did not acknowledge launch"
+          end if
         end repeat
-        if dashboardCount is 1 then
-          set frontmost of targetProcess to true
-          keystroke "k" using command down
-          delay 0.2
-          keystroke roleName
-          key code 36
-          return
-        end if
       end if
       delay 0.1
     end repeat
-    error "packaged dashboard did not become accessible"
+    error "packaged launcher role action did not become accessible"
   end tell
 end run`, String(input.processId), input.roleName);
     return;
@@ -220,16 +362,13 @@ on run argv
         set matchingButton to missing value
         set matchCount to 0
         repeat with appWindow in windows of targetProcess
-          set candidateButton to missing value
-          repeat with candidate in entire contents of appWindow
-            try
-              if role of candidate is "AXButton" and (name of candidate is buttonName or description of candidate is buttonName) then set candidateButton to candidate
-            end try
-          end repeat
-          if (my rionIsRetainedAppKitRoleWindow(appWindow, roleName)) and candidateButton is not missing value then
-            set matchingWindow to appWindow
-            set matchingButton to candidateButton
-            set matchCount to matchCount + 1
+          if my rionIsRetainedAppKitRoleWindow(appWindow, roleName) then
+            set candidateButton to my rionFindButton(appWindow, buttonName)
+            if candidateButton is not missing value then
+              set matchingWindow to appWindow
+              set matchingButton to candidateButton
+              set matchCount to matchCount + 1
+            end if
           end if
         end repeat
         if matchCount is 1 then
@@ -316,7 +455,7 @@ on run argv
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
     set targetProcess to item 1 of matchingProcesses
     set frontmost of targetProcess to true
-    keystroke "q" using command down
+    key code 12 using command down
   end tell
 end run`, String(input.processId));
     return;

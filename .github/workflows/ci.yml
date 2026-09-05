@@ -318,8 +318,7 @@ jobs:
         if: runner.os == 'Windows'
         run: pnpm run package:electron:win
 
-      - name: Build previous-version Windows Electron updater fixtures
-        if: runner.os == 'Windows'
+      - name: Build previous-version updater fixtures
         run: pnpm run build:electron-updater:previous-fixtures
 
       - name: Verify exact Electron, Chromium, Rust Core, and AppKit ABI runtime

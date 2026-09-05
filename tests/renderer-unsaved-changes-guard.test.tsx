@@ -136,6 +136,35 @@ describe("useUnsavedChangesGuard", () => {
     expect(bridge.confirmApplicationQuit).not.toHaveBeenCalled();
   });
 
+  it("disarms beforeunload before confirming a native application quit", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    renderGuard({ dirty: true });
+
+    act(() => bridge.requestApplicationQuit());
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+    await vi.waitFor(() => {
+      expect(bridge.confirmApplicationQuit).toHaveBeenCalledOnce();
+    });
+
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
+  });
+
+  it("restores beforeunload when native application quit confirmation fails", async () => {
+    const user = userEvent.setup();
+    const bridge = installBridge();
+    bridge.confirmApplicationQuit.mockRejectedValueOnce(new Error("quit failed"));
+    renderGuard({ dirty: true });
+
+    act(() => bridge.requestApplicationQuit());
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+    await vi.waitFor(() => {
+      expect(bridge.confirmApplicationQuit).toHaveBeenCalledOnce();
+    });
+
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(true);
+  });
+
   it("waits for an active save before reevaluating the native quit request", async () => {
     const user = userEvent.setup();
     const bridge = installBridge();

@@ -25,10 +25,10 @@ describe("Chromium system-settings desktop E2E boundary", () => {
 
     for (const label of [
       "Settings",
-      "Interface",
-      "Data",
-      "Updates",
-      "Diagnostics",
+      "Interface settings",
+      "Data transfer",
+      "App update",
+      "Diagnostics & logs",
       "About & Legal",
       "Export JSON",
       "Export diagnostics",
@@ -36,7 +36,7 @@ describe("Chromium system-settings desktop E2E boundary", () => {
       "Measure presentation FPS",
       "Cancel measurement",
       "Open",
-      "Close"
+      "Close legal document"
     ]) {
       expect(source).toContain(label);
     }

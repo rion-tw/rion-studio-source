@@ -178,11 +178,13 @@ function coreSlot(value: unknown): value is ElectronDesktopE2eWorkspaceWebInspec
 function appKitIdentity(
   value: unknown,
   windowId: string,
-  attemptGeneration: string
+  expectedLaunchGeneration?: string
 ): value is NonNullable<ElectronDesktopE2eWorkspaceWebInspection["appKitIdentity"]> {
   return record(value) && exact(value, [
     "launchGeneration", "logicalWindowId", "nativeGeneration"
-  ]) && value.launchGeneration === attemptGeneration &&
+  ]) && identifier(value.launchGeneration) &&
+    (expectedLaunchGeneration === undefined ||
+      value.launchGeneration === expectedLaunchGeneration) &&
     value.logicalWindowId === windowId && positiveInteger(value.nativeGeneration);
 }
 
@@ -314,8 +316,7 @@ export function parseElectronDesktopE2eWorkspaceWebInspection(
   if (candidate.hostKind === "appkit-chromium") {
     if (!appKitIdentity(
       candidate.appKitIdentity,
-      candidate.windowId,
-      candidate.attemptGeneration
+      candidate.windowId
     )) {
       throw new Error("Electron desktop E2E Workspace Web inspection is invalid.");
     }

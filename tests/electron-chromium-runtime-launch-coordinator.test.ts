@@ -129,9 +129,14 @@ function emptyCoreSnapshot(): CoreAppSnapshotRecord {
 interface HarnessOptions {
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
+  readonly beginSavedWindowRestore?: (windowId: string) => void;
+  readonly finishSavedWindowRestore?: (windowId: string) => void | Promise<void>;
   readonly activateRestoredTab?: (
-    windowId: string,
-    tabId: string
+    windowId: string, tabId: string, harness: LaunchHarness
+  ) => Promise<void>;
+  readonly reorderRestoredTab?: (
+    windowId: string, tabId: string, beforeTabId: string | undefined,
+    harness: LaunchHarness
   ) => Promise<void>;
   readonly activateExistingTab?: (
     fence: ChromiumRuntimeExistingTabActivationFence,
@@ -167,6 +172,9 @@ function launchHarness(options: HarnessOptions = {}) {
   };
   const launchCommands: Array<Extract<CoreCommand, {
     type: "browserRoleLaunch" | "browserWorkspaceLaunch";
+  }>> = [];
+  const claimCommands: Array<Extract<CoreCommand, {
+    type: "browserRoleSlotClaim";
   }>> = [];
 
   const admit = (
@@ -429,6 +437,38 @@ function launchHarness(options: HarnessOptions = {}) {
       options.onLaunch?.(command, state);
       return admission;
     }
+    if (command.type === "browserRoleSlotClaim") {
+      claimCommands.push(command);
+      const role = state.coreSnapshot.browserRuntime.roles.find(
+        (candidate) => candidate.roleId === ROLE_ID
+      );
+      if (!role || role.owner.generation !== command.expectedOwnerGeneration) {
+        throw new Error("Stale Role claim generation");
+      }
+      role.owner = {
+        tabId: command.tabId,
+        slotId: command.slotId,
+        generation: role.owner.generation + 1
+      };
+      for (const tab of state.coreSnapshot.browserRuntime.tabs) {
+        for (const slot of tab.slots.filter((candidate) => candidate.roleId === ROLE_ID)) {
+          slot.owner = { ...role.owner };
+          slot.state = tab.id === command.tabId ? "running" : "blocked";
+        }
+      }
+      state.nativeSnapshot = {
+        ...state.nativeSnapshot,
+        roles: state.nativeSnapshot.roles.map((candidate) =>
+          candidate.roleId === ROLE_ID
+            ? {
+                ...candidate,
+                tabId: command.tabId,
+                ownerGeneration: role.owner.generation
+              }
+            : candidate)
+      };
+      return state.coreSnapshot.browserRuntime;
+    }
     throw new Error(`Unexpected Core command: ${command.type}`);
   });
   const coordinator = new ChromiumRuntimeLaunchCoordinator({
@@ -441,9 +481,33 @@ function launchHarness(options: HarnessOptions = {}) {
     ...(options.waitForRuntimeProjection === undefined
       ? {}
       : { waitForRuntimeProjection: options.waitForRuntimeProjection }),
+    ...(options.beginSavedWindowRestore === undefined
+      ? {}
+      : {
+          beginSavedWindowRestore: (windowId: string) =>
+            options.beginSavedWindowRestore!(windowId)
+        }),
+    ...(options.finishSavedWindowRestore === undefined
+      ? {}
+      : {
+          finishSavedWindowRestore: (windowId: string) =>
+            options.finishSavedWindowRestore!(windowId)
+        }),
     ...(options.activateRestoredTab === undefined
       ? {}
-      : { activateRestoredTab: options.activateRestoredTab }),
+      : {
+          activateRestoredTab: (windowId: string, tabId: string) =>
+            options.activateRestoredTab!(windowId, tabId, state)
+        }),
+    ...(options.reorderRestoredTab === undefined
+      ? {}
+      : {
+          reorderRestoredTab: (
+            windowId: string,
+            tabId: string,
+            beforeTabId?: string
+          ) => options.reorderRestoredTab!(windowId, tabId, beforeTabId, state)
+        }),
     ...(options.activateExistingTab === undefined
       ? {}
       : {
@@ -472,7 +536,7 @@ function launchHarness(options: HarnessOptions = {}) {
     readDisplayTopology: () => state.topology,
     readNativeSnapshot: () => state.nativeSnapshot
   });
-  return { coordinator, coreInvoke, launchCommands, state };
+  return { claimCommands, coordinator, coreInvoke, launchCommands, state };
 }
 
 function configureWorkspaceWebLaunch(
@@ -1359,9 +1423,13 @@ describe("Electron Chromium runtime launch coordinator", () => {
 
   it("accepts a synchronously completed exact saved-tab hydration", async () => {
     const activateRestoredTab = vi.fn(async () => undefined);
+    const beginRestore = vi.fn();
+    const finishRestore = vi.fn();
     const { coordinator, launchCommands, state } = launchHarness({
       activateRestoredTab,
-      completeRestores: true
+      beginSavedWindowRestore: beginRestore,
+      completeRestores: true,
+      finishSavedWindowRestore: finishRestore
     });
     const saved = nonemptySavedWindow();
     state.coreSnapshot.state.gameWindows.push(saved);
@@ -1376,10 +1444,167 @@ describe("Electron Chromium runtime launch coordinator", () => {
       target: { windowId: WINDOW_ID },
       type: "browserRoleLaunch"
     });
+    expect(beginRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID);
+    expect(activateRestoredTab).not.toHaveBeenCalled();
+    expect(finishRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID);
+  });
+
+  it("restores saved tabs and active Role ownership before reveal", async () => {
+    const beginRestore = vi.fn();
+    const finishRestore = vi.fn();
+    const activateRestoredTab = vi.fn(async (
+      windowId: string,
+      tabId: string,
+      state: LaunchHarness
+    ) => {
+      const logical = state.coreSnapshot.logicalWindows.find(
+        (window) => window.windowId === windowId
+      )!;
+      logical.activeTabId = tabId;
+      logical.revision += 1;
+      state.coreSnapshot.browserRuntime.windows.find(
+        (window) => window.windowId === windowId
+      )!.activeTabId = tabId;
+      state.nativeSnapshot = {
+        ...state.nativeSnapshot,
+        windows: state.nativeSnapshot.windows.map((window) =>
+          window.windowId === windowId
+            ? { ...window, activeTabId: tabId, topologyRevision: logical.revision }
+            : window
+        )
+      };
+      state.coreSnapshot.revision += 1;
+      state.coreSnapshot.runtimeRevision += 1;
+    });
+    const reorderRestoredTab = vi.fn(async (
+      windowId: string,
+      tabId: string,
+      beforeTabId: string | undefined,
+      state: LaunchHarness
+    ) => {
+      const logical = state.coreSnapshot.logicalWindows.find(
+        (window) => window.windowId === windowId
+      )!;
+      const ordered = logical.tabs.filter((tab) => tab.id !== tabId);
+      const moved = logical.tabs.find((tab) => tab.id === tabId)!;
+      const insertion = beforeTabId === undefined
+        ? ordered.length
+        : ordered.findIndex((tab) => tab.id === beforeTabId);
+      ordered.splice(insertion, 0, moved);
+      logical.tabs.splice(0, logical.tabs.length, ...ordered);
+      logical.revision += 1;
+      const runtimeWindow = state.coreSnapshot.browserRuntime.windows.find(
+        (window) => window.windowId === windowId
+      )!;
+      runtimeWindow.tabIds.splice(
+        0,
+        runtimeWindow.tabIds.length,
+        ...ordered.map((tab) => tab.id)
+      );
+      state.nativeSnapshot = {
+        ...state.nativeSnapshot,
+        windows: state.nativeSnapshot.windows.map((window) =>
+          window.windowId === windowId
+            ? {
+                ...window,
+                tabIds: ordered.map((tab) => tab.id),
+                topologyRevision: logical.revision
+              }
+            : window
+        )
+      };
+      state.coreSnapshot.revision += 1;
+      state.coreSnapshot.runtimeRevision += 1;
+    });
+    const { claimCommands, coordinator, launchCommands, state } = launchHarness({
+      activateRestoredTab,
+      beginSavedWindowRestore: beginRestore,
+      completeRestores: true,
+      finishSavedWindowRestore: finishRestore,
+      reorderRestoredTab,
+      onLaunch: (command, current) => {
+        if (command.type !== "browserWorkspaceLaunch") return;
+        const role = current.coreSnapshot.browserRuntime.roles[0]!;
+        role.owner = {
+          tabId: WORKSPACE_TAB_ID,
+          slotId: "slot-1",
+          generation: role.owner.generation + 1
+        };
+        for (const tab of current.coreSnapshot.browserRuntime.tabs) {
+          const slot = tab.slots.find((candidate) => candidate.roleId === ROLE_ID);
+          if (slot) {
+            slot.owner = { ...role.owner };
+            slot.state = tab.id === WORKSPACE_TAB_ID ? "running" : "blocked";
+          } else if (tab.id === WORKSPACE_TAB_ID) {
+            tab.slots.push({
+              slotId: "slot-1",
+              roleId: ROLE_ID,
+              rect: RECT,
+              state: "running",
+              owner: { ...role.owner }
+            });
+          }
+        }
+        const logicalWorkspaceTab = current.coreSnapshot.logicalWindows
+          .flatMap((window) => window.tabs)
+          .find((tab) => tab.id === WORKSPACE_TAB_ID)!;
+        logicalWorkspaceTab.roleSlots = [{
+          slotId: "slot-1",
+          roleId: ROLE_ID,
+          rect: RECT
+        }];
+        current.coreSnapshot.browserRuntime.workspaces.find(
+          (workspace) => workspace.tabId === WORKSPACE_TAB_ID
+        )!.roleIds = [ROLE_ID];
+        current.nativeSnapshot = {
+          ...current.nativeSnapshot,
+          roles: current.nativeSnapshot.roles.map((candidate) => ({
+            ...candidate,
+            tabId: WORKSPACE_TAB_ID,
+            ownerGeneration: role.owner.generation
+          }))
+        };
+      }
+    });
+    const roleTab = nonemptySavedWindow().tabs[0]!;
+    const workspaceTab = {
+      id: WORKSPACE_TAB_ID,
+      tabType: "workspace" as const,
+      sourceId: WORKSPACE_ID,
+      name: "Web tools",
+      roleSlots: [{ slotId: "slot-1", roleId: ROLE_ID, rect: RECT }],
+      hidden: false,
+      audioMuted: false
+    };
+    const saved: StateGameWindowRecord = {
+      ...nonemptySavedWindow(),
+      tabs: [roleTab, workspaceTab],
+      activeTabId: TAB_ID
+    };
+    state.coreSnapshot.state.gameWindows.push(saved);
+
+    await expect(coordinator.restoreSavedGameWindow(saved)).resolves.toBeUndefined();
+
+    expect(launchCommands.map((command) => command.type)).toEqual([
+      "browserRoleLaunch",
+      "browserWorkspaceLaunch"
+    ]);
+    expect(reorderRestoredTab).not.toHaveBeenCalled();
     expect(activateRestoredTab).toHaveBeenCalledExactlyOnceWith(
       WINDOW_ID,
-      TAB_ID
+      TAB_ID,
+      state
     );
+    expect(claimCommands).toEqual([expect.objectContaining({
+      expectedOwnerGeneration: 2,
+      slotId: "slot-1",
+      tabId: TAB_ID
+    })]);
+    expect(state.coreSnapshot.logicalWindows[0]!.tabs.map((tab) => tab.id)).toEqual([
+      TAB_ID,
+      WORKSPACE_TAB_ID
+    ]);
+    expect(finishRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID);
   });
 
   it("rejects a saved active tab outside the exact restore cohort", async () => {

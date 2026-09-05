@@ -679,7 +679,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       ].sort());
   });
 
-  it("acknowledges role-data clear only after the exact v23 session receipt", async () => {
+  it("acknowledges role-data clear after fresh and retained Session receipts", async () => {
     const roleId = "11111111-1111-4111-8111-111111111111";
     const paths = rolePaths(roleId);
     const order: string[] = [];
@@ -745,15 +745,22 @@ describe("Electron Chromium runtime bootstrap", () => {
       cookieReadbackCount: 0,
       evidence: "electron-clear-storage-data-promise-and-cookie-readback"
     });
-    expect(fromPath).not.toHaveBeenCalled();
-    expect(clearStorageData).not.toHaveBeenCalled();
-    expect(flushStore).not.toHaveBeenCalled();
-    expect(get).not.toHaveBeenCalled();
+    expect(fromPath).toHaveBeenCalledWith(paths.chromiumUserDataDir, {
+      cache: true
+    });
+    expect(clearStorageData).toHaveBeenCalledOnce();
+    expect(flushStore).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledWith({});
+    expect(flushStorageData).toHaveBeenCalledOnce();
     expect(order).toEqual(expect.arrayContaining([
       "fresh-role-clear-helper",
       "ack:clear-role-data"
     ]));
     expect(order.indexOf("fresh-role-clear-helper"))
+      .toBeLessThan(order.indexOf("clear"));
+    expect(order.indexOf("clear"))
+      .toBeLessThan(order.indexOf("cookie-readback"));
+    expect(order.indexOf("cookie-readback"))
       .toBeLessThan(order.indexOf("ack:clear-role-data"));
     await runtime.shutdown();
   });

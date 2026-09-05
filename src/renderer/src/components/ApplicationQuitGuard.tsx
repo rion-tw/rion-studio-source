@@ -92,7 +92,17 @@ export function ApplicationQuitGuardProvider({ children }: { children: ReactNode
           pending.resolve(false);
           return undefined;
         }
-        return pending.action().then(() => pending.resolve(true), pending.reject);
+        const terminalBlockers = blockers.filter((blocker) => blocker.enabled);
+        terminalBlockers.forEach((blocker) => blocker.allowTerminalAction());
+        return pending.action().then(
+          () => pending.resolve(true),
+          (error: unknown) => {
+            terminalBlockers.forEach(
+              (blocker) => blocker.restoreAfterTerminalActionFailure()
+            );
+            pending.reject(error);
+          }
+        );
       }, (error: unknown) => {
         pendingActionRef.current = null;
         pending.reject(error);

@@ -20,6 +20,20 @@ function sourceBetween(start: string, end: string): string {
 }
 
 describe("native application shortcut target modes", () => {
+  it("resolves macOS save-panel AX queries inside the System Events scope", () => {
+    const saveDialogHelper = sourceBetween(
+      "on filePanels(targetProcess)",
+      "end filePanels"
+    );
+    expect(saveDialogHelper).toContain('tell application "System Events"');
+    expect(saveDialogHelper).toContain("repeat with appSheet in sheets of appWindow");
+    expect(saveDialogHelper).toContain('role of appSheet is "AXSheet"');
+    expect(source).toContain(
+      'role of candidate is "AXButton" and name of candidate is "Cancel"'
+    );
+    expect(source).toContain('perform action "AXPress" of item 1 of cancelButtons');
+  });
+
   it("keeps launcher as the default on both native platforms", () => {
     expect(source).toContain(
       "export type VisibleApplicationShortcutTargetMode ="

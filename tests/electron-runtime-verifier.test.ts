@@ -5,6 +5,8 @@ import {
   EXPECTED_APPKIT_RUNTIME_ABI,
   EXPECTED_ELECTRON_RUNTIME
 } from "../scripts/verifyElectronRuntime.mjs";
+import { RION_APPKIT_RUNTIME_ABI_VERSION } from
+  "../src/electron/main/macosAppKitRuntimeHostFactory";
 
 const validProbe = {
   ...EXPECTED_ELECTRON_RUNTIME,
@@ -18,6 +20,8 @@ const validProbe = {
 
 describe("Electron runtime verifier", () => {
   it("pins the Electron, Chromium, and embedded Node versions", () => {
+    expect(EXPECTED_APPKIT_RUNTIME_ABI).toBe(6);
+    expect(EXPECTED_APPKIT_RUNTIME_ABI).toBe(RION_APPKIT_RUNTIME_ABI_VERSION);
     expect(() => assertElectronRuntimeProbe(
       validProbe,
       EXPECTED_ELECTRON_RUNTIME.electron

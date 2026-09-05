@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     io::{Read, Write},
+    path::Path,
     process::{Child, ChildStdin, ChildStdout, ExitStatus, Stdio},
     sync::{
         Arc, Condvar, Mutex,
@@ -195,10 +196,10 @@ impl HelperProcessControl {
         }
     }
 
-    /// stdout EOF must precede this fence. If the child closed stdout without
-    /// exiting, fail closed by terminating it instead of allowing shutdown to
-    /// block on an unobservable process lifetime.
-    fn finish_after_stdout_eof(&self) -> CoreResult<(ExitStatus, bool)> {
+    /// stdout EOF must precede this event-bound process fence. The fixed helper
+    /// never closes stdout itself, so EOF means native process teardown has
+    /// begun; `wait` removes the ordinary EOF/exit observation race.
+    fn wait_after_stdout_eof(&self) -> CoreResult<ExitStatus> {
         let mut child = self
             .child
             .lock()
@@ -208,21 +209,7 @@ impl HelperProcessControl {
         if self.is_cancelled() {
             let _ = child.kill();
         }
-        match child.try_wait() {
-            Ok(Some(status)) => Ok((status, false)),
-            Ok(None) => {
-                let _ = child.kill();
-                child
-                    .wait()
-                    .map(|status| (status, true))
-                    .map_err(|_| exit_unknown_error())
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                Err(exit_unknown_error())
-            }
-        }
+        child.wait().map_err(|_| exit_unknown_error())
     }
 }
 
@@ -238,6 +225,7 @@ pub(crate) fn launch(
     mut metadata: Vec<u8>,
     mut secret: Vec<u8>,
     registration: HelperLaunchRegistration,
+    helper_application_path: Option<String>,
 ) -> CoreResult<HelperProcessResult> {
     let mut request = match encode_request(&metadata, &secret) {
         Ok(request) => request,
@@ -264,7 +252,20 @@ pub(crate) fn launch(
             ));
         }
     };
-    let child = match rion_platform::background_command(executable)
+    let helper_application_argument =
+        match helper_application_argument(helper_application_path.as_deref()) {
+            Ok(argument) => argument,
+            Err(error) => {
+                request.fill(0);
+                secret.fill(0);
+                return Err(error);
+            }
+        };
+    let mut command = rion_platform::background_command(executable);
+    if let Some(argument) = helper_application_argument {
+        command.arg(argument);
+    }
+    let child = match command
         .arg(FIXED_HELPER_SWITCH)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -321,8 +322,8 @@ pub(crate) fn launch(
     if read_result.is_err() {
         registration.control.terminate();
     }
-    let (status, forced_after_eof) = match registration.control.finish_after_stdout_eof() {
-        Ok(outcome) => outcome,
+    let status = match registration.control.wait_after_stdout_eof() {
+        Ok(status) => status,
         Err(_) => {
             response.fill(0);
             return Err(exit_unknown_error());
@@ -343,7 +344,7 @@ pub(crate) fn launch(
             return Err(error);
         }
     };
-    if response_oversized || forced_after_eof || !status.success() {
+    if response_oversized || !status.success() {
         response.fill(0);
         return Err(launcher_error(
             "CHROME_PROFILE_IMPORT_HELPER_EXIT_UNKNOWN",
@@ -364,6 +365,26 @@ pub(crate) fn launch(
     exit_evidence.update(response_digest);
     result.exit_evidence_sha256 = hex_digest(exit_evidence.finalize().as_slice());
     Ok(result)
+}
+
+fn helper_application_argument(path: Option<&str>) -> CoreResult<Option<String>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let application = Path::new(path);
+    if path.is_empty()
+        || path.contains('\0')
+        || !application.is_absolute()
+        || !application
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file())
+    {
+        return Err(launcher_error(
+            "CHROME_PROFILE_IMPORT_HELPER_APPLICATION_PATH_INVALID",
+            "The unpackaged Chromium helper requires an absolute existing app entry.",
+        ));
+    }
+    Ok(Some(format!("--app={path}")))
 }
 
 fn read_bounded_response_to_eof(
@@ -552,6 +573,23 @@ mod tests {
     }
 
     #[test]
+    fn unpackaged_helper_application_argument_is_absolute_and_non_secret() {
+        let executable = std::env::current_exe().unwrap();
+        let path = executable.to_str().unwrap();
+        assert_eq!(
+            helper_application_argument(Some(path)).unwrap(),
+            Some(format!("--app={path}"))
+        );
+        assert_eq!(
+            helper_application_argument(Some("relative-entry.js"))
+                .unwrap_err()
+                .code(),
+            "CHROME_PROFILE_IMPORT_HELPER_APPLICATION_PATH_INVALID"
+        );
+        assert_eq!(helper_application_argument(None).unwrap(), None);
+    }
+
+    #[test]
     fn response_requires_exact_magic_outcome_lengths_and_no_trailing_bytes() {
         let parsed = decode_response(response(0, br#"{"ok":true}"#, b"backup")).unwrap();
         assert_eq!(parsed.outcome, "applied");
@@ -642,7 +680,7 @@ mod tests {
         stdout.read_to_end(&mut response).unwrap();
         drop(stdout);
         response.fill(0);
-        let (status, _) = registration.control.finish_after_stdout_eof().unwrap();
+        let status = registration.control.wait_after_stdout_eof().unwrap();
         assert!(!status.success());
         assert!(registration.control.is_cancelled());
         drop(registration);

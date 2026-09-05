@@ -39,9 +39,18 @@ export interface ChromiumRuntimeLaunchCoordinatorInput {
   readonly createId?: () => string;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
+  readonly beginSavedWindowRestore?: (windowId: string) => void;
+  readonly finishSavedWindowRestore?: (
+    windowId: string
+  ) => MaybePromise<void>;
   readonly activateRestoredTab?: (
     windowId: string,
     tabId: string
+  ) => Promise<void>;
+  readonly reorderRestoredTab?: (
+    windowId: string,
+    tabId: string,
+    beforeTabId?: string
   ) => Promise<void>;
   /**
    * Commits an existing launch source as the active, visible native tab before
@@ -594,7 +603,25 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           "The saved Game Window active tab is absent from its exact tab set."
         );
       }
-      for (const [index, tab] of window.tabs.entries()) {
+      const beginRestore = this.#input.beginSavedWindowRestore;
+      const finishRestore = this.#input.finishSavedWindowRestore;
+      const activateRestoredTab = this.#input.activateRestoredTab;
+      const reorderRestoredTab = this.#input.reorderRestoredTab;
+      if (
+        !beginRestore || !finishRestore || !activateRestoredTab ||
+        (window.tabs.length > 1 && !reorderRestoredTab)
+      ) {
+        throw launchError(
+          "ELECTRON_CHROMIUM_RESTORE_TRANSACTION_UNAVAILABLE",
+          "The saved-window restore presentation transaction is unavailable."
+        );
+      }
+      // Core merges each partial restore against the saved ordered cohort. Keep
+      // admission in that order while the native host remains hidden, then
+      // commit the saved active tab once the complete cohort is hydrated.
+      const launchOrder = window.tabs;
+      beginRestore(windowId);
+      for (const tab of launchOrder) {
         const sourceType = tab.tabType;
         const result = await this.#launch(
           requireCanonicalId(tab.sourceId, `restore ${sourceType}`),
@@ -628,12 +655,38 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
             );
           }
         }
-        await this.#input.activateRestoredTab?.(
-          windowId,
-          index === window.tabs.length - 1 ? activeTabId : tab.id
-        );
         await this.#readCoherentSnapshot();
       }
+      if (reorderRestoredTab) {
+        for (let index = tabIds.length - 1; index >= 0; index -= 1) {
+          const beforeMove = await this.#readCoherentSnapshot();
+          const current = beforeMove.core.logicalWindows.find(
+            (candidate) => candidate.windowId === windowId
+          );
+          const currentIds = current?.tabs.map((tab) => tab.id) ?? [];
+          const tabIndex = currentIds.indexOf(tabIds[index]!);
+          const beforeTabId = tabIds[index + 1];
+          const alreadyPlaced = beforeTabId === undefined
+            ? tabIndex === currentIds.length - 1
+            : tabIndex >= 0 && tabIndex + 1 === currentIds.indexOf(beforeTabId);
+          if (alreadyPlaced) continue;
+          await reorderRestoredTab(
+            windowId,
+            tabIds[index]!,
+            beforeTabId
+          );
+          await this.#readCoherentSnapshot();
+        }
+      }
+      const beforeActivation = await this.#readCoherentSnapshot();
+      const currentActiveTabId = beforeActivation.core.logicalWindows.find(
+        (candidate) => candidate.windowId === windowId
+      )?.activeTabId;
+      if (currentActiveTabId !== activeTabId) {
+        await activateRestoredTab(windowId, activeTabId);
+        await this.#readCoherentSnapshot();
+      }
+      await this.#claimRestoredActiveRoleSlots(window, activeTabId);
       const final = await this.#readCoherentSnapshot();
       const logical = final.core.logicalWindows.find(
         (candidate) => candidate.windowId === windowId
@@ -653,6 +706,28 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         throw launchError(
           "ELECTRON_CHROMIUM_RESTORE_RECEIPT_STALE",
           "The saved Game Window restore did not reach one exact Core/native topology."
+        );
+      }
+      await finishRestore(windowId);
+      const presented = await this.#readCoherentSnapshot();
+      const presentedLogical = presented.core.logicalWindows.find(
+        (candidate) => candidate.windowId === windowId
+      );
+      const presentedNative = presented.native.windows?.find(
+        (candidate) => candidate.windowId === windowId
+      );
+      if (
+        !presentedLogical || !presentedNative ||
+        !sameOrderedIds(presentedLogical.tabs.map((tab) => tab.id), tabIds) ||
+        !sameOrderedIds(presentedNative.tabIds, tabIds) ||
+        presentedLogical.activeTabId !== activeTabId ||
+        presentedNative.activeTabId !== activeTabId ||
+        presentedLogical.windowGeneration !== presentedNative.windowGeneration ||
+        presentedLogical.revision !== presentedNative.topologyRevision
+      ) {
+        throw launchError(
+          "ELECTRON_CHROMIUM_RESTORE_PRESENTATION_STALE",
+          "The restored Game Window changed while committing its presentation."
         );
       }
     });
@@ -687,6 +762,88 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       const target = this.#savedTarget(saved, before.app.displayTopology);
       await this.#registerEmptyWindow(before, target, saved);
     });
+  }
+
+  async #claimRestoredActiveRoleSlots(
+    window: StateGameWindowRecord,
+    activeTabId: string
+  ): Promise<void> {
+    const activeTab = window.tabs.find((tab) => tab.id === activeTabId)!;
+    const seenRoleIds = new Set<string>();
+    for (const slot of activeTab.roleSlots) {
+      if (seenRoleIds.has(slot.roleId)) {
+        throw launchError(
+          "ELECTRON_CHROMIUM_RESTORE_ROLE_SET_INVALID",
+          "The saved active tab contains a duplicate Role ownership target."
+        );
+      }
+      seenRoleIds.add(slot.roleId);
+      const before = await this.#readCoherentSnapshot();
+      const coreRole = before.core.browserRuntime.roles.find(
+        (role) => role.roleId === slot.roleId
+      );
+      const nativeRole = before.native.roles.find(
+        (role) => role.roleId === slot.roleId
+      );
+      if (!coreRole) {
+        throw launchError(
+          "ELECTRON_CHROMIUM_RESTORE_ROLE_OWNER_MISSING",
+          "The saved active tab Role has no authoritative runtime owner."
+        );
+      }
+      const coreAlreadyOwned = coreRole.owner.tabId === activeTabId &&
+        coreRole.owner.slotId === slot.slotId;
+      const nativeAlreadyOwned = nativeRole?.tabId === activeTabId &&
+        nativeRole.windowId === window.id &&
+        nativeRole.ownerGeneration === coreRole.owner.generation;
+      if (coreAlreadyOwned && nativeAlreadyOwned) continue;
+      if (coreAlreadyOwned || nativeAlreadyOwned) {
+        throw launchError(
+          "ELECTRON_CHROMIUM_RESTORE_ROLE_OWNER_STALE",
+          "The saved active tab Role has a divergent Core/native ownership fence."
+        );
+      }
+      const expectedOwnerGeneration = coreRole.owner.generation;
+      const claimed = await this.#input.core.invoke({
+        type: "browserRoleSlotClaim",
+        tabId: activeTabId,
+        slotId: slot.slotId,
+        expectedOwnerGeneration
+      });
+      const claimedOwner = claimed.roles.find(
+        (role) => role.roleId === slot.roleId
+      )?.owner;
+      if (
+        !claimedOwner || claimedOwner.tabId !== activeTabId ||
+        claimedOwner.slotId !== slot.slotId ||
+        claimedOwner.generation <= expectedOwnerGeneration
+      ) {
+        throw launchError(
+          "ELECTRON_CHROMIUM_RESTORE_ROLE_CLAIM_STALE",
+          "Core did not commit the saved active tab Role ownership claim."
+        );
+      }
+      const after = await this.#readCoherentSnapshot();
+      const afterCore = after.core.browserRuntime.roles.find(
+        (role) => role.roleId === slot.roleId
+      );
+      const afterNative = after.native.roles.find(
+        (role) => role.roleId === slot.roleId
+      );
+      if (
+        afterCore?.owner.tabId !== activeTabId ||
+        afterCore.owner.slotId !== slot.slotId ||
+        afterCore.owner.generation !== claimedOwner.generation ||
+        afterNative?.tabId !== activeTabId ||
+        afterNative.windowId !== window.id ||
+        afterNative.ownerGeneration !== claimedOwner.generation
+      ) {
+        throw launchError(
+          "ELECTRON_CHROMIUM_RESTORE_ROLE_CLAIM_STALE",
+          "The saved active tab Role claim did not reach one exact Core/native owner."
+        );
+      }
+    }
   }
 
   openEmptyTransientGameWindow(

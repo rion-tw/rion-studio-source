@@ -483,6 +483,7 @@ fn updater_probe_child_sandbox_profile(
          (deny file-write* (literal {control_root}) (subpath {control_root}))\n\
          (deny process-exec*)\n\
          (allow process-exec\n\
+           (literal \"/usr/bin/codesign\")\n\
            (subpath {executable_directory})\n\
            (subpath {framework_directory}))\n"
     ))

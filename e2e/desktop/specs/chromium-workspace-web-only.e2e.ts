@@ -211,7 +211,9 @@ async function waitInspectionPhase(
   await browser.waitUntil(async () => {
     try {
       inspection = await electronDesktopE2eWorkspaceWebRuntime(windowId);
-      return inspection.phase === phase;
+      return inspection.phase === phase && inspection.visible &&
+        inspection.web.visible && inspection.web.chromeVisible &&
+        inspection.web.contentVisible;
     } catch {
       return false;
     }

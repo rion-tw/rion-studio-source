@@ -370,25 +370,34 @@ receipt in one SQLite transaction. A missing, malformed, stale, or mismatched
 receipt restores the quarantined source and leaves migration non-success. The
 contract v22 clear path does not create or rewrite v23 migration evidence.
 
-The v23 explicit-reset receipt is fresh-process evidence. Electron main first
-holds an exact role/effect/operation/path reservation without materializing that
-profile as a main-process `Session`. One fixed-mode child then reopens only that
-Rust-resolved path, awaits the all-store `session.clearStorageData()` Promise,
+The v23 explicit-reset receipt includes fresh-process evidence. Electron main
+first holds an exact role/effect/operation/path reservation without materializing
+that profile as a main-process `Session`. One fixed-mode child then reopens only
+that Rust-resolved path, awaits the all-store `session.clearStorageData()` Promise,
 with no options so Chromium also clears storage types introduced after this
 contract, awaits `cookies.flushStore()`, requires `cookies.get({})` to be empty,
 drains the Session, and exits. The native launcher must observe the exact child clean exit
-and inherited-pipe EOF before main may return the existing
+and inherited-pipe EOF. Main then reopens the same exact Session identity, repeats
+the all-store clear, cookie flush, and empty readback, and drains its lease. This
+second native fence clears any in-process Chromium Session retained after earlier
+Role use. Both fences must terminalize before main may return the existing
 `electron-clear-storage-data-promise-and-cookie-readback` receipt to Core. That
-stable receipt label therefore denotes the complete fresh-child sequence, not
-the earlier same-process subset. Its retained `clearedStorages` array is a Core
+stable receipt label therefore denotes the complete child-plus-main sequence.
+Its retained `clearedStorages` array is a Core
 receipt compatibility vector, never the selector or an exhaustive limit for the
 underlying no-options clear. Electron exposes no trustworthy enumeration of
 all unknown LocalStorage origins; the LocalStorage authority is Chromium's
-fresh-process, whole-store clear acknowledgement, not a fabricated origin
-readback, a timer, `flushStorageData()`, or same-process reopening. A malformed
-child response, path/effect/operation mismatch, unknown exit, nonempty cookie
-readback, or reservation-release ambiguity remains failed or indeterminate and
-cannot commit `explicitReset`.
+whole-store clear acknowledgements, not a fabricated origin readback, a timer,
+or `flushStorageData()`. A malformed child response, path/effect/operation
+mismatch, unknown exit, nonempty cookie readback, or either lease-release
+ambiguity remains failed or indeterminate and cannot commit `explicitReset`.
+
+The packaged executable resolves its embedded application without another
+argument. An unpackaged development or desktop-E2E launch additionally passes
+only the absolute, existing bundled application entry to the native launcher so
+the Electron executable re-enters Rion's fixed helper mode instead of Electron's
+default application. Role identity, profile paths, effect/operation identity,
+and payload bytes remain confined to the inherited pipes.
 
 The helper-backed role clear is `DeadlineBound`. On timeout, Core retires the
 pending acknowledgement and publishes the exact effect and operation IDs

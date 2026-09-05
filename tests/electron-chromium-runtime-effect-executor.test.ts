@@ -275,6 +275,23 @@ describe("Electron Chromium runtime effect executor", () => {
     });
   });
 
+  it("keeps a saved-window hydration hidden until its exact restore reveal", async () => {
+    const subject = harness();
+    const specification = tab();
+    subject.executor.beginSavedWindowRestore(specification.target.windowId);
+
+    await createTab(subject, specification);
+    subject.hosts[0]!.hide();
+    subject.hosts[0]!.show.mockClear();
+    await loadRoles(subject, specification);
+
+    expect(subject.hosts[0]!.show).not.toHaveBeenCalled();
+    expect(subject.hosts[0]!.isVisible()).toBe(false);
+    subject.executor.finishSavedWindowRestore(specification.target.windowId);
+    expect(subject.hosts[0]!.show).toHaveBeenCalledOnce();
+    expect(subject.hosts[0]!.isVisible()).toBe(true);
+  });
+
   it("reveals an initially hidden host only after its role surface is attached", async () => {
     const subject = harness();
     subject.createHost.mockImplementationOnce(async (
@@ -1431,5 +1448,33 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.executor.snapshot()).toEqual({
       windows: [], tabs: [], roles: [], webSurfaces: []
     });
+  });
+
+  it("serializes destruction for tabs sharing one native host", async () => {
+    const subject = harness();
+    const first = tab("tab-1", "window-1", ["role-1"]);
+    const second = tab("tab-2", "window-1", ["role-2"]);
+    await createTab(subject, first);
+    await loadRoles(subject, first);
+    await createTab(subject, second);
+    await loadRoles(subject, second);
+    let releaseFirst!: (closed: boolean) => void;
+    const firstClosed = new Promise<boolean>((resolve) => {
+      releaseFirst = resolve;
+    });
+    subject.closeRole.mockImplementation(async (roleId: string) =>
+      roleId === "role-1" ? firstClosed : true
+    );
+
+    const draining = subject.executor.dispose();
+    await vi.waitFor(() => {
+      expect(subject.closeRole).toHaveBeenCalledWith("role-1", 1);
+    });
+    expect(subject.closeRole).not.toHaveBeenCalledWith("role-2", 1);
+    releaseFirst(true);
+    await draining;
+
+    expect(subject.closeRole).toHaveBeenCalledWith("role-2", 1);
+    expect(subject.hosts[0]!.close).toHaveBeenCalledOnce();
   });
 });

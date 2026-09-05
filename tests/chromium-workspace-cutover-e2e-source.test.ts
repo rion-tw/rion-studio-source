@@ -175,6 +175,7 @@ describe("Chromium Workspace cutover paired replacements", () => {
     expect(aggregate).toContain("validateChromiumWorkspaceCutoverRuntimeEvidence(input)");
     expect(aggregate).toContain("validateChromiumWorkspaceCutoverSqliteEvidence(");
     expect(evidence).toContain("ready/degraded/visible-reopen ordering");
+    expect(evidence).toContain("http://127.0.0.1:1/rion-navigation-failure");
     expect(evidence).toContain("observation.placeholders.length <= 1");
     expect(evidence).toContain("zero-placeholder transfer gap");
     expect(evidence).toContain("terminal Core owner transfer");

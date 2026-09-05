@@ -93,7 +93,7 @@ async function verifyPreferences(
 }
 
 async function verifyInterface(): Promise<void> {
-  await openSettingsSection("Interface", "interface");
+  await openSettingsSection("Interface settings", "interface");
   await $("button[aria-label='Font smoothing']").waitForDisplayed({ timeout: 10_000 });
   await $("button=Customize fonts").click();
 
@@ -123,7 +123,7 @@ async function verifyInterface(): Promise<void> {
 }
 
 async function verifyDataCancelBoundary(): Promise<void> {
-  await openSettingsSection("Data", "data");
+  await openSettingsSection("Data transfer", "data");
   await $("button=Export JSON").click();
   const exportDialog = await $("[role='dialog']");
   await exportDialog.waitForDisplayed({ timeout: 10_000 });
@@ -133,12 +133,12 @@ async function verifyDataCancelBoundary(): Promise<void> {
 }
 
 async function verifyUpdateBoundary(): Promise<void> {
-  await openSettingsSection("Updates", "updates");
+  await openSettingsSection("App update", "updates");
   await expect($("button*=Check updates")).toBeDisabled();
 }
 
 async function verifyEventBoundDiagnosticsCancel(): Promise<void> {
-  await openSettingsSection("Diagnostics", "diagnostics");
+  await openSettingsSection("Diagnostics & logs", "diagnostics");
   const measure = await $("button=Measure presentation FPS");
   await measure.waitForDisplayed({ timeout: 10_000 });
   await measure.click();
@@ -186,7 +186,7 @@ async function verifyLegalCancelBoundary(): Promise<void> {
 
   const legalDialog = await $("[role='dialog']");
   await legalDialog.waitForDisplayed({ timeout: 10_000 });
-  const close = await legalDialog.$("button[title='Close']");
+  const close = await legalDialog.$("button[title='Close legal document']");
   await close.waitForClickable({ timeout: 10_000 });
   await close.click();
   await legalDialog.waitForExist({ reverse: true, timeout: 10_000 });

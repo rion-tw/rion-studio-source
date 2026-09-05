@@ -188,6 +188,7 @@ fn updater_probe_child_sandbox_allows_only_bundle_execution_and_denies_bundle_wr
     )
     .unwrap();
     assert!(profile.contains("(deny process-exec*)"));
+    assert!(profile.contains("(literal \"/usr/bin/codesign\")"));
     assert!(profile.contains("(deny file-write*"));
     assert!(profile.contains(inventory_root.to_str().unwrap()));
 
@@ -197,6 +198,19 @@ fn updater_probe_child_sandbox_allows_only_bundle_execution_and_denies_bundle_wr
         .status()
         .unwrap();
     assert!(allowed.success());
+    let codesign = Command::new("/usr/bin/sandbox-exec")
+        .args([
+            "-p",
+            &profile,
+            "/usr/bin/codesign",
+            "--verify",
+            "--deep",
+            "--strict",
+        ])
+        .arg(&bundle)
+        .status()
+        .unwrap();
+    assert!(codesign.success());
     let external = Command::new("/usr/bin/sandbox-exec")
         .args(["-p", &profile, "/usr/bin/true"])
         .status()
@@ -842,7 +856,7 @@ fn required_probe_value(name: &str) -> String {
 
 fn previous_probe_versions(target_version: &str) -> Vec<String> {
     let values = std::env::var("RION_UPDATER_PROBE_PREVIOUS_VERSIONS")
-        .unwrap_or_else(|_| "22.9.0,23.0.0".to_owned())
+        .unwrap_or_else(|_| "8.3.0,8.4.0".to_owned())
         .split(',')
         .map(str::trim)
         .filter(|value| !value.is_empty())

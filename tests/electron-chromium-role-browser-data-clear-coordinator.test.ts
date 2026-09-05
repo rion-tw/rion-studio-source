@@ -8,6 +8,9 @@ import {
   CHROMIUM_ROLE_BROWSER_DATA_STORAGE_TYPES,
   ChromiumRoleBrowserDataClearCoordinator,
   type ChromiumRoleBrowserDataClearInput,
+  type ChromiumRoleBrowserDataMaintenanceInput,
+  type ChromiumRoleBrowserDataMaintenanceLease,
+  type ChromiumRoleBrowserDataMaintenancePort,
   type ChromiumRoleBrowserDataMaintenanceRejection,
   type ChromiumRoleBrowserDataMaintenanceReservation,
   type ChromiumRoleBrowserDataMaintenanceReservationPort
@@ -94,6 +97,9 @@ function harness(
     rejectReason?: ChromiumRoleBrowserDataMaintenanceRejection;
     reservation?: Partial<ChromiumRoleBrowserDataMaintenanceReservation>;
     release?: () => unknown;
+    retainedCookies?: readonly unknown[];
+    retainedRejectReason?: ChromiumRoleBrowserDataMaintenanceRejection;
+    retainedRelease?: () => unknown;
     launch?: (
       request: ChromiumRoleBrowserDataClearFreshHelperRequest,
       signal?: AbortSignal
@@ -129,6 +135,51 @@ function harness(
     release: release as unknown as
       ChromiumRoleBrowserDataMaintenanceReservationPort["release"]
   };
+  const clearRetainedStorage = vi.fn(() => {
+    order.push("clear-retained-session");
+    return Promise.resolve();
+  });
+  const flushRetainedCookies = vi.fn(() => {
+    order.push("flush-retained-cookies");
+    return Promise.resolve();
+  });
+  const readRetainedCookies = vi.fn(() => {
+    order.push("read-retained-cookies");
+    return Promise.resolve([...(options.retainedCookies ?? [])]);
+  });
+  const acquireRetained = vi.fn((input: ChromiumRoleBrowserDataMaintenanceInput) => {
+    order.push("acquire-retained-session");
+    if (options.retainedRejectReason) {
+      return {
+        status: "rejected" as const,
+        reason: options.retainedRejectReason
+      };
+    }
+    return {
+      status: "acquired" as const,
+      lease: Object.freeze({
+        roleId: input.roleId,
+        operationId: input.operationId,
+        chromiumUserDataDir: input.rolePaths.chromiumUserDataDir,
+        session: {
+          clearStorageData: clearRetainedStorage,
+          cookies: {
+            flushStore: flushRetainedCookies,
+            get: readRetainedCookies
+          }
+        }
+      }) as unknown as ChromiumRoleBrowserDataMaintenanceLease
+    };
+  });
+  const releaseRetained = vi.fn((_lease: ChromiumRoleBrowserDataMaintenanceLease) => {
+    order.push("release-retained-session");
+    return options.retainedRelease?.() ?? Promise.resolve(true);
+  });
+  const retainedSession: ChromiumRoleBrowserDataMaintenancePort = {
+    acquire: acquireRetained,
+    release: releaseRetained as unknown as
+      ChromiumRoleBrowserDataMaintenancePort["release"]
+  };
   const launch = vi.fn(async (
     metadataBytes: Buffer,
     secretBytes: Buffer,
@@ -147,9 +198,22 @@ function harness(
   const coordinator = new ChromiumRoleBrowserDataClearCoordinator({
     launcher: { launchChromeProfileImportHelperInternal: launch },
     maintenance,
-    platform
+    platform,
+    retainedSession
   });
-  return { coordinator, launch, order, release, requests, reserve };
+  return {
+    acquireRetained,
+    clearRetainedStorage,
+    coordinator,
+    flushRetainedCookies,
+    launch,
+    order,
+    readRetainedCookies,
+    release,
+    releaseRetained,
+    requests,
+    reserve
+  };
 }
 
 describe("ChromiumRoleBrowserDataClearCoordinator", () => {
@@ -182,7 +246,12 @@ describe("ChromiumRoleBrowserDataClearCoordinator", () => {
       expect(subject.order).toEqual([
         "reserve-main-path",
         "launch-fresh-helper",
-        "release-main-path"
+        "release-main-path",
+        "acquire-retained-session",
+        "clear-retained-session",
+        "flush-retained-cookies",
+        "read-retained-cookies",
+        "release-retained-session"
       ]);
     }
   );
@@ -328,8 +397,22 @@ describe("ChromiumRoleBrowserDataClearCoordinator", () => {
           mutation: outcome === "failed" ? "not-started" : "unknown"
         });
       expect(subject.release).toHaveBeenCalledOnce();
+      expect(subject.acquireRetained).not.toHaveBeenCalled();
     }
   );
+
+  it("rejects a nonempty retained Session readback after fresh-process success", async () => {
+    const subject = harness("darwin", { retainedCookies: [{ name: "stale" }] });
+    await expect(subject.coordinator.clear(clearInput("darwin")))
+      .resolves.toEqual({
+        status: "indeterminate",
+        stableErrorCode:
+          "CHROMIUM_ROLE_BROWSER_DATA_CLEAR_RETAINED_SESSION_READBACK_NONEMPTY",
+        mutation: "unknown"
+      });
+    expect(subject.clearRetainedStorage).toHaveBeenCalledOnce();
+    expect(subject.releaseRetained).toHaveBeenCalledOnce();
+  });
 
   it("rejects a confused reservation before launching the helper", async () => {
     const subject = harness("darwin", {

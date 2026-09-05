@@ -225,16 +225,10 @@ async function activateWindowRoles(input: Readonly<{
   windowId: string;
 }>): Promise<void> {
   const roles = input.lifecycle.roles.filter(({ windowId }) => windowId === input.windowId);
-  const initiallyActiveTabId = input.lifecycle.windows
-    .find(({ windowId }) => windowId === input.windowId)?.activeTabId;
   for (const role of roles) {
     const cursor = await fixtureCursor();
     await activateTab({ evidence: role, ...input });
-    if (role.tabId === initiallyActiveTabId) {
-      await waitFixtureEvent({ afterSequence: cursor, kind: "visibility", roleId: role.fixture });
-    } else {
-      await waitSession(cursor, ROLES.find(({ fixture }) => fixture === role.fixture)!, true);
-    }
+    await waitFixtureEvent({ afterSequence: cursor, kind: "visibility", roleId: role.fixture });
   }
 }
 
@@ -324,6 +318,7 @@ async function reopenAndVerify(input: Readonly<{
   await waitExactWindows(input.lifecycle);
   await Promise.all([
     waitSession(cursor, ROLES[0], true),
+    waitSession(cursor, ROLES[1], true),
     waitSession(cursor, ROLES[2], true)
   ]);
   await activateWindowRoles({ ...input, windowId: input.lifecycle.windows[1]!.windowId });
@@ -350,10 +345,15 @@ async function restoreAndForcePhase(input: Readonly<{
   await navigate("/dashboard");
   const awaiting = await rendererCall("getEmbeddedRuntimeState");
   expect(awaiting.recovery).toEqual(expect.objectContaining({
-    interruptedWindowIds: lifecycle.windows.map(({ windowId }) => windowId),
+    reason: "unclean-exit",
     tabCount: 3,
     windowCount: 2
   }));
+  expect(awaiting.recovery?.interruptedWindowIds).toBeUndefined();
+  for (const { windowId } of lifecycle.windows) {
+    expect(awaiting.savedWindows?.find(({ id }) => id === windowId)?.state)
+      .toBe("awaiting-recovery");
+  }
   expect(awaiting.windows).toEqual([]);
   const cursor = await fixtureCursor();
   const restore = await $("button=Restore session");
@@ -362,6 +362,7 @@ async function restoreAndForcePhase(input: Readonly<{
   await waitExactWindows(lifecycle);
   await Promise.all([
     waitSession(cursor, ROLES[0], true),
+    waitSession(cursor, ROLES[1], true),
     waitSession(cursor, ROLES[2], true)
   ]);
   await activateWindowRoles({
@@ -378,9 +379,16 @@ async function discardPhase(platform: "macos" | "windows"): Promise<void> {
   const lifecycle = await readLifecycle(platform);
   await navigate("/dashboard");
   const awaiting = await rendererCall("getEmbeddedRuntimeState");
-  expect(awaiting.recovery?.interruptedWindowIds).toEqual(
-    lifecycle.windows.map(({ windowId }) => windowId)
-  );
+  expect(awaiting.recovery).toEqual(expect.objectContaining({
+    reason: "unclean-exit",
+    tabCount: 3,
+    windowCount: 2
+  }));
+  expect(awaiting.recovery?.interruptedWindowIds).toBeUndefined();
+  for (const { windowId } of lifecycle.windows) {
+    expect(awaiting.savedWindows?.find(({ id }) => id === windowId)?.state)
+      .toBe("awaiting-recovery");
+  }
   const discard = await $("button=Discard");
   await discard.waitForClickable({ timeout: 10_000 });
   await discard.click();

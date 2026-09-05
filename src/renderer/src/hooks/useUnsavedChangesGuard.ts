@@ -13,7 +13,19 @@ export function useUnsavedChangesGuard(
   const allowNavigationRef = useRef(false);
   const isPromptingRef = useRef(false);
   const confirm = useConfirmation();
-  useApplicationQuitBlocker(enabled, isNavigationLocked, options);
+  const allowTerminalAction = useCallback(() => {
+    allowNavigationRef.current = true;
+  }, []);
+  const restoreAfterTerminalActionFailure = useCallback(() => {
+    allowNavigationRef.current = false;
+  }, []);
+  useApplicationQuitBlocker(
+    enabled,
+    isNavigationLocked,
+    options,
+    allowTerminalAction,
+    restoreAfterTerminalActionFailure
+  );
   const blocker = useBlocker(
     useCallback(
       () => (enabled || isNavigationLocked) && !allowNavigationRef.current,
@@ -82,7 +94,5 @@ export function useUnsavedChangesGuard(
     }, [confirm, enabled, isNavigationLocked, options])
   );
 
-  return useCallback(() => {
-    allowNavigationRef.current = true;
-  }, []);
+  return allowTerminalAction;
 }

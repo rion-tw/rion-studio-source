@@ -1,6 +1,8 @@
 export interface ElectronUpdaterCiFixture {
   fixtureRoot: string;
+  priorV23Version: string;
   publicKey: string;
+  tauriV22Version: string;
   version: string;
 }
 

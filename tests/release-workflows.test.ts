@@ -113,6 +113,13 @@ describe("desktop shell migration workflows", () => {
       "pnpm run build:electron-updater:previous-fixtures"
     );
     expect(electronChecks).toContain(
+      "- name: Build previous-version updater fixtures\n" +
+      "        run: pnpm run build:electron-updater:previous-fixtures"
+    );
+    expect(electronChecks).not.toContain(
+      "Build previous-version Windows Electron updater fixtures"
+    );
+    expect(electronChecks).toContain(
       "Verify packaged macOS Rust-owned updater transaction"
     );
     expect(electronChecks).toContain(

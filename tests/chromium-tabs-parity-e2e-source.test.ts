@@ -59,7 +59,8 @@ describe("Chromium native tab exact replacements", () => {
     expect(helper).toContain("evidence.tabId !== tabId");
     expect(helper).toContain("await switchTrackedWindow(mainWindowHandle)");
     expect(helper).toContain("The visible AppKit close control did not close");
-    expect(appKitTabs).toContain("self.accessibilityIdentifier = tab.identifier;");
+    expect(appKitTabs).toContain("com.rionstudio.runtime.appkit-tab.v1:%@");
+    expect(appKitTabs).not.toContain("self.accessibilityIdentifier = tab.identifier;");
     expect(helper).toContain('whose subrole is "AXCloseButton"');
     expect(helper).toContain("[data-runtime-tab-activate]");
     expect(helper).toContain("[data-runtime-tab-close]");

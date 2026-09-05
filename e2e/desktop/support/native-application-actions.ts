@@ -37,18 +37,20 @@ function boundedPowerShellFailure(error: unknown): string {
 async function cancelMacosNativeSaveDialog(processId: number): Promise<void> {
   const script = String.raw`
 on filePanels(targetProcess)
-  set matches to {}
-  repeat with appWindow in windows of targetProcess
-    try
-      if subrole of appWindow is "AXDialog" then set end of matches to appWindow
-    end try
-    try
-      repeat with appSheet in sheets of appWindow
-        if role of appSheet is "AXSheet" then set end of matches to appSheet
-      end repeat
-    end try
-  end repeat
-  return matches
+  tell application "System Events"
+    set matches to {}
+    repeat with appWindow in windows of targetProcess
+      try
+        if subrole of appWindow is "AXDialog" then set end of matches to appWindow
+      end try
+      try
+        repeat with appSheet in sheets of appWindow
+          if role of appSheet is "AXSheet" then set end of matches to appSheet
+        end repeat
+      end try
+    end repeat
+    return matches
+  end tell
 end filePanels
 
 on run argv
@@ -66,7 +68,17 @@ on run argv
       if (current date) is greater than expiry then error "exact AppKit save panel unavailable"
       delay 0.05
     end repeat
-    key code 53
+    set cancelButtons to {}
+    repeat with candidateReference in (get entire contents of item 1 of panels)
+      set candidate to contents of candidateReference
+      try
+        if role of candidate is "AXButton" and name of candidate is "Cancel" then
+          set end of cancelButtons to candidate
+        end if
+      end try
+    end repeat
+    if (count of cancelButtons) is not 1 then error "exact AppKit Cancel control unavailable"
+    perform action "AXPress" of item 1 of cancelButtons
     repeat
       if (count of my filePanels(targetProcess)) is 0 then exit repeat
       if (current date) is greater than expiry then error "AppKit save panel did not close"
@@ -664,12 +676,42 @@ export async function pressVisibleNativeApplicationQuit(): Promise<void> {
       "-e",
       `on run argv
   set targetPid to (item 1 of argv) as integer
+  set appKitWindowPrefix to "com.rionstudio.runtime.appkit-window.v1:"
+  set expiry to (current date) + 10
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
     set targetProcess to item 1 of matchingProcesses
     set frontmost of targetProcess to true
-    keystroke "q" using command down
+    repeat
+      set launcherWindow to missing value
+      set launcherWindowCount to 0
+      repeat with appWindow in windows of targetProcess
+        set appWindowIdentifier to ""
+        try
+          set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
+        end try
+        if appWindowIdentifier does not start with appKitWindowPrefix then
+          if value of attribute "AXRole" of appWindow is "AXWindow" then
+            set launcherWindow to appWindow
+            set launcherWindowCount to launcherWindowCount + 1
+          end if
+        end if
+      end repeat
+      if launcherWindowCount is greater than 1 then error "ambiguous exact Rion launcher AXWindow"
+      if launcherWindowCount is 1 then
+        perform action "AXRaise" of launcherWindow
+        try
+          if frontmost of targetProcess is true and value of attribute "AXMain" of launcherWindow is true then exit repeat
+        end try
+      end if
+      if (current date) is greater than expiry then error "exact Rion launcher AXWindow unavailable before quit"
+      delay 0.05
+    end repeat
+    if frontmost of targetProcess is not true then error "exact Rion process lost foreground before quit"
+    -- Physical ANSI Q remains stable across active macOS input sources while
+    -- exercising the installed Command+Q application accelerator.
+    key code 12 using command down
   end tell
 end run`,
       "--",

@@ -159,15 +159,23 @@ class RestoreHarness {
 }
 
 describe("Chromium saved Game Window restore controller", () => {
-  it("persists in-progress evidence before restoring a nonempty window", async () => {
-    const harness = new RestoreHarness([savedWindow(WINDOW_ONE)]);
+  it("persists only v2 in-progress evidence before restoring a nonempty window", async () => {
+    const sharedRole = "shared-role";
+    const saved = savedWindow(WINDOW_ONE, 2);
+    saved.tabs = saved.tabs.map((tab) => ({
+      ...tab,
+      tabType: "workspace",
+      roleSlots: [{
+        roleId: sharedRole,
+        slotId: "slot-1",
+        rect: { x: 0, y: 0, width: 1, height: 1 }
+      }]
+    }));
+    const harness = new RestoreHarness([saved]);
     harness.launches.mockImplementationOnce(async (window) => {
       expect(window.id).toBe(WINDOW_ONE);
       expect(harness.session.restoreInProgressWindowIds).toEqual([WINDOW_ONE]);
-      expect(harness.session.windows?.[0]).toMatchObject({
-        id: WINDOW_ONE,
-        tabs: [{ sourceId: WINDOW_ONE + "-role-1" }]
-      });
+      expect(harness.session.windows).toEqual([]);
     });
 
     await harness.controller().restore({
@@ -179,6 +187,28 @@ describe("Chromium saved Game Window restore controller", () => {
     expect(harness.session.restoreInProgressWindowIds).toEqual([]);
     expect(harness.session.liveWindowIds).toEqual([WINDOW_ONE]);
     expect(harness.session.windows).toEqual([]);
+  });
+
+  it("discards the complete schema-v2 recovery cohort without legacy snapshots", async () => {
+    const harness = new RestoreHarness([
+      savedWindow(WINDOW_ONE),
+      savedWindow(WINDOW_TWO)
+    ]);
+    harness.session = {
+      ...harness.session,
+      schemaVersion: 2,
+      lastFocusedWindowId: WINDOW_TWO,
+      restoreInProgressWindowIds: [WINDOW_ONE],
+      liveWindowIds: [WINDOW_ONE, WINDOW_TWO],
+      windows: []
+    };
+
+    await harness.controller().discard({ scope: "all" });
+
+    expect(harness.session.restoreInProgressWindowIds).toEqual([]);
+    expect(harness.session.liveWindowIds).toEqual([]);
+    expect(harness.session.windows).toEqual([]);
+    expect(harness.session.lastFocusedWindowId).toBeUndefined();
   });
 
   it("resumes from the Core in-progress marker after a launch crash", async () => {
@@ -199,10 +229,10 @@ describe("Chromium saved Game Window restore controller", () => {
     expect(harness.session.liveWindowIds).toEqual([WINDOW_ONE]);
   });
 
-  it("restores the last visible schema-v2 window from the exact live cohort", async () => {
+  it("restores the complete schema-v2 recovery cohort with final focus last", async () => {
     const first = savedWindow(WINDOW_ONE);
     const second = savedWindow(WINDOW_TWO);
-    const harness = new RestoreHarness([first, second]);
+    const harness = new RestoreHarness([second, first]);
     harness.session = {
       ...harness.session,
       schemaVersion: 2,
@@ -213,10 +243,29 @@ describe("Chromium saved Game Window restore controller", () => {
 
     await harness.controller().restore({ scope: "last-visible" });
 
-    expect(harness.launches).toHaveBeenCalledOnce();
-    expect(harness.launches).toHaveBeenCalledWith(second);
+    expect(harness.launches.mock.calls.map(([window]) => window.id))
+      .toEqual([WINDOW_ONE, WINDOW_TWO]);
     expect(harness.session.restoreInProgressWindowIds).toEqual([]);
     expect(harness.session.liveWindowIds).toEqual([WINDOW_ONE, WINDOW_TWO]);
+  });
+
+  it("restores only the last visible window outside recovery", async () => {
+    const first = savedWindow(WINDOW_ONE);
+    const second = savedWindow(WINDOW_TWO);
+    const harness = new RestoreHarness([first, second]);
+    harness.session = {
+      ...harness.session,
+      schemaVersion: 2,
+      cleanExit: true,
+      lastFocusedWindowId: WINDOW_TWO,
+      liveWindowIds: [WINDOW_ONE, WINDOW_TWO],
+      windows: []
+    };
+
+    await harness.controller().restore({ scope: "last-visible" });
+
+    expect(harness.launches).toHaveBeenCalledOnce();
+    expect(harness.launches).toHaveBeenCalledWith(second);
   });
 
   it("discards only the selected recovery window and retains its peer", async () => {

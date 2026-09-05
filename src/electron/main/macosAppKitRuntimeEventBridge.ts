@@ -27,7 +27,9 @@ interface AppKitCoreCommandPort extends ElectronCoreCommandPort {
 
 export interface MacosAppKitRuntimeEventBridgeInput {
   readonly core: AppKitCoreCommandPort;
-  readonly beforeLayoutDispatch?: () => Promise<void>;
+  readonly preparePassiveEventDispatch?: (
+    capturedHosts: readonly AppKitRuntimeHostObservationRecord[]
+  ) => Promise<readonly AppKitRuntimeHostObservationRecord[]>;
   readonly onOpenTabMenu?: (
     event: Readonly<{
       hosts: readonly AppKitRuntimeHostObservationRecord[];
@@ -39,6 +41,8 @@ export interface MacosAppKitRuntimeEventBridgeInput {
 }
 
 export interface MacosAppKitRendererActionPort {
+  beginSavedWindowRestore: (windowId: string) => void;
+  finishSavedWindowRestore: (windowId: string) => Promise<void>;
   settleCurrentEvents: () => Promise<number>;
   activateTab: (
     hosts: readonly AppKitRuntimeHostObservationRecord[],
@@ -408,6 +412,8 @@ implements MacosAppKitRendererActionPort {
   >();
   readonly #layoutSequences = new Map<string, number>();
   readonly #layoutObservations = new Map<string, LayoutObservation>();
+  readonly #deferredLayoutWindowIds = new Set<string>();
+  readonly #deferredLayouts = new Map<string, LayoutObservation>();
   readonly #placementSequences = new Map<string, number>();
   readonly #pendingVisibilityDispatches = new Map<
     string,
@@ -444,35 +450,63 @@ implements MacosAppKitRendererActionPort {
     try {
       const hosts = validateHosts(event.identity, event.hosts);
       const key = this.#hostSequenceKey(event.identity);
-      const previous = this.#layoutObservations.get(key);
-      if (previous && layoutObservationsMatch(previous.hosts, hosts)) return;
-      const observation = Object.freeze({ hosts });
-      this.#layoutObservations.set(key, observation);
-      // EventBound coalescing: an exact repeat contains no new authoritative
-      // host truth. Remember it before dispatch so native layout callbacks
-      // cannot fill the ordered Core lane while the first receipt is pending.
-      void this.#submit(hosts, {
-        type: "layout",
-        layoutSequence: this.#nextHostSequence(
-          this.#layoutSequences,
-          event.identity,
-          "layout"
-        )
-      }).catch((error: unknown) => {
-        if (this.#layoutObservations.get(key) === observation) {
-          this.#layoutObservations.delete(key);
+      if (this.#deferredLayoutWindowIds.has(event.identity.logicalWindowId)) {
+        this.#deferredLayouts.set(key, Object.freeze({ hosts }));
+        return;
+      }
+      void this.#submitLayoutObservation(key, event.identity, hosts).catch(
+        (error: unknown) => {
+          this.#input.onError(normalizeRionBridgeError(
+            error,
+            "ELECTRON_MACOS_APPKIT_EVENT_FAILED"
+          ));
         }
-        this.#input.onError(normalizeRionBridgeError(
-          error,
-          "ELECTRON_MACOS_APPKIT_EVENT_FAILED"
-        ));
-      });
+      );
     } catch (error) {
       this.#input.onError(normalizeRionBridgeError(
         error,
         "ELECTRON_MACOS_APPKIT_LAYOUT_EVENT_INVALID"
       ));
     }
+  }
+
+  beginSavedWindowRestore(windowId: string): void {
+    if (this.#state !== "open") {
+      throw bridgeError(
+        "ELECTRON_MACOS_APPKIT_EVENT_BRIDGE_DRAINING",
+        "The AppKit event bridge cannot begin a saved-window restore while draining."
+      );
+    }
+    this.#deferredLayoutWindowIds.add(requireIdentifier(windowId, "window"));
+  }
+
+  async finishSavedWindowRestore(windowId: string): Promise<void> {
+    const exactWindowId = requireIdentifier(windowId, "window");
+    if (
+      this.#state !== "open" ||
+      !this.#deferredLayoutWindowIds.has(exactWindowId)
+    ) {
+      throw bridgeError(
+        "ELECTRON_MACOS_APPKIT_RESTORE_LAYOUT_STALE",
+        "The AppKit saved-window layout fence is no longer current."
+      );
+    }
+    // EventBound coalescing: hidden restore callbacks are presentation-only
+    // observations. Drain their latest exact value after the restore reaches a
+    // terminal topology so they cannot overtake ownership or reorder effects.
+    while (true) {
+      const deferred = [...this.#deferredLayouts.entries()].filter(
+        ([, observation]) =>
+          observation.hosts[0]?.identity.logicalWindowId === exactWindowId
+      );
+      if (deferred.length === 0) break;
+      for (const [key, observation] of deferred) {
+        this.#deferredLayouts.delete(key);
+        const identity = observation.hosts[0]!.identity;
+        await this.#submitLayoutObservation(key, identity, observation.hosts);
+      }
+    }
+    this.#deferredLayoutWindowIds.delete(exactWindowId);
   }
 
   receiveCloseRequested(
@@ -612,6 +646,8 @@ implements MacosAppKitRendererActionPort {
       this.#dragSessions.clear();
       this.#workspaceDividerGestures.clear();
       this.#layoutObservations.clear();
+      this.#deferredLayoutWindowIds.clear();
+      this.#deferredLayouts.clear();
       this.#pendingVisibilityDispatches.clear();
       this.#unsubscribeCoreEvents();
       this.#state = "disposed";
@@ -954,12 +990,6 @@ implements MacosAppKitRendererActionPort {
       ));
     }
     const sequence = this.#nextAdapterSequence();
-    const event = Object.freeze({
-      eventId: randomUUID(),
-      adapterSequence: sequence,
-      hosts,
-      action
-    } satisfies AppKitRuntimeEventRecord);
     const start = this.#lane
       .catch(() => undefined)
       .then(async () => {
@@ -969,9 +999,15 @@ implements MacosAppKitRendererActionPort {
             "The privileged AppKit event lane was disposed before completion."
           );
         }
-        if (action.type === "layout") {
-          await this.#input.beforeLayoutDispatch?.();
-        }
+        const currentHosts = action.type === "layout" || action.type === "windowState"
+          ? await this.#preparePassiveHostsForDispatch(hosts)
+          : hosts;
+        const event = Object.freeze({
+          eventId: randomUUID(),
+          adapterSequence: sequence,
+          hosts: currentHosts,
+          action
+        } satisfies AppKitRuntimeEventRecord);
         const dispatch = action.type === "setWindowVisibility"
           ? this.#armVisibilityDispatch(event)
           : undefined;
@@ -1016,6 +1052,56 @@ implements MacosAppKitRendererActionPort {
       () => this.#terminalResults.delete(result)
     );
     return result;
+  }
+
+  async #preparePassiveHostsForDispatch(
+    capturedHosts: readonly AppKitRuntimeHostObservationRecord[]
+  ): Promise<AppKitRuntimeHostObservationRecord[]> {
+    const refreshed = await this.#input.preparePassiveEventDispatch?.(
+      capturedHosts
+    ) ?? capturedHosts;
+    if (
+      refreshed.length !== capturedHosts.length ||
+      refreshed.some((host, index) => !identitiesMatch(
+        host.identity,
+        capturedHosts[index]!.identity
+      ))
+    ) {
+      throw bridgeError(
+        "ELECTRON_MACOS_APPKIT_EVENT_HOST_STALE",
+        "The native AppKit event host changed before its ordered Core dispatch."
+      );
+    }
+    return validateHosts(refreshed[0]!.identity, refreshed);
+  }
+
+  #submitLayoutObservation(
+    key: string,
+    identity: AppKitRuntimeHostIdentity,
+    hosts: readonly AppKitRuntimeHostObservationRecord[]
+  ): Promise<void> {
+    const previous = this.#layoutObservations.get(key);
+    if (previous && layoutObservationsMatch(previous.hosts, hosts)) {
+      return Promise.resolve();
+    }
+    const observation = Object.freeze({ hosts });
+    this.#layoutObservations.set(key, observation);
+    // EventBound coalescing: an exact repeat contains no new authoritative
+    // host truth. Remember it before dispatch so native layout callbacks
+    // cannot fill the ordered Core lane while the first receipt is pending.
+    return this.#submit([...hosts], {
+      type: "layout",
+      layoutSequence: this.#nextHostSequence(
+        this.#layoutSequences,
+        identity,
+        "layout"
+      )
+    }).then(() => undefined, (error: unknown) => {
+      if (this.#layoutObservations.get(key) === observation) {
+        this.#layoutObservations.delete(key);
+      }
+      throw error;
+    });
   }
 
   #armVisibilityDispatch(

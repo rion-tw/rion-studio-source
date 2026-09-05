@@ -360,7 +360,7 @@ describe("Electron updater CI fixtures", () => {
       "restricted to GitHub CI"
     );
     await expect(buildElectronUpdaterPreviousFixtures({})).rejects.toThrow(
-      "restricted to Windows GitHub CI"
+      "restricted to macOS or Windows GitHub CI"
     );
     await expect(verifyTauriV22UpdaterInput([], {})).rejects.toThrow(
       "restricted to GitHub CI"

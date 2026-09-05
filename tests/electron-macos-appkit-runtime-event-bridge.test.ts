@@ -110,7 +110,10 @@ describe("macOS AppKit privileged runtime event bridge", () => {
         invoke,
         subscribeCoreEvents: () => () => undefined
       },
-      beforeLayoutDispatch: async () => applicationEffect,
+      preparePassiveEventDispatch: async (hosts) => {
+        await applicationEffect;
+        return hosts;
+      },
       onError: vi.fn()
     });
 
@@ -125,6 +128,104 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     release();
     await bridge.dispose();
     expect(invoke).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes an action observation after the current application effect", async () => {
+    let release!: () => void;
+    const applicationEffect = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const commands: Extract<CoreCommand, {
+      type: "browserAppKitRuntimeEvent";
+    }>[] = [];
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: async (command) => {
+          const eventCommand = command as Extract<CoreCommand, {
+            type: "browserAppKitRuntimeEvent";
+          }>;
+          commands.push(eventCommand);
+          return receipt(eventCommand) as never;
+        },
+        subscribeCoreEvents: () => () => undefined
+      },
+      preparePassiveEventDispatch: async (hosts) => {
+        await applicationEffect;
+        return hosts.map((host) => ({ ...host, topologyRevision: 9 }));
+      },
+      onError: vi.fn()
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: { type: "windowFocusChanged", sourceWindowId: "window-1" }
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(commands).toHaveLength(0);
+
+    release();
+    await bridge.dispose();
+    expect(commands[0]!.event.hosts[0]!.topologyRevision).toBe(9);
+    expect(commands[0]!.event.action).toEqual({
+      type: "windowState",
+      placementSequence: 1
+    });
+  });
+
+  it("rejects a refreshed action whose native host identity changed", async () => {
+    const invoke = vi.fn();
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      preparePassiveEventDispatch: async (hosts) => hosts.map((host) => ({
+        ...host,
+        identity: { ...host.identity, nativeGeneration: 2 }
+      })),
+      onError
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: { type: "windowFocusChanged", sourceWindowId: "window-1" }
+    });
+    await bridge.dispose();
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_MACOS_APPKIT_EVENT_HOST_STALE"
+    }));
+  });
+
+  it("does not make an interactive stop wait behind a passive-event fence", async () => {
+    const preparePassiveEventDispatch = vi.fn(() => new Promise<
+      readonly AppKitRuntimeHostObservationRecord[]
+    >(() => undefined));
+    const invoke = vi.fn(async (command: CoreCommand) => receipt(
+      command as Extract<CoreCommand, { type: "browserAppKitRuntimeEvent" }>
+    ) as never);
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      preparePassiveEventDispatch,
+      onError: vi.fn()
+    });
+
+    await expect(bridge.stopTab(
+      [primaryObservation()],
+      "tab-1",
+      []
+    )).resolves.toMatchObject({ status: "applied" });
+    expect(preparePassiveEventDispatch).not.toHaveBeenCalled();
+    expect(invoke).toHaveBeenCalledOnce();
+    await bridge.dispose();
   });
 
   it("keeps native divider pointer moves on the ordered AppKit Core lane", async () => {
@@ -291,6 +392,44 @@ describe("macOS AppKit privileged runtime event bridge", () => {
       { adapterSequence: 1, action: { type: "layout", layoutSequence: 1 } },
       { adapterSequence: 2, action: { type: "layout", layoutSequence: 2 } }
     ]);
+  });
+
+  it("defers and coalesces restore layouts until the exact topology is terminal", async () => {
+    const commands: Extract<CoreCommand, {
+      type: "browserAppKitRuntimeEvent";
+    }>[] = [];
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: async (command) => {
+          const eventCommand = command as Extract<CoreCommand, {
+            type: "browserAppKitRuntimeEvent";
+          }>;
+          commands.push(eventCommand);
+          return receipt(eventCommand) as never;
+        },
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError: vi.fn()
+    });
+    const firstHosts = [primaryObservation()];
+    const finalHosts = [{
+      ...primaryObservation(),
+      contentBounds: { x: 0, y: 12, width: 900, height: 588 }
+    }];
+
+    bridge.beginSavedWindowRestore("window-1");
+    bridge.receiveLayout({ identity, hosts: firstHosts });
+    bridge.receiveLayout({ identity, hosts: finalHosts });
+    await Promise.resolve();
+    expect(commands).toHaveLength(0);
+
+    await bridge.finishSavedWindowRestore("window-1");
+    expect(commands).toHaveLength(1);
+    expect(commands[0]!.event).toMatchObject({
+      action: { type: "layout", layoutSequence: 1 },
+      hosts: finalHosts
+    });
+    await bridge.dispose();
   });
 
   it("allows an identical native layout observation to retry after failure", async () => {

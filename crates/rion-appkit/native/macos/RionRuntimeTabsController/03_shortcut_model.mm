@@ -671,7 +671,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _audioView.hidden = !tab.audioMuted && !tab.audible;
   _audioView.toolTip = _audioView.hidden ? @"" : audioLabel;
   _moreButton.identifier = tab.identifier;
-  self.accessibilityIdentifier = tab.identifier;
   self.toolTip = tab.tooltip.length > 0 ? tab.tooltip : tab.name;
   self.accessibilityLabel = _audioView.hidden
       ? self.toolTip

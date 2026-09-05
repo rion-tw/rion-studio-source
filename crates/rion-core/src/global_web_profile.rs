@@ -73,10 +73,12 @@ pub(crate) fn chromium_engine_path(path: &Path) -> CoreResult<String> {
     let path = path.to_str().ok_or_else(|| invalid_profile_path(path))?;
     #[cfg(windows)]
     {
-        return Ok(windows_chromium_path(path));
+        Ok(windows_chromium_path(path))
     }
     #[cfg(not(windows))]
-    Ok(path.to_owned())
+    {
+        Ok(path.to_owned())
+    }
 }
 
 #[cfg(any(windows, test))]

@@ -573,13 +573,14 @@ export async function dragMacosVisibleRuntimeTab(input: Readonly<{
   const targetIndex = toolbar.tabIds.indexOf(input.targetTabId);
   const sourceAnchor = anchors?.[input.sourceTabId];
   const targetAnchor = anchors?.[input.targetTabId];
+  const firstAnchor = anchors?.[toolbar.tabIds[0]!];
   if (
     toolbar.hostKind !== "appkit" || !runtime ||
     runtime.hostKind !== "appkit-chromium" ||
     runtime.windowId !== input.windowId ||
     !sameOrderedStrings(runtime.nativeTabIds, toolbar.tabIds) ||
     sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex ||
-    !sourceAnchor || !targetAnchor || !tabBounds
+    !sourceAnchor || !targetAnchor || !firstAnchor || !tabBounds
   ) {
     throw new Error("The exact AppKit runtime-tab drag geometry is unavailable");
   }
@@ -626,8 +627,12 @@ on run argv
     return "focused"
   end tell
 end run`, windowIdentifier, processId);
-  const windowX = runtime.nativeDisplay.bounds.x;
-  const windowY = runtime.nativeDisplay.bounds.y;
+  // The Core projection describes the Chromium content bounds, while AppKit's
+  // titlebar can live above that content rect. Translate every window-relative
+  // anchor through the first rendered tab's absolute on-screen frame so the
+  // CGEvent stream follows the actual retained-AppKit pixels.
+  const anchorScreenOffsetX =
+    tabBounds.x + tabBounds.width - firstAnchor.x;
   const previousSourceAnchor = sourceIndex === 0
     ? undefined
     : anchors[toolbar.tabIds[sourceIndex - 1]!];
@@ -635,25 +640,26 @@ end run`, windowIdentifier, processId);
     ? undefined
     : anchors[toolbar.tabIds[targetIndex - 1]!];
   const sourceLeft = previousSourceAnchor
-    ? windowX + previousSourceAnchor.x
+    ? anchorScreenOffsetX + previousSourceAnchor.x
     : tabBounds.x;
-  const sourceRight = windowX + sourceAnchor.x;
+  const sourceRight = anchorScreenOffsetX + sourceAnchor.x;
   const targetLeft = previousTargetAnchor
-    ? windowX + previousTargetAnchor.x
+    ? anchorScreenOffsetX + previousTargetAnchor.x
     : tabBounds.x;
-  const targetRight = windowX + targetAnchor.x;
+  const targetRight = anchorScreenOffsetX + targetAnchor.x;
   const sourceWidth = sourceRight - sourceLeft;
   const targetWidth = targetRight - targetLeft;
   if (sourceWidth <= 0 || targetWidth <= 0) {
     throw new Error("The exact AppKit runtime-tab drag anchors are invalid");
   }
   const startX = sourceLeft + sourceWidth / 2;
-  const startY = windowY + sourceAnchor.y;
+  const tabScreenCenterY = tabBounds.y + tabBounds.height / 2;
+  const startY = tabScreenCenterY;
   const targetInset = Math.min(10, targetWidth / 5);
   const endX = input.placement === "before"
     ? targetLeft + targetInset
     : targetRight - targetInset;
-  const endY = windowY + targetAnchor.y;
+  const endY = tabScreenCenterY;
   const script = `
 import CoreGraphics
 import Foundation
@@ -731,6 +737,10 @@ export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
   const bounds = inspection.native.appKit?.tabScreenBounds;
   const tabIndex = inspection.tabIds.indexOf(input.tabId);
   const anchor = inspection.native.appKit?.tabAnchors?.[input.tabId];
+  const firstTabId = inspection.tabIds[0];
+  const firstAnchor = firstTabId === undefined
+    ? undefined
+    : inspection.native.appKit?.tabAnchors?.[firstTabId];
   const previousTabId = tabIndex > 0 ? inspection.tabIds[tabIndex - 1] : undefined;
   const previousAnchor = previousTabId === undefined
     ? undefined
@@ -740,7 +750,8 @@ export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
     inspection.hostKind !== "appkit" ||
     inspection.tabIds.filter((tabId) => tabId === input.tabId).length !== 1 ||
     !sameOrderedStrings(runtime?.nativeTabIds ?? [], inspection.tabIds) ||
-    tabIndex < 0 || (tabIndex > 0 && previousAnchor === undefined) ||
+    tabIndex < 0 || firstAnchor === undefined ||
+    (tabIndex > 0 && previousAnchor === undefined) ||
     bounds === undefined || anchor === undefined || !runtime ||
     runtime.hostKind !== "appkit-chromium" ||
     runtime.windowId !== input.windowId ||
@@ -750,26 +761,27 @@ export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
       `The exact AppKit desktop-E2E geometry for ${input.tabName} is unavailable`
     );
   }
-  const windowBounds = runtime.nativeDisplay.bounds;
-  // AppKit exposes the first rendered tab's absolute bounds plus every tab's
-  // window-relative right-centre anchor. Adjacent anchors therefore fence
-  // the exact target tab without traversing Chromium's Accessibility tree.
+  // AppKit exposes the first rendered tab's absolute screen bounds plus every
+  // tab's window-relative right-centre anchor. Use their shared first-tab edge
+  // to translate all anchors into screen coordinates. Core's nativeDisplay
+  // bounds describe Chromium content and can begin below the retained titlebar.
+  const anchorScreenOffsetX = bounds.x + bounds.width - firstAnchor.x;
   const tabLeft = previousAnchor === undefined
     ? bounds.x
-    : windowBounds.x + previousAnchor.x;
-  const tabRight = windowBounds.x + anchor.x;
+    : anchorScreenOffsetX + previousAnchor.x;
+  const tabRight = anchorScreenOffsetX + anchor.x;
   const clickX = tabLeft + (tabRight - tabLeft) / 2;
-  const clickY = windowBounds.y + anchor.y;
+  const clickY = bounds.y + bounds.height / 2;
   if (
-    bounds.x < windowBounds.x || bounds.y < windowBounds.y ||
-    bounds.x + bounds.width > windowBounds.x + windowBounds.width ||
-    bounds.y + bounds.height > windowBounds.y + windowBounds.height ||
-    anchor.x < 0 || anchor.x > windowBounds.width ||
-    anchor.y < 0 || anchor.y > windowBounds.height ||
+    bounds.width <= 0 || bounds.height <= 0 ||
+    anchor.x < 0 || anchor.y < 0 || firstAnchor.x < 0 ||
     tabLeft < bounds.x || tabRight <= tabLeft ||
-    tabRight > windowBounds.x + windowBounds.width ||
     clickY < bounds.y || clickY > bounds.y + bounds.height ||
-    ![clickX, clickY].every(Number.isFinite)
+    ![
+      anchorScreenOffsetX, tabLeft, tabRight, clickX, clickY,
+      anchor.x, anchor.y, firstAnchor.x, firstAnchor.y,
+      bounds.x, bounds.y, bounds.width, bounds.height
+    ].every(Number.isFinite)
   ) {
     throw new Error("The AppKit native tab geometry escaped its exact window");
   }

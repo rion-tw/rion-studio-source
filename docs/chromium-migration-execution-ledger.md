@@ -586,6 +586,28 @@ snapshot into its uploaded artifact instead of widening selection to another
 application. The next immutable Windows run must prove which exact ownership
 path is present and complete the native selection.
 
+The thirteenth exact-SHA matrix, run `33991852617` at
+`e6508373ddf154e851d283aab748116b65451090`, reached the revised Windows
+owner-chain observer. Its failure occurred before native selection because
+PowerShell enumerated the single matching dialog returned by the helper into an
+`AutomationElement`; under `Set-StrictMode`, that scalar has no `Count`
+property. Every exact-dialog read is now explicitly array-wrapped, preserving
+the zero/one/many ownership fence while allowing the unique owned chooser to
+advance. The same run passed checks, renderer assets, Linux soak, both hosted
+desktop-E2E profiles, and macOS native validation; its remaining jobs were
+still running when this correction was prepared.
+
+The twelfth run's macOS package artifact also made the remaining AppKit geometry
+mismatch precise. The titlebar observer reported the target window's first tab
+at absolute screen `y=42`, while Core's Chromium content bounds began at
+`y=68`; using the latter as a titlebar origin incorrectly rejected a real
+native tab. Visible drag and menu input now translate every window-relative tab
+anchor through AppKit's first-tab absolute screen frame, and take vertical
+input from that same frame. No Core/AppKit ownership fence is relaxed and no
+Chromium Accessibility node substitutes for the native action. The focused
+retained-AppKit seed plus restart chain passes locally in
+`.desktop-e2e-artifacts/2026-09-05T21-16-47-637Z-darwin`.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

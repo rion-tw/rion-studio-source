@@ -84,6 +84,16 @@ describe("Chromium native tab exact replacements", () => {
       "inspection.tabIds.filter((tabId) => tabId === input.tabId).length !== 1"
     );
     expect(appKitHelper).toContain("const tabLeft = previousAnchor === undefined");
+    expect(appKitHelper).toContain(
+      "const anchorScreenOffsetX = bounds.x + bounds.width - firstAnchor.x"
+    );
+    expect(appKitHelper).toContain(
+      "const clickY = bounds.y + bounds.height / 2"
+    );
+    expect(appKitHelper).not.toContain(
+      "const clickY = windowBounds.y + anchor.y"
+    );
+    expect(appKitHelper).not.toContain("bounds.y < windowBounds.y");
     expect(appKitHelper).not.toContain(
       "set runtimeElements to entire contents of targetWindow"
     );

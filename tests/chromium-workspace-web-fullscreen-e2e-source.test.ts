@@ -154,6 +154,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "ownerProcessId = $ownerProcessId",
       "windows-native-file-dialog-failure.json",
       "Write-FailureSnapshot",
+      "$dialogs = @(Read-ExactDialogs)",
       "AutomationIdProperty, '1148'",
       "AutomationIdProperty, '1'",
       "dialogOwnership: \"exact-app-process\""

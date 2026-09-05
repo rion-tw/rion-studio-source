@@ -499,7 +499,10 @@ function Write-FailureSnapshot {
 $expiry = [DateTime]::UtcNow.AddSeconds(10)
 do {
   Capture-WindowSnapshot
-  $dialogs = Read-ExactDialogs
+  # PowerShell enumerates a one-item List returned from a function into the
+  # element itself. Re-wrap every read so StrictMode always sees an array and
+  # the exact-cardinality fence remains valid for zero, one, or many dialogs.
+  $dialogs = @(Read-ExactDialogs)
   if ($dialogs.Count -eq 1) { break }
   if ($dialogs.Count -gt 1) {
     Write-FailureSnapshot
@@ -537,7 +540,7 @@ $invoke = $openButtons[0].GetCurrentPattern(
   [System.Windows.Automation.InvokePattern]::Pattern)
 $invoke.Invoke()
 do {
-  $dialogs = Read-ExactDialogs
+  $dialogs = @(Read-ExactDialogs)
   if ($dialogs.Count -eq 0) { break }
   if ([DateTime]::UtcNow -gt $expiry) {
     Write-FailureSnapshot

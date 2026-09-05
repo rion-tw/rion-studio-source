@@ -833,17 +833,17 @@ fn continuous_macro_input_does_not_starve_optional_tab_hydration() {
 #[cfg(all(windows, feature = "desktop-e2e"))]
 #[test]
 fn windows_native_menu_input_is_armed_for_the_popup_event() {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VK_DOWN, VK_HOME, VK_RETURN, VK_RIGHT};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        VK_DOWN, VK_END, VK_HOME, VK_RETURN, VK_RIGHT, VK_UP,
+    };
 
     assert_eq!(
         desktop_e2e_windows_tab_menu_key_codes("hide", None).unwrap(),
         vec![
             VK_DOWN.0,
             VK_HOME.0,
-            VK_DOWN.0,
-            VK_DOWN.0,
-            VK_DOWN.0,
-            VK_DOWN.0,
+            VK_END.0,
+            VK_UP.0,
             VK_RETURN.0,
         ]
     );

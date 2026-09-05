@@ -93,7 +93,7 @@ function validWebOnlyObservation(observation, platform) {
       !Number.isSafeInteger(observation.topologyRevision) ||
       observation.topologyRevision < 1 ||
       !Number.isSafeInteger(observation.windowGeneration) ||
-      observation.windowGeneration < 1 || observation.visible !== true ||
+      observation.windowGeneration < 1 ||
       observation.hostKind !== (platform === "macos"
         ? "appkit-chromium"
         : "bundled-chromium") ||
@@ -125,8 +125,13 @@ function validWebOnlyObservation(observation, platform) {
     (expectedUrl(web.contentUrl, "chromium-workspace-web-only") ||
       observation.phase === "degraded" &&
       web.contentUrl === "http://127.0.0.1:1/rion-navigation-failure") &&
-    web.isolatedSessions === true && web.visible === true &&
-    web.chromeVisible === true && web.contentVisible === true &&
+    web.isolatedSessions === true && (
+      observation.visible === true && web.visible === true &&
+        web.chromeVisible === true && web.contentVisible === true ||
+      observation.phase === "ready" && observation.focused === false &&
+        observation.visible === false && web.visible === false &&
+        web.chromeVisible === false && web.contentVisible === false
+    ) &&
     web.containedFullscreen === false && web.containedFullscreenRevision === 0 &&
     web.slotId === slot.id && web.tabId === observation.tabId &&
     web.chromeBounds.x === web.slotBounds.x &&
@@ -210,16 +215,21 @@ function validateWebOnlyHistory(phase, observations, platform) {
       observations.every((observation) => validWebOnlyObservation(observation, platform)),
     `${phase}: malformed Core/native Web-only history`
   );
-  const ready = observations.findIndex((observation) => observation.phase === "ready");
+  const ready = observations.findIndex(
+    (observation) => observation.phase === "ready" && observation.visible
+  );
   const degraded = observations.findIndex(
     (observation, index) => index > ready && observation.phase === "degraded"
   );
   const recovered = observations.findIndex(
-    (observation, index) => index > degraded && observation.phase === "ready"
+    (observation, index) => index > degraded && observation.phase === "ready" &&
+      observation.visible
   );
+  const terminal = observations.at(-1);
   if (phase.endsWith("-seed")) {
     requireRuntime(
       ready >= 0 && degraded > ready && recovered > degraded &&
+        terminal.phase === "ready" && terminal.visible === true &&
         observations[degraded].tabId === observations[ready].tabId &&
         observations[recovered].tabId === observations[ready].tabId &&
         observations[recovered].web.generation > observations[degraded].web.generation,
@@ -227,11 +237,11 @@ function validateWebOnlyHistory(phase, observations, platform) {
     );
   } else {
     requireRuntime(
-      ready >= 0 && observations.every((observation) => observation.phase === "ready"),
+      ready >= 0 && terminal.phase === "ready" && terminal.visible === true &&
+        observations.every((observation) => observation.phase === "ready"),
       `${phase}: restart did not restore the exact ready Web-only tab`
     );
   }
-  const terminal = observations.at(-1);
   return {
     contentProfilePath: terminal.web.contentProfilePath,
     hostKind: terminal.hostKind,

@@ -13,10 +13,10 @@ Last reconciled: 2026-09-05.
 - Five release-cutover work packages remain before the migration can be called
   done. A failed native gate may add remediation work, but cannot remove a gate.
 - The known packages contain nine independently verifiable deliverables.
-- Within the currently authorized candidate-branch scope, two execution steps
-  remain: commit and push the reconciled tree, then obtain a green exact-SHA
-  macOS/Windows CI matrix while correcting any native failure it reveals. No
-  known local macOS feature implementation or validation defect remains.
+- Within the currently authorized candidate-branch scope, implementation and
+  local validation are complete. Candidate closure requires the latest branch
+  head to have a green exact-SHA macOS/Windows CI matrix; the hosted status is
+  reported in the handoff because it can change after this ledger is committed.
 - The one later repository-mutation package is the deliberately gated sole-entry
   cleanup, which cannot begin until the external native and release gates pass.
   The real-transaction producer and terminal-promotion finalizer are implemented
@@ -250,9 +250,23 @@ owner-approved 3,200-line limit, TypeScript, ESLint with zero errors, all 426
 Vitest files containing 3,223 tests, Rust formatting and clippy with warnings
 denied, the full Rust workspace suite, production build, desktop-E2E build, and
 production renderer isolation. Coverage remains P0 70/70, P1 66/66, and both
-Chromium platform manifests 40/40. The remaining candidate work is the exact-SHA
-branch commit/push and hosted matrix; Windows native evidence remains pending
-that CI run, not inferred from this macOS host.
+Chromium platform manifests 40/40.
+
+The first exact-SHA hosted matrix for branch
+`codex/electron-chromium-v23-cutover`, run `33972543890` at
+`4dfa8e1fdd64e35aae5321adb233dfae9044aa49`, passed checks, both native
+validation jobs, macOS desktop E2E, renderer assets, and the Linux sanitizer and
+concurrency soak. Its three failures exposed native evidence gaps rather than a
+new product-boundary decision: the Windows package workspace exceeded the
+ordinary SQLite `MAX_PATH` open boundary; the macOS Chromium evidence validator
+rejected a legitimate fully hidden ready observation between native close and
+show; and the Windows stable native-menu input plan counted middle menu rows
+whose native representation is host-dependent. The candidate corrections use a
+verbatim Windows SQLite destination path when required, preserve strict visible
+terminal-state validation while admitting the exact hidden-ready state, and
+select Hide relative to the final actionable menu item. These corrections still
+require a green exact-SHA hosted matrix and Windows evidence is never inferred
+from this macOS host.
 
 ## Non-completion rules
 

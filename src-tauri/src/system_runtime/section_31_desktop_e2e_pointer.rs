@@ -987,14 +987,17 @@ fn desktop_e2e_windows_tab_menu_key_codes(
     target_rank: Option<usize>,
 ) -> Result<Vec<u16>, String> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        VK_DOWN, VK_HOME, VK_RETURN, VK_RIGHT,
+        VK_DOWN, VK_END, VK_HOME, VK_RETURN, VK_RIGHT, VK_UP,
     };
     // A freshly tracked Win32 menu has no selected item. HOME is ignored in that state, so a
     // leading DOWN first establishes visible keyboard selection before HOME normalizes the
     // sequence to the first actionable item.
     let mut presses = vec![VK_DOWN.0, VK_HOME.0];
     match action {
-        "hide" => presses.extend(std::iter::repeat_n(VK_DOWN.0, 4)),
+        // Hide is the actionable item immediately above Stop and Close. Anchoring
+        // from END avoids depending on how the native menu host counts its two
+        // submenus and separator rows on a particular Windows build.
+        "hide" => presses.extend([VK_END.0, VK_UP.0]),
         "moveToNewWindow" => presses.extend(std::iter::repeat_n(VK_DOWN.0, 2)),
         "move" => {
             presses.push(VK_DOWN.0);

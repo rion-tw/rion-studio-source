@@ -15,6 +15,47 @@ use super::{RETIRED_DATA_MARKERS, logs, state};
 pub const STATE_DATABASE_FILENAME: &str = "rion-studio.sqlite3";
 pub const LOG_DATABASE_FILENAME: &str = "logs.sqlite3";
 
+#[cfg(windows)]
+fn sqlite_backup_open_path(path: &Path) -> PathBuf {
+    use std::{
+        ffi::OsString,
+        os::windows::ffi::OsStrExt,
+        path::{Component, Prefix},
+    };
+
+    // SQLite may append a journal suffix while opening the destination. Switch
+    // to Win32's verbatim form before the ordinary MAX_PATH boundary so the
+    // Rust-created backup directory remains reachable by the SQLite VFS.
+    if path.as_os_str().encode_wide().count() < 248 {
+        return path.to_path_buf();
+    }
+    let Some(Component::Prefix(prefix)) = path.components().next() else {
+        return path.to_path_buf();
+    };
+    match prefix.kind() {
+        Prefix::Disk(_) => {
+            let mut verbatim = OsString::from(r"\\?\");
+            verbatim.push(path.as_os_str());
+            PathBuf::from(verbatim)
+        }
+        Prefix::UNC(server, share) => {
+            let mut verbatim = PathBuf::from(r"\\?\UNC");
+            verbatim.push(server);
+            verbatim.push(share);
+            for component in path.components().skip(2) {
+                verbatim.push(component.as_os_str());
+            }
+            verbatim
+        }
+        _ => path.to_path_buf(),
+    }
+}
+
+#[cfg(not(windows))]
+fn sqlite_backup_open_path(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
 #[derive(Debug, Clone)]
 pub struct DatabasePaths {
     pub state: PathBuf,
@@ -197,7 +238,7 @@ pub fn create_online_startup_backup(
             let source = Connection::open(source_path)
                 .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
             let destination_path = backup_dir.join(filename);
-            let mut destination = Connection::open(&destination_path)
+            let mut destination = Connection::open(sqlite_backup_open_path(&destination_path))
                 .map_err(|error| CoreError::Migration(format!("startup backup failed: {error}")))?;
             Backup::new(&source, &mut destination)
                 .and_then(|backup| backup.run_to_completion(64, Duration::from_millis(10), None))
@@ -305,5 +346,31 @@ mod tests {
             .filter(|name| name.ends_with(".migrating"))
             .collect::<Vec<_>>();
         assert!(leftovers.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn online_backup_supports_a_destination_beyond_max_path() {
+        use std::os::windows::ffi::OsStrExt;
+
+        let directory = tempdir().unwrap();
+        let mut user_data_dir = directory.path().to_path_buf();
+        while user_data_dir.as_os_str().encode_wide().count() < 150 {
+            user_data_dir.push("nested-user-data-segment");
+        }
+        bootstrap_databases(&user_data_dir).unwrap();
+
+        let backup = create_online_startup_backup(&user_data_dir, "long-path-regression", "8.5.0")
+            .unwrap()
+            .unwrap();
+        let state_backup = backup.join(STATE_DATABASE_FILENAME);
+
+        assert!(
+            state_backup.as_os_str().encode_wide().count() >= 260,
+            "the regression fixture must cross the ordinary MAX_PATH boundary"
+        );
+        assert!(state_backup.is_file());
+        assert!(backup.join(LOG_DATABASE_FILENAME).is_file());
+        assert!(backup.join("manifest.json").is_file());
     }
 }

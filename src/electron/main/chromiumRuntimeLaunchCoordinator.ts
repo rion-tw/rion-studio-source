@@ -311,6 +311,35 @@ function sameTargetEnvelope(
     sameBounds(left.workArea, right.workArea);
 }
 
+function sameEmptySavedWindowIdentity(
+  initial: StateGameWindowRecord,
+  current: StateGameWindowRecord,
+  target: EmbeddedLaunchTargetRecord,
+  topology: DisplayTopologySnapshotRecord
+): boolean {
+  const display = displayById(topology, current.targetDisplay.id);
+  const fingerprint = current.targetDisplay.fingerprint;
+  const initialUpdatedAt = Date.parse(initial.updatedAt);
+  const currentUpdatedAt = Date.parse(current.updatedAt);
+  if (!display || !fingerprint || !Number.isFinite(initialUpdatedAt) ||
+      !Number.isFinite(currentUpdatedAt)) return false;
+  const persistedTarget: EmbeddedLaunchTargetRecord = {
+    windowId: current.id,
+    persistedName: current.name,
+    displayId: current.targetDisplay.id,
+    scaleFactor: display.scaleFactor,
+    workArea: { ...current.placement.savedWorkArea },
+    bounds: { ...current.placement.normalBounds },
+    presentation: current.placement.presentation
+  };
+  return current.id === initial.id && current.name === initial.name &&
+    current.createdAt === initial.createdAt && currentUpdatedAt >= initialUpdatedAt &&
+    current.tabs.length === 0 && current.activeTabId === undefined &&
+    displayFingerprintMatches(fingerprint, display) &&
+    sameTargetEnvelope(persistedTarget, target) &&
+    targetMatchesDisplay(persistedTarget, topology);
+}
+
 function registeredGeometryAccepted(
   initial: EmbeddedLaunchTargetRecord,
   current: EmbeddedLaunchTargetRecord,
@@ -949,8 +978,13 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         : undefined;
       const storedIdentityMatches = saved === null
         ? storedMatches.length === 0
-        : storedMatches.length === 1 &&
-          JSON.stringify(storedMatches[0]) === JSON.stringify(saved);
+        : storedMatches.length === 1 && storedMatches[0] !== undefined &&
+          sameEmptySavedWindowIdentity(
+            saved,
+            storedMatches[0],
+            target,
+            after.app.displayTopology
+          );
       if (
         !sameTopologyRevision(expectedTopology, after.app.displayTopology) ||
         logicalMatches.length !== 1 || runtimeMatches.length !== 1 ||

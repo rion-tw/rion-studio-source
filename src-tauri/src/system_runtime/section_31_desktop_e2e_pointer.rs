@@ -994,10 +994,10 @@ fn desktop_e2e_windows_tab_menu_key_codes(
     // sequence to the first actionable item.
     let mut presses = vec![VK_DOWN.0, VK_HOME.0];
     match action {
-        // Hide is the actionable item immediately above Stop and Close. Anchoring
-        // from END avoids depending on how the native menu host counts its two
-        // submenus and separator rows on a particular Windows build.
-        "hide" => presses.extend([VK_END.0, VK_UP.0]),
+        // The native Windows menu keeps the separator between Hide and Stop in
+        // its keyboard traversal. Anchor at the final Stop item, cross that
+        // separator, then select Hide without depending on the earlier submenus.
+        "hide" => presses.extend([VK_END.0, VK_UP.0, VK_UP.0]),
         "moveToNewWindow" => presses.extend(std::iter::repeat_n(VK_DOWN.0, 2)),
         "move" => {
             presses.push(VK_DOWN.0);

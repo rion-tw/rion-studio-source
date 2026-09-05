@@ -229,6 +229,10 @@ body {
   pointer-events: none;
 }
 
+.runtime-workspace-dividers[data-dragging="true"] {
+  pointer-events: auto;
+}
+
 .runtime-workspace-divider {
   position: absolute;
   box-sizing: border-box;

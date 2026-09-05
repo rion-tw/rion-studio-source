@@ -313,6 +313,7 @@ function bindDividerPointer(element: HTMLButtonElement): void {
       owner,
       pointerSequence: 0
     });
+    dividerLayer!.dataset.dragging = "true";
     element.dataset.dragging = "true";
     element.setPointerCapture(event.pointerId);
     submitDivider(event.pointerId, "start");
@@ -327,18 +328,33 @@ function bindDividerPointer(element: HTMLButtonElement): void {
       requestedDividerPosition(event, active.owner, current)
     );
   });
-  const finish = (event: PointerEvent, phase: "end" | "cancel"): void => {
-    const active = activePointers.get(event.pointerId);
-    if (!active) return;
-    submitDivider(event.pointerId, phase);
-    activePointers.delete(event.pointerId);
-    active.element.dataset.dragging = "false";
-    if (active.element.hasPointerCapture(event.pointerId)) {
-      active.element.releasePointerCapture(event.pointerId);
-    }
-  };
-  element.addEventListener("pointerup", (event) => finish(event, "end"));
-  element.addEventListener("pointercancel", (event) => finish(event, "cancel"));
+  element.addEventListener("pointerup", (event) =>
+    finishDividerPointer(event.pointerId, "end"));
+  element.addEventListener("pointercancel", (event) =>
+    finishDividerPointer(event.pointerId, "cancel"));
+  element.addEventListener("lostpointercapture", (event) =>
+    finishDividerPointer(event.pointerId, "cancel"));
+}
+
+function finishDividerPointer(
+  pointerId: number,
+  phase: "end" | "cancel"
+): void {
+  const active = activePointers.get(pointerId);
+  if (!active) return;
+  submitDivider(pointerId, phase);
+  activePointers.delete(pointerId);
+  active.element.dataset.dragging = "false";
+  if (activePointers.size === 0) dividerLayer!.dataset.dragging = "false";
+  if (active.element.hasPointerCapture(pointerId)) {
+    active.element.releasePointerCapture(pointerId);
+  }
+}
+
+function cancelDividerPointers(): void {
+  for (const pointerId of [...activePointers.keys()]) {
+    finishDividerPointer(pointerId, "cancel");
+  }
 }
 
 function renderDividers(projection: WindowsRuntimeHostProjection): void {
@@ -479,10 +495,17 @@ windowControls.addEventListener("click", (event) => {
 document.addEventListener("pointerdown", (event) => {
   if (!tabMenu.hidden && !tabMenu.contains(event.target as Node)) closeTabMenu();
 }, { capture: true });
+document.addEventListener("pointerup", (event) =>
+  finishDividerPointer(event.pointerId, "end"), { capture: true });
+document.addEventListener("pointercancel", (event) =>
+  finishDividerPointer(event.pointerId, "cancel"), { capture: true });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeTabMenu();
 });
-window.addEventListener("blur", closeTabMenu);
+window.addEventListener("blur", () => {
+  closeTabMenu();
+  cancelDividerPointers();
+});
 window.addEventListener("resize", () => {
   resizeEventCount += 1;
   document.documentElement.dataset.runtimeResizeEventCount = String(resizeEventCount);

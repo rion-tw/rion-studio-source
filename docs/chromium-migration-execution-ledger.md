@@ -268,6 +268,36 @@ select Hide relative to the final actionable menu item. These corrections still
 require a green exact-SHA hosted matrix and Windows evidence is never inferred
 from this macOS host.
 
+The second exact-SHA matrix, run `33973955767` at
+`f8a380e211430d0d997e870498d82c7b5f7f2831`, passed checks, renderer assets,
+the Linux sanitizer and concurrency soak, macOS desktop E2E, and both native
+validation jobs. It confirmed that the Windows SQLite long-path correction and
+the macOS hidden-ready evidence correction work. The remaining three failures
+each exposed a later physical boundary. The macOS package reached empty Game
+Window creation, where AppKit's authoritative layout callback legitimately
+updated saved placement and `updatedAt`; the Electron coordinator compared the
+entire saved record and compensated the valid host. The correction now retains
+immutable saved-window identity, requires monotonic time and exact active-display
+geometry, and permits only the expected native placement commit. The local
+AppKit `chromium-game-window-ui-seed` and seed-plus-restart runs pass with that
+correction.
+
+The Windows package advanced through Chromium Game CRUD and entity persistence,
+then showed that a physical workspace-divider release could cross from its thin
+host control into an adjacent Chromium `WebContentsView`. The Windows host now
+keeps its transparent divider layer pointer-active for the drag lifetime and
+terminalizes from document release, cancellation, lost capture, or host blur.
+The stable Windows desktop E2E also proved that the separator between Hide and
+Stop consumes one native keyboard traversal; the exact input plan now anchors
+at Stop and crosses the separator before selecting Hide. These Windows
+corrections remain pending physical validation on the next exact-SHA matrix.
+
+The current correction tree passes 426 Vitest files containing 3,224 tests,
+TypeScript, ESLint with zero errors, source/document/dependency hygiene, Rust
+formatting and clippy with warnings denied, the full Rust workspace suite,
+production Tauri and Electron builds, Electron renderer purity, and production
+desktop-E2E isolation.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

@@ -103,8 +103,34 @@ describe("Windows runtime-host renderer", () => {
       topologyRevision: 8,
       windowGeneration: 2,
       windowId,
-      workspaceDividers: []
+      workspaceDividers: [{
+        attemptGeneration: "attempt-1",
+        axis: "vertical",
+        bounds: { height: 600, width: 12, x: 444, y: 40 },
+        dividerIndex: 0,
+        tabId: firstTabId,
+        visible: true
+      }]
     });
+
+    const dividerLayer = document.querySelector<HTMLElement>(
+      "[data-runtime-workspace-dividers]"
+    )!;
+    const divider = document.querySelector<HTMLButtonElement>(
+      "button.runtime-workspace-divider:not([hidden])"
+    )!;
+    divider.dispatchEvent(pointer("pointerdown", { clientX: 450 }));
+    divider.dispatchEvent(pointer("pointermove", { clientX: 522 }));
+    expect(dividerLayer.dataset.dragging).toBe("true");
+    expect(divider.dataset.dragging).toBe("true");
+    dividerLayer.dispatchEvent(pointer("pointerup", { clientX: 522 }));
+    expect(dividerLayer.dataset.dragging).toBe("false");
+    expect(divider.dataset.dragging).toBe("false");
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: "end",
+      pointerSequence: 3,
+      type: "workspaceDividerPointer"
+    }));
 
     const items = [...document.querySelectorAll<HTMLElement>(".runtime-tab")];
     expect(items.map((item) => item.dataset.tabId)).toEqual([

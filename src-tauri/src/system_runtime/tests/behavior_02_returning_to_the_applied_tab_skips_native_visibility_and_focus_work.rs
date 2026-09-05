@@ -844,6 +844,7 @@ fn windows_native_menu_input_is_armed_for_the_popup_event() {
             VK_HOME.0,
             VK_END.0,
             VK_UP.0,
+            VK_UP.0,
             VK_RETURN.0,
         ]
     );

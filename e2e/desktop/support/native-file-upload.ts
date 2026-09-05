@@ -12,6 +12,7 @@ const executeFile = promisify(execFile);
 const FIXTURE_FILE_NAME = "rion-e2e.txt";
 const FIXTURE_SOURCE = "Rion Studio Chromium visible file-upload parity fixture.\n";
 const EVIDENCE_FILE_NAME = "electron-workspace-web-file-upload.json";
+const WINDOWS_FAILURE_FILE_NAME = "windows-native-file-dialog-failure.json";
 
 export interface NativeFileUploadFixture {
   readonly bytes: number;
@@ -73,6 +74,30 @@ function validateSelectionInput(
   ) {
     throw new Error("The native file chooser requires one exact app PID and fixture path");
   }
+}
+
+function boundedPowerShellFailure(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "unknown failure";
+  const failure = error as Readonly<{
+    code?: unknown;
+    killed?: unknown;
+    signal?: unknown;
+    stderr?: unknown;
+    stdout?: unknown;
+  }>;
+  const fields = [
+    `code=${String(failure.code ?? "unknown")}`,
+    `killed=${String(failure.killed ?? false)}`,
+    `signal=${String(failure.signal ?? "none")}`
+  ];
+  const output = [failure.stderr, failure.stdout]
+    .filter((value): value is string =>
+      typeof value === "string" && value.trim().length > 0
+    )
+    .join("\n")
+    .trim();
+  if (output.length > 0) fields.push(`output=${JSON.stringify(output.slice(-2_000))}`);
+  return fields.join(", ");
 }
 
 async function selectMacosFile(
@@ -375,9 +400,19 @@ async function selectWindowsFile(
 ): Promise<void> {
   const script = String.raw`
 Add-Type -AssemblyName UIAutomationClient
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class RionFileDialogOwnership {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+}
+'@
 $root = [System.Windows.Automation.AutomationElement]::RootElement
 $targetPid = [int]$payload.processId
 $fixturePath = [string]$payload.fixturePath
+$diagnosticPath = [string]$payload.diagnosticPath
 $processCondition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
 $windowCondition = New-Object System.Windows.Automation.PropertyCondition(
@@ -385,17 +420,95 @@ $windowCondition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.ControlType]::Window)
 $classCondition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ClassNameProperty, '#32770')
-$dialogCondition = New-Object System.Windows.Automation.AndCondition(
+$commonDialogCondition = New-Object System.Windows.Automation.AndCondition(
+  $windowCondition, $classCondition)
+$directDialogCondition = New-Object System.Windows.Automation.AndCondition(
   $processCondition,
-  (New-Object System.Windows.Automation.AndCondition(
-    $windowCondition, $classCondition)))
+  $commonDialogCondition)
+$observedWindows = [ordered]@{}
+
+function Get-OwnerProcessId($candidate) {
+  $handle = [int64]$candidate.Current.NativeWindowHandle
+  if ($handle -eq 0) { return 0 }
+  $ownerHandle = [RionFileDialogOwnership]::GetWindow([IntPtr]$handle, 4)
+  if ($ownerHandle -eq [IntPtr]::Zero) { return 0 }
+  $ownerProcessId = [uint32]0
+  [RionFileDialogOwnership]::GetWindowThreadProcessId(
+    $ownerHandle, [ref]$ownerProcessId) | Out-Null
+  return [int]$ownerProcessId
+}
+
+function Read-ExactDialogs {
+  $directDialogs = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Children, $directDialogCondition)
+  $matches = New-Object System.Collections.Generic.List[System.Windows.Automation.AutomationElement]
+  foreach ($candidate in $directDialogs) { $matches.Add($candidate) }
+  $commonDialogs = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Children, $commonDialogCondition)
+  foreach ($candidate in $commonDialogs) {
+    if ($candidate.Current.ProcessId -eq $targetPid) { continue }
+    if ((Get-OwnerProcessId $candidate) -eq $targetPid) { $matches.Add($candidate) }
+  }
+  return $matches
+}
+
+function Capture-WindowSnapshot {
+  $windows = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Children, $windowCondition)
+  foreach ($candidate in $windows) {
+    try {
+      $current = $candidate.Current
+      if ($current.ProcessId -ne $targetPid -and $current.ClassName -ne '#32770') {
+        continue
+      }
+      $handle = [int64]$current.NativeWindowHandle
+      $ownerProcessId = Get-OwnerProcessId $candidate
+      $key = "$($current.ProcessId)|$handle|$($current.ClassName)|$($current.Name)"
+      $observedWindows[$key] = [ordered]@{
+        automationId = $current.AutomationId
+        className = $current.ClassName
+        controlType = $current.ControlType.ProgrammaticName
+        isOffscreen = $current.IsOffscreen
+        name = $current.Name
+        nativeWindowHandle = $handle
+        ownerProcessId = $ownerProcessId
+        processId = $current.ProcessId
+      }
+    } catch {}
+  }
+}
+
+function Write-FailureSnapshot {
+  Capture-WindowSnapshot
+  $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
+  $foregroundProcessId = [uint32]0
+  if ($foregroundHandle -ne [IntPtr]::Zero) {
+    [RionFileDialogOwnership]::GetWindowThreadProcessId(
+      $foregroundHandle, [ref]$foregroundProcessId) | Out-Null
+  }
+  $snapshot = [ordered]@{
+    foregroundNativeWindowHandle = [int64]$foregroundHandle
+    foregroundProcessId = [int]$foregroundProcessId
+    observedWindows = @($observedWindows.Values)
+    targetProcessId = $targetPid
+  }
+  [IO.File]::WriteAllText(
+    $diagnosticPath, ($snapshot | ConvertTo-Json -Depth 5))
+}
+
 $expiry = [DateTime]::UtcNow.AddSeconds(10)
 do {
-  $dialogs = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $dialogCondition)
+  Capture-WindowSnapshot
+  $dialogs = Read-ExactDialogs
   if ($dialogs.Count -eq 1) { break }
-  if ($dialogs.Count -gt 1) { throw 'multiple exact-PID Windows file dialogs' }
-  if ([DateTime]::UtcNow -gt $expiry) { throw 'exact-PID Windows file dialog unavailable' }
+  if ($dialogs.Count -gt 1) {
+    Write-FailureSnapshot
+    throw 'multiple exact-owner Windows file dialogs'
+  }
+  if ([DateTime]::UtcNow -gt $expiry) {
+    Write-FailureSnapshot
+    throw 'exact-owner Windows file dialog unavailable'
+  }
   Start-Sleep -Milliseconds 50
 } while ($true)
 $dialog = $dialogs[0]
@@ -424,16 +537,29 @@ $invoke = $openButtons[0].GetCurrentPattern(
   [System.Windows.Automation.InvokePattern]::Pattern)
 $invoke.Invoke()
 do {
-  $dialogs = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $dialogCondition)
+  $dialogs = Read-ExactDialogs
   if ($dialogs.Count -eq 0) { break }
-  if ([DateTime]::UtcNow -gt $expiry) { throw 'Windows file dialog did not close' }
+  if ([DateTime]::UtcNow -gt $expiry) {
+    Write-FailureSnapshot
+    throw 'Windows file dialog did not close'
+  }
   Start-Sleep -Milliseconds 50
 } while ($true)
 `;
-  await runEncodedPowerShellJson(script, { fixturePath, processId }, {
-    timeoutMilliseconds: 15_000
-  });
+  try {
+    await runEncodedPowerShellJson(script, {
+      diagnosticPath: resolve(artifactDirectory(), WINDOWS_FAILURE_FILE_NAME),
+      fixturePath,
+      processId
+    }, {
+      timeoutMilliseconds: 15_000
+    });
+  } catch (error) {
+    const diagnostic = boundedPowerShellFailure(error);
+    throw new Error(`Windows native file chooser helper failed: ${diagnostic}`, {
+      cause: error
+    });
+  }
 }
 
 /**

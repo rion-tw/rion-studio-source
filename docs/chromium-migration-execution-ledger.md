@@ -571,6 +571,21 @@ before freezing lifecycle evidence. The focused retained-AppKit seed passes in
 only; it does not add product polling or change recovery behavior. The next
 immutable matrix must include this correction.
 
+The twelfth exact-SHA Windows package run at
+`183fd7a88e55b86b93c0d8bd432b5f4df8762cdc` proved that retaining the remote
+WebContents target was necessary but not sufficient. The actual trusted
+pointer down/up, captured click, and file-upload request all reached the page,
+while UI Automation found no `#32770` whose own PID equaled the Electron main
+PID. Chromium's Windows implementation creates the in-process
+`IFileOpenDialog` with an explicit native owner HWND, so the helper now accepts
+only a unique `#32770` whose UIA PID is the exact app PID or whose direct Win32
+`GW_OWNER` HWND resolves to that PID. This preserves exact application
+ownership across Windows UIA provider differences. If neither relation is
+present, the phase remains failed and writes a bounded HWND/PID/class/owner
+snapshot into its uploaded artifact instead of widening selection to another
+application. The next immutable Windows run must prove which exact ownership
+path is present and complete the native selection.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

@@ -148,7 +148,12 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       'AXUIElementPerformAction(target, "AXOpen" as CFString)',
       "ProcessIdProperty, $targetPid",
       "ClassNameProperty, '#32770'",
-      "$windowCondition, $classCondition)))",
+      "$processCondition,\n  $commonDialogCondition)",
+      "RionFileDialogOwnership",
+      "GetWindow([IntPtr]$handle, 4)",
+      "ownerProcessId = $ownerProcessId",
+      "windows-native-file-dialog-failure.json",
+      "Write-FailureSnapshot",
       "AutomationIdProperty, '1148'",
       "AutomationIdProperty, '1'",
       "dialogOwnership: \"exact-app-process\""

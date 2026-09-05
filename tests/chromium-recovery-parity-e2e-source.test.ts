@@ -68,6 +68,10 @@ describe("Chromium recovery parity replacement source", () => {
     expect(mixed).toContain("Chromium Mixed Recovery Web");
     expect(windows).toContain("CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-UI-022");
     expect(windows).toContain("CHROMIUM-WINDOWS-WINDOW-RECOVERY-UI-022");
+    expect(windows).toContain("waitForSavedRoleTopology(roles, targets)");
+    expect(windows).toContain(
+      "Saved multi-window recovery topology did not commit"
+    );
   });
 
   it("classifies only exact process-killing phases as expected termination", () => {

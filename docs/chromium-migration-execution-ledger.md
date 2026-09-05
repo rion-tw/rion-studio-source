@@ -559,6 +559,18 @@ fullscreen seed, and fullscreen restart chain passes with the retained target
 in `.desktop-e2e-artifacts/2026-09-05T20-20-44-010Z-darwin`; Windows physical
 proof and the complete next immutable matrix remain pending.
 
+The eleventh macOS package run continued through every mixed-recovery phase and
+then exposed a later seed-ordering gap in the multi-window recovery journey.
+Three visible launches had completed their remote Session evidence, but the test
+read the persisted Game Window list before the third tab projection committed
+and dereferenced the absent tab. The seed now waits for the Rust-owned saved
+topology to contain every exact Role in its requested Game Window, with a
+non-successful external-liveness boundary if that projection never arrives,
+before freezing lifecycle evidence. The focused retained-AppKit seed passes in
+`.desktop-e2e-artifacts/2026-09-05T20-31-35-364Z-darwin`. This is E2E ordering
+only; it does not add product polling or change recovery behavior. The next
+immutable matrix must include this correction.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

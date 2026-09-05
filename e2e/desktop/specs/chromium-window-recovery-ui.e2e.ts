@@ -266,6 +266,26 @@ async function forceCurrentProcess(processId: number): Promise<void> {
   await forceTerminateProcessTree(processId);
 }
 
+async function waitForSavedRoleTopology(
+  roles: readonly Role[],
+  targets: readonly GameWindow[]
+): Promise<GameWindow[]> {
+  let saved: GameWindow[] = [];
+  await browser.waitUntil(async () => {
+    saved = await rendererCall("listGameWindows");
+    return roles.every((role, index) => {
+      const window = saved.find(({ id }) => id === targets[index]?.id);
+      return window !== undefined && window.activeTabId !== null &&
+        window.tabs.some(({ sourceId }) => sourceId === role.id);
+    });
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "Saved multi-window recovery topology did not commit"
+  });
+  return saved;
+}
+
 async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   const { roles } = await createGameAndRoles();
   const windows = [await createWindow(WINDOWS[0]), await createWindow(WINDOWS[1])];
@@ -275,7 +295,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     await quickAccessLaunch(role, targets[index]!.id);
     await waitSession(cursor, ROLES[index]!, false);
   }
-  const saved = await rendererCall("listGameWindows");
+  const saved = await waitForSavedRoleTopology(roles, targets);
   const roleEvidence = await Promise.all(roles.map(async (role, index) => {
     const window = saved.find(({ id }) => id === targets[index]!.id)!;
     const tab = window.tabs.find(({ sourceId }) => sourceId === role.id)!;

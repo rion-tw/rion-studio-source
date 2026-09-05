@@ -696,6 +696,22 @@ of the generic `List<object>` while constructing the JSON snapshot with
 `ToArray()` conversion. This corrects diagnostic serialization only; it does
 not change the native chooser's acceptance or input behavior.
 
+The eighteenth exact-SHA Windows diagnostic run, `33995526248` at
+`d15be30487b12ae643c1dc0e577ef21c0ef9e8f2`, produced the complete bounded UIA
+snapshot. The exact foreground/owner relation was intact and descendant
+traversal completed without error over 54 controls, but this Windows provider
+classified every HWND-backed common-dialog control as `ControlType.Pane`.
+Within that tree, the unique file-name leaf was still the stable native pair
+`AutomationId=1148, ClassName=Edit`, and the unique Open leaf was
+`AutomationId=1, ClassName=Button`; both had positive native HWNDs, were enabled,
+and were on screen. The selector now uses those exact native identity pairs
+instead of the provider-dependent UIA ControlType. After the same unique
+dialog/owner/control fence passes, the helper focuses those visible controls,
+types the literal isolated fixture path, and presses Enter on the exact Open
+control. This preserves the real page click that opens the chooser and the
+visible native selection while avoiding unsupported Value/Invoke patterns on
+the generic `Pane` provider.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

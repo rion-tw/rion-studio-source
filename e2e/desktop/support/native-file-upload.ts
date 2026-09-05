@@ -400,6 +400,7 @@ async function selectWindowsFile(
 ): Promise<void> {
   const script = String.raw`
 Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -427,14 +428,12 @@ $directDialogCondition = New-Object System.Windows.Automation.AndCondition(
   $commonDialogCondition)
 $editCondition = New-Object System.Windows.Automation.AndCondition(
   (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Edit)),
+    [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Edit')),
   (New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1148')))
 $openCondition = New-Object System.Windows.Automation.AndCondition(
   (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Button)),
+    [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Button')),
   (New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')))
 $observedWindows = [ordered]@{}
@@ -474,6 +473,11 @@ function Test-ExactFileDialogControls($candidate) {
   $openButtons = $candidate.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants, $openCondition)
   return $openButtons.Count -eq 1
+}
+
+function Send-LiteralKeys([string]$value) {
+  $escaped = [Regex]::Replace($value, '([+^%~(){}\[\]])', '{$1}')
+  [System.Windows.Forms.SendKeys]::SendWait($escaped)
 }
 
 function Read-ExactDialogs {
@@ -647,15 +651,19 @@ $dialog = $dialogs[0]
 $edits = $dialog.FindAll(
   [System.Windows.Automation.TreeScope]::Descendants, $editCondition)
 if ($edits.Count -ne 1) { throw 'exact Windows file-name control unavailable' }
-$value = $edits[0].GetCurrentPattern(
-  [System.Windows.Automation.ValuePattern]::Pattern)
-$value.SetValue($fixturePath)
 $openButtons = $dialog.FindAll(
   [System.Windows.Automation.TreeScope]::Descendants, $openCondition)
 if ($openButtons.Count -ne 1) { throw 'exact Windows Open control unavailable' }
-$invoke = $openButtons[0].GetCurrentPattern(
-  [System.Windows.Automation.InvokePattern]::Pattern)
-$invoke.Invoke()
+if ($edits[0].Current.IsOffscreen -or !$edits[0].Current.IsEnabled -or
+    $openButtons[0].Current.IsOffscreen -or !$openButtons[0].Current.IsEnabled) {
+  throw 'exact Windows file dialog controls are not visibly actionable'
+}
+$dialog.SetFocus()
+$edits[0].SetFocus()
+[System.Windows.Forms.SendKeys]::SendWait('^a')
+Send-LiteralKeys $fixturePath
+$openButtons[0].SetFocus()
+[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 do {
   $dialogs = @(Read-ExactDialogs)
   if ($dialogs.Count -eq 0) { break }

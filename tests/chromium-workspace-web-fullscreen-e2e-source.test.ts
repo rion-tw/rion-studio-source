@@ -167,6 +167,11 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "$dialogs = @(Read-ExactDialogs)",
       "AutomationIdProperty, '1148'",
       "AutomationIdProperty, '1'",
+      "ClassNameProperty, 'Edit'",
+      "ClassNameProperty, 'Button'",
+      "Send-LiteralKeys $fixturePath",
+      "[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')",
+      "exact Windows file dialog controls are not visibly actionable",
       "dialogOwnership: \"exact-application-native-owner\""
     ]) {
       expect(nativeUpload).toContain(nativeToken);

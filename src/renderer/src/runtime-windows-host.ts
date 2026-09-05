@@ -331,9 +331,20 @@ function bindDividerPointer(element: HTMLButtonElement): void {
   element.addEventListener("pointerup", (event) =>
     finishDividerPointer(event.pointerId, "end"));
   element.addEventListener("pointercancel", (event) =>
-    finishDividerPointer(event.pointerId, "cancel"));
+    finishLostDividerPointer(event.pointerId));
   element.addEventListener("lostpointercapture", (event) =>
-    finishDividerPointer(event.pointerId, "cancel"));
+    finishLostDividerPointer(event.pointerId));
+}
+
+function finishLostDividerPointer(pointerId: number): void {
+  const active = activePointers.get(pointerId);
+  if (!active) return;
+  // A Windows child WebContentsView can take the pointer after the divider
+  // crosses into role content. Chromium then reports capture loss instead of
+  // the physical mouse-up. A delivered move is already Core-authoritative, so
+  // that native boundary commits the visible result; capture loss before any
+  // move remains a true cancellation.
+  finishDividerPointer(pointerId, active.pointerSequence > 1 ? "end" : "cancel");
 }
 
 function finishDividerPointer(
@@ -498,7 +509,7 @@ document.addEventListener("pointerdown", (event) => {
 document.addEventListener("pointerup", (event) =>
   finishDividerPointer(event.pointerId, "end"), { capture: true });
 document.addEventListener("pointercancel", (event) =>
-  finishDividerPointer(event.pointerId, "cancel"), { capture: true });
+  finishLostDividerPointer(event.pointerId), { capture: true });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeTabMenu();
 });

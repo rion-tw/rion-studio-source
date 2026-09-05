@@ -816,12 +816,12 @@ fn desktop_e2e_apply_native_window_control(
     use windows::Win32::UI::{
         HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{
-            GetClientRect, GetWindowRect, PostMessageW, SendMessageW, SetWindowPos,
+            GetClientRect, GetWindowRect, SendMessageW, SetWindowPos,
             SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_CLOSE, WM_ENTERSIZEMOVE,
             WM_EXITSIZEMOVE,
         },
     };
-    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+    use windows::Win32::Foundation::RECT;
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
     match request {
@@ -847,17 +847,13 @@ fn desktop_e2e_apply_native_window_control(
             )
         }
         DesktopE2eWindowControlRequest::Close => unsafe {
-            // Exercise the same asynchronous Win32 close request as the native
-            // title-bar button. Tauri's Window::close queues another runtime
-            // user event, which can strand the invoking WebView reply behind a
-            // navigation-time CloseRequested callback.
-            PostMessageW(
-                Some(hwnd),
-                WM_CLOSE,
-                WPARAM::default(),
-                LPARAM::default(),
-            )
-            .map_err(|error| error.to_string())
+            // Deliver the native close request before returning its E2E
+            // submission receipt. A queued WM_CLOSE can remain behind active
+            // WebView navigation messages indefinitely; SendMessageW still
+            // enters the real Tauri CloseRequested policy, which prevents the
+            // native default and completes through the Rust close transaction.
+            let _ = SendMessageW(hwnd, WM_CLOSE, None, None);
+            Ok(())
         },
         DesktopE2eWindowControlRequest::Minimize => {
             request_platform_window_minimize(window)

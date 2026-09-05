@@ -209,4 +209,76 @@ describe("Windows runtime-host renderer", () => {
     expect(document.documentElement.dataset.runtimeLifecycleEpoch).toBe("4");
     expect(document.documentElement.dataset.runtimeResizeEventCount).toBe("0");
   });
+
+  it("commits a moved divider when native content takes pointer capture", async () => {
+    const submit = vi.fn();
+    let project!: (projection: WindowsRuntimeHostProjection) => void;
+    Object.assign(window, {
+      rionStudioWindowsRuntimeHost: {
+        onProjection: (listener: typeof project) => {
+          project = listener;
+          return () => undefined;
+        },
+        submit
+      }
+    });
+    const captured = new Set<number>();
+    HTMLElement.prototype.setPointerCapture = vi.fn((pointerId: number) => {
+      captured.add(pointerId);
+    });
+    HTMLElement.prototype.hasPointerCapture = vi.fn((pointerId: number) =>
+      captured.has(pointerId)
+    );
+    HTMLElement.prototype.releasePointerCapture = vi.fn((pointerId: number) => {
+      captured.delete(pointerId);
+    });
+
+    await import("../src/renderer/src/runtime-windows-host");
+    project({
+      activeTabId: firstTabId,
+      alwaysShowToolbarInFullScreen: false,
+      contentBounds: { height: 600, width: 900, x: 0, y: 40 },
+      fullscreen: false,
+      lifecycleEpoch: 4,
+      moveTargets: [],
+      projectionRevision: 5,
+      tabs: [{
+        active: true,
+        hidden: false,
+        name: "First",
+        phase: "ready",
+        tabId: firstTabId
+      }],
+      toolbarVisible: true,
+      topologyRevision: 8,
+      windowGeneration: 2,
+      windowId,
+      workspaceDividers: [{
+        attemptGeneration: "attempt-1",
+        axis: "vertical",
+        bounds: { height: 600, width: 12, x: 444, y: 40 },
+        dividerIndex: 0,
+        tabId: firstTabId,
+        visible: true
+      }]
+    });
+
+    const divider = document.querySelector<HTMLButtonElement>(
+      "button.runtime-workspace-divider:not([hidden])"
+    )!;
+    divider.dispatchEvent(pointer("pointerdown", { clientX: 450 }));
+    divider.dispatchEvent(pointer("pointercancel", { clientX: 450 }));
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: "cancel",
+      pointerSequence: 2
+    }));
+
+    divider.dispatchEvent(pointer("pointerdown", { clientX: 450 }));
+    divider.dispatchEvent(pointer("pointermove", { clientX: 522 }));
+    divider.dispatchEvent(pointer("lostpointercapture", { clientX: 522 }));
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: "end",
+      pointerSequence: 3
+    }));
+  });
 });

@@ -67,6 +67,8 @@ describe("Chromium native tab exact replacements", () => {
     expect(helper).toContain("button[data-window-command='closeWindow']");
     expect(spec).toContain("dragMacosVisibleRuntimeTab");
     expect(spec).toContain("selectMacosVisibleRuntimeTabMenuAction");
+    expect(spec).toContain("tabId: input.tabId");
+    expect(spec).toContain("windowId: input.windowId");
     expect(spec).toContain("dragVisibleWindowsRuntimeTab");
     expect(spec).toContain("selectVisibleWindowsRuntimeTabMenuAction");
     expect(spec).toContain("revealRoleThroughVisibleUi");
@@ -74,7 +76,14 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).toContain("chromium-tabs-topology-observations.json");
     expect(spec).toContain('stage: "detached-with-successor"');
     expect(spec).toContain('stage: "windows-geometry"');
-    expect(appKitHelper).toContain('perform action "AXShowMenu" of targetTab');
+    expect(appKitHelper).toContain("appKit?.tabAnchors?.[input.tabId]");
+    expect(appKitHelper).toContain(
+      "inspection.tabIds.filter((tabId) => tabId === input.tabId).length !== 1"
+    );
+    expect(appKitHelper).toContain("const tabLeft = previousAnchor === undefined");
+    expect(appKitHelper).not.toContain(
+      "set runtimeElements to entire contents of targetWindow"
+    );
     expect(appKitHelper).toContain("CGEvent(mouseEventSource: source");
     expect(helper).toContain('.down("right")');
     expect(helper).toContain("readVisibleWindowsRuntimeHostLayout");

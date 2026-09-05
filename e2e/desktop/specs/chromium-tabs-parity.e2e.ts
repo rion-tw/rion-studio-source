@@ -430,11 +430,14 @@ async function selectVisibleTabMenuAction(input: Readonly<{
   tabId: string;
   tabName: string;
   targetWindow?: GameWindow;
+  windowId: string;
 }>): Promise<void> {
   if (input.platform === "macos") {
     await selectMacosVisibleRuntimeTabMenuAction({
       action: input.action,
+      tabId: input.tabId,
       tabName: input.tabName,
+      windowId: input.windowId,
       ...(input.targetWindow === undefined
         ? {}
         : { targetWindowName: input.targetWindow.name })
@@ -906,7 +909,8 @@ async function seedPhase(input: Readonly<{
     platform: input.platform,
     tabId: tabIds[1]!,
     tabName: sourceRoles[1]!.name,
-    targetWindow
+    targetWindow,
+    windowId: gameWindow.id
   });
   await Promise.all([
     waitForExactWindowTopology({
@@ -948,7 +952,8 @@ async function seedPhase(input: Readonly<{
     mainWindowHandle: input.mainWindowHandle,
     platform: input.platform,
     tabId: tabIds[2]!,
-    tabName: sourceRoles[2]!.name
+    tabName: sourceRoles[2]!.name,
+    windowId: gameWindow.id
   });
   const detachedWindow = await findWindowOwningTab(
     tabIds[2]!,
@@ -979,7 +984,8 @@ async function seedPhase(input: Readonly<{
     mainWindowHandle: input.mainWindowHandle,
     platform: input.platform,
     tabId: tabIds[1]!,
-    tabName: sourceRoles[1]!.name
+    tabName: sourceRoles[1]!.name,
+    windowId: targetWindow.id
   });
   await waitForExactWindowTopology({
     activeTabId: targetTabId,
@@ -1072,7 +1078,8 @@ async function restartPhase(input: Readonly<{
     platform: input.platform,
     tabId: gammaId,
     tabName: ROLE_DEFINITIONS[2].name,
-    targetWindow: gameWindow
+    targetWindow: gameWindow,
+    windowId: detachedWindow.id
   });
   await waitForExactWindowTopology({
     activeTabId: gammaId,
@@ -1085,7 +1092,8 @@ async function restartPhase(input: Readonly<{
     platform: input.platform,
     tabId: betaId,
     tabName: ROLE_DEFINITIONS[1].name,
-    targetWindow: gameWindow
+    targetWindow: gameWindow,
+    windowId: targetWindow.id
   });
   await Promise.all([
     waitForExactWindowTopology({

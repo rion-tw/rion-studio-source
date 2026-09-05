@@ -35,14 +35,15 @@ make an incomplete migration look cutover-ready.
 | `chromium-windows-smoke` | Pull requests on hosted Windows | Chromium shell/preload/Core readiness bound to the Windows Electron target, real Ctrl+N/F11/zoom application shortcuts, visible Game/entity persistence, local-shell fullscreen-toolbar auto-hide/reveal/pin/restart parity, visible context-menu controlled Role reload, paired cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access and F11 interception, visible Settings persistence, visible Macro authoring/list/scheduler parity, exact foreground and hidden native trusted-input effects plus the ABI-v5 physical gate, exact-Session permission/download deny parity and exact-PID native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and the retained-v22 Role explicit-reset and restart journey. |
 
 The paired Chromium tab-topology phases use only visible native primary actions.
-macOS locates the exact retained AppKit radio tab through Accessibility and sends
-a real CoreGraphics drag or selects the real NSMenu item. Windows sends real
-WebDriver pointer/context-menu input to the bundled host. Read-only evidence
-binds Core and native order, generation, topology revision, parent handle, and
-the selected-detach successor before and after restart. Windows also resizes two
-exact hosts and proves content bounds equal the Chromium viewport, then
-minimizes and visibly restores without a resize event. Debug bridges only read
-these receipts and never perform a tab mutation.
+macOS reads the exact retained AppKit tab anchors, sends a real CoreGraphics drag
+or right-click, and presses the real NSMenu item through Accessibility. It never
+traverses the managed Chromium page's Accessibility tree to rediscover a known
+tab. Windows sends real WebDriver pointer/context-menu input to the bundled host.
+Read-only evidence binds Core and native order, generation, topology revision,
+parent handle, and the selected-detach successor before and after restart.
+Windows also resizes two exact hosts and proves content bounds equal the Chromium
+viewport, then minimizes and visibly restores without a resize event. Debug
+bridges only read these receipts and never perform a tab mutation.
 
 The paired `chromium-*-hardware-extended` profiles require a real secondary
 display with a different scale factor. Their native-window phase reuses the
@@ -293,10 +294,11 @@ they do not perform the shortcut or replace the visible Quick Access launch.
 
 `CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-RELOAD-031` and
 `CHROMIUM-WINDOWS-RUNTIME-TAB-RELOAD-031` reopen the platform's visible tab menu
-for each of two consecutive Reload actions. macOS uses `AXShowMenu` on the
-retained AppKit radio tab and presses its real NSMenu item; Windows uses a real
-right-click and the bundled host context-menu item. The second selection must
-come from a newly rendered menu/projection, never replay the first capture.
+for each of two consecutive Reload actions. macOS right-clicks the exact retained
+AppKit radio tab from its native anchor and presses its real NSMenu item; Windows
+uses a real right-click and the bundled host context-menu item. The second
+selection must come from a newly rendered menu/projection, never replay the first
+capture.
 Read-only evidence binds both exact source fences to Applied EventBound
 `inputReady` receipts, monotonic document and navigation identities, resumed
 native/Core input, unchanged tab/window/Role-surface/AppKit host identity, a

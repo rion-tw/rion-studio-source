@@ -379,6 +379,45 @@ purity, system-only boundary verification, and production desktop-E2E
 isolation. The sixth immutable branch head and its hosted package evidence
 remain pending.
 
+The sixth exact-SHA matrix, run `33981080989` at
+`d8a54049383e07d9297495d200585dcf9f10195f`, passed renderer assets, checks,
+the Linux sanitizer and concurrency soak, both native-validation jobs, and the
+macOS desktop E2E. Its three remaining failures were distinct native input and
+message-delivery boundaries. The Windows Chromium package delivered an exact
+55/45 divider move before its adjacent child `WebContentsView` took pointer
+capture; Chromium emitted capture loss instead of the physical release, so the
+renderer submitted cancellation and correctly left the moved Core state
+non-durable. Capture loss after an accepted move now submits `end`, while loss
+before any move and explicit host blur remain cancellation. A renderer
+regression test covers both terminal paths.
+
+The stable Windows package submitted `WM_CLOSE` with `PostMessageW` while the
+WebView was actively navigating. The asynchronous message was accepted but did
+not reach Tauri's real `CloseRequested` policy within the external E2E
+boundary. The E2E-only native control now uses synchronous `SendMessageW`; the
+real Tauri handler still prevents the native default and defers admission to the
+Rust close transaction, whose exact native-destroyed event remains terminal.
+This Windows-only correction requires hosted compilation and physical evidence;
+the local macOS host cannot substitute for it.
+
+The macOS Chromium package reached exact post-restart Core, native AppKit,
+generation, and topology state, then timed out while System Events traversed the
+complete Accessibility contents of the target window to rediscover a known
+tab. The visible action now binds the exact Core/AppKit window and tab IDs,
+validates ordered native membership, derives the physical point from AppKit's
+first-tab screen bounds and per-tab window-relative anchors, raises only that
+AX-identified window, and sends a real CoreGraphics right click. Chromium's
+Accessibility subtree is no longer traversed. The focused AppKit seed and
+restart phases pass locally in
+`.desktop-e2e-artifacts/2026-09-05T18-07-03-450Z-darwin`, covering reorder,
+move, detach, hide/reveal, restart persistence, and consolidation. The seventh
+correction tree also passes source/document/dependency hygiene, TypeScript,
+ESLint with zero errors, all 427 Vitest files containing 3,227 tests, Rust
+formatting and clippy with warnings denied, the complete Rust workspace suite,
+the stable Tauri and Electron production builds, desktop-E2E debug build,
+production isolation, and the system-only boundary verifier. The seventh
+immutable branch head and full hosted matrix remain pending.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

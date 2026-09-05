@@ -2379,7 +2379,7 @@
       "spec": "e2e/desktop/specs/chromium-controlled-role-reload.e2e.ts",
       "platforms": ["macos"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Open the retained AppKit tab's visible AXShowMenu/NSMenu twice and select Reload twice. Each newly captured source fence must receive an Applied EventBound input-ready terminal, advance the permanent Chromium document/navigation sequence, resume native and Core input, and retain the exact Role surface, tab, Game Window, AppKit host, and already-open popup. Then arm one exact E2E-only window/tab failure, select the real NSMenu Reload, prove exactly one classified shell error with no owner/document/popup mutation, and visibly retry successfully. Stable Tauri v22 remains outside this Chromium-only command."
+      "description": "Right-click the retained AppKit tab at its exact native anchor, open its visible NSMenu twice, and select Reload twice. Each newly captured source fence must receive an Applied EventBound input-ready terminal, advance the permanent Chromium document/navigation sequence, resume native and Core input, and retain the exact Role surface, tab, Game Window, AppKit host, and already-open popup. Then arm one exact E2E-only window/tab failure, select the real NSMenu Reload, prove exactly one classified shell error with no owner/document/popup mutation, and visibly retry successfully. Stable Tauri v22 remains outside this Chromium-only command."
     },
     {
       "id": "CHROMIUM-WINDOWS-RUNTIME-TAB-RELOAD-031",

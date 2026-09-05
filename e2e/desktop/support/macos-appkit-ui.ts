@@ -713,134 +713,75 @@ const TAB_MENU_LABELS = Object.freeze({
 /** Opens the visible native NSMenu and selects one of its real menu items. */
 export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
   action: "hide" | "move" | "moveToNewWindow" | "reload";
-  tabId?: string;
+  tabId: string;
   tabName: string;
   targetWindowName?: string;
-  windowId?: string;
+  windowId: string;
 }>): Promise<void> {
   if ((input.action === "move") !== (input.targetWindowName !== undefined)) {
     throw new Error("An AppKit move action requires one exact target Game Window");
   }
-  const hasNativeGeometryFence = input.tabId !== undefined ||
-    input.windowId !== undefined;
-  if (hasNativeGeometryFence && (
-    input.tabId === undefined || input.windowId === undefined
-  )) {
-    throw new Error("An AppKit native geometry action requires one exact window and tab");
-  }
   const processId = String((await electronDesktopE2eProbe()).processId);
-  const expectedWindowIdentifier = input.windowId === undefined
-    ? ""
-    : `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
-  let geometry: readonly number[];
-  if (hasNativeGeometryFence) {
-    const [inspection, runtimeInspection] = await Promise.all([
-      electronDesktopE2eFullscreenToolbarRuntime(input.windowId!),
-      electronDesktopE2eGameWindowRuntime(input.windowId!)
-    ]);
-    const bounds = inspection.native.appKit?.tabScreenBounds;
-    const runtime = runtimeInspection.currentRuntime;
-    if (
-      inspection.hostKind !== "appkit" || inspection.tabIds.length !== 1 ||
-      inspection.tabIds[0] !== input.tabId || bounds === undefined || !runtime ||
-      runtime.hostKind !== "appkit-chromium" ||
-      runtime.windowId !== input.windowId ||
-      runtime.nativeTabIds.length !== 1 || runtime.nativeTabIds[0] !== input.tabId
-    ) {
-      throw new Error("The exact AppKit desktop-E2E tab geometry is unavailable");
-    }
-    const windowBounds = runtime.nativeDisplay.bounds;
-    geometry = exactGeometry(
-      `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`,
-      "runtime-tab-menu"
+  const expectedWindowIdentifier =
+    `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
+  const [inspection, runtimeInspection] = await Promise.all([
+    electronDesktopE2eFullscreenToolbarRuntime(input.windowId),
+    electronDesktopE2eGameWindowRuntime(input.windowId)
+  ]);
+  const bounds = inspection.native.appKit?.tabScreenBounds;
+  const tabIndex = inspection.tabIds.indexOf(input.tabId);
+  const anchor = inspection.native.appKit?.tabAnchors?.[input.tabId];
+  const previousTabId = tabIndex > 0 ? inspection.tabIds[tabIndex - 1] : undefined;
+  const previousAnchor = previousTabId === undefined
+    ? undefined
+    : inspection.native.appKit?.tabAnchors?.[previousTabId];
+  const runtime = runtimeInspection.currentRuntime;
+  if (
+    inspection.hostKind !== "appkit" ||
+    inspection.tabIds.filter((tabId) => tabId === input.tabId).length !== 1 ||
+    !sameOrderedStrings(runtime?.nativeTabIds ?? [], inspection.tabIds) ||
+    tabIndex < 0 || (tabIndex > 0 && previousAnchor === undefined) ||
+    bounds === undefined || anchor === undefined || !runtime ||
+    runtime.hostKind !== "appkit-chromium" ||
+    runtime.windowId !== input.windowId ||
+    runtime.nativeTabIds.filter((tabId) => tabId === input.tabId).length !== 1
+  ) {
+    throw new Error(
+      `The exact AppKit desktop-E2E geometry for ${input.tabName} is unavailable`
     );
-    if (
-      bounds.x < windowBounds.x || bounds.y < windowBounds.y ||
-      bounds.x + bounds.width > windowBounds.x + windowBounds.width ||
-      bounds.y + bounds.height > windowBounds.y + windowBounds.height
-    ) {
-      throw new Error("The AppKit native tab geometry escaped its exact window");
-    }
-  } else {
-    geometry = exactGeometry(await readSystemEvents(`
+  }
+  const windowBounds = runtime.nativeDisplay.bounds;
+  // AppKit exposes the first rendered tab's absolute bounds plus every tab's
+  // window-relative right-centre anchor. Adjacent anchors therefore fence
+  // the exact target tab without traversing Chromium's Accessibility tree.
+  const tabLeft = previousAnchor === undefined
+    ? bounds.x
+    : windowBounds.x + previousAnchor.x;
+  const tabRight = windowBounds.x + anchor.x;
+  const clickX = tabLeft + (tabRight - tabLeft) / 2;
+  const clickY = windowBounds.y + anchor.y;
+  if (
+    bounds.x < windowBounds.x || bounds.y < windowBounds.y ||
+    bounds.x + bounds.width > windowBounds.x + windowBounds.width ||
+    bounds.y + bounds.height > windowBounds.y + windowBounds.height ||
+    anchor.x < 0 || anchor.x > windowBounds.width ||
+    anchor.y < 0 || anchor.y > windowBounds.height ||
+    tabLeft < bounds.x || tabRight <= tabLeft ||
+    tabRight > windowBounds.x + windowBounds.width ||
+    clickY < bounds.y || clickY > bounds.y + bounds.height ||
+    ![clickX, clickY].every(Number.isFinite)
+  ) {
+    throw new Error("The AppKit native tab geometry escaped its exact window");
+  }
+  await readSystemEvents(`
 on run argv
-  set targetTabName to item 1 of argv
+  set expectedWindowIdentifier to item 1 of argv
   set targetPid to (item 2 of argv) as integer
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
     set targetProcess to item 1 of matchingProcesses
-    set targetCount to 0
-    set targetWindowIdentifier to ""
-    set targetX to 0
-    set targetY to 0
-    set targetWidth to 0
-    set targetHeight to 0
-    set frontmost of targetProcess to true
-    repeat with appWindow in windows of targetProcess
-      try
-        set runtimeElements to get entire contents of appWindow
-        repeat with candidateReference in runtimeElements
-          set candidate to contents of candidateReference
-          try
-            if value of attribute "AXRole" of candidate is "AXRadioButton" then
-              if value of attribute "AXDescription" of candidate is targetTabName then
-                set targetCount to targetCount + 1
-                set tabPosition to position of candidate
-                set tabSize to size of candidate
-                set targetX to item 1 of tabPosition
-                set targetY to item 2 of tabPosition
-                set targetWidth to item 1 of tabSize
-                set targetHeight to item 2 of tabSize
-                set targetWindowIdentifier to ¬
-                  value of attribute "AXIdentifier" of appWindow
-              end if
-            end if
-          end try
-        end repeat
-      end try
-    end repeat
-    if targetCount is not 1 then error "exact AppKit menu tab unavailable"
-    if targetWindowIdentifier is "" then error "exact AppKit menu window is unidentified"
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is ¬
-            targetWindowIdentifier then
-          perform action "AXRaise" of appWindow
-          exit repeat
-        end if
-      end try
-    end repeat
-    return (targetX as text) & "," & (targetY as text) & "," & ¬
-      (targetWidth as text) & "," & (targetHeight as text)
-  end tell
-end run`, input.tabName, processId), "runtime-tab-menu");
-  }
-  if (geometry.length !== 4 || geometry[2]! <= 0 || geometry[3]! <= 0) {
-    throw new Error("The AppKit runtime-tab menu geometry is invalid");
-  }
-  const clickX = geometry[0]! + geometry[2]! / 2;
-  const clickY = geometry[1]! + geometry[3]! / 2;
-  if (hasNativeGeometryFence) {
-    await runSystemEvents(`
-on run argv
-  set targetTabName to item 1 of argv
-  set targetPid to (item 2 of argv) as integer
-  set expectedWindowIdentifier to item 3 of argv
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
-    set frontmost of targetProcess to true
-    repeat 40 times
-      if frontmost of targetProcess is true then exit repeat
-      delay 0.05
-    end repeat
-    if frontmost of targetProcess is false then ¬
-      error "exact Rion process did not become frontmost"
-    set targetTab to missing value
     set targetWindow to missing value
-    set targetCount to 0
     set targetWindowCount to 0
     repeat with appWindow in windows of targetProcess
       try
@@ -852,45 +793,38 @@ on run argv
       end try
     end repeat
     if targetWindowCount is not 1 then error "exact AppKit menu window unavailable"
-    set runtimeElements to entire contents of targetWindow
-    repeat with candidate in runtimeElements
-      try
-        if value of attribute "AXRole" of candidate is "AXRadioButton" and ¬
-            value of attribute "AXDescription" of candidate is targetTabName then
-          set targetTab to candidate
-          set targetCount to targetCount + 1
-        end if
-      end try
-    end repeat
-    if targetCount is not 1 then error "exact AppKit menu tab unavailable"
     perform action "AXRaise" of targetWindow
-    perform action "AXShowMenu" of targetTab
+    set frontmost of targetProcess to true
+    repeat 40 times
+      if frontmost of targetProcess is true then exit repeat
+      delay 0.05
+    end repeat
+    if frontmost of targetProcess is false then ¬
+      error "exact Rion process did not become frontmost"
+    set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
+    if focusedWindow is missing value then error "exact AppKit menu window did not focus"
+    if value of attribute "AXIdentifier" of focusedWindow is not ¬
+        expectedWindowIdentifier then error "wrong AppKit menu window focused"
+    return "focused"
   end tell
-end run`, input.tabName, processId, expectedWindowIdentifier);
-  } else {
-    const rightClickScript = `
+end run`, expectedWindowIdentifier, processId);
+  const rightClickScript = `
 import CoreGraphics
 import Foundation
 let source = CGEventSource(stateID: .hidSystemState)
 let point = CGPoint(x: ${clickX}, y: ${clickY})
 CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
   mouseCursorPosition: point, mouseButton: .right)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-usleep(250_000)
 CGEvent(mouseEventSource: source, mouseType: .rightMouseDown,
   mouseCursorPosition: point, mouseButton: .right)?.post(tap: .cghidEventTap)
 usleep(25_000)
 CGEvent(mouseEventSource: source, mouseType: .rightMouseUp,
   mouseCursorPosition: point, mouseButton: .right)?.post(tap: .cghidEventTap)
 `;
-    await executeFile("/usr/bin/xcrun", ["swift", "-e", rightClickScript], {
-      encoding: "utf8",
-      timeout: 30_000
-    });
-  }
+  await executeFile("/usr/bin/xcrun", ["swift", "-e", rightClickScript], {
+    encoding: "utf8",
+    timeout: 30_000
+  });
   const selectionInput = JSON.stringify({
     actionLabels: TAB_MENU_LABELS[input.action],
     hideLabels: TAB_MENU_LABELS.hide,

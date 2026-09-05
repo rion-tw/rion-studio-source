@@ -158,7 +158,7 @@ describe("desktop E2E build isolation", () => {
     expect(isolationCheck).toContain("retainedV22Precondition");
   });
 
-  it("submits Windows close through the native window queue", async () => {
+  it("synchronously delivers Windows close to the native window policy", async () => {
     const source = await readFile(
       "src-tauri/src/system_runtime/section_31_desktop_e2e.rs",
       "utf8"
@@ -172,8 +172,9 @@ describe("desktop E2E build isolation", () => {
       windowsControl.indexOf("DesktopE2eWindowControlRequest::Minimize =>")
     );
 
-    expect(closeControl).toContain("PostMessageW(");
+    expect(closeControl).toContain("SendMessageW(");
     expect(closeControl).toContain("WM_CLOSE");
+    expect(closeControl).not.toContain("PostMessageW(");
     expect(closeControl).not.toContain("window.close()");
   });
 

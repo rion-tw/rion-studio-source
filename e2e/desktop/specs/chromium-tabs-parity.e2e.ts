@@ -298,6 +298,7 @@ async function launchRoleIntoWindow(
   );
   await savedWindow.waitForClickable({ timeout: 10_000 });
   await captureLaunchDiagnostic("before-visible-destination-click", role, gameWindow);
+  const priorTabIds = new Set(gameWindow.tabs.map((tab) => tab.id));
   const afterSequence = await fixtureCursor();
   const fixtureId = ROLE_DEFINITIONS.find(
     (definition) => definition.name === role.name
@@ -310,11 +311,23 @@ async function launchRoleIntoWindow(
   if (loading) {
     try {
       await browser.waitUntil(async () => {
-        const tab = (await rendererCall("getEmbeddedRuntimeState")).tabs.find(
-          (candidate) => candidate.sourceId === role.id
-        );
-        tabId = tab?.id;
-        return Boolean(tabId);
+        try {
+          const current = (await electronDesktopE2eGameWindowRuntime(
+            gameWindow.id
+          )).currentRuntime;
+          if (!current) return false;
+          const admittedTabIds = current.coreTabIds.filter(
+            (candidate) => !priorTabIds.has(candidate)
+          );
+          if (
+            admittedTabIds.length !== 1 ||
+            !sameOrderedIds(current.coreTabIds, current.nativeTabIds)
+          ) return false;
+          tabId = admittedTabIds[0];
+          return true;
+        } catch {
+          return false;
+        }
       }, { timeout: 30_000, timeoutMsg: `Role ${role.id} did not admit its loading tab` });
       const waiter = await fetch(
         `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/api/gates/${fixtureId}/waiting`,

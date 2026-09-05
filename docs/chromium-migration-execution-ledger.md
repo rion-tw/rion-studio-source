@@ -418,6 +418,22 @@ the stable Tauri and Electron production builds, desktop-E2E debug build,
 production isolation, and the system-only boundary verifier. The seventh
 immutable branch head and full hosted matrix remain pending.
 
+Post-commit foreground validation at the seventh local head
+`cd284959e6434abb26f0a88db8c244b68730548f` twice exposed a deterministic E2E
+ordering race before the corrected native menu path. The first Role URL was
+deliberately held at the external loading gate while the test asked the renderer
+for a globally coherent application projection. If admission crossed the Core
+and AppKit projection fence during that read, the coherent snapshot correctly
+waited for the next native event while the test withheld the event by retaining
+the URL gate. Loading admission now comes directly from the exact E2E-only
+Core/AppKit Game Window observation: it requires one new tab ID and identical
+ordered Core and native tab membership before inspecting AppKit's loading
+presentation. The gate is then released before the renderer coherence read.
+This changes no production timer, authority, or runtime behavior. The corrected
+foreground seed and restart phases pass in
+`.desktop-e2e-artifacts/2026-09-05T18-28-02-215Z-darwin`. The eighth immutable
+branch head and its exact-SHA hosted matrix remain pending.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

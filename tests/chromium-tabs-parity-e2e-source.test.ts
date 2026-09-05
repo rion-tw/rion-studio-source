@@ -89,6 +89,8 @@ describe("Chromium native tab exact replacements", () => {
     expect(helper).toContain("readVisibleWindowsRuntimeHostLayout");
     expect(helper).toContain("resizeVisibleWindowsRuntimeWindow");
     expect(spec).toContain("visibleRuntimeTabPhase");
+    expect(spec).toContain("const admittedTabIds = current.coreTabIds.filter(");
+    expect(spec).toContain("!sameOrderedIds(current.coreTabIds, current.nativeTabIds)");
     expect(spec).toContain('/api/gates/${fixtureId}/waiting');
     expect(spec).toContain('toBe("loading")');
     expect(spec).toContain('toBe("ready")');

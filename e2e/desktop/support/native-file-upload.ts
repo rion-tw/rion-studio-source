@@ -610,7 +610,7 @@ function Write-FailureSnapshot {
     foregroundAutomationError = $foregroundAutomationError
     foregroundClassName = $foregroundClassName
     foregroundControlCount = $foregroundControlCount
-    foregroundControls = @($foregroundControls)
+    foregroundControls = $foregroundControls.ToArray()
     foregroundExactEditCount = $foregroundExactEditCount
     foregroundExactOpenButtonCount = $foregroundExactOpenButtonCount
     foregroundNativeWindowHandle = [int64]$foregroundHandle

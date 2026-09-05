@@ -688,6 +688,14 @@ focused dependency chain through entity seed/restart and fullscreen-toolbar
 seed/restart passes locally in
 `.desktop-e2e-artifacts/2026-09-05T22-07-00-603Z-darwin`.
 
+The seventeenth exact-SHA Windows diagnostic run, `33995062145` at
+`dd33630029746bfefece72ac5ee04b3a1055951b`, reached the bounded foreground
+control collection but PowerShell 5.1 rejected array-subexpression conversion
+of the generic `List<object>` while constructing the JSON snapshot with
+`Argument types do not match`. The snapshot now calls the list's explicit
+`ToArray()` conversion. This corrects diagnostic serialization only; it does
+not change the native chooser's acceptance or input behavior.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

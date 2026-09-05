@@ -163,6 +163,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "foregroundExactEditCount = $foregroundExactEditCount",
       "foregroundExactOpenButtonCount = $foregroundExactOpenButtonCount",
       "if ($foregroundControls.Count -ge 160) { break }",
+      "foregroundControls = $foregroundControls.ToArray()",
       "$dialogs = @(Read-ExactDialogs)",
       "AutomationIdProperty, '1148'",
       "AutomationIdProperty, '1'",

@@ -662,6 +662,32 @@ trusted-input, Chromium, or AppKit runtime behavior. The corrected focused
 AppKit/Chromium phase passes locally in
 `.desktop-e2e-artifacts/2026-09-05T21-52-20-301Z-darwin`.
 
+The sixteenth exact-SHA Windows package run, `33994424367` at
+`41b9cd746130e7dd1d744996741fd7486dc61d45`, reproduced the same positive
+native relation: foreground `Open` HWND `262236` in process `3564` was directly
+owned by exact Electron Game Window HWND `589924` in process `6580`. The
+foreground-`FromHandle` candidate did not pass the exact file-name/Open control
+fence, but the prior diagnostic could not distinguish zero controls, duplicate
+controls, or a descendant-provider exception because that inspection was
+fail-closed and intentionally swallowed. Failure evidence now records the
+foreground UIA exception, exact control counts, total descendant count, and at
+most 160 bounded descendant identities. No selection path or acceptance fence
+changes in this diagnostic step; the next Windows run must identify the exact
+provider/selector mismatch before remediation.
+
+The same sixteenth run's macOS package crossed the corrected Macro phase and
+reached `chromium-fullscreen-toolbar-restart`. Rust had already projected the
+restored Role as `running`, so the E2E skipped a duplicate visible Open action,
+but it immediately read the still-materializing Electron/AppKit session and
+found `currentRuntime: null` only 2.7 seconds into the phase. The existing
+bounded launch observer now completes only when both the Rust Role status is
+running and the corresponding native Chromium runtime is non-null. It neither
+relaunches an in-progress restored Role nor changes the product restore path;
+the native projection itself remains the successful event condition. The full
+focused dependency chain through entity seed/restart and fullscreen-toolbar
+seed/restart passes locally in
+`.desktop-e2e-artifacts/2026-09-05T22-07-00-603Z-darwin`.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

@@ -558,11 +558,16 @@ function Capture-WindowSnapshot {
 function Write-FailureSnapshot {
   Capture-WindowSnapshot
   $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
+  $foregroundAutomationError = ''
   $foregroundProcessId = [uint32]0
   $foregroundOwnerHandle = [int64]0
   $foregroundOwnerProcessId = 0
   $foregroundClassName = ''
   $foregroundName = ''
+  $foregroundExactEditCount = -1
+  $foregroundExactOpenButtonCount = -1
+  $foregroundControlCount = -1
+  $foregroundControls = New-Object System.Collections.Generic.List[object]
   if ($foregroundHandle -ne [IntPtr]::Zero) {
     [RionFileDialogOwnership]::GetWindowThreadProcessId(
       $foregroundHandle, [ref]$foregroundProcessId) | Out-Null
@@ -574,10 +579,40 @@ function Write-FailureSnapshot {
         [System.Windows.Automation.AutomationElement]::FromHandle($foregroundHandle)
       $foregroundClassName = $foregroundElement.Current.ClassName
       $foregroundName = $foregroundElement.Current.Name
-    } catch {}
+      $foregroundExactEditCount = $foregroundElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants, $editCondition).Count
+      $foregroundExactOpenButtonCount = $foregroundElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants, $openCondition).Count
+      $allForegroundControls = $foregroundElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      $foregroundControlCount = $allForegroundControls.Count
+      foreach ($control in $allForegroundControls) {
+        if ($foregroundControls.Count -ge 160) { break }
+        try {
+          $controlCurrent = $control.Current
+          $foregroundControls.Add([ordered]@{
+            automationId = $controlCurrent.AutomationId
+            className = $controlCurrent.ClassName
+            controlType = $controlCurrent.ControlType.ProgrammaticName
+            isOffscreen = $controlCurrent.IsOffscreen
+            name = $controlCurrent.Name
+            nativeWindowHandle = [int64]$controlCurrent.NativeWindowHandle
+            processId = $controlCurrent.ProcessId
+          })
+        } catch {}
+      }
+    } catch {
+      $foregroundAutomationError = $_.Exception.ToString()
+    }
   }
   $snapshot = [ordered]@{
+    foregroundAutomationError = $foregroundAutomationError
     foregroundClassName = $foregroundClassName
+    foregroundControlCount = $foregroundControlCount
+    foregroundControls = @($foregroundControls)
+    foregroundExactEditCount = $foregroundExactEditCount
+    foregroundExactOpenButtonCount = $foregroundExactOpenButtonCount
     foregroundNativeWindowHandle = [int64]$foregroundHandle
     foregroundName = $foregroundName
     foregroundOwnerNativeWindowHandle = $foregroundOwnerHandle

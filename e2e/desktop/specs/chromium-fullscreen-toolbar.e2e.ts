@@ -82,20 +82,24 @@ async function launchRole(role: Role): Promise<Readonly<{
     await open.click();
   }
   let status: RoleStatus | undefined;
+  let runtime: Awaited<
+    ReturnType<typeof electronDesktopE2eRoleSessionRuntime>
+  > | undefined;
   await browser.waitUntil(async () => {
     status = (await rendererCall("listRoleStatuses"))
       .find((candidate) => candidate.roleId === role.id);
-    return status?.state === "running";
+    if (status?.state !== "running") return false;
+    runtime = await electronDesktopE2eRoleSessionRuntime(role.id);
+    return runtime.currentRuntime !== null;
   }, {
     timeout: 45_000,
-    timeoutMsg: `Role ${role.id} did not reach a live Chromium runtime`
+    timeoutMsg: `Role ${role.id} did not reach a live native Chromium runtime`
   });
   expect(status?.resolvedEngine).toBe("chromium");
-  const runtime = await electronDesktopE2eRoleSessionRuntime(role.id);
-  expect(runtime.currentRuntime).not.toBeNull();
+  expect(runtime?.currentRuntime).not.toBeNull();
   return {
-    tabId: runtime.currentRuntime!.tabId,
-    windowId: runtime.currentRuntime!.windowId
+    tabId: runtime!.currentRuntime!.tabId,
+    windowId: runtime!.currentRuntime!.windowId
   };
 }
 

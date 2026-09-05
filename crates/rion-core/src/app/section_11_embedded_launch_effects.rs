@@ -9,6 +9,11 @@ enum EmbeddedLaunchPresentationIntent {
     RestoreHydration,
 }
 
+struct EmbeddedLaunchOwnershipProjection {
+    presentation_intent: EmbeddedLaunchPresentationIntent,
+    windows: Vec<crate::model::EmbeddedRuntimeWindowProjectionRecord>,
+}
+
 fn embedded_launch_effects(
     tab_id: &str,
     mut tab: EmbeddedTabEffectRecord,
@@ -16,7 +21,7 @@ fn embedded_launch_effects(
     runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
     lifecycle_epoch: u64,
     web_surface_load: Option<EmbeddedWebSurfaceLoadPlan>,
-    foreground_windows: Option<Vec<crate::model::EmbeddedRuntimeWindowProjectionRecord>>,
+    ownership_projection: Option<EmbeddedLaunchOwnershipProjection>,
 ) -> CoreResult<Vec<crate::operation_actor::OperationStep>> {
     let attempt_generation = tab
         .attempt_generation
@@ -66,21 +71,33 @@ fn embedded_launch_effects(
     // failure retains that tab as a retryable presentation; it may never issue
     // a topology compensation that removes the user's tab.
     let mut steps = vec![create_step];
-    if let Some(windows) = foreground_windows {
-        let exact_focus_window = windows.iter().any(|window| {
+    if let Some(ownership_projection) = ownership_projection {
+        let windows = ownership_projection.windows;
+        let exact_launch_window = windows.iter().any(|window| {
             window.window_id == focus_window_id
                 && window.active_tab_id.as_deref() == Some(tab_id)
                 && window.tab_ids.iter().any(|candidate| candidate == tab_id)
                 && window.window_generation > 0
                 && window.topology_revision > 0
         });
-        if !exact_focus_window {
+        if !exact_launch_window {
             return Err(CoreError::Domain {
                 code: "CHROMIUM_LAUNCH_FOCUS_PROJECTION_INVALID",
-                message: "The foreground Chromium launch is missing its exact committed window and active-tab fence."
+                message: "The Chromium launch is missing its exact committed window and active-tab fence."
                     .to_owned(),
             });
         }
+        let requests_foreground = ownership_projection.presentation_intent
+            == EmbeddedLaunchPresentationIntent::Foreground;
+        let (reveal_window_ids, focus_window_ids, focus_tab_id) = if requests_foreground {
+            (
+                vec![focus_window_id.clone()],
+                vec![focus_window_id],
+                Some(tab_id.to_owned()),
+            )
+        } else {
+            (Vec::new(), Vec::new(), None)
+        };
         steps.push(effect_step(
             tab_id,
             CoreEffectAction::EmbeddedFollowRoleOwnership {
@@ -88,9 +105,9 @@ fn embedded_launch_effects(
                 roles: runtime_snapshot.roles,
                 windows,
                 target: None,
-                reveal_window_ids: vec![focus_window_id.clone()],
-                focus_window_ids: vec![focus_window_id],
-                focus_tab_id: Some(tab_id.to_owned()),
+                reveal_window_ids,
+                focus_window_ids,
+                focus_tab_id,
             },
             Duration::from_secs(15),
             None,

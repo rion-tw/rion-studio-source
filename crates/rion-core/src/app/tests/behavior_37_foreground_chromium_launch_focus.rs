@@ -413,6 +413,46 @@ fn restored_chromium_workspace_hydration_never_requests_native_focus() {
             )),
             "{platform}"
         );
+        let create_index = actions
+            .iter()
+            .position(|action| matches!(
+                action,
+                CoreEffectAction::EmbeddedCreateTab { tab } if tab.tab_id == tab_id
+            ))
+            .unwrap();
+        let ownership_index = actions
+            .iter()
+            .position(|action| matches!(
+                action,
+                CoreEffectAction::EmbeddedFollowRoleOwnership {
+                    windows,
+                    reveal_window_ids,
+                    focus_window_ids,
+                    focus_tab_id,
+                    ..
+                } if windows.iter().any(|window| {
+                    window.tab_ids.len() == 1
+                        && window.tab_ids[0] == tab_id
+                        && window.active_tab_id.as_deref() == Some(tab_id)
+                        && window.window_generation > 0
+                        && window.topology_revision > 0
+                })
+                    && reveal_window_ids.is_empty()
+                    && focus_window_ids.is_empty()
+                    && focus_tab_id.is_none()
+            ))
+            .expect("restore hydration projects ownership without focus");
+        let load_index = actions
+            .iter()
+            .position(|action| matches!(
+                action,
+                CoreEffectAction::EmbeddedLoadWebSurfaces {
+                    tab_id: effect_tab_id,
+                    ..
+                } if effect_tab_id.as_str() == tab_id
+            ))
+            .unwrap();
+        assert!(create_index < ownership_index && ownership_index < load_index, "{platform}");
         assert!(
             actions.iter().all(|action| !matches!(
                 action,

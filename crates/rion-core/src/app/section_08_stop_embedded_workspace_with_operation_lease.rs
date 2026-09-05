@@ -531,14 +531,20 @@ impl AppCore {
             tab.appkit_window_generation = Some(window_generation);
             tab.appkit_topology_revision = Some(topology_revision);
         }
-        // Stable System WebView launch previews already own WindowAndContent focus. Chromium has
-        // no shell-side preview, so only a fresh foreground Chromium launch receives this exact
-        // post-topology focus projection; restore hydration must preserve the current key window.
-        let foreground_windows = (presentation_intent
-            == EmbeddedLaunchPresentationIntent::Foreground
-            && self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+        // Every Chromium launch projects the committed Core generation before native surfaces
+        // load. Only a fresh foreground launch receives reveal/focus intent; restore hydration
+        // consumes the same ownership fence while preserving the current key window.
+        let ownership_projection = (self.runtime_contract_version
+            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
             && resolved_engine == crate::model::ResolvedBrowserEngine::Chromium)
-            .then(|| self.embedded_runtime_window_projections())
+            .then(|| {
+                self.embedded_runtime_window_projections().map(|windows| {
+                    EmbeddedLaunchOwnershipProjection {
+                        presentation_intent,
+                        windows,
+                    }
+                })
+            })
             .transpose()?;
         let role_ids = roles.iter().map(|role| role.id.clone()).collect::<Vec<_>>();
         self.start_effect_plan_for_roles(
@@ -549,7 +555,7 @@ impl AppCore {
                 runtime_snapshot.clone(),
                 self.application_lifecycle_epoch.load(Ordering::Acquire),
                 web_surface_load,
-                foreground_windows,
+                ownership_projection,
             )?,
             &role_ids,
         )

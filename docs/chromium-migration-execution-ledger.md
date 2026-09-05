@@ -434,6 +434,27 @@ foreground seed and restart phases pass in
 `.desktop-e2e-artifacts/2026-09-05T18-28-02-215Z-darwin`. The eighth immutable
 branch head and its exact-SHA hosted matrix remain pending.
 
+The eighth exact-SHA matrix, run `33984444918` at
+`4a4bdd499d90a89692051fe314235cc1943d7a35`, passed checks, renderer assets, the
+Linux sanitizer and concurrency soak, both macOS and Windows native validation,
+and both hosted desktop-E2E profiles. Its Windows Chromium package failed while
+restoring the saved mixed Workspace before any packaged release step. Core
+created the dormant Game Window at generation zero, then asked the shell to load
+its global Web surfaces before the later ownership follower projected the
+committed positive generation. The shell correctly rejected that stale identity
+instead of attaching Chromium to an unfenced native host.
+
+Every v23 Chromium launch now projects the exact committed Core window,
+active-tab, generation, and topology ownership immediately after native tab
+creation and before Role or Web-surface loading. A foreground launch continues
+to carry reveal and focus intent; restore hydration carries empty reveal/focus
+sets and therefore preserves the current key window. The cross-platform Core
+regression test proves both the positive fences and `create < ownership < load`
+ordering. The focused macOS AppKit Workspace Web seed and restart phases pass
+locally in `.desktop-e2e-artifacts/2026-09-05T18-55-40-254Z-darwin`. This local
+run cannot replace the failed Windows package evidence; the ninth immutable
+branch head and full hosted matrix remain pending.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

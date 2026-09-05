@@ -728,6 +728,25 @@ cardinality, visibility, or control fence. A new immutable Windows package run
 must physically prove the selection and continue through its remaining
 package gates.
 
+The twentieth exact-SHA Windows package run, `33996548461` at
+`1130331d0a1f266bfa4838b47ec7a641d7ca1928`, physically completed the native
+upload selection. Its durable artifact binds the exact application-owned
+Windows common-item dialog and visible action to the fixture's 57 bytes,
+filename, and SHA-256 as independently read by the remote page. The run then
+passed website-controlled fullscreen exit and re-entry, but a process-wide
+Win32 `SendInput` Escape did not leave HTML fullscreen: the exact Game Window
+projection remained focused, the foreground HWND belonged to the exact app
+PID, and the injection API accepted the scan-code pair, while Chromium retained
+its entered state. The Windows journey now follows the same
+focused-WebContents keyboard path used by Chromium's own fullscreen tests and
+Rion's existing visible Windows Role F11/Quick Access E2E: after fencing the
+exact URL and `document.hasFocus()`, a W3C keyboard source submits Escape to
+that WebContents. macOS continues to validate the retained AppKit runtime
+window/tab and posts its Escape through the existing CoreGraphics native-input
+path. No product fullscreen, Chromium presentation, or AppKit code changes.
+The next immutable Windows run must prove main and popup exit and advance into
+packaging.
+
 ## Non-completion rules
 
 - Actions artifacts alone are not durable recovery storage.

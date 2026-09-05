@@ -6,8 +6,7 @@ import {
   type ElectronDesktopE2eRolePlaceholderInspection
 } from "./electron-driver";
 import {
-  pressVisibleMacosApplicationShortcut,
-  pressVisibleWindowsApplicationShortcut
+  pressVisibleMacosApplicationShortcut
 } from "./native-application-actions";
 
 type ElectronWindowTracker = {
@@ -283,7 +282,7 @@ export async function navigateVisibleElectronWorkspaceWebChrome(
   });
 }
 
-/** Sends a native Escape key to the exact focused Chromium runtime document. */
+/** Sends a visible Escape key to the exact focused Chromium runtime document. */
 export async function submitElectronPageEscape(
   expectedUrl: string,
   mainWindowHandle: string,
@@ -306,11 +305,14 @@ export async function submitElectronPageEscape(
         targetMode: "focused-runtime"
       });
     } else {
-      await pressVisibleWindowsApplicationShortcut({
-        command: "escape",
-        processId: input.processId,
-        targetMode: "focused-runtime"
-      });
+      // ChromeDriver's W3C key source addresses the already URL- and
+      // document-focus-fenced WebContents. A process-wide Win32 SendInput can
+      // address only the shared top-level Game Window after a native file
+      // dialog, leaving Chromium free to route Escape to a sibling child HWND.
+      await browser.action("key")
+        .down(Key.Escape)
+        .up(Key.Escape)
+        .perform();
     }
   });
 }

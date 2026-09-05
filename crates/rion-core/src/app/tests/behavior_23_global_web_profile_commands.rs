@@ -20,7 +20,10 @@ fn v23_global_web_profile_paths_resolve_is_exact_idempotent_and_napi_serializabl
 
         assert_eq!(first, second, "{platform}");
         assert_eq!(first.profile_key, "global-web", "{platform}");
-        assert_eq!(std::path::Path::new(&first.chromium_user_data_dir), expected);
+        assert_eq!(
+            first.chromium_user_data_dir,
+            crate::global_web_profile::chromium_engine_path(&expected).unwrap()
+        );
         assert!(expected.is_dir(), "{platform}");
         assert!(!directory.path().join("roles").exists(), "{platform}");
         assert!(core.browser_runtime.snapshot().unwrap().windows.is_empty());
@@ -59,8 +62,8 @@ fn v23_global_web_profile_clear_uses_the_core_effect_operation_identity_and_exac
         crate::model::SystemRuntimeOperationStatus::Applied
     );
     assert_eq!(
-        std::path::Path::new(&receipt.profile.chromium_user_data_dir),
-        expected
+        receipt.profile.chromium_user_data_dir,
+        crate::global_web_profile::chromium_engine_path(&expected).unwrap()
     );
     assert!(actions.iter().any(|action| matches!(
         action,

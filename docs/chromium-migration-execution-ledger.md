@@ -20,9 +20,10 @@ Last reconciled: 2026-09-06.
 - The one later repository-mutation package is the deliberately gated sole-entry
   cleanup, which cannot begin until the external native and release gates pass.
   The real-transaction producer and terminal-promotion finalizer are implemented
-  as hard-disabled transition code but remain open execution gates. One package
-  is owner-controlled GitHub configuration. One package is exact-candidate native
-  and physical-platform evidence.
+  as hard-disabled transition code but remain open execution gates. The
+  owner-controlled release-configuration package is a provisional final delta
+  audit, not a presumption that v23 needs a second release infrastructure. One
+  package is exact-candidate native and physical-platform evidence.
 - A passing portable or macOS-only test run does not reduce the Windows evidence
   count. Historical evidence does not count for the current source SHA.
 
@@ -122,6 +123,16 @@ The most recent successful remote CI run therefore validates only that older
 remote SHA. It is not current migration evidence. No GitHub setting, credential,
 environment, branch rule, workflow, or remote ref was changed by this audit.
 
+The owner clarified on 2026-09-06 that this absence audit does not establish a
+v23 requirement to create separate release infrastructure. Configuration review
+is deliberately last: begin from the complete pre-migration v22 release
+environment, reuse its secrets, permissions, endpoints, and owner settings, and
+adjust only the Electron-specific workflow inputs that a final delta audit proves
+necessary. The private recovery repository, separate GitHub Apps, and additional
+environment assumptions recorded above remain provisional transition-workflow
+assumptions; they are not owner-approved requirements and must be removed or
+simplified if the existing release setup already supplies the required authority.
+
 ## Remaining work packages
 
 | Package | Required deliverables | Current state | Completion evidence |
@@ -129,28 +140,30 @@ environment, branch rule, workflow, or remote ref was changed by this audit.
 | Real updater transaction producer | 2 | Implemented but hard-disabled and unexecuted: the fixed workflow seals one challenge and exact upstream identities, drives visible updater UI in four native cells, records product-authored terminality and target-process identity, detached-attests only each terminal receipt, and verifies the aggregate | Four exact source-runtime transactions: Tauri v22 and prior Electron to target Electron on both macOS and Windows |
 | Terminal promotion finalizer | 2 | Implemented but hard-disabled and unexecuted: the fixed workflow re-verifies readiness/provisional/capsule/lease identities, brackets the sole lease release with exact target observations, writes only a create-new `promoted` receipt, and leaves every non-success path to durable recovery | Fresh external-state observation plus one terminal promotion receipt, with rollback or indeterminate closure for every non-success path |
 | Sole Electron production entry and cleanup | 2 | Pending until every prior gate passes; Tauri v22 remains stable production | macOS and Windows release/CI matrices green; make Electron the only production entry, then remove Tauri/System WebView and dual-shell code while retaining `rion-appkit` |
-| Owner-controlled release configuration | 1 | Approval and external setup pending | Explicitly approved private recovery repository, protected append-only branch, narrow GitHub Apps, protected environments, and matching variables/secrets |
+| Owner-controlled release configuration | 1 | Deferred to the final delta audit; existing v22 release configuration is the baseline and no new repository, App, environment, variable, or secret is presumed necessary | Read-only v22-to-v23 configuration/workflow comparison, followed only by owner-approved Electron-specific adjustments that the comparison proves unavoidable |
 | Current-SHA native release evidence | 2 | Pending physical/native execution | Retained AppKit-host macOS package/update evidence and physical Windows install/update/trusted-input evidence for the exact candidate SHA |
 
 Repository code may validate and consume owner-controlled configuration, but it
-must not create it, guess the repository identity, or enable public mutation
-without owner approval.
+must not create it, guess repository identity, or enable public mutation without
+owner approval. This package stays last and may close as a no-new-configuration
+result if the existing v22 environment already covers the Electron workflows.
 
 The durable provisional-publication recovery package is no longer counted as
 remaining repository implementation. Its hard-disabled workflow now covers the
 private append-only capsule and outcome store, proof-derived one-shot mutation
 markers, creator-only public mutation, zero-write resume and reconciliation,
 rollback or held-lease release, and fresh terminal readback. All recovery jobs
-remain statically disabled. The owner-controlled store, GitHub Apps, protected
-environments, variables and secrets, plus an independent recovery drill, remain
-part of the configuration gate above rather than inferred repository state.
+remain statically disabled. Its currently modeled separate store, GitHub Apps,
+protected environments, variables, and secrets remain provisional until the
+final v22-to-v23 delta audit; they are not inferred owner requirements.
 
 The real updater transaction producer is also no longer missing repository
 implementation. Its hard-disabled fixed workflow is covered by focused source,
 contract, bundle, promotion-readiness, and full repository tests. This does not
 complete either of its deliverables: the owner-controlled provisional endpoint
-and native environments must still run all four exact transactions, including
-retained AppKit evidence on macOS and physical Windows evidence.
+or reused v22 endpoint and native environments must still run all four exact
+transactions, including retained AppKit evidence on macOS and physical Windows
+evidence.
 
 The terminal-promotion finalizer is likewise no longer missing repository
 implementation. Its closed receipt, file-bound CLI, source contract, and
@@ -468,6 +481,28 @@ Accessibility subtree. Native AppKit compilation and the focused tabs seed plus
 restart pass locally in
 `.desktop-e2e-artifacts/2026-09-05T19-03-54-908Z-darwin`. This correction is not
 part of the ninth immutable head; it requires the following exact-SHA matrix.
+
+The ninth exact-SHA matrix, run `33985708422` at
+`bdfd61fe594f313d351e1d189752903f1aea8437`, passed checks, renderer assets, the
+Linux sanitizer and concurrency soak, both native-validation jobs, and both
+macOS and Windows desktop-E2E jobs. Its macOS package job reached the same final
+visible-tabs geometry fence described above; the correction is committed at
+`55ae85e88c276e8c4bc7f5cea831e0173e99a643` and its clean exact-SHA local tabs
+seed/restart evidence is
+`.desktop-e2e-artifacts/2026-09-05T19-07-18-744Z-darwin`.
+
+The Windows package advanced beyond saved mixed-Workspace generation and load
+admission, then reopened the correct global-Web URL with both prior cookie and
+LocalStorage absent. Its paired Role profile, under the same user-data root,
+retained process-restart state. The exact difference is that Rust
+`fs::canonicalize` serialized only the global-Web profile with a Windows
+verbatim device-path prefix; Chromium accepted and echoed that storage path but
+did not recover its persistent data. The pending correction preserves Rust
+canonical and symlink-boundary validation while serializing the equivalent
+ordinary absolute drive or UNC path for Chromium, and makes Electron reject a
+verbatim device path instead of silently running a non-durable session. The next
+immutable matrix must prove both this Windows persistence correction and the
+already-corrected AppKit presentation geometry at one exact SHA.
 
 ## Non-completion rules
 

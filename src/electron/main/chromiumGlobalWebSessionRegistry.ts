@@ -86,6 +86,8 @@ function canonicalAbsolutePath(
   const paths = pathApi(platform);
   if (
     typeof value !== "string" || value.length === 0 || value.includes("\0") ||
+    (platform === "win32" &&
+      (value.startsWith("\\\\?\\") || value.startsWith("\\\\.\\"))) ||
     !paths.isAbsolute(value) || paths.normalize(value) !== value
   ) {
     registryError(

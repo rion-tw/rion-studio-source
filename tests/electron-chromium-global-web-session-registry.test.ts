@@ -279,6 +279,23 @@ describe("Chromium global Web session registry", () => {
     expect(fromPath).not.toHaveBeenCalled();
   });
 
+  it("rejects Windows device paths before Chromium session creation", () => {
+    const paths: ChromiumGlobalWebProfilePaths = {
+      profileKey: "global-web",
+      chromiumUserDataDir:
+        "\\\\?\\C:\\RionData\\web-profiles\\global-web\\chromium"
+    };
+    const native = createNativeSession(paths.chromiumUserDataDir);
+    const { factory, fromPath } = createFactory(() => native.session);
+    const registry = new ChromiumGlobalWebSessionRegistry(factory, "win32");
+
+    expect(() => registry.acquireSurface("web-tab-1-1", 1, paths))
+      .toThrowError(expect.objectContaining({
+        code: "ELECTRON_GLOBAL_WEB_SESSION_PATH_INVALID"
+      }));
+    expect(fromPath).not.toHaveBeenCalled();
+  });
+
   it("grants an exclusive maintenance lease only after all surfaces release", async () => {
     const paths = profile("darwin");
     const nativeSessions = [

@@ -275,10 +275,15 @@ async function visibleDestinationLaunch(input: {
   const destination = await $(`[data-testid='${input.destinationTestId}']`);
   await destination.waitForClickable({ timeout: 10_000 });
   await destination.click();
-  // Core can publish the launch terminal before the palette finishes recording
-  // recency and closes. Fence that visible completion so a late close from this
-  // launch cannot dismiss the next palette opened by the journey.
-  await palette.waitForDisplayed({ reverse: true, timeout: 55_000 });
+  // The native dialog closes before the launch awaits its recency write. Fence
+  // the React presentation terminal too, so its later close cannot dismiss the
+  // next palette opened by this journey.
+  await browser.waitUntil(async () =>
+    await palette.getAttribute("data-presentation-state") === "closed", {
+    interval: 100,
+    timeout: 55_000,
+    timeoutMsg: "Quick Open did not reach its closed presentation terminal"
+  });
   await waitForRuntimeLaunchTerminal(control, input.id, input.sourceType);
   return waitForRuntimeProjection({ afterSequence: cursor, sourceId: input.id });
 }

@@ -203,7 +203,8 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
   await expectExactCleanup(tabRole, tabObservations.at(-1)?.sequence ?? 0);
   await closeVisibleRuntimeWindow({
     mainWindowHandle: context.mainWindowHandle,
-    platform: context.platform
+    platform: context.platform,
+    windowId: WINDOW_A
   });
 
   const tabWindow = await launchBound(
@@ -223,7 +224,8 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
   const windowObservations = await electronDesktopE2eTrustedInputRuntime(windowRole.id);
   await closeVisibleRuntimeWindow({
     mainWindowHandle: context.mainWindowHandle,
-    platform: context.platform
+    platform: context.platform,
+    windowId: WINDOW_B
   });
   await waitFixtureEvent({
     afterSequence: windowDown.sequence,

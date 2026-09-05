@@ -33,6 +33,21 @@ impl AppCore {
         &self,
         inputs: Vec<GameWindowRuntimeSnapshotCommitInputRecord>,
     ) -> CoreResult<RuntimeWindowPersistenceBatchReceiptRecord> {
+        self.commit_runtime_window_snapshot_batch_with_revision_fence(inputs, true)
+    }
+
+    fn commit_authoritative_runtime_window_snapshot_batch_inner(
+        &self,
+        inputs: Vec<GameWindowRuntimeSnapshotCommitInputRecord>,
+    ) -> CoreResult<RuntimeWindowPersistenceBatchReceiptRecord> {
+        self.commit_runtime_window_snapshot_batch_with_revision_fence(inputs, false)
+    }
+
+    fn commit_runtime_window_snapshot_batch_with_revision_fence(
+        &self,
+        inputs: Vec<GameWindowRuntimeSnapshotCommitInputRecord>,
+        supersede_equal_revision: bool,
+    ) -> CoreResult<RuntimeWindowPersistenceBatchReceiptRecord> {
         if inputs.is_empty() {
             return Err(CoreError::InvalidInput(
                 "runtime window snapshot batch cannot be empty".to_owned(),
@@ -64,7 +79,9 @@ impl AppCore {
             let superseded = revisions.get(&window_id).is_some_and(
                 |(saved_generation, saved_revision)| {
                     *saved_generation > window_generation
-                        || (*saved_generation == window_generation && *saved_revision >= revision)
+                        || (*saved_generation == window_generation
+                            && (*saved_revision > revision
+                                || (supersede_equal_revision && *saved_revision == revision)))
                 },
             );
             receipts.push(RuntimeWindowPersistenceReceiptRecord {

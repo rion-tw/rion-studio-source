@@ -41,7 +41,10 @@ describe("Electron Chromium runtime recovery lifecycle wiring", () => {
     expect(bootstrap).toContain("await this.#executor.dispose();");
     expect(bootstrap).toContain("await persist(snapshot);");
     expect(bootstrap).toContain("this.#closeNativeActionIngress();");
-    expect(runtimeUi).toContain("self.commit_runtime_window_snapshot_batch_inner(inputs)?");
+    expect(runtimeUi).toContain(
+      "self.commit_authoritative_runtime_window_snapshot_batch_inner(inputs)?"
+    );
+    expect(runtimeUi).not.toContain("self.commit_runtime_window_snapshot_batch_inner(inputs)?");
     expect(runtimeUi).toContain("self.update_runtime_restore_session(|session|");
     expect(runtimeUi).toContain("session.clean_exit = false;");
     expect(runtimeUi).toContain("session.live_window_ids = Some(live_window_ids);");

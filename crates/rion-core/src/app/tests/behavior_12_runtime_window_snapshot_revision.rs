@@ -202,6 +202,50 @@ fn runtime_window_snapshot_commit_is_latest_revision_wins() {
 }
 
 #[test]
+fn authoritative_runtime_snapshot_can_repair_an_equal_revision() {
+    let (_directory, core) = core();
+    let window_id = create_saved_window(&core, "Equal revision repair");
+    let snapshot = |name: &str, x: i32| {
+        serde_json::from_value::<crate::model::GameWindowRuntimeSnapshotCommitInputRecord>(json!({
+            "snapshot": {
+                "windowId": window_id.clone(),
+                "windowGeneration": 7,
+                "revision": 2,
+                "tabs": [],
+                "activeTabId": null
+            },
+            "name": name,
+            "targetDisplay": { "id": 1 },
+            "placement": {
+                "normalBounds": { "x": x, "y": 0, "width": 960, "height": 640 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                "presentation": "normal"
+            }
+        }))
+        .unwrap()
+    };
+
+    let first = core
+        .commit_runtime_window_snapshot_batch_inner(vec![snapshot("First", 10)])
+        .unwrap();
+    assert_eq!(first.receipts[0].status, "applied");
+    let repaired = core
+        .commit_authoritative_runtime_window_snapshot_batch_inner(vec![snapshot("Repaired", 20)])
+        .unwrap();
+    assert_eq!(repaired.receipts[0].status, "applied");
+    let duplicate = core
+        .commit_runtime_window_snapshot_batch_inner(vec![snapshot("Duplicate", 30)])
+        .unwrap();
+    assert_eq!(duplicate.receipts[0].status, "superseded");
+
+    let saved = core
+        .invoke(CoreCommand::GameWindowGet { id: window_id })
+        .unwrap();
+    assert_eq!(saved["name"], "Repaired");
+    assert_eq!(saved["placement"]["normalBounds"]["x"], 20);
+}
+
+#[test]
 fn runtime_window_snapshot_restores_saved_bounds_and_presentation_after_restart() {
     let (directory, core) = core();
     let window_id = create_saved_window(&core, "Placement restore");

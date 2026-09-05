@@ -200,6 +200,9 @@ describe("quick access palette", () => {
     ));
     expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("Role One");
     expect(screen.getByTestId("quick-access-palette").hasAttribute("open")).toBe(true);
+    expect(screen.getByTestId("quick-access-palette").getAttribute(
+      "data-presentation-state"
+    )).toBe("open");
 
     const roleOption = screen.getByRole("option", { name: /Role One/ });
     const roleRow = roleOption.parentElement;
@@ -223,6 +226,9 @@ describe("quick access palette", () => {
     search.focus();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(screen.getByTestId("quick-access-palette").getAttribute(
+      "data-presentation-state"
+    )).toBe("closed");
   });
 
   it("does not restore launcher focus after committing a runtime destination", async () => {

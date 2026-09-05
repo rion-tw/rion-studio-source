@@ -377,12 +377,16 @@ end run`, expectedWindowIdentifier, processId)), {
   });
 }
 
-async function closeMacosAppKitWindow(tabName?: string): Promise<void> {
+async function closeMacosAppKitWindow(windowId?: string, tabName?: string): Promise<void> {
   const processId = String((await electronDesktopE2eProbe()).processId);
+  const windowIdentifier = windowId
+    ? `com.rionstudio.runtime.appkit-window.v1:${windowId}`
+    : "";
   await runAppKitAction(`
 on run argv
   set targetName to item 1 of argv
   set targetPid to (item 2 of argv) as integer
+  set expectedWindowIdentifier to item 3 of argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
@@ -392,17 +396,26 @@ on run argv
     repeat with appWindow in windows of targetProcess
       set hasRuntimeTab to false
       set hasTargetTab to false
-      set allElements to entire contents of appWindow
-      repeat with candidate in allElements
+      if expectedWindowIdentifier is not "" then
         try
-          if role of candidate is "AXRadioButton" then
+          if value of attribute "AXIdentifier" of appWindow is expectedWindowIdentifier then
             set hasRuntimeTab to true
-            if targetName is not "" and description of candidate is targetName then
-              set hasTargetTab to true
-            end if
+            set hasTargetTab to true
           end if
         end try
-      end repeat
+      else
+        set allElements to entire contents of appWindow
+        repeat with candidate in allElements
+          try
+            if role of candidate is "AXRadioButton" then
+              set hasRuntimeTab to true
+              if targetName is not "" and description of candidate is targetName then
+                set hasTargetTab to true
+              end if
+            end if
+          end try
+        end repeat
+      end if
       if hasRuntimeTab and (targetName is "" or hasTargetTab) then
         set targetWindow to appWindow
         set targetCount to targetCount + 1
@@ -415,7 +428,7 @@ on run argv
       perform action "AXPress" of item 1 of closeButtons
     end tell
   end tell
-end run`, tabName ?? "", processId);
+end run`, tabName ?? "", processId, windowIdentifier);
 }
 
 /** Activates one exact visible native tab without debug/runtime action APIs. */
@@ -611,9 +624,10 @@ export async function closeVisibleRuntimeWindow(input: Readonly<{
   platform: "macos" | "windows";
   tabId?: string;
   tabName?: string;
+  windowId?: string;
 }>): Promise<void> {
   if (input.platform === "macos") {
-    await closeMacosAppKitWindow(input.tabName);
+    await closeMacosAppKitWindow(input.windowId, input.tabName);
     return;
   }
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {

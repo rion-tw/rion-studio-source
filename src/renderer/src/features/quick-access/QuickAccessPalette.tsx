@@ -161,6 +161,7 @@ export function QuickAccessPalette({
       ref={dialogRef}
       aria-label={t("quickAccess.title")}
       className="app-dialog m-auto w-[min(680px,calc(100vw-2rem))] max-w-none border-0 bg-transparent p-0 text-foreground"
+      data-presentation-state={open ? "open" : "closed"}
       data-testid="quick-access-palette"
       onCancel={(event) => {
         event.preventDefault();

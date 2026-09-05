@@ -1013,7 +1013,8 @@ async function seedPhase(input: Readonly<{
     await closeVisibleRuntimeWindow({
       ...input,
       tabId: close.tabId,
-      tabName: close.tabName
+      tabName: close.tabName,
+      windowId: close.windowId
     });
     await waitForDormantWindow(close.windowId);
   }
@@ -1130,13 +1131,15 @@ async function restartPhase(input: Readonly<{
   await closeVisibleRuntimeWindow({
     ...input,
     tabId: betaId,
-    tabName: ROLE_DEFINITIONS[1].name
+    tabName: ROLE_DEFINITIONS[1].name,
+    windowId: gameWindow.id
   });
   await waitForDormantWindow(gameWindow.id);
   await closeVisibleRuntimeWindow({
     ...input,
     tabId: deltaId,
-    tabName: ROLE_DEFINITIONS[3].name
+    tabName: ROLE_DEFINITIONS[3].name,
+    windowId: targetWindow.id
   });
   await waitForDormantWindow(targetWindow.id);
 }

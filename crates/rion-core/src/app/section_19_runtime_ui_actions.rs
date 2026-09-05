@@ -519,7 +519,10 @@ impl AppCore {
             .flatten()
             .collect::<Vec<_>>();
         if !inputs.is_empty() {
-            self.commit_runtime_window_snapshot_batch_inner(inputs)?;
+            // These snapshots were read from RuntimeKernel, the logical authority. Reapply an
+            // equal revision so a later durability boundary can repair a stale follower without
+            // weakening the public latest-revision-wins command contract.
+            self.commit_authoritative_runtime_window_snapshot_batch_inner(inputs)?;
         }
         // Persisted dormant window definitions are seeded into RuntimeKernel so that an
         // explicit restore can reconstruct them. They are not members of the current crash

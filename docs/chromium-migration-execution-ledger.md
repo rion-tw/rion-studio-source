@@ -6,7 +6,7 @@ requirements remain in [Chromium Runtime Migration](chromium-runtime-migration.m
 and [Updater Install Transaction](updater-transaction-contract.md); this file is
 only an execution view and must never be used to waive a gate.
 
-Last reconciled: 2026-09-05.
+Last reconciled: 2026-09-06.
 
 ## Current count
 
@@ -292,11 +292,40 @@ Stop consumes one native keyboard traversal; the exact input plan now anchors
 at Stop and crosses the separator before selecting Hide. These Windows
 corrections remain pending physical validation on the next exact-SHA matrix.
 
+The third exact-SHA matrix, run `33975626227` at
+`4c27f13430f48424705be8b6235a0249705e04e7`, passed checks, renderer assets,
+the Linux sanitizer and concurrency soak, both native validation jobs, and the
+Windows desktop E2E. It therefore closed the preceding Windows native-menu and
+both-platform native-validation gaps. Its three later failures exposed exact
+terminal-boundary defects. The Windows package proved that the physical divider
+updated the authoritative Runtime Kernel topology to 55/45 while an equal-revision
+SQLite follower remained at 50/50. Internal Runtime Kernel snapshots may now
+replay an equal generation and revision to repair that stale follower, while the
+public commit API retains strict latest-wins duplicate supersession. A focused
+Core regression test covers both sides of that fence.
+
+The stable macOS cross-domain journey proved that two successive visible Quick
+Open launches could race after the native dialog closed but before React finished
+its awaited launch and recency mutation. The palette now publishes an explicit
+presentation state, and the E2E waits for the authoritative React-closed state
+before beginning the next visible action. The macOS Chromium macro cleanup
+journey also showed that traversing every accessibility descendant of an AppKit
+window could enter Chromium's large accessibility tree and exhaust the external
+automation boundary. Known game windows are now closed through their exact
+retained AppKit `AXIdentifier` and native close button; the descendant fallback
+remains only for controlled popups without a game-window identity. The three
+corrected journeys pass locally on physical macOS: stable
+`p1-cross-domain-seed`, Chromium/AppKit
+`chromium-macro-cutover-terminal-cleanup-seed`, and Chromium/AppKit
+`chromium-workspace-web-slot-seed`. Windows packaging and the new branch head
+remain pending the next exact-SHA hosted matrix.
+
 The current correction tree passes 426 Vitest files containing 3,224 tests,
 TypeScript, ESLint with zero errors, source/document/dependency hygiene, Rust
 formatting and clippy with warnings denied, the full Rust workspace suite,
 production Tauri and Electron builds, Electron renderer purity, and production
-desktop-E2E isolation.
+desktop-E2E isolation. The local Core suite includes 955 tests, including the
+equal-revision authoritative-follower repair regression.
 
 ## Non-completion rules
 

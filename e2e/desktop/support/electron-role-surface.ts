@@ -2,6 +2,7 @@ import { $, browser } from "@wdio/globals";
 import { Key } from "webdriverio";
 import { fixtureCursor, waitFixtureEvent } from "./fixture";
 import { sendChromiumEscapeKey } from "./chromium-escape-key";
+import { visibleCanvasPoint } from "./visible-canvas-point";
 
 import {
   electronDesktopE2eProbe,
@@ -471,14 +472,17 @@ export async function submitElectronRoleKeyPhases(
           processId: probe.processId, nativeWindowHandle, pointerTarget: "content-click"
         });
       }
-      const size = await canvas.getSize();
+      const point = await browser.execute(visibleCanvasPoint);
       await browser.action("pointer", {
         parameters: { pointerType: "mouse" }
       }).move({
-        origin: canvas,
-        x: -Math.floor(size.width / 4),
-        y: -Math.floor(size.height / 4)
+        origin: "viewport",
+        ...point
       }).down("left").up("left").perform();
+      const focused = await browser.execute(() =>
+        document.activeElement === document.querySelector("#game-input-canvas")
+      );
+      if (!focused) throw new Error("The visible canvas click did not establish keyboard focus");
     }
     for (const phase of phases) {
       const action = browser.action("key", { id: ROLE_KEY_INPUT_SOURCE });

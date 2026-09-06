@@ -227,6 +227,15 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
     { key: "q", phase: "keyDown" }
   ], { windowId: WINDOW_ID });
+  expect(await waitExactKey({
+    afterSequence: blurFixture,
+    code: "KeyQ",
+    kind: "keydown",
+    roleId: ROLE_A_FIXTURE
+  })).toEqual(expect.objectContaining({
+    isTrusted: true,
+    targetId: "game-input-canvas"
+  }));
   await activateChromiumRoleVisible(context, tabB);
   const blurRelease = await waitExactKey({
     afterSequence: blurFixture,

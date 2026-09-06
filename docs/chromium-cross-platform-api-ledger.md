@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 01ca1f3b; Windows Reload/full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 01ca1f3b; Windows 29 phases passed at e7bee0ae; latest full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 59b405b7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -5211,3 +5211,60 @@ trusted input are outside this Windows child-host removal.
   production isolation. No local desktop profile ran around the known protected
   system-dialog obstruction. Windows must exercise the retained error source
   in exact-candidate native CI; no ACL race repair is claimed.
+
+
+### CP-08/CP-11/CP-15 exact e7bee0ae profile evidence and canvas precondition
+
+- CI 34059403980 Windows package job 101557109833 records 29 PASS phases
+  and chromium-macro-cutover-keyboard FAIL, report
+  2026-09-06T20-55-44-152Z-win32. Controlled Reload, standby recovery, and
+  input recovery pass; the shared View physical-evidence validator also passes
+  in its actual native profile. The previous placement mismatch does not recur
+  in this run; that alone does not prove its cause resolved.
+- Keyboard fixture events 624/625 hit an unnamed element; the trusted KeyQ
+  keydown at 626 and fallback keyup at 628 both have an empty targetId. Thus
+  the canvas-specific blur-release assertion lacks its intended initial canvas
+  keydown. The fixed quarter-canvas pointer offset did not establish that
+  precondition. Do not redirect production key releases to a different owner.
+- E2E key submission now reads an exposed canvas point using viewport-clipped
+  geometry and elementFromPoint, performs a real WebDriver pointer click, and
+  asserts actual canvas focus before sending keys. No script focuses/clicks the
+  page, no retry or delay establishes success, and focusCanvas:false retains
+  the existing held-key continuity path. The blur scenario additionally proves
+  its trusted canvas keydown before switching tabs; its canvas keyup assertion
+  remains unchanged. Both platform labels cover occlusion, viewport clipping,
+  offscreen and missing canvas cases in focused tests.
+- Affected paired Chromium journey suffixes are ROLE-KEY-BLUR-004,
+  MACRO-MODIFIER-CONTINUITY-008, MACRO-SHORTCUT-REENTRY-007, and
+  MACRO-MIDDLE-BUTTON-013; the manifest's membership and outcomes are unchanged.
+  Native verification of this E2E precondition correction remains pending CI.
+
+### CP-11/CP-15 macOS mixed Workspace restart failure at e7bee0ae
+
+- The same candidate's macOS package job 101557109768 fails with six PASS
+  phases and chromium-workspace-web-slot-restart FAIL. Seed SQLite retains the
+  exact Workspace tab and resized 0.55 Web slot. Restart restores that same tab
+  and Role owner, and the Role document emits did-finish-load/did-stop-loading.
+- Native topology remains hidden at revision 5 with no completed Web surface.
+  Core effect embeddedLoadWebSurfaces starts at sequence 96 and remains pending
+  until cleanup at 1903 rejects it: the Rion-owned Web chrome closed before
+  its local document loaded. Saved-window restore terminalizes non-success.
+  This narrows the failure to local chrome load completion, not missing saved
+  data or a Role navigation timeout. It does not yet identify why that exact
+  local navigation did not complete. Preserve the restore assertion/deadline.
+- Latest diagnostic candidate d0b99b68 remains in CI 34059812939. No local
+  desktop profile bypassed the unresolved protected macOS system dialog.
+
+
+### CP-12 exact newer placement projection observed at d0b99b68
+
+- CI 34059812939 Windows package job 101558205198 fails the controlled Reload
+  shell-error assertion. The preserved diagnostic identifies only
+  topologyRevision: receipt=6, observed=8. Identity, display, presentation,
+  normal bounds, saved work area, and display topology all match. This is new
+  evidence of a newer projection overtaking the placement receipt; the correct
+  supersession boundary remains to be implemented and verified. Do not weaken
+  stale identity or geometry rejection, or count the failed profile as passed.
+
+
+- Canvas E2E correction validation: focused tests 16 PASS; full Vitest Test Files  452 passed (452); Tests  3612 passed (3612); Duration  158.86s (transform 3.11s, setup 0ms, import 14.09s, tests 95.96s, environment 21.22s). TypeScript, complete ESLint, source hygiene, documentation/context validation, coverage manifest, and production E2E isolation all pass. Native macOS/Windows profiles for this correction remain pending; no product runtime or shared contract changed.

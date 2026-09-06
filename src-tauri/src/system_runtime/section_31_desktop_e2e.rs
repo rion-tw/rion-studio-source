@@ -813,6 +813,36 @@ fn desktop_e2e_apply_native_window_control(
     tab_strip: &Webview,
     request: &DesktopE2eWindowControlRequest,
 ) -> Result<(), String> {
+    // Foreground permission and synchronous window messages belong to the UI
+    // thread. Only the WebView2 bounds callback must be awaited off that thread.
+    if matches!(request, DesktopE2eWindowControlRequest::ClickVisibleMinimize) {
+        return desktop_e2e_apply_windows_window_control(window, tab_strip, request);
+    }
+    let native_window = window.clone();
+    let tab_strip = tab_strip.clone();
+    let request = request.clone();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    window
+        .run_on_main_thread(move || {
+            let result = desktop_e2e_apply_windows_window_control(
+                &native_window,
+                &tab_strip,
+                &request,
+            );
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| "The Windows desktop E2E UI control did not complete.".to_owned())?
+}
+
+#[cfg(windows)]
+fn desktop_e2e_apply_windows_window_control(
+    window: &Window,
+    tab_strip: &Webview,
+    request: &DesktopE2eWindowControlRequest,
+) -> Result<(), String> {
     use windows::Win32::UI::{
         HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{

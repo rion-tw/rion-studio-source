@@ -442,6 +442,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class RionFileDialogOwnership {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 }
@@ -704,8 +705,14 @@ if ($edits[0].Current.IsOffscreen -or !$edits[0].Current.IsEnabled -or
   throw 'exact Windows file dialog controls are not visibly actionable'
 }
 Write-Progress 'focusing-dialog'
-$dialog.SetFocus()
+# A common-item dialog container need not support UIA keyboard focus. Activate
+# its exact HWND, then focus the already-fenced editable file-name control.
+$dialogHandle = [IntPtr]$dialog.Current.NativeWindowHandle
+[RionFileDialogOwnership]::SetForegroundWindow($dialogHandle) | Out-Null
 $edits[0].SetFocus()
+if ([RionFileDialogOwnership]::GetForegroundWindow() -ne $dialogHandle) {
+  throw 'exact Windows file dialog is not foreground for input'
+}
 Write-Progress 'entering-file-name'
 [System.Windows.Forms.SendKeys]::SendWait('^a')
 Send-LiteralKeys $fixturePath

@@ -2156,3 +2156,49 @@ chromium-system-settings with System Events assistive-access denial (-25211),
 not a completed packaged updater verdict. Evidence:
 `/tmp/rion-fa5-mac-package.log`. Native validation success on that run remains
 valid at its narrower scope; complete package acceptance stays pending.
+
+### Retain the Windows UI thread for native test controls
+
+CI 34018078890 at 17306f6e failed the earlier p0-macro-middle-button phase:
+Windows did not foreground the role pointer target. The newly asynchronous IPC
+command also moved synchronous foreground/window controls off their owning UI
+thread. The Windows adapter now schedules those controls on that thread and
+returns their exact result to the worker. Only ClickVisibleMinimize retains the
+worker execution needed for its WebView2 bounds callback. Native foreground
+readback, pointer input and existing callback deadline are unchanged.
+
+Validation: 23 isolation tests, source hygiene, macOS Rust lint and the complete
+Rust suite pass (1,642 passed, 4 existing ignored). Local Tauri full-profile
+p0-macro-middle-button passes at 6e9dea07 plus this working diff,
+07:12:28–07:13:53 UTC, report
+`.desktop-e2e-artifacts/2026-09-06T07-12-28-322Z-darwin/report.json`. The affected
+journey is MACRO-MIDDLE-BUTTON-013; RUNTIME-TAB-TOPOLOGY-009 still requires
+Windows minimize acceptance. This is internal-only test-driver dispatch work.
+The macOS run verifies the unchanged adapter; Windows compilation/native
+execution remains pending CI. Pure Electron build/isolation is restored and
+passes. Logs: `/tmp/rion-control-ui-thread-*`.
+
+### Focus the file-name control rather than the Windows dialog container
+
+CI 34018289115 at 6e9dea07 identifies the exact native chooser failure:
+$dialog.SetFocus() reports that the target element cannot receive focus. The
+helper now activates the matched dialog HWND, focuses its exact editable
+file-name control, and requires that same dialog to be foreground before
+SendKeys. No container-level UIA focus capability is assumed. Exact application
+ownership, single dialog/control cardinality, visible controls and native
+close checks remain mandatory. Evidence: `/tmp/rion-6e9-win-package.log`.
+
+Validation: 11 adjacent fullscreen/PowerShell tests, typecheck, scoped lint,
+source hygiene, coverage and E2E isolation pass. This is internal-only driver
+work for CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028; Windows physical
+acceptance remains pending. Logs: `/tmp/rion-file-chooser-focus-*`.
+
+The preceding Windows Chromium run 34018078890 passed the chooser phase but
+failed Web-only seed after visible tab close: getEmbeddedRuntimeState timed
+out in WebDriver, although the Core journal records embeddedTabStop and its
+following appSnapshot as completed. That is not proof of an end-to-end reply.
+Artifacts: `/tmp/rion-173-win-package-artifacts`; log:
+`/tmp/rion-173-win-package.log`. Further investigation must identify the lost
+reply/driver boundary without weakening the close assertion. On macOS,
+34017674641 has completed source E2E and advanced to release artifact build;
+its complete packaged updater verdict is still pending.

@@ -436,8 +436,7 @@ function Write-Progress([string]$phase) {
     [ordered]@{ phase = $phase; processId = [int]$payload.processId } |
       ConvertTo-Json -Compress))
 }
-Write-Progress 'loading-automation'
-Add-Type -AssemblyName UIAutomationClient
+Write-Progress 'loading-native-dialog-driver'
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -452,6 +451,31 @@ ${windowsNativeEditDeclarations}
   private delegate bool WindowCallback(IntPtr hwnd, IntPtr parameter);
   [DllImport("user32.dll")] private static extern bool EnumWindows(WindowCallback callback, IntPtr parameter);
   [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr hwnd);
+  [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+  [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
+  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+  [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+  public static void ClickVisibleControl(IntPtr dialog, IntPtr control, int targetPid) {
+    uint pid, ownerPid;
+    GetWindowThreadProcessId(dialog, out pid);
+    GetWindowThreadProcessId(GetWindow(dialog, 4), out ownerPid);
+    Rect bounds;
+    if ((pid != targetPid && ownerPid != targetPid) || WindowClass(dialog) != "#32770" ||
+        !IsChild(dialog, control) || !IsWindowVisible(dialog) || !IsWindowVisible(control) ||
+        !IsWindowEnabled(control) || GetForegroundWindow() != dialog ||
+        !GetWindowRect(control, out bounds) || bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top)
+      throw new InvalidOperationException("exact Windows file dialog controls are not visibly actionable");
+    var point = new Point { X = bounds.Left + (bounds.Right - bounds.Left) / 2,
+      Y = bounds.Top + (bounds.Bottom - bounds.Top) / 2 };
+    IntPtr hit = WindowFromPoint(point);
+    if (hit != control && !IsChild(control, hit))
+      throw new InvalidOperationException("native file control is occluded at its click point");
+    if (!SetCursorPos(point.X, point.Y) || GetForegroundWindow() != dialog)
+      throw new InvalidOperationException("native file control lost foreground before click");
+    mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+    mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+  }
   public static string WindowClass(IntPtr hwnd) {
     var name = new System.Text.StringBuilder(256);
     GetClassName(hwnd, name, name.Capacity);
@@ -480,16 +504,6 @@ ${windowsNativeEditDeclarations}
 $targetPid = [int]$payload.processId
 $fixturePath = [string]$payload.fixturePath
 $diagnosticPath = [string]$payload.diagnosticPath
-$editCondition = New-Object System.Windows.Automation.AndCondition(
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Edit')),
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1148')))
-$openCondition = New-Object System.Windows.Automation.AndCondition(
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Button')),
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')))
 $observedWindows = [ordered]@{}
 function Get-NativeWindowProcessId([int64]$handle) {
   if ($handle -eq 0) { return 0 }
@@ -499,44 +513,22 @@ function Get-NativeWindowProcessId([int64]$handle) {
   return [int]$windowProcessId
 }
 
-function Read-ExactDialogControls($candidate, [int]$controlId, [string]$className) {
+function Read-ExactDialogControls([IntPtr]$dialog, [int]$controlId, [string]$className) {
   Write-Progress 'reading-native-dialog-controls'
-  $dialogHandle = [IntPtr]$candidate.Current.NativeWindowHandle
-  $handles = @([RionFileDialogOwnership]::ExactDialogControls(
-    $dialogHandle, $controlId, $className))
-  foreach ($handle in $handles) {
-    Write-Progress 'admitting-dialog-control-automation'
-    [System.Windows.Automation.AutomationElement]::FromHandle($handle)
-  }
+  [RionFileDialogOwnership]::ExactDialogControls($dialog, $controlId, $className)
 }
 
-function Test-ExactFileDialogControls($candidate) {
-  $edits = @(Read-ExactDialogControls $candidate 1148 'Edit')
-  if ($edits.Count -ne 1) { return $false }
-  $openButtons = @(Read-ExactDialogControls $candidate 1 'Button')
-  return $openButtons.Count -eq 1
-}
-
-function Click-VisibleControl($control) {
-  $point = $control.GetClickablePoint()
-  if (![RionFileDialogOwnership]::SetCursorPos([int]$point.X, [int]$point.Y)) {
-    throw 'Windows rejected the exact file control pointer location'
-  }
-  [RionFileDialogOwnership]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-  [RionFileDialogOwnership]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+function Click-VisibleControl([IntPtr]$dialog, [IntPtr]$control) {
+  [RionFileDialogOwnership]::ClickVisibleControl($dialog, $control, $targetPid)
 }
 
 function Read-ExactDialogs {
   Write-Progress 'reading-owned-native-dialogs'
-  $matches = New-Object System.Collections.Generic.List[System.Windows.Automation.AutomationElement]
-  # Admit native HWND ownership and exact controls before invoking any UIA provider.
+  $matches = New-Object System.Collections.Generic.List[IntPtr]
   foreach ($handle in [RionFileDialogOwnership]::OwnedWindows($targetPid, $true)) {
-    $edits = @([RionFileDialogOwnership]::ExactDialogControls($handle, 1148, 'Edit'))
-    $buttons = @([RionFileDialogOwnership]::ExactDialogControls($handle, 1, 'Button'))
-    if ($edits.Count -ne 1 -or $buttons.Count -ne 1) { continue }
-    Write-Progress 'admitting-owned-dialog-automation'
-    $candidate = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
-    if (Test-ExactFileDialogControls $candidate) { $matches.Add($candidate) }
+    $edits = @(Read-ExactDialogControls $handle 1148 'Edit')
+    $buttons = @(Read-ExactDialogControls $handle 1 'Button')
+    if ($edits.Count -eq 1 -and $buttons.Count -eq 1) { $matches.Add($handle) }
   }
   return $matches
 }
@@ -560,71 +552,17 @@ function Write-FailureSnapshot {
   Capture-WindowSnapshot
   Write-Progress 'capturing-failure-snapshot'
   $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
-  $foregroundAutomationError = ''
-  $foregroundProcessId = [uint32]0
-  $foregroundOwnerHandle = [int64]0
-  $foregroundOwnerProcessId = 0
-  $foregroundClassName = ''
-  $foregroundName = ''
-  $foregroundExactEditCount = -1
-  $foregroundExactOpenButtonCount = -1
-  $foregroundControlCount = -1
-  $foregroundControls = New-Object System.Collections.Generic.List[object]
-  if ($foregroundHandle -ne [IntPtr]::Zero) {
-    [RionFileDialogOwnership]::GetWindowThreadProcessId(
-      $foregroundHandle, [ref]$foregroundProcessId) | Out-Null
-    $foregroundOwnerHandle = [int64][RionFileDialogOwnership]::GetWindow(
-      $foregroundHandle, 4)
-    $foregroundOwnerProcessId = Get-NativeWindowProcessId $foregroundOwnerHandle
-    try {
-      $foregroundElement =
-        [System.Windows.Automation.AutomationElement]::FromHandle($foregroundHandle)
-      $foregroundClassName = $foregroundElement.Current.ClassName
-      $foregroundName = $foregroundElement.Current.Name
-      $foregroundExactEditCount = $foregroundElement.FindAll(
-        [System.Windows.Automation.TreeScope]::Descendants, $editCondition).Count
-      $foregroundExactOpenButtonCount = $foregroundElement.FindAll(
-        [System.Windows.Automation.TreeScope]::Descendants, $openCondition).Count
-      $allForegroundControls = $foregroundElement.FindAll(
-        [System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.Condition]::TrueCondition)
-      $foregroundControlCount = $allForegroundControls.Count
-      foreach ($control in $allForegroundControls) {
-        if ($foregroundControls.Count -ge 160) { break }
-        try {
-          $controlCurrent = $control.Current
-          $foregroundControls.Add([ordered]@{
-            automationId = $controlCurrent.AutomationId
-            className = $controlCurrent.ClassName
-            controlType = $controlCurrent.ControlType.ProgrammaticName
-            isOffscreen = $controlCurrent.IsOffscreen
-            name = $controlCurrent.Name
-            nativeWindowHandle = [int64]$controlCurrent.NativeWindowHandle
-            processId = $controlCurrent.ProcessId
-          })
-        } catch {}
-      }
-    } catch {
-      $foregroundAutomationError = $_.Exception.ToString()
-    }
-  }
+  $foregroundOwnerHandle = [int64][RionFileDialogOwnership]::GetWindow($foregroundHandle, 4)
   $snapshot = [ordered]@{
-    foregroundAutomationError = $foregroundAutomationError
-    foregroundClassName = $foregroundClassName
-    foregroundControlCount = $foregroundControlCount
-    foregroundControls = $foregroundControls.ToArray()
-    foregroundExactEditCount = $foregroundExactEditCount
-    foregroundExactOpenButtonCount = $foregroundExactOpenButtonCount
+    foregroundClassName = [RionFileDialogOwnership]::WindowClass($foregroundHandle)
     foregroundNativeWindowHandle = [int64]$foregroundHandle
-    foregroundName = $foregroundName
     foregroundOwnerNativeWindowHandle = $foregroundOwnerHandle
-    foregroundOwnerProcessId = $foregroundOwnerProcessId
-    foregroundProcessId = [int]$foregroundProcessId
+    foregroundOwnerProcessId = Get-NativeWindowProcessId $foregroundOwnerHandle
+    foregroundProcessId = Get-NativeWindowProcessId ([int64]$foregroundHandle)
     observedWindows = @($observedWindows.Values)
     targetProcessId = $targetPid
   }
-  [IO.File]::WriteAllText(
-    $diagnosticPath, ($snapshot | ConvertTo-Json -Depth 5))
+  [IO.File]::WriteAllText($diagnosticPath, ($snapshot | ConvertTo-Json -Depth 5))
 }
 
 $expiry = [DateTime]::UtcNow.AddSeconds(10)
@@ -651,24 +589,18 @@ $edits = @(Read-ExactDialogControls $dialog 1148 'Edit')
 if ($edits.Count -ne 1) { throw 'exact Windows file-name control unavailable' }
 $openButtons = @(Read-ExactDialogControls $dialog 1 'Button')
 if ($openButtons.Count -ne 1) { throw 'exact Windows Open control unavailable' }
-if ($edits[0].Current.IsOffscreen -or !$edits[0].Current.IsEnabled -or
-    $openButtons[0].Current.IsOffscreen -or !$openButtons[0].Current.IsEnabled) {
-  throw 'exact Windows file dialog controls are not visibly actionable'
-}
 Write-Progress 'focusing-dialog'
-# Native file controls can reject UIA SetFocus. Click the exact visible
-# file-name control and require its dialog to own foreground before typing.
-$dialogHandle = [IntPtr]$dialog.Current.NativeWindowHandle
+$dialogHandle = [IntPtr]$dialog
 [RionFileDialogOwnership]::SetForegroundWindow($dialogHandle) | Out-Null
-Click-VisibleControl $edits[0]
+Click-VisibleControl $dialogHandle $edits[0]
 if ([RionFileDialogOwnership]::GetForegroundWindow() -ne $dialogHandle) {
   throw 'exact Windows file dialog is not foreground for input'
 }
 Write-Progress 'entering-file-name'
 [RionFileDialogOwnership]::SetExactFileName(
-  $dialogHandle, [IntPtr]$edits[0].Current.NativeWindowHandle, $fixturePath)
+  $dialogHandle, $edits[0], $fixturePath)
 Write-Progress 'submitting-open'
-Click-VisibleControl $openButtons[0]
+Click-VisibleControl $dialogHandle $openButtons[0]
 do {
   $dialogs = @(Read-ExactDialogs)
   if ($dialogs.Count -eq 0) { Write-Progress 'dialog-closed'; break }

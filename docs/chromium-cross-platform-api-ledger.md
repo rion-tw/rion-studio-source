@@ -4565,3 +4565,40 @@ trusted input are outside this Windows child-host removal.
   verification, E2E production isolation, full hygiene/coverage and targeted
   ESLint passed. The failed macOS recovery run is retained. This batch does not
   claim either current-candidate full desktop profile is green.
+
+
+### CP-15 use admitted native file-control handles directly
+
+- Follow up the exact-control FromHandle failure from Windows run 34052620782
+  at e52dd066. Remove UI Automation from the Windows chooser helper entirely;
+  retain bounded EnumWindows/EnumChildWindows discovery and exact PID/owner,
+  dialog class and native control ID/class admission. The helper no longer
+  needs an accessibility-provider object for already-proven HWND controls.
+- Before each real mouse down/up, recheck dialog ownership, child membership,
+  visible/enabled state, foreground and nonempty native bounds. Use the center
+  only when WindowFromPoint identifies that exact control or its child; an
+  occluding window is a failure. Preserve filename write/readback, native
+  dialog-close observation and the remote trusted file event/byte/hash checks.
+  No DOM file injection, synthetic Open-button message or timeout change is
+  introduced. Failure snapshots use native handles/ownership only.
+- API references: [GetWindowRect](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect)
+  supplies screen bounds and is DPI-virtualized;
+  [WindowFromPoint](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-windowfrompoint)
+  resolves the hit window and excludes hidden/disabled windows. This source
+  audit is not physical mixed-DPI acceptance; Windows native CI remains pending.
+- Internal-only driver change affects
+  CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028 within the existing fullscreen
+  journey. The manifest and coverage targets remain unchanged. Local 11 focused
+  source/transport tests, TypeScript, ESLint and full hygiene checks pass;
+  these checks do not compile or execute the Windows P/Invoke helper on macOS.
+
+### CP-10 bounded diagnostics without accepting a displaced response
+
+- Add a bounded assertion diagnostic to the existing synthetic native Session
+  fixtures: response length, header offset, initial header bytes, outcome byte,
+  up to 1,024 metadata bytes and bounded stderr. A displaced header is inspected
+  only to explain failure; strict offset-zero magic and exact lengths remain
+  mandatory, and no secret-bearing real browser profile is used by this fixture.
+- Local macOS both fresh-process Session cases pass after the diagnostic change.
+  Windows still needs execution to reveal the actual response after its leading
+  CRLF. No successful apply/verify/rollback is inferred from finding a header.

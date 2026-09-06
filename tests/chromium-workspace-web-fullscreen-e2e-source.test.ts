@@ -121,7 +121,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     ]) {
       expect(spec).toContain(marker);
     }
-    expect(nativeUpload).not.toContain("AutomationElement]::RootElement");
+    expect(nativeUpload).not.toContain("System.Windows.Automation");
     expect(spec).toContain("isTrusted: true");
     expect(spec).not.toContain("runtimeUiAction(");
     expect(spec).not.toContain("controlWindow(");
@@ -160,28 +160,22 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       'AXUIElementPerformAction(target, "AXOpen" as CFString)',
       "RionFileDialogOwnership",
       "OwnedWindows($targetPid, $true)",
+      "Read-ExactDialogControls $handle 1148 'Edit'",
+      "Read-ExactDialogControls $handle 1 'Button'",
+      "GetWindowRect(control, out bounds)",
+      "WindowFromPoint(point)",
+      "hit != control && !IsChild(control, hit)",
       "pid != targetPid && ownerPid != targetPid",
       'WindowClass(hwnd) != "#32770"',
       "GetWindow($handle, 4)",
-      "AutomationElement]::FromHandle($foregroundHandle)",
-      "Test-ExactFileDialogControls",
       "ownerProcessId = $ownerProcessId",
       "ownerNativeWindowHandle = $ownerHandle",
       "windows-native-file-dialog-failure.json",
       "Write-FailureSnapshot",
-      "foregroundAutomationError = $foregroundAutomationError",
-      "foregroundExactEditCount = $foregroundExactEditCount",
-      "foregroundExactOpenButtonCount = $foregroundExactOpenButtonCount",
-      "if ($foregroundControls.Count -ge 160) { break }",
-      "foregroundControls = $foregroundControls.ToArray()",
       "$dialogs = @(Read-ExactDialogs)",
-      "AutomationIdProperty, '1148'",
-      "AutomationIdProperty, '1'",
-      "ClassNameProperty, 'Edit'",
-      "ClassNameProperty, 'Button'",
       "[RionFileDialogOwnership]::SetExactFileName(",
-      "$dialogHandle, [IntPtr]$edits[0].Current.NativeWindowHandle, $fixturePath)",
-      "Click-VisibleControl $openButtons[0]",
+      "$dialogHandle, $edits[0], $fixturePath)",
+      "Click-VisibleControl $dialogHandle $openButtons[0]",
       "exact Windows file dialog controls are not visibly actionable",
       "dialogOwnership: \"exact-application-native-owner\""
     ]) {

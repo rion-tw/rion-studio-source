@@ -2638,3 +2638,31 @@ production isolation, coverage validation and 11 adjacent native-action and
 toolbar checks pass. Actual Windows/fullscreen and hardware profile results
 remain pending; no macOS execution is claimed for a Windows-only driver change.
 Logs: `/tmp/rion-native-f11-*`.
+
+### Native file-name entry uses the visible UI Automation value contract
+
+CI 34022632667 at 75562cc1 fails earlier in Workspace Web upload. The native
+helper is killed at its existing deadline; its last checkpoint is
+entering-file-name, immediately before SendKeys.SendWait control-A and escaped
+path input. This run does not reach fullscreen-toolbar acceptance and therefore
+does not verify or contradict the subsequent native F11 correction. Evidence:
+`/tmp/rion-755-win-package-artifacts/2026-09-06T08-44-31-184Z-win32/phases/chromium-workspace-web-fullscreen-seed/windows-native-file-dialog-progress.json`;
+log: `/tmp/rion-755-win-package.log`.
+
+The Windows chooser driver now obtains ValuePattern from the exact visible,
+enabled, uniquely owned file-name Edit control, rejects read-only controls,
+sets the literal fixture path, and requires exact case-sensitive native readback
+before physically clicking Open. It retains the exact dialog foreground/PID
+checks, physical file-input/chooser actions, dialog-close acknowledgement and
+page File/byte evidence. It removes SendKeys and its escaping helper, not the
+native chooser. No larger deadline, retry or product runtime bypass was added.
+The checkpoint alone does not establish which SendKeys call consumed the
+remaining deadline; fresh native execution remains required.
+
+This internal-only E2E correction affects
+CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028. The manifest and adjacent source
+boundary check now require native value acknowledgement. Eleven adjacent
+checks, typecheck, scoped lint, E2E production isolation, source hygiene and
+coverage validation pass. Windows execution is pending CI; AppKit file-panel
+behavior and its prior evidence are unchanged.
+Logs: `/tmp/rion-file-dialog-value-*`.

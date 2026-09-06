@@ -2169,7 +2169,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Click the same visible remote file input while UIAutomation requires the unique top-level #32770 chooser owned by the exact Electron app PID, writes the bounded artifact-local fixture only through file-name AutomationId 1148, and invokes Open AutomationId 1. The trusted page change and detached evidence must match the exact filename, byte count, SHA-256, and phase path on seed and restart; Windows remains an independent CI verdict."
+      "description": "Click the same visible remote file input while UIAutomation requires the unique top-level #32770 chooser owned by the exact Electron app PID, writes the bounded artifact-local fixture only through file-name AutomationId 1148, and invokes Open AutomationId 1. The trusted page change and detached evidence must match the exact filename, byte count, SHA-256, and phase path on seed and restart; Windows remains an independent CI verdict. Require the exact native file-name ValuePattern to read back the fixture path before clicking Open."
     },
     {
       "id": "CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012",

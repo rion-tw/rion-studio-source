@@ -436,7 +436,6 @@ function Write-Progress([string]$phase) {
 }
 Write-Progress 'loading-automation'
 Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -524,11 +523,6 @@ function Click-VisibleControl($control) {
   }
   [RionFileDialogOwnership]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
   [RionFileDialogOwnership]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
-}
-
-function Send-LiteralKeys([string]$value) {
-  $escaped = [Regex]::Replace($value, '([+^%~(){}\[\]])', '{$1}')
-  [System.Windows.Forms.SendKeys]::SendWait($escaped)
 }
 
 function Read-ExactDialogs {
@@ -725,8 +719,13 @@ if ([RionFileDialogOwnership]::GetForegroundWindow() -ne $dialogHandle) {
   throw 'exact Windows file dialog is not foreground for input'
 }
 Write-Progress 'entering-file-name'
-[System.Windows.Forms.SendKeys]::SendWait('^a')
-Send-LiteralKeys $fixturePath
+$valuePattern = $edits[0].GetCurrentPattern(
+  [System.Windows.Automation.ValuePattern]::Pattern)
+if ($valuePattern.Current.IsReadOnly) { throw 'exact file-name control is read-only' }
+$valuePattern.SetValue($fixturePath)
+if ($valuePattern.Current.Value -cne $fixturePath) {
+  throw 'exact file-name control did not acknowledge the fixture path'
+}
 Write-Progress 'submitting-open'
 Click-VisibleControl $openButtons[0]
 do {

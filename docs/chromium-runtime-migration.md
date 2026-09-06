@@ -577,11 +577,12 @@ Core effect identities are retained in a bounded replay ledger for the live
 adapter process. An exact duplicate re-sends the original terminal receipt and
 never repeats native mutation; reusing an effect identity for different content
 fails closed. Trusted input adds per-role input-epoch and surface-generation
-fences and accepts only an exact AppKit/Win32 native receipt. Electron
-`WebContents.sendInputEvent` is not a background-input authority and cannot be
-used to advertise that capability.
+fences. AppKit retains its native input receipt; Windows pairs exact Chromium
+View ownership with a read-only native parent-foreground proof. An Electron
+`WebContents.sendInputEvent` return alone is not a background-input authority
+and cannot establish capability or action success.
 
-On macOS, native submission is only a `submitted` receipt. A sandboxed role
+On both platforms, input submission is only a `submitted` receipt. A sandboxed role
 preload, unavailable to the page world, arms one exact main-frame observation
 and reports the expected trusted DOM sequence. Main validates the sender
 `WebContents`, main-frame object, opaque frame token, role and surface
@@ -592,18 +593,26 @@ retirement, cancellation, or close terminalizes the event-bound observation.
 None of these steps may make the AppKit host key window, change either first
 responder, or focus the background Chromium document.
 
-On Windows, the managed foreground lane owns one dedicated no-activate
-`WS_CHILD` per Role surface. Electron `isFocused()` is necessary but not
-sufficient: the native ABI locks opaque child/parent identities and returns
-`parentWasForeground=true` only when the exact runtime parent HWND is the live
-foreground owner. Focus success is event/readback-bound, and key/click success
-also requires that native foreground fence before submission plus a preserved
-owner and exact `isTrusted` DOM acknowledgement afterward. Elapsed time is only
-a failed deadline, never focus or input success.
-Electron's `BaseWindow` parent option is only a construction hint on Windows;
-the ABI does not infer native ownership from it. It proves both public HWNDs
-belong to the same Electron process and UI thread, establishes the final
-`WS_CHILD` relationship itself, and then validates the complete native result.
+On Windows, each managed Role owns one exact `WebContentsView` in the existing
+runtime parent, with a distinct Session and WebContents identity. Public View
+membership, surface/native generations and binding revision fence attachment,
+movement, observation and retirement. The adapter does not create a per-Role
+child window or establish an HWND parent relationship. Electron `isFocused()`
+is necessary but not sufficient: the read-only native parent probe must also
+prove that the exact runtime parent is the live foreground owner.
+
+Visible focus admission subscribes before activation and completes only from the
+exact parent/View observation. Hidden admission never selects, shows or focuses
+the target; it requires an already-foreground parent and a different focused
+WebContents. Before each input event and after submission, the owner revalidates
+parent identity, membership, visibility, focus, bounds and zoom. The consumer
+requires the same admission observation and an ordered submission receipt plus
+its private trusted DOM acknowledgement. Changed pre-submission ownership is
+superseded; unknown post-submission outcomes remain indeterminate. Core deadlines
+can fail admission but never establish success. Movement, retirement, quarantine,
+hiding and disposal revoke pending visible focus admission. The retained
+child-HWND implementation is transition-only, has no product composition route,
+and remains pending deletion after direct-View native parity gates pass.
 
 Fullscreen Game Window presentation uses the same Rust/Core-owned placement and
 window-preference records on both targets. On macOS, the View-menu checkbox and

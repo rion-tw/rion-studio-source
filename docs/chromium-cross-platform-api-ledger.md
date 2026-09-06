@@ -3959,3 +3959,11 @@ trusted input are outside this Windows child-host removal.
   CHROMIUM-MACOS-APPKIT-SHELL-001 and its Windows pair; Windows remains pending.
   Native macOS Rust lint passed; its workspace tests and the subsequent stable /
   restored production Electron builds were still running at commit preparation.
+- Completion of those local handles: native macOS Rust workspace tests passed
+  (1,640 passed, 4 ignored). Both stable and restored production Electron builds
+  passed. The restored executable main entry contains 1,431,638 bytes, and
+  production desktop E2E isolation passed. Code candidate `242ab2f9` is being
+  validated by CI `34043767144`; no new Windows physical verdict is claimed yet.
+  The migration contract and Macro runbook now describe the direct-View ownership
+  boundary instead of the superseded WS_CHILD/ABI-v5 gate; eight adjacent
+  contract/source checks passed after that documentation update.

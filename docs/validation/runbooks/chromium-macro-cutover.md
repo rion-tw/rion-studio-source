@@ -26,10 +26,13 @@ The paired macOS and Windows profiles run the same product scenarios:
 
 The topology and cleanup pairs use separate persistent namespaces. Their restart
 phase is not valid without the matching seed phase. Windows must complete
-`chromium-windows-trusted-input-physical` before these phases; its ABI-v5 evidence
-must prove the exact foreground parent, trusted key and mouse DOM delivery, then
-trusted hidden-key delivery while the target remains hidden and unfocused behind
-one visible sibling and the same foreground owner is preserved.
+`chromium-windows-trusted-input-physical` before these phases. Its direct-View
+evidence must prove exact sibling View identities in separate Sessions under one
+foreground parent, trusted foreground key and mouse DOM delivery, and a visible
+renderer acknowledgement of 125% zoom. Hidden Ctrl+Shift+B and middle-button
+DOM coordinates must remain exact while the target stays hidden and unfocused
+behind the visible sibling and the same foreground owner is preserved. Input
+submission uses the product View owners and the native parent check is read-only.
 
 ## Authority and visible actions
 

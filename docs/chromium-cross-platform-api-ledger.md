@@ -2052,3 +2052,22 @@ it changes probe cleanup classification, not a visible product action; native
 fixture evidence covers the exact kernel edge and the existing packaged updater
 CI remains required. No Windows runtime behavior changes; Windows portable test
 execution remains pending.
+
+### Windows Web-only lifecycle confirmed after native-accessible state change
+
+CI 34016712833 at `fa5c7737` reports
+CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024 PASS. Both seed and restart phases pass,
+including empty Role topology, isolated chrome/content sessions, explicit
+navigation-failure recovery, identical tab/window identity across restart,
+persistent content profile and final flush. Report:
+`/tmp/rion-fa5-win-artifacts/2026-09-06T06-33-05-716Z-win32/report.json`;
+artifact `chromium-shell-e2e-Windows-34016712833-1`.
+This confirms the Windows native-accessible loading correction and the paired
+Web-only lifecycle, not the full Windows profile. The next phase fails
+CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025 because Workspace B does not reach
+its expected Role-slot ownership. Investigation starts from the saved runtime
+snapshots and effect receipts, with log `/tmp/rion-fa5-win-package.log`.
+
+The Darwin zombie-group cleanup correction is committed and pushed as
+`0430e3b9`; its complete packaged transaction has not yet run on CI. Local pure
+Electron build and renderer isolation also pass after the normal build.

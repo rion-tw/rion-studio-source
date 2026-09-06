@@ -81,7 +81,7 @@ function nativeRequest(
   };
 }
 
-function harness() {
+function harness(ownerKind: "childHwnd" | "view" = "childHwnd") {
   let nowMs = 1_100;
   let dispatchSequence = 0;
   let lifecycle: ((event: ChromiumRoleOverlayLifecycleEvent) => void) | null = null;
@@ -98,7 +98,7 @@ function harness() {
     frameToken: frame.frameToken,
     documentInstanceId: "document-1"
   });
-  const identity: WindowsChromiumInputSurfaceIdentity = Object.freeze({
+  const legacyIdentity = Object.freeze({
     roleId: "role-1",
     surfaceGeneration: 3,
     nativeGeneration: 5,
@@ -106,6 +106,10 @@ function harness() {
     surfaceHandleToken: SURFACE_TOKEN,
     parentHandleToken: PARENT_TOKEN
   });
+  const identity: WindowsChromiumInputSurfaceIdentity = ownerKind === "view"
+    ? Object.freeze({ ownerKind: "view", roleId: "role-1", surfaceGeneration: 3,
+      nativeGeneration: 5, bindingRevision: "1", parentIdentity: "a".repeat(64), webContentsId: 91 })
+    : legacyIdentity;
   const controls: Array<ChromiumRoleTrustedInputArmEnvelope | { readonly kind: "cancel" }> = [];
   const keyRequests: WindowsNativeTrustedKeyRequest[] = [];
   const mouseRequests: WindowsNativeTrustedMouseRequest[] = [];
@@ -116,8 +120,18 @@ function harness() {
   let preserveForeground = true;
   let exactParent = true;
 
-  const probe = (): WindowsChromiumInputSurfaceProbeReceipt => ({
-    ...identity,
+  const observation = () => {
+    if (identity.ownerKind !== "view") throw new Error("View observation requires View identity.");
+    return { identity, focusIdentity: "b".repeat(64), parentForeground: true, parentVisible: true,
+      parentMinimized: false, viewAttached: exactParent, viewVisible: deliveryMode === "foreground",
+      contentsDestroyed: false, contentsFocused: deliveryMode === "foreground",
+      focusedWebContentsId: deliveryMode === "foreground" ? 91 : 92,
+      bounds: { x: 0, y: 0, width: 800, height: 560 }, zoomFactor: 1.25 };
+  };
+  const probe = (): WindowsChromiumInputSurfaceProbeReceipt => {
+    if (identity.ownerKind === "view") return { ...identity, status: "verified", deliveryMode, probeRevision, observation: observation() };
+    return ({
+    ...legacyIdentity,
     status: "verified",
     abiVersion: 6,
     deliveryMode,
@@ -139,12 +153,19 @@ function harness() {
     clientHeight: 1_120,
     dpi: 192
   });
+  };
 
   const baseReceipt = (
     requestId: string,
     requestDeliveryMode: "foreground" | "background"
-  ) => ({
-    ...identity,
+  ) => {
+    if (identity.ownerKind === "view") return { ...identity, status: "submitted" as const,
+      submissionApi: "webContents.sendInputEvent" as const, requestId, inputEpoch: "7",
+      deliveryMode: requestDeliveryMode, dispatchSequence: String(dispatchSequence += 1),
+      probeRevision, submittedAtMs: String(nowMs), observation: observation(),
+      viewAttached: true as const, foregroundPreserved: preserveForeground as true };
+    return ({
+    ...legacyIdentity,
     status: "submitted" as const,
     submissionApi: "webContents.sendInputEvent" as const,
     requestId,
@@ -173,6 +194,7 @@ function harness() {
     clientHeight: 1_120,
     dpi: 192
   });
+  };
 
   const native = {
     focusForeground: vi.fn(async (
@@ -583,5 +605,62 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(subject.controls).toEqual([]);
     expect(subject.keyRequests).toEqual([]);
     expect(subject.mouseRequests).toEqual([]);
+  });
+});
+
+
+describe("Windows adapter with exact View receipts", () => {
+  it.each(["foreground", "background"] as const)("requires complete trusted DOM proof for %s View input", async mode => {
+    const subject = harness("view");
+    subject.setDeliveryMode(mode);
+    const result = subject.adapter.dispatch(nativeRequest("view-key", keyAction()));
+    const completed = vi.fn();
+    void result.then(completed);
+    subject.armed();
+    await Promise.resolve();
+    expect(completed).not.toHaveBeenCalled();
+    expect(subject.keyRequests).toHaveLength(2);
+    for (const [index, expected] of subject.arm().expectedEvents.entries()) subject.dom(expected, index);
+    await expect(result).resolves.toMatchObject({ status: "applied", confirmedInputNeutrality: true });
+  });
+
+  it("accepts exact View mouse coordinates without child-HWND claims", async () => {
+    const subject = harness("view");
+    subject.setDeliveryMode("background");
+    const result = subject.adapter.dispatch(nativeRequest("view-middle", clickAction("middle")));
+    subject.armed();
+    for (const [index, expected] of subject.arm().expectedEvents.entries()) {
+      subject.dom({ ...expected, clientX: 100, clientY: 200 }, index);
+    }
+    await expect(result).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("rejects changed View geometry before sending even if the producer reuses its revision", async () => {
+    const subject = harness("view");
+    const result = subject.adapter.dispatch(nativeRequest("view-stale", keyAction()));
+    const probe = subject.native.probeExactInputSurface.getMockImplementation()!;
+    subject.native.probeExactInputSurface.mockImplementation(() => {
+      const receipt = probe();
+      if (receipt.ownerKind !== "view") throw new Error("Expected a View receipt.");
+      return { ...receipt, observation: { ...receipt.observation,
+        bounds: { ...receipt.observation.bounds, x: 99 } } };
+    });
+    subject.armed();
+    await expect(result).resolves.toMatchObject({ status: "superseded" });
+    expect(subject.keyRequests).toHaveLength(0);
+  });
+
+  it.each(["focus", "identity"])("terminalizes a mismatched %s receipt after submission as indeterminate", async field => {
+    const subject = harness("view");
+    const submit = subject.native.submitNativeBackgroundKey.getMockImplementation()!;
+    subject.native.submitNativeBackgroundKey.mockImplementation((expected, request) => {
+      const receipt = submit(expected, request);
+      if (receipt.ownerKind !== "view") throw new Error("Expected a View receipt.");
+      return field === "identity" ? { ...receipt, webContentsId: 92 } :
+        { ...receipt, observation: { ...receipt.observation, focusIdentity: "c".repeat(64) } };
+    });
+    const result = subject.adapter.dispatch(nativeRequest("view-forged", keyAction()));
+    subject.armed();
+    await expect(result).resolves.toMatchObject({ status: "indeterminate" });
   });
 });

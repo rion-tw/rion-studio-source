@@ -204,17 +204,22 @@ async function waitExactTrustedKey(input: Readonly<{
   }
 }
 
-function heldKeyObservation(
-  observations: readonly ElectronDesktopE2eTrustedInputObservation[],
+async function heldKeyObservation(
+  roleId: string,
   input: Readonly<{ afterSequence?: number; intent: "cleanup" | "normal"; phase: "hold" | "release"; }>
-): ElectronDesktopE2eTrustedInputObservation {
-  const observation = [...observations].reverse().find((entry) =>
-    entry.sequence > (input.afterSequence ?? 0) && entry.request.intent === input.intent &&
-    entry.request.action.type === "key" && entry.request.action.code === "KeyS" &&
-    entry.request.action.phase === input.phase);
-  if (!observation) throw new Error(`Missing ${input.intent} KeyS ${input.phase} receipt`);
-  expect(observation.receipt.status).toBe("applied");
-  return observation;
+): Promise<ElectronDesktopE2eTrustedInputObservation> {
+  let observation: ElectronDesktopE2eTrustedInputObservation | undefined;
+  // E2E external receipt boundary: DOM delivery can precede coordinator terminality.
+  // Wait for the exact terminal record, then assert its outcome without retrying failure.
+  await browser.waitUntil(async () => {
+    observation = [...await electronDesktopE2eTrustedInputRuntime(roleId)].reverse().find((entry) =>
+      entry.sequence > (input.afterSequence ?? 0) && entry.request.intent === input.intent &&
+      entry.request.action.type === "key" && entry.request.action.code === "KeyS" &&
+      entry.request.action.phase === input.phase);
+    return observation !== undefined;
+  }, { timeout: 20_000, timeoutMsg: `Missing ${input.intent} KeyS ${input.phase} terminal receipt` });
+  expect(observation!.receipt.status).toBe("applied");
+  return observation!;
 }
 
 async function openMacroRow(macro: Macro) {
@@ -261,10 +266,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
       kind: "keydown",
       roleId: ROLE_A_FIXTURE
     });
-    const beforeSuspend = await electronDesktopE2eTrustedInputRuntime(
-      scenario.roles[0].id
-    );
-    const firstHold = heldKeyObservation(beforeSuspend, {
+    const firstHold = await heldKeyObservation(scenario.roles[0].id, {
       intent: "normal",
       phase: "hold"
     });
@@ -292,8 +294,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
     });
     expect((await fixtureState())[ROLE_A_FIXTURE]!.pressedCodes).toEqual([]);
     await start.waitForEnabled({ reverse: true, timeout: 20_000 });
-    const afterSuspend = await electronDesktopE2eTrustedInputRuntime(scenario.roles[0].id);
-    const suspendCleanup = heldKeyObservation(afterSuspend, {
+    const suspendCleanup = await heldKeyObservation(scenario.roles[0].id, {
       afterSequence: firstHold.sequence,
       intent: "cleanup",
       phase: "release"
@@ -328,10 +329,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
       kind: "keydown",
       roleId: ROLE_A_FIXTURE
     });
-    const restartedObservations = await electronDesktopE2eTrustedInputRuntime(
-      scenario.roles[0].id
-    );
-    const secondHold = heldKeyObservation(restartedObservations, {
+    const secondHold = await heldKeyObservation(scenario.roles[0].id, {
       afterSequence: suspendCleanup.sequence,
       intent: "normal",
       phase: "hold"
@@ -365,10 +363,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
       roleId: ROLE_B_FIXTURE
     }))).toHaveLength(0);
 
-    const finalObservations = await electronDesktopE2eTrustedInputRuntime(
-      scenario.roles[0].id
-    );
-    const stopCleanup = heldKeyObservation(finalObservations, {
+    const stopCleanup = await heldKeyObservation(scenario.roles[0].id, {
       afterSequence: secondHold.sequence,
       intent: "cleanup",
       phase: "release"

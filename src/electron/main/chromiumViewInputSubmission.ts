@@ -1,3 +1,5 @@
+import { validChromiumViewInputIdentity, validChromiumViewInputObservation,
+  chromiumViewInputObservationKey } from "./chromiumViewTrustedInputValidation";
 import { sendChromiumClick, sendChromiumKey } from "./chromiumWebContentsInput";
 
 export interface ChromiumViewInputIdentity {
@@ -48,12 +50,6 @@ function positiveU64(value: string): boolean {
   return /^[1-9][0-9]*$/u.test(value) && BigInt(value) <= 18_446_744_073_709_551_615n;
 }
 
-function exactIdentity(left: ChromiumViewInputIdentity, right: ChromiumViewInputIdentity): boolean {
-  return left.roleId === right.roleId && left.surfaceGeneration === right.surfaceGeneration &&
-    left.nativeGeneration === right.nativeGeneration && left.bindingRevision === right.bindingRevision &&
-    left.parentIdentity === right.parentIdentity && left.webContentsId === right.webContentsId;
-}
-
 /** Submission evidence only. The trusted DOM receipt remains a separate requirement. */
 export class ChromiumViewInputSubmission {
   readonly #owner: Owner;
@@ -64,10 +60,7 @@ export class ChromiumViewInputSubmission {
     this.#owner = { ...owner, identity: Object.freeze({ ...owner.identity }) };
     const identity = this.#owner.identity;
     if (owner.contents.id !== identity.webContentsId || owner.contents.isDestroyed() ||
-        !identity.roleId || !positiveU64(identity.bindingRevision) ||
-        !/^[0-9a-f]{64}$/u.test(identity.parentIdentity) ||
-        ![identity.surfaceGeneration, identity.nativeGeneration, identity.webContentsId]
-          .every(value => Number.isSafeInteger(value) && value > 0)) {
+        !validChromiumViewInputIdentity(identity)) {
       throw new Error("Chromium View input requires an exact bound identity.");
     }
   }
@@ -103,7 +96,6 @@ export class ChromiumViewInputSubmission {
     const owner = this.#owner;
     const deadline = Number(request.deadlineMs);
     const before = owner.observe();
-    const bounds = before.bounds;
     const validClock = () => {
       const now = owner.nowMs();
       if (!Number.isSafeInteger(now) || now < 0 || now >= deadline) {
@@ -111,24 +103,13 @@ export class ChromiumViewInputSubmission {
       }
       return now;
     };
-    if (!request.requestId || !positiveU64(request.inputEpoch) ||
+    if (!request.requestId || !(request.inputEpoch === "0" || positiveU64(request.inputEpoch)) ||
         !positiveU64(request.deadlineMs) || !Number.isSafeInteger(deadline) ||
         request.roleId !== owner.identity.roleId ||
         request.surfaceGeneration !== owner.identity.surfaceGeneration ||
-        !exactIdentity(before.identity, owner.identity) ||
         owner.contents.id !== owner.identity.webContentsId || owner.contents.isDestroyed() ||
-        !/^[0-9a-f]{64}$/u.test(before.focusIdentity) ||
-        !before.parentForeground || !before.parentVisible || before.parentMinimized ||
-        !before.viewAttached || before.contentsDestroyed ||
-        ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isSafeInteger) ||
-        bounds.width <= 0 || bounds.height <= 0 ||
-        !Number.isFinite(before.zoomFactor) || before.zoomFactor < 0.25 || before.zoomFactor > 5 ||
         (request.deliveryMode !== "foreground" && request.deliveryMode !== "background") ||
-        before.viewVisible !== (request.deliveryMode === "foreground") ||
-        before.contentsFocused !== (request.deliveryMode === "foreground") ||
-        (request.deliveryMode === "foreground"
-          ? before.focusedWebContentsId !== owner.identity.webContentsId
-          : before.focusedWebContentsId === owner.identity.webContentsId)) {
+        !validChromiumViewInputObservation(before, owner.identity, request.deliveryMode)) {
       throw new Error("Chromium View input lost its exact owner, focus or geometry.");
     }
     validClock();
@@ -137,11 +118,13 @@ export class ChromiumViewInputSubmission {
     }
     // Snapshot bytes before delivery: an adapter must not mutate a shared object
     // to make a changed observation compare equal to its prior reference.
-    const fingerprint = JSON.stringify(before);
+    const observation = Object.freeze({ ...before, identity: Object.freeze({ ...before.identity }),
+      bounds: Object.freeze({ ...before.bounds }) });
+    const fingerprint = chromiumViewInputObservationKey(observation);
     const verify = () => {
       validClock();
       if (owner.contents.id !== owner.identity.webContentsId || owner.contents.isDestroyed() ||
-          JSON.stringify(owner.observe()) !== fingerprint) {
+          chromiumViewInputObservationKey(owner.observe()) !== fingerprint) {
         throw new Error("Chromium View input ownership changed during submission.");
       }
     };
@@ -151,7 +134,7 @@ export class ChromiumViewInputSubmission {
     } }, before);
     verify();
     return Object.freeze({
-      ...owner.identity, status: "submitted" as const,
+      ...owner.identity, ownerKind: "view" as const, observation, status: "submitted" as const,
       requestId: request.requestId, inputEpoch: request.inputEpoch,
       deliveryMode: request.deliveryMode, dispatchSequence: String(++this.#sequence),
       submittedAtMs: String(validClock()), focusIdentity: before.focusIdentity,

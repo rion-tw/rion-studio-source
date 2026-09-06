@@ -19,6 +19,7 @@ import {
   type RawNativeWindowsChromiumTrustedInputHost,
   type WindowsChromiumInputDeliveryMode,
   type WindowsChromiumInputSurfaceIdentity,
+  type LegacyWindowsChromiumInputSurfaceIdentity,
   type WindowsChromiumInputSurfaceProbeReceipt,
   type WindowsChromiumTrustedInputHostBinding,
   type WindowsChromiumTrustedInputHostPort,
@@ -161,7 +162,7 @@ interface SurfaceRecord {
   readonly view: ChromiumRoleWebContentsViewPort;
   readonly surfaceHandle: Buffer;
   readonly parentHandle: Buffer;
-  readonly identity: WindowsChromiumInputSurfaceIdentity;
+  readonly identity: LegacyWindowsChromiumInputSurfaceIdentity;
   readonly native: RawNativeWindowsChromiumTrustedInputHost;
   readonly parentEventListener: () => void;
   readonly childClosedListener: () => void;
@@ -244,6 +245,7 @@ function sameIdentity(
   left: WindowsChromiumInputSurfaceIdentity,
   right: WindowsChromiumInputSurfaceIdentity
 ): boolean {
+  if (left.ownerKind === "view" || right.ownerKind === "view") return false;
   return left.roleId === right.roleId &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.nativeGeneration === right.nativeGeneration &&

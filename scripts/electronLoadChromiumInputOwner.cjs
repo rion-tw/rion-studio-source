@@ -6,7 +6,7 @@ const { Script } = require("node:vm");
 const ts = require("typescript");
 const modules = new Map();
 function load(name) {
-  if (!["chromiumWebContentsInput", "chromiumOwnedInputSubmission", "chromiumViewInputSubmission", "chromiumViewAttachmentCoordinator"].includes(name)) {
+  if (!["chromiumWebContentsInput", "chromiumOwnedInputSubmission", "chromiumViewInputSubmission", "chromiumViewAttachmentCoordinator", "chromiumViewTrustedInputValidation", "chromiumViewTrustedInputHost"].includes(name)) {
     throw new Error(`Unexpected input-owner dependency: ${name}`);
   }
   if (modules.has(name)) return modules.get(name).exports;
@@ -22,4 +22,4 @@ function load(name) {
   execute(dependency => load(dependency.replace(/^\.\//u, "")), module, module.exports);
   return module.exports;
 }
-module.exports = { ...load("chromiumOwnedInputSubmission"), ...load("chromiumWebContentsInput"), ...load("chromiumViewInputSubmission"), ...load("chromiumViewAttachmentCoordinator") };
+module.exports = { ...load("chromiumOwnedInputSubmission"), ...load("chromiumWebContentsInput"), ...load("chromiumViewInputSubmission"), ...load("chromiumViewAttachmentCoordinator"), ...load("chromiumViewTrustedInputHost") };

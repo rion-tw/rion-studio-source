@@ -2,7 +2,7 @@
 const { app, BrowserWindow, WebContentsView, webContents } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
-const { sendChromiumKey, sendChromiumClick, ChromiumViewAttachmentCoordinator } = require("./electronLoadChromiumInputOwner.cjs");
+const { sendChromiumKey, sendChromiumClick, ChromiumViewAttachmentCoordinator, ChromiumViewTrustedInputHost } = require("./electronLoadChromiumInputOwner.cjs");
 
 const [reportPath, userData, addonPath] = process.argv.slice(2);
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
@@ -197,8 +197,14 @@ async function probe() {
         isCancelled: () => false, attach: () => host.contentView.addChildView(view),
         attachTo: parent => parent.contentView.addChildView(view),
         detach: () => host.contentView.removeChildView(view) });
-      viewOwner = attachments.resolve(roleId, 1)?.input;
-      if (!viewOwner) throw new Error("The direct View attachment did not establish input ownership.");
+      const trustedHosts = new ChromiumViewTrustedInputHost({ attachments,
+        focus: () => Promise.reject(new Error("The isolated probe has no Core focus-admission lane.")) });
+      const bindingOwner = trustedHosts.resolve(roleId, 1);
+      if (!bindingOwner) throw new Error("The direct View attachment did not establish input ownership.");
+      viewOwner = {
+        key: request => bindingOwner.native.submitNativeBackgroundKey(bindingOwner.identity, request),
+        click: request => bindingOwner.native.submitNativeBackgroundMouse(bindingOwner.identity, request)
+      };
     }
     const inputFence = requestId => ({ roleId,
       surfaceGeneration: 1, requestId, inputEpoch: "1", deadlineMs: String(Date.now() + 3000),

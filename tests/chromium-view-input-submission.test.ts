@@ -44,6 +44,12 @@ describe.each(["macos", "windows"] as const)("%s exact Chromium View input owner
     ]);
   });
 
+  it.each(["0", "1"])("preserves Core's canonical input epoch %s", inputEpoch => {
+    const f = fixture(platform);
+    expect(f.owner.key({ ...f.key, inputEpoch }).inputEpoch).toBe(inputEpoch);
+    expect(() => f.owner.key({ ...f.key, inputEpoch: "00" })).toThrow();
+  });
+
   it.each([
     { viewAttached: false }, { contentsDestroyed: true }, { parentForeground: false },
     { parentVisible: false }, { parentMinimized: true }, { contentsFocused: true },

@@ -3818,3 +3818,49 @@ trusted input are outside this Windows child-host removal.
   closed loader. No new desktop E2E profile or native Windows attachment result
   is claimed. The staged manager has no product route yet; the E2E omission
   classification for this preparation is `internal-only`.
+
+
+### View receipts accepted by the existing trusted-input consumer
+
+- The Windows trusted-input contract now distinguishes legacy child-HWND and
+  direct-View identities/probes/submissions. The existing adapter accepts View
+  receipts through its existing pending lane, exact private-frame DOM matching,
+  cancellation and terminality path. View validation checks actual parent and
+  WebContents identity, focus, membership, visibility, bounds and zoom; it does
+  not invent child-HWND fields. The legacy branch remains explicitly typed until
+  bootstrap replacement and deletion, not as a user-selectable alternative.
+- Shared View identity/observation validation is used by both the producer and
+  consumer. The consumer freezes its admission snapshot and compares canonical
+  facts before native submission, even if a producer reuses its probe revision.
+  Changed admission terminalizes as superseded before events. Mismatched identity
+  or focus after submission remains indeterminate. Native submission alone does
+  not complete an action without the matching trusted DOM events.
+- Added `ChromiumViewTrustedInputHost` to bridge the attachment manager to that
+  consumer, preserving stable native-port identity, exact observation revisions
+  and revocation of previously resolved bindings. The real Windows probe now uses
+  the bridge for key/mouse submission. Visible Core focus admission and product
+  bootstrap conversion are still required before deleting the child coordinator.
+- Candidate `2de6e0d6`, CI `34040672231`, Windows job `101506723396`: the native
+  View attachment/input/retirement probe passed in 1.54 seconds. The old physical
+  child-host product test still failed. This result predates the new consumer
+  bridge above, whose native validation remains pending the next candidate.
+- The same candidate's macOS package job `101506723417` failed in
+  `chromium-macro-standby-recovery`: a fixture keydown had arrived, but the test's
+  immediate read did not yet find the normal KeyS hold terminal receipt. The
+  observer records receipts only after `coordinator.execute` completes, so DOM
+  delivery is not a terminality barrier. The test now waits for the exact matching
+  terminal record, then asserts its status once; non-applied outcomes are not
+  retried toward success. Paired journeys are
+  CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023 and
+  CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023. Their new desktop runs remain pending.
+- Local validation passed 111 focused ownership/adapter tests, then all 445 files
+  / 3,512 unit tests with two workers. The subsequent standby E2E correction passed
+  its 4 adjacent source checks and typecheck. Native macOS Rust lint and workspace
+  tests passed (1,640 passed, 4 ignored), and coverage/source hygiene passed.
+  The raw macOS API experiment passed with the expanded loader; no new Windows
+  native result or successful local desktop E2E profile is claimed for this tree.
+
+- Follow-up contract audit confirmed Core starts input epochs at zero. The View
+  producer now accepts canonical `0` while continuing to reject `00`; 69 focused
+  producer/host/consumer tests and final typecheck passed after this correction.
+  The production Electron build and E2E isolation check also passed.

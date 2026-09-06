@@ -591,6 +591,9 @@ describe("Windows Chromium input child-host ownership", () => {
     expect(after.identity.nativeGeneration).toBeGreaterThan(
       before.identity.nativeGeneration
     );
+    if (after.identity.ownerKind === "view" || before.identity.ownerKind === "view") {
+      throw new Error("The legacy child-host fixture unexpectedly returned a View identity.");
+    }
     expect(after.identity.parentHandleToken).not.toBe(before.identity.parentHandleToken);
   });
 

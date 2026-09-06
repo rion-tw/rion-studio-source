@@ -1,3 +1,5 @@
+import { sameChromiumViewInputIdentity, validChromiumViewInputIdentity,
+  validChromiumViewInputObservation, chromiumViewInputObservationKey } from "./chromiumViewTrustedInputValidation";
 import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
   "./chromiumTrustedInputDomReceipt";
 import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } from
@@ -124,6 +126,10 @@ function sameIdentity(
   left: WindowsChromiumInputSurfaceIdentity,
   right: WindowsChromiumInputSurfaceIdentity
 ): boolean {
+  if (left.ownerKind === "view" || right.ownerKind === "view") {
+    return left.ownerKind === "view" && right.ownerKind === "view" &&
+      sameChromiumViewInputIdentity(left, right);
+  }
   return left.roleId === right.roleId &&
     left.surfaceGeneration === right.surfaceGeneration &&
     left.nativeGeneration === right.nativeGeneration &&
@@ -286,6 +292,10 @@ function validateIdentityFields(
   receipt: WindowsChromiumInputSurfaceIdentity,
   expected: WindowsChromiumInputSurfaceIdentity
 ): boolean {
+  if (receipt.ownerKind === "view" || expected.ownerKind === "view") {
+    return receipt.ownerKind === "view" && expected.ownerKind === "view" &&
+      sameChromiumViewInputIdentity(receipt, expected) && validChromiumViewInputIdentity(receipt);
+  }
   return sameIdentity(receipt, expected) &&
     typeof receipt.roleId === "string" && receipt.roleId.length > 0 &&
     receipt.roleId.length <= 256 && receipt.roleId === receipt.roleId.trim() &&
@@ -311,6 +321,18 @@ function validateProbe(
     );
   }
   const receipt = raw as WindowsChromiumInputSurfaceProbeReceipt;
+  if (receipt.ownerKind === "view") {
+    if (expected.ownerKind !== "view" || receipt.status !== "verified" ||
+        receipt.deliveryMode !== deliveryMode || !validateIdentityFields(receipt, expected) ||
+        canonicalU64(receipt.probeRevision, true) === null ||
+        !validChromiumViewInputObservation(receipt.observation, expected, deliveryMode)) {
+      fail("SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID", "The exact Chromium View observation is invalid.");
+    }
+    return Object.freeze({ ...receipt, observation: Object.freeze({ ...receipt.observation,
+      identity: Object.freeze({ ...receipt.observation.identity }),
+      bounds: Object.freeze({ ...receipt.observation.bounds }) }) });
+  }
+
   if (
     receipt.status !== "verified" ||
     receipt.abiVersion !== WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION ||
@@ -351,6 +373,23 @@ function validateNativeBase(
   const submittedAt = canonicalU64(receipt.submittedAtMs, true);
   const scheduledAt = BigInt(pending.request.scheduledAtMs);
   const deadline = BigInt(pending.request.deadlineMs);
+  if (receipt.ownerKind === "view" || pending.host.identity.ownerKind === "view" || pending.probe.ownerKind === "view") {
+    if (receipt.ownerKind !== "view" || pending.host.identity.ownerKind !== "view" || pending.probe.ownerKind !== "view" ||
+        receipt.status !== "submitted" || receipt.submissionApi !== "webContents.sendInputEvent" ||
+        receipt.requestId !== nativeRequestId || !validateIdentityFields(receipt, pending.host.identity) ||
+        receipt.roleId !== pending.request.roleId || receipt.surfaceGeneration !== pending.request.surfaceGeneration ||
+        receipt.inputEpoch !== String(pending.request.inputEpoch) || receipt.deliveryMode !== pending.deliveryMode ||
+        receipt.probeRevision !== pending.probe.probeRevision ||
+        !dispatchSequence || dispatchSequence <= pending.lastNativeDispatchSequence ||
+        !submittedAt || submittedAt < scheduledAt || submittedAt >= deadline ||
+        receipt.viewAttached !== true || receipt.foregroundPreserved !== true || expectedEventCount < 1 ||
+        !validChromiumViewInputObservation(receipt.observation, pending.host.identity, pending.deliveryMode) ||
+        chromiumViewInputObservationKey(receipt.observation) !== chromiumViewInputObservationKey(pending.probe.observation)) {
+      fail("SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID", "The Chromium View submission does not match its exact admission.");
+    }
+    return dispatchSequence;
+  }
+
   if (
     receipt.status !== "submitted" || receipt.submissionApi !== "webContents.sendInputEvent" || receipt.requestId !== nativeRequestId ||
     !validateIdentityFields(receipt, pending.host.identity) ||
@@ -389,12 +428,12 @@ function validateNativeBase(
 }
 
 /**
- * Accepts Chromium submission only after an exact per-surface child-host probe,
+ * Accepts Chromium submission only after an exact child-host or direct-View probe,
  * then correlates it with private main-frame `isTrusted` DOM observations.
  *
  * Bootstrap construction is capability-gated. Every effect is locked to the
  * exact foreground or same-parent hidden Role host established by a live
- * WS_CHILD probe and must receive an isolated DOM `isTrusted` acknowledgement.
+ * native ownership probe and must receive an isolated DOM `isTrusted` acknowledgement.
  * The hidden lane is admitted only when the Windows background-input
  * capability is explicitly enabled.
  */
@@ -497,7 +536,7 @@ implements ChromiumNativeTrustedInputPort {
         return host.native.focusForeground(host.identity, request);
       }
       const resolvedMode = host.native.currentInputDeliveryMode(host.identity);
-      if (!resolvedMode || (resolvedMode === "background" &&
+      if ((resolvedMode !== "foreground" && resolvedMode !== "background") || (resolvedMode === "background" &&
         !this.#backgroundSupported)) {
         fail(
           "SYSTEM_TRUSTED_INPUT_DELIVERY_MODE_UNAVAILABLE",
@@ -698,7 +737,7 @@ implements ChromiumNativeTrustedInputPort {
       );
       if (!sameFrame(liveFrame, pending.frame) || !liveHost ||
         !sameHost(liveHost, pending.host)) {
-        fail("BROWSER_ACTION_STALE", "The trusted-input frame or HWND was superseded.");
+        fail("BROWSER_ACTION_STALE", "The trusted-input frame or surface binding was superseded.");
       }
       if (!liveHost.native.isInputReady(
         liveHost.identity,
@@ -721,10 +760,12 @@ implements ChromiumNativeTrustedInputPort {
         liveHost.identity,
         pending.deliveryMode
       );
-      if (liveProbe.probeRevision !== pending.probe.probeRevision) {
+      if (liveProbe.probeRevision !== pending.probe.probeRevision ||
+          (liveProbe.ownerKind === "view" && pending.probe.ownerKind === "view" &&
+            chromiumViewInputObservationKey(liveProbe.observation) !== chromiumViewInputObservationKey(pending.probe.observation))) {
         fail(
           "BROWSER_ACTION_STALE",
-          "The native child-host probe revision changed before input submission."
+          "The native surface observation changed before input submission."
         );
       }
     } catch {
@@ -732,7 +773,7 @@ implements ChromiumNativeTrustedInputPort {
         pending,
         "superseded",
         "BROWSER_ACTION_STALE",
-        "The trusted-input frame or exact Win32 child host was superseded.",
+        "The trusted-input frame or exact input owner was superseded.",
         pending.request.expectedInputNeutralityBefore
       );
       return;

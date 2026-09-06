@@ -1,12 +1,12 @@
 import { sendChromiumClick, sendChromiumKey } from "./chromiumWebContentsInput";
 import type { RawWindowsChromiumInputHwndProbeReceipt } from "./windowsChromiumInputSurfaceAttachmentCoordinator";
 import type {
-  WindowsChromiumInputSurfaceIdentity, WindowsNativeTrustedKeyRequest,
-  WindowsNativeTrustedMouseRequest, WindowsNativeTrustedInputSubmissionBase
+  LegacyWindowsChromiumInputSurfaceIdentity, WindowsNativeTrustedKeyRequest,
+  WindowsNativeTrustedMouseRequest, LegacyWindowsNativeTrustedInputSubmissionBase
 } from "./windowsChromiumTrustedInputContract";
 
 interface Owner {
-  identity: WindowsChromiumInputSurfaceIdentity;
+  identity: LegacyWindowsChromiumInputSurfaceIdentity;
   probeRevision: string;
   contents: Parameters<typeof sendChromiumKey>[0];
   probe: () => RawWindowsChromiumInputHwndProbeReceipt;
@@ -18,7 +18,7 @@ let dispatchSequence = 0n;
 function submit<Value>(owner: Owner,
   request: WindowsNativeTrustedKeyRequest | WindowsNativeTrustedMouseRequest,
   deliver: (contents: Owner["contents"], viewport: ReturnType<Owner["viewport"]>) => Value
-): WindowsNativeTrustedInputSubmissionBase & Value {
+): LegacyWindowsNativeTrustedInputSubmissionBase & Value {
   const deadline = Number(request.deadlineMs);
   const before = owner.probe();
   const viewport = owner.viewport();

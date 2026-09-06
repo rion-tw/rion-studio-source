@@ -1,3 +1,4 @@
+import type { ChromiumViewInputIdentity, ChromiumViewInputObservation } from "./chromiumViewInputSubmission";
 import type { ChromiumRoleOverlayFrameIdentity } from
   "./chromiumRoleSurfaceRegistry";
 import type {
@@ -24,7 +25,8 @@ export const WINDOWS_CHROMIUM_TRUSTED_KEY_CODES = Object.freeze([
   "F24"
 ] as const);
 
-export interface WindowsChromiumInputSurfaceIdentity {
+export interface LegacyWindowsChromiumInputSurfaceIdentity {
+  readonly ownerKind?: "childHwnd";
   readonly roleId: string;
   readonly surfaceGeneration: number;
   readonly nativeGeneration: number;
@@ -43,8 +45,8 @@ export interface WindowsChromiumInputSurfaceIdentity {
  * receipt only for a separately owned child host containing exactly one role
  * WebContentsView. Enumerating or guessing Chromium child HWNDs is forbidden.
  */
-export interface WindowsChromiumInputSurfaceProbeReceipt
-  extends WindowsChromiumInputSurfaceIdentity {
+export interface LegacyWindowsChromiumInputSurfaceProbeReceipt
+  extends LegacyWindowsChromiumInputSurfaceIdentity {
   readonly status: "verified";
   readonly abiVersion: 6;
   readonly deliveryMode: WindowsChromiumInputDeliveryMode;
@@ -67,8 +69,8 @@ export interface WindowsChromiumInputSurfaceProbeReceipt
   readonly dpi: number;
 }
 
-export interface WindowsNativeTrustedInputSubmissionBase
-  extends WindowsChromiumInputSurfaceIdentity {
+export interface LegacyWindowsNativeTrustedInputSubmissionBase
+  extends LegacyWindowsChromiumInputSurfaceIdentity {
   readonly status: "submitted";
   readonly submissionApi: "webContents.sendInputEvent";
   readonly requestId: string;
@@ -98,6 +100,36 @@ export interface WindowsNativeTrustedInputSubmissionBase
   readonly dpi: number;
 }
 
+/** Explicit View receipts replace child-HWND claims during the scoped cutover. */
+export interface ChromiumViewTrustedInputIdentity extends ChromiumViewInputIdentity {
+  readonly ownerKind: "view";
+}
+export interface ChromiumViewTrustedInputProbeReceipt extends ChromiumViewTrustedInputIdentity {
+  readonly status: "verified";
+  readonly probeRevision: string;
+  readonly deliveryMode: WindowsChromiumInputDeliveryMode;
+  readonly observation: ChromiumViewInputObservation;
+}
+export interface ChromiumViewTrustedInputSubmissionBase extends ChromiumViewTrustedInputIdentity {
+  readonly status: "submitted";
+  readonly submissionApi: "webContents.sendInputEvent";
+  readonly requestId: string;
+  readonly inputEpoch: string;
+  readonly deliveryMode: WindowsChromiumInputDeliveryMode;
+  readonly dispatchSequence: string;
+  readonly probeRevision: string;
+  readonly submittedAtMs: string;
+  readonly observation: ChromiumViewInputObservation;
+  readonly viewAttached: true;
+  readonly foregroundPreserved: true;
+}
+export type WindowsChromiumInputSurfaceIdentity =
+  LegacyWindowsChromiumInputSurfaceIdentity | ChromiumViewTrustedInputIdentity;
+export type WindowsChromiumInputSurfaceProbeReceipt =
+  LegacyWindowsChromiumInputSurfaceProbeReceipt | ChromiumViewTrustedInputProbeReceipt;
+export type WindowsNativeTrustedInputSubmissionBase =
+  LegacyWindowsNativeTrustedInputSubmissionBase | ChromiumViewTrustedInputSubmissionBase;
+
 export interface WindowsNativeTrustedKeyRequest {
   readonly requestId: string;
   readonly roleId: string;
@@ -115,8 +147,7 @@ export interface WindowsNativeTrustedKeyRequest {
   readonly repeat: false;
 }
 
-export interface WindowsNativeTrustedKeySubmissionReceipt
-  extends WindowsNativeTrustedInputSubmissionBase {
+export type WindowsNativeTrustedKeySubmissionReceipt = WindowsNativeTrustedInputSubmissionBase & {
   readonly eventType: "keyDown" | "keyUp";
   readonly code: string;
   readonly ctrl: boolean;
@@ -139,8 +170,7 @@ export interface WindowsNativeTrustedMouseRequest {
   readonly button: 0 | 1 | 2;
 }
 
-export interface WindowsNativeTrustedMouseSubmissionReceipt
-  extends WindowsNativeTrustedInputSubmissionBase {
+export type WindowsNativeTrustedMouseSubmissionReceipt = WindowsNativeTrustedInputSubmissionBase & {
   readonly button: 0 | 1 | 2;
   readonly clientX: number;
   readonly clientY: number;

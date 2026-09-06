@@ -134,6 +134,31 @@ describe("shell-neutral macro overlay runtime", () => {
       ?.dataset.theme).toBe("light");
   });
 
+  it.each([
+    ["windows", "canvas", "game"], ["macos", "canvas", "game"],
+    ["windows", "input", "document"], ["macos", "input", "document"]
+  ] as const)("refreshes exact input evidence after window blur on %s with %s", async (platform, tag, target) => {
+    const binding = vi.fn(async () => ({
+      macroBadgePosition: {}, macros: [], resolvedTheme: "dark", statuses: [], platform
+    }));
+    const refreshReceipt = vi.fn(async () => undefined);
+    Object.assign(binding, { refreshReceipt });
+    (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
+    const canvas = document.createElement(tag);
+    canvas.tabIndex = 0;
+    document.body.append(canvas);
+    canvas.focus();
+    (0, eval)(await overlayRuntimeSource());
+    await overlayController().refresh();
+    window.dispatchEvent(new Event("blur"));
+    expect(document.activeElement).toBe(canvas);
+    const refreshId = "00000000-0000-4000-8000-000000000002";
+    await overlayController().refreshFromNative(refreshId);
+    expect(refreshReceipt).toHaveBeenCalledWith(expect.objectContaining({
+      refreshId, status: "applied", inputContext: expect.objectContaining({ target })
+    }));
+  });
+
   it("applies resolved themes to the isolated host and preserves the current theme on invalid input", async () => {
     let resolvedTheme = "dark";
     const binding = vi.fn(async () => ({

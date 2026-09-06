@@ -588,6 +588,10 @@
         applyState(nextState);
         reportMacroBadgeSnapshotTimings(requestStartedAt);
         updatePresentation();
+        // An authenticated exact challenge must sample the current DOM target.
+        // Window blur cleanup can leave the advisory cache at "document" even
+        // while the canvas remains active; ordinary refresh keeps that cleanup.
+        if (exactRefreshIds.length > 0) refreshGameInputContext();
         for (const refreshId of exactRefreshIds) {
           settleExactRefresh(refreshId, "resolve", {
             refreshId,

@@ -4925,3 +4925,59 @@ trusted input are outside this Windows child-host removal.
   and compatibility probes. The job itself is still running renderer tests;
   retain native step success as evidence and inspect its final logs for exact
   Session apply/verify/rollback coverage before claiming the CP-10 deliverable.
+
+
+### CP-10 Windows helper acceptance and CP-11 exact challenge correction
+
+- Windows native CI job 101547293573 at 526264da is SUCCESS. Its native
+  integration run passes eight files and 15 tests, including both
+  electron-session-maintenance.native-integration.ts cases. Each case executes
+  independent apply, verify, rollback and rollbackVerify helpers, checks cookie
+  and LocalStorage counts, distinct verifier identity and raw parent exit digest.
+  Both plain text and the CJK/NUL fixture pass. This accepts the mandatory pinned
+  Windows stdout envelope for these fresh-process maintenance transactions;
+  consented Chrome import and complete migration/release acceptance remain open.
+- Windows package job 101549172329 at 968b8828 again fails first controlled
+  Reload. Its failure-only snapshot reports complete/visible document, active
+  connected game-input-canvas with tabIndex 0, and focus false after target
+  selection. Thus missing active canvas alone is not a sufficient explanation.
+- A focused regression reproduces window blur setting the advisory input cache
+  to document while the canvas remains active. The exact native refresh formerly
+  returned that cached target. Two platform-labelled canvas cases fail before
+  the correction. Exact refresh now calls the existing DOM context observation
+  before producing its receipt, with the existing revision/report propagation.
+  Ordinary refresh/blur cleanup is unchanged; text-input cases still return
+  document. Six adjacent suites pass 112 tests after correction. Native Windows
+  repair acceptance remains pending; this mechanism is not yet a proven complete
+  explanation of the remote failure.
+- TypeScript, ESLint (zero errors, 23 warnings), hygiene, production Electron
+  build and production E2E isolation pass. Full regression is running and not
+  yet accepted. No timeout or readiness condition was relaxed.
+
+### CP-15 full macOS profile at 01ca1f3b
+
+- Local report .desktop-e2e-artifacts/2026-09-06T20-00-08-947Z-darwin/report.json
+  binds clean 01ca1f3b5107191d802fc3b28708eebdf5ff7c40 and
+  chromium-macos-appkit-smoke: 52 PASS phases and four
+  EXPECTED_FORCE_TERMINATION phases; command exit is zero. This is the complete
+  selected 56-phase profile, including controlled Reload, background Macro,
+  system settings and native tab parity. It predates the exact-challenge repair
+  above and must not be reused as acceptance of that later product change.
+
+
+### Exact-challenge correction validation completion
+
+- Full local Vitest passes 450 files / 3,571 tests in 160.77 seconds. Native
+  macOS Rust lint passes; workspace tests pass 1,645 with four ignored.
+- The subsequent focused macOS controlled Reload run fails before Reload while
+  physically selecting Chromium Controlled Reload Window Saved · empty:
+  the Swift driver reports that the exact Rion application did not become
+  active. Preserve report 2026-09-06T20-15-20-907Z-darwin and its native failure
+  sample as FAIL, not as product acceptance or proof of a Reload regression.
+  Do not retry this result into green or relax the native activation check.
+- The earlier clean full profile remains version-qualified to 01ca1f3b. The
+  exact-challenge repair still requires native macOS and Windows acceptance;
+  affected journeys are CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-RELOAD-031 and
+  CHROMIUM-WINDOWS-RUNTIME-TAB-RELOAD-031, with adjacent audio and Macro
+  regression coverage retained. Restore the production Electron bundle and
+  recheck E2E isolation after this failed native attempt.

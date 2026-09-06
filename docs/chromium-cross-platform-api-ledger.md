@@ -4678,3 +4678,51 @@ trusted input are outside this Windows child-host removal.
   configurations after removing windowsHide from the visible probe. Its two
   remaining native failures are Session response framing (leading CRLF).
   Probe success does not close hidden resize notification or hardware parity.
+
+### CP-08 classify ordinary Windows Macro keys before native delivery
+
+- Reproduced the missing page guard for both hold and release when
+  suppressOverlayShortcut is false: two new adapter tests failed with null
+  guard envelopes before the repair. The existing page guard identifies Macro
+  ownership as well as preventing shortcut recursion. Without it, a normal
+  non-colliding Macro key enters physical-key bookkeeping and in-page focus
+  cleanup can synthesize a release before the Core-owned stop.
+- Arm the same exact code/phase page guard for every key in the Windows Macro
+  input lane. Retain private frame/sequence identity, armed acknowledgement,
+  native submission and trusted DOM receipt ordering. Core scheduling and the
+  physical user-input path remain authoritative and unchanged. Mouse requests
+  still do not arm a keyboard guard; macOS retains its native adapter.
+- Both new adapter tests pass after the repair. Added an executable overlay
+  focus-transfer test proving a guarded ordinary Digit2 receives no early
+  release, then exactly its explicit release. The adjacent three-file suite
+  passes 61 tests. These portable tests do not replace Windows native evidence.
+- CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004 now explicitly requires the held
+  state after returning to the Role; the stop helper retains its strict first
+  release isTrusted assertion, including focus cleanup during the stop click.
+  The paired AppKit journey shares the strengthened pre-stop assertion. No
+  synthetic event is skipped and no native-input requirement is weakened.
+
+### CP-10 diagnose and correct the Windows native Session fixture
+
+- Job 101541835757 at 17431e59 reports offset 2, outcome 1 and stableErrorCode
+  CHROMIUM_SESSION_MIGRATION_SOURCE_EVIDENCE_INVALID for both synthetic cases.
+  Thus finding the response header did not mean migration had run successfully.
+- The Windows test envelope omitted mandatory sourceEvidence. Supply the same
+  synthetic webview2StorageGetCookies runtime/protocol/partition capability
+  evidence used by the canonical Windows codec fixtures. Keep it absent on
+  macOS, where the codec correctly rejects Windows evidence.
+- Strict offset-zero magic, lengths, successful outcome and independent process
+  readback/rollback remain required. Leading CRLF is still an open transport
+  failure; correcting fixture admission does not claim to remove it. Both
+  macOS native Session cases pass with this fixture correction.
+- Final local validation for this batch: all 450 Vitest files / 3,560 tests
+  passed; macOS lint:rust and test:rust passed (1,643 passed, four ignored).
+  TypeScript, ESLint, complete hygiene, coverage, both production builds,
+  Electron renderer validation and production E2E isolation passed.
+- No new local desktop E2E profile ran for this Windows adapter repair. The
+  strengthened paired background-tab profile and Windows Session fixture must
+  execute in the new exact-commit CI. Existing AppKit full-profile evidence is
+  historical, not evidence for this modified assertion. The macOS adapter also
+  uses the collision flag for page guards; audit its ownership behavior and
+  shared guard construction next rather than assuming native equivalence from
+  the Windows repair.

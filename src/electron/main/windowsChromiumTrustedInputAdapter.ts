@@ -617,8 +617,10 @@ implements ChromiumNativeTrustedInputPort {
         frameToken: frame.frameToken,
         inputSequence,
         expectedEvents: pending.expectedEvents,
-        shortcutSuppression: request.action.type === "key" &&
-          request.action.suppressOverlayShortcut
+        // Every key in this lane is Macro-owned, even without a shortcut
+        // collision. The page guard also keeps it out of physical-key blur
+        // cleanup, which would otherwise synthesize a premature release.
+        shortcutSuppression: request.action.type === "key"
           ? Object.freeze({
               code: request.action.code!,
               phases: Object.freeze(pending.expectedEvents.map((event) =>

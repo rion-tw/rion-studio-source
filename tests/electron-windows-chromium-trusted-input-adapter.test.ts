@@ -405,6 +405,23 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(subject.native.probeExactInputSurface).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["hold", "release"] as const)(
+    "classifies non-shortcut Macro %s as Macro-owned before native delivery",
+    async (phase) => {
+      const subject = harness("view");
+      const action = { ...keyAction(phase, []), code: "Digit2", key: "2",
+        suppressOverlayShortcut: false };
+      const result = subject.adapter.dispatch(nativeRequest("ordinary-held-key", action));
+      expect(subject.arm().shortcutSuppression).toEqual({
+        code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"]
+      });
+      expect(subject.keyRequests).toEqual([]);
+      subject.armed();
+      subject.dom(subject.arm().expectedEvents[0]!, 0);
+      await expect(result).resolves.toMatchObject({ status: "applied" });
+    }
+  );
+
   it("maps Windows primary to Ctrl and keeps Meta independent", async () => {
     const subject = harness();
     const result = subject.adapter.dispatch(nativeRequest(

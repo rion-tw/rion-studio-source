@@ -791,6 +791,27 @@ describe("macro overlay native key guard", () => {
     expect(canvasKeyDown).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps an ordinary guarded Macro key held through in-page focus cleanup", async () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    const otherCanvas = document.createElement("canvas");
+    canvas.tabIndex = otherCanvas.tabIndex = 0;
+    document.body.append(canvas, otherCanvas);
+    const releases = vi.fn();
+    canvas.addEventListener("keyup", releases);
+    canvas.focus();
+    armShortcut(controller, "Digit2");
+    canvas.dispatchEvent(keyEvent("keydown", "Digit2", "2"));
+    otherCanvas.focus();
+    await Promise.resolve();
+    expect(releases).not.toHaveBeenCalled();
+    canvas.focus();
+    armShortcut(controller, "Digit2", "keyup");
+    const release = keyEvent("keyup", "Digit2", "2");
+    canvas.dispatchEvent(release);
+    expect(releases).toHaveBeenCalledExactlyOnceWith(release);
+  });
+
   it("keeps an unobserved guard event-bound until exact cancellation", () => {
     const controller = installOverlay();
     const dispatchId = armShortcut(controller, "KeyW");

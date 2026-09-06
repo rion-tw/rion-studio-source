@@ -422,6 +422,10 @@ describe("Chromium Macro background-tab exact replacement", () => {
       .toContain("Digit2");
 
     await activateChromiumRoleVisible(context, tabA);
+    expect((await fixtureState())[ROLE_A_FIXTURE]!.consumerPressedCodes)
+      .toContain("Digit2");
+    // The stop helper also focuses its canvas. Its first Digit2 release must
+    // stay trusted; do not skip an earlier synthetic physical-key cleanup.
     const secondKeyup = await stopFromShortcut({
       macro: scenario.macro,
       mainWindowHandle: context.mainWindowHandle,

@@ -104,7 +104,12 @@ function fixture(value: string) {
   };
   const envelope = Buffer.from(JSON.stringify({ metadata: { format: "rion-role-session-transfer", version: 1,
     transferId, roleId, platform: nativePlatform, sourceEngine: platform === "darwin" ? "wkwebview" : "webview2",
-    targetEngine: "chromium", sourceRevision: 12 }, inventory }));
+    targetEngine: "chromium", sourceRevision: 12,
+    ...(platform === "win32" ? { sourceEvidence: {
+      // Synthetic source evidence matches the canonical Windows fixture schema.
+      kind: "webview2StorageGetCookies", runtimeVersion: "143.0.3650.75",
+      protocolVersion: "1.3", partitionCapability: "networkCookiePartitionKeyAndOpaque"
+    } } : {}) }, inventory }));
   const browser = join(directory, "roles", roleId, "browser");
   const request: ChromiumSessionMigrationFreshHelperRequest = {
     version: 1, family: "roleSessionMigration", kind: "apply", platform: nativePlatform,

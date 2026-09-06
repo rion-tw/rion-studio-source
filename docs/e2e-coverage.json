@@ -1412,7 +1412,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Run the same visible two-Role held-key lifecycle in the Windows Chromium host. Exact View ownership plus native/read-only receipts must prove same-owner Digit2 continuity after selecting B hides A's View while both tabs remain in the tab strip, a fresh trusted Digit2 run started from visible B reaches hidden A without show, select, focus, or activation APIs, B receives no target input, the foreground parent and visible sibling remain unchanged, and cleanup terminalizes every native and Core-held key. The live physical verdict remains independently required on Windows CI."
+      "description": "Run the same visible two-Role held-key lifecycle in the Windows Chromium host. Exact View ownership plus native/read-only receipts must prove same-owner Digit2 continuity after selecting B hides A's View while both tabs remain in the tab strip, a fresh trusted Digit2 run started from visible B reaches hidden A without show, select, focus, or activation APIs, B receives no target input, the foreground parent and visible sibling remain unchanged, and cleanup terminalizes every native and Core-held key. Restoring the Role and focusing the stop canvas must not release the Macro key through synthetic physical-key cleanup before its trusted native release. The live physical verdict remains independently required on Windows CI."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023",

@@ -4882,3 +4882,28 @@ trusted input are outside this Windows child-host removal.
 - Exact candidate CI 34056466345 remains active; Windows package job
   101549172329 was observed in progress. The earlier Windows reload failure
   remains unresolved until new native evidence identifies and verifies a repair.
+
+
+### CP-08 remaining deletion dependency audit at 01ca1f3b
+
+- The old child-HWND path is not yet removed: rion-node/lib.rs still registers
+  windows_chromium_input_attachment and windows_chromium_input_probe. Their
+  attachWindowsChromiumInputHwnd, probeWindowsChromiumInputHwnd and
+  windowsChromiumInputProbeAbiVersion exports remain addon capabilities even
+  though current product/E2E composition does not load the old coordinator.
+- Final removal must cover windowsChromiumInputSurfaceAttachmentCoordinator.ts,
+  chromiumOwnedInputSubmission.ts, the two native modules and their lib.rs
+  registrations, LegacyWindows* receipt/identity branches in
+  windowsChromiumTrustedInputContract.ts, and the legacy validation paths in
+  windowsChromiumTrustedInputAdapter.ts. Preserve the View branches and shared
+  key/mouse delivery code. Remove implementation-only tests while retaining
+  production-bundle rejection tests and real View/native journey coverage.
+- The rion-node windows-sys dependency currently has one source consumer:
+  the legacy attachment's raw SetParent call. Re-audit the complete crate at
+  deletion time, then remove that direct dependency if still unused; do not
+  remove the separate windows crate or retained foreground/shortcut adapters.
+- This is a concrete remaining cleanup set, not deletion acceptance. The full
+  replacement parity gate still applies: controlled Windows Reload has an
+  unresolved native failure and later input/topology journeys have not run.
+- Local full chromium-macos-appkit-smoke execution started against clean
+  01ca1f3b; it is still active and cannot yet support a full-profile PASS.

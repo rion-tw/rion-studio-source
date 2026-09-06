@@ -70,7 +70,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
-| CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
+| CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 01ca1f3b; Windows 29 phases passed at e7bee0ae; latest full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
@@ -5268,3 +5268,31 @@ trusted input are outside this Windows child-host removal.
 
 
 - Canvas E2E correction validation: focused tests 16 PASS; full Vitest Test Files  452 passed (452); Tests  3612 passed (3612); Duration  158.86s (transform 3.11s, setup 0ms, import 14.09s, tests 95.96s, environment 21.22s). TypeScript, complete ESLint, source hygiene, documentation/context validation, coverage manifest, and production E2E isolation all pass. Native macOS/Windows profiles for this correction remain pending; no product runtime or shared contract changed.
+
+
+### CP-12 retire a placement receipt overtaken by an exact newer projection
+
+- Native evidence at d0b99b68 identifies revision 6 overtaken by revision 8
+  with every other placement postcondition intact. readRuntimeWindowPlacement
+  obtains this revision from the Core-owned Windows chrome projection; it is
+  not a timer or a locally invented counter.
+- The controller now records superseded / verified:false only when an applied
+  exact Core receipt is older than that same host's observed projection and
+  topologyRevision is the sole mismatched postcondition. It preserves the
+  original receipt for inspection, does not apply its old runtime target, does
+  not mark its placement key verified, and does not report this normal
+  supersession as a shell failure. A subsequent native event still submits and
+  verifies its own exact receipt. No polling, retry or deadline changes.
+- Older revisions and any identity, geometry, presentation or display mismatch
+  remain indeterminate failures. Eleven focused tests pass, including an
+  overtaken receipt followed by a separate exact event, and newer revisions
+  combined with identity/bounds/display-topology mismatches. This is
+  lower-layer-covered terminal classification within the existing local
+  inspection status union; no Core or generated contract changes.
+- Affected existing Windows journeys include RUNTIME-TAB-RELOAD-031 and native
+  window placement/topology. The E2E shell-error assertions and manifest
+  membership remain unchanged. Native Windows acceptance of this correction
+  remains pending CI; the previous passing Reload run is not this candidate.
+
+
+- Final local verification: Test Files  452 passed (452); Tests  3616 passed (3616); Duration  156.08s (transform 3.46s, setup 0ms, import 14.65s, tests 92.33s, environment 21.62s). Native macOS Rust lint and workspace tests pass (1,646 passed, four ignored); TypeScript, full ESLint, source hygiene, documentation, coverage, stable-shell build, Electron build and production isolation pass. This batch runs no local desktop E2E around the unresolved protected system-dialog obstruction. Windows exact-candidate CI remains pending.

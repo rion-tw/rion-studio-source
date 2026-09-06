@@ -334,6 +334,15 @@ export class WindowsRuntimeWindowPlacementController {
     };
     const failedPostconditions = Object.entries(postconditions)
       .filter(([, matches]) => !matches).map(([name]) => name);
+    if (receipt.status === "applied" &&
+        after.topologyRevision > receipt.topologyRevision &&
+        failedPostconditions.length === 1 && failedPostconditions[0] === "topologyRevision") {
+      // EventBound: a newer Core chrome projection overtook this receipt on the
+      // same native host. Retire it without applying its old target or caching
+      // it as verified; the next native event still requires its own receipt.
+      this.#push({ event, receipt, status: "superseded", verified: false });
+      return;
+    }
     const appliedVerified = receipt.status === "applied" && failedPostconditions.length === 0;
     if (receipt.status === "applied" && !appliedVerified) {
       const failure = normalizeRionBridgeError(placementError(

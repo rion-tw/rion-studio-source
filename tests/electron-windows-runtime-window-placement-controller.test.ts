@@ -219,7 +219,7 @@ describe("Windows runtime-window placement controller", () => {
     }));
   });
 
-  it.each([10, 12])("reports the exact topology mismatch without accepting revision %s", async (revision) => {
+  it.each([9, 10])("reports the exact topology mismatch without accepting revision %s", async (revision) => {
     let current = observation();
     const errors = vi.fn();
     const controller = new WindowsRuntimeWindowPlacementController({
@@ -240,6 +240,66 @@ describe("Windows runtime-window placement controller", () => {
       message: expect.stringContaining(`postcondition: topologyRevision; topology receipt=11, observed=${revision}.`)
     }));
   });
+
+  it("retires an overtaken receipt without applying or caching its old target", async () => {
+    let current = observation();
+    let calls = 0;
+    const onApplied = vi.fn();
+    const errors = vi.fn();
+    const controller = new WindowsRuntimeWindowPlacementController({
+      core: {
+        invoke: async <Command extends CoreCommand>(command: Command) => {
+          const placement = command as Extract<CoreCommand, { type: "browserWindowsRuntimeWindowPlacement" }>;
+          current = { ...current, topologyRevision: current.topologyRevision + (++calls === 1 ? 2 : 1) };
+          return receiptFor(placement) as CoreCommandResult<Command>;
+        }
+      },
+      readDisplayTopology: () => topology(),
+      onError: errors,
+      onApplied
+    });
+    const host = hostFor(() => current);
+    await controller.observe(host);
+    expect(controller.inspect()).toEqual([expect.objectContaining({
+      status: "superseded", verified: false,
+      receipt: expect.objectContaining({ status: "applied", topologyRevision: 11 })
+    })]);
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+    await controller.observe(host);
+    expect(calls).toBe(2);
+    expect(controller.inspect()[1]).toMatchObject({ status: "applied", verified: true });
+    expect(onApplied).toHaveBeenCalledOnce();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it.each(["identity", "normalBounds", "displayTopology"] as const)(
+    "does not let a newer revision conceal a %s mismatch", async mismatch => {
+      let current = observation();
+      let displayRevision = 3;
+      const errors = vi.fn();
+      const onApplied = vi.fn();
+      const controller = new WindowsRuntimeWindowPlacementController({
+        core: {
+          invoke: async <Command extends CoreCommand>(command: Command) => {
+            const placement = command as Extract<CoreCommand, { type: "browserWindowsRuntimeWindowPlacement" }>;
+            current = { ...current, topologyRevision: 12 };
+            if (mismatch === "identity") current = { ...current, nativeGeneration: 3 };
+            if (mismatch === "normalBounds") current = { ...current, normalBounds: { ...current.normalBounds, x: 121 } };
+            if (mismatch === "displayTopology") displayRevision += 1;
+            return receiptFor(placement) as CoreCommandResult<Command>;
+          }
+        },
+        readDisplayTopology: () => topology(displayRevision),
+        onError: errors,
+        onApplied
+      });
+      await controller.observe(hostFor(() => current));
+      expect(controller.inspect()[0]).toMatchObject({ status: "indeterminate", verified: false });
+      expect(errors).toHaveBeenCalledOnce();
+      expect(onApplied).not.toHaveBeenCalled();
+    }
+  );
 
   it("rechecks the latest display topology after the Core receipt", async () => {
     let current = observation();

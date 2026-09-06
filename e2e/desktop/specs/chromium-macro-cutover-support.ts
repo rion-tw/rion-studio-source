@@ -378,7 +378,19 @@ if useAccessibilityAction {
     }
   }
   guard targetApplication.isActive else {
-    fatalError("exact Rion application did not become active for the physical click")
+    let foreground = NSWorkspace.shared.frontmostApplication
+    let activationEvidence: [String: Any] = [
+      "targetPid": Int(targetPid),
+      "targetActive": targetApplication.isActive,
+      "targetHidden": targetApplication.isHidden,
+      "targetTerminated": targetApplication.isTerminated,
+      "targetFinishedLaunching": targetApplication.isFinishedLaunching,
+      "targetActivationPolicy": targetApplication.activationPolicy.rawValue,
+      "foregroundPid": Int(foreground?.processIdentifier ?? 0)
+    ]
+    let evidenceData = try! JSONSerialization.data(withJSONObject: activationEvidence, options: [.sortedKeys])
+    let evidence = String(data: evidenceData, encoding: .utf8)!
+    fatalError("exact Rion application did not become active for the physical click: " + evidence)
   }
   for eventType in [
     CGEventType.mouseMoved,

@@ -525,47 +525,23 @@ export async function submitElectronRolePageFullscreenShortcut(
   });
 }
 
-/** Moves the real pointer onto the trusted local Windows reveal edge. */
-export async function movePointerToWindowsRuntimeHostRevealEdge(
-  mainWindowHandle: string
+/** Moves the OS pointer across the managed host and Role WebContents boundary. */
+async function moveWindowsRuntimePointer(
+  windowId: string,
+  pointerTarget: "reveal-edge" | "content"
 ): Promise<void> {
-  let hostHandle: string | undefined;
-  await browser.waitUntil(async () => {
-    for (const handle of await browser.getWindowHandles()) {
-      if (handle === mainWindowHandle) continue;
-      try {
-        await switchTrackedWindow(handle);
-        const url = new URL(await currentDocumentUrl());
-        if (url.protocol === "file:" && url.pathname.endsWith(
-          "/runtime-windows-host.html"
-        )) {
-          hostHandle = handle;
-          return true;
-        }
-      } catch {
-        // A superseded host target is ignored until WebDriver publishes the
-        // current trusted local shell target.
-      }
-    }
-    await switchTrackedWindow(mainWindowHandle);
-    return false;
-  }, {
-    interval: 100,
-    timeout: 20_000,
-    timeoutMsg: "The trusted local Windows runtime-host target was not attached"
-  });
-  if (!hostHandle) throw new Error("The Windows runtime-host target is unavailable");
-  await switchTrackedWindow(hostHandle);
-  try {
-    const edge = await $("[data-runtime-reveal-edge]:not([hidden])");
-    await edge.waitForDisplayed({ timeout: 10_000 });
-    // Element-origin offsets start at the center; +1px falls outside this 2px edge.
-    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-      .move({ duration: 200, origin: edge, x: 0, y: 0 })
-      .perform();
-  } finally {
-    await switchTrackedWindow(mainWindowHandle);
-  }
+  const { processId } = await electronDesktopE2eProbe();
+  const { nativeWindowHandle } = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+  if (!nativeWindowHandle) throw new Error("The exact Windows runtime handle is missing");
+  await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle, pointerTarget });
+}
+
+export async function movePointerToWindowsRuntimeHostRevealEdge(windowId: string): Promise<void> {
+  await moveWindowsRuntimePointer(windowId, "reveal-edge");
+}
+
+export async function movePointerToWindowsRuntimeContent(windowId: string): Promise<void> {
+  await moveWindowsRuntimePointer(windowId, "content");
 }
 
 /** Drags the visible bundled-host separator with a real WebDriver pointer. */

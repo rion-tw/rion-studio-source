@@ -15,6 +15,7 @@ import {
 import {
   clickVisibleElectronRolePageButton,
   movePointerToWindowsRuntimeHostRevealEdge,
+  movePointerToWindowsRuntimeContent,
   submitElectronRolePageFullscreenShortcut
 } from "../support/electron-role-surface";
 import { fixtureCursor, fixtureEvents } from "../support/fixture";
@@ -334,7 +335,7 @@ async function seedPhase(input: Readonly<{
   if (input.platform === "macos") {
     await movePointerToMacosFullscreenRevealEdge(input.windowId);
   } else {
-    await movePointerToWindowsRuntimeHostRevealEdge(input.mainWindowHandle);
+    await movePointerToWindowsRuntimeHostRevealEdge(input.windowId);
   }
   const revealed = await waitForToolbar(input.windowId, (inspection) =>
     inspection.presentation === "fullscreen" && inspection.native.revealed &&
@@ -353,6 +354,7 @@ async function seedPhase(input: Readonly<{
     expect(surface.bounds.y + surface.bounds.height).toBe(
       hiddenRole.bounds.y + hiddenRole.bounds.height
     );
+    await movePointerToWindowsRuntimeContent(input.windowId);
   } else {
     await movePointerToMacosRuntimeContent(input.windowId);
   }

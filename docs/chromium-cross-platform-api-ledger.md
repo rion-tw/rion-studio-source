@@ -2853,3 +2853,40 @@ Sixteen adjacent toolbar checks, typecheck, scoped lint, source hygiene,
 production E2E isolation and coverage validation pass. This Windows-only driver
 correction introduces no shared/native product change; macOS's native pointer
 adapter is unchanged. Checks: `/tmp/rion-toolbar-pointer-*`.
+
+
+### Cross the host/Role boundary with acknowledged OS pointer input
+
+CI 34025834042 at e380920e now reaches revealed toolbar state and passes the
+same-fullscreen 38px geometry assertions. Its native history is normal, hidden,
+revealed; the later Role WebContents click does not yield hidden state. Moving
+WebDriver's target-local pointer in another WebContents is insufficient evidence
+of the OS cursor leaving the host toolbar. This observation does not by itself
+prove a product pointerleave defect.
+
+The Windows toolbar E2E now uses the existing exact-PID/HWND foreground adapter
+for both reveal and content movement. GetClientRect and ClientToScreen bind the
+point to the actual native client extent; SetCursorPos performs the system move,
+and GetCursorPos plus foreground equality must acknowledge the exact result.
+Reveal targets the first client pixel, content targets the client center.
+Coordinates are derived by native APIs in one process; no fixed desktop size or
+renderer CSS-to-screen assumption is added. Both moves are separated by the
+existing authoritative revealed-state wait, so the OS actually crosses the host
+and Role boundary. The previous WebDriver host-target search is removed from
+this helper. Native submission alone remains insufficient: hidden, revealed,
+pinned, reversed and restart projections are still required.
+
+The shared helper always includes its optional pointerTarget payload, preserving
+strict PowerShell behavior for ordinary F11 focus calls. This internal-only E2E
+correction affects CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012. Required AppKit input
+is unchanged; no DOM dispatch, direct reveal/hide command, timer or retry replaces
+the visible action. Windows execution remains pending.
+Evidence: `/tmp/rion-e38-win-package-artifacts/2026-09-06T09-53-44-130Z-win32`;
+log: `/tmp/rion-e38-win-package.log`.
+Native coordinate contract: [ClientToScreen](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-clienttoscreen),
+[cursor movement](https://learn.microsoft.com/en-us/windows/win32/menurc/using-cursors).
+
+Final validation passes 30 adjacent checks and all 3,388 Vitest tests, typecheck,
+scoped lint, complete hygiene, coverage and production E2E isolation.
+No fresh macOS desktop execution is claimed for this Windows-only driver change;
+its native Windows run is still required. Logs: `/tmp/rion-toolbar-native-pointer-*`.

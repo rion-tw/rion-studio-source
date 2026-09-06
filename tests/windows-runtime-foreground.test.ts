@@ -10,7 +10,15 @@ describe("Windows native foreground evidence", () => {
     await focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234" },
       { platform: "win32", run });
     expect(run).toHaveBeenCalledWith(expect.any(String),
-      { processId: 42, nativeWindowHandle: "1234" }, { timeoutMilliseconds: 30_000 });
+      { processId: 42, nativeWindowHandle: "1234", pointerTarget: "none" },
+      { timeoutMilliseconds: 30_000 });
+  });
+  it.each(["reveal-edge", "content"] as const)("submits native pointer target %s with exact identity", async pointerTarget => {
+    const run = vi.fn(async () => "");
+    await focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234", pointerTarget },
+      { platform: "win32", run });
+    expect(run).toHaveBeenCalledWith(expect.any(String),
+      { processId: 42, nativeWindowHandle: "1234", pointerTarget }, { timeoutMilliseconds: 30_000 });
   });
   it.each([
     { platform: "darwin", processId: 42, nativeWindowHandle: "1234" },

@@ -33,9 +33,9 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(spec).not.toContain("runtimeUiAction(");
     expect(roleSurface).not.toContain('browser.action("key").down(Key.F11)');
     expect(roleSurface).toContain("await pressVisibleWindowsApplicationShortcut({");
-    expect(roleSurface).toMatch(
-      /movePointerToWindowsRuntimeHostRevealEdge[\s\S]*?browser\.action\("pointer"/u
-    );
+    expect(roleSurface).toContain('await moveWindowsRuntimePointer(windowId, "reveal-edge")');
+    expect(roleSurface).toContain('await moveWindowsRuntimePointer(windowId, "content")');
+    expect(spec).toContain("await movePointerToWindowsRuntimeContent(input.windowId)");
     expect(appKitUi).toContain('menu bar item "View"');
     expect(appKitUi).toContain("fullscreenControlScreenBounds");
     expect(appKitUi).toContain("click at {clickX, clickY}");

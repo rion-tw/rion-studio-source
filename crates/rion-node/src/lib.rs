@@ -107,7 +107,6 @@ pub struct AppCoreOptions {
     pub build_commit: Option<String>,
     pub packaged: Option<bool>,
     pub runtime_contract_version: Option<u32>,
-    pub performance_telemetry_path: Option<String>,
     pub startup_backup_label: Option<String>,
 }
 
@@ -133,7 +132,6 @@ impl AppCoreOptions {
                 build_commit: self.build_commit,
                 packaged: self.packaged.unwrap_or(false),
                 runtime_contract_version: Some(runtime_contract_version),
-                performance_telemetry_path: self.performance_telemetry_path,
             },
             self.startup_backup_label,
         ))
@@ -982,7 +980,6 @@ mod tests {
                 platform: canonical_platform_name(host).to_owned(),
                 runtime_contract_version: Some(CHROMIUM_RUNTIME_CONTRACT_VERSION),
                 user_data_dir: directory.to_string_lossy().into_owned(),
-                performance_telemetry_path: None,
             })
             .unwrap(),
         );
@@ -1025,7 +1022,6 @@ mod tests {
                 platform: canonical_platform_name(host).to_owned(),
                 runtime_contract_version: Some(CHROMIUM_RUNTIME_CONTRACT_VERSION),
                 user_data_dir: directory.to_string_lossy().into_owned(),
-                performance_telemetry_path: None,
             })
             .unwrap(),
         );
@@ -1091,7 +1087,6 @@ mod tests {
             build_commit: Some("abcdef".to_owned()),
             packaged: None,
             runtime_contract_version: Some(CHROMIUM_RUNTIME_CONTRACT_VERSION),
-            performance_telemetry_path: None,
             startup_backup_label: Some("electron-chromium".to_owned()),
         }
         .into_attested_core_options(
@@ -1120,7 +1115,6 @@ mod tests {
                 build_commit: None,
                 packaged: None,
                 runtime_contract_version,
-                performance_telemetry_path: None,
                 startup_backup_label: None,
             }
         }

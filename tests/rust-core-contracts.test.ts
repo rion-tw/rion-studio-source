@@ -480,14 +480,14 @@ describe("direct Rust core build verification", () => {
   });
 
   it("does not generate the retired addon latency contract", async () => {
-    const [model, telemetry, generated] = await Promise.all([
+    const [model, generated] = await Promise.all([
       readFile("crates/rion-core/src/model/mod.rs", "utf8"),
-      readFile("crates/rion-core/src/telemetry.rs", "utf8"),
-      readFile("src/shared/generated/PerformanceTelemetryRecord.ts", "utf8")
+      readFile("src/shared/generated/index.ts", "utf8")
     ]);
-    for (const source of [model, telemetry, generated]) {
+    for (const source of [model, generated]) {
       expect(source).not.toContain("NapiLatency");
       expect(source).not.toContain("record_napi");
+      expect(source).not.toContain("PerformanceTelemetryRecord");
     }
   });
 });

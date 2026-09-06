@@ -229,7 +229,6 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
         platform: "win32".to_owned(),
         runtime_contract_version: Some(23),
         user_data_dir: directory.path().to_string_lossy().into_owned(),
-        performance_telemetry_path: None,
     })
     .unwrap());
     let restored = restarted

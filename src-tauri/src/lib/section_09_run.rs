@@ -76,7 +76,6 @@ pub fn run() {
                         system_runtime::SYSTEM_RUNTIME_CONTRACT_VERSION,
                     ),
                     user_data_dir: user_data_dir.to_string_lossy().into_owned(),
-                    performance_telemetry_path: None,
                 },
                 "tauri-stable",
             ) {

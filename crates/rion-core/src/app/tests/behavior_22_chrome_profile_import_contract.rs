@@ -71,7 +71,6 @@ fn restart_chromium_import_core(
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(runtime_contract_version),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap(),
     );

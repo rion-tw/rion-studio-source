@@ -38,7 +38,6 @@ import type { ManagedShortcutSurfaceRetirementReceiptRecord } from "./ManagedSho
 import type { MacroRunStatus } from "./MacroRunStatus";
 import type { MacroSettingsRecord } from "./MacroSettingsRecord";
 import type { OperationCancelResultRecord } from "./OperationCancelResultRecord";
-import type { PerformanceTelemetryRecord } from "./PerformanceTelemetryRecord";
 import type { PortableExportResultRecord } from "./PortableExportResultRecord";
 import type { PortableImportPreviewRecord } from "./PortableImportPreviewRecord";
 import type { PortableImportResultRecord } from "./PortableImportResultRecord";
@@ -207,7 +206,6 @@ type TypedCoreCommandResultMap = {
   logsQuery: LogPageRecord;
   logsStatus: LogStorageStatusRecord;
   diagnosticsExport: DiagnosticExportResultRecord;
-  telemetrySnapshot: PerformanceTelemetryRecord;
   overlayRequest: MacroOverlayViewModelRecord;
   windowsGraphicsEventsCollect: WindowsGraphicsEventCollectionRecord;
 };

@@ -25,7 +25,6 @@ interface NativeAppCoreOptions {
   buildCommit?: string;
   packaged?: boolean;
   runtimeContractVersion?: number;
-  performanceTelemetryPath?: string;
   startupBackupLabel?: string;
 }
 

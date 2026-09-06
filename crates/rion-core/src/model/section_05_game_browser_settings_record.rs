@@ -577,42 +577,6 @@ pub struct DiagnosticExportResultRecord {
     pub log_file_count: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum TelemetryMetric {
-    IpcCommand,
-    MacroScheduleToDispatch,
-    TabActivation,
-    WorkspaceLaunch,
-    MainEventLoopDelay,
-    RendererRaf,
-    Cdp,
-    CoreEventBatch,
-    BrowserResult,
-    ProcessLaunch,
-    ScheduledWait,
-    LayoutPass,
-    RuntimePublish,
-    MenuRefresh,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct TelemetrySampleRecord {
-    pub metric: TelemetryMetric,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub duration_ms: Option<f64>,
-    #[serde(default = "default_telemetry_count")]
-    pub count: u32,
-}
-
-fn default_telemetry_count() -> u32 {
-    1
-}
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -621,44 +585,4 @@ pub struct LatencySummaryRecord {
     pub p50_ms: f64,
     pub p95_ms: f64,
     pub sample_count: u32,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct CountedLatencySummaryRecord {
-    #[ts(type = "number")]
-    pub message_count: u64,
-    #[serde(flatten)]
-    #[ts(flatten)]
-    pub latency: LatencySummaryRecord,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct PerformanceTelemetryRecord {
-    #[ts(type = "number")]
-    pub browser_result_count: u64,
-    pub cdp: CountedLatencySummaryRecord,
-    #[ts(type = "number")]
-    pub core_event_batch_count: u64,
-    pub ipc_command: LatencySummaryRecord,
-    #[ts(type = "number")]
-    pub layout_pass_count: u64,
-    pub macro_schedule_to_dispatch: LatencySummaryRecord,
-    pub main_event_loop_delay: LatencySummaryRecord,
-    #[ts(type = "number")]
-    pub menu_refresh_count: u64,
-    pub core_effects: CoreEffectMetricsRecord,
-    #[ts(type = "number")]
-    pub process_launch_count: u64,
-    pub renderer_raf: LatencySummaryRecord,
-    #[ts(type = "number")]
-    pub scheduled_wait_count: u64,
-    pub started_at: String,
-    pub tab_activation: LatencySummaryRecord,
-    #[ts(type = "number")]
-    pub runtime_publish_count: u64,
-    pub workspace_launch: LatencySummaryRecord,
 }

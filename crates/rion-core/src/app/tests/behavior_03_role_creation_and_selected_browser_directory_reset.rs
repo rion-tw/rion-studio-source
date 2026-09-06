@@ -507,7 +507,6 @@ fn v23_role_browser_data_clear_atomically_commits_explicit_reset_evidence() {
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(23),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap(),
     );
@@ -604,7 +603,6 @@ fn v23_role_browser_data_clear_rejects_unfenced_receipt_and_restores_source() {
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(23),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap(),
     );

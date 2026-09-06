@@ -10,7 +10,6 @@ fn migration_gate_options(
         platform: platform.to_owned(),
         runtime_contract_version: Some(runtime_contract_version),
         user_data_dir: directory.to_string_lossy().into_owned(),
-        performance_telemetry_path: None,
     }
 }
 

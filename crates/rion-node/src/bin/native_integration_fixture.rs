@@ -44,7 +44,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         build_commit: None,
         packaged: false,
         runtime_contract_version: Some(22),
-        performance_telemetry_path: None,
     })?;
     let seeded = seed_exported_migration(&core, migration_platform, source_engine, source_evidence);
     core.shutdown();

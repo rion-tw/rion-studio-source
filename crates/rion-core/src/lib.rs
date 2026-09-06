@@ -33,7 +33,6 @@ mod session_import;
 mod session_migration;
 mod session_transfer;
 mod system_fonts;
-mod telemetry;
 mod v23_role_initialization;
 mod windows_graphics_events;
 
@@ -85,8 +84,8 @@ pub use model::{
     CoreAppSnapshotRecord, CoreCommand, CoreEffectAction, CoreEffectCancellationReason,
     CoreEffectCancellationRecord, CoreEffectDispatchReport, CoreEffectMetricsRecord,
     CoreEffectRequest, CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind, CoreEvent,
-    CoreStateSnapshotRecord, CountedLatencySummaryRecord, DiagnosticDisplayRecord,
-    DiagnosticExportResultRecord, DisplayFingerprintRecord, DisplayInfoRecord, DisplayTargetRecord,
+    CoreStateSnapshotRecord, DiagnosticDisplayRecord, DiagnosticExportResultRecord,
+    DisplayFingerprintRecord, DisplayInfoRecord, DisplayTargetRecord,
     DisplayTopologySnapshotRecord, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
     EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
     EmbeddedRoleReloadFenceRecord, EmbeddedRoleReloadNativeReceiptRecord,
@@ -120,9 +119,9 @@ pub use model::{
     MacroStartRequest, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
     MacroUpdateInputRecord, MacroUpdateRequest, ManagedShortcutPhaseReceiptRecord,
     NativeWindowStateRecord, OperationCancelResultRecord, OperationCompletionPolicy,
-    PerformanceTargetStatus, PerformanceTelemetryRecord, PortableDataRecord,
-    PortableDataSelectionRecord, PortableExportResultRecord, PortableGameRecord,
-    PortableGameWindowRecord, PortableImportOperationSummaryRecord, PortableImportOperationsRecord,
+    PerformanceTargetStatus, PortableDataRecord, PortableDataSelectionRecord,
+    PortableExportResultRecord, PortableGameRecord, PortableGameWindowRecord,
+    PortableImportOperationSummaryRecord, PortableImportOperationsRecord,
     PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
     PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
     PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
@@ -148,9 +147,8 @@ pub use model::{
     SystemRuntimeFailureRecord, SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
     SystemRuntimeOperationCompletionScope, SystemRuntimeOperationStatus,
     SystemRuntimeOperationSubsystem, SystemRuntimeOperationSummaryRecord, SystemWebViewIssueReason,
-    SystemWebViewProbeRecord, SystemWebViewRuntimeRegistrationRecord, TelemetryMetric,
-    TelemetrySampleRecord, WebGlCommandBatchingStatus, WebGlExecutionPath,
-    WindowsGraphicsEventCollectionRecord, WindowsGraphicsEventRecord,
+    SystemWebViewProbeRecord, SystemWebViewRuntimeRegistrationRecord, WebGlCommandBatchingStatus,
+    WebGlExecutionPath, WindowsGraphicsEventCollectionRecord, WindowsGraphicsEventRecord,
     WindowsRuntimeWindowPlacementEventRecord, WindowsRuntimeWindowPlacementReceiptRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceCreateRequest,
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,

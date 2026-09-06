@@ -575,18 +575,6 @@ impl AppCore {
                 runtime.logs.export_jsonl_to(PathBuf::from(&path))?;
                 Ok(json!({ "path": path }))
             }),
-            CoreCommand::TelemetryRecord { sample } => self.with_runtime(|runtime| {
-                runtime.telemetry.record(sample);
-                Ok(json!({ "recorded": true }))
-            }),
-            CoreCommand::TelemetrySnapshot => {
-                let core_effects = self.operation_actor.metrics();
-                self.with_runtime(|runtime| {
-                    runtime.telemetry.record_core_effects(core_effects);
-                    serde_json::to_value(runtime.telemetry.snapshot()?)
-                        .map_err(|error| CoreError::Internal(error.to_string()))
-                })
-            }
             CoreCommand::OverlayLanguageSet { language } => {
                 validate_overlay_language(&language)?;
                 *self.overlay_language.lock().map_err(|_| {

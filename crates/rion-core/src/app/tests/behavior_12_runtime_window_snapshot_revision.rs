@@ -296,7 +296,6 @@ fn runtime_window_snapshot_restores_saved_bounds_and_presentation_after_restart(
         platform: "darwin".to_owned(),
         runtime_contract_version: Some(22),
         user_data_dir: directory.path().to_string_lossy().into_owned(),
-        performance_telemetry_path: None,
     })
     .unwrap();
     let saved = restored

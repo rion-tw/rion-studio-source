@@ -21,3 +21,6 @@ include!("section_15_windows_runtime_placement.rs");
 include!("section_16_runtime_window_zoom.rs");
 include!("section_17_runtime_tab_reload.rs");
 include!("section_18_runtime_window_visibility.rs");
+
+#[cfg(test)]
+mod retired_performance_tests;

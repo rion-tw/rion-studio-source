@@ -341,7 +341,6 @@ use super::*;
                 platform: platform.to_owned(),
                 runtime_contract_version: Some(22),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
-                performance_telemetry_path: None,
             })
             .unwrap();
             let persisted_clean = core
@@ -403,7 +402,6 @@ use super::*;
                 platform: platform.to_owned(),
                 runtime_contract_version: Some(22),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
-                performance_telemetry_path: None,
             })
             .unwrap();
             let persisted_clean = core

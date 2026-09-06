@@ -111,7 +111,6 @@ impl AppCore {
             // independent window snapshot may already have persisted them.
             divider_runtime.gestures.clear();
         }
-        let core_effects = self.operation_actor.metrics();
         let mut instance_lock = self
             .instance_lock
             .lock()
@@ -134,8 +133,6 @@ impl AppCore {
                     .to_owned(),
             })?;
             runtime.scheduler.shutdown();
-            runtime.telemetry.record_core_effects(core_effects);
-            runtime.telemetry.shutdown();
             runtime.logs.shutdown()?;
             runtime.state.shutdown()?;
         }

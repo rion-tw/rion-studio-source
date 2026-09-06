@@ -399,7 +399,6 @@
                 platform: platform.to_owned(),
                 runtime_contract_version: Some(22),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
-                performance_telemetry_path: None,
             };
 
             let first = AppCore::create(options()).unwrap();
@@ -484,7 +483,6 @@
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(22),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap();
         assert_eq!(

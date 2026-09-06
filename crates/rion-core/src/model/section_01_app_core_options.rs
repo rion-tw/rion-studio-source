@@ -16,8 +16,6 @@ pub struct AppCoreOptions {
     pub packaged: bool,
     #[serde(default)]
     pub runtime_contract_version: Option<u32>,
-    #[serde(default)]
-    pub performance_telemetry_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]

@@ -118,7 +118,6 @@ struct Runtime {
     state: StateDatabaseWorker,
     logs: LogDatabaseWorker,
     scheduler: MonotonicScheduler,
-    telemetry: crate::telemetry::TelemetryWorker,
 }
 
 #[derive(Clone)]
@@ -472,22 +471,6 @@ impl AppCore {
             ),
         );
         let scheduler = MonotonicScheduler::start()?;
-        let telemetry_path = options
-            .performance_telemetry_path
-            .as_deref()
-            .map(PathBuf::from);
-        let telemetry_path = telemetry_path
-            .map(|path| {
-                if path.is_absolute() {
-                    Ok(path)
-                } else {
-                    std::env::current_dir()
-                        .map(|directory| directory.join(path))
-                        .map_err(|error| CoreError::Platform(error.to_string()))
-                }
-            })
-            .transpose()?;
-        let telemetry = crate::telemetry::TelemetryWorker::start(telemetry_path)?;
         let launch_completion = LaunchCompletionCoordinator::start()?;
         let (browser_action_sender, browser_action_receiver) =
             crate::browser_action_effects::action_queue();
@@ -605,7 +588,6 @@ impl AppCore {
                 state,
                 logs,
                 scheduler,
-                telemetry,
             })),
             runtime_restore_session_mutations:
                 RuntimeRestoreSessionMutationCoordinator::default(),

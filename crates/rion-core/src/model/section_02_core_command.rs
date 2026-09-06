@@ -341,10 +341,6 @@ pub enum CoreCommand {
         path: String,
         snapshot: Box<ApplicationDiagnosticsSnapshotRecord>,
     },
-    TelemetryRecord {
-        sample: TelemetrySampleRecord,
-    },
-    TelemetrySnapshot,
     OverlayRequest {
         #[ts(rename = "roleId")]
         role_id: String,

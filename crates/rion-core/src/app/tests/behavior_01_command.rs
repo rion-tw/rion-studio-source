@@ -60,7 +60,6 @@ use std::{
                 platform: platform.to_owned(),
                 runtime_contract_version: Some(runtime_contract_version),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
-                performance_telemetry_path: None,
             })
             .unwrap(),
         );
@@ -95,7 +94,6 @@ use std::{
                 platform: platform.to_owned(),
                 runtime_contract_version: Some(22),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
-                performance_telemetry_path: None,
             };
             let first = AppCore::create(options()).unwrap();
             let locked = match AppCore::create(options()) {
@@ -132,7 +130,6 @@ use std::{
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(22),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         };
 
         let core = AppCore::create(options()).unwrap();
@@ -189,7 +186,6 @@ use std::{
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(22),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         };
         let stable = AppCore::create(options()).unwrap();
         stable.shutdown();

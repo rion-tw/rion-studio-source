@@ -185,7 +185,6 @@ fn shutdown_without_a_proven_clear_drain_retains_runtime_and_instance_lock() {
         platform: "darwin".to_owned(),
         runtime_contract_version: Some(22),
         user_data_dir: directory.path().to_string_lossy().into_owned(),
-        performance_telemetry_path: None,
     });
     assert!(matches!(
         competing,
@@ -233,7 +232,6 @@ fn shutdown_without_a_proven_clear_drain_retains_runtime_and_instance_lock() {
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(22),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap(),
     );
@@ -363,7 +361,6 @@ fn failed_checked_shutdown_drop_retains_the_instance_lock_until_process_terminat
         platform: "darwin".to_owned(),
         runtime_contract_version: Some(23),
         user_data_dir: directory.path().to_string_lossy().into_owned(),
-        performance_telemetry_path: None,
     };
     let competing = match AppCore::create(options()) {
         Ok(_) => panic!("a dropped unverified Core released its process instance lock"),
@@ -479,7 +476,6 @@ fn timed_out_role_browser_data_clear_stays_quarantined_and_late_result_cannot_co
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(23),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap(),
     );
@@ -580,7 +576,6 @@ fn unverified_native_clear_terminal_retains_quarantine_journal_and_role_lease() 
             platform: "darwin".to_owned(),
             runtime_contract_version: Some(23),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap(),
     );
@@ -694,7 +689,6 @@ fn logical_windows_deferred_timeout_late_result_and_restart_preserve_the_source(
             platform: "win32".to_owned(),
             runtime_contract_version: Some(23),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
-            performance_telemetry_path: None,
         })
         .unwrap(),
     );

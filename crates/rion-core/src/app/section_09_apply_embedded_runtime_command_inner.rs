@@ -355,17 +355,7 @@ impl AppCore {
         }
         let browser_report = self.macro_runtime.dispatch_results(browser_results)?;
         let mut report = self.operation_actor.dispatch_results(operation_results)?;
-        let core_effects = self.operation_actor.metrics();
-        let telemetry = self.with_runtime(|runtime| {
-            runtime.telemetry.record_core_effects(core_effects);
-            Ok(())
-        });
-        if let Err(error) = telemetry
-            && !(self.shutdown_started.load(Ordering::Acquire)
-                && matches!(error, CoreError::ShuttingDown))
-        {
-            return Err(error);
-        }
+
         debug_assert!(browser_report
             .accepted
             .iter()

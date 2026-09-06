@@ -1069,3 +1069,34 @@ required journey outcome. Twelve focused tests, typecheck and E2E coverage
 passed. Native Windows acceptance of the remaining popup sequence is pending;
 passing Escape alone does not establish the full
 `CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017` journey.
+
+### CP-03 / CP-10 Windows Chrome import physical-path correction
+
+Windows native job `101415823077` passed lint but failed three Core Chrome
+import tests with `CHROME_PROFILE_IMPORT_PATH_IDENTITY_MISMATCH`. The failure
+occurs before the import effects: `canonical_role_paths` compared a canonical
+physical root retaining the Windows verbatim prefix with a Chromium wire path
+whose prefix had been removed. `Path::strip_prefix` correctly rejects those
+different lexical representations even when they identify the same directory.
+
+The import contract now constructs its physical target through the shared Role
+browser-directory helper and validates each component against the physical
+canonical root before generating the existing Chromium wire record. It does
+not normalize arbitrary paths to bypass containment checks or remove symlink
+and intermediate-directory checks. A native filesystem regression covers
+canonical-root acceptance and, on Windows, the distinct physical/wire prefixes;
+another test confirms that an intermediate ordinary file remains rejected.
+
+The two focused path tests and two existing matching import-contract tests
+passed locally. Full macOS Rust tests passed 1,640 tests with four ignored;
+Rust formatting and all-target Clippy passed after moving the focused tests to
+a feature-specific child module. Windows acceptance remains pending. Evidence:
+`/tmp/rion-453-windows-native.log`, `/tmp/rion-import-path-focused.log`,
+`/tmp/rion-import-contract-focused.log`, `/tmp/rion-import-path-rust-lint.log`,
+`/tmp/rion-import-path-rust-tests.log`. E2E omission is `lower-layer-covered` by
+the filesystem and import transaction tests, not a waiver of native Windows CI.
+
+Both shell builds subsequently passed (`/tmp/rion-import-path-build.log` and
+`/tmp/rion-import-path-electron-build.log`). The final renderer was restored to
+the pure Electron bundle (36 sources, 3,275,470 bytes). Source hygiene, AI context
+validation and `git diff --check` passed as well.

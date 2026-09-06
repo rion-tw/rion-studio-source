@@ -262,7 +262,7 @@ pub(crate) fn recover_deferred_clear_rollback(
     )))
 }
 
-fn browser_directory(user_data_dir: &Path, role_id: &str) -> PathBuf {
+pub(crate) fn browser_directory(user_data_dir: &Path, role_id: &str) -> PathBuf {
     user_data_dir.join("roles").join(role_id).join("browser")
 }
 

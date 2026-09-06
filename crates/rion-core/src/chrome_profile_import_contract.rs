@@ -1046,8 +1046,12 @@ fn canonical_role_paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RoleP
     }
     let canonical_root =
         fs::canonicalize(user_data_dir).map_err(|error| CoreError::Platform(error.to_string()))?;
+    // Validate physical paths before serializing the Chromium wire path. On
+    // Windows canonical roots retain a verbatim prefix that Chromium omits.
+    let physical_target =
+        crate::role_browser_data::browser_directory(&canonical_root, role_id).join("chromium");
+    validate_path_components(&canonical_root, &physical_target)?;
     let paths = crate::role_browser_data::paths(&canonical_root, role_id)?;
-    validate_path_components(&canonical_root, Path::new(&paths.chromium_user_data_dir))?;
     Ok(paths)
 }
 
@@ -1511,3 +1515,7 @@ fn fresh_receipt_error() -> CoreError {
         "The fresh-process Chrome session verification receipt is invalid.",
     )
 }
+
+#[cfg(test)]
+#[path = "chrome_profile_import_contract/path_identity_tests.rs"]
+mod path_identity_tests;

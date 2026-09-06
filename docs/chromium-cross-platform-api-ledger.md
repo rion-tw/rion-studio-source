@@ -4602,3 +4602,42 @@ trusted input are outside this Windows child-host removal.
 - Local macOS both fresh-process Session cases pass after the diagnostic change.
   Windows still needs execution to reveal the actual response after its leading
   CRLF. No successful apply/verify/rollback is inferred from finding a header.
+
+
+### CP-15 AppKit animation reentry outside the Tao callback lock
+
+- Investigated failed local stable recovery artifact
+  2026-09-06T18-53-23-677Z-darwin instead of retrying its timeout. The captured
+  native sample shows rion_desktop_e2e_control_window calling NSWindow zoom
+  inside Tao handle_user_events. AppKit's animated resize enters a nested run
+  loop; a display-link redraw then reaches Tao handle_nonuser_event and blocks
+  on the same callback mutex on the main thread. Persistence had already emitted
+  its exact receipt (sequence 83); this seed failure is a separate native
+  reentrancy deadlock, before the recovery activation checks.
+- Dispatch the macOS E2E native window control through the existing dispatch2
+  main queue rather than Window::run_on_main_thread's Tao user-event handler.
+  Preserve the same native AppKit entry point, arguments, completion channel
+  and external deadline. Normal correctness still requires its actual response;
+  no animation disabling, timer-driven success or synthetic geometry is added.
+- Windows control dispatch and product runtime modules remain unchanged.
+  This internal-only driver repair is covered by the stable native recovery
+  journey; local Rust and recovery verification are recorded below when terminal.
+- macOS lint:rust and complete test:rust passed (1,643 passed, four ignored),
+  with 23 adjacent source-boundary tests and full hygiene passing. The native
+  desktop-e2e feature build succeeded. Focused stable full-profile execution
+  then completed seed/restart as PASS and force-terminate/crash-restart as
+  EXPECTED_FORCE_TERMINATION, each with exit code zero. Artifact
+  2026-09-06T19-09-24-521Z-darwin binds 17431e59 plus this dirty worktree.
+  This reproduces the previously failing path after the dispatch correction;
+  no timeout was enlarged and no native animation was disabled.
+- The focused report verifies GAME-WINDOWS-TABS-001. It does not certify the
+  entire full profile or the later crash-discard/final-restart recovery phases.
+  Windows and Chromium full-candidate gates remain separate CI requirements.
+- Production Tauri and Electron builds and desktop E2E production isolation
+  passed after restoring production assets. Documentation, coverage manifest
+  and diff checks also passed.
+- CI run 34053406711 at 8387a3c9 subsequently completed both macOS and Windows
+  stable desktop E2E jobs successfully (101540928663 and 101540928675). This
+  supplies paired stable-shell recovery evidence for the persistence receipt
+  correction; it does not certify the pending Chromium jobs or this later
+  AppKit driver change.

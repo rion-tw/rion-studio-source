@@ -1234,21 +1234,21 @@ fn desktop_e2e_apply_native_window_control(
     };
     let raw_window = window.ns_window().map_err(|error| error.to_string())? as usize;
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    window
-        .run_on_main_thread(move || {
-            let succeeded = unsafe {
-                rion_desktop_e2e_control_window(
-                    raw_window as *mut std::ffi::c_void,
-                    action,
-                    f64::from(x),
-                    f64::from(y),
-                    f64::from(width),
-                    f64::from(height),
-                )
-            };
-            let _ = sender.send(succeeded);
-        })
-        .map_err(|error| error.to_string())?;
+    // AppKit zoom can spin a nested run loop and trigger Tao redraw callbacks.
+    // Run outside Tao's user-event handler, which holds its callback mutex.
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        let succeeded = unsafe {
+            rion_desktop_e2e_control_window(
+                raw_window as *mut std::ffi::c_void,
+                action,
+                f64::from(x),
+                f64::from(y),
+                f64::from(width),
+                f64::from(height),
+            )
+        };
+        let _ = sender.send(succeeded);
+    });
     receiver
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
         .map_err(|_| "The AppKit desktop E2E control did not complete.".to_owned())?

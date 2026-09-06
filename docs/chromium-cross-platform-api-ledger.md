@@ -1703,3 +1703,12 @@ report locally passes the corrected topology and lifecycle checks and reaches
 the native upload path check, which correctly differs after downloading Windows
 artifacts to a macOS path. This replay is not a Windows E2E pass; a new native
 run remains required for WORKSPACE-WEB-FULLSCREEN-017 and POPUP-012.
+
+A second replay copied the downloaded phase to a separate temporary directory
+and changed only the upload fixture's recorded path to its relocated local path.
+The complete runtime validator then passed: four contained-fullscreen
+transitions, exact popup parent retirement, geolocation/download denial and
+native file-upload bytes/hash evidence. The original downloaded artifacts were
+not modified. `/tmp/rion-b22-popup-validator-replay.json` records both paths,
+scope and result. This verifies the full corrected validator against the captured
+Windows seed evidence; it does not claim a new Windows run or restart pass.

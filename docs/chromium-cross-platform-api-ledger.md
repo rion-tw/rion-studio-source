@@ -1742,3 +1742,43 @@ polling, delay or debug minimize command was added. macOS Rust formatting/Clippy
 and all 1,640 tests passed (zero failures, four ignored), as did source hygiene
 and diff checks. Logs use `/tmp/rion-win-minimize-*`. This is `internal-only`
 E2E instrumentation; the stable Windows cross-domain profile must still rerun.
+
+### AppKit layout projection supersession during role launch
+
+macOS run `34013275719` failed in `chromium-tabs-visible-seed` with an AppKit
+projection error. Core flow entries 287–300 show layout event adapter sequence
+3 and topology revision 11, then role ownership completion before its projection
+effect executes. The terminal receipt reports current revision 13. Evidence:
+`/tmp/rion-b22-mac-package.log` and
+`/tmp/rion-b22-mac-artifacts/2026-09-06T05-10-26-320Z-darwin/phases/chromium-tabs-visible-seed/electron-core-flow-observations.json`.
+
+Electron now distinguishes a strictly older topology revision on an otherwise
+exact live AppKit host from invalid identity/generation/adapter-sequence errors.
+Core uses its existing Superseded terminal status only for a non-committing
+Layout event when its own snapshot independently proves the projected windows
+remain in the same generation, none regressed, and at least one advanced.
+Native application stays false. Other errors retain failure/degraded behavior;
+no stale projection is applied and no timer or retry is added. Projection
+completion moved to `section_16_appkit_projection.rs` to preserve source limits.
+
+Eleven focused TypeScript tests and the Rust same-generation supersession
+regression passed. The latter exercises unchanged Core revisions, advancing
+same-generation state and replaced generations through the real effect-result
+boundary. Full macOS Rust validation passed 1,641 tests, zero failures and four
+ignored; formatting/Clippy, typecheck, lint, source hygiene, E2E coverage and
+Electron production build passed. Logs use `/tmp/rion-appkit-supersede-*`.
+Actual macOS TABS-VISIBLE-ACTIVATION-019 / GAME-WINDOWS-TABS-020 and Windows
+validation remain required; passing unit evidence does not close those gates.
+
+### Extended Windows F11 matrix received
+
+Run `34013552237` passed the native probe step and uploaded all 72 observations
+at `/tmp/rion-113-win-input/chromium-shortcuts-win32.json`. In all four surfaces,
+focus transfer/hiding yields no native command at release on the other host,
+but one command after returning and sending an additional otherwise uncaptured
+key-up. Registration retirement yields no subsequent native command. The
+before-input candidate yields no command in those lifecycle cases; Menu already
+emits at key-down before the transition. These results reject direct candidate
+equivalence and expose retained native captured-down state across focus changes.
+CP-07 remains open for that focus-boundary correction and confirmation; the
+probe pass is not a production replacement approval.

@@ -740,3 +740,62 @@ fn appkit_projection_quarantine_teardown_failure_is_indeterminate_and_keeps_wind
         .contains_key(window_id));
     core.shutdown();
 }
+
+#[test]
+fn appkit_layout_supersession_requires_a_newer_same_generation_core_projection() {
+    for (advance, replace_generation) in [(false, false), (true, false), (true, true)] {
+        let (_directory, core) = core_for_runtime_contract("darwin", 23);
+        let window_id = "appkit-layout-superseded";
+        launch_single_appkit_projection_tab(Arc::clone(&core), window_id);
+        let event = current_appkit_layout_event(&core, window_id);
+        let (result, _, _) = drive_async_command_with(
+            Arc::clone(&core),
+            CoreCommand::BrowserAppKitRuntimeEvent { event },
+            |effect| {
+                if matches!(&effect.action, CoreEffectAction::EmbeddedApplyAppKitProjection { .. }) {
+                    if advance {
+                        let snapshot = core.browser_runtime.snapshot().unwrap();
+                        let window = snapshot.windows.get(window_id).unwrap();
+                        core.apply_runtime_intent(crate::RuntimeIntent::CommitTopology(
+                            crate::RuntimeTopologyCommitInput {
+                                commit_id: "newer-layout-owner".to_owned(),
+                                source: "command".to_owned(),
+                                primary_window_id: window_id.to_owned(),
+                                windows: vec![crate::RuntimeWindowTopologyCommit {
+                                    active_tab_id: window.selected_tab_id.clone(),
+                                    hidden_tab_ids: window.hidden_tab_ids.clone(),
+                                    tabs: window.tabs.clone(),
+                                    ui_sequence: window.ui_sequence + 1,
+                                    window_generation: window.window_generation + u64::from(replace_generation),
+                                    window_id: window_id.to_owned(),
+                                }],
+                            },
+                        )).unwrap();
+                    }
+                    CoreEffectResult {
+                        effect_id: effect.effect_id,
+                        operation_id: effect.operation_id,
+                        ok: false,
+                        value_json: None,
+                        error: Some(CoreErrorPayload {
+                            code: "ELECTRON_MACOS_APPKIT_PROJECTION_SUPERSEDED".to_owned(),
+                            message: "Exact projection was superseded before application.".to_owned(),
+                        }),
+                    }
+                } else {
+                    effect_result(effect, None)
+                }
+            },
+        );
+        let receipt: crate::model::AppKitRuntimeEventReceiptRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(receipt.status, if advance && !replace_generation {
+            crate::model::SystemRuntimeOperationStatus::Superseded
+        } else {
+            crate::model::SystemRuntimeOperationStatus::Failed
+        });
+        assert!(!receipt.native_applied);
+        assert!(!receipt.topology_committed);
+        core.shutdown();
+    }
+}

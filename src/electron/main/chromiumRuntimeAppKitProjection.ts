@@ -146,12 +146,17 @@ export async function applyChromiumRuntimeAppKitProjection(
       window.host.appKitIdentity.nativeGeneration !==
         windowProjection.identity.nativeGeneration ||
       windowProjection.windowGeneration !== window.windowGeneration ||
-      windowProjection.topologyRevision < window.topologyRevision ||
       windowProjection.adapterSequence <= window.lastAdapterSequence
     ) {
       throw runtimeError(
         "ELECTRON_MACOS_APPKIT_PROJECTION_STALE",
         "Core supplied a stale AppKit host, window generation, topology revision, or adapter sequence."
+      );
+    }
+    if (windowProjection.topologyRevision < window.topologyRevision) {
+      throw runtimeError(
+        "ELECTRON_MACOS_APPKIT_PROJECTION_SUPERSEDED",
+        "The exact AppKit host already follows a newer Core topology revision."
       );
     }
     const logicalTabIds = windowProjection.logicalTabIds.map((tabId) =>

@@ -26,6 +26,7 @@ include!("app/section_14_session_migration_facade.rs");
 include!("app/section_15_browser_tab_audio_mute.rs");
 include!("app/section_16_chromium_launch_window_context.rs");
 include!("app/section_16_appkit_runtime_events.rs");
+include!("app/section_16_appkit_projection.rs");
 include!("app/section_17_chrome_profile_import_contract.rs");
 include!("app/section_18_global_web_profile.rs");
 include!("app/section_19_runtime_ui_actions.rs");

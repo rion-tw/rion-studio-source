@@ -2408,3 +2408,21 @@ after the terminal-wait update. Final local macOS recovery E2E passes at
 `.desktop-e2e-artifacts/2026-09-06T08-01-03-549Z-darwin/report.json`. Windows
 native verification of the corrected admission remains pending fresh CI.
 Logs: `/tmp/rion-stop-pending-revision-*`.
+
+
+### Follow-up CI admission and Windows stable-shell recovery verification
+
+The pending-presentation stop fix is committed as
+4bd48816f628b508f25890fe07bddd6310894db7. Immutable-ref CI
+[34020983154](https://github.com/rion-tw/rion-studio-source/actions/runs/34020983154)
+has been dispatched; its Windows Chromium cancellation, remaining journeys,
+package and updater results are pending. Final coverage validation and pure
+Electron renderer bundle verification passed before commit.
+
+The preceding CI 34020264959 at 32ff548fd932739530bc10576c18200838b0cfc9
+completed Windows x64 desktop E2E successfully (job 101451414368). This verifies
+the restored-tab essentialReady precondition used by the stable-shell cleanup
+focus journey. It does not verify the later Chromium stop-admission change.
+The separate Windows Chromium package job at that revision failed the gated
+Workspace final-tab absence check documented above. Log:
+`/tmp/rion-32ff-win-tauri.log`.

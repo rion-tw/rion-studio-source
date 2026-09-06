@@ -5002,3 +5002,27 @@ trusted input are outside this Windows child-host removal.
   turn the earlier activation failure green. This diagnostic is not a repair.
 - Exact product correction ae6d8350 remains under CI 34057473299; Windows
   package job 101551885424 is live and macOS package job 101551885432 queued.
+
+
+### CP-15 macOS foreground obstruction identified at 8bb0e38d
+
+- One bounded diagnostic run, report 2026-09-06T20-19-45-450Z-darwin,
+  fails at the same pre-Reload physical destination click. Target PID 25785 is
+  fully launched, regular activation policy, not hidden and not terminated;
+  foreground PID 10663 belongs to macOS UserNotificationCenter. This narrows
+  the external foreground obstruction without assuming the dialog contents.
+- Computer Use refuses access to that system application for safety reasons.
+  No alternate UI route or process termination was used. The owner was asked
+  to handle the system dialog manually. Local native reruns are paused pending
+  that action; independent Windows CI remains active.
+- Replace only this activation-timeout fatalError with bounded stderr and exit
+  1, preserving the failure evidence and preventing this expected test failure
+  from itself causing a Swift crash report. The existing activation deadline
+  and exact foreground admission remain unchanged. The earlier failed runs
+  stay failed, and this does not claim to resolve the existing system dialog.
+- The updated complete Swift driver typechecks. Executing the extracted failure
+  branch with fixture evidence returns exit 1, exact stderr and no crash signal.
+  TypeScript, focused ESLint, source hygiene and 11 adjacent source tests pass.
+  E2E omission is internal-only; no new native run was launched around the known
+  system obstruction. The production Electron rebuild and E2E isolation passed
+  after the diagnostic attempt.

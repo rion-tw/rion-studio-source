@@ -390,7 +390,12 @@ if useAccessibilityAction {
     ]
     let evidenceData = try! JSONSerialization.data(withJSONObject: activationEvidence, options: [.sortedKeys])
     let evidence = String(data: evidenceData, encoding: .utf8)!
-    fatalError("exact Rion application did not become active for the physical click: " + evidence)
+    // A rejected external activation is a test failure, not a Swift crash.
+    // Keep stderr and a nonzero exit without spawning a crash-report dialog.
+    let message = "exact Rion application did not become active for the physical click: " + evidence
+    FileHandle.standardError.write(Data(message.utf8))
+    FileHandle.standardError.write(Data([10]))
+    exit(1)
   }
   for eventType in [
     CGEventType.mouseMoved,

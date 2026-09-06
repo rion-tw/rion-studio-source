@@ -1,3 +1,4 @@
+import { installElectronDesktopE2eViewInputObservationObserver } from "./viewInputObservationObserver";
 import { app, BrowserWindow, ipcMain } from "electron";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
@@ -1618,6 +1619,7 @@ installElectronDesktopE2eNativeAttachmentLifecycleObserver(
   ChromiumViewAttachmentCoordinator.prototype,
   artifactDirectory
 );
+installElectronDesktopE2eViewInputObservationObserver(ChromiumViewAttachmentCoordinator.prototype, artifactDirectory);
 installElectronDesktopE2eTrustedInputObserver();
 installElectronDesktopE2eWorkspaceWebObserver();
 installElectronDesktopE2eNativeWindowControlObserver();

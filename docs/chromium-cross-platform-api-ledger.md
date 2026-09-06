@@ -4192,3 +4192,29 @@ trusted input are outside this Windows child-host removal.
 - At `cbdd80fe`, both stable Tauri desktop CI jobs and macOS native validation
   completed successfully. The Windows native and macOS Chromium package jobs
   were still running when this update was recorded.
+
+
+### CP-08 exact admission evidence for the pending Windows failure
+
+- The E2E entry now wraps the View attachment resolver's observation function.
+  It records the same native sample consumed by admission, including exact View
+  identity, parent foreground/visibility, WebContents focus, bounds and zoom.
+  It neither rereads native state nor changes the returned sample, input owner,
+  exception, delivery mode or product admission rules.
+- The bounded artifact `electron-view-input-observations.json` retains the last
+  256 samples and is written in a microtask after the synchronous input stack.
+  The observer exists only under the E2E entry. Windows acceptance remains open
+  until a native candidate supplies the missing rejection-time evidence.
+- This is `internal-only` instrumentation for existing
+  `CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004` and its retained AppKit counterpart;
+  no journey behavior, required assertion or coverage target changes. Focused
+  observer/host and actual main-bundle tests passed (3 files / 15 tests), along
+  with TypeScript, ESLint, source hygiene and coverage-manifest checks. Product
+  runtime, native imports and shared contracts are unchanged from `07ee2675`.
+- Local macOS `chromium-macos-appkit-smoke --phase=chromium-macro-background-tab`
+  passed (one scenario, 22.9 seconds), with artifacts under
+  `.desktop-e2e-artifacts/2026-09-06T17-40-51-986Z-darwin`. This is one targeted
+  phase, not a rerun of the full 56-phase profile.
+- Production Electron rebuild, E2E production isolation and full hygiene checks
+  passed after the targeted native run. Windows observation execution awaits
+  the next exact candidate; no native Rust sources changed in this update.

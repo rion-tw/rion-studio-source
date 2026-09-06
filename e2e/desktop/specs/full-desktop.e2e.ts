@@ -307,6 +307,14 @@ async function cleanupPersistedEntities(): Promise<void> {
           kind: "saved-window-restore-final-focus-started",
           windowId: gameWindow.id
         }),
+        // Cleanup starts after each restored tab has completed essential setup;
+        // initial window visibility/focus can precede WebView attachment.
+        ...gameWindow.tabs.map((tab) => waitEvent({
+          afterSequence: showAfterSequence,
+          kind: `tab-launch-phase:${tab.id}:essentialReady`,
+          timeoutMs: 55_000,
+          windowId: gameWindow.id
+        })),
         waitEvent({
           afterSequence: showAfterSequence,
           kind: "window-focus-persisted",

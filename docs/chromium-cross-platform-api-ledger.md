@@ -2345,3 +2345,28 @@ The latest Tauri Windows full run at c0e09041 fails later in p1-guard-cleanup
 with mainWindowFocusSuperseded; log `/tmp/rion-c0-win-tauri.log`. The earlier
 be7b28b3 full PASS remains valid at that SHA, but this new focus supersession
 requires investigation and prevents a current-head full acceptance claim.
+
+### Wait for restored-tab essential setup before cleanup takes foreground
+
+The c0e09041 Windows p1-guard-cleanup transcript shows the main-focus request
+accepted at 07:37:59.171, a restored Game Window native focus event at .174,
+and the correct superseded terminal at .195. That restored tab did not reach
+essentialReady until .393. Cleanup had waited for context/visibility and
+final-focus-started, which do not establish completed WebView attachment.
+Evidence: `/tmp/rion-c0-win-tauri-artifacts/2026-09-06T07-28-55-095Z-win32/user-data/app-entity-lifecycle/desktop-e2e/events.ndjson`.
+
+The cleanup fixture now waits for each exact restored tab's existing
+tab-launch-phase:<id>:essentialReady event after its Show action before
+requesting main-window focus and visibly deleting entities. This is an
+internal-only cleanup precondition for APP-FULL-CRUD-001, APP-CRUD-REORDER-002
+and APP-QUIT-GUARD-002. Native focus supersession and product presentation
+behavior remain unchanged; no retry or presentation delay was added.
+
+Validation: typecheck, scoped lint, source hygiene and E2E production isolation
+pass. The local macOS full-profile p1-guard-cleanup and required setup phases
+pass at 028cc461 plus this working diff; report:
+`.desktop-e2e-artifacts/2026-09-06T07-46-48-479Z-darwin/report.json`. Windows
+execution of this precondition remains pending CI; the earlier Windows
+be7b28b3 full PASS is not reused as its verification. Logs:
+`/tmp/rion-cleanup-restore-ready-*`. Separately, macOS Tauri full E2E on
+CI 34019181794 at c0e09041 has completed successfully.

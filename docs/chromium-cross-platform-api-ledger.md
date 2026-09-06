@@ -5119,3 +5119,16 @@ trusted input are outside this Windows child-host removal.
 - Current View gate repair 3a6207c5 still awaits exact-candidate native CI;
   the successful older macOS jobs do not certify the later Reload/validator
   changes. Local macOS native work remains paused for the system dialog.
+
+
+### CP-11 Windows native regression at ae6d8350
+
+- CI 34057473299 native Windows job 101551984690 is SUCCESS. Native
+  integration passes eight files / 15 tests, including two fresh-process
+  Session maintenance cases. Renderer regression passes 440 files / 3,519
+  tests with ten files / 48 tests explicitly skipped; macro-overlay-runtime
+  passes all nine tests, including the exact input-context challenge correction.
+- This complements the same candidate's native controlled Reload phase PASS.
+  The newer shared physical-evidence validator at 3a6207c5 remains under live
+  Windows package job 101554750598; do not transfer its older post-phase
+  failure into a passing complete profile before that run finishes.

@@ -2516,3 +2516,20 @@ replay does not retroactively change the failed CI verdict.
 Validation: all 3,358 Vitest tests, typecheck, lint and complete hygiene pass.
 Logs: `/tmp/rion-recovery-phase-*`. No native imports, shared runtime contracts
 or product code changed; native Rust checks are not repeated for this verifier.
+
+### Concentrate final CI on the corrected recovery verifier
+
+The ordered recovery verifier is committed as
+27deee12689323a5bc45151f874b56939c2eff10 and runs in immutable-ref CI
+[34021561250](https://github.com/rion-tw/rion-studio-source/actions/runs/34021561250).
+Checks, renderer build and Linux sanitizer/concurrency validation have passed;
+Windows Chromium E2E and both platforms' native/desktop/package work remain
+in progress. macOS jobs started after freeing occupied runners.
+
+Superseded runs 34019883290, 34020264959, 34020983154 and 34021272996 were
+explicitly cancelled after their Windows Chromium failures had been inspected
+and their corrections included in the current candidate. All four runs are now
+terminal cancelled; this does not change individual completed job results or
+turn failed aggregate journeys into passes. Existing artifacts and recorded
+commit-specific evidence remain valid only for their stated scope. No current
+candidate job was cancelled or restarted.

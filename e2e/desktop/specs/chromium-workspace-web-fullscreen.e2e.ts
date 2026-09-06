@@ -788,7 +788,21 @@ async function exerciseContainedFullscreen(input: Readonly<{
   });
   expectMainHostGeometryInvariant(before, restoredParent!);
   expect(restoredParent!.topologyRevision)
-    .toBeGreaterThan(popupBefore!.topologyRevision);
+    .toBeGreaterThanOrEqual(popupBefore!.topologyRevision);
+  const userClosed = await waitForPopupLifecycleObservation({
+    action: "nativeClosed",
+    afterSequence: 0,
+    openOperationId: popup.openOperationId,
+    popupId: popup.popupId,
+    windowId: before.windowId
+  });
+  expect(userClosed.observation).toEqual(expect.objectContaining({
+    closeReason: "user",
+    completionScope: "nativeDestroyed",
+    lifecycleTerminal: true,
+    phase: "closed",
+    status: "applied"
+  }));
 
   const popupJournalBaseline = await electronDesktopE2ePopupLifecycleJournal(
     before.windowId

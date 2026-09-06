@@ -5044,3 +5044,30 @@ trusted input are outside this Windows child-host removal.
   101551885424 in CI 34057473299. Local native execution remains paused for
   the owner to handle the protected system notification dialog; no attempt was
   made to bypass Computer Use's denial of that application.
+
+
+### CP-11 Windows Reload accepted at ae6d8350; CP-15 stale evidence gate
+
+- CI 34057473299 Windows package job 101551885424 fails after 28 recorded
+  PASS phases. Report 2026-09-06T20-18-37-756Z-win32 binds
+  ae6d8350a8f8e864baecdc07baf220059b5aaca2 and explicitly passes
+  chromium-controlled-role-reload and chromium-macro-standby-recovery.
+  This supplies Windows native acceptance for the exact DOM challenge repair.
+- The next chromium-macro-cutover-input-recovery spec itself passes, but its
+  post-phase evidence validator throws before appending that phase to report.
+  Do not count it as a passed phase or the profile as complete. The raw failure
+  is Windows physical input did not prove exact foreground and hidden trusted
+  DOM effects at desktopE2eChromiumMacroCutoverEvidence.mjs:120.
+- Source and captured physical probe agree on the mismatch: this validator
+  still requires child-HWND ABI 3, singleWebContentsSurface, exactParent and
+  surfaceVisible fields. The current producer records ownerKind view, exact
+  sibling Views, authenticated foreground/control/hidden/final observations,
+  zoom viewport acknowledgement and trusted DOM receipts. Its dedicated
+  physical-input spec already validates that format and passed in this run.
+- Next repair must align the post-phase validator with the actual View contract,
+  sharing validation where possible, and retain checks for exact identities,
+  sibling focus, hidden presentation, zoom and trusted keyboard/middle-button
+  DOM effects. Merely deleting the physical gate is not acceptable.
+- The independent same-run native API probe records 18 received trusted event
+  scenarios, including hidden/background input with preserved host focus; its
+  declared scope is isolated WebContentsView API behavior, not a Role receipt.

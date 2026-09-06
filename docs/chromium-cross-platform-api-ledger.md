@@ -1712,3 +1712,33 @@ native file-upload bytes/hash evidence. The original downloaded artifacts were
 not modified. `/tmp/rion-b22-popup-validator-replay.json` records both paths,
 scope and result. This verifies the full corrected validator against the captured
 Windows seed evidence; it does not claim a new Windows run or restart pass.
+
+### First Windows F11 results and stable-shell pointer evidence
+
+Run `34013275719` passed its Windows native Electron probe step. The 36-case
+F11 report is `/tmp/rion-b22-win-input/chromium-shortcuts-win32.json`. All 12
+native-hook cases emitted once after release and observed no page F11 events.
+The captured-key-up before-input candidate emitted no command in the eight
+plain/repeat cases across all four surfaces: the bounded sample contains downs
+but no key-up callback. Its modifier cases emitted once. Menu emitted before
+release, repeated commands in repeat cases, and exposed two or three trusted
+page events. These observations do not establish equivalent replacement
+semantics. The additional lifecycle matrix is running at source `11369bb7` in
+run `34013552237`; CP-07 remains open until those results are assessed.
+
+The same run's stable Windows full E2E failed in
+`p1-cross-domain-topology-force`: the minimize control rectangle cache was empty.
+The initialization script publishes on DOMContentLoaded, but the native message
+handler is registered only after child WebView creation, so that publication
+can precede the receiver. Evidence: `/tmp/rion-b22-win-tauri.log` and downloaded
+`/tmp/rion-b22-win-tauri-artifacts/2026-09-06T05-11-28-094Z-win32/`.
+
+The test-only minimize locator now uses the existing exact WebView2 element
+rectangle callback used by tab pointer targeting. It reads the visible button
+on demand, converts through the exact controller/HWND/DPI path, and preserves
+the real SendInput action and pointer terminal receipt. The redundant startup
+rectangle cache, publication and conversion implementation were removed. No
+polling, delay or debug minimize command was added. macOS Rust formatting/Clippy
+and all 1,640 tests passed (zero failures, four ignored), as did source hygiene
+and diff checks. Logs use `/tmp/rion-win-minimize-*`. This is `internal-only`
+E2E instrumentation; the stable Windows cross-domain profile must still rerun.

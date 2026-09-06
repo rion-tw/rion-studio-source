@@ -80,7 +80,7 @@ export async function readWindowsRuntimeTabLoadingEvidence(input: Readonly<{
     throw new Error("Native loading observation requires exact Windows process and tab name");
   }
   const controlName = `Stop and close ${input.tabName}`;
-  const loadingName = `${input.tabName} loading`;
+  const loadingName = `Activate ${input.tabName}, loading`;
   const output = await port.run(accessibility + String.raw`
 $processCondition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
@@ -95,7 +95,10 @@ foreach ($window in @($root.FindAll(
   $buttons = @(FindCloseButton $window)
   $loadingCandidates = @($window.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants, $loadingCondition))
-  $loading = @($loadingCandidates | Where-Object { -not $_.Current.IsOffscreen })
+  $loading = @($loadingCandidates | Where-Object {
+    $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+    $_.Current.IsEnabled -and -not $_.Current.IsOffscreen
+  })
   $observations += @{
     nativeHandle = [string]$window.Current.NativeWindowHandle
     closeCount = $buttons.Count

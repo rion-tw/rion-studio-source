@@ -49,7 +49,7 @@ describe("Windows pending-navigation native tab close", () => {
 describe("Windows gated tab loading observation", () => {
   const input = { processId: 512, tabName: "Workspace" };
   const receipt = {
-    nativeHandle: "123456", controlName: "Stop and close Workspace", loadingName: "Workspace loading"
+    nativeHandle: "123456", controlName: "Stop and close Workspace", loadingName: "Activate Workspace, loading"
   };
 
   it("binds the visible loading control to its exact process and native host", async () => {

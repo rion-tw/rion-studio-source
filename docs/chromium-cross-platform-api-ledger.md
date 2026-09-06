@@ -1978,3 +1978,49 @@ outcome was weakened. The exact Windows tree behavior remains pending execution.
 Local evidence: `/tmp/rion-loading-ax-probe.log`, `/tmp/rion-loading-scope-*`;
 15 focused helper tests, typecheck, lint, source hygiene and coverage pass.
 The E2E requirement remains CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024.
+
+### Immediate shortcut configuration and native-accessible loading state
+
+The Windows `8c0ba441` multirole artifact timestamps the held-key macro creation
+at 05:38:05.673 UTC and physical Digit6 submission at 05:38:05.753 UTC. The
+shared overlay worker coalesced StateChanged together with badge/status changes
+for up to 250 ms. Configuration now bypasses that presentation coalescing on its
+exact StateChanged event; status-only changes retain the existing rate limit.
+The native page refresh is still asynchronous, so the Windows product outcome
+must be verified rather than inferred from this scheduling correction.
+
+A real worker test establishes an active 60-second presentation interval, sends
+a configuration event and receives the immediate authoritative refresh. Existing
+status-burst coalescing tests also pass. Local macOS `lint:rust` and `test:rust`
+pass (1,642 passed, 4 existing ignored). The unchanged physical trigger sequence
+in MACRO-MULTIROLE-005 passes locally at `d7a0f8f3` plus this working diff,
+06:26:34–06:28:11 UTC, report
+`.desktop-e2e-artifacts/2026-09-06T06-26-34-634Z-darwin/report.json`.
+This focused Tauri result is not Chromium or Windows parity. No test settling
+delay, retry or earlier macro creation replaces the first physical press.
+Logs: `/tmp/rion-macro-urgent-*`.
+
+CI 34016211814's Windows loading diagnostic finds one visible close button but
+zero loading candidates in the entire exact native host. The immediate-parent
+hypothesis is therefore insufficient. The Windows observation does not find the named nested status
+seen in the local Chromium accessibility experiment; it does not by itself prove
+why the platform representations differ. The visible
+activation button now includes `, loading` in its accessible name while the
+existing spinner is present. UIA reads that unique enabled visible button plus
+the close button in the same exact process/host, preserving post-release Core
+identity binding. No visible layout or primary action changes. Affected journey:
+CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024. The native result remains pending.
+Log: `/tmp/rion-d7-win-package.log`.
+
+All 3,324 Vitest tests, typecheck, lint (23 existing warnings), source hygiene and
+coverage pass after the combined changes. Logs: `/tmp/rion-macro-loading-*` and
+`/tmp/rion-loading-button-*`. The older `2aed9690` Windows Tauri full run passes
+multirole but later fails p1-cross-domain-topology-force when the minimize bounds
+ExecuteScript completion is not observed; this remains a separate investigation,
+not evidence that all Windows macro or topology gates pass.
+
+Pure Electron build and renderer-isolation verification pass after the focused
+Tauri run. The older macOS package job 101436911578 passes previous-version
+fixture construction and subsequently fails its updater transaction probe with
+`kill EPERM`. This moves past the prior missing offline cache failure but does
+not complete CP-16. Evidence: `/tmp/rion-edc-mac-package.log`.

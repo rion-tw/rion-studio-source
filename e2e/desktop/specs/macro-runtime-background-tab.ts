@@ -237,6 +237,8 @@ export async function verifyWorkspaceHeldKeyContinuity(input: {
   tab: { id: string; windowId: string };
   windowGeneration: number;
 }): Promise<void> {
+  // Create after the Role surfaces are live: shortcut configuration must not wait
+  // for badge presentation coalescing. Keep the first physical press delay-free.
   const heldMacro: Macro = await rendererCall("createMacro", {
     activationMode: "toggle",
     enabled: true,

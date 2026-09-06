@@ -622,7 +622,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Launch a mixed three-slot Workspace containing two Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles with balanced iterations through a visible focus change, then keep a toggle macro's Digit2 held on Role A while focusing and operating Role B and stop it from B without deadlock or lost consumer state."
+      "description": "Launch a mixed three-slot Workspace containing two Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles with balanced iterations through a visible focus change, then create the held-key macro while the Roles are already live and trigger it without a presentation-settling delay. Keep its Digit2 held on Role A while focusing and operating Role B and stop it from B without deadlock or lost consumer state."
     },
     {
       "id": "MACRO-INPUT-RECOVERY-011",
@@ -2114,7 +2114,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create the same mixed Web App and Role Workspace through visible slot-content controls, choose the visible YouTube popular-site menu item, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell in the bundled Windows host. Drag its visible separator with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey and During the gated navigation, exact-process native UI Automation observes the visible loading indicator beside the named tab close control; after release, the same native host is bound to the Core tab. Windows execution retains an independent CI verdict."
+      "description": "Create the same mixed Web App and Role Workspace through visible slot-content controls, choose the visible YouTube popular-site menu item, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell in the bundled Windows host. Drag its visible separator with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey and During the gated navigation, exact-process native UI Automation observes the visible activation button exposing its loading state alongside the named tab close control; after release, the same native host is bound to the Core tab. Windows execution retains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017",

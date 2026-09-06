@@ -271,7 +271,13 @@ impl OverlayRefreshRuntime {
                 if ready_sender.send(Ok(())).is_err() {
                     return;
                 }
-                run_refresh_worker(core_events, control_receiver, invalidation_receiver, events);
+                run_refresh_worker(
+                    core_events,
+                    control_receiver,
+                    invalidation_receiver,
+                    events,
+                    REFRESH_MIN_INTERVAL,
+                );
             })
             .map_err(|error| CoreError::Internal(error.to_string()))?;
         match ready_receiver.recv() {
@@ -327,6 +333,7 @@ struct OverlayProjection {
 #[derive(Default)]
 struct PendingRefresh {
     all: bool,
+    configuration_changed: bool,
     role_ids: HashSet<String>,
 }
 
@@ -337,6 +344,7 @@ impl PendingRefresh {
 
     fn merge(&mut self, change: ProjectionChange) {
         self.all |= change.all;
+        self.configuration_changed |= change.configuration_changed;
         self.role_ids.extend(change.role_ids);
     }
 
@@ -345,6 +353,7 @@ impl PendingRefresh {
         let mut role_ids = self.role_ids.drain().collect::<Vec<_>>();
         role_ids.sort();
         self.all = false;
+        self.configuration_changed = false;
         (all, role_ids)
     }
 }
@@ -352,6 +361,7 @@ impl PendingRefresh {
 #[derive(Default)]
 struct ProjectionChange {
     all: bool,
+    configuration_changed: bool,
     role_ids: HashSet<String>,
 }
 
@@ -360,7 +370,10 @@ impl OverlayProjection {
         let mut change = ProjectionChange::default();
         for event in events {
             match event {
-                CoreEvent::StateChanged { .. } => change.all = true,
+                CoreEvent::StateChanged { .. } => {
+                    change.all = true;
+                    change.configuration_changed = true;
+                }
                 CoreEvent::MacroStatuses { reliable, statuses } => {
                     if *reliable {
                         change.all = true;
@@ -423,11 +436,12 @@ fn run_refresh_worker(
     control: Receiver<()>,
     invalidation: Receiver<Vec<String>>,
     events: EventSink,
+    minimum_interval: Duration,
 ) {
     let mut projection = OverlayProjection::default();
     let mut pending = PendingRefresh::default();
     let mut last_started = Instant::now()
-        .checked_sub(REFRESH_MIN_INTERVAL)
+        .checked_sub(minimum_interval)
         .unwrap_or_else(Instant::now);
 
     loop {
@@ -444,7 +458,13 @@ fn run_refresh_worker(
                 }
             }
         } else {
-            let remaining = REFRESH_MIN_INTERVAL.saturating_sub(last_started.elapsed());
+            // Shortcut configuration is authoritative input state, not a badge animation.
+            // Its exact StateChanged event bypasses presentation coalescing.
+            let remaining = if pending.configuration_changed {
+                Duration::ZERO
+            } else {
+                minimum_interval.saturating_sub(last_started.elapsed())
+            };
             if remaining.is_zero() {
                 flush_refresh(&mut pending, &events);
                 last_started = Instant::now();
@@ -476,11 +496,13 @@ fn explicit_invalidation(role_ids: Vec<String>) -> ProjectionChange {
     if role_ids.is_empty() {
         return ProjectionChange {
             all: true,
+            configuration_changed: false,
             role_ids: HashSet::new(),
         };
     }
     ProjectionChange {
         all: false,
+        configuration_changed: false,
         role_ids: role_ids.into_iter().collect(),
     }
 }
@@ -703,3 +725,7 @@ mod tests {
         runtime.shutdown();
     }
 }
+
+#[cfg(test)]
+#[path = "overlay_configuration_tests.rs"]
+mod configuration_tests;

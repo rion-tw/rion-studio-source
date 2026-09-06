@@ -454,6 +454,7 @@ function render(projection: WindowsRuntimeHostProjection): void {
     const loading = new Set(["activating", "attaching", "loading"])
       .has(tab.phase);
     if (loading) {
+      activate.setAttribute("aria-label", `Activate ${tab.name}, loading`);
       const progress = document.createElement("span");
       progress.className = "runtime-tab-loading";
       progress.dataset.runtimeTabLoading = "";

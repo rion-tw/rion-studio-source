@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows 18 journeys passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS package/updater verified at 26c4fd4b; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -2953,3 +2953,44 @@ Sixteen adjacent toolbar checks, typecheck, scoped lint, source hygiene,
 production E2E isolation and coverage pass. The next immutable candidate also
 includes 08f05dc1's locally verified Macro UI native-readiness correction.
 Checks: `/tmp/rion-toolbar-settings-mode-*`.
+
+
+### Windows toolbar parity passes; route Role Quick Access through native focus
+
+CI 34027029016 at ec0c4fb8 passes 17 Windows phases and 18 aggregate journeys.
+Both fullscreen-toolbar seed/restart and Game Window UI seed/restart pass.
+The complete toolbar evidence includes hidden/revealed/hidden/pinned/hidden,
+exact 2px/40px insets and 38px same-fullscreen height deltas, persisted reverse
+preference and normal exit. This closes the prior toolbar E2E blockers without
+waiving later Windows, hardware or release gates.
+Report: `/tmp/rion-ec0-win-package-artifacts/2026-09-06T10-19-35-713Z-win32/report.json`.
+
+The next phase, quick-access-seed, fails to open the palette from the Role.
+Native observations show its visible HWND lost foreground while the test only
+requires document.hasFocus before WebDriver Ctrl+K. The existing macOS path
+already focuses the exact AppKit host and submits a physical application chord.
+The Windows path now shares the exact HWND/PID foreground and native scan-code
+submission helper with F11; the private helper retains visible Role target
+selection and restores the tracked main renderer afterwards. Ctrl+K uses the
+existing physical modifier/key-up mechanism, adding only the K command mapping.
+The requested window ID comes from the exact native Role inspection.
+
+The page must still receive no K, the palette must actually open, Escape must
+restore the exact source tab, and navigation/persistence checks remain mandatory.
+No production shortcut routing, globalShortcut registration or synthetic DOM
+open event is added. This internal-only E2E correction affects
+CHROMIUM-WINDOWS-QUICK-ACCESS-015 and reuses the F11 preparation path covered by
+CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012. AppKit retains its native adapter.
+Windows execution remains pending. Log: `/tmp/rion-ec0-win-package.log`.
+
+The focused macOS Chromium AppKit Quick Access seed/restart profile passes on
+the working tree, including both entity persistence prerequisites (four passing
+phases). QUICK-ACCESS-015 aggregate evidence passes with the retained native
+AppKit focus and keyboard path. Report:
+`.desktop-e2e-artifacts/2026-09-06T10-31-11-049Z-darwin/report.json`.
+Twenty-eight adjacent input/toolbar/Quick Access checks, typecheck, scoped lint,
+complete hygiene and coverage pass. Checks: `/tmp/rion-quick-access-native-*`.
+This is macOS evidence only; native Windows Ctrl+K still requires the next CI.
+
+Pure Electron production build and production E2E isolation pass after restoring
+the production renderer; documentation validation also passes.

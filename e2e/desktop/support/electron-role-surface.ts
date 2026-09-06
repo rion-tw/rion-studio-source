@@ -475,36 +475,12 @@ export async function submitElectronRoleMiddleButtonPhase(
   });
 }
 
-/** Submits the platform shortcut from the real visible managed Role document. */
-export async function submitElectronRolePageQuickAccessShortcut(
+/** Submits a Windows application chord from the exact visible Role host. */
+async function submitWindowsRolePageShortcut(
   expectedUrl: string,
   mainWindowHandle: string,
-  platform: "macos" | "windows"
-): Promise<void> {
-  await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
-    const button = await $("#qa-target");
-    await button.waitForDisplayed({ timeout: 10_000 });
-    await button.waitForClickable({ timeout: 10_000 });
-    await button.click();
-    await browser.waitUntil(
-      () => browser.execute(() => document.hasFocus()),
-      { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
-    );
-    const modifier = platform === "macos" ? Key.Command : Key.Ctrl;
-    await browser.action("key")
-      .down(modifier)
-      .down("k")
-      .up("k")
-      .up(modifier)
-      .perform();
-  });
-}
-
-/** Sends native Windows F11 input through the retained foreground hook. */
-export async function submitElectronRolePageFullscreenShortcut(
-  expectedUrl: string,
-  mainWindowHandle: string,
-  windowId: string
+  windowId: string,
+  command: "quickAccess" | "toggleFullscreen"
 ): Promise<void> {
   const { processId } = await electronDesktopE2eProbe();
   const { nativeWindowHandle } = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
@@ -518,11 +494,27 @@ export async function submitElectronRolePageFullscreenShortcut(
       { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
     );
     await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
-    // WebDriver key injection bypasses the Win32 hook that owns F11 routing.
+    // Native input must reach the exact foreground host and its focused Role.
     await pressVisibleWindowsApplicationShortcut({
-      command: "toggleFullscreen", processId, nativeWindowHandle, targetMode: "focused-runtime"
+      command, processId, nativeWindowHandle, targetMode: "focused-runtime"
     });
   });
+}
+
+export async function submitElectronRolePageQuickAccessShortcut(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  windowId: string
+): Promise<void> {
+  await submitWindowsRolePageShortcut(expectedUrl, mainWindowHandle, windowId, "quickAccess");
+}
+
+export async function submitElectronRolePageFullscreenShortcut(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  windowId: string
+): Promise<void> {
+  await submitWindowsRolePageShortcut(expectedUrl, mainWindowHandle, windowId, "toggleFullscreen");
 }
 
 /** Moves the OS pointer across the managed host and Role WebContents boundary. */

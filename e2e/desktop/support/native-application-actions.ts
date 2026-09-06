@@ -162,6 +162,7 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
 
 export type VisibleWindowsApplicationShortcut =
   | "escape"
+  | "quickAccess"
   | "newGameWindow"
   | "toggleFullscreen"
   | "zoomIn"
@@ -627,6 +628,7 @@ $shiftModifier = $false
 switch ($command) {
   'escape' { $key = [byte]0x1B; $modifier = $false }
   'newGameWindow' { $key = [byte]0x4E }
+  'quickAccess' { $key = [byte]0x4B }
   'toggleFullscreen' { $key = [byte]0x7A; $modifier = $false }
   'zoomIn' { $key = [byte]0xBB; $shiftModifier = $true }
   'zoomReset' { $key = [byte]0x30 }

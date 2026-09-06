@@ -1842,7 +1842,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Open Quick Access from the visible Windows Chromium sidebar and main-window shortcut, prove a blocking dialog rejects it, then submit Ctrl+K in the actual managed Chromium Role page without delivering K to the game. Escape must restore the exact focused Windows source tab while successful navigation retains main-renderer focus; visible pin, recent, restart, unpin, and clear actions prove durable preferences."
+      "description": "Open Quick Access from the visible Windows Chromium sidebar and main-window shortcut, prove a blocking dialog rejects it, then focus the exact Core-fenced native Role HWND and submit physical Ctrl+K without delivering K to the game. Escape must restore the exact focused Windows source tab while successful navigation retains main-renderer focus; visible pin, recent, restart, unpin, and clear actions prove durable preferences."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-QUIT-GUARD-014",

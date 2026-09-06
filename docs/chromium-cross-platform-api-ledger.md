@@ -1856,3 +1856,12 @@ an exact page configuration-application receipt tying the new macro to that
 physical press, so a missed refresh remains a hypothesis, not a proven cause.
 Evidence: `/tmp/rion-8c0-win-tauri-artifacts/2026-09-06T05-30-37-422Z-win32/user-data/p1-macro-multirole/desktop-e2e/events.ndjson`
 and `/tmp/rion-8c0-win-tauri.log`. No delay or bypass was introduced to hide it.
+
+The local paired AppKit run subsequently passed both seed and restart at clean
+`edc757d0`, 05:55:47–05:57:05 UTC. Report:
+`.desktop-e2e-artifacts/2026-09-06T05-55-47-538Z-darwin/report.json`.
+TABS-VISIBLE-ACTIVATION-019, GAME-WINDOWS-TABS-020,
+RUNTIME-LAUNCH-DESTINATIONS-008 and RUNTIME-TAB-TOPOLOGY-009 all report PASS
+for the macOS Chromium profile. This closes the focused macOS regression
+verification of the layout-supersession correction, not the remaining whole
+profile, Windows, hardware or packaged-release gates.

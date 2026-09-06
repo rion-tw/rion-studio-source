@@ -79,17 +79,6 @@ impl AppCore {
                     "The committed Windows placement lost its logical window snapshot.",
                 )
             })?;
-        let saved = app
-            .state
-            .game_windows
-            .iter()
-            .find(|window| window.id == event.window_id)
-            .ok_or_else(|| {
-                windows_runtime_placement_error(
-                    "WINDOWS_RUNTIME_PLACEMENT_SAVED_WINDOW_MISSING",
-                    "The committed Windows placement has no saved Game Window.",
-                )
-            })?;
         if logical.window_generation != event.window_generation
             || logical.revision != committed_revision
             || logical.presentation.as_deref()
@@ -100,6 +89,12 @@ impl AppCore {
                 "The Windows placement changed before its exact persistence snapshot.",
             ));
         }
+        // Like other runtime UI actions, placement of an unsaved live window
+        // updates Core topology without creating a saved Game Window definition.
+        let Some(saved) = app.state.game_windows.iter()
+            .find(|window| window.id == event.window_id) else {
+                return Ok("notRequired".to_owned());
+            };
         let batch = self.commit_runtime_window_snapshot_batch_inner(vec![
             crate::model::GameWindowRuntimeSnapshotCommitInputRecord {
                 snapshot: logical.clone(),
@@ -206,7 +201,7 @@ impl AppCore {
         );
         match (persistence, projection) {
             (Ok(persistence_status), Ok(_)) => {
-                let status = if persistence_status == "applied" {
+                let status = if matches!(persistence_status.as_str(), "applied" | "notRequired") {
                     "applied"
                 } else {
                     "superseded"

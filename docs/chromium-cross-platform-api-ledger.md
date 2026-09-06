@@ -2575,3 +2575,37 @@ CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013. Their latest exact-candidate native
 verification remains pending; this copy-only follow-up does not restart the
 live functional CI 34022067330 at 26c4fd4b. Logs:
 `/tmp/rion-retired-preference-copy-*`.
+
+### Windows placement respects unsaved runtime-window ownership
+
+The Windows fullscreen seed screenshot at 27deee12 also contains a product
+error toast. Native logs identify WINDOWS_RUNTIME_PLACEMENT_SAVED_WINDOW_MISSING;
+Core flow shows placement command 62 during launch of a live Role window that
+has no saved Game Window definition. The Windows placement writer incorrectly
+required every live window to already be saved. Existing Core runtime UI
+persistence deliberately skips unsaved definitions, so a new Role window is
+not a persistence failure. Evidence: `/tmp/rion-27d-win-package-artifacts/2026-09-06T08-21-52-165Z-win32/phases/chromium-fullscreen-toolbar-seed`.
+
+Core now validates the exact logical generation/revision and commits placement
+and native projection for both saved and unsaved windows. Saved definitions
+still require the exact durable receipt. Unsaved definitions return the explicit
+persistenceStatus notRequired, create no saved Game Window, and can report
+applied only after Core projection succeeds. The generated contract comes from
+Rust. Both Electron receipt consumers retain their identity, revision, native
+and display checks and accept that explicit Core-owned outcome; no shell-side
+inference, retry or timer is introduced. Stable Tauri and retained AppKit paths
+are unchanged; this follows their existing shared Core saved-definition policy.
+
+Four focused Core tests cover saved persistence, unsaved placement without a
+saved definition, stale fences and failed projection. The Electron test now
+executes the actual placement-target consumer for both applied and notRequired
+receipts, including exact native/display readback. macOS Rust lint and all
+1,643 native Rust tests pass (four existing ignored). Affected journeys include
+CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012 and Windows window/display recovery.
+E2E omission reason is lower-layer-covered: the new saved/unsaved receipt branch
+is exercised through real Core command/effect dispatch and the real Electron
+target consumer. Windows native/fullscreen execution of this exact revision
+remains pending CI; the previous screenshot is failure evidence, not a pass.
+Logs: `/tmp/rion-unsaved-placement-*`.
+Final verification also passes all 3,359 Vitest tests, typecheck, lint, complete
+hygiene and pure Electron build after updating both receipt consumers.

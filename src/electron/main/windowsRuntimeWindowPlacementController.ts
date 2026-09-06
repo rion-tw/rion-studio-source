@@ -193,7 +193,8 @@ function exactReceipt(
     receipt.topologyRevision >= event.topologyRevision;
   if (!identityMatches) return false;
   if (receipt.status === "applied") {
-    return receipt.persistenceStatus === "applied" &&
+    return (receipt.persistenceStatus === "applied" ||
+      receipt.persistenceStatus === "notRequired") &&
       receipt.coreProjectionApplied &&
       receipt.topologyRevision > event.topologyRevision &&
       receipt.failureCode === undefined;

@@ -17,7 +17,8 @@ export function commitChromiumRuntimeWindowsPlacementTarget(input: Readonly<{
   const fingerprint = event.targetDisplay.fingerprint;
   if (
     !record || record.host.isDestroyed() || !native || !fingerprint ||
-    receipt.status !== "applied" || receipt.persistenceStatus !== "applied" ||
+    receipt.status !== "applied" ||
+    !["applied", "notRequired"].includes(receipt.persistenceStatus) ||
     !receipt.coreProjectionApplied || receipt.windowId !== event.windowId ||
     receipt.windowGeneration !== event.windowGeneration ||
     receipt.topologyRevision !== record.topologyRevision ||
@@ -28,7 +29,7 @@ export function commitChromiumRuntimeWindowsPlacementTarget(input: Readonly<{
   ) {
     throw new RionBridgeError({
       code: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_TARGET_FENCE_STALE",
-      message: "The durable placement receipt lost its exact Electron runtime target."
+      message: "The Core placement receipt lost its exact Electron runtime target."
     });
   }
   record.hostTarget = Object.freeze({

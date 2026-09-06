@@ -38,7 +38,7 @@ pub struct WindowsRuntimeWindowPlacementReceiptRecord {
     pub topology_revision: u64,
     #[ts(type = "\"applied\" | \"superseded\" | \"degraded\" | \"failed\" | \"indeterminate\"")]
     pub status: String,
-    #[ts(type = "\"applied\" | \"superseded\" | \"failed\"")]
+    #[ts(type = "\"applied\" | \"superseded\" | \"failed\" | \"notRequired\"")]
     pub persistence_status: String,
     pub core_projection_applied: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

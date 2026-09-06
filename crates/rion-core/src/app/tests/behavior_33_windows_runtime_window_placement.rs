@@ -49,10 +49,15 @@ fn windows_runtime_placement_event(
     }
 }
 
-fn seed_saved_windows_runtime_placement(
+fn seed_windows_runtime_placement(
     core: &Arc<AppCore>,
+    saved: bool,
 ) -> crate::RuntimeLiveWindowRecord {
-    let window_id = create_saved_window(core, "Windows placement receipt");
+    let window_id = if saved {
+        create_saved_window(core, "Windows placement receipt")
+    } else {
+        "00000000-0000-4000-8000-000000000335".to_owned()
+    };
     let tab_id = "00000000-0000-4000-8000-000000000334";
     let role_id = "windows-placement-role";
     let mut tab = runtime_ui_test_tab(tab_id, role_id);
@@ -87,7 +92,7 @@ fn seed_saved_windows_runtime_placement(
     core.apply_runtime_intent(crate::RuntimeIntent::InitializeWindowContext(
         crate::RuntimeWindowContextInitializeInput {
             operation_id: "windows-placement-context".to_owned(),
-            persisted_name: Some("Windows placement receipt".to_owned()),
+            persisted_name: saved.then(|| "Windows placement receipt".to_owned()),
             placement: crate::model::GameWindowPlacementRecord {
                 normal_bounds: StatePixelBoundsRecord {
                     x: 40,
@@ -128,7 +133,7 @@ fn windows_native_placement_commits_core_projects_and_persists_exact_revision() 
         registration: chromium_registration("win32", true),
     })
     .unwrap();
-    let window = seed_saved_windows_runtime_placement(&core);
+    let window = seed_windows_runtime_placement(&core, true);
     let event = windows_runtime_placement_event(
         &window,
         "00000000-0000-4000-8000-000000000331",
@@ -182,7 +187,7 @@ fn windows_native_placement_rejects_stale_core_fence_without_persistence_or_proj
         registration: chromium_registration("win32", true),
     })
     .unwrap();
-    let window = seed_saved_windows_runtime_placement(&core);
+    let window = seed_windows_runtime_placement(&core, true);
     let mut event = windows_runtime_placement_event(
         &window,
         "00000000-0000-4000-8000-000000000332",
@@ -215,7 +220,7 @@ fn windows_native_placement_never_reports_applied_when_projection_fails() {
         registration: chromium_registration("win32", true),
     })
     .unwrap();
-    let window = seed_saved_windows_runtime_placement(&core);
+    let window = seed_windows_runtime_placement(&core, true);
     let event = windows_runtime_placement_event(
         &window,
         "00000000-0000-4000-8000-000000000333",
@@ -244,5 +249,33 @@ fn windows_native_placement_never_reports_applied_when_projection_fails() {
         receipt.failure_code.as_deref(),
         Some("WINDOWS_PLACEMENT_PROJECTION_FAILED")
     );
+    core.shutdown();
+}
+
+#[test]
+fn windows_native_placement_of_unsaved_window_does_not_create_saved_definition() {
+    let (_directory, core) = core_for_runtime_contract("win32", 23);
+    core.invoke(CoreCommand::BrowserRuntimeRegister {
+        registration: chromium_registration("win32", true),
+    }).unwrap();
+    let window = seed_windows_runtime_placement(&core, false);
+    let event = windows_runtime_placement_event(
+        &window, "00000000-0000-4000-8000-000000000336", 1, 180,
+    );
+    let (result, _) = drive_command(Arc::clone(&core),
+        CoreCommand::BrowserWindowsRuntimeWindowPlacement { event: event.clone() }, None);
+    let receipt: crate::model::WindowsRuntimeWindowPlacementReceiptRecord =
+        serde_json::from_value(result.unwrap()).unwrap();
+    assert_eq!(receipt.status, "applied", "{receipt:?}");
+    assert_eq!(receipt.persistence_status, "notRequired");
+    assert!(receipt.core_projection_applied);
+    assert!(receipt.failure_code.is_none());
+    let snapshot = core.app_snapshot().unwrap();
+    assert!(!snapshot.state.game_windows.iter().any(|saved| saved.id == event.window_id));
+    let logical = snapshot.logical_windows.iter()
+        .find(|logical| logical.window_id == event.window_id).unwrap();
+    assert_eq!(logical.revision, receipt.topology_revision);
+    let runtime = core.browser_runtime.snapshot().unwrap();
+    assert_eq!(runtime.windows[&event.window_id].placement.as_ref().unwrap().normal_bounds.x, 180);
     core.shutdown();
 }

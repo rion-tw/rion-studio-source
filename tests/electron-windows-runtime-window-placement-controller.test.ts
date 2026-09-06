@@ -2,6 +2,7 @@ import type {
   CoreCommand,
   CoreCommandResult,
   DisplayTopologySnapshotRecord,
+  WindowsRuntimeWindowPlacementEventRecord,
   WindowsRuntimeWindowPlacementReceiptRecord
 } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
@@ -12,6 +13,11 @@ import type {
 } from "../src/electron/main/chromiumRuntimeHostPorts";
 import { WindowsRuntimeWindowPlacementController } from
   "../src/electron/main/windowsRuntimeWindowPlacementController";
+
+import { commitChromiumRuntimeWindowsPlacementTarget } from
+  "../src/electron/main/chromiumRuntimePlacementTarget";
+import type { ChromiumRuntimeWindowRecord } from
+  "../src/electron/main/chromiumRuntimeAppKitProjection";
 
 const windowId = "10000000-0000-4000-8000-000000000001";
 
@@ -77,7 +83,9 @@ function receiptFor(
 }
 
 describe("Windows runtime-window placement controller", () => {
-  it("accepts applied only after exact Core, durable, native, and display readback", async () => {
+  it.each(["applied", "notRequired"] as const)(
+    "accepts %s persistence only after exact Core, native, and display readback",
+    async persistenceStatus => {
     let current = observation();
     const invokeMock = vi.fn(async (command: CoreCommand) => {
       expect(command.type).toBe("browserWindowsRuntimeWindowPlacement");
@@ -86,12 +94,14 @@ describe("Windows runtime-window placement controller", () => {
         { type: "browserWindowsRuntimeWindowPlacement" }
       >;
       current = { ...current, topologyRevision: current.topologyRevision + 1 };
-      return receiptFor(placement);
+      return receiptFor(placement, { persistenceStatus });
     });
     const invoke = <Command extends CoreCommand>(command: Command) =>
       invokeMock(command) as Promise<CoreCommandResult<Command>>;
     const errors = vi.fn();
-    const onApplied = vi.fn();
+    const onApplied = vi.fn((event: WindowsRuntimeWindowPlacementEventRecord,
+      receipt: WindowsRuntimeWindowPlacementReceiptRecord) =>
+      commitChromiumRuntimeWindowsPlacementTarget({ event, receipt, windows }));
     const controller = new WindowsRuntimeWindowPlacementController({
       core: { invoke },
       readDisplayTopology: () => topology(),
@@ -99,6 +109,9 @@ describe("Windows runtime-window placement controller", () => {
       onApplied
     });
     const host = hostFor(() => current);
+    const windows = new Map([[windowId, {
+      host, windowGeneration: 4, topologyRevision: 11, hostTarget: {}
+    } as unknown as ChromiumRuntimeWindowRecord]]);
 
     await controller.observe(host);
     await controller.observe(host);
@@ -128,13 +141,16 @@ describe("Windows runtime-window placement controller", () => {
       status: "applied",
       verified: true,
       receipt: expect.objectContaining({
-        persistenceStatus: "applied",
+        persistenceStatus,
         coreProjectionApplied: true,
         topologyRevision: 11
       })
     })]);
     expect(errors).not.toHaveBeenCalled();
     expect(onApplied).toHaveBeenCalledOnce();
+    expect(windows.get(windowId)?.hostTarget).toMatchObject({
+      displayId: 7, bounds: current.normalBounds, presentation: "normal"
+    });
   });
 
   it("never upgrades a superseded durable receipt to applied", async () => {

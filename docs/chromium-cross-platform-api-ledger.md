@@ -1647,3 +1647,26 @@ tab-close dispatch, the PowerShell F11 input-driver type correction and isolated
 updater toolchain homes. Its renderer build passed and both native, desktop E2E
 and Chromium package jobs are active. No pending Windows or release item is
 closed merely because this new run started.
+
+### CP-07 lifecycle comparison coverage
+
+The isolated F11 probe now adds 36 lifecycle observations to the original 36
+key-cycle observations: each of the four surfaces and three mechanisms is
+exercised with focus transfer before release, hidden original owner before
+release, and registration retirement before release. Native ownership is freshly
+registered for each case; the Chromium candidate resets captured state on
+retirement, and the Menu candidate removes its registration. Every physical
+input insertion still validates the exact foreground HWND and process.
+
+For focus transfer and hiding, the report retains the destination page's trusted
+events and the original owner's event sequence, then returns focus and submits
+an otherwise uncaptured key-up to expose any stale captured-down state. These
+are observations, not assertions that existing native behavior is equivalent
+or correct under a different owner. The bounded observation window does not
+prove indefinite absence. No production shortcut behavior changes.
+
+Node syntax, typecheck, lint (zero errors, 23 existing warnings), source hygiene
+and diff checks passed. The Windows-only native test is explicitly skipped on
+macOS (`/tmp/rion-f11-lifecycle-native.log`); the extended matrix still requires
+Windows execution and is not part of run `34013275719`. This probe-only change
+is `internal-only` for E2E and does not close CP-07.

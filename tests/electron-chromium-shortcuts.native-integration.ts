@@ -32,8 +32,18 @@ it.skipIf(process.platform !== "win32")("compares native F11 key terminality wit
         expect(outcome.pageEvents).toEqual([]);
       }
     }
+    expect(report.lifecycleOutcomes).toHaveLength(36);
+    for (const outcome of report.lifecycleOutcomes) {
+      expect(["focus-transfer", "hidden-owner", "retired-owner"]).toContain(outcome.scenario);
+      expect(outcome.ownerVisibleAtRelease).toBe(outcome.scenario !== "hidden-owner");
+      expect(outcome.events.some((event: { kind: string }) => event.kind === "native-error")).toBe(false);
+      for (const events of [outcome.pageEvents, outcome.destinationPageEvents]) {
+        expect(events.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
+      }
+    }
     // API differences are reported, never converted into replacement parity.
     console.info(JSON.stringify(report.outcomes));
+    console.info(JSON.stringify(report.lifecycleOutcomes));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

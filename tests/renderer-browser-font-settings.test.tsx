@@ -169,6 +169,34 @@ function renderSettings(
 }
 
 describe("browser font settings", () => {
+  it.each([
+    { platform: "darwin", family: "AquaKana" },
+    { platform: "win32", family: "Fixedsys" }
+  ])("preserves a saved $platform font absent from the current provider", async ({ family }) => {
+    const user = userEvent.setup();
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onChange = vi.fn(async (settings) => settings);
+    const settings = normalizeGameBrowserSettings({
+      ...DEFAULT_GAME_BROWSER_SETTINGS,
+      fonts: { ...DEFAULT_GAME_BROWSER_SETTINGS.fonts, mode: "custom", presetId: null,
+        slots: { ...DEFAULT_GAME_BROWSER_SETTINGS.fonts.slots, latin: { source: "system", family } } }
+    });
+    // The current provider contains only Arial; neither legacy selection is enumerated.
+    renderSettings(onChange, settings);
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    const trigger = await screen.findByRole("button", { name: "English & Latin" });
+    expect(trigger.textContent).toContain(family);
+    await user.click(trigger);
+    const option = await screen.findByRole("menuitemradio", { name: `${family} · System` });
+    expect(option.getAttribute("aria-checked")).toBe("true");
+    await user.click(option);
+    expect(trigger.textContent).toContain(family);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("persists the top-level Chinese and Japanese glyph preference", async () => {
     const user = userEvent.setup();
     const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);

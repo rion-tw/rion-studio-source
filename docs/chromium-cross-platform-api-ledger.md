@@ -63,8 +63,8 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | implemented; both native Rust gates passed, Windows Chromium smoke pending | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
-| CP-05 | P1 / Fonts | both API probes passed; complete alias comparison pending | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
-| CP-06 | P1 / Fonts + bridge | conditional | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
+| CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
+| CP-06 | P1 / Fonts + bridge | ready to implement | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | probe | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | retain native submission by API contract; paired acceptance pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
@@ -1482,3 +1482,33 @@ Run `34010684582` now has both complete Tauri desktop profiles and macOS native
 validation passing. Windows Rust also passed and its job reached renderer tests.
 Windows Chromium remains failed as documented; macOS Chromium and Windows
 full native-job terminality are still pending.
+
+### CP-05 adoption decision and saved-selection behavior
+
+Decision: adopt Chromium's canonical local font families for the v23 provider.
+Both native reports prove automatic trusted-owner enumeration, installed CJK
+families, stable reload/shown results and denial outside the exact trusted
+main frame. The old provider's extra filenames, internal names and truncated
+GDI aliases are not an inventory of missing Chromium font families. Reproducing
+that pollution would retain platform maintenance without proving better CSS
+font compatibility. This decision does not assert that every legacy alias is
+renderable or that the operating systems have identical installed fonts.
+
+Fresh renderer behavior tests for explicit darwin/AquaKana and win32/Fixedsys
+cases passed: with a provider containing only Arial, the persisted legacy
+selection remains displayed, checked and selectable, and is not rewritten.
+All 17 browser-font settings tests passed (`/tmp/rion-cp05-saved-font-tests.log`).
+The existing generic choices and selected-name merge remain mandatory.
+
+CP-06 will keep the typed listSystemFonts Promise, Rust normalization, bounded
+cache and fallback; only the v23 enumeration source changes to the authenticated
+app frame's queryLocalFonts. Remote Role/global Web sessions must remain denied.
+The retained v22 provider stays reachable until CP-17. Production permission
+and provider code have not changed yet, so CP-06 and paired FONT-APPLICATION-033
+acceptance are still open. This test-only decision work is `internal-only`.
+
+At `8f474391`, both native validation jobs and both Tauri full desktop jobs are
+now terminal success. macOS Chromium completed its source desktop E2E step and
+is building release artifacts; its package/updater/black-box gate remains live.
+The Windows Chromium failure remains unchanged. Newer local changes still need
+their own Windows validation.

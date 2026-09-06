@@ -4907,3 +4907,21 @@ trusted input are outside this Windows child-host removal.
   unresolved native failure and later input/topology journeys have not run.
 - Local full chromium-macos-appkit-smoke execution started against clean
   01ca1f3b; it is still active and cannot yet support a full-profile PASS.
+
+
+### CP-15 stable full-profile regression and CP-10 native step evidence
+
+- CI 34054386373 job 101543464095 is SUCCESS. Its downloaded macOS report
+  2026-09-06T19-28-30-385Z-darwin/report.json binds ca042c190f9208977fa401e493ab4ffcbe9c7674
+  and profile full: 29 PASS phases and three EXPECTED_FORCE_TERMINATION phases
+  (p1-cross-domain-topology-force, force-terminate, crash-restart). This supplies
+  full stable-shell evidence after the AppKit control dispatch deadlock repair.
+- CI 34055443364 job 101546394151 is SUCCESS. Windows report
+  2026-09-06T19-38-28-719Z-win32/report.json binds 59b405b709a6a0c0d9b80fac52a9e8626326ff62
+  and profile full with the same 29 PASS and three expected termination phases.
+  These version-qualified stable Tauri results do not close Chromium parity.
+- At 526264da, Windows native job 101547293573 now reports SUCCESS for both
+  Test target-platform Rust workspace and Lint and test native Electron startup
+  and compatibility probes. The job itself is still running renderer tests;
+  retain native step success as evidence and inspect its final logs for exact
+  Session apply/verify/rollback coverage before claiming the CP-10 deliverable.

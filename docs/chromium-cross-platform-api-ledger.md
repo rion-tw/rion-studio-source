@@ -5887,3 +5887,56 @@ trusted input are outside this Windows child-host removal.
   profile was executed due the previously documented protected-dialog boundary.
   Paired native CI, especially Windows full topology/restart and the new
   stable Windows persistence observation, remains pending for the new commit.
+
+
+### CP-15 recovery durability waits on committed Core definitions
+
+- Further inspection of b310c06d Windows stable force-terminate evidence shows
+  alpha tab 48611348-6e87-466b-8c85-f70e8698701c is already the active tab in
+  the captured SQLite game_windows record, updated at 23:20:03.033713600Z.
+  All three tabs remain. Native activation terminal 195 arrives later at
+  23:20:03.096145400Z. The failed wait was fenced after 127 and requested
+  the shell-worker-only window-state-persisted event; missing durability is
+  therefore not established by that timeout.
+- Core activation has its own authoritative snapshot commit path through
+  persist_runtime_ui_windows and mutate_state. The shell background worker
+  emits its applied receipt only for its own accepted snapshots; it is not
+  the sole writer of persisted active-tab state. The artifact does not reveal
+  which individual writer produced the observed row, so do not invent a
+  missing worker receipt or classify a superseded snapshot as applied.
+- Recovery activation now subscribes before the visible native action and
+  waits for a post-cursor committed Game Window definition with the exact
+  window ID, active tab and unchanged tab count. It retains native activation
+  completion, page/session evidence, same-generation readback and the later
+  force-termination/restart checks. Both platforms use this same Core event
+  source; no polling, retry, timeout increase or synthetic write is added.
+- Extend the renderer-journal unit test to reject a pre-cursor matching
+  active tab and a post-cursor wrong active tab, then complete only on the
+  matching committed definition. Existing GAME-WINDOWS-TABS-001 and
+  APP-RECOVERY-001 journeys retain their manifest membership. This is
+  internal-only E2E correction; paired native replay remains pending.
+
+
+### CP-16 efbff1c7 identifies the Windows ACL race precisely
+
+- CI 34066500135 Windows native job 101576170068 fails the updater
+  concurrent terminal-receipt publication test at round 27. The preserved
+  source error is DirectoryProtection(Operation("inspect migrated data ACL
+  entry: The system cannot find the file specified. (os error 2)")).
+  Updater totals: 40 passed, one failed, two ignored. This is not the
+  separate Core import-shutdown failure.
+- The error-preservation and bounded concurrency changes have now supplied
+  the previously missing classification: a descendant disappears during
+  migration ACL enumeration/metadata inspection. Inspect that exact boundary
+  before repair; do not broadly suppress permission/reparse/root failures,
+  increase deadlines, or retry publication into success. Keep the native
+  failure and require paired validation of any subsequent platform change.
+
+- Final recovery-event validation: focused renderer journal test passes; all
+  452 Vitest files / 3642 tests pass in 155.89 seconds. TypeScript, ESLint,
+  full hygiene/coverage and Tauri E2E build pass. The production isolation
+  check correctly rejected the E2E renderer output until the Electron
+  production build was restored; the final isolation check passes. No Rust
+  source or contract changed in this batch, so native Rust unit suites were
+  not rerun. Local native UI remains paused; paired desktop CI is required
+  to validate this internal-only E2E correction.

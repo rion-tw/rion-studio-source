@@ -23,6 +23,7 @@ interface CollectionWaitRequest {
 }
 
 interface GameWindowWaitRequest {
+  activeTabId?: string;
   absent?: boolean;
   afterSequence?: number;
   kind: "gameWindow";
@@ -327,6 +328,7 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
           );
           if (waitRequest.absent) return gameWindow === undefined ? entry.value : undefined;
           return gameWindow
+            && (!waitRequest.activeTabId || gameWindow.activeTabId === waitRequest.activeTabId)
             && (waitRequest.tabCount === undefined || gameWindow.tabs.length === waitRequest.tabCount)
             ? entry.value
             : undefined;

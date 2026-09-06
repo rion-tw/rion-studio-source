@@ -110,6 +110,7 @@ describe("desktop E2E renderer event journal", () => {
   it("fans a post-cursor canonical snapshot into every derived projection lane", async () => {
     let emitSnapshot: ((value: AppSnapshot) => void) | undefined;
     const initial = snapshot(1);
+    initial.gameWindows[0]!.activeTabId = TAB_ID;
     const subscribe = () => () => undefined;
     window.rionStudio = {
       onAppSnapshotChanged: (callback: (value: AppSnapshot) => void) => {
@@ -133,7 +134,7 @@ describe("desktop E2E renderer event journal", () => {
     const afterSequence = await rendererEventCursor();
 
     const waits = [
-      waitForGameWindowProjection({ afterSequence, windowId: WINDOW_ID }),
+      waitForGameWindowProjection({ afterSequence, windowId: WINDOW_ID, activeTabId: TAB_ID }),
       waitForMacroProjection({
         afterSequence,
         macroId: "macro-1",
@@ -150,7 +151,16 @@ describe("desktop E2E renderer event journal", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    emitSnapshot?.(snapshot(2));
+    const wrongActiveTab = snapshot(2);
+    wrongActiveTab.gameWindows[0]!.activeTabId = "other-tab";
+    emitSnapshot?.(wrongActiveTab);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    const committed = snapshot(3);
+    committed.gameWindows[0]!.activeTabId = TAB_ID;
+    emitSnapshot?.(committed);
     const [gameWindows, macroStatuses, roleStatuses, runtime] = await Promise.all(waits);
 
     expect(gameWindows.some(({ id }) => id === WINDOW_ID)).toBe(true);

@@ -31,6 +31,7 @@ import { forceTerminateProcessTree } from "../support/process";
 import {
   installRendererEventJournal,
   rendererEventCursor,
+  waitForGameWindowProjection,
   waitForRuntimeProjection
 } from "../support/renderer-events";
 import { waitForTranscriptEvent } from "../support/transcript";
@@ -677,8 +678,10 @@ async function activateRecoveryTab(
   roleName: RecoveryRoleName,
   seededBefore?: boolean
 ): Promise<DesktopE2eWindowSnapshot> {
+  await installRendererEventJournal();
   const before = await windowSnapshot(WINDOW_C);
   const tab = requireRecoveryTab(before, roleName);
+  const persistedCursor = await rendererEventCursor();
   const controlCursor = (await probe()).latestSequence;
   const sessionCursor = seededBefore === undefined ? 0 : await fixtureCursor();
   await runtimeUiAction(WINDOW_C, {
@@ -702,15 +705,15 @@ async function activateRecoveryTab(
     expectRecoverySession(session, roleName, seededBefore);
   }
   expect(ready.kernel?.selectedTabId).toBe(tab.tabId);
-  const persisted = await waitEvent({
+  expect(ready.windowGeneration).toBe(before.windowGeneration);
+  // Core activation may commit directly before the shell persistence worker.
+  // Observe committed definitions independently of which writer supplied them.
+  await waitForGameWindowProjection({
     activeTabId: tab.tabId,
-    afterSequence: controlCursor,
-    kind: "window-state-persisted",
-    minimumGeneration: before.windowGeneration,
-    timeoutMs: 55_000,
+    afterSequence: persistedCursor,
+    tabCount: before.kernel!.tabs.length,
     windowId: WINDOW_C
   });
-  expect(persisted.details).toMatchObject({ activeTabId: tab.tabId, status: "applied" });
   return ready;
 }
 

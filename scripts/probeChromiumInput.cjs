@@ -198,6 +198,13 @@ async function probe() {
       electron: process.versions.electron, chromium: process.versions.chrome,
       scope: "isolated WebContentsView API probe; not a Role/native-adapter receipt", outcomes
     }, null, 2) + "\n");
+  } catch (error) {
+    await writeFile(reportPath, JSON.stringify({ platform: process.platform,
+      electron: process.versions.electron, chromium: process.versions.chrome,
+      scope: "isolated WebContentsView API probe; not a Role/native-adapter receipt",
+      status: "failed", error: error instanceof Error ? error.stack : String(error), outcomes
+    }, null, 2) + "\n");
+    throw error;
   } finally {
     const siblingContents = sibling.webContents;
     if (siblingContents && !siblingContents.isDestroyed()) siblingContents.close();

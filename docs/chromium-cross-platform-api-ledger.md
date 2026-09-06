@@ -3692,3 +3692,15 @@ trusted input are outside this Windows child-host removal.
   its early direct-input step successful, but its raw report was not available
   from the artifact listing at observation time. Do not close the direct-host
   evidence gate until that report or complete native test log is inspected.
+
+- The early probe step uses `continue-on-error`, so its API-reported successful
+  conclusion alone cannot establish its original outcome. The probe now saves
+  partial samples and the exact thrown error before cleanup on failure, in
+  addition to its existing complete success report. This avoids losing viewport
+  acknowledgement failures before the final write. The final CI failure guard
+  still checks the original step outcome.
+- Candidate `b7e843e5`, Windows Chromium job `101501064854`, failed the existing
+  child-host physical probe: parent foreground and visible sibling HWND were
+  observed, but the sibling WebContents/document did not own focus. No hidden
+  product input was submitted. Direct-View replacement remains required work;
+  no focus precondition has been relaxed.

@@ -74,7 +74,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | shared helpers implemented; native release gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS package/updater verified at 522f7d4a; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -2249,3 +2249,42 @@ Windows pointer/dialog acceptance is pending fresh CI; the macOS helper is
 unchanged. Logs: `/tmp/rion-native-file-pointer-*`.
 
 Normal build and restored pure Electron build/isolation also pass for this batch.
+
+### macOS package, updater transaction and native black-box gates passed
+
+CI [34017674641](https://github.com/rion-tw/rion-studio-source/actions/runs/34017674641)
+at 522f7d4ad2440aec214bfcc1a8ef98ee51a278f3 completed the macOS Electron Chromium
+package validation job successfully. Every applicable step passed: retained
+AppKit source E2E, release artifact build, previous-version fixtures, exact
+Electron/Chromium/Core/AppKit ABI, package structure, distribution payloads,
+packaged Rust-owned updater transaction and packaged Role black-box smoke.
+The updater command explicitly verified the real app bundle and signed update
+archive; the job log records its success at 07:29:48 UTC. This confirms the
+Darwin zombie-only cleanup correction in its complete packaged transaction.
+It does not authorize publication or establish Windows installer/update parity.
+
+Source report: 52 PASS phases, 4 EXPECTED_FORCE_TERMINATION phases and all 49
+journeys PASS, 06:54:20–07:09:53 UTC. Report commit is exact, with the expected
+CI fixture worktreeDirty flag. Artifact chromium-shell-e2e-macOS-34017674641-1
+(ID 9984652799), downloaded to `/tmp/rion-522-mac-shell-artifacts`. This also
+confirms the shared-Role placeholder initialization correction on macOS.
+
+The packaged report has verdict passed, version 8.5.0, exitCode 0,
+runtimeTarget chromium-v23-macos-appkit, nativeHostKind appkit-chromium,
+fixtureInteraction visible-os-accessibility-click and remoteDebugging false.
+Its retained native-window screenshot was inspected. Artifact
+packaged-chromium-role-black-box-macOS-34017674641-1 (ID 9984941317); report:
+`/tmp/rion-522-mac-packaged-artifacts/2026-09-06T07-29-50-231Z-faefbbdd-2689-4062-9318-5edfc76f6343-darwin-packaged-black-box/packaged-smoke-report.json`.
+The report pins app.asar SHA-256
+ee51917936d1e37674fa0f80bf7489fb640b170df691ebfbb062bf2b561f3f3b
+and native addon SHA-256
+bdaa1d1ededd40d6f77500a145d57a16ad3a0bfdf35b54bc1534537d8b856b3b.
+Job log: `/tmp/rion-522-mac-package.log`.
+
+Both macOS and Windows native validation and the macOS Tauri full E2E job also
+passed at that SHA. Windows Tauri/Chromium E2E failed as recorded above. Later
+IPC, Windows pointer and Core projection-wakeup changes retain their own fresh
+CI requirement; the package success must not be attributed to current HEAD.
+CP-16 therefore has verified macOS package/update evidence while its Windows
+and owner-locked release gates remain pending. Physical extended-profile
+requirements and CP-17 cutover remain unchanged.

@@ -1434,3 +1434,51 @@ releasing the network gate before close would invalidate this journey.
 Evidence: `/tmp/rion-8f-windows-package.log` and
 `/tmp/rion-8f-win-artifacts/2026-09-06T04-08-47-938Z-win32/report.json`.
 Other jobs remain live; macOS native Rust has passed and entered API probes.
+
+### Windows pending-popup close now uses captured native accessibility identity
+
+The fullscreen journey now reads the exact tab/window DOM identity and visible
+close button name before gating popup navigation, then binds that name to one
+unique native UI Automation control under the exact app PID. It captures the
+parent HWND and revalidates that HWND, PID, visibility and unique enabled control
+before invoking the visible button. No WebDriver target enumeration occurs in
+the pending-navigation close action. The fixture additionally requires the
+gated request's transport-cancelled event before the exact popup terminal
+receipt. The network gate is not released to make the click possible.
+
+Seventeen focused helper and adjacent E2E evidence tests passed, as did
+typecheck, changed-file lint, source hygiene, E2E coverage and desktop isolation.
+Fresh local macOS `chromium-macos-appkit-smoke` entity/fullscreen seed/restart
+passed at dirty `6a9e9163`; evidence is
+`.desktop-e2e-artifacts/2026-09-06T04-24-41-863Z-darwin/report.json`. The pure
+Electron renderer was restored (36 sources, 3,275,470 bytes). Logs use
+`/tmp/rion-win-pending-close-*`. The affected paired journey is
+WORKSPACE-WEB-FULLSCREEN-017; Windows native execution remains pending.
+
+### CP-05 complete native font reports and compatibility interpretation
+
+The `8f474391` macOS native job passed and uploaded its complete font report:
+528 Chromium faces / 180 families versus 3,150 normalized native names. Comparing
+family, fullName and PostScript name leaves 2,485 native names unmatched. All
+but six are dot-prefixed internal names or font filenames ending in .ttc, .ttf,
+.otf or .dfont. The six remaining names are AquaKana, AquaKana-Bold, HelveLTMM,
+HelveticaLTMM, LastResort and TimesLTMM. The report includes public PingFang
+HK/MO/SC/TC, Hiragino and Songti families. Windows includes Microsoft JhengHei
+and Microsoft YaHei (and their UI families); 17 native names remain unmatched.
+
+Both platforms pass automatic enumeration without transient activation, reload
+and shown-window consistency; denied, subframe, navigated and other-owner
+queries return no families. Reports are
+`/tmp/rion-8f-fonts-macos/local-fonts-darwin.json` and
+`/tmp/rion-8f-fonts-windows/local-fonts-win32.json`. A native-name count is not
+a count of CSS-selectable families or evidence of missing Chromium rendering.
+The renderer's `getBrowserSystemFontOptions` already merges persisted selected
+family names with enumeration and generic families, so changing enumeration
+does not inherently delete an existing selection. CP-05/06 must assess that
+actual settings behavior rather than retaining filename/internal-name pollution
+solely to reproduce the old native inventory. No provider has changed yet.
+
+Run `34010684582` now has both complete Tauri desktop profiles and macOS native
+validation passing. Windows Rust also passed and its job reached renderer tests.
+Windows Chromium remains failed as documented; macOS Chromium and Windows
+full native-job terminality are still pending.

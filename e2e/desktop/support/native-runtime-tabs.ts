@@ -1,4 +1,5 @@
 import { MACOS_NATIVE_CHROME_ELEMENTS } from "./macos-native-chrome";
+import { readWindowsRuntimeTabCloseEvidence } from "./windows-runtime-tab-close";
 
 import { $, browser, expect } from "@wdio/globals";
 import { execFile } from "node:child_process";
@@ -456,6 +457,22 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
     await activate.waitForClickable({ timeout: 10_000 });
     await activate.click();
   });
+}
+
+/** Bind the visible tab's DOM identity to one native close control before gating navigation. */
+export async function readVisibleWindowsRuntimeTabCloseEvidence(input: Readonly<{
+  mainWindowHandle: string;
+  processId: number;
+  tabId: string;
+  windowId: string;
+}>) {
+  return withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
+    await close.waitForDisplayed({ timeout: 10_000 });
+    const controlName = await close.getAttribute("aria-label");
+    if (!controlName) throw new Error("The exact tab close button omitted its accessible name");
+    return readWindowsRuntimeTabCloseEvidence({ ...input, controlName });
+  }, input.windowId);
 }
 
 /** Closes one exact tab through its retained AppKit or bundled Windows chrome. */

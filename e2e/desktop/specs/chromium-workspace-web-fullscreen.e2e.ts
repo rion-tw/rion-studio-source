@@ -31,8 +31,10 @@ import {
 import {
   closeVisibleRuntimeTab,
   closeVisibleRuntimeWindow,
-  readVisibleMacosRuntimeTabCloseEvidence
+  readVisibleMacosRuntimeTabCloseEvidence,
+  readVisibleWindowsRuntimeTabCloseEvidence
 } from "../support/native-runtime-tabs";
+import { closeWindowsRuntimeTabFromEvidence } from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
@@ -816,6 +818,11 @@ async function exerciseContainedFullscreen(input: Readonly<{
         windowId: before.windowId
       })
     : undefined;
+  const windowsParentCloseEvidence = platform === "windows"
+    ? await readVisibleWindowsRuntimeTabCloseEvidence({
+        mainWindowHandle, processId, tabId: input.tabId, windowId: before.windowId
+      })
+    : undefined;
   await fixtureRequest("/api/gate", { roleId: POPUP_FIXTURE_ID });
   try {
     const popupRequestAfter = await fixtureCursor();
@@ -889,13 +896,12 @@ async function exerciseContainedFullscreen(input: Readonly<{
     expect(nativeReady.parent).toEqual(exactPopupParentFence(restoredParent!));
 
     if (platform === "windows") {
-      await closeVisibleRuntimeTab({
-        mainWindowHandle,
-        platform,
-        tabId: input.tabId,
-        tabName: WORKSPACE_NAME,
-        windowId: before.windowId
-      });
+      await closeWindowsRuntimeTabFromEvidence(windowsParentCloseEvidence!);
+      expect(await waitFixtureEvent({
+        afterSequence: transportCursor,
+        kind: "gated-navigation-transport-cancelled",
+        roleId: POPUP_FIXTURE_ID
+      })).toEqual(expect.objectContaining({ kind: "gated-navigation-transport-cancelled" }));
     }
     const terminal = await waitForPopupLifecycleObservation({
       action: "nativeClosed",

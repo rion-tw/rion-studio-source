@@ -421,7 +421,43 @@ void (async () => {
     const keyDom = await withDiagnosticDeadline(keyPending.input, 3_000);
     if (!keyDom.received || keyDom.value.length !== 2 ||
         keyDom.value.some((receipt) => !receipt.matches || !receipt.isTrusted)) {
+      // Failure-only equivalence experiment. These samples never replace the
+      // required native receipt or turn this failed product-path gate green.
+      const publicInputComparison = [];
+      for (const visibility of ["visible-child", "hidden-child"]) {
+        try {
+          if (visibility === "hidden-child") {
+            child.hide();
+            exactProbe(addon.projectWindowsChromiumInputHwnd(
+              surfaceHandle, parentHandle, false
+            ), surfaceHandle, parentHandle);
+          }
+          const before = exactProbe(addon.probeWindowsChromiumInputHwnd(
+            surfaceHandle, parentHandle
+          ), surfaceHandle, parentHandle);
+          const sequence = `public-comparison-${visibility}`;
+          const pending = await armInput(sequence, [
+            { type: "keydown", code: "KeyA" },
+            { type: "keyup", code: "KeyA" }
+          ]);
+          view.webContents.sendInputEvent({ type: "keyDown", keyCode: "A" });
+          view.webContents.sendInputEvent({ type: "keyUp", keyCode: "A" });
+          const dom = await withDiagnosticDeadline(pending.input, 3_000);
+          const after = exactProbe(addon.probeWindowsChromiumInputHwnd(
+            surfaceHandle, parentHandle
+          ), surfaceHandle, parentHandle);
+          publicInputComparison.push({
+            visibility, before, after, received: dom.received,
+            receipts: privateReceipts.filter(receipt =>
+              receipt.inputSequence === sequence).slice(-8)
+          });
+        } catch (error) {
+          publicInputComparison.push({ visibility,
+            error: String(error instanceof Error ? error.message : error).slice(0, 512) });
+        }
+      }
       throw new Error(`Chromium did not emit the exact trusted DOM key sequence: ${JSON.stringify({
+        publicInputComparison,
         preDispatchDomState,
         foregroundProbe,
         keyDown,

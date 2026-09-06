@@ -204,6 +204,7 @@
       "runtimeTarget": "chromium-v23-windows",
       "phases": [
         "chromium-shell-smoke",
+        "chromium-windows-trusted-input-physical",
         "chromium-game-crud-seed",
         "chromium-game-crud-restart",
         "chromium-entity-persistence-seed",
@@ -226,7 +227,6 @@
         "chromium-settings-persistence-restart",
         "chromium-macro-ui-seed",
         "chromium-macro-ui-restart",
-        "chromium-windows-trusted-input-physical",
         "chromium-macro-native-effect",
         "chromium-macro-background-tab",
         "chromium-controlled-role-reload",

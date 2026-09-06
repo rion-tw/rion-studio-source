@@ -3361,3 +3361,34 @@ and transaction evidence, not production-key acceptance or publication. Windows
 package acceptance, the later exact-candidate cohort and CP-17/18 release gates
 remain open. Authoritative step results:
 `/tmp/rion-run-34029657056.json`.
+
+
+### Exact Windows native key failure: submitted messages, zero DOM input
+
+CI 34031575054 at 69ee94df, Windows Chromium job 101481944833, reaches the
+physical input gate and fails. The new diagnostic records a visible no-activate
+child, exact parent ownership and foreground parent; the input element is active
+but document.hasFocus is false. Both Win32 key receipts are submitted within
+deadline with ordered dispatch sequences and restored keyboard state. The only
+preload receipt is the arm acknowledgement: no keydown or keyup is received.
+This is missing DOM delivery, not a modifier/order mismatch. Log:
+`/tmp/rion-69-win-package.log`.
+
+The failure path now runs a bounded public sendInputEvent comparison on the same
+WebContentsView and native child attachment, first visible and then hidden. Each
+sample has its own authenticated sequence and records before/after native
+projection observations and bounded DOM receipts. This is an experiment only;
+the original native-key failure still throws and exits unsuccessfully even if
+both public samples work. It does not establish full Role or held-key/ownership
+parity, expand Electron's documented focus contract, or change the product
+submission owner. CP-08's implementation decision requires reassessment against
+actual product-path evidence, and CP-09 native acceptance remains open.
+
+The independent physical input phase now runs immediately after shell smoke in
+chromium-windows-smoke, before unrelated CRUD/setup phases. Its spec creates its
+own native probe fixture and does not depend on entity-persistence state. No
+journey, dependency, assertion or coverage target is removed. This internal-only
+probe change affects CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009 and its existing
+Macro-dependent journeys; their failure remains a failed profile. Eight adjacent
+checks, scoped lint and coverage validation pass; Windows execution of the
+comparison remains pending.

@@ -69,6 +69,56 @@ $matches[0] | ConvertTo-Json -Compress
   return Object.freeze({ ...input, nativeHandle: result.nativeHandle });
 }
 
+/** Observe loading without attaching ChromeDriver to the deliberately gated target. */
+export async function readWindowsRuntimeTabLoadingEvidence(input: Readonly<{
+  processId: number; tabName: string;
+}>, port: NativeClosePort = nativePort()): Promise<Readonly<{
+  processId: number; tabName: string; nativeHandle: string; controlName: string;
+}>> {
+  if (port.platform !== "win32" || !Number.isSafeInteger(input.processId) ||
+      input.processId <= 1 || !input.tabName.trim()) {
+    throw new Error("Native loading observation requires exact Windows process and tab name");
+  }
+  const controlName = `Stop and close ${input.tabName}`;
+  const loadingName = `${input.tabName} loading`;
+  const output = await port.run(accessibility + String.raw`
+$processCondition = New-Object System.Windows.Automation.PropertyCondition(
+  [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
+$loadingCondition = New-Object System.Windows.Automation.PropertyCondition(
+  [System.Windows.Automation.AutomationElement]::NameProperty, [string]$payload.loadingName)
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$matches = @()
+foreach ($window in @($root.FindAll(
+    [System.Windows.Automation.TreeScope]::Children, $processCondition))) {
+  if ($window.Current.IsOffscreen) { continue }
+  foreach ($button in @(FindCloseButton $window)) {
+    $parent = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($button)
+    if ($null -eq $parent) { continue }
+    $loading = @($parent.FindAll(
+      [System.Windows.Automation.TreeScope]::Descendants, $loadingCondition) | Where-Object {
+        -not $_.Current.IsOffscreen
+      })
+    if ($loading.Count -ne 1) { continue }
+    $matches += @{
+      nativeHandle = [string]$window.Current.NativeWindowHandle
+      controlName = $button.Current.Name
+      loadingName = $loading[0].Current.Name
+    }
+  }
+}
+if ($matches.Count -ne 1) { throw 'The exact visible loading tab control is not unique' }
+$matches[0] | ConvertTo-Json -Compress
+`, { ...input, controlName, loadingName }, { timeoutMilliseconds: 30_000 });
+  const result = JSON.parse(output) as {
+    nativeHandle?: unknown; controlName?: unknown; loadingName?: unknown;
+  };
+  if (typeof result.nativeHandle !== "string" || !/^[1-9]\d*$/u.test(result.nativeHandle) ||
+      result.controlName !== controlName || result.loadingName !== loadingName) {
+    throw new Error("Windows returned malformed tab loading evidence");
+  }
+  return Object.freeze({ ...input, controlName, nativeHandle: result.nativeHandle });
+}
+
 /** Native UI Automation remains usable while ChromeDriver's target list is waiting. */
 export async function closeWindowsRuntimeTabFromEvidence(
   evidence: WindowsRuntimeTabCloseEvidence,

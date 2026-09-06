@@ -15,6 +15,10 @@ import {
   closeVisibleRuntimeTab,
   visibleRuntimeTabPhase
 } from "../support/native-runtime-tabs";
+import {
+  readWindowsRuntimeTabCloseEvidence,
+  readWindowsRuntimeTabLoadingEvidence
+} from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
@@ -61,6 +65,7 @@ async function openSection(label: string, route: string): Promise<void> {
 
 async function prepare(): Promise<Readonly<{
   mainWindowHandle: string;
+  processId: number;
   platform: "macos" | "windows";
 }>> {
   const probe = await electronDesktopE2eProbe();
@@ -69,7 +74,8 @@ async function prepare(): Promise<Readonly<{
   await acceptLegalAndSkipFirstRun();
   return Object.freeze({
     mainWindowHandle: await browser.getWindowHandle(),
-    platform: probe.platform
+    platform: probe.platform,
+    processId: probe.processId
   });
 }
 
@@ -265,10 +271,17 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
   const gameWindow = await createSavedWindow();
   const sessionCursor = await fixtureCursor();
   await fixtureRequest("/api/gate", { roleId: FIXTURE_ID });
-  const tab = await (async () => {
+  let nativeLoading: Awaited<ReturnType<typeof readWindowsRuntimeTabLoadingEvidence>> | undefined;
+  const pendingTab = await (async () => {
     try {
       await openWorkspace(workspace, gameWindow);
       await waitFixturePath(`/api/gates/${FIXTURE_ID}/waiting`);
+      if (input.platform === "windows") {
+        nativeLoading = await readWindowsRuntimeTabLoadingEvidence({
+          processId: input.processId, tabName: workspace.name
+        });
+        return undefined;
+      }
       const pendingTab = await runtimeTab(workspace, gameWindow.id);
       expect(pendingTab.roleIds).toEqual([]);
       expect(pendingTab.slots).toEqual([]);
@@ -284,6 +297,16 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
       await fixtureRequest("/api/release", { roleId: FIXTURE_ID });
     }
   })();
+  const tab = pendingTab ?? await runtimeTab(workspace, gameWindow.id);
+  expect(tab.roleIds).toEqual([]);
+  expect(tab.slots).toEqual([]);
+  if (nativeLoading) {
+    const readyControl = await readWindowsRuntimeTabCloseEvidence({
+      processId: input.processId, tabId: tab.id, windowId: tab.windowId,
+      controlName: nativeLoading.controlName
+    });
+    expect(readyControl.nativeHandle).toBe(nativeLoading.nativeHandle);
+  }
   const session = await waitFixtureEvent({
     afterSequence: sessionCursor,
     kind: "session",

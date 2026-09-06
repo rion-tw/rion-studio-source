@@ -1865,3 +1865,34 @@ RUNTIME-LAUNCH-DESTINATIONS-008 and RUNTIME-TAB-TOPOLOGY-009 all report PASS
 for the macOS Chromium profile. This closes the focused macOS regression
 verification of the layout-supersession correction, not the remaining whole
 profile, Windows, hardware or packaged-release gates.
+
+### Windows gated Web-only observation and paired local regression
+
+CI 34014912798 at exact `edc757d0` passes the single-slot projection and starts
+its Web surface. During the deliberate navigation gate, Core completes both
+runtime snapshot queries, but the WebDriver command waits for Puppeteer's
+attachment to that gated target. It returns only when the existing load deadline
+retires the surface; the fixture records transport cancellation before the test
+releases the gate. This is a test observation deadlock, not evidence that the
+Core snapshot query stalled. Evidence: `/tmp/rion-edc-win-package.log` and
+`/tmp/rion-edc-win-artifacts/2026-09-06T05-50-23-907Z-win32/`.
+
+The Windows test now reads the visible loading indicator beside the exact named
+tab close button through native UI Automation, restricted to the previously
+observed Electron process. It releases the fixture gate in `finally` before any
+WebDriver snapshot, then binds the same native host to the exact Core Workspace
+tab and verifies empty Role topology. The primary launch remains visible UI;
+no product deadline, synthetic loading state, retry or polling was added.
+Affected journeys: CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024 and its paired
+CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-ONLY-024 regression.
+
+Validation on local macOS: 15 adjacent evidence tests and all 3,322 Vitest tests
+pass; typecheck, lint (23 existing warnings), source hygiene, coverage and desktop
+E2E isolation pass. The macOS seed/restart pair passes at `7b47bfc4` plus this
+working diff, 06:07:29–06:07:55 UTC, report
+`.desktop-e2e-artifacts/2026-09-06T06-07-29-912Z-darwin/report.json`.
+This is a dirty-worktree focused report, not an exact committed full-profile
+verdict. Logs: `/tmp/rion-web-loading-*`. Windows UIA execution remains pending
+fresh CI. Existing `edc757d0` CI has now passed macOS native validation and the
+macOS Tauri full profile; its Windows Tauri full profile reproduces the separate
+held-key macro failure. Those older results do not validate this test correction.

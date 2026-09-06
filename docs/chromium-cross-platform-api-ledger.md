@@ -61,18 +61,18 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | --- | --- | --- | --- | --- |
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
 | CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
-| CP-03 | P0 / Core + Sessions | implemented; macOS smoke passed, Windows pending | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
+| CP-03 | P0 / Core + Sessions | implemented; both native Rust gates passed, Windows Chromium smoke pending | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
-| CP-05 | P1 / Fonts | probe; macOS evidence recorded | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
+| CP-05 | P1 / Fonts | both API probes passed; complete alias comparison pending | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | conditional | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | probe | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | probe; isolated macOS API evidence recorded | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | both isolated API probes passed; Role replacement decision pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
-| CP-14 | P2 / Platform data | retained adapters audited; Windows validation pending | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
+| CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | shared helpers implemented; native release gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
@@ -1168,3 +1168,74 @@ Evidence: `/tmp/rion-189-windows-package.log`,
 `/tmp/rion-shortcut-stage-tests.log`, `/tmp/rion-shortcut-stage-typecheck.log` and
 `/tmp/rion-shortcut-stage-hygiene.log`. Remaining jobs in that run were left
 running; no new workflow was dispatched to supersede their native evidence.
+
+### Exact-candidate macOS compatibility receipts (`1893e7e2`)
+
+Native validation in run `34008237883` uploaded macOS font/input evidence before
+finishing its final Tauri build. Bundled Electron 43.4.1 / Chromium
+150.0.7871.224 reports 528 faces / 180 families for automatic, shown and reloaded
+font enumeration; each denied, subframe, navigated and other-owner sample returns
+zero faces. The native comparison contains 3,150 names, 2,970 native-only and no
+Chromium-only families. The 16 isolated input samples all report `received`.
+The separate Escape fixture again records generic W3C retaining fullscreen and
+complete key codes exiting fullscreen. Files are
+`/tmp/rion-189-fonts-macos/local-fonts-darwin.json`,
+`/tmp/rion-189-input-macos/chromium-input-darwin.json` and
+`/tmp/rion-189-input-macos/fullscreen-escape-darwin.json`.
+
+The pinned Electron declaration (`node_modules/electron/electron.d.ts`,
+`WebContents.sendInputEvent`) expressly requires the containing BrowserWindow to
+be focused. Successful isolated hidden/background samples therefore demonstrate
+observed behavior on this build, not a supported background delivery contract.
+They do not authorize replacing the unfocused Role lane or retained AppKit input.
+Windows probe receipts and the explicit CP-05/07/08 decisions remain outstanding.
+
+### Windows API receipts and full retained-shell evidence (`1893e7e2`)
+
+Windows native job `101419407676` passed Rust formatting/Clippy and the Rust test
+step, then completed the Electron compatibility suite. It uploaded 260 font
+faces / 89 Chromium families against 154 native names: 66 native-only names and
+one Chromium-only family (`Franklin Gothic`). Automatic, shown and reloaded lists
+match without user activation, and denied/subframe/navigated/other-owner samples
+all return zero faces. All 16 isolated Windows input samples report `received`;
+the Escape comparison matches macOS (generic W3C remains fullscreen; complete key
+codes exit). Artifacts are under `/tmp/rion-189-fonts-windows` and
+`/tmp/rion-189-input-windows`. Full native job acceptance remains separate from
+these completed steps.
+
+Both retained Tauri `full` profiles also passed at clean `1893e7e2`, each with
+39 PASS journeys and 29 PASS phases plus three expected forced terminations:
+`/tmp/rion-189-tauri-windows/2026-09-06T03-10-30-748Z-win32/report.json` and
+`/tmp/rion-189-tauri-macos/2026-09-06T03-09-53-105Z-darwin/report.json`.
+
+macOS Chromium passed 36 phases before `chromium-system-settings` failed because
+System Events denied osascript assistive access (`-25211`) while cancelling a
+native save panel. This is a required native-UI gate, not a font assertion
+failure. Evidence is `/tmp/rion-189-macos-package.log` and
+`/tmp/rion-189-mac-artifacts/2026-09-06T03-09-51-899Z-darwin/report.json` (the
+report records a dirty CI worktree). No permission bypass or weaker cancellation
+assertion was introduced.
+
+### CP-05 full font-name comparison follow-up
+
+The family-only Windows difference includes style names such as `Arial Black`.
+That alone cannot prove that Chromium lacks the corresponding face. The probe now
+records each FontData family, full name, PostScript name and style, and separately
+lists native names absent from all three Chromium name fields after Core-compatible
+whitespace/case normalization. Denied frames must expose no face metadata. This
+avoids deciding against the Chromium provider from a narrower field than the API
+actually offers. No product font provider or permission policy was changed.
+
+The expanded macOS native probe passed; this local host's native provider used
+its 16-name fallback, so it is not substituted for the hosted Mac native inventory.
+Typecheck, lint (zero errors, 23 existing warnings), source hygiene and diff checks
+passed. Logs: `/tmp/rion-font-alias-native.log`,
+`/tmp/rion-font-alias-typecheck.log`, `/tmp/rion-font-alias-lint.log` and
+`/tmp/rion-font-alias-hygiene.log`. The expanded Windows alias comparison remains
+pending the next run. This probe-only change is `internal-only` for E2E purposes.
+
+Run `34008237883` subsequently completed: Windows native validation also passed,
+including Windows renderer tests and the Tauri build. CP-14 now has both native
+validation jobs; CP-03 has both native Rust gates, while its Windows Chromium
+journey remains pending. Both Chromium package jobs remain failed for the exact
+reasons above; neither API-probe success nor Tauri parity overrides those gates.

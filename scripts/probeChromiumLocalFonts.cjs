@@ -22,8 +22,10 @@ const query = `(async () => {
   try {
     const fonts = await queryLocalFonts();
     return { ...context, faces: fonts.length,
+      fontFaces: fonts.map(({ family, fullName, postscriptName, style }) =>
+        ({ family, fullName, postscriptName, style })),
       families: [...new Set(fonts.map(font => font.family))].sort() };
-  } catch (error) { return { ...context, error: error.name, families: [] }; }
+  } catch (error) { return { ...context, error: error.name, families: [], fontFaces: [] }; }
 })()`;
 
 async function probe() {
@@ -83,10 +85,15 @@ async function probe() {
     const chromiumFamilies = outcomes.automatic.families;
     const nativeSet = new Set(nativeFamilies);
     const chromiumSet = new Set(chromiumFamilies);
+    const chromiumNames = new Set(outcomes.automatic.fontFaces.flatMap(font =>
+      [font.family, font.fullName, font.postscriptName].map(name =>
+        name.trim().replace(/\s+/g, " ").toLowerCase())));
     await writeFile(reportPath, JSON.stringify({ platform: process.platform,
       electron: process.versions.electron, chromium: process.versions.chrome,
       outcomes, permissionChecks, nativeFamilies,
       nativeOnly: nativeFamilies.filter(family => !chromiumSet.has(family)),
+      nativeNamesAbsentFromChromium: nativeFamilies.filter(family =>
+        !chromiumNames.has(family.toLowerCase())),
       chromiumOnly: chromiumFamilies.filter(family => !nativeSet.has(family))
     }, null, 2) + "\n");
   } finally {

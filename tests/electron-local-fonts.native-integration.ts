@@ -25,18 +25,26 @@ it("probes bundled Chromium fonts and exact frame permission on the native platf
     expect(report.outcomes.automatic.activation).toBe(false);
     expect(report.outcomes.automatic.secure).toBe(true);
     expect(report.outcomes.automatic.faces).toBeGreaterThan(0);
+    expect(report.outcomes.automatic.fontFaces).toHaveLength(report.outcomes.automatic.faces);
+    for (const face of report.outcomes.automatic.fontFaces) {
+      for (const key of ["family", "fullName", "postscriptName", "style"]) {
+        expect(typeof face[key]).toBe("string");
+      }
+    }
     for (const key of ["shown", "reload"]) {
       expect(report.outcomes[key].families).toEqual(report.outcomes.automatic.families);
     }
     for (const key of ["denied", "subframe", "navigated", "otherOwner"]) {
       expect(report.outcomes[key].families).toEqual([]);
+      expect(report.outcomes[key].fontFaces).toEqual([]);
     }
     expect(report.nativeFamilies.length).toBeGreaterThan(0);
     expect(report.permissionChecks.some((check: { admitted: boolean }) => check.admitted)).toBe(true);
     // Differences are evidence for the adoption decision, not silently accepted parity.
     console.info(JSON.stringify({ platform: report.platform, electron: report.electron,
       families: report.outcomes.automatic.families.length,
-      nativeOnly: report.nativeOnly, chromiumOnly: report.chromiumOnly }));
+      nativeOnly: report.nativeOnly, chromiumOnly: report.chromiumOnly,
+      nativeNamesAbsentFromChromium: report.nativeNamesAbsentFromChromium }));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

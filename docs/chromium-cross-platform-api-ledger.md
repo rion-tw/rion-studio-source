@@ -73,8 +73,8 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 01ca1f3b; Windows 30 phases passed at d27e7129; latest full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 59b405b7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-15 | P1 / Desktop E2E | paired stable full passed at 192120ad; macOS Chromium 56 phases passed at a20bddec; Windows full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at a20bddec; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -5647,3 +5647,32 @@ trusted input are outside this Windows child-host removal.
   unit tests; no Rust/shared/native product source changed. No local desktop
   profile ran around the unresolved protected system dialog. Existing native
   full/paired profiles remain the actual acceptance gate for the hover action.
+
+
+### CP-15 paired stable focus verification and newer macOS Chromium full evidence
+
+- macOS stable job 101566159290 / CI 34062775729 completes SUCCESS. Report
+  2026-09-06T22-12-12-121Z-darwin binds the same 192120ad commit as the verified
+  Windows profile, with 29 PASS phases and 3 EXPECTED_FORCE_TERMINATION phases.
+  MACRO-BACKGROUND-TAB-004 passes; fixture sequences 560-563 carry trusted KeyZ
+  down/consumer-down/up/consumer-up to Role B's game-input-canvas. The explicit
+  focus queue correction now has paired native full-profile evidence.
+- macOS Chromium job 101561949187 / CI 34061202087 completes SUCCESS. Report
+  2026-09-06T21-43-03-012Z-darwin binds a20bddec with 52 PASS phases and 4
+  EXPECTED_FORCE_TERMINATION phases. Workspace Web-slot restart verifies its
+  retained AppKit Chromium host and persisted 0.55 divider width. This pass does
+  not explain the earlier intermittent local-chrome load stall; the observer
+  remains available to capture its exact failure if it recurs.
+- The same macOS job verifies the packaged CI-fixture updater transaction for
+  version 8.5.0 at 22:23:50 UTC and passes packaged Electron black-box smoke at
+  22:24:21 UTC. These are newer qualified CP-16 fixture/package results, not
+  production-keyed release transactions or permission to publish.
+- Windows native job 101567263605 for 1422ea67 also completes SUCCESS: the
+  256-round receipt publication test passes, all 8 native integration files /
+  15 tests pass, and the platform-filtered portable suite records 442 files /
+  3590 tests passed (10 files / 48 tests skipped). Exact background-parent
+  native-owner evidence is recorded above; the full Chromium profile still
+  requires the inactive-tab hover correction and subsequent stages.
+- Current runtime acceptance candidate remains 5863c303 / CI 34064073603;
+  no source implementation changed during this evidence update. Its Windows
+  jobs are live and macOS jobs queued. Keep evidence tied to each exact SHA.

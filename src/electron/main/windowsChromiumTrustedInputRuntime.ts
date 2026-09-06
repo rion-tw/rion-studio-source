@@ -7,12 +7,12 @@ import {
   type ChromiumTrustedInputRecoveryProof,
   type ChromiumTrustedInputSurfacePort
 } from "./chromiumTrustedInputCoordinator";
-import {
-  WindowsChromiumInputSurfaceAttachmentCoordinator,
-  type RawWindowsChromiumTrustedInputAddon,
-  type WindowsChromiumInputBaseWindowFactoryPort,
-  type WindowsChromiumInputRuntimeParentResolverPort
-} from "./windowsChromiumInputSurfaceAttachmentCoordinator";
+import type { WindowsChromiumInputRuntimeParentResolverPort } from "./windowsChromiumInputSurfaceAttachmentCoordinator";
+import { ChromiumViewAttachmentCoordinator } from "./chromiumViewAttachmentCoordinator";
+import { ChromiumViewTrustedInputHost } from "./chromiumViewTrustedInputHost";
+import { ChromiumViewFocusAdmission } from "./chromiumViewFocusAdmission";
+import { windowsChromiumViewParentBinding } from "./windowsChromiumViewParentBinding";
+import type { WindowsRuntimeForegroundProbePort } from "./windowsRuntimeWindowState";
 import {
   WindowsChromiumTrustedInputAdapter,
   type WindowsChromiumTrustedInputDeadlinePort,
@@ -31,14 +31,14 @@ export interface WindowsChromiumTrustedInputRuntimeSurfacePort
 }
 
 export interface WindowsChromiumTrustedInputRuntimeConfiguration {
-  readonly addon: RawWindowsChromiumTrustedInputAddon;
-  readonly baseWindows: WindowsChromiumInputBaseWindowFactoryPort;
+  readonly addon: WindowsRuntimeForegroundProbePort;
+  readonly focusedWebContentsId: () => number | null;
   readonly deadlines: WindowsChromiumTrustedInputDeadlinePort;
   readonly ipcMain: WindowsChromiumTrustedInputIpcMainPort;
 }
 
 export interface WindowsChromiumTrustedInputRuntimeAdapter {
-  readonly nativeAttachments: WindowsChromiumInputSurfaceAttachmentCoordinator;
+  readonly nativeAttachments: ChromiumViewAttachmentCoordinator;
   createTrustedInput: (
     surfaces: WindowsChromiumTrustedInputRuntimeSurfacePort,
     preflightAutomaticInputContext?: (
@@ -77,19 +77,36 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
   if (!input.configuration) {
     throw runtimeError(
       "ELECTRON_WINDOWS_INPUT_RUNTIME_MISSING",
-      "Supported Windows input requires its exact BaseWindow and Win32 addon lane."
+      "Supported Windows input requires exact View ownership and foreground observation."
     );
   }
   const configuration = input.configuration;
 
-  const attachments = new WindowsChromiumInputSurfaceAttachmentCoordinator({
-    addon: configuration.addon,
-    baseWindows: configuration.baseWindows,
-    deadlines: configuration.deadlines,
+  const attachments = new ChromiumViewAttachmentCoordinator({
+    resolveParent: parent => {
+      const binding = input.parents.resolve(parent);
+      return binding ? windowsChromiumViewParentBinding(binding, configuration.addon,
+        configuration.focusedWebContentsId) : null;
+    },
     nowMs: input.nowMs,
-    parents: input.parents,
-    onError: input.onError
+    onError: error => input.onError(error instanceof RionBridgeError ? error : runtimeError(
+      "ELECTRON_WINDOWS_VIEW_ATTACHMENT_FAILED", error instanceof Error ? error.message : String(error)))
   });
+  const focus = new ChromiumViewFocusAdmission({ attachments, nowMs: input.nowMs,
+    deadlines: configuration.deadlines, activateParent: target => {
+      const current = input.parents.resolve(target.logicalParent);
+      if (!current || current.window !== target.binding.parent ||
+          current.identity.nativeGeneration !== target.binding.nativeGeneration ||
+          current.identity.ownerRevision !== target.binding.revision) {
+        throw runtimeError("ELECTRON_WINDOWS_VIEW_FOCUS_SUPERSEDED", "The exact View parent was superseded.");
+      }
+      current.window.show();
+      // A synchronous show callback may retire or move this exact View.
+      target.observe();
+      if (!target.view.getVisible()) throw new Error("The View was hidden during activation.");
+      current.window.focus();
+    } });
+  const hosts = new ChromiumViewTrustedInputHost({ attachments, focus: request => focus.focus(request) });
   let created = false;
   let disposed = false;
 
@@ -111,7 +128,7 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
       }
       created = true;
       const native = new WindowsChromiumTrustedInputAdapter({
-        hosts: attachments,
+        hosts,
         surfaces,
         clicks: {
           resolve: (request, frame) =>
@@ -162,6 +179,7 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
             await coordinator.dispose();
           } finally {
             native.dispose();
+            focus.dispose();
             await attachments.dispose();
           }
         }
@@ -170,6 +188,7 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
     dispose: async () => {
       if (disposed) return;
       disposed = true;
+      focus.dispose();
       await attachments.dispose();
     }
   });

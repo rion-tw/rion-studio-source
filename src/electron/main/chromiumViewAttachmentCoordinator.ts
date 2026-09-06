@@ -39,6 +39,7 @@ interface Record {
 export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNativeAttachmentPort {
   readonly #records = new Map<string, Record>();
   readonly #rolesByContents = new WeakMap<object, string>();
+  readonly #invalidations = new Set<(roleId: string, generation: number) => void>();
   readonly #presentations = new Set<PresentationListener>();
   readonly #resolveParent: ParentResolver;
   readonly #nowMs: () => number;
@@ -98,6 +99,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
     let targetAttempted = false;
     try {
       source.state = "moving";
+      this.#invalidate(source);
       source.unsubscribe();
       detached = true;
       input.detachSource();
@@ -143,6 +145,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
         (physical && (physical.view !== record.view || physical.physicalParent !== record.binding.parent))) {
       throw new Error("Chromium View retirement is stale.");
     }
+    this.#invalidate(record);
     // The registry detaches after retirement when logical and physical parents
     // are identical; otherwise its exact physical callback owns the detach.
     if (physical) {
@@ -174,6 +177,20 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
     } catch { return null; }
   }
 
+  resolveFocusTarget(roleId: string, generation: number) {
+    try {
+      const record = this.#require(roleId, generation);
+      return { identity: record.identity, input: record.input, observe: record.observe,
+        view: record.view, binding: record.binding, logicalParent: record.logicalParent };
+    } catch { return null; }
+  }
+
+  subscribeInvalidation(listener: (roleId: string, generation: number) => void): () => void {
+    if (this.#disposed) throw new Error("Chromium View owner is disposed.");
+    this.#invalidations.add(listener);
+    return () => { this.#invalidations.delete(listener); };
+  }
+
   subscribePresentation(listener: PresentationListener): () => void {
     if (this.#disposed) throw new Error("Chromium View owner is disposed.");
     this.#presentations.add(listener);
@@ -183,12 +200,14 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
   async dispose(): Promise<void> {
     this.#disposed = true;
     for (const record of this.#records.values()) {
+      this.#invalidate(record);
       record.unsubscribe();
       record.state = "retired";
       this.#rolesByContents.delete(record.view.webContents);
     }
     this.#records.clear();
     this.#presentations.clear();
+    this.#invalidations.clear();
   }
 
   #create(roleId: string, generation: number, logicalParent: ChromiumRoleSurfaceParentPort,
@@ -274,9 +293,14 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
       surfaceGeneration: record.identity.surfaceGeneration, visible, previousVisible });
   }
 
+  #invalidate(record: Record): void {
+    for (const listener of this.#invalidations) listener(record.identity.roleId, record.identity.surfaceGeneration);
+  }
+
   #quarantine(record: Record, error: unknown): void {
     if (record.state === "retired" || record.state === "quarantined") return;
     record.state = "quarantined";
+    this.#invalidate(record);
     record.unsubscribe();
     try { record.view.setVisible(false); } catch { /* Retain quarantine if native state is unknown. */ }
     this.#onError(error);

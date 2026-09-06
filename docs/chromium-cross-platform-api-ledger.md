@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | direct-View API feasibility verified on both platforms; product replacement pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | direct-View product bootstrap implemented; native product parity and legacy deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -3864,3 +3864,49 @@ trusted input are outside this Windows child-host removal.
   producer now accepts canonical `0` while continuing to reject `00`; 69 focused
   producer/host/consumer tests and final typecheck passed after this correction.
   The production Electron build and E2E isolation check also passed.
+
+
+### Windows product bootstrap now uses direct View ownership
+
+- Replaced the production `WindowsChromiumInputSurfaceAttachmentCoordinator`
+  construction with `ChromiumViewAttachmentCoordinator`,
+  `ChromiumViewTrustedInputHost` and exact View focus admission. The main-process
+  configuration no longer supplies a per-Role BaseWindow factory. Standard
+  Electron View membership and WebContents focus are paired with the existing
+  read-only Windows parent-foreground proof; no HWND attachment/projection call
+  is made by the new product composition. AppKit composition is unchanged.
+- Visible focus admission subscribes before activation and waits for the exact
+  View/parent observation. Hidden admission requires an already-foreground parent
+  and never activates a parent or View. Core's deadline can fail admission, never
+  establish success. Ownership movement, retirement, quarantine, presentation
+  hiding and disposal supersede pending focus and release its subscriptions.
+  Synchronous native callbacks cannot authorize input on a retired attachment.
+- The existing trusted DOM consumer still owns key/mouse terminality. This change
+  is `lower-layer-covered` behavior-preserving composition work, with focused
+  attachment, focus, parent binding, host and consumer tests. Affected existing
+  journeys include CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009,
+  CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004 and the paired
+  MACRO-STANDBY-RECOVERY-023 journeys. No desktop E2E profile has passed for this
+  new composition yet; Windows and both hardware-extended profiles remain pending.
+- Previous candidate `71cb9fea`, CI `34042033350`, Windows package job
+  `101510430478` again failed the legacy child-HWND physical probe because its
+  visible sibling WebContents did not own focus. Its subsequent direct-View
+  owner probe passed. The old physical probe must be converted to the new product
+  mechanism while preserving foreground/background trusted DOM, modifiers,
+  mouse coordinates and focus-preservation assertions. That probe and the unused
+  child coordinator/native attachment implementation have not yet been deleted.
+- Local full Vitest completed 446 files / 3,528 tests with two workers. After the
+  subsequent presentation-invalidation addition, the final focused four files
+  passed 47 tests. Typecheck, lint (zero errors, existing warnings), hygiene and
+  native macOS Rust lint passed. Native Rust tests and production Electron build
+  results are recorded after their completion below. No Windows native product
+  acceptance or physical hardware evidence is inferred from these portable tests.
+
+- Final local completion: macOS Rust workspace tests passed (1,640 passed,
+  4 ignored), the stable build passed, and the production Electron build and
+  desktop E2E isolation check passed after restoring Electron renderer output.
+  The added product-composition case passed with its three adjacent tests;
+  final typecheck and source hygiene passed. No local desktop E2E profile ran
+  in this batch. Previous candidate `71cb9fea` also completed both stable desktop
+  E2E CI jobs and macOS native validation successfully; its Chromium macOS
+  package and Windows native jobs were still running at this checkpoint.

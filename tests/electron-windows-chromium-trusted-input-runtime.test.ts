@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import type { ChromiumRoleWebContentsViewPort } from "../src/electron/main/chromiumRoleSurfacePorts";
+import type { WindowsChromiumInputRuntimeParentBinding } from "../src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EngineCapabilitySnapshotRecord } from "../src/shared/generated";
@@ -18,27 +21,12 @@ function capabilities(
   return { trustedInput, backgroundInput };
 }
 
-function configuration(
-  abiVersion = 6
-): WindowsChromiumTrustedInputRuntimeConfiguration {
+function configuration(): WindowsChromiumTrustedInputRuntimeConfiguration {
   return {
     addon: {
-      windowsChromiumInputProbeAbiVersion: () => abiVersion,
-      attachWindowsChromiumInputHwnd: () => {
-        throw new Error("not attached");
-      },
-      projectWindowsChromiumInputHwnd: () => {
-        throw new Error("not attached");
-      },
-      probeWindowsChromiumInputHwnd: () => {
-        throw new Error("not attached");
-      }
+      readWindowsRuntimeForeground: () => { throw new Error("No native parent in this fixture."); }
     },
-    baseWindows: {
-      create: () => {
-        throw new Error("not attached");
-      }
-    },
+    focusedWebContentsId: () => null,
     deadlines: {
       schedule: () => 1,
       cancel: () => undefined
@@ -109,13 +97,13 @@ describe("Windows Chromium trusted-input runtime composition", () => {
   it("keeps disabled production capabilities inert even when dependencies exist", async () => {
     const input = runtimeInput(
       capabilities("disabled", "disabled"),
-      configuration(99)
+      configuration()
     );
     expect(createWindowsChromiumTrustedInputRuntime(input.value)).toBeNull();
     expect(input.listeners).toHaveLength(0);
   });
 
-  it("requires trusted input for a background claim and exact ABI3", () => {
+  it("requires trusted input for a background claim and exact View dependencies", () => {
     expect(() => createWindowsChromiumTrustedInputRuntime(
       runtimeInput(
         capabilities("disabled", "supported"),
@@ -129,14 +117,45 @@ describe("Windows Chromium trusted-input runtime composition", () => {
     )).toThrowError(expect.objectContaining({
       code: "ELECTRON_WINDOWS_INPUT_RUNTIME_MISSING"
     }));
-    expect(() => createWindowsChromiumTrustedInputRuntime(
-      runtimeInput(
-        capabilities("supported", "disabled"),
-        configuration(2)
-      ).value
-    )).toThrowError(expect.objectContaining({
-      code: "ELECTRON_WINDOWS_INPUT_ABI_MISMATCH"
-    }));
+
+  });
+
+  it("attaches the actual Role View to its existing parent without a child-window factory", async () => {
+    const events = new EventEmitter();
+    const contentsEvents = new EventEmitter();
+    const children: unknown[] = [];
+    const parent = { id: 1, isDestroyed: () => false, isFocused: () => true, isVisible: () => true,
+      getNativeWindowHandle: () => Buffer.from([1]),
+      on: events.on.bind(events), removeListener: events.removeListener.bind(events),
+      contentView: { children, addChildView: (view: unknown) => { children.push(view); },
+        removeChildView: (view: unknown) => { children.splice(children.indexOf(view), 1); } } };
+    const view = { getVisible: () => false, setVisible: vi.fn(),
+      getBounds: () => ({ x: 0, y: 0, width: 300, height: 200 }),
+      webContents: { id: 12, isDestroyed: () => false, isFocused: () => false, getZoomFactor: () => 1,
+        on: contentsEvents.on.bind(contentsEvents), removeListener: contentsEvents.removeListener.bind(contentsEvents) }
+    } as unknown as ChromiumRoleWebContentsViewPort;
+    const input = runtimeInput(capabilities("supported", "supported"), {
+      ...configuration(), addon: { readWindowsRuntimeForeground: () => ({
+        parentIdentity: "a".repeat(64), focusIdentity: "b".repeat(64), parentWasForeground: true,
+        parentVisible: true, parentMinimized: false }) }, focusedWebContentsId: () => 13
+    });
+    const runtime = createWindowsChromiumTrustedInputRuntime({ ...input.value, parents: {
+      resolve: () => ({ window: parent, logicalParent: parent,
+        identity: { nativeGeneration: 1, ownerRevision: "1" } } as unknown as WindowsChromiumInputRuntimeParentBinding)
+    } })!;
+    await runtime.nativeAttachments.attach({ roleId: "role", generation: 1, parent, view,
+      isCancelled: () => false, attach: () => parent.contentView.addChildView(view),
+      attachTo: target => target.contentView.addChildView(view), detach: () => parent.contentView.removeChildView(view) });
+    expect(children).toEqual([view]);
+    expect(runtime.nativeAttachments.resolve("role", 1)?.observe()).toMatchObject({
+      viewAttached: true, viewVisible: false, contentsFocused: false,
+      identity: { webContentsId: 12, parentIdentity: "a".repeat(64) }
+    });
+    await runtime.dispose();
+    expect(runtime.nativeAttachments.resolve("role", 1)).toBeNull();
+    expect(children).toEqual([view]); // The surface registry owns physical retirement.
+    expect(events.eventNames()).toEqual([]);
+    expect(contentsEvents.eventNames()).toEqual([]);
   });
 
   it("registers one main-only receipt lane and disposes it exactly", async () => {

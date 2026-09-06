@@ -86,7 +86,7 @@ export class WindowsChromiumHeldKeyContinuityCoordinator {
   constructor(input: Readonly<{
     core: HeldKeyContinuityCorePort;
     surfaces: HeldKeyContinuitySurfacePort;
-    attachments: WindowsChromiumInputSurfaceAttachmentCoordinator;
+    attachments: Pick<WindowsChromiumInputSurfaceAttachmentCoordinator, "subscribePresentation">;
     resolveIdentity: (
       identity: ChromiumRoleOverlayFrameIdentity
     ) => HeldKeyContinuitySurfaceIdentity;

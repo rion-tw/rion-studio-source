@@ -17,7 +17,8 @@ import {
   screen,
   session,
   shell,
-  WebContentsView
+  WebContentsView,
+  webContents
 } from "electron";
 
 import type { CoreAppSnapshotRecord } from "../../shared/generated";
@@ -66,8 +67,6 @@ import type {
   WindowsRuntimeHostWindowPort,
   WindowsRuntimeShortcutOwnerDiagnostic
 } from "./chromiumRuntimeHostFactory";
-import type { WindowsChromiumInputBaseWindowPort } from
-  "./windowsChromiumInputSurfaceAttachmentCoordinator";
 import { MacosAppKitChromiumRuntimeHostFactory,
   RION_APPKIT_RUNTIME_ABI_VERSION } from
   "./macosAppKitRuntimeHostFactory";
@@ -975,11 +974,7 @@ async function bootstrapReadyPhase(
             },
             trustedInput: {
               addon: nativeAddon,
-              baseWindows: {
-                create: (options) => new BaseWindow(
-                  options as unknown as Electron.BaseWindowConstructorOptions
-                ) as unknown as WindowsChromiumInputBaseWindowPort
-              },
+              focusedWebContentsId: () => webContents.getFocusedWebContents()?.id ?? null,
               deadlines: {
                 // event-topology-exception: windows-chromium-trusted-input-deadline
                 schedule: (callback, delayMs) => setTimeout(callback, delayMs),

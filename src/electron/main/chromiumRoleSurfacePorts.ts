@@ -30,6 +30,8 @@ export interface ChromiumRoleSurfaceInputEvent {
 }
 
 export interface ChromiumRoleSurfaceEventMap {
+  readonly focus: () => void;
+  readonly blur: () => void;
   readonly "before-input-event": (
     event: ChromiumRoleSurfaceEvent,
     input: ChromiumRoleSurfaceInputEvent
@@ -69,6 +71,8 @@ export interface ChromiumRoleSurfaceEventMap {
 }
 
 export interface ChromiumRoleSurfaceWebContentsPort {
+  focus?: () => void;
+  isFocused?: () => boolean;
   sendInputEvent?: (event: KeyboardInputEvent | MouseInputEvent) => void;
   readonly id?: number;
   readonly mainFrame?: Readonly<{ readonly frameToken: string }>;

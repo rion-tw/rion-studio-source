@@ -217,6 +217,15 @@ impl AppCore {
             }
             Ok(())
         })();
+        let result = result.and_then(|()| {
+            if close_role_tab {
+                self.project_surviving_chromium_window_after_close(
+                    initial_window_id.as_deref(),
+                    parent_operation_id,
+                )?;
+            }
+            Ok(())
+        });
         let Some(lease) = lease else {
             return result;
         };

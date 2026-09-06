@@ -254,6 +254,12 @@ impl AppCore {
             }
             Ok(())
         })();
+        let result = result.and_then(|()| {
+            self.project_surviving_chromium_window_after_close(
+                initial_window_id.as_deref(),
+                parent_operation_id,
+            )
+        });
         let Some(lease) = lease else {
             return result;
         };

@@ -1185,7 +1185,7 @@ async function topologyForcePhase(): Promise<void> {
     action: "setPresentation",
     presentation: liveBBeforeMinimize.target.presentation
   });
-  const restoreSubmitted = await waitEvent({
+  await waitEvent({
     afterSequence: restoreCursor,
     kind: "native-control-submitted",
     minimumGeneration: minimizedB.windowGeneration,
@@ -1209,7 +1209,9 @@ async function topologyForcePhase(): Promise<void> {
   }
   if (requiresNativeDeminimizeFocusFence(process.platform)) {
     await waitEvent({
-      afterSequence: restoreSubmitted.sequence,
+      // Native focus can persist before the post-control submission readback.
+      // Both receipts belong after the cursor captured before restoring.
+      afterSequence: restoreCursor,
       kind: "window-focus-persisted",
       minimumGeneration: minimizedB.windowGeneration,
       windowId: WINDOW_B

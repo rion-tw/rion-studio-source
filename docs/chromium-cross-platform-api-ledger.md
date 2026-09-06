@@ -62,7 +62,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
 | CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | implemented; both native Rust gates and paired Chromium persistence smoke passed | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
-| CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
+| CP-04 | P1 / Runtime projection | implemented; surviving-window close projection repaired, paired native replay pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
@@ -5811,3 +5811,79 @@ trusted input are outside this Windows child-host removal.
   warnings, and full hygiene / coverage checks pass. No user-visible behavior
   or journey membership changed. No local macOS desktop E2E profile ran;
   Windows execution of the stronger shutdown assertion remains pending CI.
+
+
+### CP-15 b310c06d stable macOS restore-event ordering correction
+
+- CI 34065969000 stable macOS job 101574657940 fails with 23 PASS phases
+  followed by p1-cross-domain-topology-force. Its report binds b310c06d; the
+  restore control succeeds with native presentation normal at sequence 368,
+  but the test then times out waiting for window-focus-persisted after 368.
+  The pre-restore cursor was 357. The native sample shows the AppKit main
+  thread in its event loop, not a demonstrated runtime mutex deadlock.
+- Source inspection establishes that native-control-submitted is recorded
+  after native control execution and native readback, while focus persistence
+  runs independently from the authoritative native focus callback. There is
+  no guarantee that focus persistence happens after the submitted receipt.
+  Use the pre-action restore cursor for both observations, retaining the
+  required same-window/generation focus event and restored presentation check.
+  Do not remove the focus assertion or change timeout/product behavior.
+- This corrects an invalid E2E ordering assumption; available artifacts do
+  not establish the missing focus event's exact sequence, so native replay
+  remains required before calling the observed failure resolved. Affected
+  existing journey: RUNTIME-TAB-TOPOLOGY-009 (p1-cross-domain-topology-force);
+  manifest membership and platform-specific focus requirements are unchanged.
+
+
+### CP-04/CP-09/CP-15 surviving Chromium window misses its post-close projection
+
+- b310c06d Windows Chromium job 101574657954 / CI 34065969000 again passes
+  30 phases and fails topology-seed. The added diagnostic proves Core Macro
+  statuses are empty, but the renderer journal remains at nextSequence 120
+  throughout a wait fenced after 119. Its last Macro snapshot is sequence 117.
+  This is missing subsequent projection delivery, not an ongoing Macro.
+- Core flow ends appSnapshot reads at 554/556 after embeddedDestroyTab closes
+  the old Workspace. Native topology observation 15 removes that tab but
+  keeps the surviving window at topologyRevision 14. Source inspection shows
+  native tab destruction edits membership only, while logical close advances
+  Core's window revision. The snapshot validator correctly rejects mismatched
+  revisions and waits for another native projection, holding the refresh lane.
+- A new lower-layer regression first failed because no post-destruction
+  EmbeddedFollowRoleOwnership projection existed. The final matrix exercises
+  both Role and Workspace typed tab closure on explicit darwin and win32,
+  with another Workspace remaining. It requires the projection after native
+  destruction to carry the exact final Core window generation, revision,
+  remaining tab list and active tab, and retain the parent operation identity.
+- Both close paths now call one shared Rust helper after successful terminal
+  cleanup and outside the runtime sequence lease. Only v23 and a surviving
+  original window require the existing fenced projection effect. Native close
+  failure remains failure; the destroyed tab is never recreated, the last
+  window does not receive a spurious projection, and v22 behavior is unchanged.
+  The matrix passes all four combinations after the repair. Native E2E replay
+  remains pending before declaring the Windows symptom resolved.
+- Existing affected journeys: paired MACRO-OWNERSHIP-TRANSFER-010 and
+  RUNTIME-TAB-TOPOLOGY-009. Existing native topology seed/restart cases remain
+  the acceptance gate; no new feature or manifest membership is introduced.
+
+
+### CP-15 b310c06d stable Windows recovery activation remains open
+
+- Stable Windows job 101574657780 / CI 34065969000 report binds b310c06d:
+  27 PASS phases and one EXPECTED_FORCE_TERMINATION precede force-terminate
+  failure. Cross-domain topology/recovery passes on this platform, as does
+  the previously repaired background-tab KeyZ journey. The new failure is
+  waitEvent in activateRecoveryTab at game-window-lifecycle.e2e.ts:705, called
+  by forceTerminatePhase at line 749. Activation terminal, ready and session
+  assertions precede this failed window-state-persisted wait. It occurs before
+  the deliberate process termination and is not an expected-termination result. Preserve the artifact
+  and inspect its activation receipt separately; no failure is waived.
+
+- Final validation for the close-projection repair and restore-cursor E2E
+  correction: macOS native Rust workspace passes 1648 tests with 4 declared
+  ignored tests; Rust lint, TypeScript, ESLint and full hygiene/coverage pass.
+  Vitest passes 452 files / 3642 tests in 154.34 seconds. Tauri E2E and
+  Electron E2E builds pass after the Rust repair; the restored Electron
+  production build and desktop E2E isolation check pass. No local macOS UI
+  profile was executed due the previously documented protected-dialog boundary.
+  Paired native CI, especially Windows full topology/restart and the new
+  stable Windows persistence observation, remains pending for the new commit.

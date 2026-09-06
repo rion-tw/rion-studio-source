@@ -168,6 +168,30 @@ impl AppCore {
         Ok(snapshot)
     }
 
+    fn project_surviving_chromium_window_after_close(
+        &self,
+        window_id: Option<&str>,
+        parent_operation_id: Option<&str>,
+    ) -> CoreResult<()> {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+            return Ok(());
+        }
+        let Some(window_id) = window_id else {
+            return Ok(());
+        };
+        let snapshot = self.browser_runtime.snapshot()?;
+        if snapshot
+            .windows
+            .get(window_id)
+            .is_some_and(|window| !window.tabs.is_empty())
+        {
+            // Native destruction removes the surface, but only Core can advance
+            // the surviving window's topology revision and successor selection.
+            self.project_embedded_runtime_snapshot_without_persistence(parent_operation_id)?;
+        }
+        Ok(())
+    }
+
     fn browser_runtime_snapshot_without_persistence(
         &self,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {

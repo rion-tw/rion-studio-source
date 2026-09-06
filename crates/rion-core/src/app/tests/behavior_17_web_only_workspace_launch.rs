@@ -270,6 +270,110 @@ fn chromium_browser_workspace_stop_retires_kernel_and_ownership_topology() {
 }
 
 #[test]
+fn chromium_tab_close_projects_the_surviving_window_revision() {
+    for (platform, tab_type) in [
+        ("darwin", "workspace"),
+        ("win32", "workspace"),
+        ("darwin", "role"),
+        ("win32", "role"),
+    ] {
+        let (_directory, core) = core_for_platform_contract(platform, 23);
+        let second = create_web_only_workspace(&core, "Surviving workspace");
+        let window_id = format!("surviving-window-{platform}-{tab_type}");
+        let (first, first_launch) = if tab_type == "workspace" {
+            let id = create_web_only_workspace(&core, "Closing workspace");
+            let launch = web_workspace_browser_launch(&id, &window_id);
+            (id, launch)
+        } else {
+            let id = create_role(&core, &first_game_id(&core), 1);
+            let CoreCommand::BrowserWorkspaceLaunch { target, .. } =
+                web_workspace_browser_launch(&second, &window_id)
+            else {
+                unreachable!()
+            };
+            let launch = CoreCommand::BrowserRoleLaunch {
+                launch_tab_id: None,
+                role_id: id.clone(),
+                target,
+                launch_preview_id: None,
+                zoom_factor: None,
+                restore_role_slots: None,
+            };
+            (id, launch)
+        };
+        drive_launch_through_terminal(Arc::clone(&core), first_launch);
+        drive_launch_through_terminal(
+            Arc::clone(&core),
+            web_workspace_browser_launch(&second, &window_id),
+        );
+        let before = core.app_snapshot().unwrap();
+        assert_eq!(before.logical_windows[0].tabs.len(), 2, "{platform}");
+        let first_tab = before
+            .browser_runtime
+            .tabs
+            .iter()
+            .find(|tab| tab.source_id == first)
+            .unwrap();
+        let operation_id = format!("close-survivor-{platform}-{tab_type}");
+        let stop = CoreCommand::EmbeddedTabStop {
+            request: crate::model::RuntimeTabMutationRequestRecord {
+                operation_id: operation_id.clone(),
+                mutation_kind: "stop".to_owned(),
+                tab_id: first_tab.id.clone(),
+                source_window_id: window_id.clone(),
+                source_window_generation: before.logical_windows[0].window_generation,
+                lifecycle_epoch: 1,
+            },
+            source_id: first,
+            tab_type: tab_type.to_owned(),
+        };
+        let (stopped, actions, _) = drive_async_command_with(Arc::clone(&core), stop, |effect| {
+            effect_result_with_parent(effect, &operation_id, platform)
+        });
+        assert!(stopped.is_ok(), "{platform}: {stopped:?}");
+        let after = core.app_snapshot().unwrap();
+        let remaining = &after.logical_windows[0];
+        assert_eq!(remaining.tabs.len(), 1, "{platform}");
+        assert!(
+            remaining.revision > before.logical_windows[0].revision,
+            "{platform}"
+        );
+        let destroy = actions
+            .iter()
+            .position(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
+            .unwrap();
+        let projection = actions
+            .iter()
+            .skip(destroy + 1)
+            .find_map(|action| match action {
+                CoreEffectAction::EmbeddedFollowRoleOwnership { windows, .. } => {
+                    windows.iter().find(|window| window.window_id == window_id)
+                }
+                _ => None,
+            })
+            .expect("a surviving Chromium window needs the committed post-close projection");
+        assert_eq!(
+            projection.topology_revision, remaining.revision,
+            "{platform}"
+        );
+        assert_eq!(
+            projection.window_generation, remaining.window_generation,
+            "{platform}"
+        );
+        assert_eq!(
+            projection.tab_ids,
+            vec![remaining.tabs[0].id.clone()],
+            "{platform}"
+        );
+        assert_eq!(
+            projection.active_tab_id, remaining.active_tab_id,
+            "{platform}"
+        );
+        core.shutdown_checked().unwrap();
+    }
+}
+
+#[test]
 fn blank_workspace_is_rejected_after_releasing_its_operation_lease() {
     for platform in ["darwin", "win32"] {
         let (_directory, core) = core_for_platform(platform);

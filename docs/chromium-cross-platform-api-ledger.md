@@ -1782,3 +1782,29 @@ emits at key-down before the transition. These results reject direct candidate
 equivalence and expose retained native captured-down state across focus changes.
 CP-07 remains open for that focus-boundary correction and confirmation; the
 probe pass is not a production replacement approval.
+
+### F11 deactivation cancels the exact held capture
+
+The retained Win32 window subclass now clears its owner's captured F11-down
+state on `WM_ACTIVATE` / `WA_INACTIVE`. This is the authoritative top-level
+window deactivation event ([Microsoft documentation](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-activate));
+focus movement between child Chromium surfaces does not itself retire the owner.
+The hook still waits for key-up for an uninterrupted chord and does not send
+commands from cancellation. No foreground polling or globalShortcut was added.
+
+The 36 native lifecycle observations now assert zero commands across focus
+transfer, hiding and registration retirement, including the extra key-up after
+return. The APPLICATION-SHORTCUTS-030 manifest notes this adjacent native-addon
+coverage. Its E2E scope exception is `lower-layer-covered`: the physical HWND
+driver and real addon directly cover capture lifetime without substituting a
+debug fullscreen command. The changed Windows assertions have not run yet;
+CP-07 remains pending native confirmation. Local macOS Rust lint/tests,
+typecheck, lint, source hygiene and E2E coverage passed; logs use
+`/tmp/rion-f11-deactivation-*`. macOS is not Windows event-reachability evidence.
+
+Run `34014080241` at `8c0ba441` progressed past Windows popup verification but
+failed later in `chromium-workspace-web-only-seed`; its stable Windows full
+profile progressed past the minimize-cache failure but failed in
+`p1-macro-multirole`. Evidence is `/tmp/rion-8c0-win-package.log`,
+`/tmp/rion-8c0-win-tauri.log` and `/tmp/rion-8c0-win-artifacts/`. These later
+failures remain to diagnose and are not successful whole-profile results.

@@ -124,7 +124,7 @@ mod platform {
             WindowsAndMessaging::{
                 CallNextHookEx, GetForegroundWindow, GetWindowThreadProcessId, HC_ACTION, HHOOK,
                 IsWindow, KBDLLHOOKSTRUCT, LLKHF_UP, SetWindowsHookExW, UnhookWindowsHookEx,
-                WH_KEYBOARD_LL, WM_KEYDOWN, WM_NCDESTROY, WM_SYSKEYDOWN,
+                WA_INACTIVE, WH_KEYBOARD_LL, WM_ACTIVATE, WM_KEYDOWN, WM_NCDESTROY, WM_SYSKEYDOWN,
             },
         },
     };
@@ -333,6 +333,17 @@ mod platform {
     ) -> LRESULT {
         if message == WM_NCDESTROY {
             let _ = catch_unwind(AssertUnwindSafe(|| retire_destroyed_owner(hwnd)));
+        }
+        if message == WM_ACTIVATE && wparam.0 & 0xffff == WA_INACTIVE as usize {
+            // The exact top-level owner's deactivation cancels its held chord.
+            // Child WebContents focus changes do not retire the window owner.
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                SHORTCUT_REGISTRY.with(|registry| {
+                    if let Some(owner) = registry.borrow_mut().owners.get_mut(&hwnd_key(hwnd)) {
+                        owner.captured_f11_down = false;
+                    }
+                });
+            }));
         }
         // SAFETY: every unhandled message must continue through the ComCtl32
         // subclass chain for the exact HWND supplied by Windows.

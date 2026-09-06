@@ -40,6 +40,9 @@ it.skipIf(process.platform !== "win32")("compares native F11 key terminality wit
       for (const events of [outcome.pageEvents, outcome.destinationPageEvents]) {
         expect(events.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
       }
+      if (outcome.mode === "native-hook") {
+        expect(outcome.events.filter((event: { kind: string }) => event.kind === "command")).toEqual([]);
+      }
     }
     for (const outcome of [...report.outcomes, ...report.lifecycleOutcomes]) {
       if (outcome.mode !== "native-hook") continue;

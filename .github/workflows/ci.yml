@@ -178,6 +178,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Probe direct Chromium input before independent Rust validation
+        run: pnpm exec vitest run --config vitest.native-integration.config.mjs tests/electron-chromium-input.native-integration.ts
+        env:
+          RION_CHROMIUM_INPUT_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/chromium-input
+
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 

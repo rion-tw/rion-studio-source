@@ -306,10 +306,12 @@ class FakeRuntimeForegroundProbe implements WindowsRuntimeForegroundProbePort {
   parentVisible = false;
   parentMinimized = false;
   parentIdentity: string | null = null;
+  focusIdentity = "f".repeat(64);
   readonly readWindowsRuntimeForeground = vi.fn((handle: Buffer) => {
     return {
       parentIdentity: this.parentIdentity ??
         handle.readBigUInt64LE().toString(16).padStart(64, "0"),
+      focusIdentity: this.focusIdentity,
       parentWasForeground: this.parentWasForeground,
       parentVisible: this.parentVisible,
       parentMinimized: this.parentMinimized
@@ -872,7 +874,8 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     }
   );
 
-  it("terminalizes a malformed foreground identity as stream failure", async () => {
+  it.each(["parentIdentity", "focusIdentity"] as const)(
+    "terminalizes a malformed %s as stream failure", async (field) => {
     const browserWindows = new FakeBrowserWindows();
     const foreground = new FakeRuntimeForegroundProbe();
     const onError = vi.fn();
@@ -891,7 +894,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     const observations: ChromiumRuntimeWindowStateObservation[] = [];
     host.bindRuntimeWindowState?.((observation) => observations.push(observation));
     host.readRuntimeWindowState?.();
-    foreground.parentIdentity = "not-an-opaque-native-identity";
+    foreground[field] = "not-an-opaque-native-identity";
 
     window.emit("show");
     expect(observations).toEqual([expect.objectContaining({

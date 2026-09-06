@@ -555,8 +555,15 @@ fn verify_existing_private_directory(path: &Path) -> Result<(), PersistenceError
             return Err(PersistenceError::UnsafePath);
         }
     }
-    rion_platform::restrict_directory_to_current_user(path)
-        .map_err(|_| PersistenceError::UnsafePath)
+    rion_platform::restrict_directory_to_current_user(path).map_err(|error| {
+        // Preserve the native reason in test output without changing the
+        // production error contract or retrying a security mutation.
+        #[cfg(test)]
+        eprintln!("Private-directory ACL rejection: {error}");
+        #[cfg(not(test))]
+        let _ = error;
+        PersistenceError::UnsafePath
+    })
 }
 
 fn terminal_receipt_matches_applied_replay(

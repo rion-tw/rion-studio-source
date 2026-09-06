@@ -58,6 +58,18 @@ describe("Windows Chromium physical input candidate gate", () => {
     }
   });
 
+  it("runs the addon-independent API experiment before native Rust gates", async () => {
+    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const nativeJob = workflow.slice(workflow.indexOf("  platform-validation:"));
+    const probe = nativeJob.indexOf("tests/electron-chromium-input.native-integration.ts");
+    const rust = nativeJob.indexOf("name: Test target-platform Rust workspace");
+    expect(probe).toBeGreaterThan(0);
+    expect(rust).toBeGreaterThan(probe);
+    expect(nativeJob.slice(0, probe)).toContain("os: macos-latest");
+    expect(nativeJob.slice(0, probe)).toContain("os: windows-latest");
+    expect(nativeJob.slice(probe, rust)).toContain("RION_CHROMIUM_INPUT_REPORT_DIR");
+  });
+
   it("routes the foreground physical gate only through the Windows profile", async () => {
     const [manifestSource, phaseSource, bootstrapSource] = await Promise.all([
       readFile("docs/e2e-coverage.json", "utf8"),

@@ -37,6 +37,7 @@ pub struct WindowsChromiumInputHwndProbeReceipt {
 #[napi(object)]
 pub struct WindowsRuntimeForegroundReadback {
     pub parent_identity: String,
+    pub focus_identity: String,
     pub parent_was_foreground: bool,
     pub parent_visible: bool,
     pub parent_minimized: bool,
@@ -47,6 +48,7 @@ pub struct WindowsRuntimeForegroundReadback {
 struct WindowsRuntimeForegroundFacts {
     parent_address: usize,
     current_process_id: u32,
+    current_thread_id: u32,
     owner_process_id_before: u32,
     owner_process_id_after: u32,
     owner_thread_id_before: u32,
@@ -71,6 +73,7 @@ enum WindowsRuntimeForegroundFactError {
     InvalidParent,
     OwnershipUnavailable,
     ForeignOwner,
+    ForeignThread,
     OwnerChanged,
     ObservationChanged,
 }
@@ -102,7 +105,7 @@ pub fn read_windows_runtime_foreground(
 ) -> Result<WindowsRuntimeForegroundReadback> {
     use windows::Win32::{
         Foundation::HWND,
-        System::Threading::GetCurrentProcessId,
+        System::Threading::{GetCurrentProcessId, GetCurrentThreadId},
         UI::{
             Input::KeyboardAndMouse::{GetActiveWindow, GetFocus},
             WindowsAndMessaging::{
@@ -122,6 +125,7 @@ pub fn read_windows_runtime_foreground(
         let active_before = GetActiveWindow().0 as usize;
         let focus_before = GetFocus().0 as usize;
         let current_process_id = GetCurrentProcessId();
+        let current_thread_id = GetCurrentThreadId();
         let mut owner_process_id_before = 0;
         let owner_thread_id_before =
             GetWindowThreadProcessId(parent, Some(&raw mut owner_process_id_before));
@@ -141,6 +145,7 @@ pub fn read_windows_runtime_foreground(
         let state = classify_windows_runtime_foreground(WindowsRuntimeForegroundFacts {
             parent_address,
             current_process_id,
+            current_thread_id,
             owner_process_id_before,
             owner_process_id_after,
             owner_thread_id_before,
@@ -165,6 +170,13 @@ pub fn read_windows_runtime_foreground(
                 parent_address,
                 current_process_id,
                 state.owner_thread_id,
+            ),
+            focus_identity: windows_focus_identity(
+                current_process_id,
+                state.owner_thread_id,
+                foreground_before,
+                active_before,
+                focus_before,
             ),
             parent_was_foreground: state.parent_was_foreground,
             parent_visible: state.parent_visible,
@@ -357,11 +369,12 @@ pub fn probe_windows_chromium_input_hwnd(
             foreground_window_preserved,
             active_window_preserved,
             focus_window_preserved,
-            focus_identity: format!(
-                "{:x}",
-                Sha256::digest(format!(
-                    "{current_process_id}:{foreground_before:?}:{active_before:?}:{focus_before:?}"
-                ))
+            focus_identity: windows_focus_identity(
+                current_process_id,
+                surface_thread_id,
+                foreground_before.0 as usize,
+                active_before.0 as usize,
+                focus_before.0 as usize,
             ),
             parent_was_foreground: foreground_before == parent,
             parent_visible: IsWindowVisible(parent).as_bool(),
@@ -416,6 +429,26 @@ fn native_handle_token(domain: &[u8], address: usize, process_id: u32) -> String
     format!("{:x}", hasher.finalize())
 }
 
+/// Process/UI-thread-bound read-only observation. It identifies all three
+/// native focus slots without exposing HWND addresses across the addon boundary.
+#[cfg(any(windows, test))]
+fn windows_focus_identity(
+    process_id: u32,
+    ui_thread_id: u32,
+    foreground: usize,
+    active: usize,
+    focus: usize,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"rion-windows-focus-observation-v1");
+    hasher.update(process_id.to_le_bytes());
+    hasher.update(ui_thread_id.to_le_bytes());
+    for address in [foreground, active, focus] {
+        hasher.update((address as u64).to_le_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(any(windows, test))]
 fn windows_runtime_parent_identity(
     address: usize,
@@ -450,6 +483,9 @@ fn classify_windows_runtime_foreground(
     {
         return Err(WindowsRuntimeForegroundFactError::OwnerChanged);
     }
+    if facts.current_thread_id != facts.owner_thread_id_before {
+        return Err(WindowsRuntimeForegroundFactError::ForeignThread);
+    }
     if facts.foreground_before != facts.foreground_after
         || facts.active_before != facts.active_after
         || facts.focus_before != facts.focus_after
@@ -481,6 +517,10 @@ fn windows_runtime_foreground_error(error: WindowsRuntimeForegroundFactError) ->
             Status::InvalidArg,
             "The Windows runtime parent must be owned by the current Electron process.",
         ),
+        WindowsRuntimeForegroundFactError::ForeignThread => (
+            Status::InvalidArg,
+            "The Windows runtime-parent focus must be observed on its owning Electron UI thread.",
+        ),
         WindowsRuntimeForegroundFactError::OwnerChanged => (
             Status::GenericFailure,
             "The exact Windows runtime-parent owner changed during foreground readback.",
@@ -505,6 +545,7 @@ mod tests {
         WindowsRuntimeForegroundFacts {
             parent_address: 42,
             current_process_id: 7,
+            current_thread_id: 9,
             owner_process_id_before: 7,
             owner_process_id_after: 7,
             owner_thread_id_before: 9,
@@ -617,6 +658,33 @@ mod tests {
                 .expect("the Win32-only readback must reject a non-Windows host");
         assert_eq!(error.status, Status::GenericFailure);
         assert!(error.reason.contains("only on Windows"));
+    }
+
+    #[test]
+    fn focus_identity_binds_every_focus_slot_and_the_calling_owner() {
+        let baseline = windows_focus_identity(7, 9, 42, 43, 44);
+        assert_eq!(baseline.len(), 64);
+        assert_eq!(baseline, windows_focus_identity(7, 9, 42, 43, 44));
+        for changed in [
+            windows_focus_identity(8, 9, 42, 43, 44),
+            windows_focus_identity(7, 10, 42, 43, 44),
+            windows_focus_identity(7, 9, 45, 43, 44),
+            windows_focus_identity(7, 9, 42, 45, 44),
+            windows_focus_identity(7, 9, 42, 43, 45),
+            windows_focus_identity(7, 9, 43, 42, 44),
+        ] {
+            assert_ne!(baseline, changed);
+        }
+    }
+
+    #[test]
+    fn parent_focus_readback_rejects_a_foreign_calling_thread() {
+        let mut facts = foreground_facts();
+        facts.current_thread_id = 10;
+        assert_eq!(
+            classify_windows_runtime_foreground(facts),
+            Err(WindowsRuntimeForegroundFactError::ForeignThread)
+        );
     }
 
     #[test]

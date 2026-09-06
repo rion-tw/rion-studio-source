@@ -1,5 +1,5 @@
 import { $, $$, browser, expect } from "@wdio/globals";
-import { Key } from "webdriverio";
+import { Key, type ChainablePromiseElement } from "webdriverio";
 
 import { focusMainApplicationWindow } from "./control";
 
@@ -193,6 +193,16 @@ export async function setInputValue(selector: string, value: string): Promise<vo
   }
 
   await expect($(selector)).toHaveValue(value);
+}
+
+/** Replace a controlled numeric field without an intermediate empty value. */
+export async function setNumericInputValue(input: ChainablePromiseElement, value: string): Promise<void> {
+  await input.waitForClickable({ timeout: 10_000 });
+  await input.click();
+  // WebdriverIO maps Ctrl to Command on macOS and Control on Windows.
+  await browser.keys([Key.Ctrl, "a"]);
+  await browser.keys(value);
+  await expect(input).toHaveValue(value);
 }
 
 export async function submitEditor(expectedRoute: string): Promise<void> {

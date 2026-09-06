@@ -12,6 +12,7 @@ import {
   acceptLegalAndSkipFirstRun,
   ensureEnglishUi,
   setEditorName,
+  setNumericInputValue,
   submitEditor,
   waitForRoute
 } from "../support/ui";
@@ -209,8 +210,7 @@ async function setPortableDelayStep(): Promise<void> {
   await type.click();
   await $("[role='option']=Delay").click();
   const delay = await step.$("input[aria-label='Delay']");
-  await delay.clearValue();
-  await delay.setValue("60");
+  await setNumericInputValue(delay, "60");
 }
 
 function expectPortableMacro(macro: Macro, role: Role): void {

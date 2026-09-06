@@ -15,6 +15,7 @@ const PARENT_IDENTITY_PATTERN = /^[0-9a-f]{64}$/u;
 
 export interface WindowsRuntimeForegroundReadback {
   readonly parentIdentity: string;
+  readonly focusIdentity: string;
   readonly parentWasForeground: boolean;
   readonly parentVisible: boolean;
   readonly parentMinimized: boolean;
@@ -67,6 +68,8 @@ function validateReadback(
   if (!value || typeof value !== "object" ||
       typeof value.parentIdentity !== "string" ||
       !PARENT_IDENTITY_PATTERN.test(value.parentIdentity) ||
+      typeof value.focusIdentity !== "string" ||
+      !PARENT_IDENTITY_PATTERN.test(value.focusIdentity) ||
       typeof value.parentWasForeground !== "boolean" ||
       typeof value.parentVisible !== "boolean" ||
       typeof value.parentMinimized !== "boolean") {

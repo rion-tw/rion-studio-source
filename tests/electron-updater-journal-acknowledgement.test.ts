@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
-import type { FSWatcher } from "node:fs";
-import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
+import { access, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -85,13 +85,34 @@ describe("updater journal acknowledgement", () => {
   it("observes real filesystem deletion with the same platform-neutral owner", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion-journal-ack-"));
     const path = join(root, "journal");
+    const started = performance.now();
+    const trace: Array<{ at: number; event: string }> = [];
+    const record = (event: string) => trace.push({ at: Math.round(performance.now() - started), event });
     try {
       await writeFile(path, "pending");
       // This real filesystem check shares workers with native package I/O.
       // The deterministic deadline-failure test above retains its exact 1s clock.
-      const pending = waitForUpdaterJournalRemoval(path, 5000);
+      const pending = waitForUpdaterJournalRemoval(path, 5000, {
+        access: async (...args) => {
+          record("access:start");
+          try { await access(...args); record("access:present"); }
+          catch (error) { record(`access:${(error as NodeJS.ErrnoException).code}`); throw error; }
+        },
+        watch: (directory, listener) => {
+          record("watch:start");
+          const watcher = watch(directory, (event, filename) => {
+            record(`watch:${event}:${String(filename)}`);
+            listener(event, filename);
+          });
+          record("watch:returned");
+          return watcher;
+        }
+      }).then(() => null, error => error as Error);
+      record("unlink:start");
       await unlink(path);
-      await pending;
+      record("unlink:complete");
+      const failure = await pending;
+      if (failure) throw new Error(`${failure.message}; observation trace: ${JSON.stringify(trace)}`, { cause: failure });
       await waitForUpdaterJournalRemoval(path, 5000);
     } finally {
       await rm(root, { recursive: true, force: true });

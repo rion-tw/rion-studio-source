@@ -3558,3 +3558,84 @@ isolation also pass for the new leaf's source graph.
   and adds failure-only native/Chromium visibility/focus evidence. It retains the
   strict focus assertions; hidden product parity is still unproven. Log:
   `/tmp/rion-6b-win-package.log`. The other jobs remain independently live.
+
+### CP-08 remaining child-host replacement boundary
+
+The Windows child-host owner is not only an input sender. The source audit at
+`f603f190` identifies the following responsibilities that a direct Chromium
+View owner must preserve. This is an implementation boundary for the existing
+CP-08/09 task, not an additional product mode or permission gate.
+
+| Current responsibility | Direct-View replacement and retained evidence |
+| --- | --- |
+| `#stageChild`, native attach/project, child HWND/DPI bounds | Attach the exact WebContentsView directly through the existing surface registry callbacks and public `contentView` ownership. Remove per-Role BaseWindow creation and Win32 child style/reparent/project code after native equivalence passes. Keep one exact runtime-parent native identity and read-only OS focus observation. |
+| `reparent`, staged child rollback, binding/native generations | Preserve Core-issued logical ownership, exact View membership, binding revisions, cancellation before commit and source restoration on partial failure. Do not treat a parent-window handle as a unique Role identity; multiple Role Views share that handle. |
+| `#focusForeground`, `#currentInputDeliveryMode` | Preserve the distinction between visible input admission and hidden input in an already-foreground runtime parent. Hidden submission must neither activate the target nor change the selected sibling. Native/Chromium focus observations and private trusted DOM receipts remain separate. |
+| `syncPresentation`, `subscribePresentation`, held-key continuity | Forward committed View visibility changes through the existing presentation event path. `WindowsChromiumHeldKeyContinuityCoordinator` currently consumes child-hide events; it must receive the corresponding exact View-hidden event after child removal. No polling or inferred visibility. |
+| `retire`, `dispose`, unexpected child close, quarantine | Detach and retire the exact Role View, revoke pending input and subscriptions, and retain parent-close/WebContents-destruction failure evidence. Quarantine must hide only the affected View; never hide or close the shared runtime parent and sibling Roles. |
+| Input ABI and receipt validation | Remove child-style/child-HWND/single-child receipt claims together with their producers and consumers. Keep generation/epoch/frame/request identity, exact parent observation, monotonic submission receipts, view-local DIP conversion and complete trusted DOM event matching. |
+
+The ordinary-host experiment at `f603f190` is evidence for API feasibility on
+macOS, not a Windows product acceptance result. The Windows native experiment must establish direct-host feasibility. The
+replacement must then satisfy the physical foreground/hidden gate with its actual
+owner and receipt path; a failure caused by the old child topology is not a
+prerequisite to retain that topology. Required regression scope includes paired Macro
+hold/release, hidden continuity, reload, ownership transfer, exact retirement,
+topology/recovery and native shortcut journeys. Retained AppKit presentation and
+trusted input are outside this Windows child-host removal.
+
+- CP-08 candidate `f603f190`, CI `34035021096`, Windows Chromium job
+  `101491393586`: corrected sibling attachment order still failed the exact
+  focus precondition. The failure now proves parent foreground/visibility,
+  same-process/UI-thread ownership, exact child style and visible sibling HWND,
+  while both sibling `webContents.isFocused()` and `document.hasFocus()` are
+  false. Hidden target submission was not attempted. Log:
+  `/tmp/rion-f603-win-package.log`. This removes attachment ordering as a
+  sufficient explanation and motivates the direct-View replacement; it does not
+  justify weakening focus assertions. The direct-host Windows native experiment
+  remains in the live native-validation job.
+- CP-08 direct-parent preparation: the existing read-only runtime-parent API now
+  returns the same process/UI-thread-bound focus identity used by child input
+  observations. One canonical helper binds foreground, active and focus slots
+  without exposing HWND addresses. Parent readback rejects a foreign calling
+  thread, and the TypeScript state stream rejects a malformed focus identity.
+  No new native activation, window mutation, input API or polling was added.
+  The retained child path still uses the helper until its replacement is
+  accepted. Focused macOS Rust tests passed 9 cases; paired-platform host mocks
+  and submission-owner tests passed before the additional malformed-focus case.
+
+- CP-08/18 parent-focus preparation validation: native macOS `lint:rust`,
+  workspace `test:rust` (1,640 passed, 4 ignored), stable build and production
+  Electron build/isolation passed. The full 441-file suite passed 3,429 tests
+  with two workers after the builds finished. Earlier default-worker runs
+  separately hit the existing real filesystem journal-observation deadline and
+  macOS escaped-helper cleanup indeterminate boundary. Both failures remain
+  recorded; neither deadline nor success condition changed. The journal test
+  now includes failure-only watch/access/unlink timestamps for future diagnosis.
+- CP-15/16 CI `34035021096` at `f603f190`: Windows native validation stopped at
+  `terminal_receipt_create_new_commit_has_exactly_one_concurrent_winner` with
+  `UnsafePath`; the Chromium API experiment had not run. CI now schedules that
+  addon-independent experiment immediately after dependency installation in
+  both native jobs, before unrelated Rust validation. Rust failure remains a
+  failing gate. Investigating the updater concurrency failure is still required.
+- CP-15 exact macOS Chromium artifact from `f603f190` stored the settings Macro
+  delay as 160,000 ms, although its test attempted 60,000 ms. Replaced three
+  duplicate clear/set sequences with one visible select-all/type helper using
+  WebdriverIO's cross-platform `Key.Ctrl`, and assert the numeric field and
+  committed Macro value before proceeding. Affected paired journeys are
+  SETTINGS-PERSIST-006, MACROS-UI-017 and MACRO-NATIVE-EFFECT-018. The local
+  settings-seed rerun stopped in its entity-restart prerequisite because the
+  Open workspace button did not display; it did not validate the numeric fix.
+  Report: `.desktop-e2e-artifacts/2026-09-06T13-26-27-224Z-darwin/report.json`;
+  log: `/tmp/rion-number-edit-e2e.log`. This remains a failed prerequisite, not
+  a passing settings journey.
+- CP-08/15/16/18 continuation handoff: final local typecheck, six focused files
+  (60 tests), full ESLint (0 errors; 23 existing renderer warnings), hygiene,
+  documentation/coverage checks and production Electron build/isolation passed.
+  The final full suite passed 441 files / 3,430 tests with two workers. The
+  updater concurrency test passed locally on macOS; test-only error output now
+  preserves the original ACL rejection reason for the next Windows failure
+  without retrying a security mutation or changing the production error type.
+  No successful desktop E2E profile is claimed for this working tree. Exact
+  Windows direct-host feasibility, current native focus readback, updater
+  concurrency and paired settings/Macro journeys remain pending CI.

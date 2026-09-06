@@ -10,6 +10,7 @@ import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
   ensureEnglishUi,
+  setNumericInputValue,
   submitEditor,
   waitForRoute
 } from "../support/ui";
@@ -184,9 +185,9 @@ async function makeMacroExecutionPortable(macro: Macro): Promise<void> {
   await stepType.click();
   await $("[role='option']=Delay").click();
   const delay = await step.$("input[aria-label='Delay']");
-  await delay.clearValue();
-  await delay.setValue("60");
+  await setNumericInputValue(delay, "60");
   await submitEditor("/macros");
+  expectPortableMacro((await findEntities()).macro);
 }
 
 function expectPortableMacro(macro: Macro): void {

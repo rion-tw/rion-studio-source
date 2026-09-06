@@ -16,6 +16,7 @@ import {
   acceptLegalAndSkipFirstRun,
   ensureEnglishUi,
   setEditorName,
+  setNumericInputValue,
   submitEditor,
   waitForRoute
 } from "../support/ui";
@@ -111,12 +112,12 @@ async function createNativeEffectMacro(role: Role): Promise<Macro> {
   const steps = await $$("[data-macro-step-id]");
   expect(steps).toHaveLength(5);
   const delay = await steps[4]!.$("input[aria-label='Delay']");
-  await delay.clearValue();
-  await delay.setValue("60");
+  await setNumericInputValue(delay, "60");
   await submitEditor("/macros");
 
   const macro = await findMacro(MACRO_NAME);
   expect(macro.roleIds).toEqual([role.id]);
+  expect(macro.steps.at(-1)).toMatchObject({ type: "delay", ms: 60_000 });
   expect(macro.steps.map((step) => step.type)).toEqual([
     "key", "click", "click", "click", "delay"
   ]);

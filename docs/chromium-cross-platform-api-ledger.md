@@ -68,7 +68,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows physical View gate passed; full product parity and legacy deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-10 | P1 / Session maintenance | shared transport verified; macOS fresh-process storage passed, Windows/import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
@@ -4144,3 +4144,51 @@ trusted input are outside this Windows child-host removal.
   Electron build and E2E production isolation. Rust/product code is unchanged
   from the paired native-green `280027d7`. Revised Windows journey acceptance
   and the local rapid-transition failure remain for the next native run.
+
+
+### CP-10 actual production helper lifetime and persistence
+
+- A new native integration test bundles the pinned production Electron main
+  entry in a private scratch directory and invokes its existing framed helper
+  mode. Each apply, verify, rollback and rollback-verify operation runs in a
+  separate Electron process; the preceding child must exit cleanly first.
+  Verification binds the actual framed response and child exit digest. No
+  renderer build output or test-only product bridge is used.
+- This exposed a real migration LocalStorage lifetime failure: the codec retained
+  WebContents but dropped its owning WebContentsView during asynchronous
+  navigation. The actual helper returned LocalStorage readback failure with
+  ERR_FAILED for its controlled in-memory origin. The codec now retains the View
+  until WebContents closure completes. Session security, data scope and
+  authoritative completion boundaries are unchanged.
+- macOS native integration passed both plain text and UTF-16 text containing a
+  NUL, with one secure HttpOnly cookie and one LocalStorage entry verified across
+  fresh processes, then zero entries after rollback. Adjacent migration/helper
+  tests passed (3 files / 44 tests). The native test glob already reaches both
+  macOS and Windows native CI jobs; Windows execution remains pending.
+- E2E omission for this lifecycle correction: `lower-layer-covered`, using the
+  actual production helper integration above. This does not establish the
+  consented Chrome Profile import UI or Rust journal transaction acceptance,
+  and does not replace existing Role Session reset/isolation journeys.
+
+### Windows Chromium acceptance at cbdd80fe
+
+- CI `34048350410`, Windows Chromium job `101527359533`, passed Macro native
+  effects after the platform-correct contextmenu assertion. The next background
+  tab scenario failed during its initial foreground shortcut, before testing
+  hidden hold continuity. Core received `managedShortcutPhase:351`; browser
+  action 1 failed with `SYSTEM_TRUSTED_INPUT_DELIVERY_MODE_UNAVAILABLE`. Thus
+  the missing Digit2 event is not proof of a hidden-input delivery failure.
+- The exact readiness observation at rejection was not included in the artifact.
+  Determine which native focus/visibility/ownership predicate failed before
+  changing admission or test actions. Keep the current fail-closed input checks
+  and full Windows Macro acceptance open.
+- Local correction validation passed: full single-worker Vitest (449 files /
+  3,551 tests), the two native helper cases, 44 adjacent tests, TypeScript, ESLint
+  (existing warnings only), complete hygiene/coverage checks, native macOS Rust
+  lint and tests (1,642 passed / 4 ignored), stable and Electron production
+  builds, and desktop E2E production isolation. No desktop E2E profile was rerun
+  locally for this lower-layer correction. Windows native helper acceptance is
+  pending the new candidate.
+- At `cbdd80fe`, both stable Tauri desktop CI jobs and macOS native validation
+  completed successfully. The Windows native and macOS Chromium package jobs
+  were still running when this update was recorded.

@@ -203,7 +203,8 @@ export class ChromiumSessionMigrationLocalStorageCodec {
     const origin = canonicalOrigin(originValue);
     this.#active = true;
     let handlerInstalled = false;
-    let contents: ChromiumMigrationWebContentsPort | null = null;
+    // The View owns the native surface; retain it through navigation and drain.
+    let view: ChromiumMigrationWebContentsViewPort | null = null;
     let result: readonly ChromiumSessionMigrationLocalStorageEntry[] | null = null;
     let operationError: RionBridgeError | null = null;
     try {
@@ -220,7 +221,7 @@ export class ChromiumSessionMigrationLocalStorageCodec {
         });
       });
       handlerInstalled = true;
-      const view = this.#views.create({
+      view = this.#views.create({
         webPreferences: {
           backgroundThrottling: false,
           contextIsolation: true,
@@ -237,7 +238,7 @@ export class ChromiumSessionMigrationLocalStorageCodec {
           webSecurity: true
         }
       });
-      contents = view.webContents;
+      const contents = view.webContents;
       if (contents.session !== session || contents.isDestroyed()) {
         throw localStorageError(
           "CHROMIUM_SESSION_MIGRATION_LOCAL_STORAGE_SESSION_MISMATCH",
@@ -264,7 +265,7 @@ export class ChromiumSessionMigrationLocalStorageCodec {
     }
     let cleanupFailed = false;
     try {
-      if (contents) await closeContents(contents);
+      if (view) await closeContents(view.webContents);
     } catch {
       cleanupFailed = true;
     }

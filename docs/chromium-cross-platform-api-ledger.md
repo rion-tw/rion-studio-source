@@ -72,7 +72,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
-| CP-14 | P2 / Platform data | retained adapters verified previously; current Windows updater concurrency pending | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
+| CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | current macOS smoke 56 phases passed; Windows 24 phases passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS package/updater verified at 79ea9b13; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
@@ -4103,3 +4103,44 @@ trusted input are outside this Windows child-host removal.
   production isolation all passed. The full macOS desktop run above predates
   this Windows-only focus correction; its Windows physical/product result is
   pending the next candidate. Production outputs are restored.
+
+
+### Native acceptance at 280027d7 and E2E event-order corrections
+
+- CI `34046674835`: Windows native job `101522937996`, macOS native job
+  `101522938005`, Windows Tauri E2E job `101522843120` and macOS Tauri E2E job
+  `101522843158` all completed successfully. These are exact-candidate results;
+  the earlier Tauri failures remain historical evidence rather than current
+  failures. CP-14's native validation gate is satisfied at this source state.
+- Windows Chromium job `101522843156` passed the BrowserWindow-backed physical
+  input gate and reached Macro native effects. All Core browser actions 2–7
+  completed. Fixture evidence records KeyA, all three mouse down/up pairs and
+  semantic events; right-down 336 has buttons 2, right-up 337 has buttons 0,
+  right auxclick 338 and contextmenu 339 both have buttons 0 and are trusted.
+  This verifies the parent-activation focus correction, but the complete Macro
+  journey still failed its macOS-only contextmenu buttons expectation.
+- The paired Macro E2E now expects Windows contextmenu after right-up with
+  buttons 0, and macOS contextmenu before right-up with buttons 2. It retains the
+  exact eight trusted key/mouse transitions, semantic target, focus and visible
+  Start/Stop assertions. Chromium's
+  [mouse-up context-menu branch](https://chromium.googlesource.com/chromium/src/+/d6c4a0cff4b083e7143eb4026351ea8c7450450a/third_party/blink/renderer/core/frame/web_frame_widget_impl.cc)
+  documents the platform distinction; the pinned runtime's raw fixture evidence
+  above is the Windows acceptance source.
+- Separately, the stable native-control E2E helper now returns the cursor captured
+  before applying the control. Placement/DPI waiters use that cursor because
+  native callbacks may commit before `native-control-submitted` is recorded.
+  The `3154a542` Windows artifact already persisted the requested x35/y45,
+  width820/height580 bounds despite the waiter timing out after sequence 25.
+  Both event orders are covered for both platforms; exact generation, native
+  handle, geometry and persistence assertions remain.
+- The local stable `full --phase=seed` run at
+  `.desktop-e2e-artifacts/2026-09-06T16-53-01-101Z-darwin` passed the initial
+  move and repeated close/reopen section, then failed script execution during
+  the rapid native maximize transition at line 507. It is not a passing E2E
+  result. No product runtime mutation or longer timeout was introduced for it.
+- Local checks for these E2E-only corrections passed: focused native-control and
+  Macro journey checks (3 files / 8 tests), full single-worker Vitest (449 files /
+  3,551 tests), TypeScript, ESLint, source hygiene, coverage manifest, production
+  Electron build and E2E production isolation. Rust/product code is unchanged
+  from the paired native-green `280027d7`. Revised Windows journey acceptance
+  and the local rapid-transition failure remain for the next native run.

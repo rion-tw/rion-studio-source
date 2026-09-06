@@ -406,15 +406,17 @@ export async function controlWindow(
 export async function submitWindowControl(
   snapshot: DesktopE2eWindowSnapshot,
   request: WindowControlRequest
-): Promise<DesktopE2eEvent> {
+): Promise<DesktopE2eEvent & { requestedAfterSequence: number }> {
   const cursor = (await probe()).latestSequence;
   await controlWindow(snapshot.windowId, request);
-  return waitEvent({
+  const submitted = await waitEvent({
     afterSequence: cursor,
     kind: "native-control-submitted",
     minimumGeneration: snapshot.windowGeneration,
     windowId: snapshot.windowId
   });
+  // Native callbacks may commit placement before controlWindow returns.
+  return { ...submitted, requestedAfterSequence: cursor };
 }
 
 export async function closeWindowAndWait(

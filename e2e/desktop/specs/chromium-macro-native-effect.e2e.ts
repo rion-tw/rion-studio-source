@@ -218,7 +218,7 @@ async function waitForExactNativeEffects(
     kind: "mouseup",
     roleId: ROLE_FIXTURE_ID
   });
-  await waitFixtureEvent({
+  const rightUp = await waitFixtureEvent({
     afterSequence: middleUp.sequence,
     kind: "mouseup",
     roleId: ROLE_FIXTURE_ID
@@ -232,9 +232,14 @@ async function waitForExactNativeEffects(
   });
   expectTrustedEvent(contextMenu, {
     button: 2,
-    buttons: 2,
+    buttons: platform() === "windows" ? 0 : 2,
     targetId: "qa-target"
   });
+  if (platform() === "windows") {
+    expect(contextMenu.sequence).toBeGreaterThan(rightUp.sequence);
+  } else {
+    expect(contextMenu.sequence).toBeLessThan(rightUp.sequence);
+  }
 
   const transitions = (await fixtureEvents({
     afterSequence,

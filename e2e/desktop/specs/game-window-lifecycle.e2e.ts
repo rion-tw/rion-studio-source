@@ -190,7 +190,7 @@ async function moveAndWait(
 ): Promise<DesktopE2eWindowSnapshot> {
   const submitted = await submitWindowControl(snapshot, { action: "moveResize", ...bounds });
   await waitEvent({
-    afterSequence: submitted.sequence,
+    afterSequence: submitted.requestedAfterSequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     windowId: snapshot.windowId
@@ -532,7 +532,7 @@ async function modeTransition(
     presentation
   });
   await waitEvent({
-    afterSequence: submitted.sequence,
+    afterSequence: submitted.requestedAfterSequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     presentation,

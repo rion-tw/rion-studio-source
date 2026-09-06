@@ -67,7 +67,7 @@ async function transition(
     presentation
   });
   await waitEvent({
-    afterSequence: submitted.sequence,
+    afterSequence: submitted.requestedAfterSequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     presentation,
@@ -144,7 +144,7 @@ describe("extended native Game Window placement", () => {
       ...bounds
     });
     await waitEvent({
-      afterSequence: submitted.sequence,
+      afterSequence: submitted.requestedAfterSequence,
       kind: "placement-accepted",
       minimumGeneration: snapshot.windowGeneration,
       timeoutMs: 60_000,
@@ -153,7 +153,7 @@ describe("extended native Game Window placement", () => {
     snapshot = await windowSnapshot(WINDOW_A);
     if (process.platform === "win32") {
       const dpiEvent = await waitEvent({
-        afterSequence: submitted.sequence,
+        afterSequence: submitted.requestedAfterSequence,
         kind: "windows-wm-dpi-changed",
         timeoutMs: 60_000
       });

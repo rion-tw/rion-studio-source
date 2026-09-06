@@ -3,7 +3,7 @@ const { mkdtempSync, writeSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
-const { app, BaseWindow, ipcMain, screen, WebContentsView, webContents, session } = require("electron");
+const { app, BrowserWindow, ipcMain, screen, WebContentsView, webContents, session } = require("electron");
 
 const PROBE_PREFIX = "RION_ELECTRON_WINDOWS_CHROMIUM_INPUT_PROBE=";
 
@@ -73,14 +73,16 @@ void (async () => {
     if (typeof addon.readWindowsRuntimeForeground !== "function") throw new Error("Native parent observation is unavailable.");
 
     const display = screen.getPrimaryDisplay();
-    parent = new BaseWindow({
+    parent = new BrowserWindow({
       x: display.workArea.x + 80,
       y: display.workArea.y + 80,
       width: 760,
       height: 560,
       useContentSize: true,
       frame: true,
-      show: false
+      show: false,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true,
+        partition: `rion-input-probe-host-${randomUUID()}` }
     });
     const parentBounds = parent.getContentBounds();
     const { ChromiumViewAttachmentCoordinator, ChromiumViewTrustedInputHost,
@@ -93,7 +95,11 @@ void (async () => {
       nowMs: Date.now, onError: error => { attachmentFailure = error; } });
     focus = new ChromiumViewFocusAdmission({ attachments, nowMs: Date.now,
       deadlines: { schedule: (callback, delay) => setTimeout(callback, delay), cancel: clearTimeout },
-      activateParent: target => { parent.show(); target.observe(); parent.focus(); } });
+      activateParent: target => {
+        if (!parent.isVisible()) parent.show();
+        target.observe();
+        if (!parent.isFocused()) parent.focus();
+      } });
     const hosts = new ChromiumViewTrustedInputHost({ attachments, focus: request => focus.focus(request) });
     const attach = async (roleId, target) => attachments.attach({ roleId, generation: 1, parent, view: target,
       isCancelled: () => false, attach: () => parent.contentView.addChildView(target),

@@ -27,7 +27,7 @@ export function windowsChromiumViewParentBinding(
       const dispose = () => { for (const remove of subscriptions.splice(0)) remove(); };
       try {
         for (const event of ["move", "resize", "show", "hide", "minimize", "restore", "focus", "blur", "closed"] as const) {
-          const callback = () => listener(event === "closed" ? "closed" : "changed");
+          const callback = () => listener(event === "closed" ? "closed" : event === "focus" ? "focused" : "changed");
           window.on(event, callback);
           subscriptions.push(() => { window.removeListener(event, callback); });
         }

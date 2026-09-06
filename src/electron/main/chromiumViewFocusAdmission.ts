@@ -43,6 +43,9 @@ export class ChromiumViewFocusAdmission {
 
     return new Promise(resolve => {
       let terminal = false;
+      let activationReturned = false;
+      let parentReady = false;
+      let viewFocusRequested = false;
       const cleanup: Array<() => void> = [];
       const finish = (status: Receipt["status"], code: string | null) => {
         if (terminal) return;
@@ -62,17 +65,35 @@ export class ChromiumViewFocusAdmission {
           const current = attachments.resolveFocusTarget(request.roleId, request.surfaceGeneration);
           if (current?.input !== target.input || !target.view.getVisible()) { cancel(); return; }
           if (nowMs() >= request.deadlineMs) { finish("failed", "SYSTEM_TRUSTED_INPUT_FOREGROUND_DEADLINE"); return; }
-          if (validChromiumViewInputObservation(target.observe(), target.identity, "foreground")) finish("applied", null);
+          if (parentReady && viewFocusRequested &&
+              validChromiumViewInputObservation(target.observe(), target.identity, "foreground")) finish("applied", null);
         } catch { cancel(); }
       };
+      const focusView = () => {
+        if (terminal || !activationReturned || !parentReady || viewFocusRequested) return;
+        try {
+          // BrowserWindow restores its own WebContents before emitting focus.
+          // Submit View focus only after that exact parent activation event.
+          target.observe();
+          if (!target.view.getVisible()) { cancel(); return; }
+          viewFocusRequested = true;
+          target.view.webContents.focus!();
+          check();
+        } catch { finish("failed", "ELECTRON_VIEW_FOCUS_FAILED"); }
+      };
       try {
+        parentReady = target.observe().parentForeground;
         own(attachments.subscribeInvalidation((roleId, generation) => {
           if (roleId === request.roleId && generation === request.surfaceGeneration) cancel();
         }));
         own(attachments.subscribePresentation(event => {
           if (event.roleId === request.roleId && event.surfaceGeneration === request.surfaceGeneration) check();
         }));
-        own(target.binding.subscribe(event => { if (event === "closed") cancel(); else check(); }));
+        own(target.binding.subscribe(event => {
+          if (event === "closed") { cancel(); return; }
+          if (event === "focused") { parentReady = true; focusView(); }
+          check();
+        }));
         for (const event of ["focus", "blur", "destroyed"] as const) {
           if (terminal) break;
           target.view.webContents.on(event, check);
@@ -84,9 +105,8 @@ export class ChromiumViewFocusAdmission {
         if (terminal) return;
         if (!target.view.webContents.focus || !target.view.webContents.isFocused) throw new Error("View focus API unavailable.");
         this.options.activateParent(target);
-        if (terminal) return;
-        target.view.webContents.focus();
-        check();
+        activationReturned = true;
+        focusView();
       } catch { finish("failed", "ELECTRON_VIEW_FOCUS_FAILED"); }
     });
   }

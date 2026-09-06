@@ -1377,7 +1377,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Create a Role-assigned KeyA, left, middle, right, and long-delay Macro through visible Windows Chromium UI; open its managed Role, start the Macro visibly, require exact foreground-focus acknowledgement, and require exact trusted keydown/keyup plus button/buttons DOM sequences and semantic click, auxclick, and contextmenu evidence before visibly stopping it. The separate background-tab replacement owns hidden delivery and continuity."
+      "description": "Create a Role-assigned KeyA, left, middle, right, and long-delay Macro through visible Windows Chromium UI; open its managed Role, start the Macro visibly, require exact foreground-focus acknowledgement after the BrowserWindow parent activation event and the target View focus event, and require exact trusted keydown/keyup plus button/buttons DOM sequences and semantic click, auxclick, and contextmenu evidence before visibly stopping it. The separate background-tab replacement owns hidden delivery and continuity."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-BACKGROUND-TAB-004",

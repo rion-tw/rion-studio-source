@@ -100,11 +100,11 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
           current.identity.ownerRevision !== target.binding.revision) {
         throw runtimeError("ELECTRON_WINDOWS_VIEW_FOCUS_SUPERSEDED", "The exact View parent was superseded.");
       }
-      current.window.show();
+      if (!current.window.isVisible()) current.window.show();
       // A synchronous show callback may retire or move this exact View.
       target.observe();
       if (!target.view.getVisible()) throw new Error("The View was hidden during activation.");
-      current.window.focus();
+      if (!current.window.isFocused()) current.window.focus();
     } });
   const hosts = new ChromiumViewTrustedInputHost({ attachments, focus: request => focus.focus(request) });
   let created = false;

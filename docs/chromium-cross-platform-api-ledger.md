@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified previously; current Windows updater concurrency pending | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows 21 journeys passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | current macOS smoke 56 phases passed; Windows 24 phases passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS package/updater verified at 79ea9b13; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -4059,3 +4059,47 @@ trusted input are outside this Windows child-host removal.
   desktop E2E profile was run for this Windows-only native event change; both
   exact-candidate desktop profiles, Windows native checks and hardware gates
   remain pending CI/physical execution. Production renderer outputs are restored.
+
+
+### Exact candidate 3154a542 native acceptance and parent focus ordering
+
+- Local `chromium-macos-appkit-smoke` completed successfully at `3154a542`:
+  all 56 configured phases passed. Evidence is in
+  `.desktop-e2e-artifacts/2026-09-06T16-30-43-149Z-darwin` and
+  `/tmp/rion-3154-macos-smoke.log`. This covers AppKit fullscreen/tab chrome,
+  foreground/background Macro input, standby/reload/topology/terminal cleanup,
+  system settings/font application, Session isolation/reset/restart and recovery.
+  It is not mixed-DPI/hardware or Windows evidence.
+- CI `34045623644`, Windows Chromium package job `101520039873` passed 24
+  phases, including direct-View physical input, both fullscreen toolbar phases,
+  Quick Access, ordinary settings persistence and Macro UI. The native pointer
+  event correction is verified. The later `chromium-macro-native-effect` failed:
+  fixture focus sequence 327 was followed by blur 328 within 3 ms; Core accepted
+  focus `browser-action-2`, then rejected actions 3 and 4 with
+  `SYSTEM_TRUSTED_INPUT_DELIVERY_MODE_UNAVAILABLE`. No KeyA receipt arrived.
+- Pinned Electron 43.4.1 restores/focuses a BrowserWindow's own WebContents in
+  [BrowserWindow::OnWindowFocus](https://github.com/electron/electron/blob/v43.4.1/shell/browser/api/electron_api_browser_window.cc),
+  before [BaseWindow's deferred focus event](https://github.com/electron/electron/blob/v43.4.1/shell/browser/api/electron_api_base_window.cc).
+  View focus admission now distinguishes that exact parent event from generic
+  geometry/state changes. When the parent was not foreground, it waits for that
+  event before focusing the Role View; transient View focus cannot complete the
+  request first. Already-foreground parents avoid redundant show/focus calls.
+  Existing Core deadline, cancellation, hidden-View and ownership checks remain.
+- The same CI candidate's stable Windows E2E job `101520039954` failed the
+  Game Window move event after sequence 25, while stable macOS E2E job
+  `101520039990` returned an indeterminate AppKit tracking-loop fullscreen
+  mutation. These remain unresolved gates; earlier green candidates do not
+  overwrite these results. System-settings absence/font assertions occur after
+  the Windows Macro phase, so CP-02/06/13 remain pending Windows acceptance.
+- The physical Windows probe now uses one sandboxed `BrowserWindow` with its own
+  isolated host Session and two Role Views, matching the product parent class.
+  It no longer uses a root-WebContents-free BaseWindow that cannot exercise this
+  focus-restoration boundary. All foreground/hidden trusted-event, modifier,
+  coordinate, exact membership and sibling-focus assertions remain required.
+- Focus-order correction validation: 4 focused files / 29 tests, then the full
+  single-worker Vitest suite (448 files / 3,547 tests); native macOS Rust lint
+  and workspace tests (1,642 passed / 4 ignored); TypeScript, ESLint, source
+  hygiene, coverage manifest, stable build, production Electron build and E2E
+  production isolation all passed. The full macOS desktop run above predates
+  this Windows-only focus correction; its Windows physical/product result is
+  pending the next candidate. Production outputs are restored.

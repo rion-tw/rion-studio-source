@@ -45,7 +45,7 @@ describe("Windows public View parent binding", () => {
     const unsubscribe = f.binding.subscribe(listener);
     f.events.emit("focus");
     f.events.emit("closed");
-    expect(listener.mock.calls).toEqual([["changed"], ["closed"]]);
+    expect(listener.mock.calls).toEqual([["focused"], ["closed"]]);
     unsubscribe();
     expect(f.events.eventNames()).toEqual([]);
   });

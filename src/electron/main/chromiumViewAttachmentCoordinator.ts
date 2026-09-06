@@ -15,7 +15,7 @@ export interface ChromiumViewParentBinding {
     parentVisible: boolean; parentMinimized: boolean; focusedWebContentsId: number | null;
   }>;
   readonly contentsFocused: (view: ChromiumRoleWebContentsViewPort) => boolean;
-  readonly subscribe: (listener: (event: "changed" | "closed") => void) => () => void;
+  readonly subscribe: (listener: (event: "changed" | "focused" | "closed") => void) => () => void;
 }
 
 type PresentationListener = (event: Readonly<{

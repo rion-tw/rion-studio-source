@@ -59,6 +59,48 @@ describe.each(["macos", "windows"] as const)("%s View focus admission", platform
     expect(f.events.listenerCount("focus")).toBe(0);
     expect(f.cancel).toHaveBeenCalledOnce();
   });
+  it("waits for parent focus after its root WebContents restoration", async () => {
+    const f = await fixture(platform);
+    f.setForeground(false);
+    const settled = vi.fn();
+    const pending = f.focus.focus(f.request).then(settled);
+    // Native readback and a transient View focus cannot replace the parent event.
+    f.setForeground(true);
+    f.setFocused(true);
+    f.events.emit("focus");
+    f.parentEvents.emit("event", "changed");
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    expect(f.contents.focus).not.toHaveBeenCalled();
+    f.setFocused(false);
+    f.events.emit("blur");
+    f.contents.focus.mockImplementation(() => { f.setFocused(true); f.events.emit("focus"); });
+    f.parentEvents.emit("event", "focused");
+    await pending;
+    expect(f.contents.focus).toHaveBeenCalledOnce();
+    expect(settled).toHaveBeenCalledWith(expect.objectContaining({ status: "applied" }));
+  });
+
+  it("defers View focus until a synchronous parent activation callback returns", async () => {
+    const f = await fixture(platform);
+    f.setForeground(false);
+    const order: string[] = [];
+    f.activateParent.mockImplementation(() => {
+      order.push("parent-start");
+      f.setForeground(true);
+      f.parentEvents.emit("event", "focused");
+      expect(f.contents.focus).not.toHaveBeenCalled();
+      order.push("parent-return");
+    });
+    f.contents.focus.mockImplementation(() => {
+      order.push("view-focus");
+      f.setFocused(true);
+      f.events.emit("focus");
+    });
+    expect(await f.focus.focus(f.request)).toMatchObject({ status: "applied" });
+    expect(order).toEqual(["parent-start", "parent-return", "view-focus"]);
+  });
+
   it("admits a hidden View without selecting or activating it", async () => {
     const f = await fixture(platform, false);
     expect(await f.focus.focus(f.request)).toMatchObject({ status: "applied" });

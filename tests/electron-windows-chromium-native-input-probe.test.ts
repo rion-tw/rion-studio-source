@@ -11,7 +11,7 @@ describe("Windows Chromium physical input candidate gate", () => {
       readFile("src/electron/main/windowsChromiumViewParentBinding.ts", "utf8"),
       readFile("scripts/electronLoadChromiumInputOwner.cjs", "utf8")
     ]);
-    expect(probe.match(/new BaseWindow\(/gu)).toHaveLength(1);
+    expect(probe.match(/new BrowserWindow\(/gu)).toHaveLength(1);
     for (const owner of ["ChromiumViewAttachmentCoordinator", "ChromiumViewTrustedInputHost", "ChromiumViewFocusAdmission", "windowsChromiumViewParentBinding"]) {
       expect(probe).toContain(owner);
     }

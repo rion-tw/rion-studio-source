@@ -4865,3 +4865,20 @@ trusted input are outside this Windows child-host removal.
   Windows Chromium package validation failed, Windows native validation remains
   in progress and macOS jobs remain queued at observation time. CP-10,
   CP-11/15, CP-16 and cutover gates remain open.
+
+
+### CP-11/CP-15 macOS controlled Reload at 968b8828
+
+- Clean-worktree candidate 968b88283f08d652d53df9650a2d5de06e569169
+  passes the independent chromium-controlled-role-reload phase under
+  chromium-macos-appkit-smoke. Report
+  .desktop-e2e-artifacts/2026-09-06T19-58-10-559Z-darwin/report.json
+  records exit 0 and PASS for CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-RELOAD-031
+  and CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-AUDIO-032. The visible AppKit
+  menu scenario reloads twice, injects one classified failure, and recovers.
+  Other profile journeys are explicitly NOT_RUN, not implied passing.
+- Production Electron rebuild and desktop E2E production isolation pass after
+  the native run. No product source was changed for this evidence increment.
+- Exact candidate CI 34056466345 remains active; Windows package job
+  101549172329 was observed in progress. The earlier Windows reload failure
+  remains unresolved until new native evidence identifies and verifies a repair.

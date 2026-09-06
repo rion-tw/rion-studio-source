@@ -1552,3 +1552,36 @@ retains visible Courier New/generic apply, cancel and reset assertions against
 live Role font loading and Canvas metrics. The manifest describes this coverage.
 Windows native validation of the changed contract/provider and its paired
 FONT-APPLICATION-033 remain pending; earlier native runs do not close them.
+
+### Exact-commit CI and macOS offline updater toolchain homes
+
+Fresh run [34012430832](https://github.com/rion-tw/rion-studio-source/actions/runs/34012430832)
+validates exact commit `2420e72aa4a26400b06dd371fb2a571788e186f8`, including
+Chromium font enumeration, Windows pending-popup native close and the F11 probe.
+The workflow concurrency key includes the explicit input SHA, so this run did
+not cancel the earlier exact-commit run.
+
+Run `34010684582` at `8f474391` is fully terminal. Both native validation jobs,
+both Tauri full jobs, shared checks, renderer and Linux validation passed.
+macOS Chromium source E2E passed 52 phases / 49 journeys plus four expected
+force-termination phases, recorded in
+`/tmp/rion-8f-mac-artifacts/2026-09-06T04-08-18-621Z-darwin/report.json`. Its
+release artifacts and previous-version fixtures built, then the packaged updater
+probe failed before executing a Rust test: isolated HOME redirected Cargo's
+default cache and rustup home, and offline resolution could not find package cc.
+Evidence: `/tmp/rion-8f-macos-package.log`. This is not a packaged updater pass.
+
+The macOS transaction harness now pins inherited CARGO_HOME/RUSTUP_HOME or
+their original-home defaults before switching HOME/CFFIXED_USER_HOME to the
+private runtime profile. The existing runtime environment allowlist already
+permits those explicit toolchain paths; private updater signing variables remain
+stripped. Windows profile handling and the --locked/--offline Cargo command are
+unchanged. No signing, sandbox or publication gate is weakened.
+
+Seventeen focused environment/fixture/sandbox tests, typecheck, lint and source
+hygiene passed. A real local macOS `cargo test --locked --offline -p rion-updater
+--lib --no-run` with isolated HOME and the pinned toolchain homes built the native
+probe successfully (`/tmp/rion-updater-cache-offline-build.log`). This verifies
+offline compilation, not the full packaged updater transaction. Additional logs
+use `/tmp/rion-updater-cache-*`. This tooling change is `internal-only` for E2E;
+the native package gate remains pending a run containing the correction.

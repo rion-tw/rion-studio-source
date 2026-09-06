@@ -34,6 +34,11 @@ export function runElectronUpdaterTransactionProbe(
   environment?: NodeJS.ProcessEnv
 ): Promise<ElectronUpdaterTransactionProbeResult>;
 
+export function macosUpdaterProbeToolchainHomes(
+  environment: NodeJS.ProcessEnv,
+  defaultHome: string
+): { CARGO_HOME: string; RUSTUP_HOME: string };
+
 export function verifyElectronUpdaterCompatibilityInput(input: Readonly<{
   fixtureRoot: string;
   inputReceiptPath: string;

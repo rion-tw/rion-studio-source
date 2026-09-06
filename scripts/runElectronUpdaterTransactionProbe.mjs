@@ -19,6 +19,7 @@ import {
   sep
 } from "node:path";
 import process from "node:process";
+import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual, promisify } from "node:util";
 
@@ -222,6 +223,7 @@ export async function runElectronUpdaterTransactionProbe(
     ]);
     runtimeSourceEnvironment = {
       ...environment,
+      ...macosUpdaterProbeToolchainHomes(environment, homedir()),
       CFFIXED_USER_HOME: runtimeHome,
       HOME: runtimeHome,
       TEMP: runtimeTemp,
@@ -487,6 +489,18 @@ async function runCargoProbe(testName, environment) {
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true
   });
+}
+
+/** Pin build caches before HOME changes to the isolated application profile. */
+export function macosUpdaterProbeToolchainHomes(environment, defaultHome) {
+  const sourceHome = environment.HOME || defaultHome;
+  if (typeof sourceHome !== "string" || !isAbsolute(sourceHome)) {
+    throw new Error("The macOS updater probe requires an absolute source home.");
+  }
+  return {
+    CARGO_HOME: environment.CARGO_HOME || join(sourceHome, ".cargo"),
+    RUSTUP_HOME: environment.RUSTUP_HOME || join(sourceHome, ".rustup")
+  };
 }
 
 async function ensurePrivateRuntimeDirectory(directoryPath) {

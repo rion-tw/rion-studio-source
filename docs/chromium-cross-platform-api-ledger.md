@@ -5296,3 +5296,34 @@ trusted input are outside this Windows child-host removal.
 
 
 - Final local verification: Test Files  452 passed (452); Tests  3616 passed (3616); Duration  156.08s (transform 3.46s, setup 0ms, import 14.65s, tests 92.33s, environment 21.62s). Native macOS Rust lint and workspace tests pass (1,646 passed, four ignored); TypeScript, full ESLint, source hygiene, documentation, coverage, stable-shell build, Electron build and production isolation pass. This batch runs no local desktop E2E around the unresolved protected system-dialog obstruction. Windows exact-candidate CI remains pending.
+
+
+### CP-11/CP-15 observe the missing local Web chrome navigation boundary
+
+- The e7bee0ae macOS restart failure's native sample shows the Electron main
+  thread servicing the AppKit run loop; it does not show the previously repaired
+  Tauri callback deadlock. Existing Role lifecycle evidence cannot describe the
+  separate local Web chrome WebContents that remained pending.
+- Extend the E2E-only lifecycle observer to identify the bounded local chrome
+  file navigation in an in-memory Session and write a separate
+  electron-local-web-chrome-lifecycle-observations.json artifact. It records
+  the exact loadURL request and its original Promise outcome alongside native
+  navigation/load/provisional-failure/process-gone/close events. Identification
+  is observational and is not a security admission policy. Persistent Role
+  artifact semantics remain unchanged; unrelated transient pages are ignored.
+- The observer returns the original navigation Promise and preserves native
+  close behavior. Both macOS and Windows tests verify resolve/reject identity,
+  ignored unrelated navigation, process-gone detail, and no initiated close.
+  This internal-only evidence addition does not change the product load gate,
+  deadline, successful restoration criteria or any journey membership. It is
+  not a repair or native acceptance for the intermittent restart failure.
+
+
+- CI 34060549968 / Windows package 101560186467 at ffa18d2b repeats the
+  exact receipt=6 / observed=8 topology-only placement failure before the
+  keyboard phase. It predates the d27e7129 supersession repair and does not
+  verify or disprove the canvas correction. The repaired candidate is live
+  in CI 34060823634 / Windows package 101560915332.
+
+
+- Local observer validation: Test Files  452 passed (452); Tests  3620 passed (3620); Duration  155.87s (transform 3.08s, setup 0ms, import 13.94s, tests 93.21s, environment 21.13s). TypeScript, full ESLint, source hygiene and documentation checks pass. Both E2E and production Electron builds pass, followed by production isolation. No product runtime, shared contract or Rust source changed; native Rust results remain those recorded at d27e7129, not a new run. Desktop evidence collection for this E2E-only change remains pending macOS/Windows CI.

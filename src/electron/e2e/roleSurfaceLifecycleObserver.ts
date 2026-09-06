@@ -13,7 +13,7 @@ interface RoleSurfaceLifecycleObservation {
   readonly details?: Readonly<Record<string, boolean | number | string>>;
   readonly isLoading: boolean;
   readonly isLoadingMainFrame: boolean;
-  readonly roleId: string;
+  readonly roleId?: string;
   readonly sequence: number;
   readonly stage: string;
   readonly url: string;
@@ -43,19 +43,22 @@ export function installElectronDesktopE2eRoleSurfaceLifecycleObserver(
   artifactDirectory: string | undefined
 ): void {
   if (!artifactDirectory || !isAbsolute(artifactDirectory)) return;
-  const observations: RoleSurfaceLifecycleObservation[] = [];
-  const outputPath = join(
-    artifactDirectory,
-    "electron-role-surface-lifecycle-observations.json"
-  );
+  const roleObservations: RoleSurfaceLifecycleObservation[] = [];
+  const chromeObservations: RoleSurfaceLifecycleObservation[] = [];
   let nextSequence = 1;
   app.on("web-contents-created", (_event, contents) => {
     const roleId = roleIdFor(contents);
-    if (!roleId) return;
+    if (!roleId && contents.session.storagePath !== null) return;
+    let localChrome = false;
+    const observations = roleId ? roleObservations : chromeObservations;
+    const outputPath = join(artifactDirectory, roleId
+      ? "electron-role-surface-lifecycle-observations.json"
+      : "electron-local-web-chrome-lifecycle-observations.json");
     const capture = (
       stage: string,
       details?: Readonly<Record<string, boolean | number | string>>
     ): void => {
+      if (!roleId && !localChrome) return;
       const destroyed = contents.isDestroyed();
       observations.push(Object.freeze({
         capturedAt: new Date().toISOString(),
@@ -63,7 +66,7 @@ export function installElectronDesktopE2eRoleSurfaceLifecycleObserver(
         ...(details === undefined ? {} : { details }),
         isLoading: destroyed ? false : contents.isLoading(),
         isLoadingMainFrame: destroyed ? false : contents.isLoadingMainFrame(),
-        roleId,
+        ...(roleId ? { roleId } : {}),
         sequence: nextSequence++,
         stage,
         url: destroyed ? "" : contents.getURL(),
@@ -71,6 +74,25 @@ export function installElectronDesktopE2eRoleSurfaceLifecycleObserver(
       }));
       writeFileSync(outputPath, `${JSON.stringify(observations, null, 2)}\n`);
     };
+    if (!roleId) {
+      const originalLoadURL = contents.loadURL;
+      contents.loadURL = function (url, options) {
+        if (!localChrome && /^file:\/\/.*\/runtime-(?:web-chrome|role-placeholder)-electron\.html$/u.test(url)) {
+          localChrome = true;
+          capture("local-chrome-identified", { type: contents.getType() });
+        }
+        if (!localChrome) return originalLoadURL.call(this, url, options);
+        capture("load-url-entered", { url });
+        const completion = originalLoadURL.call(this, url, options);
+        void completion.then(
+          () => capture("load-url-resolved", { url }),
+          (error: unknown) => capture("load-url-rejected", {
+            url, error: error instanceof Error ? error.message : String(error)
+          })
+        );
+        return completion;
+      };
+    }
     const originalClose = contents.close;
     contents.close = function (options) {
       capture("close-entered", {

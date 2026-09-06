@@ -5026,3 +5026,21 @@ trusted input are outside this Windows child-host removal.
   E2E omission is internal-only; no new native run was launched around the known
   system obstruction. The production Electron rebuild and E2E isolation passed
   after the diagnostic attempt.
+
+
+### CP-16 journal watcher Windows acceptance at 968b8828
+
+- CI 34056466345 native Windows job 101549335257 is SUCCESS. The complete
+  job log records electron-updater-journal-acknowledgement.test.ts passing all
+  14 tests, including real file removal and atomic replacement coverage.
+  Together with the local 968b8828 full Vitest evidence, this supplies paired
+  platform verification of the file-plus-directory event watcher correction.
+  It does not prove production updater transactions or publication readiness.
+- The same Windows job passes eight native integration files / 15 tests,
+  including both fresh-process Session maintenance fixtures, and renderer
+  regression reports 440 files passed / ten skipped, 3,515 tests passed /
+  48 skipped. Skipped native-inapplicable cases remain explicit, not passes.
+- Reload correction ae6d8350 is still under live Windows package job
+  101551885424 in CI 34057473299. Local native execution remains paused for
+  the owner to handle the protected system notification dialog; no attempt was
+  made to bypass Computer Use's denial of that application.

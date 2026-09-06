@@ -1924,8 +1924,8 @@ native hosts; it does not establish complete production Role parity. Windows
 product journey APPLICATION-SHORTCUTS-030 and the complete profile remain under
 CP-15/18. No globalShortcut fallback is introduced.
 
-The same CI's macOS Chromium report now records all 52 phases and 49 journeys
-PASS, 05:49:59–06:09:03 UTC on 2026-09-06. Artifact:
+The same CI's macOS Chromium report now records 52 passing phases, four expected
+forced-termination phases and all 49 journeys PASS, 05:49:59–06:09:03 UTC on 2026-09-06. Artifact:
 `chromium-shell-e2e-macOS-34014912798-1`, ID 9983826074; local report
 `/tmp/rion-edc-mac-artifacts/2026-09-06T05-49-59-279Z-darwin/report.json`.
 It identifies source `edc757d0` and reports `worktreeDirty: true`, so this is the
@@ -1936,3 +1936,23 @@ The gated Web-only UIA correction is committed as `2aed96909126d603c4f3eb62f2cfb
 Fresh paired CI [34015776112](https://github.com/rion-tw/rion-studio-source/actions/runs/34015776112)
 is running on that exact source. Its Windows loading-control result remains
 pending; older runs do not validate this correction.
+
+### Native Windows updater-tooling portability regression
+
+The `edc757d0` Windows native job finishes with the F11 comparison test passing
+and all 10 native integration tests passing, then fails two renderer/tooling
+assertions in `electron-updater-toolchain-home.test.ts`. The macOS-only cache
+helper used host-default `node:path.join`, producing Windows separators for
+macOS fixture homes when tested on Windows. This does not invalidate the
+completed F11 evidence; it leaves the whole native job failed.
+Log: `/tmp/rion-edc-win-native.log`.
+
+The helper now uses explicit `path.posix.isAbsolute/join` for macOS source homes.
+Explicit cache overrides remain unchanged. Focused tests also reject drive and
+backslash-rooted Windows source homes. Local macOS validation passes 27 adjacent
+release/tooling tests, all 3,324 Vitest tests, lint (23 existing warnings), complete
+source/dependency hygiene and the normal build. Pure Electron output is restored
+separately after the build. This is `internal-only` E2E work: it fixes the probe
+build environment, with no product journey or updater trust-policy change.
+Fresh Windows tooling execution remains pending; CI 34015776112 predates this
+correction. Logs: `/tmp/rion-updater-posix-*`.

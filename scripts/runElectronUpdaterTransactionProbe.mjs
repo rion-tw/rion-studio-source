@@ -14,6 +14,7 @@ import {
   dirname,
   isAbsolute,
   join,
+  posix,
   relative as relativePath,
   resolve,
   sep
@@ -494,12 +495,12 @@ async function runCargoProbe(testName, environment) {
 /** Pin build caches before HOME changes to the isolated application profile. */
 export function macosUpdaterProbeToolchainHomes(environment, defaultHome) {
   const sourceHome = environment.HOME || defaultHome;
-  if (typeof sourceHome !== "string" || !isAbsolute(sourceHome)) {
+  if (typeof sourceHome !== "string" || !posix.isAbsolute(sourceHome)) {
     throw new Error("The macOS updater probe requires an absolute source home.");
   }
   return {
-    CARGO_HOME: environment.CARGO_HOME || join(sourceHome, ".cargo"),
-    RUSTUP_HOME: environment.RUSTUP_HOME || join(sourceHome, ".rustup")
+    CARGO_HOME: environment.CARGO_HOME || posix.join(sourceHome, ".cargo"),
+    RUSTUP_HOME: environment.RUSTUP_HOME || posix.join(sourceHome, ".rustup")
   };
 }
 

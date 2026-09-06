@@ -26,8 +26,10 @@ describe("macOS updater probe build homes", () => {
       .toEqual({ CARGO_HOME: "/Users/runner/.cargo", RUSTUP_HOME: "/Users/runner/.rustup" });
   });
 
-  it("rejects an ambiguous relative source home", () => {
-    expect(() => macosUpdaterProbeToolchainHomes({ HOME: "relative" }, "/Users/runner"))
-      .toThrow("absolute source home");
-  });
+  it.each(["relative", String.raw`C:\Users\runner`, String.raw`\Users\runner`])(
+    "rejects a source home outside absolute macOS paths: %s", sourceHome => {
+      expect(() => macosUpdaterProbeToolchainHomes({ HOME: sourceHome }, "/Users/runner"))
+        .toThrow("absolute source home");
+    }
+  );
 });

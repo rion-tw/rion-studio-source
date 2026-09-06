@@ -428,6 +428,13 @@ async function selectWindowsFile(
   processId: number
 ): Promise<void> {
   const script = String.raw`
+function Write-Progress([string]$phase) {
+  # Persist before native calls: UIA can stall before the failure snapshot runs.
+  [IO.File]::WriteAllText([string]$payload.progressPath, (
+    [ordered]@{ phase = $phase; processId = [int]$payload.processId } |
+      ConvertTo-Json -Compress))
+}
+Write-Progress 'loading-automation'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @'
@@ -439,6 +446,7 @@ public static class RionFileDialogOwnership {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 }
 '@
+Write-Progress 'reading-root'
 $root = [System.Windows.Automation.AutomationElement]::RootElement
 $targetPid = [int]$payload.processId
 $fixturePath = [string]$payload.fixturePath
@@ -467,6 +475,7 @@ $openCondition = New-Object System.Windows.Automation.AndCondition(
     [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')))
 $observedWindows = [ordered]@{}
 $targetWindowHandles = @{}
+Write-Progress 'reading-application-windows'
 $targetWindows = $root.FindAll(
   [System.Windows.Automation.TreeScope]::Children,
   (New-Object System.Windows.Automation.AndCondition(
@@ -496,6 +505,7 @@ function Get-OwnerProcessId($candidate) {
 }
 
 function Test-ExactFileDialogControls($candidate) {
+  Write-Progress 'reading-dialog-controls'
   $edits = $candidate.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants, $editCondition)
   if ($edits.Count -ne 1) { return $false }
@@ -510,6 +520,7 @@ function Send-LiteralKeys([string]$value) {
 }
 
 function Read-ExactDialogs {
+  Write-Progress 'reading-direct-dialogs'
   $directDialogs = $root.FindAll(
     [System.Windows.Automation.TreeScope]::Children, $directDialogCondition)
   $matches = New-Object System.Collections.Generic.List[System.Windows.Automation.AutomationElement]
@@ -524,6 +535,7 @@ function Read-ExactDialogs {
   # children even while its HWND is the active foreground window. Resolve that
   # exact HWND through UIA, then retain the same owner and semantic-control
   # fences used for enumerated candidates.
+  Write-Progress 'reading-foreground-dialog'
   $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
   if ($foregroundHandle -ne [IntPtr]::Zero) {
     try {
@@ -544,6 +556,7 @@ function Read-ExactDialogs {
       }
     } catch {}
   }
+  Write-Progress 'reading-window-candidates'
   $windows = $root.FindAll(
     [System.Windows.Automation.TreeScope]::Children, $windowCondition)
   foreach ($candidate in $windows) {
@@ -559,6 +572,7 @@ function Read-ExactDialogs {
 }
 
 function Capture-WindowSnapshot {
+  Write-Progress 'capturing-window-snapshot'
   $windows = $root.FindAll(
     [System.Windows.Automation.TreeScope]::Children, $windowCondition)
   foreach ($candidate in $windows) {
@@ -590,6 +604,7 @@ function Capture-WindowSnapshot {
 
 function Write-FailureSnapshot {
   Capture-WindowSnapshot
+  Write-Progress 'capturing-failure-snapshot'
   $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
   $foregroundAutomationError = ''
   $foregroundProcessId = [uint32]0
@@ -676,6 +691,7 @@ do {
   }
   Start-Sleep -Milliseconds 50
 } while ($true)
+Write-Progress 'dialog-matched'
 $dialog = $dialogs[0]
 $edits = $dialog.FindAll(
   [System.Windows.Automation.TreeScope]::Descendants, $editCondition)
@@ -687,15 +703,18 @@ if ($edits[0].Current.IsOffscreen -or !$edits[0].Current.IsEnabled -or
     $openButtons[0].Current.IsOffscreen -or !$openButtons[0].Current.IsEnabled) {
   throw 'exact Windows file dialog controls are not visibly actionable'
 }
+Write-Progress 'focusing-dialog'
 $dialog.SetFocus()
 $edits[0].SetFocus()
+Write-Progress 'entering-file-name'
 [System.Windows.Forms.SendKeys]::SendWait('^a')
 Send-LiteralKeys $fixturePath
+Write-Progress 'submitting-open'
 $openButtons[0].SetFocus()
 [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
 do {
   $dialogs = @(Read-ExactDialogs)
-  if ($dialogs.Count -eq 0) { break }
+  if ($dialogs.Count -eq 0) { Write-Progress 'dialog-closed'; break }
   if ([DateTime]::UtcNow -gt $expiry) {
     Write-FailureSnapshot
     throw 'Windows file dialog did not close'
@@ -706,6 +725,7 @@ do {
   try {
     await runEncodedPowerShellJson(script, {
       diagnosticPath: resolve(artifactDirectory(), WINDOWS_FAILURE_FILE_NAME),
+      progressPath: resolve(artifactDirectory(), "windows-native-file-dialog-progress.json"),
       fixturePath,
       processId
     }, {

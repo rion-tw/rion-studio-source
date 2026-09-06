@@ -2132,3 +2132,27 @@ failed earlier in Windows Chromium fullscreen seed: the native file chooser
 helper was terminated at its external deadline. This run therefore does not
 validate the later shared-Role correction; investigation continues from its
 artifacts rather than treating earlier phase successes as full profile parity.
+
+### Preserve Windows native file chooser progress before blocking UIA calls
+
+The 522f7d4a file-upload failure produced neither the existing failure snapshot
+nor upload-success evidence. A native helper deadline alone does not distinguish
+UI Automation discovery, focus, SendKeys or dialog-close waits. The Windows
+helper now persists a bounded phase/PID progress record before those calls and
+a dialog-closed record only after exact-owner dialog disappearance. The artifact
+is windows-native-file-dialog-progress.json; it is diagnostic evidence, not a
+new success authority. Existing ownership/cardinality/control checks, physical
+input and deadlines remain unchanged. No user data or input path is recorded.
+
+Validation: 11 adjacent fullscreen/PowerShell transport tests, typecheck, scoped
+lint, source hygiene, coverage and desktop E2E isolation pass. This is internal-only
+E2E diagnostics for CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028; the native
+Windows profile remains pending. The macOS helper is unchanged. Logs:
+`/tmp/rion-file-chooser-*`. CI 34018078890 validates the preceding IPC correction
+at 17306f6e and does not include these new diagnostic records.
+
+Separately, macOS package validation on older CI 34016712833 failed in
+chromium-system-settings with System Events assistive-access denial (-25211),
+not a completed packaged updater verdict. Evidence:
+`/tmp/rion-fa5-mac-package.log`. Native validation success on that run remains
+valid at its narrower scope; complete package acceptance stays pending.

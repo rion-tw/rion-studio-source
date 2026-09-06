@@ -2548,7 +2548,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Run the identical two-window shared-Role claim in the bundled Windows Chromium hosts, using the visible sandboxed local placeholder and a terminal Core owner-generation transfer. Exact old-host isolation, new-host attachment, and both unrelated Role fences are independently validated by Windows CI."
+      "description": "Run the identical two-window shared-Role claim in the bundled Windows Chromium hosts, initializing the blocked placeholder only after the Core window projection supplies positive generation/revision fences, then using its visible sandboxed Claim control and a terminal Core owner-generation transfer. Exact old-host isolation, new-host attachment, and both unrelated Role fences are independently validated by Windows CI."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACES-RECOVERY-026",

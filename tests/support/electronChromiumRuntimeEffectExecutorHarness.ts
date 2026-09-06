@@ -85,7 +85,8 @@ export function harness(
     generation: input.generation,
     parentId: input.parent.id,
     url: input.url
-  })
+  }),
+  platform: "macos" | "windows" = "macos"
 ): Harness {
   const hosts: FakeHost[] = [];
   const audioStates = new Map<string, boolean>();
@@ -102,6 +103,13 @@ export function harness(
       initialTab.appkitWindowGeneration ?? 1,
       initialTab.appkitTopologyRevision ?? 1
     );
+    if (platform === "windows") {
+      Object.defineProperties(host, {
+        appKitIdentity: { value: undefined },
+        initializeAppKitTab: { value: undefined },
+        applyWindowsChromeProjection: { value: vi.fn(async () => undefined) }
+      });
+    }
     hosts.push(host);
     return host;
   });
@@ -269,12 +277,14 @@ export function harness(
       createEmpty: createEmptyHost
     },
     layout: {
-      resolveRoleBounds: async (specification) => new Map(
-        specification.roles.map((role, index) => [
-          role.role.id,
-          { x: index * 500, y: 44, width: 500, height: 656 }
-        ])
-      )
+      resolveRoleBounds: async (specification) => roleBounds(specification),
+      ...(platform === "windows" ? {
+        resolveWorkspaceLayout: async (specification: EmbeddedTabEffectRecord) => ({
+          roles: roleBounds(specification),
+          contentBounds: { x: 0, y: 44, width: 1000, height: 656 },
+          dividers: [], visible: true
+        })
+      } : {})
     },
     lifecycleEpoch: () => 1,
     managedShortcutRetirement: { retireSurface: managedRetireSurface },
@@ -398,4 +408,15 @@ export async function loadWebSurfaces(
         }))
     }
   ));
+}
+
+function roleBounds(specification: EmbeddedTabEffectRecord) {
+  return new Map([
+    ...specification.roles.map((role, index) => [
+      role.role.id, { x: index * 500, y: 44, width: 500, height: 656 }
+    ] as const),
+    ...specification.slots.filter(slot => slot.web === undefined).map((slot, index) => [
+      slot.role.id, { x: index * 500, y: 44, width: 500, height: 656 }
+    ] as const)
+  ]);
 }

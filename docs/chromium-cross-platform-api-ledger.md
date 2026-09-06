@@ -2071,3 +2071,35 @@ snapshots and effect receipts, with log `/tmp/rion-fa5-win-package.log`.
 The Darwin zombie-group cleanup correction is committed and pushed as
 `0430e3b9`; its complete packaged transaction has not yet run on CI. Local pure
 Electron build and renderer isolation also pass after the normal build.
+
+### Shared Role placeholder initialization follows the first Core fence
+
+The Windows shared-Role failure at `fa5c7737` is effect 198's
+ELECTRON_ROLE_PLACEHOLDER_WINDOW_FENCE_STALE during embeddedCreateTab. The newly
+created second Windows host still has generation/revision zero; its first
+embeddedFollowRoleOwnership (sequence 204) carries generation 13/revision 15.
+Creating blocked placeholders before that projection incorrectly terminalizes
+the launch, so the unique sibling never starts. Evidence:
+`/tmp/rion-fa5-win-artifacts/2026-09-06T06-33-05-716Z-win32/phases/chromium-workspace-shared-role/electron-core-flow-observations.json`.
+
+Tab creation now records the native host/tab and leaves placeholder reconciliation
+to the authoritative ownership/window projection, before native reveal. The
+positive window fence and exact Core owner checks remain unchanged. Both shells
+use that sequence. The executor test harness now explicitly supports a Windows
+host without AppKit initialization metadata and provides geometry for blocked
+slots. New macOS/Windows cases create the unfenced target, require no premature
+placeholder, apply the Core projection, and verify exact placeholder generation,
+revision and owner. The existing claim-terminal test now supplies the initial
+ownership projection instead of depending on early creation side effects.
+
+Validation: all 50 adjacent projection/executor tests and all 3,338 Vitest tests
+pass; typecheck, lint, source hygiene, coverage, macOS Rust lint and the complete
+Rust suite pass (1,642 passed, 4 existing ignored). The retained AppKit Chromium
+shared-Role phase passes locally at `85e0b94b` plus this working diff,
+06:51:09–06:51:33 UTC, report
+`.desktop-e2e-artifacts/2026-09-06T06-51-09-736Z-darwin/report.json`.
+The journey is CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025; its Windows
+counterpart still needs fresh native CI. Both now explicitly assert positive
+placeholder window fences. Pure Electron build/isolation is restored and passes.
+Logs: `/tmp/rion-placeholder-init-*`. No ownership checks, retries or timeouts
+were weakened, and no platform-specific placeholder initialization path was added.

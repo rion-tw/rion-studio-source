@@ -114,6 +114,8 @@ describe("Chromium shared Workspace Role exact replacement", () => {
 
     const before = await waitPlaceholderOwner(shared.id, tabA.id);
     const targetPlaceholder = before.placeholders[0]!;
+    expect(targetPlaceholder.windowGeneration).toBeGreaterThan(0);
+    expect(targetPlaceholder.topologyRevision).toBeGreaterThan(0);
     expect(before.coreStatus).toEqual(expect.objectContaining({
       issueReason: null,
       state: "running"

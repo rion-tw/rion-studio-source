@@ -1183,6 +1183,16 @@ describe("Electron Chromium runtime effect executor", () => {
     await createTab(subject, source);
     await loadRoles(subject, source);
     await createTab(subject, target);
+    await subject.executor.execute(effect("embedded-runtime", {
+      type: "embeddedFollowRoleOwnership", lifecycleEpoch: 1,
+      roles: [{ roleId: "role-1", runtime: "embedded", state: "running",
+        owner: { tabId: source.tabId, slotId: "slot-1", generation: 1 } }],
+      windows: [source, target].map(specification => ({
+        windowId: specification.target.windowId, windowGeneration: 3, topologyRevision: 7,
+        tabIds: [specification.tabId], hiddenTabIds: [], activeTabId: specification.tabId,
+        tabPhases: [{ tabId: specification.tabId, phase: "ready" as const }]
+      })), revealWindowIds: [], focusWindowIds: []
+    }));
     const beforeClaim = subject.reconcileRolePlaceholders.mock.calls.at(-1)?.[0];
     expect(beforeClaim).toEqual([
       expect.objectContaining({ tabId: "target-tab", ownerGeneration: 1 })

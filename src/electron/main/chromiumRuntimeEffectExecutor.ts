@@ -640,7 +640,8 @@ export class ChromiumRuntimeEffectExecutor {
       audioMuted: tab.audioMuted
     });
     this.#applyWindowVisibility(windowRecord);
-    await this.#reconcileRolePlaceholders();
+    // Core's ownership/window projection supplies the first Windows generation
+    // fence. Reconcile blocked slots from that event before revealing the host.
   }
 
   async #configureRoleSessions(roleIds: string[]): Promise<void> {

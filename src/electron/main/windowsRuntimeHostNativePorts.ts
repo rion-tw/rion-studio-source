@@ -2,6 +2,7 @@ import type { Buffer } from "node:buffer";
 
 import type {
   BrowserWindow,
+  MouseInputEvent,
   BrowserWindowConstructorOptions
 } from "electron";
 
@@ -32,6 +33,10 @@ export interface RuntimeHostSessionPort {
 }
 
 export interface RuntimeHostWebContentsEventMap {
+  readonly "before-mouse-event": (
+    event: RuntimeHostPreventableEvent,
+    input: MouseInputEvent
+  ) => void;
   readonly "before-input-event": (
     event: RuntimeHostPreventableEvent,
     input: RuntimeHostInputEvent

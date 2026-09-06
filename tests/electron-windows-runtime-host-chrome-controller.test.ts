@@ -108,6 +108,35 @@ function harness() {
 }
 
 describe("Windows runtime-host chrome controller", () => {
+  it("hides on native host pointer leave and ignores retired owners and pinned chrome", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    subject.state.fullscreen = true;
+    await subject.controller.handleCommand(documentUrl, {
+      projectionRevision: subject.controller.readObservation().projectionRevision,
+      type: "revealToolbar", windowId
+    });
+    let current = true;
+    const stale = subject.controller.nativePointerLeft(() => current);
+    current = false;
+    await stale;
+    expect(subject.controller.readObservation().revealed).toBe(true);
+    await subject.controller.nativePointerLeft(() => true);
+    expect(subject.controller.contentInset).toBe(2);
+    expect(subject.controller.readObservation().toolbarVisible).toBe(false);
+    const revision = subject.controller.readObservation().projectionRevision;
+    await subject.controller.nativePointerLeft(() => true);
+    expect(subject.controller.readObservation().projectionRevision).toBe(revision);
+    await subject.controller.applyPreferences({
+      alwaysHideTabCloseButton: false, alwaysShowToolbarInFullScreen: true,
+      restoreGameWindowsOnStartup: false
+    });
+    await subject.controller.nativePointerLeft(() => true);
+    expect(subject.controller.contentInset).toBe(40);
+    expect(subject.controller.readObservation().toolbarVisible).toBe(true);
+  });
+
   it("requires a boolean mute intent and rejects stale menu projections", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection(projection());

@@ -361,7 +361,11 @@ async function seedPhase(input: Readonly<{
     await movePointerToMacosRuntimeContent(input.windowId);
   }
 
-  await clickVisibleElectronRolePageButton(input.role.launchUrl, input.mainWindowHandle);
+  if (input.platform !== "windows") {
+    await clickVisibleElectronRolePageButton(input.role.launchUrl, input.mainWindowHandle);
+  }
+  // Windows must hide from native pointer motion across the View boundary,
+  // before any page click could change focus or trigger another hide path.
   hidden = await waitForToolbar(
     input.windowId,
     (inspection) => hiddenToolbar(inspection, input.platform),

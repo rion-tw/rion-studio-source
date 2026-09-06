@@ -4034,3 +4034,28 @@ trusted input are outside this Windows child-host removal.
   lint, hygiene, coverage, stable build, production Electron build and desktop
   E2E isolation. No local desktop profile ran for this internal-only module move.
   Windows native compilation and both hardware profiles remain pending.
+
+### Windows direct-View fullscreen pointer boundary follow-up (2026-09-07)
+
+- Candidate `56bbc188`, CI `34044961585`, Windows package job
+  `101518279527` reproduced the fullscreen toolbar auto-hide failure. The
+  preceding `ad491b29` evidence shows normal content inset 40, fullscreen hidden
+  inset 2, and successful native edge reveal back to 40; it does not prove hide.
+- The Windows host now consumes Electron's public `before-mouse-event`
+  `mouseLeave` event in addition to the existing toolbar DOM pointerleave.
+  Native embedded View boundaries need not deliver the latter to the toolbar
+  element. The same serialized chrome owner applies auto-hide, retaining pinned
+  preferences and exact native-owner/window-generation/topology checks. Closed
+  hosts remove the native listener; input is not suppressed or replayed.
+- `CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012` now waits for hide directly after
+  native pointer motion, before any Role-page click can supply another trigger.
+  The retained macOS AppKit path is unchanged. Focused controller, factory and
+  journey-source checks passed: 3 files, 62 tests. Windows physical verification
+  of this correction remains pending; CP-08/11/12/15/18 are not closed by mocks.
+- Local validation for the pointer correction passed: full Vitest 448 files /
+  3,543 tests with one worker; macOS Rust lint and workspace tests (1,642 passed,
+  4 ignored); TypeScript, ESLint (existing warnings), source hygiene, E2E coverage,
+  stable build, production Electron build and production E2E isolation. No local
+  desktop E2E profile was run for this Windows-only native event change; both
+  exact-candidate desktop profiles, Windows native checks and hardware gates
+  remain pending CI/physical execution. Production renderer outputs are restored.

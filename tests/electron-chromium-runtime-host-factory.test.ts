@@ -513,6 +513,35 @@ const invalidRequestCases: Array<[
 ];
 
 describe("Windows Electron Chromium runtime-host factory", () => {
+  it("routes host WebContents mouse leave without suppressing page input", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32", browserWindows: browserWindows.port, displays,
+      runtimeDocumentPath
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    await applyWindowFence(host);
+    window.fullscreen = true;
+    window.webContents.emit("ipc-message", {}, WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL, {
+      type: "revealToolbar", windowId: "window-1",
+      projectionRevision: host.readFullscreenToolbar!().projectionRevision
+    });
+    await vi.waitFor(() => expect(host.readFullscreenToolbar!().revealed).toBe(true));
+    const event = preventableEvent();
+    window.webContents.emit("before-mouse-event", event, { type: "mouseMove", x: 10, y: 1 });
+    await Promise.resolve();
+    expect(host.readFullscreenToolbar!().revealed).toBe(true);
+    window.webContents.emit("before-mouse-event", event, { type: "mouseLeave", x: 10, y: 50 });
+    await vi.waitFor(() => expect(host.readFullscreenToolbar!().toolbarVisible).toBe(false));
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    const closing = host.close();
+    window.emit("closed");
+    await closing;
+    expect(window.contents.listeners.get("before-mouse-event")?.size).toBe(0);
+  });
+
   it("rejects a legacy runtime-host document name before native creation", () => {
     const browserWindows = new FakeBrowserWindows();
 

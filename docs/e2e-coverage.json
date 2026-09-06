@@ -2188,7 +2188,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Toggle the Core-owned preference through the visible Windows Settings switch, send native scan-code F11 through the exact foreground HWND obtained from Core-fenced runtime inspection while the managed Chromium Role is focused, without page delivery, and move the OS pointer with exact HWND and cursor readback between the local shell edge and Role content to prove the tab row and three window controls hide, reveal, pin in both directions with exact 2px/40px live content bounds and a 38px height change within the same fullscreen extent, and restore auto-hide after restart. Role-origin F11 follows an exact-PID native content click, an exact trusted fixture receipt and confirmed document focus."
+      "description": "Toggle the Core-owned preference through the visible Windows Settings switch, send native scan-code F11 through the exact foreground HWND obtained from Core-fenced runtime inspection while the managed Chromium Role is focused, without page delivery, and move the OS pointer with exact HWND and cursor readback between the local shell edge and Role content to prove the tab row and three window controls hide, reveal, pin in both directions with exact 2px/40px live content bounds and a 38px height change within the same fullscreen extent, and restore auto-hide after restart. Role-origin F11 follows an exact-PID native content click, an exact trusted fixture receipt and confirmed document focus. Auto-hide must survive crossing from the host WebContents into a directly embedded Chromium View."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-SESSION-ISOLATION-003",

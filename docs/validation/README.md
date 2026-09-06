@@ -31,9 +31,11 @@ pnpm exec vitest run tests/chromium-macro-native-effect-e2e-source.test.ts \
 Its live `chromium-macro-native-effect` and `chromium-macro-background-tab`
 phases passed in the complete macOS smoke report recorded in the
 [cross-platform API ledger](../chromium-cross-platform-api-ledger.md). Windows
-execution remains pending; Windows also runs the ABI-v6 foreground-and-hidden physical probe using the product Chromium input owner in
-`chromium-windows-trusted-input-physical`; portable or macOS results cannot
-substitute for that Windows evidence.
+full-product execution remains pending. Windows also runs the direct-View
+foreground-and-hidden physical probe using the product Chromium input owner in
+`chromium-windows-trusted-input-physical`; that physical gate passed at `242ab2f9`
+as recorded in the ledger. It does not replace full Macro/topology acceptance,
+and portable or macOS results cannot substitute for Windows evidence.
 
 ## Immutable archive
 

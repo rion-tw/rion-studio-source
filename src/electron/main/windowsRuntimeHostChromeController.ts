@@ -542,6 +542,23 @@ export class WindowsRuntimeHostChromeController {
     return operation;
   }
 
+  nativePointerLeft(isCurrent: () => boolean): Promise<void> {
+    const windowGeneration = this.#windowGeneration;
+    const topologyRevision = this.#topologyRevision;
+    const operation = this.#commandLane.then(async () => {
+      if (!isCurrent() || !this.#documentReady || windowGeneration < 1 ||
+          this.#windowGeneration !== windowGeneration ||
+          this.#topologyRevision !== topologyRevision) return;
+      await this.#applyToolbarCommand({
+        type: "hideToolbar",
+        projectionRevision: this.#projectionRevision,
+        windowId: this.#windowId
+      });
+    });
+    this.#commandLane = operation.catch(() => undefined);
+    return operation;
+  }
+
   readObservation(): ChromiumRuntimeFullscreenToolbarObservation {
     const fullscreen = this.#native.isFullScreen();
     const nativeControlsVisible = this.#documentReady && this.#toolbarVisible();

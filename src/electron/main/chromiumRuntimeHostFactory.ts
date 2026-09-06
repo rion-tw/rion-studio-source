@@ -1,6 +1,8 @@
 import { parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { windowsRuntimePointerLeave } from "./windowsRuntimePointerLeave";
+
 import type {
   AppKitRuntimeHostIdentityRecord,
   AppKitRuntimeHostObservationRecord,
@@ -173,6 +175,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
     }>;
 
 interface WindowsHostListeners {
+  readonly beforeMouseEvent: RuntimeHostWebContentsEventMap["before-mouse-event"];
   readonly beforeInputEvent: RuntimeHostWebContentsEventMap["before-input-event"];
   readonly blurred: () => void;
   readonly close: RuntimeHostWindowEventMap["close"];
@@ -1027,6 +1030,11 @@ implements ChromiumRuntimeHostFactoryPort {
         if (input.type !== "keyDown" || input.isAutoRepeat) return;
         this.#dispatchRuntimeFullscreenShortcut(record);
       },
+      beforeMouseEvent: windowsRuntimePointerLeave(record.chrome, () =>
+        record.state === "active" && !record.native.isDestroyed() &&
+        this.#activeByLogicalWindow.get(record.logicalWindowId) === record &&
+        this.#ownerByNativeId.get(record.nativeId) === record,
+      this.#onCommandError),
       blurred: () => record.windowState.publish("blur"),
       close: (event) => {
         if (record.state === "closing" || record.state === "closed") return;
@@ -1135,10 +1143,7 @@ implements ChromiumRuntimeHostFactoryPort {
     requireBounds(normalBounds, "normal window", 640, 480);
     const liveBounds = record.native.getBounds();
     requireBounds(liveBounds, "live window");
-    // A maximized/fullscreen BrowserWindow can move to another display while
-    // Electron intentionally retains its restore geometry in getNormalBounds().
-    // Display ownership therefore comes from the actual live native rectangle;
-    // the projection still publishes normalBounds as the durable restore target.
+    // Resolve the display from live bounds; normalBounds retains restore geometry.
     const display = this.#displays.displayMatching(liveBounds);
     if (!Number.isSafeInteger(display.id)) {
       fail(
@@ -1211,6 +1216,7 @@ implements ChromiumRuntimeHostFactoryPort {
     native.on("unmaximize", listeners.unmaximized);
     native.on("unresponsive", listeners.unresponsive);
     contents.on("before-input-event", listeners.beforeInputEvent);
+    contents.on("before-mouse-event", listeners.beforeMouseEvent);
     contents.on("did-fail-load", listeners.didFailLoad);
     contents.on("did-finish-load", listeners.didFinishLoad);
     contents.on("ipc-message", listeners.ipcMessage);
@@ -1613,6 +1619,7 @@ implements ChromiumRuntimeHostFactoryPort {
     native.removeListener("unmaximize", listeners.unmaximized);
     native.removeListener("unresponsive", listeners.unresponsive);
     contents.removeListener("before-input-event", listeners.beforeInputEvent);
+    contents.removeListener("before-mouse-event", listeners.beforeMouseEvent);
     contents.removeListener("ipc-message", listeners.ipcMessage);
     contents.removeListener("render-process-gone", listeners.renderProcessGone);
     contents.removeListener("will-attach-webview", listeners.willAttachWebview);

@@ -1,5 +1,15 @@
 const NATIVE_WINDOW_PRESENTATION_QUEUE_CAPACITY: usize = 64;
 
+fn native_presentation_requires_ordering(
+    focus: NativePresentationFocus,
+    window_mode: Option<NativeWindowMode>,
+    window_visibility: Option<bool>,
+) -> bool {
+    // A passive hydration projection must not replace an explicit focus
+    // request. Stale requests still terminalize through the actor's fences.
+    focus.focuses_content() || window_mode.is_some() || window_visibility.is_some()
+}
+
 struct NativePresentationQueue<T> {
     in_flight: bool,
     pending: VecDeque<(bool, T)>,

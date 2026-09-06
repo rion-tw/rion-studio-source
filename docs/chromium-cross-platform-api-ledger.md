@@ -5425,3 +5425,64 @@ trusted input are outside this Windows child-host removal.
 
 
 - Final visible sibling validation: Test Files  452 passed (452); Tests  3632 passed (3632); Duration  157.36s (transform 3.09s, setup 0ms, import 13.93s, tests 94.69s, environment 21.13s). macOS Rust lint and workspace tests pass (1646 passed, 4 ignored); TypeScript, ESLint, hygiene, documentation, coverage, stable-shell build, final Electron build and production isolation pass. No local native UI probe ran around the unresolved protected system dialog. Both extended native probes and Windows multi-Role E2E remain pending exact-candidate CI.
+
+
+### CP-15 preserve explicit tab focus across passive hydration
+
+- Recover the a20bddec Windows stable failure's SQLite logs from a disposable
+  copy of both logs.sqlite3 and its WAL; the immutable database alone omits the
+  uncheckpointed evidence. At revision 22, Role B's completed presentation has
+  trigger tab-content-became-visible, focusMode none and focusApplied false.
+  Its surface becomes visible, but the fixture records no focus or KeyZ event.
+- NativeWindowActor previously queued only mode/visibility controls as ordered
+  work. An explicit content-focus request could therefore be replaced by a
+  later passive hydration request. Include ContentOnly and WindowAndContent
+  focus requests in the existing bounded ordered queue. Passive hydration still
+  coalesces, and existing generation/revision/focus fences still reject stale
+  requests. No new focus retry, timeout, capacity increase or platform branch.
+- Add a paired-platform queue regression: hydration cannot replace selection
+  focus, subsequent hydration coalesces, and dequeue preserves the focus before
+  the latest passive projection. This repairs the existing activation contract;
+  it does not introduce a new user interaction. Affected existing journey:
+  MACRO-BACKGROUND-TAB-004 on macOS and Windows. The unchanged desktop test must
+  still prove physical KeyZ reaches Role B without an artificial refocus.
+- Initial focused queue tests and Rust lint pass. The initial full Rust run
+  fails stopping_from_one_assigned_role_cancels_the_sibling_invocation with a
+  two-second channel Timeout (950 Core tests pass). Its isolated diagnostic
+  run passes in 0.01 seconds; this does not resolve the intermittent failure.
+  Preserve this result and revalidate the final source after removing one
+  redundant predicate-only test. Do not extend the test timeout.
+- f0beec3c Windows job 101563096997 completes the target-platform Rust workspace
+  step successfully, including the expanded 256-round receipt publication test.
+  This is stronger concurrency evidence, not a repair or proof that the earlier
+  ACL race cannot recur. Native compatibility probes remain in progress.
+- c57075f1 CI 34062078527 has passed checks, renderer build and Linux soak;
+  Windows Chromium E2E and native validation are running, while macOS jobs are
+  queued. Visible unfocused sibling input is still pending native acceptance.
+
+
+### CP-08/CP-09 c57075f1 reaches post-input Stop, then loses background-parent admission
+
+- Windows report 2026-09-06T21-48-36-056Z-win32, CI 34062078527 / job
+  101564261428, retains 30 passing phases and fails topology-seed later than
+  d27e7129: both trusted KeyM assertions and the visible Role B click complete;
+  stopChromiumMacroVisible then finds Stop disabled. The whole multi-Role
+  journey remains FAIL, not partial acceptance of ownership transfer.
+- Core browser-action-12 through browser-action-15 reject with the existing
+  delivery-mode-unavailable error. View observations 49-52 show the parent is
+  visible and not minimized but parentForeground false, with the main app
+  WebContents id 1 focused. Both Role Views remain attached and visible.
+  validChromiumViewInputObservation still unconditionally requires a foreground
+  parent. This is a distinct background-parent case after returning to the
+  launcher, beyond the newly admitted visible sibling in a foreground parent.
+- Next: prove exact input and cleanup against an unfocused native parent without
+  activating it, preserving foreground identity and trusted DOM receipts. Do not
+  fix this by keeping the test's runtime window artificially foreground or by
+  enabling Stop without an authoritative live Macro state. Native background
+  parent parity and legacy adapter deletion remain unproven.
+
+- Final tab-focus source validation passes macOS Rust lint and workspace tests:
+  1647 passed, 4 ignored. Both stable and Electron builds, TypeScript and
+  production E2E isolation pass. Full hygiene, ESLint and coverage checks pass; full
+  JavaScript regression passes (452 files, 3632 tests). No local desktop profile ran for this
+  batch; MACRO-BACKGROUND-TAB-004 remains pending exact-candidate paired CI.

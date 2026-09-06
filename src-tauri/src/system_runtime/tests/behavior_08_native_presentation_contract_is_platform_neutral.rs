@@ -52,6 +52,35 @@ fn presentation_plan(platform: &'static str) -> NativePresentationPlan {
     }
 }
 
+#[test]
+fn passive_hydration_does_not_replace_queued_tab_focus() {
+    for platform in ["macos", "windows"] {
+        for focus in [NativePresentationFocus::ContentOnly, NativePresentationFocus::WindowAndContent] {
+            let mut plan = presentation_plan(platform);
+            plan.focus = focus;
+            plan.window_visibility = None;
+            let mut queue = NativePresentationQueue::default();
+            let ordered = native_presentation_requires_ordering(
+                plan.focus,
+                plan.window_mode,
+                plan.window_visibility,
+            );
+            if ordered {
+                queue.enqueue_ordered("selection-focus").unwrap();
+            } else {
+                queue.enqueue_latest("selection-focus").unwrap();
+            }
+            assert_eq!(queue.enqueue_latest("hydration"), Ok(None), "{platform} {focus:?}");
+            assert_eq!(queue.enqueue_latest("newer-hydration"), Ok(Some("hydration")));
+            assert_eq!(queue.begin_next(), Some("selection-focus"));
+            queue.finish();
+            assert_eq!(queue.begin_next(), Some("newer-hydration"));
+            queue.finish();
+            assert!(queue.is_empty());
+        }
+    }
+}
+
 #[cfg(feature = "desktop-e2e")]
 #[test]
 fn desktop_e2e_fullscreen_edges_use_the_macos_transition_owner_only() {

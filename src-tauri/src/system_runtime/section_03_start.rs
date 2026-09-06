@@ -261,7 +261,11 @@ impl NativeWindowActor {
         let requested_at = request.requested_at;
         let revision = request.revision;
         let coordinator = Arc::clone(&request.coordinator);
-        let ordered = request.window_mode.is_some() || request.window_visibility.is_some();
+        let ordered = native_presentation_requires_ordering(
+            request.focus,
+            request.window_mode,
+            request.window_visibility,
+        );
         let superseded = if ordered {
             if let Err(rejected) = state.requests.enqueue_ordered(request) {
                 rejected.operations.complete(NativeOperationReceipt::with_status(

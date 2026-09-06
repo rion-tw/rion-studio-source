@@ -2925,3 +2925,31 @@ Logs: `/tmp/rion-macro-native-ready-*`.
 
 The pure Electron production build and production E2E isolation check also pass
 after restoring production assets; documentation validation passes.
+
+
+### Reuse the visible Settings mode for repeated toolbar updates
+
+Windows job 101468262984 in CI 34026488170 at 9e54640b passes native reveal,
+the 38px same-fullscreen geometry checks, and native pointer leave. Its history
+contains normal/hidden/revealed/hidden. It then fails looking for app-main-sidebar
+while changing the preference to pinned. The failure screenshot shows the main
+renderer correctly on Preferences with settings-mode-sidebar. This contradicts
+an initial suspicion of an incorrect WebDriver target: the driver simply tries
+to navigate through the ordinary app sidebar again after already entering the
+separate Settings mode.
+
+The preference helper now opens Settings through the visible app sidebar only
+when Settings mode is not mounted. It still selects Preferences visibly when
+needed, clicks the same switch, and requires both UI and Core preference
+acknowledgement. Repeated pin/unpin operations therefore stay on the actual
+Settings screen. Native pointer/foreground helpers and product UI are unchanged.
+This internal-only E2E correction affects
+CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012. Full pin/unpin/restart acceptance remains
+pending on the next candidate.
+Evidence: `/tmp/rion-9e5-win-package-artifacts/2026-09-06T10-07-55-728Z-win32/phases/chromium-fullscreen-toolbar-seed`;
+log: `/tmp/rion-9e5-win-package.log`.
+
+Sixteen adjacent toolbar checks, typecheck, scoped lint, source hygiene,
+production E2E isolation and coverage pass. The next immutable candidate also
+includes 08f05dc1's locally verified Macro UI native-readiness correction.
+Checks: `/tmp/rion-toolbar-settings-mode-*`.

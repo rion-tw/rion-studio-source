@@ -136,7 +136,9 @@ function roleSurface(
 }
 
 async function setWindowsPreference(alwaysShow: boolean): Promise<void> {
-  await openSection("Settings", "/settings");
+  if (!await $(".settings-mode-sidebar").isExisting()) {
+    await openSection("Settings", "/settings");
+  }
   const sidebar = await $(".settings-mode-sidebar");
   const preferences = await sidebar.$("button=Preferences");
   if (await preferences.isExisting()) {

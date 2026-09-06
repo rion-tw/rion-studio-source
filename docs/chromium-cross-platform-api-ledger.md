@@ -4831,3 +4831,37 @@ trusted input are outside this Windows child-host removal.
   macOS native Session execution passed and Windows is pending CI. The prior
   full Vitest updater journal watcher failure remains open and is not erased
   by these focused checks.
+
+
+### CP-16 exact journal file events and CP-11 failure evidence (2026-09-07)
+
+- Reproduced the updater acknowledgement gap with a silent parent-directory
+  stream and an exact file deletion event. The previous directory-only watcher
+  failed that focused test. Subscribe to both the parent and journal file before
+  initial readback, and rebind the file watcher on an authoritative change event
+  so atomic replacement does not leave observation attached to the old inode.
+- Completion still requires exact-path absence (access or file-watch ENOENT).
+  No polling, retry-to-green, deadline extension, or elapsed-time success was
+  introduced. Current stream errors/closure fail; retirement of a replaced
+  watcher is ignored by exact watcher identity. Both subscriptions close on
+  terminal completion.
+- Focused tests cover directory silence, replacement, current stream failure,
+  and real filesystem atomic replacement followed by deletion. The real test
+  waits for native-event-driven rebinding before deleting the replacement.
+  Adjacent journal/helper probes pass 18 tests. The complete macOS Vitest run
+  passes 450 files and 3,567 tests in 158.13 seconds, including the previously
+  failing real deletion test. This is local evidence, not Windows acceptance.
+- TypeScript and complete hygiene pass; ESLint reports zero errors and 23
+  warnings. Coverage validation retains P0 70/70 and P1 70/70; these manifest
+  counts are coverage declarations, not executed native journey counts.
+- Add a failure-only DOM snapshot to the first controlled Role reload wait:
+  ready state, visibility, active element and canvas membership. Preserve the
+  original failure cause and deadline. WebDriver target selection can affect
+  focus, so focus is explicitly labelled after-target-selection evidence.
+  This internal-only E2E diagnostic sends no input and does not fix or certify
+  CHROMIUM-WINDOWS-CONTROLLED-ROLE-RELOAD behavior. No desktop profile was rerun
+  for this diagnostic batch; the next exact-candidate CI must provide it.
+- At 526264da, CI run 34055737399 has passing checks, renderer and Linux jobs;
+  Windows Chromium package validation failed, Windows native validation remains
+  in progress and macOS jobs remain queued at observation time. CP-10,
+  CP-11/15, CP-16 and cutover gates remain open.

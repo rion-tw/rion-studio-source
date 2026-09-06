@@ -8,7 +8,7 @@ import {
   failNextElectronDesktopE2eRuntimeTabReload,
   type ElectronDesktopE2eRuntimeTabReloadInspection
 } from "../support/electron-driver";
-import { clickVisibleElectronPageElement } from
+import { clickVisibleElectronPageElement, readElectronRoleDocumentState } from
   "../support/electron-role-surface";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { selectMacosVisibleRuntimeTabMenuAction } from
@@ -189,7 +189,12 @@ describe("Chromium controlled Role Reload", () => {
     }
 
     await selectReload({ ...context, role, tabId: tab.tabId });
-    const first = await waitForReloads(WINDOW_ID, 1, context.platform);
+    const first = await waitForReloads(WINDOW_ID, 1, context.platform).catch(async (error: unknown) => {
+      const page = await readElectronRoleDocumentState(role.launchUrl!, context.mainWindowHandle)
+        .catch((readError: unknown) => ({ unavailable: String(readError).slice(0, 512) }));
+      throw new Error(`Controlled Reload failed; page after target selection: ${JSON.stringify(page)}`,
+        { cause: error });
+    });
     await selectReload({ ...context, role, tabId: tab.tabId });
     const second = await waitForReloads(WINDOW_ID, 2, context.platform);
 

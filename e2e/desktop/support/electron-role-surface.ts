@@ -146,6 +146,24 @@ function geometryCenter(
   });
 }
 
+/** Failure-only DOM snapshot after selecting the exact WebDriver target; no input is sent. */
+export async function readElectronRoleDocumentState(expectedUrl: string, mainWindowHandle: string) {
+  return withRolePageTarget(expectedUrl, mainWindowHandle, async () => browser.execute(() => {
+    const active = document.activeElement;
+    const canvas = document.querySelector("#game-input-canvas");
+    return {
+      readyState: document.readyState,
+      visibility: document.visibilityState,
+      focusedAfterTargetSelection: document.hasFocus(),
+      activeTag: active?.tagName ?? null,
+      activeId: active?.id.slice(0, 128) ?? null,
+      canvasIsActive: canvas !== null && canvas === active,
+      canvasConnected: canvas?.isConnected === true,
+      canvasTabIndex: canvas instanceof HTMLElement ? canvas.tabIndex : null
+    };
+  }));
+}
+
 /** Reads evidence produced by the fixture's real main-world event handler. */
 export async function readElectronRoleFontState(expectedUrl: string, mainWindowHandle: string) {
   await clickVisibleElectronPageElement(expectedUrl, mainWindowHandle, "#font-evidence");

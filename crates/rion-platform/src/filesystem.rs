@@ -90,6 +90,25 @@ pub fn verify_open_file_identity(path: &Path, opened: &File) -> Result<(), Platf
     Ok(())
 }
 
+// A child enumerated under an already protected root may be atomically
+// renamed or deleted by another writer. Absence is not an ACL failure for
+// that child; every other error must retain its original classification.
+#[cfg(any(windows, test))]
+fn existing_acl_descendant<T>(result: std::io::Result<T>) -> std::io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) => {
+            let missing = if cfg!(windows) {
+                // ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND only.
+                matches!(error.raw_os_error(), Some(2 | 3))
+            } else {
+                error.kind() == std::io::ErrorKind::NotFound
+            };
+            if missing { Ok(None) } else { Err(error) }
+        }
+    }
+}
+
 #[cfg(not(windows))]
 pub fn restrict_directory_to_current_user(_root: &Path) -> Result<(), PlatformError> {
     Ok(())
@@ -119,7 +138,8 @@ pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformErr
     fn apply_acl(
         path: &Path,
         acl: *const windows::Win32::Security::ACL,
-    ) -> Result<(), PlatformError> {
+        descendant: bool,
+    ) -> Result<bool, PlatformError> {
         let path = windows_api_path(path, "current-user ACL")?;
         let information = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
         let status = unsafe {
@@ -133,14 +153,22 @@ pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformErr
                 None,
             )
         };
-        if status.0 == 0 {
+        let result = if status.0 == 0 {
             Ok(())
         } else {
-            Err(PlatformError::Operation(format!(
+            Err(std::io::Error::from_raw_os_error(status.0 as i32))
+        };
+        let result = if descendant {
+            existing_acl_descendant(result)
+        } else {
+            result.map(Some)
+        };
+        result.map(|applied| applied.is_some()).map_err(|_| {
+            PlatformError::Operation(format!(
                 "apply current-user data ACL: Windows error {}",
                 status.0
-            )))
-        }
+            ))
+        })
     }
 
     const FILE_ATTRIBUTE_REPARSE_POINT_VALUE: u32 = 0x0000_0400;
@@ -215,27 +243,45 @@ pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformErr
             }
         }
         let acl = LocalAcl(acl);
-        apply_acl(root, acl.0)?;
+        apply_acl(root, acl.0, false)?;
         let mut directories = vec![root.to_path_buf()];
         while let Some(directory) = directories.pop() {
-            for entry in std::fs::read_dir(&directory).map_err(|error| {
+            let entries = std::fs::read_dir(&directory);
+            let entries = if directory == root {
+                entries.map(Some)
+            } else {
+                existing_acl_descendant(entries)
+            }
+            .map_err(|error| {
                 PlatformError::Operation(format!(
                     "enumerate migrated data ACL at {}: {error}",
                     directory.display()
                 ))
-            })? {
+            })?;
+            let Some(entries) = entries else {
+                continue;
+            };
+            for entry in entries {
                 let entry = entry.map_err(|error| {
                     PlatformError::Operation(format!("read migrated data ACL entry: {error}"))
                 })?;
-                let metadata = std::fs::symlink_metadata(entry.path()).map_err(|error| {
-                    PlatformError::Operation(format!("inspect migrated data ACL entry: {error}"))
-                })?;
+                let metadata = existing_acl_descendant(std::fs::symlink_metadata(entry.path()))
+                    .map_err(|error| {
+                        PlatformError::Operation(format!(
+                            "inspect migrated data ACL entry: {error}"
+                        ))
+                    })?;
+                let Some(metadata) = metadata else {
+                    continue;
+                };
                 if metadata.file_type().is_symlink()
                     || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT_VALUE != 0
                 {
                     continue;
                 }
-                apply_acl(&entry.path(), acl.0)?;
+                if !apply_acl(&entry.path(), acl.0, true)? {
+                    continue;
+                }
                 if metadata.is_dir() {
                     directories.push(entry.path());
                 }
@@ -333,6 +379,67 @@ mod tests {
 
         verify_open_file_identity(&first, &first_file).unwrap();
         assert!(verify_open_file_identity(&second, &first_file).is_err());
+    }
+
+    #[test]
+    fn acl_descendant_removed_after_enumeration_has_no_remaining_work() {
+        let directory = tempfile::tempdir().unwrap();
+        let child = directory.path().join("publication.tmp");
+        std::fs::write(&child, b"pending").unwrap();
+        let enumerated = std::fs::read_dir(directory.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        std::fs::remove_file(child).unwrap();
+        assert!(
+            existing_acl_descendant(std::fs::symlink_metadata(enumerated))
+                .unwrap()
+                .is_none()
+        );
+        let child_directory = directory.path().join("retired");
+        std::fs::create_dir(&child_directory).unwrap();
+        std::fs::remove_dir(&child_directory).unwrap();
+        assert!(
+            existing_acl_descendant(std::fs::read_dir(child_directory))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn acl_descendant_preserves_non_absence_errors_and_present_entries() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(existing_acl_descendant(Ok(7)).unwrap(), Some(7));
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::WouldBlock,
+            ErrorKind::InvalidInput,
+            ErrorKind::Other,
+        ] {
+            let error =
+                existing_acl_descendant::<()>(Err(Error::new(kind, "original cause"))).unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(error.to_string(), "original cause");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn acl_descendant_classifies_native_missing_codes_without_hiding_access_failures() {
+        for code in [2, 3] {
+            assert!(
+                existing_acl_descendant::<()>(Err(std::io::Error::from_raw_os_error(code)))
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        for code in [5, 15, 32, 33, 53, 67, 87, 123, 4390] {
+            let error = existing_acl_descendant::<()>(Err(std::io::Error::from_raw_os_error(code)))
+                .unwrap_err();
+            assert_eq!(error.raw_os_error(), Some(code));
+        }
     }
 
     #[cfg(windows)]

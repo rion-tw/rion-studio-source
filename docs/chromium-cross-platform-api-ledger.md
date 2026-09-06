@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | paired stable full passed at 192120ad; macOS Chromium 56 phases passed at 1422ea67; Windows full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | paired stable full passed at 192120ad; macOS Chromium 56 phases passed at 1422ea67; Windows topology seed/restart passed at 2e139861; full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at a20bddec; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -5940,3 +5940,64 @@ trusted input are outside this Windows child-host removal.
   source or contract changed in this batch, so native Rust unit suites were
   not rerun. Local native UI remains paused; paired desktop CI is required
   to validate this internal-only E2E correction.
+
+
+### CP-16 handle disappearing descendants during Windows ACL migration
+
+- Repair the classified efbff1c7 failure in the shared Rust filesystem
+  adapter. After the root ACL has been applied, a previously enumerated child
+  may disappear through concurrent rename/delete. One helper accepts only
+  Windows FILE_NOT_FOUND/PATH_NOT_FOUND as absent descendant work; successful entries and
+  every other error remain distinct.
+- Apply this rule to descendant metadata, native ACL application and opening
+  a queued descendant directory. Root ACL application and root enumeration
+  do not use the absence rule. Keep existing root preflight behavior and
+  reparse/symlink exclusion unchanged. No retry, broad permission suppression,
+  timeout change or replacement of the create-new publication contract occurs.
+- Deterministic tests remove an enumerated temporary child and a queued child
+  directory before the next operation, and preserve permission/invalid-input/
+  other errors. A Windows-only native-code matrix accepts FILE_NOT_FOUND (2)
+  and PATH_NOT_FOUND (3), while retaining access/sharing/network/invalid-name
+  failures (codes 5, 15, 32, 33, 53, 67, 87, 123 and 4390). The
+  existing 256-round updater concurrent publication test remains the native
+  integration gate with exactly one winner; it is not reset or weakened.
+- This is lower-layer-covered maintenance with no new UI journey. Native
+  Windows execution remains required; portable helper tests do not establish
+  Windows ACL API reachability or fix acceptance.
+
+
+### CP-15 2e139861 macOS stable full profile passes after restore-cursor correction
+
+- CI 34067205038 macOS stable job 101577953085 completes SUCCESS. Artifact
+  desktop-e2e-macOS-34067205038-1 report binds
+  2e1398619acd80c7d8192855cad8709d84ddf0b6, profile full, with 29 PASS
+  and 3 EXPECTED_FORCE_TERMINATION phases. Cross-domain topology-force now
+  reaches its intended process termination, and recovery/final restart pass.
+- This verifies that candidate's retained macOS stable profile including the
+  corrected pre-action restore cursor. Windows Chromium job 101577953053
+  remains live in its shell E2E step at this observation. This is not paired
+  full-candidate acceptance and does not include the later ACL repair.
+
+
+### CP-04/CP-09/CP-15 2e139861 Windows topology seed and restart pass
+
+- Windows Chromium job 101577953053 / CI 34067205038 report binds
+  2e1398619acd80c7d8192855cad8709d84ddf0b6 with 32 PASS phases, including
+  chromium-macro-cutover-topology-seed and topology-restart. This verifies
+  the surviving-window post-close projection repair through the previously
+  failing ownership transfer and process-restart journey on Windows.
+- The next phase, chromium-macro-cutover-terminal-cleanup-seed, fails in
+  startChromiumMacroVisible called from chromium-macro-cutover-cleanup.ts:166.
+  It waits for Macro 47bfe998-144a-4506-9441-3660417f808b running after 104;
+  the diagnostic reads empty Core statuses and a journal still at 105.
+  Preserve this separate failure for exact effect/projection investigation.
+  Full Windows parity and legacy-input deletion remain pending.
+
+- Final ACL repair validation: macOS Rust lint and full workspace pass
+  (1650 tests passed, 4 ignored) after the final native-code restriction.
+  Vitest passes 452 files / 3642 tests in 159.78 seconds. ESLint, hygiene,
+  typecheck through build, Tauri build, Electron production build and desktop
+  E2E isolation pass. Windows API reachability and the unchanged 256-round
+  concurrent publication gate remain pending the new candidate's CI. No
+  local macOS or Windows desktop E2E profile ran for this lower-layer-covered
+  adapter repair.

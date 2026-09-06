@@ -179,9 +179,20 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Probe direct Chromium input before independent Rust validation
+        id: chromium_input_api_probe
+        continue-on-error: true
         run: pnpm exec vitest run --config vitest.native-integration.config.mjs tests/electron-chromium-input.native-integration.ts
         env:
           RION_CHROMIUM_INPUT_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/chromium-input
+
+      - name: Upload Chromium input compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: chromium-input-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .desktop-e2e-artifacts/chromium-input/*.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
@@ -217,15 +228,6 @@ jobs:
           RION_LOCAL_FONTS_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/local-fonts
           RION_CHROMIUM_INPUT_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/chromium-input
 
-      - name: Upload Chromium input compatibility evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: chromium-input-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .desktop-e2e-artifacts/chromium-input/*.json
-          if-no-files-found: warn
-          retention-days: 14
-
       - name: Upload Local Font Access compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -255,6 +257,10 @@ jobs:
 
       - name: Build target-platform Tauri shell
         run: cargo build -p rion-tauri
+
+      - name: Require the direct Chromium input probe to pass
+        if: ${{ !cancelled() && steps.chromium_input_api_probe.outcome == 'failure' }}
+        run: exit 1
 
   electron-platform-validation:
     name: ${{ matrix.name }} Electron Chromium package validation

@@ -45,7 +45,11 @@ it("records native Chromium input delivery without treating absent receipts as p
       expect(outcome.before.contentsFocused).toBe(false);
       expect(outcome.after.contentsFocused).toBe(false);
       expect(outcome.directHost).toMatchObject({ targetAttached: true, siblingAttached: true,
-        targetVisible: false, siblingFocusedBefore: true, siblingFocusedAfter: true });
+        targetVisible: false, siblingFocusedBefore: true, siblingFocusedAfter: true,
+        isolatedSessions: true, zoomFactor: 1.25,
+        viewportAcknowledgement: { status: "applied", width: 240, height: 160 } });
+      expect(outcome.before.document).toMatchObject({ width: 240, height: 160 });
+      expect(outcome.after.document).toMatchObject({ width: 240, height: 160 });
       if (name.endsWith("key")) {
         expect(outcome.receipt.events).toHaveLength(2);
         for (const event of outcome.receipt.events) {

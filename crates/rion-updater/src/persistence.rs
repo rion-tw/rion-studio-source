@@ -1293,42 +1293,47 @@ mod tests {
     fn terminal_receipt_create_new_commit_has_exactly_one_concurrent_winner() {
         use std::sync::{Arc, Barrier};
 
-        let directory = tempfile::tempdir().unwrap();
-        let parent = directory.path().join("receipts");
-        ensure_private_directory(&parent).unwrap();
-        let path = Arc::new(parent.join("terminal.json"));
-        let barrier = Arc::new(Barrier::new(2));
-        let threads = ["first", "second"].map(|marker| {
-            let path = Arc::clone(&path);
-            let barrier = Arc::clone(&barrier);
-            std::thread::spawn(move || {
-                let value = serde_json::json!({ "marker": marker });
-                barrier.wait();
-                let outcome = write_private_json_create_new(&path, &value).unwrap();
-                (value, outcome)
-            })
-        });
-        let results = threads.map(|thread| thread.join().unwrap());
-        assert_eq!(
-            results
+        // Exercise fresh parent/temporary-file interleavings. A native Windows
+        // failure showed an UnsafePath rejection during concurrent
+        // publication; every round must still have exactly one durable winner.
+        for _round in 0..32 {
+            let directory = tempfile::tempdir().unwrap();
+            let parent = directory.path().join("receipts");
+            ensure_private_directory(&parent).unwrap();
+            let path = Arc::new(parent.join("terminal.json"));
+            let barrier = Arc::new(Barrier::new(2));
+            let threads = ["first", "second"].map(|marker| {
+                let path = Arc::clone(&path);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let value = serde_json::json!({ "marker": marker });
+                    barrier.wait();
+                    let outcome = write_private_json_create_new(&path, &value).unwrap();
+                    (value, outcome)
+                })
+            });
+            let results = threads.map(|thread| thread.join().unwrap());
+            assert_eq!(
+                results
+                    .iter()
+                    .filter(|(_, outcome)| *outcome == CreateNewFileOutcome::Created)
+                    .count(),
+                1
+            );
+            assert_eq!(
+                results
+                    .iter()
+                    .filter(|(_, outcome)| *outcome == CreateNewFileOutcome::AlreadyExists)
+                    .count(),
+                1
+            );
+            let stored = read_bounded_json::<serde_json::Value>(&path).unwrap();
+            let winner = results
                 .iter()
-                .filter(|(_, outcome)| *outcome == CreateNewFileOutcome::Created)
-                .count(),
-            1
-        );
-        assert_eq!(
-            results
-                .iter()
-                .filter(|(_, outcome)| *outcome == CreateNewFileOutcome::AlreadyExists)
-                .count(),
-            1
-        );
-        let stored = read_bounded_json::<serde_json::Value>(&path).unwrap();
-        let winner = results
-            .iter()
-            .find(|(_, outcome)| *outcome == CreateNewFileOutcome::Created)
-            .unwrap();
-        assert_eq!(stored, winner.0);
+                .find(|(_, outcome)| *outcome == CreateNewFileOutcome::Created)
+                .unwrap();
+            assert_eq!(stored, winner.0);
+        }
     }
 
     #[test]

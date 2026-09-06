@@ -63,6 +63,36 @@ async function sample(view, host, name, inputs, expectedTypes, submit) {
       contentsFocused: contents.isFocused(), document: await state(contents) } };
 }
 
+async function applyVisibleViewportZoom(view, factor) {
+  const bounds = view.getBounds();
+  const width = Math.round(bounds.width / factor);
+  const height = Math.round(bounds.height / factor);
+  await view.webContents.executeJavaScript(`(() => {
+    const width = ${width};
+    const height = ${height};
+    window.viewportProbe = new Promise(resolve => {
+      let deadline;
+      const finish = status => {
+        clearTimeout(deadline);
+        window.removeEventListener("resize", inspect);
+        resolve({ status, width: innerWidth, height: innerHeight });
+      };
+      const inspect = () => {
+        if (innerWidth === width && innerHeight === height) finish("applied");
+      };
+      window.addEventListener("resize", inspect);
+      // Test-only external renderer acknowledgement boundary, never a success timer.
+      deadline = setTimeout(() => finish("indeterminate"), 3000);
+    });
+  })()`);
+  view.webContents.setZoomFactor(factor);
+  const receipt = await view.webContents.executeJavaScript("window.viewportProbe");
+  if (receipt.status !== "applied" || view.webContents.getZoomFactor() !== factor) {
+    throw new Error(`Renderer viewport did not acknowledge zoom: ${JSON.stringify(receipt)}`);
+  }
+  return receipt;
+}
+
 async function focus(host, view) {
   if (!host.isFocused()) {
     await new Promise(resolveFocus => {
@@ -79,10 +109,10 @@ async function probe() {
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } };
   const host = new BrowserWindow(options);
   const other = new BrowserWindow(options);
-  const view = new WebContentsView({ webPreferences: options.webPreferences });
+  const view = new WebContentsView({ webPreferences: { ...options.webPreferences, partition: "rion-input-target" } });
   host.contentView.addChildView(view);
   view.setBounds({ x: 0, y: 0, width: 600, height: 400 });
-  const sibling = new WebContentsView({ webPreferences: options.webPreferences });
+  const sibling = new WebContentsView({ webPreferences: { ...options.webPreferences, partition: "rion-input-sibling" } });
   const outcomes = [];
   try {
     await view.webContents.loadURL(fixture);
@@ -127,8 +157,8 @@ async function probe() {
     await sibling.webContents.loadURL(fixture);
     await focus(host, sibling);
     view.setBounds({ x: 40, y: 36, width: 300, height: 200 });
+    const viewportAcknowledgement = await applyVisibleViewportZoom(view, 1.25);
     view.setVisible(false);
-    view.webContents.setZoomFactor(1.25);
     const directSamples = [
       ["direct-hidden-sibling-key", ["keydown", "keyup"], () => {
         const request = { code: "KeyB", ctrl: true, alt: false, shift: true, meta: false, repeat: false };
@@ -146,6 +176,8 @@ async function probe() {
       const outcome = await sample(view, host, name, [], types, submit);
       outcomes.push({ ...outcome, directHost: {
         children: host.contentView.children.length,
+        isolatedSessions: view.webContents.session !== sibling.webContents.session,
+        zoomFactor: view.webContents.getZoomFactor(), viewportAcknowledgement,
         targetAttached: host.contentView.children.includes(view),
         siblingAttached: host.contentView.children.includes(sibling),
         targetVisible: view.getVisible(), siblingFocusedBefore,

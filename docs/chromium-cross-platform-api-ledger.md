@@ -72,7 +72,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
-| CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
+| CP-14 | P2 / Platform data | retained adapters verified previously; current Windows updater concurrency pending | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows 21 journeys passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS package/updater verified at 79ea9b13; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
@@ -3639,3 +3639,42 @@ trusted input are outside this Windows child-host removal.
   No successful desktop E2E profile is claimed for this working tree. Exact
   Windows direct-host feasibility, current native focus readback, updater
   concurrency and paired settings/Macro journeys remain pending CI.
+
+
+### Direct-host viewport evidence and independent native gates
+
+- CP-08, candidate `0bb4c9e6`, CI `34037646504`, Windows native job
+  `101498649410`: all 18 samples received trusted events. The ordinary parent
+  with a hidden Role View preserved the visible sibling focus, and the hidden
+  Ctrl+Shift key pair matched exactly. The middle-click assertion failed:
+  the hidden renderer still reported 300 by 200 CSS pixels rather than the
+  expected 240 by 160 at 125% zoom, and received (100,120), not (80,96).
+  This does not establish a platform-specific coordinate conversion rule.
+- The revised experiment gives target and sibling separate ephemeral Sessions
+  and subscribes to the target renderer resize event before changing zoom while
+  visible. It requires the exact 240 by 160 viewport acknowledgement before
+  hiding and submitting. The acknowledgement deadline can only report an
+  indeterminate failure. macOS passed the revised native test; Windows remains
+  pending the next candidate. Production hidden-viewport acknowledgement and
+  removal of the per-Role Windows child host are not yet implemented.
+- CP-15/18: CI uploads the early API report immediately and continues independent
+  Rust validation even when that experiment fails. A final explicit failure
+  guard preserves the API gate. Fourteen workflow/probe tests passed locally.
+- CP-14/16: the concurrent terminal-receipt publication test now runs 32 fresh
+  synchronized two-writer rounds, retaining exactly one winner and exact stored
+  bytes. macOS passed all rounds and Rust lint. Windows must still reproduce or
+  clear the prior UnsafePath failure with its original diagnostic cause; no
+  production ACL handling or security requirement has been weakened.
+- CP-15, candidate `0bb4c9e6`, macOS Chromium job `101498541979`: the
+  `chromium-fullscreen-toolbar-restart` phase failed because the AppKit terminal
+  event did not reach final flush. Previous full-profile success does not close
+  this candidate's gate. This failure requires separate investigation; it does
+  not provide settings numeric-edit acceptance evidence.
+- Follow-up artifact inspection confirms normal presentation in both Core and
+  the native host at topology revision 10. Clean-exit observations complete
+  AppKit events, navigation, popup and Core-effect drains, then stop with
+  `cleanExitRoleSurface` started. The unresolved boundary is Role surface
+  cleanup, not missing proof of the fullscreen transition itself.
+- Local continuation validation passed source hygiene, documentation and E2E
+  coverage checks, plus all 441 test files / 3,430 tests with two workers.
+  No new successful desktop E2E profile or Windows native result is claimed.

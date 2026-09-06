@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | retain native submission by API contract; paired acceptance pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | public Chromium input replacement in progress; product parity pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -3448,3 +3448,46 @@ isolated recheck; the subsequent complete suite passes all 3409 tests. No timeou
 or production behavior was modified to obtain that result. The initial failures
 remain recorded as intermittent validation limitations. Documentation and
 production E2E isolation pass. Logs: `/tmp/rion-input-cancel-*`.
+
+
+### Same-attachment public input succeeds; replace the failed Win32 submission owner
+
+CI 34032865591 at dffdfb6d, Windows Chromium job 101485549957, reproduces the
+native key failure and successfully performs both independent public comparisons.
+Visible KeyB and hidden KeyC each produce exact keydown/keyup sequences with
+isTrusted true, matching modifiers and matching private frame/sequence identity.
+The parent remains foreground and visible; the target remains non-foreground and
+without thread focus. The hidden target remains natively invisible. Native
+before/after handle tokens and geometry match. Structured evidence:
+`/tmp/rion-dffd-public-comparison.json`; full log:
+`/tmp/rion-dffd-win-package.log`.
+
+CP-08's earlier decision to retain Win32 submission must therefore be revised:
+it selected an implementation that does not deliver DOM events, while the pinned
+public API delivers on the same attachment. The replacement will use a single
+Chromium submission owner for Windows foreground/hidden input, retain the
+required AppKit adapter and preserve Core identity/epoch/document fences plus
+trusted DOM acknowledgement. The documentation's focus caveat remains a pinned
+compatibility obligation, not a blanket future-version guarantee. Complete
+product Role, pointer, held-key, retirement and Macro parity is still required.
+The extra Windows child-host arrangement must be audited after submission parity;
+its presence is not justified merely by the old HWND-message implementation.
+
+The new `chromiumWebContentsInput.ts` leaf implements common event translation:
+exact supported key codes and modifiers; view-local DIP conversion from CSS and
+zoom without native parent offsets/display-DPI scaling; bounds rejection before
+mouse-down; and propagation of partial submission failures. It returns explicit
+webContents.sendInputEvent submission evidence and does not claim OS keyboard
+state restoration or domain completion. Nine behavior tests, typecheck and
+scoped lint pass. This is an implementation building block, not yet wired to the
+product adapter. Next required work is owner/receipt integration, removal of
+Win32 key/mouse submission, and the complete native product-path gate. No task
+is marked complete from this leaf's tests.
+
+A supplemental macOS native Chromium API sample at zoom 1.25 sends DIP (101,121)
+and observes trusted middle-button down/up at integral DOM CSS (80,96), not
+(80.8,96.8). The new leaf therefore floors its expected positive CSS readback after
+zoom conversion; exact DOM acknowledgement remains required. Evidence:
+`/tmp/rion-chromium-fractional-report.json`. This isolated API experiment is not
+Windows or product Role acceptance. Pure Electron build and production E2E
+isolation also pass for the new leaf's source graph.

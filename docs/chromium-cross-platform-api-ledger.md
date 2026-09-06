@@ -3678,3 +3678,17 @@ trusted input are outside this Windows child-host removal.
 - Local continuation validation passed source hygiene, documentation and E2E
   coverage checks, plus all 441 test files / 3,430 tests with two workers.
   No new successful desktop E2E profile or Windows native result is claimed.
+
+- CP-15 cleanup diagnosis continuation: added E2E-only observations around popup
+  owner retirement, AppKit input-surface retirement and native WebContents close
+  invocation/return/error. These distinguish a pending owner lane, a synchronous
+  native call and a missing destruction event. Four executable tests cover
+  macOS/Windows role paths, original receiver/arguments, unchanged exceptions
+  and the distinction between close return and the exact destroyed event.
+  Five adjacent source-boundary tests, typecheck, focused ESLint, source hygiene
+  and the E2E application build passed. Production code is unchanged; the E2E
+  omission classification for the added observer is `internal-only`.
+- Candidate `b7e843e5`, CI `34038576176`, remains live. The Windows job reports
+  its early direct-input step successful, but its raw report was not available
+  from the artifact listing at observation time. Do not close the direct-host
+  evidence gate until that report or complete native test log is inspected.

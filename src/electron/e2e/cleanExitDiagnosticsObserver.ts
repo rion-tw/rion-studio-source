@@ -19,6 +19,8 @@ import { ChromiumWorkspaceWebNavigationFailureReporter } from
   "../main/chromiumWorkspaceWebNavigationFailureReporter";
 import { CoreEffectCoordinator } from "../main/coreEffectCoordinator";
 import { ElectronMainLifecycle } from "../main/lifecycle";
+import { MacosAppKitInputSurfaceAttachmentCoordinator } from
+  "../main/macosAppKitInputSurfaceAttachmentCoordinator";
 import { MacosAppKitRuntimeEventBridge } from
   "../main/macosAppKitRuntimeEventBridge";
 import {
@@ -119,6 +121,23 @@ export function installElectronDesktopE2eCleanExitDiagnosticsObserver(): void {
     return observeCleanExit(
       "cleanExitPopups",
       () => originalPopupDispose.call(this)
+    );
+  };
+
+  const originalPopupRetireOwner = popups.retireOwner;
+  popups.retireOwner = function (owner) {
+    return observeCleanExit(
+      "cleanExitOwnerPopups",
+      () => originalPopupRetireOwner.call(this, owner)
+    );
+  };
+
+  const appKitAttachments = MacosAppKitInputSurfaceAttachmentCoordinator.prototype;
+  const originalAppKitRetire = appKitAttachments.retire;
+  appKitAttachments.retire = function (roleId, generation, parent) {
+    return observeCleanExit(
+      "cleanExitAppKitInputSurface",
+      () => originalAppKitRetire.call(this, roleId, generation, parent)
     );
   };
 

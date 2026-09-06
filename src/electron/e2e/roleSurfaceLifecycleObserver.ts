@@ -71,6 +71,22 @@ export function installElectronDesktopE2eRoleSurfaceLifecycleObserver(
       }));
       writeFileSync(outputPath, `${JSON.stringify(observations, null, 2)}\n`);
     };
+    const originalClose = contents.close;
+    contents.close = function (options) {
+      capture("close-entered", {
+        waitForBeforeUnload: options?.waitForBeforeUnload ?? false
+      });
+      try {
+        const result = originalClose.call(this, options);
+        capture("close-returned");
+        return result;
+      } catch (error) {
+        capture("close-threw", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+      }
+    };
     capture("created", { type: contents.getType() });
     contents.on("before-input-event", (inputEvent: Event, input: Input) => {
       if (!isObservedApplicationShortcut(input)) return;

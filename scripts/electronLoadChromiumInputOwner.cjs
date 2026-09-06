@@ -1,4 +1,4 @@
-// E2E-only loader: execute the product owner and its sole runtime dependency.
+// E2E-only loader: execute the input owners and their shared engine primitive.
 // Keep the whitelist closed so the probe cannot substitute another input path.
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
@@ -6,7 +6,7 @@ const { Script } = require("node:vm");
 const ts = require("typescript");
 const modules = new Map();
 function load(name) {
-  if (!["chromiumWebContentsInput", "chromiumOwnedInputSubmission"].includes(name)) {
+  if (!["chromiumWebContentsInput", "chromiumOwnedInputSubmission", "chromiumViewInputSubmission"].includes(name)) {
     throw new Error(`Unexpected input-owner dependency: ${name}`);
   }
   if (modules.has(name)) return modules.get(name).exports;
@@ -22,4 +22,4 @@ function load(name) {
   execute(dependency => load(dependency.replace(/^\.\//u, "")), module, module.exports);
   return module.exports;
 }
-module.exports = { ...load("chromiumOwnedInputSubmission"), ...load("chromiumWebContentsInput") };
+module.exports = { ...load("chromiumOwnedInputSubmission"), ...load("chromiumWebContentsInput"), ...load("chromiumViewInputSubmission") };

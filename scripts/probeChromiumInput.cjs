@@ -1,10 +1,10 @@
 // Native compatibility experiment only; never loaded by the product runtime.
-const { app, BrowserWindow, WebContentsView } = require("electron");
+const { app, BrowserWindow, WebContentsView, webContents } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
-const { sendChromiumKey, sendChromiumClick } = require("./electronLoadChromiumInputOwner.cjs");
+const { sendChromiumKey, sendChromiumClick, ChromiumViewInputSubmission } = require("./electronLoadChromiumInputOwner.cjs");
 
-const [reportPath, userData] = process.argv.slice(2);
+const [reportPath, userData, addonPath] = process.argv.slice(2);
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
   throw new Error("Use bundled Electron: probeChromiumInput.cjs REPORT_PATH ISOLATED_USER_DATA");
 }
@@ -160,22 +160,52 @@ async function probe() {
     await sibling.webContents.loadURL(fixture);
     await focus(host, sibling);
     view.setVisible(false);
+    const nativeParent = addonPath ? require(resolve(addonPath)) : null;
+    const parentIdentity = nativeParent?.readWindowsRuntimeForeground(
+      host.getNativeWindowHandle()
+    ).parentIdentity;
+    const identity = { roleId: "direct-view-role", surfaceGeneration: 1,
+      nativeGeneration: 1, bindingRevision: "1", parentIdentity,
+      webContentsId: view.webContents.id };
+    const viewOwner = nativeParent ? new ChromiumViewInputSubmission({
+      identity, contents: view.webContents, nowMs: Date.now,
+      observe: () => {
+        const parent = nativeParent.readWindowsRuntimeForeground(host.getNativeWindowHandle());
+        return {
+          identity: { ...identity, parentIdentity: parent.parentIdentity },
+          focusIdentity: parent.focusIdentity, parentForeground: parent.parentWasForeground,
+          parentVisible: parent.parentVisible, parentMinimized: parent.parentMinimized,
+          viewAttached: host.contentView.children.includes(view), viewVisible: view.getVisible(),
+          contentsDestroyed: view.webContents.isDestroyed(), contentsFocused: view.webContents.isFocused(),
+          focusedWebContentsId: webContents.getFocusedWebContents()?.id ?? null,
+          bounds: view.getBounds(), zoomFactor: view.webContents.getZoomFactor()
+        };
+      }
+    }) : null;
+    const inputFence = requestId => ({ roleId: identity.roleId,
+      surfaceGeneration: 1, requestId, inputEpoch: "1", deadlineMs: String(Date.now() + 3000),
+      deliveryMode: "background" });
     const directSamples = [
       ["direct-hidden-sibling-key", ["keydown", "keyup"], () => {
         const request = { code: "KeyB", ctrl: true, alt: false, shift: true, meta: false, repeat: false };
         return [
-          sendChromiumKey(view.webContents, { ...request, eventType: "keyDown" }),
-          sendChromiumKey(view.webContents, { ...request, eventType: "keyUp" })
+          viewOwner ? viewOwner.key({ ...inputFence("direct-key-down"), ...request, eventType: "keyDown" })
+            : sendChromiumKey(view.webContents, { ...request, eventType: "keyDown" }),
+          viewOwner ? viewOwner.key({ ...inputFence("direct-key-up"), ...request, eventType: "keyUp" })
+            : sendChromiumKey(view.webContents, { ...request, eventType: "keyUp" })
         ];
       }],
-      ["direct-hidden-sibling-middle", ["mousedown", "mouseup"], () =>
-        sendChromiumClick(view.webContents, { clientX: 80, clientY: 96,
-          zoomFactor: 1.25, button: 1 }, view.getBounds())]
+      ["direct-hidden-sibling-middle", ["mousedown", "mouseup"], () => {
+        const request = { clientX: 80, clientY: 96, zoomFactor: 1.25, button: 1 };
+        return viewOwner ? viewOwner.click({ ...inputFence("direct-middle"), ...request })
+          : sendChromiumClick(view.webContents, request, view.getBounds());
+      }]
     ];
     for (const [name, types, submit] of directSamples) {
       const siblingFocusedBefore = sibling.webContents.isFocused();
       const outcome = await sample(view, host, name, [], types, submit);
       outcomes.push({ ...outcome, directHost: {
+        nativeParentOwner: viewOwner !== null,
         children: host.contentView.children.length,
         isolatedSessions: view.webContents.session !== sibling.webContents.session,
         zoomFactor: view.webContents.getZoomFactor(), viewportAcknowledgement,

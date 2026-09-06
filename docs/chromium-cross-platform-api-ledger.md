@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | public Chromium input replacement in progress; product parity pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | direct-View API feasibility verified on both platforms; product replacement pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -3734,3 +3734,52 @@ trusted input are outside this Windows child-host removal.
 - CP-11 retains the separate requirement to handle zoom changes on already hidden
   or occluded product Views. Preconfiguring the experiment while visible does not
   satisfy that product behavior or justify guessing a platform-specific scale.
+
+
+### Windows direct-View feasibility established
+
+- CP-08, candidate `78690558`, CI `34039248720`, artifact
+  `chromium-input-windows-latest-34039248720-1`: all 18 API samples received
+  events. The direct hidden target retained its exact 240 by 160 viewport at
+  125% zoom; Ctrl+Shift+KeyB down/up and trusted middle down/up at CSS (80,96)
+  matched. Both Views remained attached, the target remained hidden and
+  unfocused, and the sibling retained focus before and after submission.
+  This establishes the Windows API feasibility gate for removing the dedicated
+  child host, alongside the prior macOS native experiment. It does not close
+  product Role/Macro lifecycle parity or hidden-zoom update handling.
+- The native validation suite now exercises `ChromiumViewInputSubmission` against
+  the real Windows parent-readback addon in the same direct-View topology.
+  The early addon-independent experiment stays separate. The new later test
+  requires exact native parent/focus identities, complete trusted DOM events,
+  monotonically increasing submission receipts and no child-HWND identity claim.
+  CI uploads this later owner report separately, including failed partial samples.
+- Local validation: the API experiment passed on macOS; the Windows-specific
+  native parent-owner case was explicitly skipped on macOS and remains pending
+  Windows CI. Fifty focused owner/workflow tests, typecheck, focused ESLint and
+  source hygiene passed. The additional native test is internal verification,
+  not a new product journey; E2E omission classification is `internal-only`.
+- CI `34038576176` was cancelled after its Windows product probe had conclusively
+  failed and newer `34038920943` was confirmed running the identical Windows
+  Rust workspace checks plus the added cleanup diagnostics. Cancellation was
+  for superseded failed source, not an elapsed observation deadline. Runs
+  `34038920943` and `34039248720` remain distinct evidence candidates.
+
+- The View submission owner additionally checks the actual WebContents ID and
+  destroyed state independently of the observation adapter, before admission
+  and every event. The focused View-owner suite now passes 38 cases.
+- The Windows shell E2E job also runs the native View-owner test using its built
+  addon after the existing smoke attempt, including when the old child-host
+  physical test fails. The existing failure remains a failed job; this only
+  prevents that known failure from suppressing independent replacement evidence.
+
+- Windows native job `101502104765` at `b8711b59` reports successful Rust
+  formatting/lints and workspace tests, then entered Electron native validation.
+  The source includes the 32-round terminal-receipt concurrency regression.
+  This run did not reproduce the earlier UnsafePath error; its historical
+  failure remains recorded and no unproven ACL root cause or production fix is
+  claimed. The new View-owner native test is not part of that older candidate.
+
+- Final local continuation validation passed 443 test files / 3,472 tests with
+  two workers, plus typecheck, focused lint, documentation, source hygiene,
+  coverage and production E2E isolation checks. No local Windows native result
+  or new successful desktop E2E profile is claimed for these changes.

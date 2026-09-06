@@ -27,7 +27,9 @@ export interface ChromiumViewInputObservation {
 
 interface Owner {
   readonly identity: ChromiumViewInputIdentity;
-  readonly contents: Parameters<typeof sendChromiumKey>[0];
+  readonly contents: Parameters<typeof sendChromiumKey>[0] & {
+    readonly id: number; isDestroyed: () => boolean;
+  };
   /** Must validate exact native parent and current View membership on every read. */
   readonly observe: () => ChromiumViewInputObservation;
   readonly nowMs: () => number;
@@ -61,7 +63,8 @@ export class ChromiumViewInputSubmission {
   constructor(owner: Owner) {
     this.#owner = { ...owner, identity: Object.freeze({ ...owner.identity }) };
     const identity = this.#owner.identity;
-    if (!identity.roleId || !positiveU64(identity.bindingRevision) ||
+    if (owner.contents.id !== identity.webContentsId || owner.contents.isDestroyed() ||
+        !identity.roleId || !positiveU64(identity.bindingRevision) ||
         !/^[0-9a-f]{64}$/u.test(identity.parentIdentity) ||
         ![identity.surfaceGeneration, identity.nativeGeneration, identity.webContentsId]
           .every(value => Number.isSafeInteger(value) && value > 0)) {
@@ -83,7 +86,7 @@ export class ChromiumViewInputSubmission {
   }
 
   #submit<Value>(request: Request, deliver: (
-    contents: Owner["contents"], observation: ChromiumViewInputObservation
+    contents: Parameters<typeof sendChromiumKey>[0], observation: ChromiumViewInputObservation
   ) => Value) {
     if (this.#submitting) throw new Error("Chromium View input submission is already active.");
     this.#submitting = true;
@@ -95,7 +98,7 @@ export class ChromiumViewInputSubmission {
   }
 
   #submitExact<Value>(request: Request, deliver: (
-    contents: Owner["contents"], observation: ChromiumViewInputObservation
+    contents: Parameters<typeof sendChromiumKey>[0], observation: ChromiumViewInputObservation
   ) => Value) {
     const owner = this.#owner;
     const deadline = Number(request.deadlineMs);
@@ -113,6 +116,7 @@ export class ChromiumViewInputSubmission {
         request.roleId !== owner.identity.roleId ||
         request.surfaceGeneration !== owner.identity.surfaceGeneration ||
         !exactIdentity(before.identity, owner.identity) ||
+        owner.contents.id !== owner.identity.webContentsId || owner.contents.isDestroyed() ||
         !/^[0-9a-f]{64}$/u.test(before.focusIdentity) ||
         !before.parentForeground || !before.parentVisible || before.parentMinimized ||
         !before.viewAttached || before.contentsDestroyed ||
@@ -136,7 +140,8 @@ export class ChromiumViewInputSubmission {
     const fingerprint = JSON.stringify(before);
     const verify = () => {
       validClock();
-      if (JSON.stringify(owner.observe()) !== fingerprint) {
+      if (owner.contents.id !== owner.identity.webContentsId || owner.contents.isDestroyed() ||
+          JSON.stringify(owner.observe()) !== fingerprint) {
         throw new Error("Chromium View input ownership changed during submission.");
       }
     };

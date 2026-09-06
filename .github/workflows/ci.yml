@@ -228,6 +228,15 @@ jobs:
           RION_LOCAL_FONTS_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/local-fonts
           RION_CHROMIUM_INPUT_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/chromium-input
 
+      - name: Upload native View input ownership evidence
+        if: ${{ always() && runner.os == 'Windows' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: chromium-view-owner-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .desktop-e2e-artifacts/chromium-input/chromium-view-owner-win32.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload Local Font Access compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -328,6 +337,12 @@ jobs:
         run: pnpm run test:e2e:desktop:chromium:windows
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+
+      - name: Probe direct View ownership with the Windows E2E addon
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.chromium_windows_smoke.outcome != 'skipped' }}
+        run: pnpm exec vitest run --config vitest.native-integration.config.mjs tests/electron-chromium-view-owner.native-integration.ts
+        env:
+          RION_CHROMIUM_INPUT_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/chromium-input
 
       - name: Upload Chromium shell E2E diagnostics
         if: always() && (steps.chromium_macos_appkit_smoke.outcome != 'skipped' || steps.chromium_windows_smoke.outcome != 'skipped')

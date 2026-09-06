@@ -15,11 +15,12 @@ function fixture(platform: "macos" | "windows", background = true) {
   let current = observation;
   let now = 100;
   const sendInputEvent = vi.fn();
-  const owner = new ChromiumViewInputSubmission({ identity, contents: { sendInputEvent },
+  const contents = { id: 5, isDestroyed: vi.fn(() => false), sendInputEvent };
+  const owner = new ChromiumViewInputSubmission({ identity, contents,
     observe: () => current, nowMs: () => now });
   const request = { roleId: identity.roleId, surfaceGeneration: 2, requestId: "request-a",
     inputEpoch: "7", deadlineMs: "200", deliveryMode: background ? "background" as const : "foreground" as const };
-  return { owner, request, sendInputEvent, observation,
+  return { owner, request, sendInputEvent, observation, contents,
     key: { ...request, eventType: "keyDown" as const, code: "KeyB", ctrl: platform === "windows",
       meta: platform === "macos", alt: false, shift: true, repeat: false as const },
     click: { ...request, clientX: 80, clientY: 96, zoomFactor: 1.25, button: 1 as const },
@@ -50,6 +51,16 @@ describe.each(["macos", "windows"] as const)("%s exact Chromium View input owner
   ])("rejects invalid admission before any input: %j", patch => {
     const f = fixture(platform);
     f.change(patch);
+    expect(() => f.owner.key(f.key)).toThrow();
+    expect(f.sendInputEvent).not.toHaveBeenCalled();
+  });
+
+  it("checks the actual WebContents handle independently of the observation adapter", () => {
+    const f = fixture(platform);
+    f.contents.id = 6;
+    expect(() => f.owner.key(f.key)).toThrow();
+    f.contents.id = 5;
+    f.contents.isDestroyed.mockReturnValue(true);
     expect(() => f.owner.key(f.key)).toThrow();
     expect(f.sendInputEvent).not.toHaveBeenCalled();
   });

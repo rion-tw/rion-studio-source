@@ -494,6 +494,12 @@ async function submitWindowsRolePageShortcut(
       { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
     );
     await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
+    console.info("Windows Role focus after native foreground", await browser.execute(() => ({
+      focused: document.hasFocus(),
+      activeTag: document.activeElement?.tagName ?? null,
+      activeId: document.activeElement?.id ?? null,
+      visibility: document.visibilityState
+    })));
     // Native input must reach the exact foreground host and its focused Role.
     await pressVisibleWindowsApplicationShortcut({
       command, processId, nativeWindowHandle, targetMode: "focused-runtime"

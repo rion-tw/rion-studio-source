@@ -500,6 +500,26 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class RionNativeShortcutInput {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct GuiThreadInfo {
+    public uint size, flags;
+    public IntPtr active, focus, capture, menuOwner, moveSize, caret;
+    public int left, top, right, bottom;
+  }
+  [DllImport("user32.dll", SetLastError = true)]
+  private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
+  [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+  public static string FocusEvidence(IntPtr hwnd) {
+    uint pid;
+    uint thread = GetWindowThreadProcessId(hwnd, out pid);
+    var info = new GuiThreadInfo { size = (uint)Marshal.SizeOf(typeof(GuiThreadInfo)) };
+    bool available = GetGUIThreadInfo(thread, ref info);
+    return String.Format("thread={0}; available={1}; active={2}; focus={3}; focusRoot={4}; flags={5}; error={6}",
+      thread, available, info.active.ToInt64(), info.focus.ToInt64(),
+      available ? GetAncestor(info.focus, 2).ToInt64() : 0, info.flags,
+      available ? 0 : Marshal.GetLastWin32Error());
+  }
+
   public delegate bool EnumProc(IntPtr hwnd, IntPtr value);
   [StructLayout(LayoutKind.Sequential)]
   public struct MouseInput {
@@ -644,6 +664,7 @@ $scanCodes = [System.Collections.Generic.List[System.UInt16]]::new()
 if ($modifier) { $scanCodes.Add($ctrlScan) }
 if ($shiftModifier) { $scanCodes.Add($shiftScan) }
 $scanCodes.Add($keyScan)
+[Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow))
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
 if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
   throw 'Windows shortcut scan-code chord injection failed'
@@ -651,7 +672,7 @@ if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
 [Console]::Error.WriteLine('shortcut-stage: native-chord-submitted')
 `;
   try {
-    await runEncodedPowerShellJson(script, {
+    const focusEvidence = await runEncodedPowerShellJson(script, {
       command: input.command,
       processId: input.processId,
       nativeWindowHandle: input.nativeWindowHandle ?? "",
@@ -662,6 +683,7 @@ if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
       // still terminalized synchronously by SendInput's exact inserted count.
       timeoutMilliseconds: 30_000
     });
+    console.info(`Windows native shortcut ${input.command}: ${focusEvidence.slice(0, 512)}`);
   } catch (error) {
     // Avoid forwarding the rejected process message because it contains the
     // entire encoded command; retain bounded native stdout/stderr instead.

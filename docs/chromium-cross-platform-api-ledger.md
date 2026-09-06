@@ -3032,3 +3032,35 @@ Pure Electron production build, production E2E isolation, documentation, source
 hygiene, coverage and scoped lint pass after the local native run. Five adjacent
 source checks pass; the E2E build includes typecheck. No Windows completion is
 inferred from this macOS result.
+
+
+### Windows Quick Access still fails; capture exact keyboard focus
+
+CI 34027741452 at cb453a1a repeats the Windows Quick Access palette failure
+(job 101471625005) after the same 17 passing phases and 18 passing journeys.
+The fixture records a trusted qa-target click and no subsequent keyboard event;
+exact foreground HWND/PID and native SendInput insertion checks pass. These
+observations do not establish that the Role owns OS keyboard focus, nor do they
+establish a production shortcut-routing defect.
+
+The E2E helper now records the Role document focus immediately after native
+foreground activation, plus the exact GUI thread's active/focused/root HWND and
+GUI flags immediately before the physical chord. The bounded output contains
+only focus identifiers and status; it does not log page contents or credentials.
+GetGUIThreadInfo failure stays explicit diagnostic evidence, not successful focus.
+No input retry, synthetic palette event or changed production routing is added.
+This internal-only evidence improvement covers QUICK-ACCESS-015 and the shared
+Windows FULLSCREEN-TOOLBAR-012 helper; native execution remains pending.
+API contracts: [GetGUIThreadInfo](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getguithreadinfo),
+[GUITHREADINFO](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-guithreadinfo),
+and [GetAncestor](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getancestor).
+Evidence: `/tmp/rion-cb4-win-package-artifacts/2026-09-06T10-34-35-113Z-win32`;
+log: `/tmp/rion-cb4-win-package.log`.
+
+Separately, macOS package job 101463341760 in CI 34024645026 at c55f05a7 is
+confirmed successful. This newer successful package cohort does not explain or
+waive the subsequent 0d2d437c updater acknowledgement failure.
+
+Twenty-five adjacent checks, typecheck, scoped lint, source hygiene, documentation,
+coverage and production E2E isolation pass. Checks: `/tmp/rion-quick-access-focus-*`.
+The next candidate includes the verified 4c6d396a ownership-transfer ordering fix.

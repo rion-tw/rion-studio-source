@@ -1830,3 +1830,29 @@ passes, as do all 19 paired AppKit/Windows projection tests and the focused Rust
 supersession test. Logs: `/tmp/rion-078-checks.log`, `/tmp/rion-single-slot-*`,
 `/tmp/rion-appkit-neutral-code-*`. Neither correction is validated by the
 pre-correction CI run; a fresh native run remains required.
+
+### Local AppKit projection regression and Windows macro investigation
+
+At clean source `edc757d0`, the local macOS `chromium-tabs-visible-seed` phase
+passed from 05:54:02 to 05:55:05 UTC on 2026-09-06. Report:
+`.desktop-e2e-artifacts/2026-09-06T05-54-02-175Z-darwin/report.json`;
+log `/tmp/rion-edc-appkit-tabs-e2e.log`. This exercises the previously failing
+AppKit tab sequence with the supersession correction. It is one passing phase;
+the four paired tab journeys remain NOT_RUN in this report because restart was
+not included. A separate restart-focused invocation, including its seed
+dependency, is running with log `/tmp/rion-edc-appkit-tabs-restart-e2e.log`.
+
+Fresh CI [34014912798](https://github.com/rion-tw/rion-studio-source/actions/runs/34014912798)
+validates exact `edc757d0c9fb4de80852b5bbf66ae0d61ca2e2fe` and has progressed
+past the earlier migration-boundary failure. Native outcomes remain pending.
+
+The stable Windows `p1-macro-multirole` failure is narrowed to creation and first
+trigger of the held-key continuity macro: native events 130–137 submit real
+Shift+Digit6, the correct target page records that chord, but no Digit2 macro
+consumer key-down follows. No managed-shortcut receipt appears in that segment.
+The source path is StateChanged -> OverlayRefreshRuntime -> OverlayChanged ->
+Tauri refresh_macro_overlays -> page list/applyState. The current artifact lacks
+an exact page configuration-application receipt tying the new macro to that
+physical press, so a missed refresh remains a hypothesis, not a proven cause.
+Evidence: `/tmp/rion-8c0-win-tauri-artifacts/2026-09-06T05-30-37-422Z-win32/user-data/p1-macro-multirole/desktop-e2e/events.ndjson`
+and `/tmp/rion-8c0-win-tauri.log`. No delay or bypass was introduced to hide it.

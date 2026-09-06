@@ -66,25 +66,30 @@ async function invoke(request: ChromiumSessionMigrationFreshHelperRequest, envel
   child.stdin.end(encodeChromeProfileImportHelperRequestForTest(Buffer.from(JSON.stringify(request)), envelope));
   await closed;
   const wire = Buffer.concat(output);
-  // Diagnostic parsing only: never trim or accept a displaced protocol header.
+  // Electron 43.4.1 emits exactly one Windows browser startup CRLF before JS.
+  // This fixed runtime envelope is mandatory, never optional whitespace.
+  const prefix = Buffer.from(platform === "win32" ? "\r\n" : "", "ascii");
+  expect(wire.subarray(0, prefix.length)).toEqual(prefix);
+  const response = wire.subarray(prefix.length);
+  // Diagnostic parsing only: never accept a frame displaced beyond the fixed prefix.
   // These native fixtures contain synthetic data, never a user's browser store.
   const headerAt = wire.indexOf(Buffer.from("RCHRES01", "ascii"));
   const hasHeader = headerAt >= 0 && headerAt + 20 <= wire.length;
   const metadataEnd = hasHeader ? Math.min(wire.length, headerAt + 20 +
     Math.min(wire.readUInt32BE(headerAt + 12), 1024)) : 0;
-  expect(wire.subarray(0, 8).toString("ascii"), JSON.stringify({
+  expect(response.subarray(0, 8).toString("ascii"), JSON.stringify({
     wireBytes: wire.length, headerAt, prefixHex: wire.subarray(0, 20).toString("hex"),
     outcome: hasHeader ? wire[headerAt + 8] : null,
     metadata: hasHeader ? wire.subarray(headerAt + 20, metadataEnd).toString("utf8") : null,
     stderr: Buffer.concat(errors).subarray(0, 1024).toString("utf8")
   })).toBe("RCHRES01");
-  expect(wire.length).toBe(20 + wire.readUInt32BE(12) + wire.readUInt32BE(16));
-  const metadata = JSON.parse(wire.subarray(20, 20 + wire.readUInt32BE(12)).toString("utf8"));
+  expect(response.length).toBe(20 + response.readUInt32BE(12) + response.readUInt32BE(16));
+  const metadata = JSON.parse(response.subarray(20, 20 + response.readUInt32BE(12)).toString("utf8"));
   const pid = Buffer.alloc(4);
   pid.writeUInt32BE(child.pid!);
   const exitEvidence = hash(Buffer.concat([Buffer.from("rion-chrome-profile-helper-exit-v1\0"),
     pid, Buffer.from([0]), createHash("sha256").update(wire).digest()]));
-  return { outcome: wire[8], metadata, stderr: Buffer.concat(errors).toString("utf8"), pid: child.pid!, exitEvidence };
+  return { outcome: response[8], metadata, stderr: Buffer.concat(errors).toString("utf8"), pid: child.pid!, exitEvidence };
 }
 
 function fixture(value: string) {

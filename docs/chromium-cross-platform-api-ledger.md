@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 280027d7; Windows 25 at 17431e59, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 280027d7; Windows 26 at 33da5f3e, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 280027d7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -4782,3 +4782,52 @@ trusted input are outside this Windows child-host removal.
   /tmp/rion-shared-key-full-vitest.log. Do not certify a green full suite or
   rerun this failure into acceptance. Focused keyboard/native evidence above
   remains separate from the still-open updater acknowledgement repair.
+
+### CP-10 validate the exact pinned Windows helper transport envelope
+
+- Added the Windows CRLF-plus-canonical-frame case first and observed its
+  protocol failure before changing the launcher. The native launcher now selects
+  explicit Canonical or ElectronWindows framing from the compiled target.
+  ElectronWindows requires exactly one CRLF before RCHRES01; Canonical does not
+  permit it. No optional prefix, whitespace trimming or magic scan is used.
+- Bounded stdout retention includes the two runtime bytes. The existing clean
+  exit digest is still computed over the complete raw response before parsing;
+  the frame is borrowed after exact prefix validation and the entire owned
+  response is zeroed on success or failure. Cancellation, EOF, length/outcome
+  validation and same-child reap semantics remain intact.
+- Tests reject absent, partial, duplicated, foreign and trailing preambles;
+  every truncated response length fails. Failed/indeterminate helper outcomes
+  remain non-success, and macOS rejects the Windows envelope. Eight adjacent
+  Rust launcher tests pass, with one existing ignored test. The original
+  unprefixed protocol tests continue to pass under Canonical framing.
+- Update the native Session fixture to validate the same mandatory envelope
+  before exact frame parsing. Exit evidence continues to hash all stdout bytes.
+  Both macOS native Session cases pass. Windows fresh-process apply, verify,
+  rollback and rollback verification remain required in exact-commit CI.
+- This lower-layer-covered transport repair changes no public user journey.
+  Native Session and launcher protocol/cancellation tests provide focused
+  coverage; the runtime migration contract now documents the pinned envelope.
+
+### CP-08/CP-15 Windows background Macro acceptance at 33da5f3e
+
+- CI job 101545320036 / run 34055031958 completed 26 phases as PASS,
+  including CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004, before failing the
+  first controlled Role reload. Artifact report
+  2026-09-06T19-30-55-975Z-win32/report.json records this exact result. This
+  closes the previously failing premature-release path for the Windows fix;
+  it does not certify the later shared-arm commit or the whole profile.
+- Controlled reload evidence contains one exact Windows reload menu capture,
+  Core browserRuntimeTabReload start at sequence 189 and commit effect start
+  at 194. The Role navigated, reached dom-ready/did-finish-load/did-stop-loading,
+  but the input-ready reload observation is absent before the 45-second test
+  failure. Commit completion occurs during cleanup after that failure. Preserve
+  this as an unresolved lifecycle receipt boundary, not a native menu failure
+  or proof that page loading itself failed.
+- Final local validation: macOS lint:rust and test:rust pass (1,645 passed,
+  four ignored), both production builds and E2E production isolation pass.
+  TypeScript, ESLint, complete hygiene, documentation and coverage pass.
+  Eight focused JavaScript helper/codec/transport suites pass 87 tests.
+  No desktop E2E profile was rerun for this lower-layer transport change;
+  macOS native Session execution passed and Windows is pending CI. The prior
+  full Vitest updater journal watcher failure remains open and is not erased
+  by these focused checks.

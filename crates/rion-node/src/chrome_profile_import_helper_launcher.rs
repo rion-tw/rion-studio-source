@@ -20,6 +20,22 @@ const MAX_SECRET_BYTES: usize = rion_core::CHROME_PROFILE_IMPORT_MAX_PLAINTEXT_B
 const RESPONSE_HEADER_BYTES: usize = 20;
 const PRE_SPAWN_CANCELLATION_CAPACITY: usize = 4_096;
 
+#[derive(Clone, Copy)]
+enum HelperStdoutFraming {
+    Canonical,
+    ElectronWindows,
+}
+
+impl HelperStdoutFraming {
+    fn prefix(self) -> &'static [u8] {
+        match self {
+            Self::Canonical => b"",
+            // Pinned Electron's Windows browser process writes this before JS.
+            Self::ElectronWindows => b"\r\n",
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct HelperProcessRegistry {
     state: Mutex<HelperProcessRegistryState>,
@@ -267,8 +283,8 @@ pub(crate) fn launch(
     }
     let child = match command
         .arg(FIXED_HELPER_SWITCH)
-        // Electron's Windows console routing runs before the helper entry and
-        // can write into the binary protocol pipe even with CREATE_NO_WINDOW.
+        // Preserve inherited pipes instead of attaching to the caller's console.
+        // The separate browser startup preamble is validated by framing below.
         .env("ELECTRON_NO_ATTACH_CONSOLE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -313,7 +329,13 @@ pub(crate) fn launch(
         registration.control.terminate();
     }
 
-    let maximum_response = RESPONSE_HEADER_BYTES + MAX_METADATA_BYTES + MAX_SECRET_BYTES;
+    let framing = if cfg!(windows) {
+        HelperStdoutFraming::ElectronWindows
+    } else {
+        HelperStdoutFraming::Canonical
+    };
+    let maximum_response =
+        framing.prefix().len() + RESPONSE_HEADER_BYTES + MAX_METADATA_BYTES + MAX_SECRET_BYTES;
     let mut response = Vec::new();
     let read_result = read_bounded_response_to_eof(
         &mut stdout,
@@ -355,7 +377,7 @@ pub(crate) fn launch(
         ));
     }
     let response_digest = Sha256::digest(&response);
-    let mut result = decode_response(response)?;
+    let mut result = decode_response(response, framing)?;
     if registration.control.is_cancelled() {
         result.metadata.fill(0);
         result.secret.fill(0);
@@ -436,8 +458,16 @@ fn encode_request(metadata: &[u8], secret: &[u8]) -> CoreResult<Vec<u8>> {
     Ok(request)
 }
 
-fn decode_response(mut response: Vec<u8>) -> CoreResult<HelperProcessResult> {
+fn decode_response(
+    mut response: Vec<u8>,
+    framing: HelperStdoutFraming,
+) -> CoreResult<HelperProcessResult> {
     let parsed = (|| {
+        // Exact runtime envelope, never whitespace trimming or magic scanning.
+        // The caller hashes the complete raw wire; zeroization below covers it.
+        let response = response
+            .strip_prefix(framing.prefix())
+            .ok_or_else(protocol_error)?;
         if response.len() < RESPONSE_HEADER_BYTES || &response[..8] != RESPONSE_MAGIC {
             return Err(protocol_error());
         }
@@ -594,7 +624,11 @@ mod tests {
 
     #[test]
     fn response_requires_exact_magic_outcome_lengths_and_no_trailing_bytes() {
-        let parsed = decode_response(response(0, br#"{"ok":true}"#, b"backup")).unwrap();
+        let parsed = decode_response(
+            response(0, br#"{"ok":true}"#, b"backup"),
+            HelperStdoutFraming::Canonical,
+        )
+        .unwrap();
         assert_eq!(parsed.outcome, "applied");
         assert_eq!(parsed.metadata, br#"{"ok":true}"#);
         assert_eq!(parsed.secret, b"backup");
@@ -602,13 +636,67 @@ mod tests {
         let mut trailing = response(0, b"{}", b"");
         trailing.push(0);
         assert_eq!(
-            decode_response(trailing).unwrap_err().code(),
+            decode_response(trailing, HelperStdoutFraming::Canonical)
+                .unwrap_err()
+                .code(),
             "CHROME_PROFILE_IMPORT_HELPER_PROTOCOL_INVALID"
         );
         assert_eq!(
-            decode_response(response(9, b"{}", b"")).unwrap_err().code(),
+            decode_response(response(9, b"{}", b""), HelperStdoutFraming::Canonical)
+                .unwrap_err()
+                .code(),
             "CHROME_PROFILE_IMPORT_HELPER_PROTOCOL_INVALID"
         );
+    }
+
+    #[test]
+    fn windows_electron_startup_prefix_precedes_the_exact_response_frame() {
+        let mut wire = b"\r\n".to_vec();
+        wire.extend(response(0, b"{}", b"backup"));
+        let parsed = decode_response(wire, HelperStdoutFraming::ElectronWindows).unwrap();
+        assert_eq!(parsed.outcome, "applied");
+        assert_eq!(parsed.secret, b"backup");
+    }
+
+    #[test]
+    fn runtime_prefix_is_required_exact_and_never_tolerated_on_macos() {
+        let canonical = response(0, b"{}", b"backup");
+        for prefix in [b"".as_slice(), b"\r", b"\n", b" ", b"\r\n\r\n", b"log\r\n"] {
+            let mut wire = prefix.to_vec();
+            wire.extend(&canonical);
+            assert!(decode_response(wire, HelperStdoutFraming::ElectronWindows).is_err());
+        }
+        let mut windows_wire = b"\r\n".to_vec();
+        windows_wire.extend(&canonical);
+        assert!(decode_response(windows_wire.clone(), HelperStdoutFraming::Canonical).is_err());
+        for length in 0..windows_wire.len() {
+            assert!(
+                decode_response(
+                    windows_wire[..length].to_vec(),
+                    HelperStdoutFraming::ElectronWindows
+                )
+                .is_err()
+            );
+        }
+        windows_wire.push(0);
+        assert!(decode_response(windows_wire, HelperStdoutFraming::ElectronWindows).is_err());
+        for outcome in [1, 2, 9] {
+            let mut wire = b"\r\n".to_vec();
+            wire.extend(response(outcome, b"{}", b""));
+            let result = decode_response(wire, HelperStdoutFraming::ElectronWindows);
+            if outcome == 9 {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(
+                    result.unwrap().outcome,
+                    if outcome == 1 {
+                        "failed"
+                    } else {
+                        "indeterminate"
+                    }
+                );
+            }
+        }
     }
 
     #[test]

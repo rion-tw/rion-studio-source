@@ -478,7 +478,15 @@ flush, so a cookie-only inventory can obtain an exact in-process receipt. Its
 DOM Storage flush API returns no promise, callback, or completion event. A live
 LocalStorage readback therefore proves the logical values but not crash-durable
 disk completion. LocalStorage-bearing inventories use a fixed-mode packaged
-helper protocol over bounded anonymous stdin/stdout pipes. The first helper
+helper protocol over bounded anonymous stdin/stdout pipes. On the pinned Electron
+43.4.1 Windows browser process, stdout has a mandatory single CRLF startup
+preamble followed immediately by the canonical RCHRES01 frame; macOS has no
+preamble. The launcher validates this exact platform envelope, not arbitrary
+whitespace or a searched-for magic header. Bounds include the preamble, EOF and
+clean exit remain mandatory, and exit evidence hashes every raw stdout byte,
+including the preamble. Missing, repeated, foreign or trailing bytes fail closed.
+This runtime transport envelope does not change the inner helper protocol.
+The first helper
 validates the canonical encrypted-vault envelope identity, journal revision,
 Rust-owned role path, digests, and counts; it clears the destination, applies the
 complete cookie and origin-scoped LocalStorage inventory, reads it back, drains

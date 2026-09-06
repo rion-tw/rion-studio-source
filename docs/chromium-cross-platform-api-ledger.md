@@ -74,7 +74,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows 18 journeys passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS package/updater verified at 26c4fd4b; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS package/updater verified at 9e54640b; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -3064,3 +3064,41 @@ waive the subsequent 0d2d437c updater acknowledgement failure.
 Twenty-five adjacent checks, typecheck, scoped lint, source hygiene, documentation,
 coverage and production E2E isolation pass. Checks: `/tmp/rion-quick-access-focus-*`.
 The next candidate includes the verified 4c6d396a ownership-transfer ordering fix.
+
+
+### Share updater journal acknowledgement and eliminate the subscribe/read gap
+
+Source diagnosis of CP-16 finds two duplicate journal-removal waiters: the Darwin
+helper probe and the Windows packaged transaction probe both check presence
+before subscribing. Removal between that read and subscription can be missed.
+The Windows copy additionally catches every access failure as successful removal,
+including permission and I/O failures. This is a concrete source defect; the
+0d2d437c CI timeout alone does not prove which race or native failure occurred.
+
+Both probes now use electronUpdaterJournalAcknowledgement.mjs. Its synchronous
+filesystem watcher is installed before initial readback. Exact-name or unnamed
+filesystem events trigger readback; only ENOENT acknowledges removal. Stream
+failure/closure, access failures and the existing external deadline reject.
+The observer closes on every terminal outcome. There is no polling, retry,
+extended timeout or elapsed-time success, and native updater process isolation,
+journal authority, signature verification and marker/version checks remain.
+
+Nine focused tests cover initial absence, deletion while the first presence read
+is pending, unrelated events, unnamed events, EACCES/EIO, stream error/closure,
+deadline failure and real temporary-filesystem deletion. Together with the
+Darwin helper and CI fixture suites, 24 adjacent tests pass. This internal-only
+probe correction changes no user journey and is not physical Windows evidence.
+Checks: `/tmp/rion-updater-journal-*`. Both packaged native transactions remain
+subject to their exact-candidate CI gates.
+
+MacOS package job 101468263048 in CI 34026488170 at 9e54640b is now terminal
+success, including source Chromium E2E, previous-version fixtures, package
+structure, the Rust-owned updater transaction and packaged AppKit Role black-box.
+CP-16 records this newer complete package cohort. It predates the current
+journal observer correction; it is not verification of that correction.
+
+All 3,397 JavaScript tests pass. Typecheck, complete lint (zero errors, existing
+warnings retained), hygiene, the Tauri build, restored pure Electron production
+build and production E2E isolation pass. Native packaged acceptance of the new
+observer remains pending; no desktop E2E profile ran locally for this tooling-only
+change.

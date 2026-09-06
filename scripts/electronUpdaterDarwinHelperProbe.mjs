@@ -1,3 +1,4 @@
+import { waitForUpdaterJournalRemoval } from "./electronUpdaterJournalAcknowledgement.mjs";
 import { spawn } from "node:child_process";
 import { isDarwinProcessGroupAlive } from "./darwinProcessGroupLiveness.mjs";
 import {
@@ -136,7 +137,7 @@ export async function runElectronUpdaterDarwinHelperProbe(
       `${result.attemptId}\n`
     );
     await cargoOwner.completion;
-    await waitForPathRemoval(
+    await waitForUpdaterJournalRemoval(
       result.journal,
       EXTERNAL_ACK_MILLISECONDS
     );
@@ -453,39 +454,6 @@ function isProcessGroupAlive(processGroupId) {
   return isDarwinProcessGroupAlive(processGroupId);
 }
 
-async function waitForPathRemoval(path, timeoutMilliseconds) {
-  try {
-    await access(path);
-  } catch (error) {
-    if (error?.code === "ENOENT") return;
-    throw error;
-  }
-  const abortController = new AbortController();
-  const timeout = setTimeout(
-    () => abortController.abort(new Error(
-      `Timed out waiting for updater acknowledgement: ${path}`
-    )),
-    timeoutMilliseconds
-  );
-  try {
-    for await (const event of watch(dirname(path), {
-      signal: abortController.signal
-    })) {
-      if (event.filename && String(event.filename) !== basename(path)) continue;
-      try {
-        await access(path);
-      } catch (error) {
-        if (error?.code === "ENOENT") return;
-        throw error;
-      }
-    }
-  } catch (error) {
-    if (abortController.signal.aborted) throw abortController.signal.reason;
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 async function capturePrivateRegularFile(path, maximumBytes) {
   return captureStableRegularFile(path, maximumBytes, true);

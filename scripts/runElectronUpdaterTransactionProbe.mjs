@@ -1,3 +1,4 @@
+import { waitForUpdaterJournalRemoval } from "./electronUpdaterJournalAcknowledgement.mjs";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -7,7 +8,6 @@ import {
   mkdir,
   readFile,
   realpath,
-  watch,
   writeFile
 } from "node:fs/promises";
 import {
@@ -435,7 +435,7 @@ async function runWindowsProbe(
       windowsHide: true
     });
     try {
-      await waitForPathRemoval(
+      await waitForUpdaterJournalRemoval(
         join(userData, "app-update-install-journal.json"),
         EXTERNAL_ACK_DEADLINE_MS
       );
@@ -520,36 +520,6 @@ async function ensurePrivateRuntimeDirectory(directoryPath) {
   }
 }
 
-async function waitForPathRemoval(path, deadlineMilliseconds) {
-  try {
-    await access(path);
-  } catch {
-    return;
-  }
-  const parent = resolve(path, "..");
-  const expectedName = path.slice(parent.length + 1);
-  const abort = new AbortController();
-  const deadline = setTimeout(() => abort.abort(), deadlineMilliseconds);
-  try {
-    for await (const event of watch(parent, { signal: abort.signal })) {
-      if (event.filename && String(event.filename) !== expectedName) continue;
-      try {
-        await access(path);
-      } catch {
-        return;
-      }
-    }
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`Timed out waiting for updater acknowledgement: ${path}`, {
-        cause: error
-      });
-    }
-    throw error;
-  } finally {
-    clearTimeout(deadline);
-  }
-}
 
 async function waitForWindowsProcess(processId, environment) {
   const script = [

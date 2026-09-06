@@ -40,13 +40,15 @@ function identity(kind) {
 
 function validExpectedEvent(candidate) {
   if (!candidate || typeof candidate !== "object") return false;
-  if (!["keydown", "keyup", "mousedown", "mouseup", "click"].includes(
+  if (!["keydown", "keyup", "mousedown", "mouseup", "click", "auxclick"].includes(
     candidate.type
   )) {
     return false;
   }
   if (candidate.type.startsWith("key")) {
-    return typeof candidate.code === "string" && candidate.code.length > 0;
+    return typeof candidate.code === "string" && candidate.code.length > 0 &&
+      ["ctrlKey", "shiftKey", "altKey", "metaKey"].every(key =>
+        candidate[key] === undefined || typeof candidate[key] === "boolean");
   }
   return Number.isSafeInteger(candidate.button) && candidate.button >= 0 &&
     candidate.button <= 2 &&
@@ -104,7 +106,8 @@ function captureInput(event) {
   const mouse = event instanceof MouseEvent;
   const matches = event.type === expected.type &&
     (keyboard
-      ? event.code === expected.code
+      ? event.code === expected.code && ["ctrlKey", "shiftKey", "altKey", "metaKey"].every(key =>
+          expected[key] === undefined || event[key] === expected[key])
       : mouse && event.button === expected.button &&
         (expected.clientX === null || event.clientX === expected.clientX) &&
         (expected.clientY === null || event.clientY === expected.clientY));
@@ -136,7 +139,7 @@ function captureInput(event) {
   ipcRenderer.send(channel, receipt);
 }
 
-for (const type of ["keydown", "keyup", "mousedown", "mouseup", "click"]) {
+for (const type of ["keydown", "keyup", "mousedown", "mouseup", "click", "auxclick"]) {
   addEventListener(type, captureInput, { capture: true });
 }
 

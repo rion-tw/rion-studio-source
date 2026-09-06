@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 
+import { electronMainBundleGuard } from "./scripts/electronMainBundleGuard.mjs";
+
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
@@ -50,6 +52,7 @@ export function electronRendererEntryPlugin() {
 
 export default defineConfig({
   main: {
+    plugins: [electronMainBundleGuard()],
     build: {
       externalizeDeps: {
         include: ["electron"]

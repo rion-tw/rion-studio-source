@@ -22,45 +22,33 @@ interface ProbeDomReceipt {
 interface WindowsInputProbeEvidence {
   readonly candidateEvidence: "foreground-and-hidden-product-path";
   readonly platform: "win32";
-  readonly singleWebContentsSurface: boolean;
+  readonly ownerKind: "view";
+  readonly exactSiblingViews: boolean;
   readonly displayScaleFactor: number;
-  readonly foregroundProbe: Readonly<{
-    readonly childWindowStyle: boolean;
-    readonly dpi: number;
-    readonly exactParent: boolean;
-    readonly noActivateStyle: boolean;
-    readonly parentWasForeground: boolean;
-    readonly popupWindowStyleAbsent: boolean;
-    readonly targetHadThreadFocus: boolean;
-    readonly targetWasForeground: boolean;
-  }>;
-  readonly controlProbe: Readonly<{
-    readonly exactParent: boolean;
-    readonly parentVisible: boolean;
-    readonly parentWasForeground: boolean;
-    readonly surfaceVisible: boolean;
-  }>;
-  readonly finalProbe: Readonly<{
-    readonly foregroundWindowPreserved: boolean;
-    readonly activeWindowPreserved: boolean;
-    readonly focusWindowPreserved: boolean;
-    readonly parentVisible: boolean;
-    readonly parentWasForeground: boolean;
-    readonly surfaceVisible: boolean;
-    readonly targetHadThreadFocus: boolean;
-    readonly targetWasForeground: boolean;
-  }>;
+  readonly foregroundProbe: ViewProbe;
+  readonly controlProbe: ViewProbe;
+  readonly hiddenProbe: ViewProbe;
+  readonly finalProbe: ViewProbe;
+  readonly focusReceipt: { status: string };
+  readonly hiddenFocusReceipt: { status: string };
+  readonly viewportAcknowledgement: { status: string; width: number; height: number };
   readonly keyDom: ProbeDomReceipt;
   readonly mouseDom: ProbeDomReceipt;
-  readonly hiddenProbe: Readonly<{
-    readonly parentVisible: boolean;
-    readonly parentWasForeground: boolean;
-    readonly surfaceVisible: boolean;
-    readonly targetHadThreadFocus: boolean;
-    readonly targetWasForeground: boolean;
-  }>;
   readonly hiddenKeyDom: ProbeDomReceipt;
+  readonly hiddenMouseDom: ProbeDomReceipt;
   readonly hiddenPresentationPreserved: boolean;
+}
+
+interface ViewProbe {
+  readonly ownerKind: "view";
+  readonly parentIdentity: string;
+  readonly webContentsId: number;
+  readonly observation: {
+    readonly bounds: { width: number; height: number };
+    readonly zoomFactor: number;
+    readonly focusedWebContentsId: number | null;
+    readonly focusIdentity: string;
+  };
 }
 
 function required(name: string): string {
@@ -124,50 +112,34 @@ describe("Windows Chromium physical trusted-input candidate", () => {
     ) as WindowsInputProbeEvidence;
 
     expect(evidence).toMatchObject({
-      candidateEvidence: "foreground-and-hidden-product-path",
-      platform: "win32",
-      singleWebContentsSurface: true,
-      controlProbe: {
-        exactParent: true,
-        parentVisible: true,
-        parentWasForeground: true,
-        surfaceVisible: true
-      },
-      foregroundProbe: {
-        childWindowStyle: true,
-        exactParent: true,
-        noActivateStyle: true,
-        parentWasForeground: true,
-        popupWindowStyleAbsent: true,
-        targetHadThreadFocus: false,
-        targetWasForeground: false
-      },
-      finalProbe: {
-        activeWindowPreserved: true,
-        focusWindowPreserved: true,
-        foregroundWindowPreserved: true,
-        parentVisible: true,
-        parentWasForeground: true,
-        surfaceVisible: false,
-        targetHadThreadFocus: false,
-        targetWasForeground: false
-      },
-      hiddenProbe: {
-        parentVisible: true,
-        parentWasForeground: true,
-        surfaceVisible: false,
-        targetHadThreadFocus: false,
-        targetWasForeground: false
-      },
-      hiddenPresentationPreserved: true
+      candidateEvidence: "foreground-and-hidden-product-path", platform: "win32", ownerKind: "view",
+      exactSiblingViews: true, hiddenPresentationPreserved: true,
+      focusReceipt: { status: "applied" }, hiddenFocusReceipt: { status: "applied" },
+      viewportAcknowledgement: { status: "applied" }
     });
-    expect(evidence.foregroundProbe.dpi).toBe(
-      Math.round(evidence.displayScaleFactor * 96)
-    );
+    for (const [probe, visible] of [[evidence.foregroundProbe, true], [evidence.controlProbe, true],
+      [evidence.hiddenProbe, false], [evidence.finalProbe, false]] as const) {
+      expect(probe).toMatchObject({ ownerKind: "view", status: "verified", observation: {
+        parentForeground: true, parentVisible: true, parentMinimized: false,
+        viewAttached: true, viewVisible: visible, contentsDestroyed: false, contentsFocused: visible
+      } });
+      expect(probe.parentIdentity).toMatch(/^[0-9a-f]{64}$/u);
+      expect(probe.parentIdentity).toBe(evidence.foregroundProbe.parentIdentity);
+      expect(probe.observation.focusIdentity).toMatch(/^[0-9a-f]{64}$/u);
+      expect(probe.observation.focusedWebContentsId).toBe(visible ? probe.webContentsId : evidence.controlProbe.webContentsId);
+    }
+    expect(evidence.foregroundProbe.webContentsId).not.toBe(evidence.controlProbe.webContentsId);
+    expect(evidence.finalProbe.webContentsId).toBe(evidence.foregroundProbe.webContentsId);
+    expect(evidence.finalProbe.observation.focusIdentity).toBe(evidence.hiddenProbe.observation.focusIdentity);
+    expect(evidence.finalProbe.observation.zoomFactor).toBe(1.25);
+    expect(evidence.viewportAcknowledgement.width).toBe(Math.round(evidence.finalProbe.observation.bounds.width / 1.25));
+    expect(evidence.viewportAcknowledgement.height).toBe(Math.round(evidence.finalProbe.observation.bounds.height / 1.25));
+    expect(evidence.displayScaleFactor).toBeGreaterThan(0);
     for (const dom of [
       evidence.keyDom,
       evidence.mouseDom,
-      evidence.hiddenKeyDom
+      evidence.hiddenKeyDom,
+      evidence.hiddenMouseDom
     ]) {
       expect(dom.received).toBe(true);
       expect(dom.value.length).toBeGreaterThan(0);

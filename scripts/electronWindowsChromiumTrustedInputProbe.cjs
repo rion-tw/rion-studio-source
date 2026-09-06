@@ -3,7 +3,7 @@ const { mkdtempSync, writeSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
-const { app, BaseWindow, ipcMain, screen, WebContentsView } = require("electron");
+const { app, BaseWindow, ipcMain, screen, WebContentsView, webContents, session } = require("electron");
 
 const PROBE_PREFIX = "RION_ELECTRON_WINDOWS_CHROMIUM_INPUT_PROBE=";
 
@@ -19,79 +19,17 @@ function withDiagnosticDeadline(promise, milliseconds) {
   ]).finally(() => clearTimeout(deadline));
 }
 
-function exactProbe(receipt, surfaceHandle, parentHandle) {
-  if (
-    !receipt ||
-    receipt.abiVersion !== 6 ||
-    !receipt.currentProcessOwned ||
-    !receipt.exactParent ||
-    !receipt.childWindowStyle ||
-    !receipt.popupWindowStyleAbsent ||
-    !receipt.noActivateStyle ||
-    !receipt.foregroundWindowPreserved ||
-    !receipt.activeWindowPreserved ||
-    !receipt.focusWindowPreserved ||
-    !/^[0-9a-f]{64}$/u.test(receipt.focusIdentity) ||
-    typeof receipt.parentWasForeground !== "boolean" ||
-    typeof receipt.parentVisible !== "boolean" ||
-    typeof receipt.surfaceVisible !== "boolean" ||
-    !Number.isSafeInteger(receipt.clientWidth) ||
-    receipt.clientWidth < 1 ||
-    !Number.isSafeInteger(receipt.clientHeight) ||
-    receipt.clientHeight < 1 ||
-    !Number.isSafeInteger(receipt.dpi) ||
-    receipt.dpi < 48 ||
-    receipt.dpi > 768 ||
-    typeof receipt.surfaceHandleToken !== "string" ||
-    !/^[0-9a-f]{64}$/u.test(receipt.surfaceHandleToken) ||
-    typeof receipt.parentHandleToken !== "string" ||
-    !/^[0-9a-f]{64}$/u.test(receipt.parentHandleToken) ||
-    receipt.surfaceHandleToken === receipt.parentHandleToken ||
-    surfaceHandle.equals(parentHandle)
-  ) {
-    throw new Error(
-      `Electron did not produce an exact no-activate WS_CHILD: ${JSON.stringify(receipt)}`
-    );
-  }
-  return receipt;
-}
-
 function exactNativeBase(receipt, expected, probe) {
-  if (
-    receipt.status !== "submitted" ||
-    receipt.submissionApi !== "webContents.sendInputEvent" ||
-    receipt.roleId !== expected.roleId ||
-    receipt.surfaceGeneration !== expected.surfaceGeneration ||
-    receipt.nativeGeneration !== expected.nativeGeneration ||
-    receipt.bindingRevision !== expected.bindingRevision ||
-    receipt.surfaceHandleToken !== expected.surfaceHandleToken ||
-    receipt.parentHandleToken !== expected.parentHandleToken ||
-    receipt.probeRevision !== expected.probeRevision ||
-    receipt.inputEpoch !== expected.inputEpoch ||
-    receipt.deliveryMode !== expected.deliveryMode ||
-    receipt.withinDeadline !== true ||
-    receipt.currentProcessOwned !== true ||
-    receipt.exactParent !== true ||
-    receipt.childWindowStyle !== true ||
-    receipt.popupWindowStyleAbsent !== true ||
-    receipt.noActivateStyle !== true ||
-    receipt.targetAttached !== true ||
-    receipt.noActivationApiCalled !== true ||
-    receipt.foregroundWindowPreserved !== true ||
-    receipt.activeWindowPreserved !== true ||
-    receipt.focusWindowPreserved !== true ||
-    receipt.parentWasForeground !== true ||
-    receipt.parentVisible !== true ||
-    receipt.surfaceVisible !== (expected.deliveryMode === "foreground") ||
-    receipt.targetWasForeground !== false ||
-    receipt.targetHadThreadFocus !== false ||
-    receipt.clientWidth !== probe.clientWidth ||
-    receipt.clientHeight !== probe.clientHeight ||
-    receipt.dpi !== probe.dpi ||
-    !/^[1-9][0-9]*$/u.test(receipt.dispatchSequence) ||
-    !/^[1-9][0-9]*$/u.test(receipt.submittedAtMs)
-  ) {
-    throw new Error(`The ${receipt.requestId} native receipt is not exact.`);
+  if (receipt.ownerKind !== "view" || receipt.status !== "submitted" ||
+      receipt.submissionApi !== "webContents.sendInputEvent" ||
+      receipt.roleId !== expected.roleId || receipt.surfaceGeneration !== expected.surfaceGeneration ||
+      receipt.nativeGeneration !== expected.nativeGeneration || receipt.bindingRevision !== expected.bindingRevision ||
+      receipt.parentIdentity !== expected.parentIdentity || receipt.webContentsId !== expected.webContentsId ||
+      receipt.probeRevision !== probe.probeRevision || receipt.inputEpoch !== expected.inputEpoch ||
+      receipt.deliveryMode !== expected.deliveryMode || !receipt.viewAttached || !receipt.foregroundPreserved ||
+      JSON.stringify(receipt.observation) !== JSON.stringify(probe.observation) ||
+      !/^[1-9][0-9]*$/u.test(receipt.dispatchSequence) || !/^[1-9][0-9]*$/u.test(receipt.submittedAtMs)) {
+    throw new Error(`The ${receipt.requestId} exact View submission receipt is invalid.`);
   }
 }
 
@@ -100,8 +38,8 @@ function closeWindow(window) {
 }
 
 void (async () => {
-  let child;
-  let control;
+  let attachments;
+  let focus;
   let controlView;
   let onPrivateReceipt;
   let parent;
@@ -132,9 +70,7 @@ void (async () => {
     );
     await app.whenReady();
     const addon = require(addonPath);
-    if (addon.windowsChromiumInputProbeAbiVersion() !== 6) {
-      throw new Error("The Win32 trusted-input probe ABI does not match Electron.");
-    }
+    if (typeof addon.readWindowsRuntimeForeground !== "function") throw new Error("Native parent observation is unavailable.");
 
     const display = screen.getPrimaryDisplay();
     parent = new BaseWindow({
@@ -146,47 +82,32 @@ void (async () => {
       frame: true,
       show: false
     });
-    child = new BaseWindow({
-      parent,
-      show: false,
-      focusable: false,
-      frame: false,
-      transparent: true,
-      hasShadow: false,
-      movable: false,
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      backgroundColor: "#00000000"
-    });
     const parentBounds = parent.getContentBounds();
-    child.setBounds(parentBounds);
-    child.hide();
-    const surfaceHandle = Buffer.from(child.getNativeWindowHandle());
-    const parentHandle = Buffer.from(parent.getNativeWindowHandle());
-    const beforeAttachProbe = exactProbe(
-      addon.attachWindowsChromiumInputHwnd(surfaceHandle, parentHandle),
-      surfaceHandle,
-      parentHandle
-    );
-    const childBounds = child.getContentBounds();
-    const expectedPhysicalWidth = Math.round(
-      childBounds.width * beforeAttachProbe.dpi / 96
-    );
-    const expectedPhysicalHeight = Math.round(
-      childBounds.height * beforeAttachProbe.dpi / 96
-    );
-    if (
-      beforeAttachProbe.clientWidth !== expectedPhysicalWidth ||
-      beforeAttachProbe.clientHeight !== expectedPhysicalHeight ||
-      beforeAttachProbe.dpi !== Math.round(display.scaleFactor * 96)
-    ) {
-      throw new Error(
-        "The Win32 client receipt does not match Electron DIP/DPI projection."
-      );
-    }
+    const { ChromiumViewAttachmentCoordinator, ChromiumViewTrustedInputHost,
+      ChromiumViewFocusAdmission, windowsChromiumViewParentBinding } = require("./electronLoadChromiumInputOwner.cjs");
+    const parentBinding = windowsChromiumViewParentBinding({ window: parent, logicalParent: parent,
+      identity: { nativeGeneration: 1, ownerRevision: "1" } }, addon,
+    () => webContents.getFocusedWebContents()?.id ?? null);
+    let attachmentFailure;
+    attachments = new ChromiumViewAttachmentCoordinator({ resolveParent: candidate => candidate === parent ? parentBinding : null,
+      nowMs: Date.now, onError: error => { attachmentFailure = error; } });
+    focus = new ChromiumViewFocusAdmission({ attachments, nowMs: Date.now,
+      deadlines: { schedule: (callback, delay) => setTimeout(callback, delay), cancel: clearTimeout },
+      activateParent: target => { parent.show(); target.observe(); parent.focus(); } });
+    const hosts = new ChromiumViewTrustedInputHost({ attachments, focus: request => focus.focus(request) });
+    const attach = async (roleId, target) => attachments.attach({ roleId, generation: 1, parent, view: target,
+      isCancelled: () => false, attach: () => parent.contentView.addChildView(target),
+      attachTo: host => host.contentView.addChildView(target), detach: () => parent.contentView.removeChildView(target) });
+    const admitFocus = async roleId => {
+      const binding = hosts.resolve(roleId, 1);
+      if (!binding) throw new Error("The probe has no current View input owner.");
+      const now = Date.now();
+      const receipt = await binding.native.focusForeground(binding.identity, { roleId, surfaceGeneration: 1,
+        requestId: `focus-${roleId}`, inputEpoch: 0, scheduledAtMs: now, deadlineMs: now + 5000,
+        intent: "normal", action: { type: "focus" }, expectedInputNeutralityBefore: true, expectedInputNeutralityAfter: true });
+      if (receipt.status !== "applied") throw new Error(`View focus admission failed: ${JSON.stringify(receipt)}`);
+      return receipt;
+    };
 
     onPrivateReceipt = (event, receipt) => {
       if (
@@ -228,6 +149,7 @@ void (async () => {
 
     view = new WebContentsView({
       webPreferences: {
+        session: session.fromPartition(`probe-target-${randomUUID()}`),
         additionalArguments: [
           `--rion-windows-input-probe-channel=${channel}`,
           "--rion-windows-input-probe-role=probe-role",
@@ -248,30 +170,12 @@ void (async () => {
     const viewBounds = {
       x: 40,
       y: 36,
-      width: Math.max(320, childBounds.width - 80),
-      height: Math.max(240, childBounds.height - 72)
+      width: 600,
+      height: 400
     };
     view.setBounds(viewBounds);
     view.setVisible(true);
-    child.contentView.addChildView(view);
-    if (child.contentView.children.length !== 1 ||
-        child.contentView.children[0] !== view) {
-      throw new Error("The child HWND does not own exactly one WebContentsView.");
-    }
-    const afterAttachProbe = exactProbe(
-      addon.probeWindowsChromiumInputHwnd(surfaceHandle, parentHandle),
-      surfaceHandle,
-      parentHandle
-    );
-    if (
-      afterAttachProbe.surfaceHandleToken !== beforeAttachProbe.surfaceHandleToken ||
-      afterAttachProbe.parentHandleToken !== beforeAttachProbe.parentHandleToken ||
-      afterAttachProbe.clientWidth !== beforeAttachProbe.clientWidth ||
-      afterAttachProbe.clientHeight !== beforeAttachProbe.clientHeight ||
-      afterAttachProbe.dpi !== beforeAttachProbe.dpi
-    ) {
-      throw new Error("The exact child HWND changed during WebContents attachment.");
-    }
+    await attach("probe-role", view);
 
     const loaded = new Promise((resolve, reject) => {
       view.webContents.once("did-finish-load", resolve);
@@ -325,34 +229,16 @@ void (async () => {
       inputWaiters.delete(inputSequence);
     };
 
-    const parentFocused = new Promise((resolve) => parent.once("focus", resolve));
-    parent.show();
-    child.showInactive();
-    exactProbe(
-      addon.projectWindowsChromiumInputHwnd(surfaceHandle, parentHandle, true),
-      surfaceHandle,
-      parentHandle
-    );
-    parent.focus();
-    await parentFocused;
-    view.webContents.focus();
+    const focusReceipt = await admitFocus("probe-role");
     const activeElement = await view.webContents.executeJavaScript(
-      "document.querySelector('#probe').focus(); document.activeElement?.id",
-      true
-    );
-    if (activeElement !== "probe") {
-      throw new Error("The target Chromium input could not establish initial focus.");
-    }
-
-    const foregroundProbe = exactProbe(
-      addon.probeWindowsChromiumInputHwnd(surfaceHandle, parentHandle),
-      surfaceHandle,
-      parentHandle
-    );
-    if (!foregroundProbe.parentWasForeground || foregroundProbe.targetWasForeground ||
-        foregroundProbe.targetHadThreadFocus || !parent.isFocused()) {
-      throw new Error("The exact runtime parent did not own foreground focus.");
-    }
+      "document.querySelector('#probe').focus(); document.activeElement?.id", true);
+    if (activeElement !== "probe") throw new Error("The target input did not establish initial DOM focus.");
+    const binding = hosts.resolve("probe-role", 1);
+    const probe = mode => {
+      if (attachmentFailure) throw attachmentFailure;
+      return binding.native.probeExactInputSurface(binding.identity, mode);
+    };
+    const foregroundProbe = probe("foreground");
     const preDispatchDomState = await view.webContents.executeJavaScript(
       `({
         activeElementId: document.activeElement?.id ?? null,
@@ -362,35 +248,9 @@ void (async () => {
       true
     );
 
-    const identity = {
-      roleId: "probe-role",
-      surfaceGeneration: 1,
-      nativeGeneration: 1,
-      bindingRevision: "1",
-      surfaceHandleToken: foregroundProbe.surfaceHandleToken,
-      parentHandleToken: foregroundProbe.parentHandleToken,
-      probeRevision: "1",
-      inputEpoch: "1",
-      deliveryMode: "foreground"
-    };
-    const { submitOwnedChromiumKey, submitOwnedChromiumClick } =
-      require("./electronLoadChromiumInputOwner.cjs");
-    const submissionOwner = (request) => ({
-      identity: {
-        roleId: identity.roleId, surfaceGeneration: identity.surfaceGeneration,
-        nativeGeneration: identity.nativeGeneration, bindingRevision: identity.bindingRevision,
-        surfaceHandleToken: identity.surfaceHandleToken, parentHandleToken: identity.parentHandleToken
-      },
-      probeRevision: request.probeRevision,
-      contents: view.webContents,
-      viewport: () => view.getBounds(),
-      nowMs: Date.now,
-      probe: () => exactProbe(addon.probeWindowsChromiumInputHwnd(
-        surfaceHandle, parentHandle
-      ), surfaceHandle, parentHandle)
-    });
-    const submitKey = request => submitOwnedChromiumKey(submissionOwner(request), request);
-    const submitClick = request => submitOwnedChromiumClick(submissionOwner(request), request);
+    const identity = { ...binding.identity, inputEpoch: "1", deliveryMode: "foreground" };
+    const submitKey = request => binding.native.submitNativeBackgroundKey(binding.identity, request);
+    const submitClick = request => binding.native.submitNativeBackgroundMouse(binding.identity, request);
     const keyPending = await armInput("windows-probe-key", [
       { type: "keydown", code: "KeyA" },
       { type: "keyup", code: "KeyA" }
@@ -452,11 +312,26 @@ void (async () => {
     const zoomFactor = 1.25;
     const clientX = 80;
     const clientY = 96;
+    const expectedViewport = { width: Math.round(viewBounds.width / zoomFactor), height: Math.round(viewBounds.height / zoomFactor) };
+    await view.webContents.executeJavaScript(`(() => {
+      window.viewportProbe = new Promise(resolve => {
+        let deadline;
+        const finish = status => { clearTimeout(deadline); removeEventListener("resize", inspect);
+          resolve({ status, width: innerWidth, height: innerHeight }); };
+        const inspect = () => { if (innerWidth === ${expectedViewport.width} && innerHeight === ${expectedViewport.height}) finish("applied"); };
+        addEventListener("resize", inspect);
+        deadline = setTimeout(() => finish("indeterminate"), 3000);
+      });
+    })()`);
     view.webContents.setZoomFactor(zoomFactor);
+    const viewportAcknowledgement = await view.webContents.executeJavaScript("window.viewportProbe");
+    if (viewportAcknowledgement.status !== "applied") throw new Error("The visible renderer did not acknowledge zoom.");
+    const mouseProbe = probe("foreground");
+
     const mousePending = await armInput("windows-probe-mouse", [
-      { type: "mousedown", button: 0, clientX: null, clientY: null },
-      { type: "mouseup", button: 0, clientX: null, clientY: null },
-      { type: "click", button: 0, clientX: null, clientY: null }
+      { type: "mousedown", button: 0, clientX, clientY },
+      { type: "mouseup", button: 0, clientX, clientY },
+      { type: "click", button: 0, clientX, clientY }
     ]);
     const mouse = submitClick({
         ...identity,
@@ -469,7 +344,7 @@ void (async () => {
         zoomFactor,
         button: 0
       });
-    exactNativeBase(mouse, { ...identity, inputEpoch: "2" }, foregroundProbe);
+    exactNativeBase(mouse, { ...identity, inputEpoch: "2" }, mouseProbe);
     const expectedNativeX = Math.round(
       clientX * zoomFactor
     );
@@ -495,27 +370,10 @@ void (async () => {
       throw new Error("Chromium did not emit the exact trusted DOM mouse sequence.");
     }
 
-    // Create the visible sibling Role host inside the same foreground runtime
-    // parent. The probed Role is then hidden without selecting, showing, or
-    // focusing it again; only the private preload arm message may cross in.
-    control = new BaseWindow({
-      parent,
-      show: false,
-      focusable: false,
-      frame: false,
-      transparent: true,
-      hasShadow: false,
-      movable: false,
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      backgroundColor: "#00000000"
-    });
-    control.setBounds(parentBounds);
+    // A separate Session and exact sibling View share only the runtime parent.
     controlView = new WebContentsView({
       webPreferences: {
+        session: session.fromPartition(`probe-sibling-${randomUUID()}`),
         contextIsolation: true,
         devTools: false,
         nodeIntegration: false,
@@ -526,79 +384,36 @@ void (async () => {
     controlView.setBounds({
       x: 0,
       y: 0,
-      width: childBounds.width,
-      height: childBounds.height
+      width: parentBounds.width,
+      height: parentBounds.height
     });
-    control.contentView.addChildView(controlView);
+    controlView.setVisible(true);
+    await attach("sibling-role", controlView);
     await controlView.webContents.loadURL(
       `data:text/html,${encodeURIComponent(
         "<meta charset=utf-8><input id=foreground-role autofocus>"
       )}`
     );
-    // Match the product lifecycle: establish the exact native parent and child
-    // styles before attempting Chromium focus or checking sibling ownership.
-    const controlHandle = Buffer.from(control.getNativeWindowHandle());
-    exactProbe(
-      addon.attachWindowsChromiumInputHwnd(controlHandle, parentHandle),
-      controlHandle,
-      parentHandle
-    );
-    control.showInactive();
-    exactProbe(
-      addon.projectWindowsChromiumInputHwnd(controlHandle, parentHandle, true),
-      controlHandle,
-      parentHandle
-    );
     view.setVisible(false);
-    child.hide();
-    exactProbe(
-      addon.projectWindowsChromiumInputHwnd(surfaceHandle, parentHandle, false),
-      surfaceHandle,
-      parentHandle
-    );
-    controlView.webContents.focus();
+    attachments.syncPresentation({ roleId: "probe-role", generation: 1, parent, physicalParent: parent, view });
+    await admitFocus("sibling-role");
     const foregroundRoleFocused = await controlView.webContents.executeJavaScript(
-      "document.querySelector('#foreground-role').focus(); document.hasFocus()",
-      true
-    );
-    if (!foregroundRoleFocused || view.webContents.isFocused() ||
-        child.isVisible() || view.getVisible()) {
-      throw new Error(`The sibling Role did not retain exact foreground ownership: ${JSON.stringify({
-        foregroundRoleFocused, parentFocused: parent.isFocused(),
-        siblingContentsFocused: controlView.webContents.isFocused(),
-        targetContentsFocused: view.webContents.isFocused(),
-        targetHostVisible: child.isVisible(), targetViewVisible: view.getVisible(),
-        controlProbe: addon.probeWindowsChromiumInputHwnd(controlHandle, parentHandle)
-      })}`);
+      "document.querySelector('#foreground-role').focus(); document.hasFocus()", true);
+    if (!foregroundRoleFocused || view.webContents.isFocused() || view.getVisible()) {
+      throw new Error("The sibling View did not retain exact foreground ownership.");
     }
-    const controlProbe = exactProbe(
-      addon.probeWindowsChromiumInputHwnd(controlHandle, parentHandle),
-      controlHandle,
-      parentHandle
-    );
-    if (!controlProbe.parentWasForeground || !controlProbe.parentVisible ||
-        !controlProbe.surfaceVisible) {
-      throw new Error("The visible sibling Role did not share the exact foreground parent.");
-    }
-    const hiddenProbe = exactProbe(
-      addon.probeWindowsChromiumInputHwnd(surfaceHandle, parentHandle),
-      surfaceHandle,
-      parentHandle
-    );
-    if (!hiddenProbe.parentWasForeground || !hiddenProbe.parentVisible ||
-        hiddenProbe.surfaceVisible || hiddenProbe.targetWasForeground ||
-        hiddenProbe.targetHadThreadFocus || !parent.isFocused()) {
-      throw new Error("The target Role did not remain an exact hidden sibling surface.");
-    }
+    const sibling = hosts.resolve("sibling-role", 1);
+    const controlProbe = sibling.native.probeExactInputSurface(sibling.identity, "foreground");
+    const hiddenFocusReceipt = await admitFocus("probe-role");
+    const hiddenProbe = probe("background");
     const hiddenIdentity = {
       ...identity,
-      probeRevision: "2",
       inputEpoch: "3",
       deliveryMode: "background"
     };
     const hiddenKeyPending = await armInput("windows-probe-hidden-key", [
-      { type: "keydown", code: "KeyB" },
-      { type: "keyup", code: "KeyB" }
+      { type: "keydown", code: "KeyB", ctrlKey: true, shiftKey: true, altKey: false, metaKey: false },
+      { type: "keyup", code: "KeyB", ctrlKey: true, shiftKey: true, altKey: false, metaKey: false }
     ]);
     const hiddenKeyDown = submitKey({
         ...hiddenIdentity,
@@ -606,9 +421,9 @@ void (async () => {
         deadlineMs: String(Date.now() + 5_000),
         eventType: "keyDown",
         code: "KeyB",
-        ctrl: false,
+        ctrl: true,
         alt: false,
-        shift: false,
+        shift: true,
         meta: false,
         repeat: false
       });
@@ -618,9 +433,9 @@ void (async () => {
         deadlineMs: String(Date.now() + 5_000),
         eventType: "keyUp",
         code: "KeyB",
-        ctrl: false,
+        ctrl: true,
         alt: false,
-        shift: false,
+        shift: true,
         meta: false,
         repeat: false
       });
@@ -630,29 +445,44 @@ void (async () => {
     if (!hiddenKeyDom.received || hiddenKeyDom.value.length !== 2 ||
         hiddenKeyDom.value.some((receipt) => !receipt.matches || !receipt.isTrusted) ||
         !controlView.webContents.isFocused() || view.webContents.isFocused() ||
-        child.isVisible() || view.getVisible()) {
+        view.getVisible()) {
       throw new Error(
         "Hidden Chromium Role input lacked exact trusted DOM continuity or changed presentation."
       );
     }
+    await cancelInput("windows-probe-hidden-key");
+    const hiddenMousePending = await armInput("windows-probe-hidden-middle", [
+      { type: "mousedown", button: 1, clientX, clientY },
+      { type: "mouseup", button: 1, clientX, clientY },
+      { type: "auxclick", button: 1, clientX, clientY }
+    ]);
+    const hiddenMouseProbe = probe("background");
+    const hiddenMouse = submitClick({ ...hiddenIdentity, requestId: "windows-probe-hidden-middle",
+      inputEpoch: "4", deadlineMs: String(Date.now() + 5000), clientX, clientY, zoomFactor, button: 1 });
+    exactNativeBase(hiddenMouse, { ...hiddenIdentity, inputEpoch: "4" }, hiddenMouseProbe);
+    const hiddenMouseDom = await withDiagnosticDeadline(hiddenMousePending.input, 3000);
+    if (!hiddenMouseDom.received || hiddenMouseDom.value.length !== 3 ||
+        hiddenMouseDom.value.some(receipt => !receipt.isTrusted || !receipt.matches) ||
+        !controlView.webContents.isFocused() || view.webContents.isFocused() || view.getVisible()) {
+      throw new Error("Hidden middle-button input changed focus or lacked exact trusted CSS coordinates.");
+    }
     if (!parent.isFocused()) {
       throw new Error("Native input changed the exact foreground runtime parent.");
     }
-    const finalProbe = exactProbe(
-      addon.probeWindowsChromiumInputHwnd(surfaceHandle, parentHandle),
-      surfaceHandle,
-      parentHandle
-    );
+    const finalProbe = probe("background");
     writeSync(1, `${PROBE_PREFIX}${JSON.stringify({
       candidateEvidence: "foreground-and-hidden-product-path",
       platform: process.platform,
       displayScaleFactor: display.scaleFactor,
-      beforeAttachProbe,
-      afterAttachProbe,
+      ownerKind: "view",
+      focusReceipt,
+      hiddenFocusReceipt,
+      viewportAcknowledgement,
       foregroundProbe,
       finalProbe,
-      singleWebContentsSurface: child.contentView.children.length === 1 &&
-        child.contentView.children[0] === view,
+      exactSiblingViews: parent.contentView.children.length === 2 &&
+        parent.contentView.children.includes(view) && parent.contentView.children.includes(controlView) &&
+        view.webContents.session !== controlView.webContents.session,
       preDispatchDomState,
       readyReceipt,
       keyArmReceipt: keyPending.armReceipt,
@@ -668,43 +498,39 @@ void (async () => {
       hiddenKeyDown,
       hiddenKeyUp,
       hiddenKeyDom,
-      hiddenPresentationPreserved: !child.isVisible() && !view.getVisible() &&
+      hiddenMouse,
+      hiddenMouseDom,
+      hiddenPresentationPreserved: !view.getVisible() &&
         !view.webContents.isFocused() && controlView.webContents.isFocused(),
       privateReceipts
     })}\n`);
 
     ipcMain.removeListener(channel, onPrivateReceipt);
     onPrivateReceipt = undefined;
-    child.contentView.removeChildView(view);
+    await attachments.retire("probe-role", 1, parent);
+    parent.contentView.removeChildView(view);
     view.webContents.close({ waitForBeforeUnload: false });
     view = undefined;
-    control.contentView.removeChildView(controlView);
+    await attachments.retire("sibling-role", 1, parent);
+    parent.contentView.removeChildView(controlView);
     controlView.webContents.close({ waitForBeforeUnload: false });
     controlView = undefined;
-    closeWindow(control);
-    control = undefined;
-    closeWindow(child);
-    child = undefined;
+    focus.dispose();
+    await attachments.dispose();
     closeWindow(parent);
     parent = undefined;
     app.exit(0);
   } catch (error) {
     try {
       if (onPrivateReceipt) ipcMain.removeListener(channel, onPrivateReceipt);
-      if (view && !view.webContents.isDestroyed()) {
-        if (child?.contentView.children.includes(view)) {
-          child.contentView.removeChildView(view);
+      focus?.dispose();
+      await attachments?.dispose();
+      for (const target of [view, controlView]) {
+        if (target && !target.webContents.isDestroyed()) {
+          if (parent?.contentView.children.includes(target)) parent.contentView.removeChildView(target);
+          target.webContents.close({ waitForBeforeUnload: false });
         }
-        view.webContents.close({ waitForBeforeUnload: false });
       }
-      if (controlView && !controlView.webContents.isDestroyed()) {
-        if (control?.contentView.children.includes(controlView)) {
-          control.contentView.removeChildView(controlView);
-        }
-        controlView.webContents.close({ waitForBeforeUnload: false });
-      }
-      closeWindow(control);
-      closeWindow(child);
       closeWindow(parent);
     } catch {
       // Preserve the original physical-probe failure.

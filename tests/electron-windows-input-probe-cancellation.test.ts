@@ -7,7 +7,12 @@ function harness() {
   const events = new Map<string, (event: unknown) => void>();
   const receipts: Record<string, unknown>[] = [];
   class KeyboardEvent {
+    ctrlKey = false; shiftKey = false; altKey = false; metaKey = false;
     constructor(readonly type: string, readonly code: string, readonly isTrusted = true) {}
+  }
+  class MouseEvent {
+    constructor(readonly type: string, readonly button: number, readonly clientX: number,
+      readonly clientY: number, readonly isTrusted = true) {}
   }
   runInNewContext(readFileSync("scripts/electronWindowsChromiumTrustedInputProbePreload.cjs", "utf8"), {
     require: () => ({ ipcRenderer: {
@@ -17,11 +22,15 @@ function harness() {
     process: { argv: ["--rion-windows-input-probe-channel=fixture",
       "--rion-windows-input-probe-role=role", "--rion-windows-input-probe-generation=1",
       "--rion-windows-input-probe-frame-token=document"] },
-    location: { href: "data:text/html,fixture" }, KeyboardEvent, MouseEvent: class {},
+    location: { href: "data:text/html,fixture" }, KeyboardEvent, MouseEvent,
     addEventListener: (type: string, listener: (event: unknown) => void) => events.set(type, listener)
   });
   return {
     receipts,
+    armEvents: (inputSequence: string, expectedEvents: unknown[]) => listeners.get("fixture:arm")!({}, { inputSequence, expectedEvents }),
+    mouse: (type: string, button: number, x: number, y: number) => events.get(type)!(new MouseEvent(type, button, x, y)),
+    modifiedKey: (type: string, code: string, modifiers: Partial<KeyboardEvent>) =>
+      events.get(type)!(Object.assign(new KeyboardEvent(type, code), modifiers)),
     arm: (inputSequence: string, code: string) => listeners.get("fixture:arm")!({}, {
       inputSequence, expectedEvents: [{ type: "keydown", code }, { type: "keyup", code }]
     }),
@@ -47,6 +56,28 @@ describe("Windows input probe sequence cancellation", () => {
       { inputSequence: "comparison", matches: true, observedIndex: 0 },
       { inputSequence: "comparison", matches: true, observedIndex: 1 }
     ]);
+  });
+
+  it("rejects a trusted key with the wrong modifiers", () => {
+    const probe = harness();
+    probe.armEvents("modified", [{ type: "keydown", code: "KeyB", ctrlKey: true, shiftKey: true }]);
+    probe.modifiedKey("keydown", "KeyB", { ctrlKey: true });
+    expect(probe.receipts.at(-1)).toMatchObject({ matches: false, isTrusted: true });
+    probe.armEvents("exact", [{ type: "keydown", code: "KeyB", ctrlKey: true, shiftKey: true }]);
+    probe.modifiedKey("keydown", "KeyB", { ctrlKey: true, shiftKey: true });
+    expect(probe.receipts.at(-1)).toMatchObject({ matches: true, inputSequence: "exact" });
+  });
+
+  it("checks exact middle-button CSS coordinates including auxclick", () => {
+    const probe = harness();
+    const expected = ["mousedown", "mouseup", "auxclick"].map(type => ({ type, button: 1, clientX: 80, clientY: 96 }));
+    probe.armEvents("middle", expected);
+    for (const event of expected) probe.mouse(event.type, 1, 80, 96);
+    expect(probe.receipts.filter(receipt => receipt.kind === "input")).toHaveLength(3);
+    expect(probe.receipts.at(-1)).toMatchObject({ matches: true, type: "auxclick", observedIndex: 2 });
+    probe.armEvents("wrong-coordinate", expected);
+    probe.mouse("mousedown", 1, 100, 120);
+    expect(probe.receipts.at(-1)).toMatchObject({ matches: false });
   });
 
   it("does not accept a delayed native key as comparison success", () => {

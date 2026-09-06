@@ -90,7 +90,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
   }
 
   async reparent(input: ChromiumRoleSurfaceNativeReparentInput): Promise<void> {
-    const source = this.#require(input.roleId, input.generation);
+    const source = this.#requireRecord(input.roleId, input.generation);
     if (source.logicalParent !== input.sourceParent || source.view !== input.view ||
         !input.attachTargetTo || !input.restoreSourceTo) throw new Error("Chromium View move is stale.");
     const target = this.#create(input.roleId, input.generation, input.targetParent, source.view);
@@ -164,7 +164,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
   }
 
   syncPresentation(input: ChromiumRoleSurfaceNativePresentationInput): void {
-    const record = this.#require(input.roleId, input.generation);
+    const record = this.#requireRecord(input.roleId, input.generation);
     if (record.logicalParent !== input.parent || record.binding.parent !== input.physicalParent ||
         record.view !== input.view) throw new Error("Chromium View presentation is stale.");
     this.#publish(record);
@@ -172,14 +172,14 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
 
   resolve(roleId: string, generation: number) {
     try {
-      const record = this.#require(roleId, generation);
+      const record = this.#requireRecord(roleId, generation);
       return Object.freeze({ identity: record.identity, input: record.input, observe: record.observe });
     } catch { return null; }
   }
 
   resolveFocusTarget(roleId: string, generation: number) {
     try {
-      const record = this.#require(roleId, generation);
+      const record = this.#requireRecord(roleId, generation);
       return { identity: record.identity, input: record.input, observe: record.observe,
         view: record.view, binding: record.binding, logicalParent: record.logicalParent };
     } catch { return null; }
@@ -224,7 +224,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
       parentIdentity: native.parentIdentity, webContentsId: view.webContents.id! });
     const record = {} as Record;
     const observe = (): ChromiumViewInputObservation => {
-      this.#require(roleId, generation, record);
+      this.#requireRecord(roleId, generation, record);
       const parent = binding.read();
       return { identity: { ...identity, parentIdentity: parent.parentIdentity }, ...parent,
         viewAttached: binding.children().includes(view), viewVisible: view.getVisible(),
@@ -243,7 +243,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
     return record;
   }
 
-  #require(roleId: string, generation: number, exact?: Record): Record {
+  #requireRecord(roleId: string, generation: number, exact?: Record): Record {
     const record = this.#records.get(roleId);
     if (this.#disposed || !record || record.state !== "active" || (exact && exact !== record) ||
         record.identity.surfaceGeneration !== generation) throw new Error("Chromium View binding was superseded.");
@@ -273,7 +273,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
         if (record.state !== "active") return;
         try {
           if (event === "closed") throw new Error("Chromium View parent closed before retirement.");
-          this.#require(record.identity.roleId, record.identity.surfaceGeneration, record);
+          this.#requireRecord(record.identity.roleId, record.identity.surfaceGeneration, record);
           this.#publish(record);
         } catch (error) { this.#quarantine(record, error); }
       });

@@ -3910,3 +3910,52 @@ trusted input are outside this Windows child-host removal.
   in this batch. Previous candidate `71cb9fea` also completed both stable desktop
   E2E CI jobs and macOS native validation successfully; its Chromium macOS
   package and Windows native jobs were still running at this checkpoint.
+
+### Direct-View physical gate and empty-main-bundle correction
+
+- The Windows physical probe now loads the same View attachment, parent binding,
+  focus admission and input host classes as product composition. It creates one
+  runtime parent with two independent Session/WebContentsView owners, removes
+  all child-HWND attach/project/probe calls from this gate, and retains the
+  private isolated-preload frame/sequence/trusted-DOM checks. The evidence records
+  actual View membership, exact parent/WebContents identities, foreground and
+  hidden admission, and unchanged foreground sibling ownership.
+- The probe waits for a visible renderer resize acknowledgement at 125% zoom
+  before checking left-click CSS coordinates. Hidden input now checks Ctrl+Shift+B
+  modifier flags and middle-button down/up/auxclick coordinates. Wrong modifiers
+  and coordinates are rejected by the private preload. No hidden focus repair or
+  hidden viewport acknowledgement is inferred. Journey
+  CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009 and its manifest description were
+  updated without lowering priority, outcomes or coverage targets. Its native
+  Windows result remains pending; the old child coordinator/native implementation
+  remains outside product composition until that verification permits deletion.
+- Candidate `fb349add`, CI `34042924322`, macOS package job `101512797588`
+  exposed an empty `out/main/index.js` before any desktop journey could start.
+  The previous local build commands exited zero, but their 0-byte main output
+  contradicts executable-build acceptance; the preceding checkpoint must not be
+  read as successful runtime validation. The E2E verifier correctly rejected it.
+- Local isolation identified the pinned electron-vite CommonJS-shim heuristic:
+  the new private method spelling `#require(...)` triggered its textual detector.
+  Its static-import scanner inserted the shim into a later string literal and
+  the build silently emitted an empty main entry. Omitting only that plugin
+  produced 1.43 MB; renaming the private method to `#requireRecord` produced a
+  1.43 MB entry with the original complete plugin set. No bundler safety or E2E
+  check was disabled. An explicit main-entry output guard now rejects empty or
+  missing entries, and tests build both actual production and E2E entry points
+  with the pinned Electron plugins and verify their startup code.
+- Initial physical-gate/source checks passed 11 tests, the expanded private
+  preload passed 4 behavior tests, and the actual bundle/attachment tests passed
+  29 tests. A native macOS Chromium API experiment passed with the expanded closed
+  loader. These are not Windows physical-input or AppKit desktop parity claims.
+  Final local checks and the focused macOS shell phase are recorded below once
+  their live processes complete.
+- Final unit regression passed 448 files / 3,540 tests with two workers; the last
+  focused bundle/probe/preload check passed 10 tests. Typecheck, lint (zero
+  errors), hygiene and coverage passed. The local
+  `chromium-macos-appkit-smoke --phase=chromium-shell-smoke` run passed its shell
+  test with real Chromium and Rust startup (artifact directory
+  `.desktop-e2e-artifacts/2026-09-06T15-50-01-589Z-darwin`). This is a focused phase,
+  not a new full AppKit profile result. Relevant shell journeys are
+  CHROMIUM-MACOS-APPKIT-SHELL-001 and its Windows pair; Windows remains pending.
+  Native macOS Rust lint passed; its workspace tests and the subsequent stable /
+  restored production Electron builds were still running at commit preparation.

@@ -131,10 +131,9 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     expect(physicalProbe).toContain(
       'candidateEvidence: "foreground-and-hidden-product-path"'
     );
-    expect(physicalProbe).toContain("receipt.abiVersion !== 6");
-    expect(physicalProbe).toContain("projectWindowsChromiumInputHwnd");
-    expect(physicalProbe).not.toContain("receipt.abiVersion !== 1");
-    expect(physicalProbe).toContain("parentWasForeground");
+    expect(physicalProbe).toContain('receipt.ownerKind !== "view"');
+    expect(physicalProbe).not.toContain("projectWindowsChromiumInputHwnd");
+    expect(physicalProbe).toContain("windowsChromiumViewParentBinding");
     expect(runner).toContain("chromiumJourneyPhaseDependencies");
     expect(runner).toContain("chromiumJourneyPhaseNamespaces");
     expect(runner).toMatch(

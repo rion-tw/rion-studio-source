@@ -14,6 +14,8 @@ const execFileAsync = promisify(execFile);
 const UI_ACTION_DEADLINE_MS = 35_000;
 const MAX_SCREENSHOT_BYTES = 64 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+// AX references can retire between enumeration and dereference as Chromium
+// updates the native tree. Guard both operations; absence is never a match.
 export const MACOS_ACCESSIBILITY_TRAVERSAL_HANDLERS = String.raw`
 on rionDescendants(rootElement)
   tell application "System Events"
@@ -21,17 +23,20 @@ on rionDescendants(rootElement)
     set collectedElements to {}
     set currentIndex to 1
     repeat while currentIndex is less than or equal to (count of pendingElements)
-      set currentElement to contents of item currentIndex of pendingElements
+      set elementIndex to currentIndex
       set currentIndex to currentIndex + 1
       try
+        set currentElement to contents of item elementIndex of pendingElements
         set childElements to get UI elements of currentElement
       on error
         set childElements to {}
       end try
       repeat with childReference in childElements
-        set childElement to contents of childReference
-        set end of collectedElements to childElement
-        set end of pendingElements to childElement
+        try
+          set childElement to contents of childReference
+          set end of collectedElements to childElement
+          set end of pendingElements to childElement
+        end try
         if (count of collectedElements) is greater than 5000 then ¬
           error "bounded accessibility traversal exceeded"
       end repeat
@@ -46,12 +51,14 @@ on rionFindButton(rootElement, buttonName)
     set currentIndex to 1
     set visitedCount to 0
     repeat while currentIndex is less than or equal to (count of pendingElements)
-      set currentElement to contents of item currentIndex of pendingElements
+      set elementIndex to currentIndex
+      set currentElement to missing value
       set currentIndex to currentIndex + 1
       set visitedCount to visitedCount + 1
       if visitedCount is greater than 5000 then ¬
         error "bounded accessibility button search exceeded"
       try
+        set currentElement to contents of item elementIndex of pendingElements
         if role of currentElement is "AXButton" and ¬
             (name of currentElement is buttonName or ¬
               description of currentElement is buttonName) then ¬
@@ -63,7 +70,9 @@ on rionFindButton(rootElement, buttonName)
         set childElements to {}
       end try
       repeat with childReference in childElements
-        set end of pendingElements to contents of childReference
+        try
+          set end of pendingElements to contents of childReference
+        end try
       end repeat
     end repeat
     return missing value
@@ -91,12 +100,14 @@ on rionIsRetainedAppKitRoleWindow(appWindow, roleName)
     set currentIndex to 1
     set visitedCount to 0
     repeat while currentIndex is less than or equal to (count of pendingElements)
-      set candidate to contents of item currentIndex of pendingElements
+      set elementIndex to currentIndex
+      set candidate to missing value
       set currentIndex to currentIndex + 1
       set visitedCount to visitedCount + 1
       if visitedCount is greater than 5000 then ¬
         error "bounded retained AppKit identity search exceeded"
       try
+        set candidate to contents of item elementIndex of pendingElements
         if role of candidate is "AXRadioButton" and ¬
             description of candidate is roleName and ¬
             (my rionAccessibilityIdentifier(candidate)) starts with ¬
@@ -121,7 +132,9 @@ on rionIsRetainedAppKitRoleWindow(appWindow, roleName)
         set childElements to {}
       end try
       repeat with childReference in childElements
-        set end of pendingElements to contents of childReference
+        try
+          set end of pendingElements to contents of childReference
+        end try
       end repeat
     end repeat
   end tell
@@ -269,8 +282,8 @@ on run argv
           set roleActionAvailable to false
           set appWindowElements to my rionDescendants(appWindow)
           repeat with candidateReference in appWindowElements
-            set candidate to contents of candidateReference
             try
+              set candidate to contents of candidateReference
               if role of candidate is "AXButton" then
                 set candidateName to ""
                 set candidateDescription to ""
@@ -295,8 +308,8 @@ on run argv
               set comboCount to 0
               set quickAccessElements to my rionDescendants(appWindow)
               repeat with quickReference in quickAccessElements
-                set quickElement to contents of quickReference
                 try
+                  set quickElement to contents of quickReference
                   if role of quickElement is "AXComboBox" then
                     set quickAccessCombo to quickElement
                     set comboCount to comboCount + 1

@@ -2426,3 +2426,33 @@ focus journey. It does not verify the later Chromium stop-admission change.
 The separate Windows Chromium package job at that revision failed the gated
 Workspace final-tab absence check documented above. Log:
 `/tmp/rion-32ff-win-tauri.log`.
+
+
+### Preserve packaged native traversal across retired AX references
+
+macOS package CI 34018711131 at be7b28b3 completed source E2E, package verification
+and the packaged updater transaction, then failed the final native black-box
+launcher traversal with System Events Invalid index (-1719). The AppleScript
+queue dereferenced a retired Chromium accessibility element before entering its
+existing guarded property read. Log: `/tmp/rion-be7-mac-package.log`.
+
+The shared packaged macOS traversal now guards queue and child-reference
+dereferencing, plus the launcher consumers, as well as property reads. Missing
+elements cannot match. The traversal bounds, exact process and retained AppKit
+identity, real native actions and domain receipts remain unchanged. This is an
+internal-only E2E driver correction; it changes no product UI or native runtime
+contract and does not add a reconciliation loop.
+
+An actual macOS osascript regression supplies a retired AX group reference.
+The previous handlers reproduce the same 277:285 Invalid index (-1719); the new
+handlers return no descendants and no button match. All 11 adjacent tests and
+all 3,348 Vitest tests pass, as do full hygiene and lint (23 existing warnings).
+The local packaged black-box also passes with exit code 0, a visible OS
+accessibility click and retained appkit-chromium host; its screenshot was
+inspected. Report:
+`.desktop-e2e-artifacts/2026-09-06T08-11-51-673Z-a77e0205-069d-4379-9f2a-308e5ce71d8a-darwin-packaged-black-box/packaged-smoke-report.json`.
+This run uses the existing local 8.5.0 package (app.asar SHA-256
+4fd238e22fe97f03bc67b27580129c98dfc337cbd49b79fe60aa66bd49a2302b), so it
+verifies the updated external native driver, not a rebuilt current-candidate
+package. Exact-candidate macOS package and Windows CI remain pending.
+Logs: `/tmp/rion-packaged-ax-*`.

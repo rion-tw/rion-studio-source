@@ -131,6 +131,20 @@ describe("packaged Electron smoke isolation", () => {
     }
   });
 
+  macosIt("skips a retired native AX reference without claiming a button match", async () => {
+    const { stdout } = await executeFile("/usr/bin/osascript", ["-e", `
+${MACOS_RETAINED_APPKIT_HANDLERS}
+on run
+  tell application "System Events"
+    set staleElement to a reference to group 99999 of application process "Finder"
+  end tell
+  set foundElements to my rionDescendants(staleElement)
+  set foundButton to my rionFindButton(staleElement, "Absent")
+  return ((count of foundElements) is 0 and foundButton is missing value)
+end run`]);
+    expect(stdout.trim()).toBe("true");
+  });
+
   it("uses CFFIXED_USER_HOME without weakening the packaged product override policy", () => {
     expect(resolvePackagedElectronSmokeIsolation(
       "/tmp/rion-artifacts",

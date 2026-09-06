@@ -2288,3 +2288,23 @@ CI requirement; the package success must not be attributed to current HEAD.
 CP-16 therefore has verified macOS package/update evidence while its Windows
 and owner-locked release gates remain pending. Physical extended-profile
 requirements and CP-17 cutover remain unchanged.
+
+### Windows stable-shell full acceptance confirms native control dispatch
+
+CI [34018711131](https://github.com/rion-tw/rion-studio-source/actions/runs/34018711131)
+at be7b28b3e130f1e6f3cc69a7ed1087ff19a6e9f3 passes the complete Windows Tauri
+full profile: 29 PASS phases, 3 EXPECTED_FORCE_TERMINATION phases and all 39
+journeys PASS. The report identifies runtimeTarget tauri-v22 and a clean tested
+worktree, 07:18:26–07:31:18 UTC. This confirms the async IPC/UI-thread split
+through MACRO-MIDDLE-BUTTON-013 and RUNTIME-TAB-TOPOLOGY-009, including the
+Windows visible-minimize bounds/readback assertions. MACRO-MULTIROLE-005 also
+passes with the urgent Core shortcut-configuration publication correction.
+
+Artifact desktop-e2e-Windows-34018711131-1; report:
+`/tmp/rion-be7-win-tauri-artifacts/2026-09-06T07-18-26-081Z-win32/report.json`.
+The earlier macOS Tauri full run at 522f7d4a and local focused macOS middle-button
+run remain their recorded evidence. The complete latest-head macOS profile is
+still independently required. This stable-shell verdict does not establish
+Chromium Windows parity; CI 34019181794 at c0e09041 is still running the
+Chromium/native package gates and includes the later Core commit wakeup and
+file-dialog pointer corrections.

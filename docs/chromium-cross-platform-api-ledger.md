@@ -74,7 +74,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 01ca1f3b; Windows Reload/full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 280027d7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 59b405b7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -5100,3 +5100,22 @@ trusted input are outside this Windows child-host removal.
 - Final local full regression for the shared physical View gate passes 451
   files / 3,602 tests in 156.72 seconds. Windows profile continuation remains
   required in exact-candidate CI; earlier post-phase failure is not erased.
+
+
+### CP-09/CP-15/CP-16 macOS CI completion at 59b405b7
+
+- CI 34055443364 macOS package job 101546394075 is SUCCESS. Downloaded
+  chromium-shell-e2e-macOS-34055443364-1 report binds
+  59b405b709a6a0c0d9b80fac52a9e8626326ff62 and chromium-macos-appkit-smoke:
+  52 PASS phases plus four EXPECTED_FORCE_TERMINATION phases. This verifies
+  the complete selected profile after shared Macro keyboard ownership arming.
+- The same job log records the packaged darwin updater transaction for fixture
+  version 8.5.0 verified, followed by packaged Electron black-box smoke passing
+  for Rion Studio.app. These remain CI-fixture package/update results, not
+  production-key trust, a published v22 upgrade or authorization to publish.
+- Earlier ca042c19 macOS package job 101543464102 also completed SUCCESS;
+  its full shell run, fixture updater and packaged black-box steps completed.
+  Prefer the later 59b405b7 evidence above for this milestone.
+- Current View gate repair 3a6207c5 still awaits exact-candidate native CI;
+  the successful older macOS jobs do not certify the later Reload/validator
+  changes. Local macOS native work remains paused for the system dialog.

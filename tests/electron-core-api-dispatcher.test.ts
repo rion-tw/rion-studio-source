@@ -19,7 +19,8 @@ const identity: RendererIdentity = {
   generation: 3
 };
 
-function harness(runtimeActions?: ElectronChromiumRuntimeActionPort) {
+function harness(runtimeActions?: ElectronChromiumRuntimeActionPort,
+  systemFonts?: (owner: RendererIdentity) => Promise<string[]>) {
   const coreInvoke = vi.fn(async (command: CoreCommand) => {
     if (command.type === "logsStatus") return { marker: "log-status" };
     return { command };
@@ -44,7 +45,8 @@ function harness(runtimeActions?: ElectronChromiumRuntimeActionPort) {
       core,
       fallback,
       launches,
-      runtimeActions
+      runtimeActions,
+      systemFonts
     ),
     fallbackInvoke,
     launchRole,
@@ -91,6 +93,20 @@ function runtimeActionHarness() {
 }
 
 describe("Electron Core-backed API dispatcher", () => {
+  it("passes the authenticated Chromium font inventory to Rust", async () => {
+    const fonts = vi.fn(async () => ["Arial", "PingFang TC"]);
+    const h = harness(undefined, fonts);
+    await h.dispatcher.invoke(identity, "listSystemFonts", []);
+    expect(fonts).toHaveBeenCalledWith(identity);
+    expect(h.coreInvoke).toHaveBeenCalledWith({ type: "systemFontsList", families: ["Arial", "PingFang TC"] });
+  });
+
+  it("does not cache a stale font document as successful fallback", async () => {
+    const h = harness(undefined, async () => { throw new Error("retired document"); });
+    await expect(h.dispatcher.invoke(identity, "listSystemFonts", [])).rejects.toThrow("retired document");
+    expect(h.coreInvoke).not.toHaveBeenCalled();
+  });
+
   it("routes read-only domain queries through the generated Rust command contract", async () => {
     const { coreInvoke, dispatcher, fallbackInvoke } = harness();
 

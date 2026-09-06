@@ -235,7 +235,11 @@ pub enum CoreCommand {
     LegalAcceptanceAccept {
         input: LegalAcceptDocumentsInputRecord,
     },
-    SystemFontsList,
+    SystemFontsList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        families: Option<Vec<String>>,
+    },
     WindowsGraphicsEventsCollect {
         since: String,
     },

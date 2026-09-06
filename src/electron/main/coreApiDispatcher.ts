@@ -63,7 +63,8 @@ export function createElectronCoreApiDispatcher(
   core: ElectronCoreCommandPort,
   fallback: RionApiDispatcher,
   launches: ElectronRuntimeLaunchPort,
-  runtimeActions?: ElectronChromiumRuntimeActionPort
+  runtimeActions?: ElectronChromiumRuntimeActionPort,
+  systemFonts?: (identity: RendererIdentity) => Promise<string[]>
 ): RionApiDispatcher {
   return {
     async invoke<Method extends RionApiDispatchMethod>(
@@ -77,7 +78,8 @@ export function createElectronCoreApiDispatcher(
         runtimeActions,
         identity,
         method,
-        args
+        args,
+        systemFonts
       );
       if (value === CORE_API_UNHANDLED) {
         return fallback.invoke(identity, method, args);
@@ -93,7 +95,8 @@ async function invokeCoreBackedMethod<Method extends RionApiDispatchMethod>(
   runtimeActions: ElectronChromiumRuntimeActionPort | undefined,
   identity: RendererIdentity,
   method: Method,
-  args: RionApiArgs<Method>
+  args: RionApiArgs<Method>,
+  systemFonts: ((identity: RendererIdentity) => Promise<string[]>) | undefined
 ): Promise<unknown | typeof CORE_API_UNHANDLED> {
   if (!runtimeActions && RUNTIME_ACTION_METHODS.has(method)) {
     throw new RionBridgeError({
@@ -440,7 +443,7 @@ async function invokeCoreBackedMethod<Method extends RionApiDispatchMethod>(
       await core.invoke({ type: "logsClear" });
       return core.invoke({ type: "logsStatus" });
     case "listSystemFonts":
-      return core.invoke({ type: "systemFontsList" });
+      return core.invoke({ type: "systemFontsList", families: await systemFonts?.(identity) ?? [] });
     case "setOverlayLanguage": {
       const [language] = typedArgs<"setOverlayLanguage">(args);
       await core.invoke({ type: "overlayLanguageSet", language });

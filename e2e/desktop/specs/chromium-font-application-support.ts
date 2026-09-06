@@ -49,6 +49,9 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
     return !(await loading.isDisplayed());
   }, { timeout: 60_000, interval: 100, timeoutMsg: "System font enumeration did not finish" });
   const inventory = await rendererCall("listSystemFonts");
+  const nativeFamily = input.platform === "macos" ? "Hiragino Sans" : "Segoe UI";
+  expect(inventory.some((font) => font.family === nativeFamily)).toBe(true);
+  expect(inventory.every((font) => !/\.(?:ttc|ttf|otf|dfont)$/iu.test(font.family))).toBe(true);
   expect(inventory.some((font) => font.family === "Courier New")).toBe(true);
   await pick("Courier New");
   await press("Cancel changes");

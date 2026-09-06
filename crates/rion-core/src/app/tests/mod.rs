@@ -73,6 +73,7 @@ include!("behavior_34_runtime_window_zoom.rs");
 include!("behavior_35_controlled_role_reload.rs");
 include!("behavior_36_empty_window_registration.rs");
 include!("behavior_37_foreground_chromium_launch_focus.rs");
+include!("behavior_38_system_fonts.rs");
 include!("behavior_38_runtime_window_visibility_receipt.rs");
 include!("behavior_39_role_browser_data_clear_timeout.rs");
 include!("behavior_40_appkit_runtime_persistence.rs");

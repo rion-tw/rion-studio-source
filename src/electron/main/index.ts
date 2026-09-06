@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   app,
@@ -24,6 +25,7 @@ import type { RendererLogEvent } from "../../shared/types";
 import { CoreAddonClient } from "../core/coreAddonClient";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import { createElectronBaselineDispatcher } from "./baselineDispatcher";
+import { createChromiumSystemFontProvider } from "./chromiumSystemFonts";
 import { enforceChromiumCommandLinePolicy } from "./chromiumCommandLinePolicy";
 import {
   ElectronApplicationShortcutController,
@@ -163,6 +165,7 @@ const APP_NAME = "Rion Studio";
 let core: CoreAddonClient | null = null;
 let lifecycle: ElectronMainLifecycle | null = null;
 let mainWindow: BrowserWindow | null = null;
+let systemFontProvider: ReturnType<typeof createChromiumSystemFontProvider> | null = null;
 let mainIdentity: RendererIdentity | null = null;
 let ipcBridge: RionIpcBridgeRegistration | null = null;
 let coreRendererEvents: CoreRendererEventBridge | null = null;
@@ -582,6 +585,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
   const developmentUrl = process.env.ELECTRON_RENDERER_URL;
   installMainRendererContentSecurityPolicy(window.webContents.session, developmentUrl);
   installChromiumSessionSecurityPolicy(window.webContents.session);
+  systemFontProvider = createChromiumSystemFontProvider(window.webContents,
+    developmentUrl ?? pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-attach-webview", (event) => event.preventDefault());
   window.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -620,7 +625,10 @@ async function createMainWindow(): Promise<BrowserWindow> {
     if (mainIdentity === identity) {
       mainIdentity = null;
     }
-    if (mainWindow === window) mainWindow = null;
+    if (mainWindow === window) {
+      mainWindow = null;
+      systemFontProvider = null;
+    }
   });
 
   if (developmentUrl) {
@@ -1504,7 +1512,14 @@ async function bootstrapReadyPhase(
     activeCore(),
     baselineDispatcher,
     launchCoordinator,
-    runtimeActionServices?.actions
+    runtimeActionServices?.actions,
+    async (identity) => {
+      if (identity !== mainIdentity || !systemFontProvider) {
+        throw new RionBridgeError({ code: "ELECTRON_LOCAL_FONTS_OWNER_RETIRED",
+          message: "The application font owner is no longer available." });
+      }
+      return systemFontProvider.list();
+    }
   );
   const fontAwareDispatcher = createChromiumRoleFontApiDispatcher(
     coreDispatcher,

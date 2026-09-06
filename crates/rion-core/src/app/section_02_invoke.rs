@@ -415,13 +415,16 @@ impl AppCore {
                 serde_json::to_value(crate::legal::status(Some(&acceptance), versions))
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::SystemFontsList => {
+            CoreCommand::SystemFontsList { families } => {
                 let mut cache = self.system_fonts.lock().map_err(|_| {
                     CoreError::Internal("system font cache lock poisoned".to_owned())
                 })?;
                 if cache.is_none() {
-                    let queried =
-                        rion_platform::query_system_font_names(self.platform).unwrap_or_default();
+                    let queried = if self.runtime_contract_version >= 23 {
+                        families.unwrap_or_default()
+                    } else {
+                        rion_platform::query_system_font_names(self.platform).unwrap_or_default()
+                    };
                     *cache = Some(crate::system_fonts::normalize_or_fallback(queried));
                 }
                 serde_json::to_value(cache.as_ref().expect("font cache initialized"))

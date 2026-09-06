@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
+import { build } from "vite";
 
 const executeFile = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -16,8 +17,12 @@ it("probes bundled Chromium fonts and exact frame permission on the native platf
     const reportDirectory = process.env.RION_LOCAL_FONTS_REPORT_DIR ?? directory;
     await mkdir(reportDirectory, { recursive: true });
     const reportPath = join(reportDirectory, `local-fonts-${process.platform}.json`);
+    await build({ configFile: false, logLevel: "error", build: {
+      outDir: directory, emptyOutDir: false,
+      lib: { entry: "src/electron/main/chromiumSystemFonts.ts", formats: ["cjs"], fileName: () => "font-provider.cjs" }
+    } });
     await executeFile(require("electron") as string, [
-      "scripts/probeChromiumLocalFonts.cjs", reportPath, join(directory, "data")
+      "scripts/probeChromiumLocalFonts.cjs", reportPath, join(directory, "data"), join(directory, "font-provider.cjs")
     ], { timeout: 45_000, maxBuffer: 2 * 1024 * 1024 });
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     expect(report.platform).toBe(process.platform);
@@ -38,13 +43,17 @@ it("probes bundled Chromium fonts and exact frame permission on the native platf
       expect(report.outcomes[key].families).toEqual([]);
       expect(report.outcomes[key].fontFaces).toEqual([]);
     }
-    expect(report.nativeFamilies.length).toBeGreaterThan(0);
+    expect(report.productionFamilies.map((font: { family: string }) => font.family).sort())
+      .toEqual([...report.outcomes.automatic.families].sort());
+    expect(report.productionReload).toEqual(report.outcomes.automatic.families);
+    expect(report.productionOtherOwner.families).toEqual([]);
+    expect(report.productionSubframe.families).toEqual([]);
+    expect(report.productionDenied).toEqual([]);
+    expect(report.productionNavigated).toEqual({ status: "rejected",
+      message: "The application font request belongs to a retired document." });
     expect(report.permissionChecks.some((check: { admitted: boolean }) => check.admitted)).toBe(true);
-    // Differences are evidence for the adoption decision, not silently accepted parity.
     console.info(JSON.stringify({ platform: report.platform, electron: report.electron,
-      families: report.outcomes.automatic.families.length,
-      nativeOnly: report.nativeOnly, chromiumOnly: report.chromiumOnly,
-      nativeNamesAbsentFromChromium: report.nativeNamesAbsentFromChromium }));
+      families: report.productionFamilies.length, productionProvider: true }));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

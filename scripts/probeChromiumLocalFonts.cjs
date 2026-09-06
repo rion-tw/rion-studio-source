@@ -6,6 +6,7 @@ const { pathToFileURL } = require("node:url");
 
 const reportPath = process.argv[2];
 const userData = process.argv[3];
+const providerModule = process.argv[4];
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
   throw new Error("Use the bundled Electron: probeChromiumLocalFonts.cjs REPORT_PATH ISOLATED_USER_DATA");
 }
@@ -76,25 +77,34 @@ async function probe() {
     outcomes.otherOwner = await other.webContents.executeJavaScript(query, false);
     const addon = require(join(root, "build", "native",
       `${process.platform}-${process.arch}`, "rion-core.node"));
-    core = await addon.createAppCore({ userDataDir: resolve(userData, "core"),
+    if (!providerModule) throw new Error("The compiled production font provider is required");
+    const { createChromiumSystemFontProvider } = require(resolve(providerModule));
+    const provider = createChromiumSystemFontProvider(owner.webContents, trustedUrl);
+    const productionNames = await provider.list();
+    const productionOtherOwner = await other.webContents.executeJavaScript(query, false);
+    const productionSubframe = await owner.webContents.mainFrame.frames[0].executeJavaScript(query, false);
+    await owner.loadFile(fixture);
+    const productionReload = (await provider.list()).sort();
+    ses.setPermissionCheckHandler(() => false);
+    ses.setPermissionRequestHandler((_owner, _permission, callback) => callback(false));
+    const productionDenied = await provider.list();
+    await owner.loadFile(untrustedFixture);
+    const productionNavigated = await provider.list().then(
+      () => ({ status: "unexpected-success" }),
+      error => ({ status: "rejected", message: error.message })
+    );
+    core = await addon.createAppCore({ userDataDir: resolve(userData, "chromium-core"),
       platform: process.platform, appVersion: "23.0.0-font-probe",
       packaged: false, runtimeContractVersion: 23 });
     core.subscribeCoreEvents(() => {}, () => {});
-    const native = JSON.parse(await core.invoke(JSON.stringify({ type: "systemFontsList" })));
-    const nativeFamilies = native.map(font => font.family).sort();
-    const chromiumFamilies = outcomes.automatic.families;
-    const nativeSet = new Set(nativeFamilies);
-    const chromiumSet = new Set(chromiumFamilies);
-    const chromiumNames = new Set(outcomes.automatic.fontFaces.flatMap(font =>
-      [font.family, font.fullName, font.postscriptName].map(name =>
-        name.trim().replace(/\s+/g, " ").toLowerCase())));
+    const productionFamilies = JSON.parse(await core.invoke(JSON.stringify({
+      type: "systemFontsList", families: productionNames
+    })));
     await writeFile(reportPath, JSON.stringify({ platform: process.platform,
       electron: process.versions.electron, chromium: process.versions.chrome,
-      outcomes, permissionChecks, nativeFamilies,
-      nativeOnly: nativeFamilies.filter(family => !chromiumSet.has(family)),
-      nativeNamesAbsentFromChromium: nativeFamilies.filter(family =>
-        !chromiumNames.has(family.toLowerCase())),
-      chromiumOnly: chromiumFamilies.filter(family => !nativeSet.has(family))
+      outcomes, permissionChecks,
+      productionFamilies, productionOtherOwner, productionSubframe, productionReload,
+      productionDenied, productionNavigated
     }, null, 2) + "\n");
   } finally {
     if (core) await core.shutdown();

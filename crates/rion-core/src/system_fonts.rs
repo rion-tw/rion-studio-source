@@ -25,6 +25,7 @@ pub fn normalize(values: Vec<String>) -> Vec<SystemFontFamilyRecord> {
     let mut seen = HashSet::new();
     let mut fonts = values
         .into_iter()
+        .take(4096)
         .filter_map(|value| normalize_family(&value))
         .filter_map(|family| {
             seen.insert(family.to_lowercase())
@@ -93,6 +94,12 @@ mod tests {
                 ]
             );
         };
+    }
+
+    #[test]
+    fn bounds_the_cached_inventory_before_normalization() {
+        let names = (0..5000).map(|index| format!("Font {index}")).collect();
+        assert_eq!(normalize(names).len(), 4096);
     }
 
     #[test]

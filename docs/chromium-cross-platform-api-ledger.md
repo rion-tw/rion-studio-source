@@ -44,7 +44,7 @@ been executed. `shared` describes source architecture, not completed parity.
 | game-windows: navigation, reload, popups | `src/electron/main/chromiumRoleNavigationLifecycle.ts`, `src/electron/main/chromiumPopupLifecycleCoordinator.ts`; WebContents events -> exact surface/operation receipts | Shared browser APIs; native presentation retained. CP-04, CP-11 |
 | game-windows: topology, display, fullscreen, recovery | `src/electron/main/chromiumRuntimeAppKitProjection.ts`, `src/electron/main/chromiumRuntimeWindowsProjection.ts`, `src/electron/main/electronDisplayTopologyController.ts`; Core revision -> adapter -> native evidence | Shared screen inventory; duplicated surface application/compensation. CP-04, CP-12 |
 | macros: scheduling, overlay, trusted input | `crates/rion-core/src/macro_runtime`, `src/electron/main/chromiumTrustedInputCoordinator.ts`; Core input lane -> native submission -> authenticated DOM/native receipt | Common authority/coordinator; platform submission remains. CP-08, CP-09 |
-| Fonts, audio, zoom | `src/electron/main/chromiumRoleFontsCoordinator.ts`, `src/electron/main/chromiumRoleSurfaceRegistry.ts`; bounded preload receipt or exact WebContents readback | Shared rendering/effects; native font enumeration remains in `crates/rion-platform/src/system_fonts.rs`. CP-05, CP-06, CP-11 |
+| Fonts, audio, zoom | `src/electron/main/chromiumRoleFontsCoordinator.ts`, `src/electron/main/chromiumRoleSurfaceRegistry.ts`; bounded preload receipt or exact WebContents readback | Shared rendering/effects and v23 Chromium family enumeration; `crates/rion-platform/src/system_fonts.rs` remains for v22 only. CP-05, CP-06, CP-11 |
 | Security, permissions, downloads, file upload | `src/electron/main/chromiumSecurityPolicy.ts`; exact Session synchronous policy callback or native chooser -> page File receipt | Shared policy; Role and Global Web security domains must stay distinct. CP-11, CP-15 |
 | settings: diagnostics export | `src/electron/main/electronDiagnosticsComposition.ts`; native save dialog -> exact window fence -> Core export | Owner retired performance diagnostics and high-refresh settings on 2026-09-06. General log/GPU/runtime export remains. CP-02, CP-13 |
 | Application lifecycle and shell services | `src/electron/main/applicationLifecycleController.ts`, `src/electron/main/windowsSessionEndCoordinator.ts`, `src/electron/main/electronNativeShellActions.ts` | Shared suspend/resume, dialogs, clipboard and shell APIs; Windows session-end adapter required. CP-12 |
@@ -64,7 +64,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-03 | P0 / Core + Sessions | implemented; both native Rust gates passed, Windows Chromium smoke pending | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
-| CP-06 | P1 / Fonts + bridge | ready to implement | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
+| CP-06 | P1 / Fonts + bridge | implemented; macOS native/settings passed, Windows pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | probe | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | retain native submission by API contract; paired acceptance pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
@@ -1512,3 +1512,43 @@ now terminal success. macOS Chromium completed its source desktop E2E step and
 is building release artifacts; its package/updater/black-box gate remains live.
 The Windows Chromium failure remains unchanged. Newer local changes still need
 their own Windows validation.
+
+### CP-06 Chromium family provider implemented
+
+The typed listSystemFonts bridge now obtains the v23 family inventory from
+`chromiumSystemFonts.ts` in the authenticated app WebContents/main document.
+Only local-fonts permission for that exact owner and application document is
+admitted; other permissions remain denied. The provider fences document
+replacement, navigation and renderer loss and refuses stale completion. Native
+query rejection or malformed results produce an empty inventory for Rust's
+existing fallback; a retired document is an error and cannot populate the cache.
+
+Core's systemFontsList accepts an optional shell inventory. Runtime v23 uses
+that inventory (or fallback) and never calls platform font enumeration. v22
+continues calling its native provider and ignores Chromium-supplied names.
+Rust owns normalization, case-insensitive deduplication, sorting and the cached
+result, capped at 4,096 input names. Saved selections and generic choices stay
+in the renderer's existing merge; no persisted preference is rewritten.
+
+The native font probe now compiles and exercises the actual production provider
+and v23 Core. The already-completed CP-05 native baseline reports remain the
+comparison evidence; the Node factory's strict v23 requirement is preserved.
+New macOS evidence at `/tmp/rion-cp06-fonts-macos/local-fonts-darwin.json` contains
+251 canonical production families and verifies reload, exact-owner/subframe
+denial, denied-query fallback input and foreign-navigation rejection.
+
+Validation passed: 430 Vitest files / 3,308 tests; 1,639 Rust tests, zero failures,
+four ignored; Rust formatting/Clippy; typecheck; lint (zero errors and 23 existing
+warnings); source hygiene; E2E coverage and desktop isolation; Tauri build and
+restored pure Electron build. Logs use `/tmp/rion-cp06-*`.
+
+Fresh macOS `chromium-macos-appkit-smoke` settings phase passed at dirty
+`559a0af3`, 04:43:11–04:43:40 UTC:
+`.desktop-e2e-artifacts/2026-09-06T04-43-11-553Z-darwin/report.json`. Journeys
+SYSTEM-SETTINGS-013, DIAGNOSTICS-EXPORT-029 and FONT-APPLICATION-033 passed.
+FONT-APPLICATION-033 now requires an installed family outside Rust fallback
+(Hiragino Sans on macOS, Segoe UI on Windows), excludes font filenames, and
+retains visible Courier New/generic apply, cancel and reset assertions against
+live Role font loading and Canvas metrics. The manifest describes this coverage.
+Windows native validation of the changed contract/provider and its paired
+FONT-APPLICATION-033 remain pending; earlier native runs do not close them.

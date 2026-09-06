@@ -2390,7 +2390,7 @@
         "success",
         "cancel"
       ],
-      "description": "Select the local ui-monospace generic for Latin and numbers through visible settings. Cancel a draft without altering the live Role; apply and require matching Core selection, actual Role CSS and equal Canvas widths for W/i while preserving the page font getter; visibly reset and restore original CSS and proportional Canvas metrics. Wait for automatic inventory loading, then also apply Courier New and require loaded Latin/numeric FontFace aliases, Core selection and monospace Canvas metrics before reset. Evidence is produced by a trusted click in the fixture main world. No downloaded font or preview substitutes for live-page evidence."
+      "description": "Select the local ui-monospace generic for Latin and numbers through visible settings. Cancel a draft without altering the live Role; apply and require matching Core selection, actual Role CSS and equal Canvas widths for W/i while preserving the page font getter; visibly reset and restore original CSS and proportional Canvas metrics. Wait for automatic inventory loading, then also apply Courier New and require loaded Latin/numeric FontFace aliases, Core selection and monospace Canvas metrics before reset. Evidence is produced by a trusted click in the fixture main world. No downloaded font or preview substitutes for live-page evidence. Require the canonical Chromium inventory to contain the platform font outside Rust fallback (Hiragino Sans or Segoe UI) and no font-file names."
     },
     {
       "id": "CHROMIUM-WINDOWS-FONT-APPLICATION-033",
@@ -2412,7 +2412,7 @@
         "success",
         "cancel"
       ],
-      "description": "Select the local ui-monospace generic for Latin and numbers through visible settings. Cancel a draft without altering the live Role; apply and require matching Core selection, actual Role CSS and equal Canvas widths for W/i while preserving the page font getter; visibly reset and restore original CSS and proportional Canvas metrics. Wait for automatic inventory loading, then also apply Courier New and require loaded Latin/numeric FontFace aliases, Core selection and monospace Canvas metrics before reset. Evidence is produced by a trusted click in the fixture main world. No downloaded font or preview substitutes for live-page evidence."
+      "description": "Select the local ui-monospace generic for Latin and numbers through visible settings. Cancel a draft without altering the live Role; apply and require matching Core selection, actual Role CSS and equal Canvas widths for W/i while preserving the page font getter; visibly reset and restore original CSS and proportional Canvas metrics. Wait for automatic inventory loading, then also apply Courier New and require loaded Latin/numeric FontFace aliases, Core selection and monospace Canvas metrics before reset. Evidence is produced by a trusted click in the fixture main world. No downloaded font or preview substitutes for live-page evidence. Require the canonical Chromium inventory to contain the platform font outside Rust fallback (Hiragino Sans or Segoe UI) and no font-file names."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-AUDIO-032",

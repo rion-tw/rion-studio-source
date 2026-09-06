@@ -7,8 +7,8 @@ use napi::{
 use napi_derive::napi;
 
 #[cfg(windows)]
-use crate::windows_chromium_input_probe::parse_electron_native_handle;
-use crate::windows_chromium_input_probe::probe_error;
+use crate::windows_native_handle::parse_electron_native_handle;
+use crate::windows_native_handle::probe_error;
 
 #[cfg(windows)]
 const WINDOWS_RUNTIME_SHORTCUT_QUEUE_CAPACITY: usize = 32;

@@ -1,11 +1,12 @@
 use napi::{Status, bindgen_prelude::*};
 use napi_derive::napi;
 
-use crate::windows_chromium_input_probe::{WindowsChromiumInputHwndProbeReceipt, probe_error};
+use crate::windows_chromium_input_probe::WindowsChromiumInputHwndProbeReceipt;
 #[cfg(windows)]
-use crate::windows_chromium_input_probe::{
-    parse_electron_native_handle, probe_windows_chromium_input_hwnd,
-};
+use crate::windows_chromium_input_probe::probe_windows_chromium_input_hwnd;
+#[cfg(windows)]
+use crate::windows_native_handle::parse_electron_native_handle;
+use crate::windows_native_handle::probe_error;
 
 #[cfg(any(windows, test))]
 fn attached_style(style: u32) -> u32 {

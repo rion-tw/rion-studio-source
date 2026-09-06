@@ -42,13 +42,18 @@ with another browser API. The remaining duplication between Role and global Web
 registries represents distinct identity, preload and navigation ownership. Merging
 those registries into one permissive surface owner would weaken the product's
 separate security domains. Shared path and projection mechanics are already
-handled by CP-03/04; application shortcut replacement remains CP-07. CP-08 retains native trusted
-input submission because the pinned sendInputEvent API requires a focused
-containing BrowserWindow while background Role macros must not acquire focus.
-The cross-platform pending lane, DOM receipt decoder and Core coordinator are
-shared under CP-09; native submission still proves exact target identity and
-input neutrality. The ledger records the successful isolated probes separately
-from the supported API contract and production Role acceptance.
+handled by CP-03/04; application shortcut replacement remains CP-07. CP-08 retains
+AppKit trusted input on macOS. The Windows product now submits through exact
+Chromium View owners under one foreground runtime parent. Public View membership,
+WebContents focus and input APIs are paired with the read-only native parent
+observation in `crates/rion-node/src/windows_runtime_foreground.rs`; shared handle
+parsing and focus identity live in `windows_native_handle.rs`. Neither retained
+module establishes a child HWND or mutates activation. Hidden Role input must
+preserve the already-focused sibling, and API submission alone is not completion.
+The pending lane, private trusted-DOM decoder and Core coordinator remain shared
+under CP-09. Windows physical View input passed at candidate `242ab2f9`; complete
+Macro, reload, topology and hardware acceptance remain separately recorded in
+the [execution ledger](chromium-cross-platform-api-ledger.md).
 
 ## Verification and remaining acceptance
 

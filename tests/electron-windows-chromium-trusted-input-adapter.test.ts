@@ -358,7 +358,7 @@ describe("Windows Chromium trusted-input adapter", () => {
       import.meta.url
     ), "utf8");
     const nativeProbe = readFileSync(new URL(
-      "../crates/rion-node/src/windows_chromium_input_probe.rs",
+      "../crates/rion-node/src/windows_runtime_foreground.rs",
       import.meta.url
     ), "utf8");
     const bootstrap = readFileSync(new URL(

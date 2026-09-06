@@ -4005,3 +4005,32 @@ trusted input are outside this Windows child-host removal.
   production Electron build and E2E isolation passed. No new local desktop E2E
   profile ran for the Windows-only native shortcut sequence. Windows smoke and
   both hardware-extended profiles remain pending their exact native execution.
+
+### Retained Windows foreground observation separated from legacy attachment
+
+- Moved `readWindowsRuntimeForeground`, its exact owner/focus/presentation
+  classifier and tests to `windows_runtime_foreground.rs`. Shared native handle
+  parsing, opaque focus identity and error construction now live in
+  `windows_native_handle.rs`; the retained shortcut owner imports those helpers
+  directly instead of depending on the legacy child-HWND probe module.
+- The seven moved implementation bodies were compared against the prior source
+  and preserved. Export names, hash domains, identity fields, statuses and error
+  messages are unchanged. The old attachment/probe still uses the same helpers
+  while awaiting final deletion; no native input capability or platform fallback
+  was added. The stable Tauri path is unaffected by this Node-addon module split.
+- Fourteen focused native Rust tests passed, including new pure handle parsing
+  cases for exact nonzero addresses and null/wrong-width rejection. Twenty-two
+  focused adapter/bundle tests passed. The rebuilt macOS Node addon exports the
+  same `readWindowsRuntimeForeground` function and rejects its call off Windows
+  with the existing error. This verifies registration and the non-Windows stub,
+  not native Windows foreground observation after the split.
+- The capability audit now reflects direct View input and the retained read-only
+  native boundary. The earlier wording that Windows still retains native input
+  submission was obsolete. Current Windows fullscreen/Macro parity remains
+  pending CI `34044533718`; this module split requires its own Windows native
+  compilation/physical gate after submission.
+- Final local validation passed: 448 Vitest files / 3,541 tests with one worker;
+  native macOS Rust lint and workspace tests (1,642 passed, 4 ignored); typecheck,
+  lint, hygiene, coverage, stable build, production Electron build and desktop
+  E2E isolation. No local desktop profile ran for this internal-only module move.
+  Windows native compilation and both hardware profiles remain pending.

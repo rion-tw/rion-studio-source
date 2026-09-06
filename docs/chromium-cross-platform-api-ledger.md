@@ -868,3 +868,21 @@ release-workflow tests, focused ESLint, JavaScript syntax, TypeScript build and
 repository hygiene passed. E2E omission reason is `lower-layer-covered`: this
 adds API research evidence without changing product behavior or journey routes.
 The new Windows probe has been wired into CI but has not yet run there.
+
+### Current candidate CI dispatch and migration-boundary correction
+
+The accumulated implementation and local validation were committed as
+`a05c0466d776f2760bbe95209bd513af46965e35` on the existing migration branch.
+Exact-SHA CI run [34005498824](https://github.com/rion-tw/rion-studio-source/actions/runs/34005498824)
+started the paired native/E2E/package jobs. Its checks and macOS package job
+failed at `verify:system-only`: the new isolated input probe had not been added
+to the migration-only Electron token allowlist. Local execution reproduced the
+same error. This is a test-tool registration failure, not native input parity
+evidence. No failed or unexecuted downstream phase is counted as passing.
+
+Added only `scripts/probeChromiumInput.cjs` to the existing exact-path allowlist,
+alongside the Local Font Access probe. The production source roots, forbidden
+tokens, and runtime migration gates remain enforced. The executable migration
+gate and its eight focused tests passed locally; the corrective commit requires
+a new exact-SHA CI run. Existing local native evidence remains qualified by the
+source revision and scope recorded above.

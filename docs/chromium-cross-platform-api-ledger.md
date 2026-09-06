@@ -2791,3 +2791,40 @@ All 29 adjacent native-action/transport/foreground/shortcut checks pass locally,
 along with typecheck, scoped lint, source hygiene, production E2E isolation and
 coverage validation. No native runtime, AppKit behavior, shared contract or
 coverage threshold changes. Logs: `/tmp/rion-shortcut-optional-*`.
+
+
+### Compare toolbar geometry inside one fullscreen extent
+
+CI 34024645026 at c55f05a7 passes the first 13 Windows Chromium phases, including
+Workspace Web native file upload and restart. It reaches fullscreen-toolbar-seed
+and records exact native F11 entry with the same HWND 1835114. This verifies the
+optional shortcut field and native Edit acknowledgement corrections along this
+actual Windows path. The toolbar assertion then expects 38px expansion but
+receives 166px. The artifact proves normal Role bounds 960x600 at y=40 versus
+fullscreen 1024x766 at y=2: the test incorrectly included the 128px increase in
+host height when comparing different presentations. This is not evidence of
+incorrect toolbar inset.
+
+The visible E2E now compares hidden and revealed Role heights within fullscreen,
+requiring the exact 38px delta, equal width and identical bottom edge. The normal
+baseline still requires y=40 and fullscreen hidden content requires y=2. The
+aggregate verifier additionally requires matching visible Role identities and
+exact fullscreen geometry throughout hidden/revealed/hidden/pinned/hidden.
+It validates optional Windows HWND evidence without accepting malformed handles
+or permitting that field on AppKit records. No product geometry, timing or native
+input behavior changes; the full ordered journey remains mandatory.
+
+Sixteen adjacent checks pass, including changed host dimensions, malformed HWNDs,
+wrong height in each fullscreen state and changed fullscreen width. Replaying
+both actual 26c4fd4b macOS toolbar histories passes. Replaying this incomplete
+Windows history parses its HWND but still rejects missing journey ordering.
+Affected journey: CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012; internal-only E2E
+correction. Windows completion remains pending. Evidence root:
+`/tmp/rion-c55-win-package-artifacts/2026-09-06T09-28-18-950Z-win32`;
+log: `/tmp/rion-c55-win-package.log`; checks: `/tmp/rion-toolbar-extent-*`.
+
+Final validation passes all 3,386 Vitest tests, typecheck, scoped lint, complete
+hygiene, coverage and production E2E isolation. The new verifier declaration
+matches the repository's adjacent script declarations. macOS evidence above is
+a replay of actual native histories; this Windows-only E2E assertion correction
+does not claim a fresh local macOS desktop run or fresh Windows completion.

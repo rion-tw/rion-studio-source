@@ -46,8 +46,11 @@ function validCommon(observation, platform) {
   const surfaces = observation?.surfaces;
   return exactKeys(observation, [
     "hostKind", "native", "presentation", "surfaces", "tabIds",
-    "topologyRevision", "windowGeneration", "windowId"
-  ]) && exactKeys(native, platform === "macos" ? [
+    "topologyRevision", "windowGeneration", "windowId",
+    ...(observation && "nativeWindowHandle" in observation ? ["nativeWindowHandle"] : [])
+  ]) && (!("nativeWindowHandle" in observation) || (platform === "windows" &&
+    typeof observation.nativeWindowHandle === "string" &&
+    /^[1-9]\d*$/u.test(observation.nativeWindowHandle))) && exactKeys(native, platform === "macos" ? [
     "alwaysShowToolbarInFullScreen", "appKit", "fullscreen",
     "nativeControlsVisible", "nativeWindowControlCount", "projectionRevision",
     "revealed", "toolbarVisible", "topologyRevision", "windowGeneration", "windowId"
@@ -191,6 +194,24 @@ export async function validateChromiumFullscreenToolbarRuntimeEvidence({
         hiddenAfterPinned > pinned,
       `${phase}: normal/hidden/revealed/hidden/pinned/hidden ordering is incomplete`
     );
+    if (platform === "windows") {
+      const shown = observations[revealed].surfaces.filter(surface =>
+        surface.kind === "role" && surface.visible);
+      for (const surface of shown) {
+        const bounds = surface.bounds;
+        for (const index of [hidden, hiddenAfterReveal, hiddenAfterPinned, pinned]) {
+          const peer = observations[index].surfaces.find(candidate =>
+            candidate.id === surface.id && candidate.tabId === surface.tabId &&
+            candidate.kind === "role" && candidate.visible);
+          const inset = index === pinned ? 40 : 2;
+          requireRuntime(peer && bounds.y === 40 && peer.bounds.y === inset &&
+            peer.bounds.x === bounds.x && peer.bounds.width === bounds.width &&
+            peer.bounds.height - bounds.height === 40 - inset &&
+            peer.bounds.y + peer.bounds.height === bounds.y + bounds.height,
+          `${phase}: fullscreen toolbar geometry changed outside its exact inset`);
+        }
+      }
+    }
   }
   const terminal = observations.at(-1);
   requireRuntime(

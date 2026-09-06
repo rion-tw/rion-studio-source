@@ -322,7 +322,6 @@ async function seedPhase(input: Readonly<{
   if (input.platform === "windows") {
     expect(hiddenRole.bounds.y).toBe(2);
     expect(normalRole.bounds.y).toBe(40);
-    expect(hiddenRole.bounds.height - normalRole.bounds.height).toBe(38);
   }
   if (shortcutCursor !== null) {
     const events = await fixtureEvents({
@@ -349,7 +348,11 @@ async function seedPhase(input: Readonly<{
   if (input.platform === "windows") {
     const surface = roleSurface(revealed, input.role.id);
     expect(surface.bounds.y).toBe(40);
-    expect(surface.bounds.height).toBe(normalRole.bounds.height);
+    expect(hiddenRole.bounds.height - surface.bounds.height).toBe(38);
+    expect(surface.bounds.width).toBe(hiddenRole.bounds.width);
+    expect(surface.bounds.y + surface.bounds.height).toBe(
+      hiddenRole.bounds.y + hiddenRole.bounds.height
+    );
   } else {
     await movePointerToMacosRuntimeContent(input.windowId);
   }

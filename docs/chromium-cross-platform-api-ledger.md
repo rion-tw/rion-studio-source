@@ -2555,3 +2555,23 @@ CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012; Windows execution remains pending CI.
 Typecheck, scoped lint, source hygiene, production E2E isolation and coverage
 validation pass. Logs: `/tmp/rion-toolbar-selector-*`,
 `/tmp/rion-27d-win-package.log`.
+
+### Remove retired display-performance wording from Preferences
+
+The Windows fullscreen failure screenshot exposed a remaining Preferences
+subtitle advertising display performance after CP-02/CP-13 removed those
+controls. English, Japanese, Simplified Chinese and Traditional Chinese now
+name only theme, interface language and Game Window behavior. The existing
+translation key and layout are unchanged; no setting or persistence behavior
+changes.
+
+Validation: all 3,358 Vitest tests, typecheck, lint, source hygiene and pure
+Electron renderer build pass. All four locale JSON values were checked for
+valid syntax and removal of the retired wording. E2E omission reason is
+lower-layer-covered: static localized copy only, verified through locale
+readback and the production renderer build. Affected existing journeys are
+CHROMIUM-MACOS-APPKIT-SYSTEM-SETTINGS-013 and
+CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013. Their latest exact-candidate native
+verification remains pending; this copy-only follow-up does not restart the
+live functional CI 34022067330 at 26c4fd4b. Logs:
+`/tmp/rion-retired-preference-copy-*`.

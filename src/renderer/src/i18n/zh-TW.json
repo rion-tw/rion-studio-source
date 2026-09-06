@@ -679,7 +679,7 @@
   "settings.appearance": "外觀",
   "settings.appearanceDescription": "選擇 Rion Studio 要如何套用淺色與深色介面。",
   "settings.preferences": "偏好設定",
-  "settings.preferencesDescription": "選擇 App 主題、介面語言、顯示效能與遊戲視窗行為。",
+  "settings.preferencesDescription": "選擇 App 主題、介面語言與遊戲視窗行為。",
   "settings.portability": "攜帶資料",
   "settings.portabilityDescription": "用 JSON 檔搬移角色、工作區、巨集與介面偏好。",
   "settings.portableExport": "匯出 JSON",

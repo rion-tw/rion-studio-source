@@ -679,7 +679,7 @@
   "settings.appearance": "Appearance",
   "settings.appearanceDescription": "Choose how Rion Studio resolves its light and dark interface.",
   "settings.preferences": "Preferences",
-  "settings.preferencesDescription": "Choose the app theme, interface language, display performance, and Game Window behavior.",
+  "settings.preferencesDescription": "Choose the app theme, interface language, and Game Window behavior.",
   "settings.portability": "Portability",
   "settings.portabilityDescription": "Move roles, workspaces, macros, and interface preferences with a JSON file.",
   "settings.portableExport": "Export JSON",

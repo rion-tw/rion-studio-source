@@ -1,5 +1,6 @@
 import { $, browser } from "@wdio/globals";
 import { Key } from "webdriverio";
+import { fixtureCursor, waitFixtureEvent } from "./fixture";
 import { sendChromiumEscapeKey } from "./chromium-escape-key";
 
 import {
@@ -488,12 +489,25 @@ async function submitWindowsRolePageShortcut(
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const button = await $("#qa-target");
     await button.waitForDisplayed({ timeout: 10_000 });
-    await button.click();
+    if (command === "quickAccess") {
+      const roleId = await $("#role-id").getText();
+      if (!roleId) throw new Error("The exact Role fixture identity is missing");
+      const afterSequence = await fixtureCursor();
+      await focusWindowsRuntimeNativeWindow({
+        processId, nativeWindowHandle, pointerTarget: "content-click"
+      });
+      const click = await waitFixtureEvent({ afterSequence, kind: "click", roleId });
+      if (click.isTrusted !== true || click.targetId !== "qa-target") {
+        throw new Error("The native click did not reach the exact Role fixture target");
+      }
+    } else {
+      await button.click();
+      await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
+    }
     await browser.waitUntil(
       () => browser.execute(() => document.hasFocus()),
       { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
     );
-    await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
     console.info("Windows Role focus after native foreground", await browser.execute(() => ({
       focused: document.hasFocus(),
       activeTag: document.activeElement?.tagName ?? null,

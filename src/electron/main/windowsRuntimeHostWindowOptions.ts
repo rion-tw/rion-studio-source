@@ -1,3 +1,4 @@
+import type { WindowsRuntimeHostWebContentsPort } from "./windowsRuntimeHostNativePorts";
 import { isAbsolute, normalize, parse, resolve } from "node:path";
 
 import type { BrowserWindowConstructorOptions } from "electron";
@@ -78,4 +79,34 @@ export function buildWindowsRuntimeHostWindowOptions(
       canonicalRuntimeHostPreloadPath(preloadPath)
     )
   };
+}
+
+export function canonicalRuntimeDocumentPath(value: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.includes("\0") ||
+    !isAbsolute(value) ||
+    normalize(value) !== value ||
+    parse(value).base !== "runtime-windows-host.html"
+  ) {
+    throw optionsError(
+      "ELECTRON_RUNTIME_HOST_DOCUMENT_INVALID",
+      "A canonical packaged Windows runtime-host document is required."
+    );
+  }
+  return value;
+}
+
+export function installDenyByDefaultPolicy(contents: WindowsRuntimeHostWebContentsPort): void {
+  contents.session.setPermissionCheckHandler(() => false);
+  contents.session.setPermissionRequestHandler((_contents, _permission, callback) => {
+    callback(false);
+  });
+  contents.session.setDevicePermissionHandler(() => false);
+  contents.session.setDisplayMediaRequestHandler((_request, callback) => callback({}));
+  contents.session.setBluetoothPairingHandler((_details, callback) => {
+    callback({ confirmed: false });
+  });
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
 }

@@ -2,11 +2,11 @@ import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs
 
 export async function focusWindowsRuntimeNativeWindow(input: Readonly<{
   processId: number; nativeWindowHandle: string;
-  pointerTarget?: "reveal-edge" | "content";
+  pointerTarget?: "reveal-edge" | "content" | "content-click";
 }>, port = { platform: process.platform, run: runEncodedPowerShellJson }): Promise<void> {
   if (port.platform !== "win32" || !Number.isSafeInteger(input.processId) ||
       input.processId <= 1 || !/^[1-9]\d*$/u.test(input.nativeWindowHandle) ||
-      (input.pointerTarget !== undefined && !["reveal-edge", "content"].includes(input.pointerTarget))) {
+      (input.pointerTarget !== undefined && !["reveal-edge", "content", "content-click"].includes(input.pointerTarget))) {
     throw new Error("Native foreground requires exact Windows process and handle evidence");
   }
   await port.run(String.raw`
@@ -20,6 +20,32 @@ public static class RionRuntimeForeground {
   [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
   [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
+  [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+  [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+  [StructLayout(LayoutKind.Sequential)] public struct MouseInput {
+    public int x, y;
+    public uint data, flags, time;
+    public UIntPtr extra;
+  }
+  [StructLayout(LayoutKind.Sequential)] public struct Input {
+    public uint type;
+    public MouseInput mouse;
+  }
+  [DllImport("user32.dll", SetLastError = true)]
+  private static extern uint SendInput(uint count, Input[] inputs, int size);
+  public static void ClickPointer(IntPtr hwnd) {
+    Point point;
+    if (!GetCursorPos(out point) || GetForegroundWindow() != hwnd ||
+        GetAncestor(WindowFromPoint(point), 2) != hwnd)
+      throw new InvalidOperationException("exact runtime content is not under the native pointer");
+    var inputs = new Input[] {
+      new Input { type = 0, mouse = new MouseInput { flags = 0x0002 } },
+      new Input { type = 0, mouse = new MouseInput { flags = 0x0004 } }
+    };
+    if (SendInput(2, inputs, Marshal.SizeOf(typeof(Input))) != 2)
+      throw new InvalidOperationException("native content click was not fully submitted");
+  }
+
   public static void MovePointer(IntPtr hwnd, bool edge) {
     Rect rect;
     if (!GetClientRect(hwnd, out rect) || rect.right - rect.left < 4 || rect.bottom - rect.top < 4)
@@ -52,6 +78,9 @@ if (-not [RionRuntimeForeground]::SetForegroundWindow($handle) -or
 }
 if ($payload.pointerTarget -ne 'none') {
   [RionRuntimeForeground]::MovePointer($handle, $payload.pointerTarget -eq 'reveal-edge')
+  if ($payload.pointerTarget -eq 'content-click') {
+    [RionRuntimeForeground]::ClickPointer($handle)
+  }
 }
 `, { ...input, pointerTarget: input.pointerTarget ?? "none" }, { timeoutMilliseconds: 30_000 });
 }

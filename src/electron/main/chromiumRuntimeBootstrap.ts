@@ -639,6 +639,14 @@ export class ChromiumRuntimeBootstrap {
                     "The Core-owned Windows tab control lane is unavailable."
                   ));
             },
+            onRuntimeTabQuickAccess: (tabId) => {
+              requireNativeActionIngress();
+              if (!input.onRuntimeTabQuickAccess) {
+                throw bootstrapError("ELECTRON_CHROMIUM_QUICK_ACCESS_UNAVAILABLE",
+                  "The Core-owned Windows Quick Access lane is unavailable.");
+              }
+              input.onRuntimeTabQuickAccess(tabId);
+            },
             onRuntimeTabFullscreen: (tabId, focusAdmission) => {
               requireNativeActionIngress();
               const request = input.onRuntimeTabFullscreen;

@@ -220,7 +220,16 @@ async function openRoleThroughVisibleUi(role: Role): Promise<void> {
   const status = await waitForRunningRole(role.id);
   expect(status.resolvedEngine).toBe("chromium");
   expect(status.hostKind).toBe(expectedHostKind());
-  const runtime = (await electronDesktopE2eRoleSessionRuntime(role.id)).currentRuntime;
+  let inspection = await electronDesktopE2eRoleSessionRuntime(role.id);
+  await browser.waitUntil(async () => {
+    inspection = await electronDesktopE2eRoleSessionRuntime(role.id);
+    return inspection.currentRuntime?.visible === true &&
+      inspection.currentRuntime.hostKind === expectedHostKind();
+  }, {
+    timeout: 45_000,
+    timeoutMsg: `Settings Role ${role.id} did not reach visible native ownership`
+  });
+  const runtime = inspection.currentRuntime;
   expect(runtime).toEqual(expect.objectContaining({
     hostKind: expectedHostKind(),
     visible: true

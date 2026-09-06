@@ -1,4 +1,4 @@
-import { isAbsolute, normalize, parse, resolve } from "node:path";
+import { parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
@@ -50,7 +50,7 @@ import {
 } from "../../shared/windowsRuntimeHost";
 import {
   buildWindowsRuntimeHostWindowOptions,
-  canonicalRuntimeHostPreloadPath
+  canonicalRuntimeHostPreloadPath, canonicalRuntimeDocumentPath, installDenyByDefaultPolicy
 } from "./windowsRuntimeHostWindowOptions";
 import type {
   ElectronBrowserWindowConstructor,
@@ -67,7 +67,7 @@ import {
   WindowsRuntimeWindowStateStream,
   type WindowsRuntimeForegroundProbePort
 } from "./windowsRuntimeWindowState";
-import { isChromiumRoleFullscreenShortcut } from
+import { isChromiumRoleFullscreenShortcut, isChromiumRoleQuickAccessShortcut } from
   "./chromiumRoleQuickAccessShortcut";
 export {
   buildWindowsRuntimeHostWindowOptions,
@@ -163,6 +163,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
         tabId: string,
         focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
       ) => void;
+      onRuntimeTabQuickAccess?: (tabId: string) => void;
       runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
       runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort;
     }>
@@ -435,35 +436,6 @@ function validatePopupObserver(
   }
 }
 
-function canonicalRuntimeDocumentPath(value: string): string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.includes("\0") ||
-    !isAbsolute(value) ||
-    normalize(value) !== value ||
-    parse(value).base !== "runtime-windows-host.html"
-  ) {
-    fail(
-      "ELECTRON_RUNTIME_HOST_DOCUMENT_INVALID",
-      "A canonical packaged Windows runtime-host document is required."
-    );
-  }
-  return value;
-}
-
-function installDenyByDefaultPolicy(contents: WindowsRuntimeHostWebContentsPort): void {
-  contents.session.setPermissionCheckHandler(() => false);
-  contents.session.setPermissionRequestHandler((_contents, _permission, callback) => {
-    callback(false);
-  });
-  contents.session.setDevicePermissionHandler(() => false);
-  contents.session.setDisplayMediaRequestHandler((_request, callback) => callback({}));
-  contents.session.setBluetoothPairingHandler((_details, callback) => {
-    callback({ confirmed: false });
-  });
-  contents.setWindowOpenHandler(() => ({ action: "deny" }));
-}
 
 function windowsInputParent(
   native: WindowsRuntimeHostWindowPort
@@ -517,6 +489,7 @@ implements ChromiumRuntimeHostFactoryPort {
     tabId: string,
     focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
   ) => void;
+  readonly #onRuntimeTabQuickAccess: (tabId: string) => void;
   readonly #runtimeForegroundProbe: WindowsRuntimeForegroundProbePort | null;
   readonly #runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort | null;
   #windowPreferences: RuntimeWindowPreferencesRecord = Object.freeze({
@@ -568,7 +541,8 @@ implements ChromiumRuntimeHostFactoryPort {
       tabId: string,
       focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
     ) => void,
-    runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort
+    runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
+    onRuntimeTabQuickAccess?: (tabId: string) => void
   ) {
     this.#windows = windows;
     this.#displays = displays;
@@ -589,6 +563,10 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#onCommandError = onCommandError ?? (() => undefined);
     this.#runtimeForegroundProbe = runtimeForegroundProbe ?? null;
     this.#runtimeShortcutOwner = runtimeShortcutOwner ?? null;
+    this.#onRuntimeTabQuickAccess = onRuntimeTabQuickAccess ?? (() => {
+      throw hostError("ELECTRON_RUNTIME_HOST_QUICK_ACCESS_UNAVAILABLE",
+        "The Core-owned Windows Quick Access lane is unavailable.");
+    });
     this.#onRuntimeTabFullscreen = onRuntimeTabFullscreen ?? (() => {
       throw hostError(
         "ELECTRON_RUNTIME_HOST_FULLSCREEN_UNAVAILABLE",
@@ -622,7 +600,8 @@ implements ChromiumRuntimeHostFactoryPort {
       tabId: string,
       focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
     ) => void,
-    runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort
+    runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
+    onRuntimeTabQuickAccess?: (tabId: string) => void
   ): WindowsElectronChromiumRuntimeHostFactory {
     return new WindowsElectronChromiumRuntimeHostFactory({
       create: (options) => new BrowserWindowConstructor(options) as unknown as
@@ -630,7 +609,7 @@ implements ChromiumRuntimeHostFactoryPort {
     }, runtimeDocumentPath, displays, runtimeHostPreloadPath, onWindowControl,
     onWorkspaceDividerPointer, onTabControl, onRuntimeWindowPlacement,
     onTabReload, lifecycleEpoch, onCommandError, runtimeForegroundProbe,
-    onRuntimeTabFullscreen, runtimeShortcutOwner);
+    onRuntimeTabFullscreen, runtimeShortcutOwner, onRuntimeTabQuickAccess);
   }
 
   async applyWindowPreferences(
@@ -1035,6 +1014,13 @@ implements ChromiumRuntimeHostFactoryPort {
     }
     record.listeners = {
       beforeInputEvent: (event, input) => {
+        if (isChromiumRoleQuickAccessShortcut(input, "win32")) {
+          event.preventDefault();
+          if (input.type === "keyDown" && !input.isAutoRepeat) {
+            this.#dispatchRuntimeQuickAccess(record);
+          }
+          return;
+        }
         if (!isChromiumRoleFullscreenShortcut(input, "win32")) return;
         // Own both halves above Chromium's default F11 BrowserWindow toggle.
         event.preventDefault();
@@ -1305,6 +1291,20 @@ implements ChromiumRuntimeHostFactoryPort {
         "ELECTRON_RUNTIME_HOST_SHORTCUT_RECEIPT_INVALID",
         "Win32 returned an invalid runtime shortcut ownership receipt."
       );
+    }
+  }
+
+  #dispatchRuntimeQuickAccess(record: WindowsHostRecord): void {
+    if (record.state !== "active" || record.native.isDestroyed() ||
+        this.#activeByLogicalWindow.get(record.logicalWindowId) !== record ||
+        this.#ownerByNativeId.get(record.nativeId) !== record) return;
+    try {
+      const tabId = record.chrome.readActiveTabId();
+      if (!tabId) throw hostError("ELECTRON_RUNTIME_HOST_QUICK_ACCESS_TARGET_UNAVAILABLE",
+        "The Windows Quick Access shortcut has no exact active runtime tab.");
+      this.#onRuntimeTabQuickAccess(tabId);
+    } catch (error) {
+      this.#onCommandError(error);
     }
   }
 
@@ -1671,7 +1671,8 @@ implements ChromiumRuntimeHostFactoryPort {
           input.onError,
           input.runtimeForegroundProbe,
           input.onRuntimeTabFullscreen,
-          input.runtimeShortcutOwner
+          input.runtimeShortcutOwner,
+          input.onRuntimeTabQuickAccess
         )
       : null;
     this.#appKit = input.platform === "darwin" ? input.appKit ?? null : null;

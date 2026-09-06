@@ -3102,3 +3102,77 @@ warnings retained), hygiene, the Tauri build, restored pure Electron production
 build and production E2E isolation pass. Native packaged acceptance of the new
 observer remains pending; no desktop E2E profile ran locally for this tooling-only
 change.
+
+
+### Native Role click before Windows Quick Access; Settings native readiness
+
+CI 34028481131 at 03d80de1 fails Windows Quick Access (job 101473612915).
+The new evidence reports document.hasFocus=true with the game canvas active,
+but GUI thread keyboard focus equals the top-level host HWND (2097618), with
+no child focus. The palette stays closed. WebDriver's trusted DOM click does
+not establish the same native keyboard target as an OS pointer click in this
+child-host arrangement. F11 can still pass through its retained HWND-level hook.
+
+The Quick Access helper now moves the OS pointer to the exact visible host's
+content center, verifies that the hit window's root is the expected HWND, and
+submits one native left-button down/up pair. The fixture's exact role and trusted
+qa-target click receipt must arrive before physical Ctrl+K. The helper does not
+reactivate the parent after the child click. Existing page suppression, palette,
+Escape/source restoration and persistence verdicts remain. This internal-only
+E2E correction affects CHROMIUM-WINDOWS-QUICK-ACCESS-015; Windows execution is
+still required. Native input insertion remains distinct from the fixture receipt.
+Log: `/tmp/rion-03d-win-package.log`.
+
+The same cohort's macOS Settings restart phase (job 101473612891) asserts a null
+native runtime immediately after logical running status. Settings now waits for
+the exact Role inspection's visible native owner with the expected platform host,
+matching the Macro UI readiness boundary. Visible Open, macro Start/Stop and
+preference persistence actions remain. Both platform SETTINGS-PERSIST-006 journeys
+are affected; this is an internal-only E2E ordering correction.
+Log: `/tmp/rion-03d-mac-package.log`; checks: `/tmp/rion-role-native-click-*`.
+
+
+Further source inspection identifies a product routing gap: Windows Role child
+hosts deliberately use focusable=false and WS_EX_NOACTIVATE for the native input
+lane, while the focused top-level host's before-input-event handles only F11.
+The host now recognizes Ctrl+K with the same shared classifier as Role pages,
+suppresses both halves, ignores repeat, and dispatches once to its exact active
+Core-projected tab through the existing Quick Access ingress. Current native
+owner/lifecycle fences are checked before dispatch; closing/retired hosts cannot
+issue requests, and Core errors reach the existing error owner. AppKit, the
+Role-page interceptor and the required F11 hook retain their existing paths.
+This product correction affects CHROMIUM-WINDOWS-QUICK-ACCESS-015; it is not
+claimed complete until its native E2E passes.
+
+The host behavior suite plus Quick Access source-boundary suite pass 41 checks,
+including key lifecycle, modifiers, target identity, ingress rejection and
+retired-host suppression. Checks: `/tmp/rion-host-quick-access-*`.
+The focused local macOS Settings seed/restart profile passes with all entity
+prerequisites: `.desktop-e2e-artifacts/2026-09-06T11-02-57-645Z-darwin/report.json`.
+
+
+The local Quick Access rerun does not reach its target phases: entity seed fails
+waiting for the Workspace Role's fixture session. Core evidence ends with the
+Role launching and shutdown pending. The runner records failure; a live-process
+sample shows the main thread idle in the AppKit run loop rather than establishing
+a synchronous main-thread deadlock. After the runner terminalized, its exact
+remaining Electron process was killed; this cleanup is not successful E2E evidence.
+Failure root: `.desktop-e2e-artifacts/2026-09-06T11-08-40-401Z-darwin`;
+sample: `/tmp/rion-host-quick-access-macos-hang.sample.txt`.
+MacOS Quick Access acceptance on this candidate therefore remains pending.
+
+The first full suite catches a test-only destroyed-window getter in the new
+retirement case; retaining the original WebContents before closing corrects the
+test and all 41 adjacent cases pass. A later full suite hits the real filesystem
+journal test's 1s deadline during concurrent package I/O. Thirty independent
+native filesystem iterations pass (maximum 14.5ms). That real-I/O test now uses
+5s within the existing 10s test budget; the deterministic deadline-failure test
+keeps its exact 1s fake clock and production acknowledgement remains 120s.
+Native Rust lint and all 1,643 Rust tests pass (four intentional ignored probes).
+
+The final full JavaScript suite passes all 3,399 tests. Typecheck, scoped lint,
+complete hygiene, restored pure Electron production build and production E2E
+isolation pass. Settings macOS E2E passed before the Windows-only host routing
+change; the later macOS Quick Access profile failed in its entity prerequisite as
+recorded above. Windows Ctrl+K, the new native click and the shared updater
+acknowledgement still require the next immutable CI candidate.

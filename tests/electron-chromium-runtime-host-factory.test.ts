@@ -659,6 +659,41 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     }]);
   });
 
+  it("routes host Ctrl+K once to the exact active tab and suppresses both halves", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const request = vi.fn();
+    const onError = vi.fn();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32", browserWindows: browserWindows.port, displays,
+      onRuntimeTabQuickAccess: request, onError, runtimeDocumentPath
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    await applyWindowFence(host);
+    const key = { alt: false, code: "KeyK", control: true, key: "k",
+      meta: false, shift: false, type: "keyDown", isAutoRepeat: false };
+    for (const variant of [{}, { isAutoRepeat: true }, { type: "keyUp" }]) {
+      const event = preventableEvent();
+      window.webContents.emit("before-input-event", event, { ...key, ...variant });
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+    }
+    expect(request).toHaveBeenCalledExactlyOnceWith("tab-1");
+    for (const variant of [{ control: false }, { alt: true }, { shift: true }, { meta: true }]) {
+      const event = preventableEvent();
+      window.webContents.emit("before-input-event", event, { ...key, ...variant });
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    }
+    expect(request).toHaveBeenCalledOnce();
+    request.mockImplementation(() => { throw new Error("Core ingress closed"); });
+    window.webContents.emit("before-input-event", preventableEvent(), key);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "Core ingress closed" }));
+    const contents = window.webContents;
+    window.emit("closed");
+    contents.emit("before-input-event", preventableEvent(), key);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("retains WebContents F11 suppression as a delivery fallback", async () => {
     const browserWindows = new FakeBrowserWindows();
     const requestFullscreen = vi.fn();

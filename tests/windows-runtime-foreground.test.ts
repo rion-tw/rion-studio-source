@@ -13,7 +13,7 @@ describe("Windows native foreground evidence", () => {
       { processId: 42, nativeWindowHandle: "1234", pointerTarget: "none" },
       { timeoutMilliseconds: 30_000 });
   });
-  it.each(["reveal-edge", "content"] as const)("submits native pointer target %s with exact identity", async pointerTarget => {
+  it.each(["reveal-edge", "content", "content-click"] as const)("submits native pointer target %s with exact identity", async pointerTarget => {
     const run = vi.fn(async () => "");
     await focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234", pointerTarget },
       { platform: "win32", run });

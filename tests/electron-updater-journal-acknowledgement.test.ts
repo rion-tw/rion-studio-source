@@ -87,10 +87,12 @@ describe("updater journal acknowledgement", () => {
     const path = join(root, "journal");
     try {
       await writeFile(path, "pending");
-      const pending = waitForUpdaterJournalRemoval(path, 1000);
+      // This real filesystem check shares workers with native package I/O.
+      // The deterministic deadline-failure test above retains its exact 1s clock.
+      const pending = waitForUpdaterJournalRemoval(path, 5000);
       await unlink(path);
       await pending;
-      await waitForUpdaterJournalRemoval(path, 1000);
+      await waitForUpdaterJournalRemoval(path, 5000);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

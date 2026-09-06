@@ -2666,3 +2666,29 @@ checks, typecheck, scoped lint, E2E production isolation, source hygiene and
 coverage validation pass. Windows execution is pending CI; AppKit file-panel
 behavior and its prior evidence are unchanged.
 Logs: `/tmp/rion-file-dialog-value-*`.
+
+### Separate independent update-lineage rejection cases
+
+Windows native-validation job 101455086471 in CI 34021561250 fails in Vitest,
+not a reported Rust assertion: one readiness test creates and verifies three
+independent complete production-evidence fixtures under a single 10-second test
+budget. The failure is the grouped test deadline. The artifact digest, running
+executable digest and provisional manifest digest checks now have separate test
+cases, each retaining the original fixture, mutation, rejection assertion and
+unchanged timeout. No production verifier or release gate changes.
+
+All 33 focused readiness tests, scoped lint and source hygiene pass locally.
+This is internal-only validation work; no desktop journey changes. Windows
+execution of the split cases remains pending CI. Evidence:
+`/tmp/rion-27d-win-native.log`; checks: `/tmp/rion-readiness-case-*`.
+
+The same audit identifies separate incomplete macOS evidence: package job
+101454984110 at 27deee12 was denied OS assistive access while opening the native
+file panel (System Events -25211). Stable Tauri jobs 101454984161 at 27deee12
+and 101456344886 at 26c4fd4b time out in native window-control calls, respectively
+the fullscreen View-menu action and deminiaturization. These are neither
+Chromium parity passes nor evidence to remove AppKit. No permission bypass or
+longer timeout is introduced; further native evidence is required. Logs:
+`/tmp/rion-27d-mac-package.log`, `/tmp/rion-27d-mac-tauri.log`,
+`/tmp/rion-26c-mac-tauri.log`. The latter's artifact root is
+`/tmp/rion-26c-mac-tauri-artifacts`.

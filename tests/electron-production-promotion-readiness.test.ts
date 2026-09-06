@@ -219,7 +219,7 @@ describe("Electron production promotion readiness", () => {
       "public-lineage receipt has an unexpected schema"
     );
   });
-  it("cross-binds public-lineage artifact and running executable to terminal source evidence", async () => {
+  it("cross-binds the public-lineage artifact to terminal source evidence", async () => {
     const artifactFixture = await createReadinessFixture();
     await rewriteTauriLineage(artifactFixture.input, DARWIN, (receipt) => {
       const assets = receipt.assets as Record<string, Record<string, unknown>>;
@@ -230,6 +230,8 @@ describe("Electron production promotion readiness", () => {
     await expect(verifyReadiness(artifactFixture.input)).rejects.toThrow(
       "Tauri v22 public-lineage artifact SHA-256"
     );
+  });
+  it("cross-binds the running executable to terminal source evidence", async () => {
     const runningFixture = await createReadinessFixture();
     await rewriteTauriLineage(runningFixture.input, WINDOWS, (receipt) => {
       const running = receipt.runningExecutable as Record<string, unknown>;
@@ -238,6 +240,8 @@ describe("Electron production promotion readiness", () => {
     await expect(verifyReadiness(runningFixture.input)).rejects.toThrow(
       "Tauri v22 public-lineage running executable SHA-256"
     );
+  });
+  it("cross-binds the public-lineage manifests to the provisional baseline", async () => {
     const manifestFixture = await createReadinessFixture();
     for (const platform of [DARWIN, WINDOWS] as const) {
       await rewriteTauriLineage(manifestFixture.input, platform, (receipt) => {

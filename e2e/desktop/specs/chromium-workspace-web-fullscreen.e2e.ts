@@ -690,7 +690,9 @@ async function exerciseContainedFullscreen(input: Readonly<{
     timeoutMsg: "The controlled Chromium popup did not expose its native host"
   });
   expectMainHostGeometryInvariant(before, popupBefore!);
-  expect(popupBefore!.topologyRevision).toBeGreaterThan(before.topologyRevision);
+  // Popup creation captures the parent fence; it does not mutate parent topology.
+  // Native focus events may advance that revision, but no advance is required.
+  expect(popupBefore!.topologyRevision).toBeGreaterThanOrEqual(before.topologyRevision);
   expect(popupBefore!.popups[0]).toEqual(expect.objectContaining({
     hostKind: before.hostKind,
     presentation: "normal",

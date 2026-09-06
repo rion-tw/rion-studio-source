@@ -60,7 +60,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | ID | Priority / owner | State | Dependency | Deliverable and completion evidence |
 | --- | --- | --- | --- | --- |
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
-| CP-02 | P0 / Diagnostics | implemented; Windows acceptance pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
+| CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | implemented; macOS smoke passed, Windows pending | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | probe; macOS evidence recorded | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
@@ -71,7 +71,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
-| CP-13 | P1 / Diagnostics + settings | implemented; Windows acceptance pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
+| CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters audited; Windows validation pending | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | shared helpers implemented; native release gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
@@ -1010,3 +1010,62 @@ focused ESLint, TypeScript, repository hygiene and whitespace checks passed.
 The previously recorded native Rust checks and dual-shell builds cover the cfg
 correction. Windows native lint and the paired Chromium smoke/package jobs must
 still run on the corrective commit.
+
+### Downloaded hosted Tauri and font evidence at e94c26a9
+
+Inspected the actual Windows Tauri report from CI `34005620760`, artifact
+`desktop-e2e-Windows-34005620760-1`: 39 journeys PASS; 29 phases PASS plus three
+expected forced terminations. The clean `e94c26a9` checkout ran the `full`
+`tauri-v22` profile from 02:08:45 to 02:20:19 UTC on 2026-09-06. Local copy:
+`/tmp/rion-e94-tauri-windows/2026-09-06T02-08-44-938Z-win32/report.json`.
+This supplies retained Windows/WebView2 settings-removal and full-journey
+evidence. It does not certify Chromium Windows or cure that run's Rust lint
+failure. CP-02/13 now distinguish the passed legacy paths from outstanding
+Chromium Windows acceptance.
+
+Also inspected `local-fonts-macos-latest-34005620760-1`. The hosted Mac returned
+528 Chromium faces / 180 unique families, stable across automatic, shown and
+reloaded queries without user activation. Denied permission, subframe, changed
+document and different owner queries returned empty inventories. Its Rust
+provider returned 3,150 names, including every Chromium family: 2,970 additional
+names include 2,244 dot-prefixed names and 235 font-file names (categories may
+overlap). Unlike the local Mac's overflow fallback, this host exposes the native
+collector's broad name walk directly. This is positive evidence that Chromium
+enumerates public families without the collector's file/face-name noise; it
+does not prove compatibility for previously persisted private/face selections.
+Report: `/tmp/rion-e94-fonts-macos/local-fonts-darwin.json`.
+
+The probe source is unchanged between `e94c26a9` and `453d1f53`; the evidence is
+still explicitly attributed to the earlier run. CP-05 remains open for Windows
+and the final adoption assessment. Current CI `34006922119` continues against
+exact `453d1f5354e6f646854fe89ac1255ec0b8d4d3b3`.
+
+### CommonJS fixture lint classification
+
+Current CI's Windows native job passed the previously failing Rust lint step
+and entered the workspace tests. Its shared checks job `101415749279` instead
+found that the newly added `.cjs` fixture was outside ESLint's existing
+Node/CommonJS file scope. Extended that existing scope from scripts to
+`tests/fixtures/**/*.cjs`; the fixture remains fully linted with the same
+CommonJS rules, rather than ignored. Full local lint now passes with zero errors
+and the same 23 pre-existing renderer warnings
+(`/tmp/rion-453-fixture-lint.log`). The current native jobs remain running on
+`453d1f53`; this lint-configuration correction has not been submitted to CI yet.
+
+### Windows Escape passed; popup parent-revision assertion corrected
+
+Windows Chromium job `101415749268` passed the previous Escape exit boundary
+and continued to the popup creation assertion. It failed at line 693 because
+the parent topology revision remained 8 instead of increasing. The popup
+coordinator captures the current parent revision when opening a separate popup;
+it does not mutate parent topology. A native focus event can incidentally advance
+the revision, explaining why the strict increase was not a portable invariant.
+
+Changed that assertion to require a non-regressing parent revision. Exact parent
+window/generation/layout/slots and independent popup host/revision checks remain
+in place, as do the later authoritative popup lifecycle fences. This changes
+test semantics to match the source owner contract, not product behavior or the
+required journey outcome. Twelve focused tests, typecheck and E2E coverage
+passed. Native Windows acceptance of the remaining popup sequence is pending;
+passing Escape alone does not establish the full
+`CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017` journey.

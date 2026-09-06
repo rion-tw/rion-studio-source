@@ -65,7 +65,7 @@ export default tseslint.config(
     }
   },
   {
-    files: ["scripts/**/*.cjs"],
+    files: ["scripts/**/*.cjs", "tests/fixtures/**/*.cjs"],
     languageOptions: {
       globals: globals.node,
       sourceType: "commonjs"

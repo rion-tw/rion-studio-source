@@ -4326,3 +4326,35 @@ trusted input are outside this Windows child-host removal.
   The keyboard phase also retains its existing MACRO-MIDDLE-BUTTON-013
   assertions. Manifest behavior/coverage targets are unchanged; Windows native
   confirmation of the corrected test actions and helper launch remains pending.
+
+
+### CP-11 reproducible hidden/occluded viewport probe
+
+- Added an isolated bundled-Electron probe plus a native integration entry,
+  automatically included by both native CI jobs. A single BrowserWindow hosts
+  two sandboxed Views with separate Sessions. The target is either explicitly
+  hidden or covered by the focused sibling before changing its zoom.
+- The probe first measures the actual visible viewport at the requested factor,
+  resets to an acknowledged 600x400 viewport, then changes zoom while covered.
+  It requires unchanged native focus/visibility/attachment facts, records the
+  renderer resize acknowledgement and verifies the revealed viewport against
+  that same visible calibration. No platform scale or pixel rounding is guessed.
+- The first local experiment exposed an incorrect Math.round expectation at
+  factor 1.5 (expected height 267, actual 266), including after reveal. That
+  failed attempt is not acceptance. Visible calibration replaces the arithmetic
+  assumption without adding tolerances or changing the requested zoom factors.
+- Local macOS Electron 43.4.1 / Chromium 150.0.7871.224 evidence: native-hidden
+  zoom 1.25 acknowledged 480x320; sibling-occluded zoom 1.5 acknowledged 400x266.
+  Both retained the focused sibling throughout the covered operation and matched
+  their visible calibration before reveal. DOM visibility remained visible with
+  backgroundThrottling false; native target visibility was recorded separately.
+- Complete JSON is written directly to the native test log, including passing
+  runs. A covered response may be explicitly indeterminate in this diagnostic
+  probe; green test execution does not certify covered zoom parity. Acceptance
+  requires inspecting each actual `whileCovered.status` and exact dimensions.
+  Revealed mismatch, invalid native ownership/focus or failed visible calibration
+  still fails the probe. No deadline expiry can become an applied response.
+- This is `internal-only` evidence preparation for CP-11, not a product zoom
+  completion change or retained-AppKit/hardware acceptance. Windows evidence
+  remains pending. Local native probe, TypeScript, ESLint and complete hygiene
+  checks passed; no product runtime, native Rust or shared contracts changed.

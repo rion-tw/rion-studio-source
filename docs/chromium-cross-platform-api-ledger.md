@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | paired stable full passed at 192120ad; macOS Chromium 56 phases passed at a20bddec; Windows full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | paired stable full passed at 192120ad; macOS Chromium 56 phases passed at 1422ea67; Windows full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at a20bddec; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -5712,3 +5712,72 @@ trusted input are outside this Windows child-host removal.
   paired seed/restart execution awaits exact-candidate CI. Separately,
   1422ea67 macOS job 101567161677 has completed its Chromium shell E2E step
   successfully while later package/update steps remain live.
+
+
+### CP-15 1422ea67 macOS Chromium full profile verified
+
+- Artifact chromium-shell-e2e-macOS-34063144726-1 report
+  2026-09-06T22-26-31-096Z-darwin binds
+  1422ea67a812fb8ba3bf45608c1bcd5a826f33ad and chromium-macos-appkit-smoke:
+  52 PASS phases plus 4 EXPECTED_FORCE_TERMINATION phases. The exact Macro
+  ownership topology seed and restart phases both pass on retained AppKit.
+- This is the newest verified macOS full Chromium runtime evidence, including
+  the shared background-parent validator version. Later macOS package/update
+  work remains live. It does not substitute for Windows full acceptance: the
+  latest E2E-only candidate 557456e0 / CI 34065004149 still needs to execute
+  the one-shot completion correction and all subsequent Windows phases.
+
+
+- 1422ea67 macOS native job 101567263611 now completes SUCCESS. Its native
+  integration stage records 6 files / 13 tests passed, with the 2 Windows-only
+  files/tests skipped as declared; the direct Chromium probe passes separately.
+  Together with Windows native job 101567263605, this supplies paired native
+  validation for that runtime implementation. AppKit product input remains
+  retained; this does not turn the Mac compatibility probe into Windows
+  View-owner evidence. Latest 557456e0 full Windows E2E remains live and its
+  macOS jobs queued, so no full-candidate or legacy deletion gate closes here.
+
+
+### CP-15 557456e0 proves input release but renderer journal completion is missing
+
+- CI 34065004149 Windows job 101572107531 report binds 557456e0, with 30
+  passing phases then topology-seed failing at the new absent Macro projection
+  wait. Both the trusted KeyS down and consumer-keyup assertions have passed.
+  The failure screenshot shows Macros with 0 running and both rows ready.
+  Therefore the earlier transient-running explanation does not explain all
+  observations; do not call this resolved or remove the completion assertion.
+- The preload creates an independent listener for each event subscription, and
+  the E2E journal searches all retained post-cursor Macro entries. Source review
+  alone does not establish why the journal lacks a matching completion while
+  the renderer displays idle. Keep product behavior and all assertions unchanged.
+- On a projection-wait rejection, record a one-time read-only diagnostic from
+  the same page: journal presence, current sequence, waiter count, last 32
+  relevant Macro entries and current typed-bridge Macro statuses. Retain the
+  original exception as cause and fail the test. No polling, retry, timeout
+  increase or replacement success path is introduced. This is internal-only
+  E2E diagnosis; the next native failure must distinguish missing propagation,
+  cursor/journal mismatch and a still-live Core Macro before another repair.
+
+
+### CP-10/CP-15 new Windows import restart lock failure at 557456e0
+
+- Native Windows job 101572210336 / CI 34065004149 fails the Rust workspace
+  stage: a_fully_verified_import_journal_allows_launch_without_new_role_evidence
+  panics at behavior_21_session_migration_launch_gate.rs:1056 while reopening
+  with APP_INSTANCE_LOCKED. The same test output reports state worker shutdown
+  timed out after 3 seconds, followed by unproven terminal teardown. 950 Core
+  tests pass and one fails; native probes after this gate are not acceptance
+  evidence for this run.
+- Preserve the failure and inspect exact shutdown acknowledgement and lifetime
+  ownership before changing the restart fixture or product code. Do not treat
+  an elapsed timeout as release, bypass the application lock, extend deadlines,
+  or retry the reopen into success. This is separate from the renderer Macro
+  journal observation failure and the earlier updater ACL concurrency issue.
+
+
+- Final journal-diagnostic validation: 452 Vitest files / 3642 tests pass in
+  153.95 seconds; TypeScript, ESLint, full hygiene/coverage, Electron E2E build,
+  restored production build and isolation pass. This changes only E2E failure
+  observation, so no Rust unit rerun or local native desktop execution was
+  performed. Native journal diagnosis and the separately observed restart-lock
+  failure remain open; no success criterion was changed in this batch.

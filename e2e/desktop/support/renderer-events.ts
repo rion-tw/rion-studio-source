@@ -384,7 +384,37 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
     },
     JOURNAL_KEY,
     request
-  ) as RendererWaitResult<T>;
+  ).catch(async (error: unknown) => {
+    let diagnostic: unknown;
+    try {
+      diagnostic = await browser.execute(async (key, macroId) => {
+        const page = window as unknown as Record<string, unknown>;
+        const journal = page[key] as {
+          nextSequence: number;
+          macroStatuses: Array<{ sequence: number; value: MacroRunStatus[] }>;
+          waiters: Set<unknown>;
+        } | undefined;
+        const select = (statuses: MacroRunStatus[]) => statuses
+          .filter(status => !macroId || status.macroId === macroId)
+          .map(status => ({ macroId: status.macroId, roleId: status.roleId,
+            state: status.state, iteration: status.iteration }));
+        return {
+          journalInstalled: !!journal,
+          nextSequence: journal?.nextSequence,
+          waiterCount: journal?.waiters.size,
+          recentMacroEntries: journal?.macroStatuses.slice(-32).map(entry => ({
+            sequence: entry.sequence, statuses: select(entry.value)
+          })),
+          currentMacroStatuses: window.rionStudio
+            ? select(await window.rionStudio.listMacroStatuses()) : null
+        };
+      }, JOURNAL_KEY, request.kind === "macro" ? request.macroId : undefined);
+    } catch (diagnosticError) {
+      diagnostic = { unavailable: String(diagnosticError) };
+    }
+    throw new Error(`Renderer projection wait failed: ${JSON.stringify(request)}; ` +
+      `diagnostic=${JSON.stringify(diagnostic)}`, { cause: error });
+  }) as RendererWaitResult<T>;
   if (!result.ok) throw new Error(result.error ?? "Renderer event wait failed");
   return result.value as T;
 }

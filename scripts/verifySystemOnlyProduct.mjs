@@ -117,6 +117,7 @@ const migrationOnlyTokens = new Map([
   ])],
   ["electron", new Set([
     "scripts/probeChromiumInput.cjs",
+    "scripts/probeChromiumShortcuts.cjs",
     "scripts/probeChromiumLocalFonts.cjs",
     "crates/rion-core/src/app/section_05_delete_workspaces_runtime_aware.rs",
     "crates/rion-core/src/app/tests/behavior_03_role_creation_and_selected_browser_directory_reset.rs",

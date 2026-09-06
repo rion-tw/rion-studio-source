@@ -1394,3 +1394,43 @@ suites passed 89 tests on macOS (`/tmp/rion-cp08-retained-input-tests.log`).
 This lower-layer evidence validates retained receipt and lifetime invariants;
 it is not Windows native input or a replacement Role probe. Documentation, AI
 context and source hygiene checks also passed. No product behavior changed.
+
+### CP-07 native F11 comparison harness
+
+Added a Windows-only bundled-Electron probe comparing the retained native hook,
+a captured-key-up `before-input-event` candidate, and a registered Menu F11
+accelerator. A persistent PowerShell test driver validates the exact HWND/PID
+and foreground owner before inserting native scan-code input. Four isolated
+surfaces (main, Role-like view, Global-Web-like view and popup) each receive
+plain, repeated-down and modifier-during-press sequences in all three modes:
+36 observations. Reports record commands before release, native/pre-input event
+stages and trusted page events. The native-hook baseline requires one terminal
+command and no observed page delivery; API candidates report differences.
+
+This is an isolated compatibility probe, not production Role/window parity.
+The 150 ms test observation boundary does not establish indefinite suppression.
+Hidden/focus-transfer/registration-retirement coverage and the production
+replacement decision remain open. Production input ownership is unchanged.
+The native integration runner discovers the new Windows-only test and uploads
+its report through the existing Chromium input evidence directory; macOS
+explicitly skips it. E2E classification: `internal-only`.
+
+Syntax, TypeScript, lint, migration-boundary validation and eight boundary tests
+passed locally (`/tmp/rion-cp07-*`). macOS test selection reported one skip,
+not a native F11 pass. Windows execution awaits the next source push after
+current CI terminality.
+
+### Current Windows fullscreen E2E navigation-driver boundary
+
+At `8f474391`, Windows Chromium run `34010684582` passed seven phases / nine
+journeys before failing the pending-popup parent-close portion of
+WORKSPACE-WEB-FULLSCREEN-017. The prior visible popup close and its exact
+user/nativeDestroyed receipt passed. With the second popup's navigation
+deliberately gated, `windowsRuntimeHostHandle` times out enumerating WebDriver
+window handles before it can click the parent tab close control. macOS already
+uses pre-read native close evidence for this scenario. Windows needs an exact
+visible close action that does not enumerate the pending browser targets;
+releasing the network gate before close would invalidate this journey.
+Evidence: `/tmp/rion-8f-windows-package.log` and
+`/tmp/rion-8f-win-artifacts/2026-09-06T04-08-47-938Z-win32/report.json`.
+Other jobs remain live; macOS native Rust has passed and entered API probes.

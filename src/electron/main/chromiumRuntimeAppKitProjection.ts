@@ -155,7 +155,7 @@ export async function applyChromiumRuntimeAppKitProjection(
     }
     if (windowProjection.topologyRevision < window.topologyRevision) {
       throw runtimeError(
-        "ELECTRON_MACOS_APPKIT_PROJECTION_SUPERSEDED",
+        "MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED",
         "The exact AppKit host already follows a newer Core topology revision."
       );
     }

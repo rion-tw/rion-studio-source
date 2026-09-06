@@ -1808,3 +1808,25 @@ profile progressed past the minimize-cache failure but failed in
 `p1-macro-multirole`. Evidence is `/tmp/rion-8c0-win-package.log`,
 `/tmp/rion-8c0-win-tauri.log` and `/tmp/rion-8c0-win-artifacts/`. These later
 failures remain to diagnose and are not successful whole-profile results.
+
+### Single-slot Windows workspace projection and Core boundary validation
+
+The Windows Web-only seed failure at `8c0ba441` is an actual projection rejection,
+not a missing fixture acknowledgement: Core flow entries 69–77 show
+ELECTRON_CHROMIUM_WINDOWS_WORKSPACE_PROJECTION_INVALID. The Windows validator
+required two workspace slots although the authoritative single-layout projection
+contains one valid Web slot. It now accepts one or more slots and still rejects
+empty/duplicate slot lists, missing owners and inconsistent live surface scope.
+The new test applies a single Web-only slot with no Role owners and verifies
+empty-list rejection. Eight Windows projection tests passed; the existing
+WORKSPACE-WEB-ONLY-024 native seed/restart journey remains the acceptance gate.
+
+Run `34014711183` at `0784927d` stopped affected jobs at the migration-boundary
+check: the newly extracted Core projection module and its regression used an
+Electron-prefixed error name. That cross-shell discriminator is now
+MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED in the producer, Core consumer and
+tests. No boundary allowlist was widened. The exact migration-boundary checker
+passes, as do all 19 paired AppKit/Windows projection tests and the focused Rust
+supersession test. Logs: `/tmp/rion-078-checks.log`, `/tmp/rion-single-slot-*`,
+`/tmp/rion-appkit-neutral-code-*`. Neither correction is validated by the
+pre-correction CI run; a fresh native run remains required.

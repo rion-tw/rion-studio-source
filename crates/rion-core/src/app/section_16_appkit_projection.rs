@@ -17,7 +17,7 @@ impl AppCore {
         );
         match native {
             Err(error)
-                if error.code() == "ELECTRON_MACOS_APPKIT_PROJECTION_SUPERSEDED"
+                if error.code() == "MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED"
                     && !topology_committed
                     && self.appkit_layout_projection_was_superseded(&event, &quarantine_scope)? =>
             {

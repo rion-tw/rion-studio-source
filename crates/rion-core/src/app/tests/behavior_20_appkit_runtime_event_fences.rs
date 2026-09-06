@@ -778,7 +778,7 @@ fn appkit_layout_supersession_requires_a_newer_same_generation_core_projection()
                         ok: false,
                         value_json: None,
                         error: Some(CoreErrorPayload {
-                            code: "ELECTRON_MACOS_APPKIT_PROJECTION_SUPERSEDED".to_owned(),
+                            code: "MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED".to_owned(),
                             message: "Exact projection was superseded before application.".to_owned(),
                         }),
                     }

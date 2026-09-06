@@ -170,6 +170,35 @@ function harness(appKit = false) {
 }
 
 describe("Windows Chromium runtime topology projection", () => {
+  it("accepts one authoritative Web-only slot and rejects an empty workspace", async () => {
+    const subject = harness();
+    subject.roles.clear();
+    subject.tabs.delete("tab-2");
+    subject.windows.delete("window-2");
+    const rect = { x: 0, y: 0, width: 1, height: 1 };
+    const web = { name: "Single Web", startUrl: "https://example.test/" };
+    const tab = subject.tabs.get("tab-1")!;
+    tab.specification = {
+      tabId: "tab-1", workspaceId: "workspace-1", workspaceTemplate: "single",
+      workspaceSlots: [{ id: "slot-1", web, rect }],
+      slots: [{ slotId: "slot-1", role: { id: "web-slot-1" }, web, rect }],
+      roles: []
+    } as unknown as EmbeddedTabEffectRecord;
+    const projected = {
+      ...projection("window-1", ["tab-1"], "tab-1"),
+      workspaceTabs: [{ tabId: "tab-1", workspaceSlots: [{ id: "slot-1", web, rect }] }]
+    };
+    await applyChromiumRuntimeWindowsProjection({ ...subject.input, projections: [projected] });
+    expect(tab.specification.workspaceSlots).toEqual([{ id: "slot-1", web, rect }]);
+    expect(tab.specification.roles).toEqual([]);
+    expect(subject.firstHost.applyWindowsChromeProjection).toHaveBeenCalled();
+    projected.topologyRevision += 1;
+    projected.workspaceTabs[0]!.workspaceSlots = [];
+    await expect(applyChromiumRuntimeWindowsProjection({
+      ...subject.input, projections: [projected]
+    })).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_WINDOWS_WORKSPACE_PROJECTION_INVALID" });
+  });
+
   it("applies one exact cross-window move and commits ownership after reparent", async () => {
     const subject = harness();
     await expect(applyChromiumRuntimeWindowsProjection({

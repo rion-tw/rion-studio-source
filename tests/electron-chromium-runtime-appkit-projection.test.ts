@@ -935,7 +935,7 @@ describe("Chromium AppKit projection transaction", () => {
     projection.windows[0]!.adapterSequence = 2;
     projection.windows[0]!.topologyRevision = 7;
     await expect(request()).rejects.toMatchObject({
-      code: "ELECTRON_MACOS_APPKIT_PROJECTION_SUPERSEDED"
+      code: "MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED"
     });
     nativeHost.isDestroyed = () => true;
     projection.windows[0]!.adapterSequence = 2;

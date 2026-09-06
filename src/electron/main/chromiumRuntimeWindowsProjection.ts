@@ -80,7 +80,7 @@ function projectWorkspaceSpecification(
   if (
     projection.tabId !== tab.specification.tabId ||
     tab.specification.workspaceId === undefined ||
-    projection.workspaceSlots.length < 2 ||
+    projection.workspaceSlots.length < 1 ||
     new Set(projection.workspaceSlots.map((slot) => slot.id)).size !==
       projection.workspaceSlots.length
   ) {

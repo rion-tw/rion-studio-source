@@ -2,7 +2,7 @@
 const { app, BrowserWindow, WebContentsView, webContents } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
-const { sendChromiumKey, sendChromiumClick, ChromiumViewInputSubmission } = require("./electronLoadChromiumInputOwner.cjs");
+const { sendChromiumKey, sendChromiumClick, ChromiumViewAttachmentCoordinator } = require("./electronLoadChromiumInputOwner.cjs");
 
 const [reportPath, userData, addonPath] = process.argv.slice(2);
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
@@ -161,28 +161,46 @@ async function probe() {
     await focus(host, sibling);
     view.setVisible(false);
     const nativeParent = addonPath ? require(resolve(addonPath)) : null;
-    const parentIdentity = nativeParent?.readWindowsRuntimeForeground(
-      host.getNativeWindowHandle()
-    ).parentIdentity;
-    const identity = { roleId: "direct-view-role", surfaceGeneration: 1,
-      nativeGeneration: 1, bindingRevision: "1", parentIdentity,
-      webContentsId: view.webContents.id };
-    const viewOwner = nativeParent ? new ChromiumViewInputSubmission({
-      identity, contents: view.webContents, nowMs: Date.now,
-      observe: () => {
-        const parent = nativeParent.readWindowsRuntimeForeground(host.getNativeWindowHandle());
-        return {
-          identity: { ...identity, parentIdentity: parent.parentIdentity },
-          focusIdentity: parent.focusIdentity, parentForeground: parent.parentWasForeground,
-          parentVisible: parent.parentVisible, parentMinimized: parent.parentMinimized,
-          viewAttached: host.contentView.children.includes(view), viewVisible: view.getVisible(),
-          contentsDestroyed: view.webContents.isDestroyed(), contentsFocused: view.webContents.isFocused(),
-          focusedWebContentsId: webContents.getFocusedWebContents()?.id ?? null,
-          bounds: view.getBounds(), zoomFactor: view.webContents.getZoomFactor()
-        };
-      }
-    }) : null;
-    const inputFence = requestId => ({ roleId: identity.roleId,
+    const roleId = "direct-view-role";
+    let attachments = null;
+    let attachmentFailure = null;
+    let viewOwner = null;
+    if (nativeParent) {
+      const binding = { parent: host, nativeGeneration: 1, revision: "1",
+        children: () => host.contentView.children,
+        contentsFocused: target => target.webContents.isFocused(),
+        read: () => {
+          const parent = nativeParent.readWindowsRuntimeForeground(host.getNativeWindowHandle());
+          return { parentIdentity: parent.parentIdentity, focusIdentity: parent.focusIdentity,
+            parentForeground: parent.parentWasForeground, parentVisible: parent.parentVisible,
+            parentMinimized: parent.parentMinimized,
+            focusedWebContentsId: webContents.getFocusedWebContents()?.id ?? null };
+        },
+        subscribe: listener => {
+          const changed = () => listener("changed");
+          const closed = () => listener("closed");
+          const events = ["focus", "blur", "show", "hide", "resize"];
+          for (const event of events) host.on(event, changed);
+          host.on("closed", closed);
+          return () => {
+            for (const event of events) host.removeListener(event, changed);
+            host.removeListener("closed", closed);
+          };
+        }
+      };
+      attachments = new ChromiumViewAttachmentCoordinator({
+        resolveParent: parent => parent === host ? binding : null,
+        nowMs: Date.now, onError: error => { attachmentFailure = error; }
+      });
+      host.contentView.removeChildView(view);
+      await attachments.attach({ roleId, generation: 1, parent: host, view,
+        isCancelled: () => false, attach: () => host.contentView.addChildView(view),
+        attachTo: parent => parent.contentView.addChildView(view),
+        detach: () => host.contentView.removeChildView(view) });
+      viewOwner = attachments.resolve(roleId, 1)?.input;
+      if (!viewOwner) throw new Error("The direct View attachment did not establish input ownership.");
+    }
+    const inputFence = requestId => ({ roleId,
       surfaceGeneration: 1, requestId, inputEpoch: "1", deadlineMs: String(Date.now() + 3000),
       deliveryMode: "background" });
     const directSamples = [
@@ -214,6 +232,12 @@ async function probe() {
         targetVisible: view.getVisible(), siblingFocusedBefore,
         siblingFocusedAfter: sibling.webContents.isFocused()
       } });
+    }
+    if (attachmentFailure) throw attachmentFailure;
+    if (attachments) {
+      await attachments.retire(roleId, 1, host);
+      if (attachments.resolve(roleId, 1) !== null) throw new Error("Retired View retained input ownership.");
+      await attachments.dispose();
     }
     host.contentView.removeChildView(sibling);
     sibling.webContents.close();

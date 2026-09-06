@@ -3783,3 +3783,38 @@ trusted input are outside this Windows child-host removal.
   two workers, plus typecheck, focused lint, documentation, source hygiene,
   coverage and production E2E isolation checks. No local Windows native result
   or new successful desktop E2E profile is claimed for these changes.
+
+
+### Direct View attachment and retirement implementation
+
+- Added `ChromiumViewAttachmentCoordinator`, implementing the existing attachment
+  port without creating a window, calling SetParent, or assuming one View per
+  parent. It rejects aliased WebContents owners, keeps an immutable parent
+  binding fence, and supplies the exact `ChromiumViewInputSubmission` owner.
+  A move suspends source admission/subscriptions before native mutation, then
+  commits the target or restores the exact source and visibility. Failed
+  rollback quarantines only the affected View. Exact parent-close and contents
+  destruction events revoke admission. Committed visibility changes publish the
+  presentation events required by held-key continuity. Disposal revokes this
+  adapter's bindings; the registry retains View and shared-parent lifetimes.
+- The Windows native owner probe now uses this attachment coordinator before
+  submitting hidden input, then checks exact ownership retirement. Product
+  bootstrap and the current Windows trusted-input receipt consumer still need
+  conversion before the old child-host coordinator can be deleted. This is an
+  explicit remaining CP-08 implementation task, not a completed product cutover.
+- Candidate `097552bc`, CI `34039832262`, Windows package job `101504456483`:
+  the real native View-input-owner test passed in 1.12 seconds after the known
+  old child-host product probe failed. This validates native parent/focus
+  identities, trusted hidden key/middle events, exact zoom coordinates and
+  monotonic View receipts. It predates the new attachment coordinator above;
+  that coordinator's native result remains pending the next candidate.
+- The earlier `b8711b59` cohort reports successful macOS and Windows Tauri desktop
+  E2E jobs (`101501993987` and `101501993926`). These do not establish Chromium
+  product parity or exact-current-candidate completion.
+
+- Local attachment continuation validation passed 78 focused owner/lifecycle and
+  workflow tests, typecheck, focused ESLint, source hygiene, documentation and
+  production E2E isolation. The macOS API experiment passed with the expanded
+  closed loader. No new desktop E2E profile or native Windows attachment result
+  is claimed. The staged manager has no product route yet; the E2E omission
+  classification for this preparation is `internal-only`.

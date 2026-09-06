@@ -1293,3 +1293,59 @@ production Electron bundle was restored and source hygiene rechecked; logs are
 `/tmp/rion-telemetry-final-generate.log`,
 `/tmp/rion-telemetry-final-electron-build.log` and
 `/tmp/rion-telemetry-final-hygiene.log`.
+
+### Role Session native visibility and launch-test terminality
+
+Run `34009301032` at `881997a6` completed both Tauri desktop jobs and Windows
+native validation successfully. Windows Chromium failed at the parent popup
+revision assertion documented above. macOS Chromium passed 40 phases before
+the Role Session restart assertion inspected the second Role while its native
+surface was still hidden after Core had reported Running. The shared E2E helper
+now observes both visible surfaces in the same native host before inspecting
+session identity, generation and isolation. These existing assertions remain.
+
+Fresh macOS `chromium-macos-appkit-smoke` focused seed/restart passed journey
+`CHROMIUM-MACOS-APPKIT-ROLE-SESSION-ISOLATION-003` at dirty `c6efac6b`,
+03:57:40–03:58:07 UTC, recorded in
+`.desktop-e2e-artifacts/2026-09-06T03-57-40-717Z-darwin/report.json`. The paired
+Windows journey `CHROMIUM-WINDOWS-ROLE-SESSION-ISOLATION-003` remains pending.
+Three adjacent source tests, typecheck, E2E coverage, source hygiene and restored
+production Electron build passed; logs use `/tmp/rion-role-visible-`.
+
+The remaining macOS native job's live log identifies
+`chromium_browser_workspace_stop_retires_kernel_and_ownership_topology` as
+running beyond 60 seconds. Its launch helper previously stopped consuming
+effects when invocation admission returned, although launch completion runs
+separately. An effect emitted between the old subscription and the subsequent
+stop subscription could remain unanswered. The stop topology test now uses the
+existing exact-operation `BrowserLaunchCompleted` helper before issuing stop,
+preserving all create/destroy and empty-topology assertions for both explicit
+platforms. Production event policies are unchanged. This is `internal-only`
+test-harness work. The old job is not passing native evidence.
+
+The old macOS native job was explicitly cancelled after identifying that
+unanswered-effect race; its terminal log is
+`/tmp/rion-881-macos-native-cancelled.log` (the named test exceeded 60 seconds at
+03:43:52 UTC). Cancellation is not a passing gate.
+
+### Windows complete Local Font Access name comparison
+
+The successful Windows native job at `881997a6` recorded 260 Chromium faces,
+89 families and 154 native names. Comparing `family`, `fullName` and
+`postscriptName` covers 49 of the 66 names missing from the family-only list.
+Seventeen native names still have no exact normalized match, including the
+legacy `Fixedsys`, `System` and `Terminal` names and several truncated
+Bahnschrift / Segoe UI Variable names from GDI's fixed-size face-name field.
+This establishes a naming compatibility gap, not proof that Chromium cannot
+render those fonts. Evidence is
+`/tmp/rion-881-fonts-windows/local-fonts-win32.json`. The hosted macOS complete
+alias comparison did not run because its preceding Rust gate was cancelled;
+CP-05/06 remain open for that result and the explicit provider decision.
+
+The corrected launch/stop harness passed full macOS workspace validation:
+1,636 Rust tests, zero failures, four ignored; Rust formatting and Clippy passed.
+Documentation, AI context, desktop isolation, E2E coverage, source hygiene and
+changed-spec lint also passed. Logs are `/tmp/rion-stop-terminal-tests.log`,
+`/tmp/rion-stop-terminal-lint.log` and adjacent `rion-stop-terminal-*` logs.
+The new Windows Rust and both complete Chromium profiles remain pending the
+next exact-commit CI run; previous failures are not reclassified as passes.

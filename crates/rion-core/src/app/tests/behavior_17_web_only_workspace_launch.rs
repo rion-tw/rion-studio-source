@@ -234,12 +234,11 @@ fn chromium_browser_workspace_stop_retires_kernel_and_ownership_topology() {
             &format!("Chromium stop topology {platform}"),
         );
         let window_id = format!("chromium-stop-window-{platform}");
-        let (launched, launch_actions, _) = drive_async_command(
+        let (launched, launch_actions) = drive_launch_through_terminal(
             Arc::clone(&core),
             web_workspace_browser_launch(&workspace_id, &window_id),
-            None,
         );
-        assert!(launched.is_ok(), "{platform}: {launched:?}");
+        assert!(launched["operationId"].is_string(), "{platform}: {launched:?}");
         assert!(launch_actions.iter().any(|action| matches!(
             action,
             CoreEffectAction::EmbeddedCreateTab { .. }

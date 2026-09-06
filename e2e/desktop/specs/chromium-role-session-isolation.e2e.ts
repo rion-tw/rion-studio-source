@@ -292,6 +292,18 @@ async function waitForRunningRoles(
       })
     );
   }
+  await browser.waitUntil(async () => {
+    const [a, b] = await Promise.all([
+      electronDesktopE2eRoleSessionRuntime(roleA.id),
+      electronDesktopE2eRoleSessionRuntime(roleB.id)
+    ]);
+    return a.currentRuntime?.visible === true && b.currentRuntime?.visible === true &&
+      a.currentRuntime.windowId === b.currentRuntime.windowId &&
+      a.currentRuntime.parentNativeHostId === b.currentRuntime.parentNativeHostId;
+  }, {
+    timeout: 45_000,
+    timeoutMsg: "Both Chromium Role surfaces did not become visible in the same native host"
+  });
 }
 
 async function launchWorkspaceInGameWindow(

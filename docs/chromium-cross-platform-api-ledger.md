@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | Windows visible/hidden sibling native View gates passed; background-parent correction and full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -5587,3 +5587,63 @@ trusted input are outside this Windows child-host removal.
   visible unfocused sibling change. It does not test a background parent;
   1422ea67's extended owner probe and full multi-Role/transfer/restart E2E remain
   required before full input parity or legacy implementation removal.
+
+
+### CP-15 192120ad Windows stable full profile verifies tab-focus correction
+
+- CI 34062775729 / Windows stable job 101566159388 completes SUCCESS. Report
+  2026-09-06T22-03-02-442Z-win32 binds exact commit
+  192120ad8f4c3dfa0a8dbe355017d1d37f532c08 and profile full: 29 PASS phases,
+  zero failed phases. MACRO-BACKGROUND-TAB-004 is PASS.
+- The original failing operation now has direct fixture evidence: Role B focus
+  sequence 765 precedes trusted KeyZ keydown/consumer-keydown/keyup/consumer-keyup
+  sequences 769-772 on game-input-canvas. The unchanged test submits that
+  physical sequence without artificial refocus, and its entire background-tab
+  case passes. This is native evidence for preserving explicit focus in the
+  presentation queue, beyond the paired unit regression.
+- This closes the specific stable Windows missing-KeyZ failure observed at
+  a20bddec. It does not establish macOS parity for this queue correction or
+  qualify the later Chromium background-parent candidate. Those native profiles
+  and the remaining CP-15/CP-18 hardware/full-candidate gates stay pending.
+
+
+### CP-08/CP-15 1422ea67 advances through Macro stop and transfer to inactive-tab close
+
+- Windows Chromium CI 34063144726 / job 101567161742 report
+  2026-09-06T22-10-33-524Z-win32 binds 1422ea67 and records 30 PASS phases,
+  then topology-seed FAIL at native-runtime-tabs.ts:503: the old tab's close
+  button is not clickable. The scenario has already passed trusted inputs on
+  both Roles, the visible Role B click, visible Macro Stop, placeholder claim,
+  increased owner generation, and a trusted click on the transferred Role.
+  Thus the previous background-parent rejection no longer blocks this flow;
+  the complete topology and restart journeys remain failed/not run.
+- The old tab is inactive after ownership transfer. Its production CSS keeps
+  the close button opacity zero until tab hover, focus-within or active state.
+  The helper previously waited for clickability without first hovering the
+  inactive tab. Add a real WebDriver moveTo on its exact visible activation
+  control before reading or clicking the close control. This reveals the
+  existing UI without selecting the tab, invoking a debug close command or
+  changing product CSS. Retained AppKit close actions remain unchanged.
+- The existing paired MACRO-OWNERSHIP-TRANSFER-010 and TABS-VISIBLE-ACTIVATION-019
+  scenarios exercise this helper. No new feature, journey membership, timeout,
+  retry or weakened assertion is added. Actual Windows inactive-tab closure
+  and the remaining full profile require the next exact-candidate native run.
+
+
+- 1422ea67 artifact chromium-view-owner-windows-latest-34063144726-1 now
+  supplies the exact background-parent owner evidence: all four hidden/visible
+  key/middle cases receive trusted DOM edges with nativeParentOwner true.
+  Submitted native receipts advance sequences 7-12, all foregroundPreserved true;
+  the external focused WebContents remains id 2 before and after. Combined with
+  the later E2E failure at inactive-tab close, this verifies the previously
+  rejected background-parent input path while keeping full topology/restart
+  and legacy deletion gates open.
+
+
+- Final inactive-tab hover validation: TypeScript, ESLint, full hygiene and
+  coverage pass; 452 Vitest files / 3642 tests pass in 156.18 seconds. Both
+  Tauri and Electron E2E builds complete, then the production Electron build
+  is restored and isolation passes. This E2E-only change does not rerun Rust
+  unit tests; no Rust/shared/native product source changed. No local desktop
+  profile ran around the unresolved protected system dialog. Existing native
+  full/paired profiles remain the actual acceptance gate for the hover action.

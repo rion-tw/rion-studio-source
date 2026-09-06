@@ -467,6 +467,10 @@ export async function readVisibleWindowsRuntimeTabCloseEvidence(input: Readonly<
   windowId: string;
 }>) {
   return withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    // Inactive tabs reveal their close control only on hover or focus-within.
+    const tab = await $(`[data-runtime-tab-activate][data-tab-id='${input.tabId}']`);
+    await tab.waitForDisplayed({ timeout: 10_000 });
+    await tab.moveTo();
     const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
     await close.waitForDisplayed({ timeout: 10_000 });
     const controlName = await close.getAttribute("aria-label");
@@ -499,6 +503,10 @@ export async function closeVisibleRuntimeTab(input: Readonly<{
     return;
   }
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
+    // Inactive tabs reveal their close control only on hover or focus-within.
+    const tab = await $(`[data-runtime-tab-activate][data-tab-id='${input.tabId}']`);
+    await tab.waitForDisplayed({ timeout: 10_000 });
+    await tab.moveTo();
     const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
     await close.waitForClickable({ timeout: 10_000 });
     await close.click();

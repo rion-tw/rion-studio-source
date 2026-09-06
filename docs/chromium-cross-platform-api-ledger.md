@@ -74,7 +74,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows 21 journeys passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS package/updater verified at 9e54640b; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS package/updater verified at 79ea9b13; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -3345,3 +3345,19 @@ The same e9c528f8 CI's macOS Tauri job 101480843494 now reports full success,
 without the later snapshot-lock correction. This confirms intermittency; it does
 not invalidate the source-local lock violation or establish a single root cause.
 The corrected snapshot's local focused pass remains separately recorded above.
+
+
+### macOS package acceptance now includes the shared updater journal observer
+
+CI 34029657056 at 79ea9b13, macOS Chromium job 101476744017, is terminal
+SUCCESS. Its source AppKit Chromium E2E, prior-version updater fixtures, package
+structure verification, packaged Rust-owned updater transaction and packaged
+AppKit Chromium Role black-box E2E all pass. This candidate includes the
+5bfe4c9e shared race-free journal-removal observer, so CP-16 no longer relies only
+on the earlier 9e54640b package acceptance that predates that correction.
+
+The job uses the existing ephemeral updater trust fixture; it is native package
+and transaction evidence, not production-key acceptance or publication. Windows
+package acceptance, the later exact-candidate cohort and CP-17/18 release gates
+remain open. Authoritative step results:
+`/tmp/rion-run-34029657056.json`.

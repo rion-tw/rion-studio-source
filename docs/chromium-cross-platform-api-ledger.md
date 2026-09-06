@@ -4443,3 +4443,38 @@ trusted input are outside this Windows child-host removal.
   successfully (1,643 passed, four ignored). Windows native execution and both
   current-candidate full Chromium desktop profiles remain CI gates. No physical
   mixed-DPI or Windows hardware profile ran locally.
+
+
+### CP-04/CP-11 Workspace chrome navigation rejection terminality
+
+- Investigated run 34050457198 macOS Workspace restart artifacts. The Role
+  WebContents completed its navigation, while the paired Rion-owned Web chrome
+  stayed in its opening state until teardown rejected its unresolved load.
+  Core remained launching and the hidden host never became visible. This
+  narrows the stalled boundary but does not prove the original navigation error.
+- Source inspection found loadURL rejection was swallowed while waiting only
+  for did-finish-load/did-fail-load. A rejected exact navigation request can
+  therefore leave the paired create pending when no separate failure event is
+  delivered. Route that rejection through the existing load-settlement fence
+  and cleanup; preserve its original error and ignore later duplicate outcomes.
+  No successful receipt, timeout, retry or alternate engine is introduced.
+- New explicit darwin/win32 regression cases fail before the correction and
+  pass afterward, verifying both paired surfaces are retired and the creation
+  rejects with the original error. The Windows fixture uses its native path
+  form. All eight adjacent presentation tests pass. This lower-layer-covered
+  fix does not itself establish the CI failure's root cause or native parity.
+- Related journeys are CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016 and
+  CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016. No journey or coverage target is
+  removed; focused desktop results are recorded separately below.
+- Local macOS focused chromium-macos-appkit-smoke execution passed all four
+  selected/dependency phases: entity persistence seed/restart and Workspace Web
+  slot seed/restart. Artifact 2026-09-06T18-35-13-399Z-darwin records b8a3d3c9
+  plus this dirty worktree, clean native final flushes, paired Session isolation,
+  retained 0.55 divider width and restart readback. The earlier hosted stall was
+  not reproduced; this run is compatibility evidence, not proof of its root
+  cause. Windows and full-profile verification remain pending CI.
+- Validation after this change: complete single-worker Vitest passed 450 files
+  and 3,557 tests (153.53 seconds); TypeScript, ESLint, hygiene, docs and coverage
+  passed. Both production builds and E2E production isolation passed after the
+  focused native run. The earlier journal-watch failure did not recur in this
+  suite, but no watcher repair has been made and that issue remains open.

@@ -176,19 +176,21 @@ function fakeSession(storagePath: string | null): ChromiumRoleSessionPort {
   } as unknown as ChromiumRoleSessionPort;
 }
 
-function profile(): GlobalWebProfilePathsRecord {
+function profile(platform: "darwin" | "win32" = "darwin"): GlobalWebProfilePathsRecord {
   return {
     profileKey: "global-web",
-    chromiumUserDataDir: "/RionData/web-profiles/global-web/chromium"
+    chromiumUserDataDir: platform === "win32"
+      ? "C:\\RionData\\web-profiles\\global-web\\chromium"
+      : "/RionData/web-profiles/global-web/chromium"
   };
 }
 
-function harness(shellStoragePath: string | null = null) {
-  const contentSession = fakeSession(profile().chromiumUserDataDir);
+function harness(shellStoragePath: string | null = null, platform: "darwin" | "win32" = "darwin") {
+  const contentSession = fakeSession(profile(platform).chromiumUserDataDir);
   const shellSession = fakeSession(shellStoragePath);
   const sessions = new ChromiumGlobalWebSessionRegistry(
     { fromPath: vi.fn(() => contentSession) },
-    "darwin"
+    platform
   );
   const views: FakeView[] = [];
   const preferences: Array<Record<string, unknown>> = [];
@@ -240,7 +242,7 @@ function harness(shellStoragePath: string | null = null) {
       surfaceId: "web-tab-1-1",
       slotId: "slot-web-1",
       generation: 1,
-      profile: profile(),
+      profile: profile(platform),
       parent,
       url: "https://fixture.test/start",
       bounds: { x: 10, y: 20, width: 700, height: 500 },
@@ -266,6 +268,32 @@ async function finishCreate(subject: ReturnType<typeof harness>) {
 }
 
 describe("Chromium paired Workspace Web presentation", () => {
+  it.each(["darwin", "win32"] as const)("terminalizes a rejected shell navigation without a load event on %s", async platform => {
+    const subject = harness(null, platform);
+    const failure = new Error("ERR_ABORTED: local shell navigation cancelled");
+    let rejectNavigation!: (error: Error) => void;
+    const navigation = new Promise<void>((_resolve, reject) => { rejectNavigation = reject; });
+    const load = vi.spyOn(FakeContents.prototype, "loadURL")
+      .mockImplementationOnce(() => navigation);
+    try {
+      const creation = subject.subject.create(subject.input);
+      const outcome = creation.then(() => null, error => error);
+      await vi.waitFor(() => expect(subject.views).toHaveLength(2));
+      const shell = subject.views[0]!.webContents;
+      const content = subject.views[1]!.webContents;
+      shell.close.mockImplementation(() => shell.destroy());
+      content.close.mockImplementation(() => content.destroy());
+      rejectNavigation(failure);
+      await vi.waitFor(() => expect(shell.close).toHaveBeenCalledOnce());
+      expect(await outcome).toBe(failure);
+      expect(subject.subject.activeCount).toBe(0);
+      expect(subject.parent.children).toEqual([]);
+      await subject.subject.dispose();
+    } finally {
+      load.mockRestore();
+    }
+  });
+
   it("isolates persistent remote content from local Rion-owned chrome", async () => {
     const subject = harness();
     const { shell } = await finishCreate(subject);

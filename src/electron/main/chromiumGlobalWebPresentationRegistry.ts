@@ -312,8 +312,12 @@ export class ChromiumGlobalWebPresentationRegistry {
       this.#applyBounds(record, input.bounds);
       view.setVisible(input.visible);
       await this.#attach(record);
-      void contents.loadURL(this.#documentUrl).catch(() => {
-        // EventBound: did-fail-load is the authoritative shell-load terminal.
+      void contents.loadURL(this.#documentUrl).catch((error: unknown) => {
+        // EventBound: rejection belongs to this exact navigation request, even
+        // when Chromium does not emit a separate did-fail-load notification.
+        if (record.loadSettled) return;
+        record.loadSettled = true;
+        record.loaded.reject(error);
       });
       const bounds = splitBounds(input.bounds);
       const [contentHandle] = await Promise.all([

@@ -6,6 +6,7 @@
   },
   "include": [
     "e2e/desktop/support/platform.ts",
+    "e2e/desktop/support/native-failure-sample.ts",
     "e2e/desktop/support/chromium-escape-key.ts",
     "e2e/desktop/support/windows-runtime-tab-close.ts",
     "e2e/desktop/support/windows-runtime-foreground.ts",

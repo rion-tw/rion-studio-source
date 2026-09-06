@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows 18 journeys passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows 21 journeys passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS package/updater verified at 9e54640b; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -3215,3 +3215,64 @@ Twenty-one adjacent checks, typecheck, scoped lint, source hygiene, coverage,
 documentation and production E2E isolation pass. No local desktop profile was
 rerun for this Windows-only E2E precondition change.
 Checks: `/tmp/rion-quick-access-host-focus-*`.
+
+
+### Capture macOS failed-test stacks before a potentially unresponsive screenshot
+
+Repeated macOS native failures can also time out during screenshot capture,
+leaving no native thread evidence. The Tauri and unpackaged Electron WDIO hooks
+now cache the authenticated probe's PID plus its ps parent/start-time/executable
+identity at startup. On a failed test, the hook rechecks that identity and takes
+one two-second macOS sample before requesting the screenshot. Changed/missing
+identity and sampling failure are explicitly unavailable evidence; they do not
+sample a replacement process or replace the original test failure. Windows skips
+this OS-specific diagnostic. Packaged black-box admission is unchanged.
+
+This is internal-only desktop test evidence, not product performance diagnostics.
+No product UI, IPC, sampler, setting or recurring monitor is restored. No retries
+or correctness polling is added. The .sample.txt artifact is included in the
+existing failure artifact directory. Seven focused tests pass, including identity
+change, unavailable/ambiguous identity, sample failure and non-macOS behavior.
+A real read-only sample of an agent-owned local child process succeeds and the
+child is then terminated. Evidence: `/tmp/rion-native-failure-sample-live.txt`;
+checks: `/tmp/rion-native-failure-sample-*`.
+
+
+### Current candidate progress and failure evidence (cbbf3c9a)
+
+CI 34030205568 Windows Chromium job 101478202246 passes 23 phases and
+21 of 50 journeys. Quick Access seed/restart and settings persistence seed/restart
+now pass. The next physical trusted-input phase fails, causing ten dependent
+journeys to report FAIL and leaving nineteen NOT_RUN; these are not ten
+independent root failures. System settings/font application, full Macro and
+recovery acceptance, and Windows packaging remain pending.
+
+The physical input probe validates native key-down/key-up submission identities,
+ordering and restored keyboard state, then fails the exact trusted DOM sequence.
+The previous error omitted whether input was missing, partial or mismatched.
+Its failure now includes the pre-dispatch DOM focus state, exact native receipts
+and at most eight authenticated receipts for that probe sequence. No deadline,
+trust assertion or focus-preservation requirement is relaxed. This is
+internal-only evidence for CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009 and its
+existing dependent journeys; Windows execution of the new evidence is pending.
+
+The local macOS Quick Access prerequisite still fails entity launch. At
+`.desktop-e2e-artifacts/2026-09-06T11-38-34-243Z-darwin`, the failure hook now
+successfully captures the admitted Electron process before screenshot cleanup.
+The initial config-local sampler was unavailable across hook module instances;
+a worker-global symbol registry now carries the admitted sampler, with a
+separate-module handoff test. The captured main thread waits in the AppKit event
+loop; this does not establish a synchronous main-thread deadlock or resolve the
+missing launch receipt. The local profile remains failed, not waived. Product
+performance diagnostics and high-refresh settings remain removed.
+
+Validation for the failure-evidence changes: ten focused tests, typecheck,
+full lint (23 existing warnings, zero errors), full hygiene, documentation,
+coverage manifest, pure Electron build and production E2E isolation pass.
+The first full suite reports 3406 passes and one diagnostics-export cleanup
+observation timeout; that unchanged file passes all nine tests in isolation,
+and the subsequent full suite passes all 3407 tests. This does not erase the
+initial timing failure. No production Rust/native implementation changed in
+this candidate. The local macOS Chromium Quick Access profile fails its entity
+prerequisite as recorded above; Windows and Tauri hook acceptance require CI.
+Evidence logs: `/tmp/rion-resume-*`.

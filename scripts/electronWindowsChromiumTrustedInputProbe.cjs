@@ -421,7 +421,15 @@ void (async () => {
     const keyDom = await withDiagnosticDeadline(keyPending.input, 3_000);
     if (!keyDom.received || keyDom.value.length !== 2 ||
         keyDom.value.some((receipt) => !receipt.matches || !receipt.isTrusted)) {
-      throw new Error("Chromium did not emit the exact trusted DOM key sequence.");
+      throw new Error(`Chromium did not emit the exact trusted DOM key sequence: ${JSON.stringify({
+        preDispatchDomState,
+        foregroundProbe,
+        keyDown,
+        keyUp,
+        received: keyDom.received,
+        receipts: privateReceipts.filter(receipt =>
+          receipt.inputSequence === "windows-probe-key").slice(-8)
+      })}`);
     }
 
     const zoomFactor = 1.25;

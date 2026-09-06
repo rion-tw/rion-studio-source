@@ -1,10 +1,11 @@
+import { prepareNativeFailureSampler, registerNativeFailureSampler, capturePreparedNativeFailureSample } from "./support/native-failure-sample";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { browser } from "@wdio/globals";
 
 import { desktopE2eSpecForPhase } from "./phaseSpecs";
-import { requestElectronDesktopE2eClose } from "./support/electron-driver";
+import { requestElectronDesktopE2eClose, electronDesktopE2eProbe } from "./support/electron-driver";
 import { electronLauncherWindowHandle } from "./support/window-target";
 
 function required(name: string): string {
@@ -99,6 +100,16 @@ export const config = {
     const launcherHandle = electronLauncherWindowHandle(windows);
     await runnerBrowser.switchToWindow(launcherHandle);
     runnerBrowser.electron.windowHandle = launcherHandle;
+    if (process.platform === "darwin" && !packaged) {
+      try {
+        registerNativeFailureSampler(await prepareNativeFailureSampler({
+          platform: process.platform, processId: (await electronDesktopE2eProbe()).processId
+        }));
+        console.info("Native failure sample target prepared");
+      } catch {
+        console.info("Native failure sample preparation unavailable");
+      }
+    }
   },
   after: async (): Promise<void> => {
     if (packaged) return;
@@ -115,6 +126,11 @@ export const config = {
     if (result.passed ||
         process.env.RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT === "1") return;
     const safeTitle = test.title.replaceAll(/[^a-z0-9]+/giu, "-").replaceAll(/^-|-$/gu, "");
+    if (process.platform === "darwin") {
+      console.info("Native failure sample:", await capturePreparedNativeFailureSample(
+        resolve(artifactDir, "screenshots", `${safeTitle}.sample.txt`)
+      ));
+    }
     await browser.saveScreenshot(resolve(artifactDir, "screenshots", `${safeTitle}.png`));
   }
 };

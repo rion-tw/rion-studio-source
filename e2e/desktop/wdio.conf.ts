@@ -1,3 +1,5 @@
+import { probe } from "./support/control";
+import { prepareNativeFailureSampler, registerNativeFailureSampler, capturePreparedNativeFailureSample } from "./support/native-failure-sample";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { browser } from "@wdio/globals";
@@ -58,6 +60,16 @@ export const config = {
     await browser.setTimeout({ script: 55_000 });
     const handles = await browser.getWindowHandles();
     await browser.switchToWindow(primaryAppWindowHandle(handles));
+    if (process.platform === "darwin") {
+      try {
+        registerNativeFailureSampler(await prepareNativeFailureSampler({
+          platform: process.platform, processId: (await probe()).pid
+        }));
+        console.info("Native failure sample target prepared");
+      } catch {
+        console.info("Native failure sample preparation unavailable");
+      }
+    }
   },
   afterTest: async (
     test: { title: string },
@@ -66,6 +78,11 @@ export const config = {
   ): Promise<void> => {
     if (result.passed) return;
     const safeTitle = test.title.replaceAll(/[^a-z0-9]+/giu, "-").replaceAll(/^-|-$/gu, "");
+    if (process.platform === "darwin") {
+      console.info("Native failure sample:", await capturePreparedNativeFailureSample(
+        resolve(artifactDir, "screenshots", `${safeTitle}.sample.txt`)
+      ));
+    }
     await browser.saveScreenshot(resolve(artifactDir, "screenshots", `${safeTitle}.png`));
   }
 };

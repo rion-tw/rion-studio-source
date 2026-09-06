@@ -74,7 +74,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS package/updater verified at 522f7d4a; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS package/updater verified at c0e09041; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -2456,3 +2456,30 @@ This run uses the existing local 8.5.0 package (app.asar SHA-256
 verifies the updated external native driver, not a rebuilt current-candidate
 package. Exact-candidate macOS package and Windows CI remain pending.
 Logs: `/tmp/rion-packaged-ax-*`.
+
+
+### macOS complete package validation advanced to c0e09041
+
+CI [34019181794](https://github.com/rion-tw/rion-studio-source/actions/runs/34019181794)
+macOS Chromium package job 101448473362 completed successfully at
+c0e09041173a923abfc291d6ec91452d9bcaf6e6. Its source smoke report records
+52 PASS phases, four expected force-termination phases and all 49 journeys PASS
+(07:32:48.424–07:53:30.056 UTC). The report records the existing CI fixture
+worktree changes; it is bound to the stated commit, not current HEAD. Evidence:
+`/tmp/rion-c0-mac-shell-artifacts/2026-09-06T07-32-48-182Z-darwin/report.json`.
+
+The same job passed package construction, exact ABI/runtime and distribution
+verification and the Rust-owned packaged updater transaction (08:13:38 UTC).
+The final packaged native black-box reports passed, exit code 0, visible OS
+accessibility click and appkit-chromium host for version 8.5.0. Artifact
+9985570974 contains:
+`/tmp/rion-c0-mac-packaged-artifacts/2026-09-06T08-13-40-956Z-5fe61725-ebfb-4389-baa5-a05775d5370d-darwin-packaged-black-box/packaged-smoke-report.json`.
+Log: `/tmp/rion-c0-mac-package.log`. Both native validation jobs at c0e09041
+also passed. This advances CP-16's latest complete macOS evidence, but does not
+verify later changes or close Windows, physical hardware or release gates.
+
+The retired-AX-reference driver correction is committed as c9f94a5b and is
+under immutable-ref CI
+[34021272996](https://github.com/rion-tw/rion-studio-source/actions/runs/34021272996).
+The preceding Windows Chromium stop-admission run 34020983154 remains live in
+its shell E2E step at this observation; it is not a passing result yet.

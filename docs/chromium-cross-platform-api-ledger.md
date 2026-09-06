@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | both API probes passed; complete alias comparison pending | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | conditional | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | probe | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | both isolated API probes passed; Role replacement decision pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | retain native submission by API contract; paired acceptance pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -1349,3 +1349,48 @@ changed-spec lint also passed. Logs are `/tmp/rion-stop-terminal-tests.log`,
 `/tmp/rion-stop-terminal-lint.log` and adjacent `rion-stop-terminal-*` logs.
 The new Windows Rust and both complete Chromium profiles remain pending the
 next exact-commit CI run; previous failures are not reclassified as passes.
+
+Fresh CI run [34010684582](https://github.com/rion-tw/rion-studio-source/actions/runs/34010684582)
+is validating exact commit `8f474391b51c3e8d3b453754582f6084366dd31a`, including
+the telemetry removal and both E2E corrections. Its seven initial jobs started;
+none is yet passing evidence. A preceding dispatch (`34010670635`) used a
+mistyped checkout ref and was promptly cancelled and replaced; it provides no
+validation evidence. The pure Electron production renderer is restored locally.
+
+### CP-08 replacement decision: retain native submission
+
+The pinned Electron 43.4.1 declaration at
+`node_modules/electron/electron.d.ts` documents that the containing BrowserWindow
+must be focused for `WebContents.sendInputEvent()` to work. Both isolated native
+probe reports at `1893e7e2` nevertheless observed all 16 samples, including hidden
+views, background hosts, hidden hosts, modifiers, middle clicks at two zoom
+factors and held-key/reload sequences. These observations are useful regression
+evidence but cannot expand the API's supported focus contract. They also do not
+claim exact production Role identity or native-neutrality proof.
+
+Decision: retain Windows native submission and the explicitly required AppKit
+trusted-input adapter. Background Role execution must not acquire focus. A
+foreground-only `sendInputEvent()` path would leave the complete native lane
+necessary for background execution and would introduce a second submission
+owner across focus changes and held-key release. There is no demonstrated
+maintenance reduction or equivalent cross-owner cleanup protocol to justify
+that partial replacement. This is a compatibility decision based on the
+pinned API contract, not a claim that the successful hidden probes failed.
+
+The common Core input epoch, Role/document fence, automatic-input preflight,
+pending sequence, authenticated DOM decoder, cancellation and retirement remain
+shared under CP-09. Native dispatch still requires exact child/parent identity,
+binding revision, native submission and the complete trusted DOM sequence;
+neither elapsed time nor an Electron void return becomes success. The existing
+Windows adapter tests explicitly cover hidden delivery without changing the
+foreground owner, obsolete binding/probe revision, lost focus evidence and
+untrusted input. Coordinator tests cover held-key document replacement and
+exact-generation recovery. Full current-commit native Macro/reload acceptance
+is still required in the paired Chromium profiles. CP-08's replacement decision
+is now settled; its acceptance is not inferred from this source audit.
+
+CP-08/09's seven focused coordinator, runtime, adapter, pending-lane and preload
+suites passed 89 tests on macOS (`/tmp/rion-cp08-retained-input-tests.log`).
+This lower-layer evidence validates retained receipt and lifetime invariants;
+it is not Windows native input or a replacement Role probe. Documentation, AI
+context and source hygiene checks also passed. No product behavior changed.

@@ -42,7 +42,13 @@ with another browser API. The remaining duplication between Role and global Web
 registries represents distinct identity, preload and navigation ownership. Merging
 those registries into one permissive surface owner would weaken the product's
 separate security domains. Shared path and projection mechanics are already
-handled by CP-03/04; native input replacement remains CP-07/08.
+handled by CP-03/04; application shortcut replacement remains CP-07. CP-08 retains native trusted
+input submission because the pinned sendInputEvent API requires a focused
+containing BrowserWindow while background Role macros must not acquire focus.
+The cross-platform pending lane, DOM receipt decoder and Core coordinator are
+shared under CP-09; native submission still proves exact target identity and
+input neutrality. The ledger records the successful isolated probes separately
+from the supported API contract and production Role acceptance.
 
 ## Verification and remaining acceptance
 

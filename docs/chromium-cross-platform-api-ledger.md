@@ -73,8 +73,8 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | current macOS smoke 56 phases passed; Windows 24 phases passed, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS package/updater verified at 79ea9b13; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 280027d7; Windows 25 at cbdd80fe, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 280027d7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -4218,3 +4218,33 @@ trusted input are outside this Windows child-host removal.
 - Production Electron rebuild, E2E production isolation and full hygiene checks
   passed after the targeted native run. Windows observation execution awaits
   the next exact candidate; no native Rust sources changed in this update.
+
+
+### CP-15/16 completed macOS package acceptance at 280027d7
+
+- CI `34046674835`, macOS Chromium package job `101522843140`, completed
+  successfully. Its downloaded report binds commit
+  `280027d7248a3af269cfd6dac3b4a310fc00476f` to all 56
+  `chromium-macos-appkit-smoke` phases with PASS, exit code 0 and final-flush
+  evidence. The report records a dirty worktree because this job applies its
+  isolated updater fixture version; this is CI fixture acceptance, not a clean
+  production-release receipt.
+- The same job passed exact Electron/Chromium/Core/AppKit ABI verification,
+  package structure, distribution payload checks, prior-version fixture builds
+  and the packaged Rust updater transaction for fixture target version 8.5.0.
+  Production trust, published-v22 cutover, Windows installation and physical
+  hardware gates remain independent and open.
+- Downloaded artifact `packaged-chromium-role-black-box-macOS-34046674835-1`
+  (ID `9993943541`) contains a passed black-box receipt: actual host
+  `appkit-chromium`, visible OS Accessibility click, remoteDebugging false,
+  exitCode 0 and a package manifest covering 601 entries. It binds app.asar
+  SHA-256 `4a004846532d32c72e6a00ad9f2958a9b40affc7537ab18850976794da0f9ae8`
+  and native addon SHA-256
+  `981b274d2ddefd0ce243702819a637f835b6d19aad1ace555144406f8e8bc43f`.
+- The downloaded Windows `cbdd80fe` report separately establishes 25 passing
+  phases, including `chromium-macro-native-effect`; the following background-tab
+  phase failed. CP-15's register now reflects this verified count rather than
+  the earlier 24-phase candidate. Neither result closes the full Windows gate.
+- This update changes evidence documentation only. It does not restart or replace
+  the already-running `b70fd73e` CI (`34049447661`) that will supply the exact
+  Windows admission samples.

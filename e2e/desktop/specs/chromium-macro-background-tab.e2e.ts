@@ -177,7 +177,7 @@ async function submitToggleShortcut(role: Role, mainWindowHandle: string): Promi
     { key: "4", phase: "keyDown" },
     { key: "4", phase: "keyUp" },
     { key: Key.Shift, phase: "keyUp" }
-  ]);
+  ], { windowId: WINDOW_ID });
 }
 
 async function observeHiddenPresentation(input: Readonly<{
@@ -348,7 +348,8 @@ describe("Chromium Macro background-tab exact replacement", () => {
     await submitElectronRoleKeyPhases(
       scenario.roles[1].launchUrl!,
       context.mainWindowHandle,
-      [{ key: "z", phase: "keyDown" }, { key: "z", phase: "keyUp" }]
+      [{ key: "z", phase: "keyDown" }, { key: "z", phase: "keyUp" }],
+      { windowId: WINDOW_ID }
     );
     const roleBKeyup = await waitExactTrustedKey({
       afterSequence: operationAfter,

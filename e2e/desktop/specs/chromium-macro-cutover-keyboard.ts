@@ -153,11 +153,11 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
     { key: Key.Shift, phase: "keyDown" },
     { key: "2", phase: "keyDown" }
-  ]);
+  ], { windowId: WINDOW_ID });
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
     { key: "2", phase: "keyUp" },
     { key: Key.Shift, phase: "keyUp" }
-  ], { focusCanvas: false });
+  ], { windowId: WINDOW_ID, focusCanvas: false });
   const replayedOne = await waitExactKey({
     afterSequence: reentryFixture,
     code: "Digit1",
@@ -179,7 +179,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     { key: "2", phase: "keyDown" },
     { key: "2", phase: "keyUp" },
     { key: Key.Shift, phase: "keyUp" }
-  ]);
+  ], { windowId: WINDOW_ID });
   exactTrustedKey(await waitExactKey({
     afterSequence: releasedReentryFixture,
     code: "Digit1",
@@ -192,7 +192,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
     { key: Key.Shift, phase: "keyDown" },
     { key: "5", phase: "keyDown" }
-  ]);
+  ], { windowId: WINDOW_ID });
   await waitForMacroProjection({
     afterSequence: continuityProjection,
     macroId: macros.continuity.id,
@@ -206,7 +206,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     { key: "4", phase: "keyUp" },
     { key: "5", phase: "keyUp" },
     { key: Key.Shift, phase: "keyUp" }
-  ], { focusCanvas: false });
+  ], { windowId: WINDOW_ID, focusCanvas: false });
   const shiftedFour = await waitExactKey({
     afterSequence: continuityFixture,
     code: "Digit4",
@@ -226,7 +226,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const blurFixture = await fixtureCursor();
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
     { key: "q", phase: "keyDown" }
-  ]);
+  ], { windowId: WINDOW_ID });
   await activateChromiumRoleVisible(context, tabB);
   const blurRelease = await waitExactKey({
     afterSequence: blurFixture,
@@ -241,7 +241,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   }));
   await submitElectronRoleKeyPhases(roleB.launchUrl!, context.mainWindowHandle, [
     { key: "q", phase: "keyUp" }
-  ], { focusCanvas: false });
+  ], { windowId: WINDOW_ID, focusCanvas: false });
   await activateChromiumRoleVisible(context, tabA);
 
   const middleFixture = await fixtureCursor();

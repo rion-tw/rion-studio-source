@@ -433,12 +433,26 @@ export async function submitElectronRoleKeyPhases(
   expectedUrl: string,
   mainWindowHandle: string,
   phases: readonly ElectronRoleKeyPhase[],
-  options: Readonly<{ focusCanvas?: boolean }> = {}
+  options: Readonly<{ windowId: string; focusCanvas?: boolean }>
 ): Promise<void> {
+  const probe = options.focusCanvas === false ? null : await electronDesktopE2eProbe();
+  const nativeWindowHandle = probe?.platform === "windows"
+    ? (await electronDesktopE2eFullscreenToolbarRuntime(options.windowId)).nativeWindowHandle
+    : null;
+  if (probe?.platform === "windows" && !nativeWindowHandle) {
+    throw new Error("The exact Windows runtime handle is missing");
+  }
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const canvas = await $("#game-input-canvas");
     await canvas.waitForDisplayed({ timeout: 10_000 });
     if (options.focusCanvas !== false) {
+      if (probe && nativeWindowHandle) {
+        // ChromeDriver can deliver DOM keys without native WebContents focus.
+        // A real content click establishes the same focus a user supplies.
+        await focusWindowsRuntimeNativeWindow({
+          processId: probe.processId, nativeWindowHandle, pointerTarget: "content-click"
+        });
+      }
       const size = await canvas.getSize();
       await browser.action("pointer", {
         parameters: { pointerType: "mouse" }

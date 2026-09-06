@@ -47,6 +47,8 @@ async function invoke(request: ChromiumSessionMigrationFreshHelperRequest, envel
   const environment = { ...process.env };
   delete environment.ELECTRON_RUN_AS_NODE;
   const child = spawn(electron, [entry, "--rion-internal-chrome-profile-helper"], {
+    // Match Rust background_command's CREATE_NO_WINDOW with non-inherited pipes.
+    windowsHide: true,
     env: environment, stdio: ["pipe", "pipe", "pipe"], timeout: 30_000, killSignal: "SIGKILL"
   });
   const output: Buffer[] = [];

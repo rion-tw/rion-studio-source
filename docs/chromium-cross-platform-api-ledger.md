@@ -4248,3 +4248,81 @@ trusted input are outside this Windows child-host removal.
 - This update changes evidence documentation only. It does not restart or replace
   the already-running `b70fd73e` CI (`34049447661`) that will supply the exact
   Windows admission samples.
+
+
+### CP-11 hidden View experiment: distinguish native and DOM visibility
+
+- A local isolated bundled-Electron macOS experiment changed zoom only after
+  `WebContentsView.getVisible()` was false. With backgroundThrottling false,
+  document.visibilityState remained visible even after a classified 3-second
+  visibility-event boundary. Pinned Electron declarations explicitly state that
+  backgroundThrottling affects the Page Visibility API. Therefore a DOM hidden
+  event is not an appropriate substitute for native View visibility in this
+  probe. The missing DOM event was recorded as indeterminate, never success.
+- The same native-hidden View received a resize-event acknowledgement changing
+  its renderer viewport from 600x400 to 480x320 at factor 1.25 before reveal.
+  Reveal retained the acknowledged size. The native sample and renderer
+  acknowledgement were both read; getZoomFactor alone was not the evidence.
+- This isolated single-View macOS API experiment is not retained-AppKit product
+  acceptance, Windows acceptance, sibling occlusion or a production zoom
+  completion fix. CP-11 remains open for those exact cases. The immediate next
+  zoom experiment must retain native visibility evidence and use a renderer
+  resize receipt, without demanding a DOM visibility transition contradicted
+  by the configured Electron behavior.
+
+
+### CP-08 Windows foreground precondition identified at b70fd73e
+
+- CI `34049447661`, Windows job `101530282243`, produced the missing exact
+  admission sample in `electron-view-input-observations.json`. The initial
+  background-tab shortcut had parentForeground true, parentVisible true,
+  parentMinimized false, viewAttached true and viewVisible true, but
+  contentsFocused false and focusedWebContentsId null. Bounds were 904x560 at
+  (0,40), zoom 1, and the exact role/generation/View identity was intact.
+  Product input admission correctly rejected this non-focused View.
+- The shared E2E keyboard helper now receives the exact scenario window ID and
+  performs the existing PID/HWND-fenced native content click before a new
+  Windows keyboard sequence. ChromeDriver's ability to deliver DOM keys alone
+  is not native focus evidence. `focusCanvas: false` continuation sequences
+  preserve their existing no-extra-click behavior. The product focus rules,
+  background delivery rules, Core deadlines and event assertions are unchanged.
+- This targets `CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004` and the shared
+  keyboard cutover scenario. Actual Windows acceptance remains pending the
+  next candidate; a physical focus precondition must not be used to select a
+  hidden target or repair background delivery.
+- Separately, CI `34049199222`, macOS native job `101529742726`, passed at
+  `07ee2675`. Its raw log explicitly records both new production Session helper
+  integration tests passing (10,372 ms), establishing hosted macOS coverage
+  beyond the earlier local test. Windows Session helper acceptance remains open.
+
+
+### CP-10 Windows helper launch parity correction
+
+- Windows native job `101529742770` at `07ee2675` executed both new Session
+  integration cases and failed their exact magic check: stdout started with
+  CRLF before RCHRES01. No data inventory verification was reached.
+- The test's Node child launch omitted the console suppression already used by
+  production Rust `rion_platform::background_command` (CREATE_NO_WINDOW). The
+  test now sets windowsHide true with all three standard streams piped. Pinned
+  [Node 24.18.0 libuv source](https://github.com/nodejs/node/blob/v24.18.0/deps/uv/src/win/process.c#L970-L985)
+  applies CREATE_NO_WINDOW for this combination. This aligns the launch
+  environment; it does not strip stdout, relax framing, change exit evidence,
+  or claim that the Windows rerun has passed.
+- Local validation of these test-only corrections passed: 5 focused files / 30
+  tests, 2 real Session helper cases, TypeScript, ESLint, full hygiene and
+  coverage checks, production Electron build and E2E production isolation.
+  Product Rust/native imports and shared runtime contracts are unchanged.
+- The first local background run caught an E2E bridge read after switching to a
+  Role page; that attempt failed and is not acceptance. PID/HWND lookup was
+  moved to the main-page boundary before entering the Role target. Subsequent
+  macOS `chromium-macos-appkit-smoke` targeted phases passed:
+  `chromium-macro-background-tab` (21.4 seconds, artifact
+  `.desktop-e2e-artifacts/2026-09-06T18-00-13-455Z-darwin`) and
+  `chromium-macro-cutover-keyboard` (28 seconds, artifact
+  `.desktop-e2e-artifacts/2026-09-06T18-00-43-415Z-darwin`). These are two targeted
+  phases, not another full-profile run.
+- Affected paired journey suffixes are MACRO-BACKGROUND-TAB-004,
+  MACRO-SHORTCUT-REENTRY-007, MACRO-MODIFIER-CONTINUITY-008 and ROLE-KEY-BLUR-004.
+  The keyboard phase also retains its existing MACRO-MIDDLE-BUTTON-013
+  assertions. Manifest behavior/coverage targets are unchanged; Windows native
+  confirmation of the corrected test actions and helper launch remains pending.

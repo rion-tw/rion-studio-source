@@ -1,13 +1,14 @@
 import { browser, expect } from "@wdio/globals";
 
 import type { EmbeddedRuntimeTabSummary } from "../../../src/shared/types";
-import { electronDesktopE2eRolePlaceholderRuntime } from
+import { electronDesktopE2eProbe, electronDesktopE2eRolePlaceholderRuntime } from
   "../support/electron-driver";
 import { clickVisibleElectronPageElement } from
   "../support/electron-role-surface";
 import { fixtureCursor, fixtureRequest, waitFixtureEvent } from
   "../support/fixture";
 import { rendererCall } from "../support/renderer-bridge";
+import { closeLoadingWindowsRuntimeTab } from "../support/windows-runtime-tab-close";
 import {
   createCutoverGame,
   createCutoverRole,
@@ -264,6 +265,8 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
       tab: relaunchedTab
     });
 
+    const processId = (await electronDesktopE2eProbe()).processId;
+    const cancelCursor = await fixtureCursor();
     await fixtureRequest("/api/gate", { roleId: HEALTHY_FIXTURE });
     await fixtureRequest("/api/gate", { roleId: FAILING_FIXTURE });
     try {
@@ -272,12 +275,22 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
         waitFixturePath(`/api/gates/${HEALTHY_FIXTURE}/waiting`),
         waitFixturePath(`/api/gates/${FAILING_FIXTURE}/waiting`)
       ]);
-      const gatedTab = await waitWorkspaceTab(workspace.id);
-      await stopCutoverWindow({
-        mainWindowHandle: input.mainWindowHandle,
-        platform: input.platform,
-        tab: gatedTab
-      });
+      if (input.platform === "windows") {
+        // Core/native projection reads wait for loading; ChromeDriver can also
+        // wait for a gated target. Cancel through its exact visible native row.
+        await closeLoadingWindowsRuntimeTab({ processId, tabName: workspace.name });
+      } else {
+        const gatedTab = await waitWorkspaceTab(workspace.id);
+        await stopCutoverWindow({
+          mainWindowHandle: input.mainWindowHandle,
+          platform: input.platform,
+          tab: gatedTab
+        });
+      }
+      await Promise.all([HEALTHY_FIXTURE, FAILING_FIXTURE].map((roleId) =>
+        waitFixtureEvent({ afterSequence: cancelCursor,
+          kind: "gated-navigation-transport-cancelled", roleId })
+      ));
     } finally {
       await fixtureRequest("/api/release", { roleId: HEALTHY_FIXTURE });
       await fixtureRequest("/api/release", { roleId: FAILING_FIXTURE });

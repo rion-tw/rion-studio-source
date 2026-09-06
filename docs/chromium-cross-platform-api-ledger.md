@@ -2308,3 +2308,40 @@ still independently required. This stable-shell verdict does not establish
 Chromium Windows parity; CI 34019181794 at c0e09041 is still running the
 Chromium/native package gates and includes the later Core commit wakeup and
 file-dialog pointer corrections.
+
+### Windows Web-only, upload and shared Role journeys now pass together
+
+CI 34019181794 at c0e09041 passes CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028,
+CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024 (seed/restart) and
+CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025. This confirms the physical file
+chooser control actions, Core-only projection wakeup and positive-fence
+placeholder initialization in the same native Windows run. The report records
+12 PASS phases and 15 PASS journeys before WORKSPACES-RECOVERY-026 fails;
+34 journeys remain NOT_RUN. Report:
+`/tmp/rion-c0-win-package-artifacts/2026-09-06T07-28-50-469Z-win32/report.json`.
+
+Recovery passes failure isolation and visible stop/relaunch, then fails gated
+loading cancellation. Its test reads the runtime projection before clicking
+Stop, while loading is deliberately blocked. That read can wait for the very
+load being cancelled; effect 4caf085f reaches its Core deadline before the
+later stop command. The Windows test now observes the exact native loading row
+and invokes its visible close control without attaching ChromeDriver or
+requesting a settled projection. It uses the same exact PID/HWND/control-name
+validation as the existing native close helper. Both gated Role transports
+must report cancellation before either fixture is released; final Core tabs
+and Role statuses must still be absent. The macOS visible action is retained
+and now has the same explicit transport-cancellation assertions.
+
+Validation: 17 native-control evidence tests, typecheck, scoped lint, hygiene,
+coverage and E2E isolation pass. Local macOS AppKit
+CHROMIUM-MACOS-APPKIT-WORKSPACES-RECOVERY-026 passes at 31929ef5 plus this working
+diff, report `.desktop-e2e-artifacts/2026-09-06T07-40-59-564Z-darwin/report.json`.
+Windows native execution remains pending fresh CI. This is internal-only test
+sequencing work; product cancellation and its deadlines are unchanged. The
+Windows journey manifest names the exact native gated-cancel action and both
+transport receipts. Logs: `/tmp/rion-workspace-loading-cancel-*`.
+
+The latest Tauri Windows full run at c0e09041 fails later in p1-guard-cleanup
+with mainWindowFocusSuperseded; log `/tmp/rion-c0-win-tauri.log`. The earlier
+be7b28b3 full PASS remains valid at that SHA, but this new focus supersession
+requires investigation and prevents a current-head full acceptance claim.

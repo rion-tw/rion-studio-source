@@ -134,6 +134,23 @@ export async function closeWindowsRuntimeTabFromEvidence(
   port: NativeClosePort = nativePort()
 ): Promise<void> {
   validateIdentity(evidence, port.platform);
+  await invokeWindowsRuntimeTabClose(evidence, port);
+}
+
+/** Cancel a visibly loading tab without waiting for its blocked renderer target. */
+export async function closeLoadingWindowsRuntimeTab(
+  input: Readonly<{ processId: number; tabName: string }>,
+  port: NativeClosePort = nativePort()
+): Promise<void> {
+  const evidence = await readWindowsRuntimeTabLoadingEvidence(input, port);
+  await invokeWindowsRuntimeTabClose(evidence, port);
+}
+
+async function invokeWindowsRuntimeTabClose(
+  evidence: Readonly<Pick<WindowsRuntimeTabCloseEvidence,
+    "processId" | "nativeHandle" | "controlName">>,
+  port: NativeClosePort
+): Promise<void> {
   if (!/^[1-9]\d*$/u.test(evidence.nativeHandle)) throw new Error("Invalid native close handle");
   await port.run(accessibility + String.raw`
 $window = [System.Windows.Automation.AutomationElement]::FromHandle(

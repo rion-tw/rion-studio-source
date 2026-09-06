@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   closeWindowsRuntimeTabFromEvidence,
+  closeLoadingWindowsRuntimeTab,
   readWindowsRuntimeTabCloseEvidence,
   readWindowsRuntimeTabLoadingEvidence
 } from "../e2e/desktop/support/windows-runtime-tab-close";
@@ -51,6 +52,22 @@ describe("Windows gated tab loading observation", () => {
   const receipt = {
     nativeHandle: "123456", controlName: "Stop and close Workspace", loadingName: "Activate Workspace, loading"
   };
+
+  it("cancels only the native host whose loading row was observed", async () => {
+    const run = vi.fn().mockResolvedValueOnce(JSON.stringify(receipt)).mockResolvedValueOnce("");
+    await closeLoadingWindowsRuntimeTab(input, { platform: "win32", run });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenLastCalledWith(expect.any(String), {
+      ...input, nativeHandle: receipt.nativeHandle, controlName: receipt.controlName
+    }, { timeoutMilliseconds: 30_000 });
+  });
+
+  it("does not cancel if the loading observation fails", async () => {
+    const run = vi.fn().mockRejectedValue(new Error("loading row unavailable"));
+    await expect(closeLoadingWindowsRuntimeTab(input, { platform: "win32", run }))
+      .rejects.toThrow("loading row unavailable");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 
   it("binds the visible loading control to its exact process and native host", async () => {
     const run = vi.fn().mockResolvedValue(JSON.stringify(receipt));

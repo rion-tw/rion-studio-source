@@ -404,6 +404,22 @@ describe("macOS AppKit trusted-input adapter", () => {
     }
   );
 
+  it.each(["hold", "release"] as const)(
+    "keeps non-shortcut Macro %s out of physical-key focus cleanup",
+    async (phase) => {
+      const subject = harness();
+      const action = { ...keyAction(), phase, code: "Digit2", key: "2",
+        modifiers: [], suppressOverlayShortcut: false };
+      const completion = subject.adapter.dispatch(nativeRequest("ordinary-key", action));
+      const control = subject.arm();
+      expect(control.shortcutSuppression).toEqual({
+        code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"]
+      });
+      subject.adapter.receive(subject.event, subject.domReceipt(control, 0));
+      await expect(completion).resolves.toMatchObject({ status: "applied" });
+    }
+  );
+
   it("applies a tap only after exact native submitted and trusted key down/up receipts", async () => {
     const subject = harness();
     const completion = subject.adapter.dispatch(nativeRequest("tap-1", keyAction()));

@@ -1,3 +1,4 @@
+import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
 import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
   "./chromiumTrustedInputDomReceipt";
 import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } from
@@ -690,22 +691,9 @@ implements ChromiumNativeTrustedInputPort {
       );
     }, request.deadlineMs - now);
     try {
-      this.#surfaces.sendTrustedInputControl(frame, Object.freeze({
-        kind: "arm",
-        roleId: request.roleId,
-        generation: request.surfaceGeneration,
-        frameToken: frame.frameToken,
-        inputSequence,
-        expectedEvents: pending.expectedEvents,
-        shortcutSuppression: request.action.type === "key" &&
-          request.action.suppressOverlayShortcut
-          ? Object.freeze({
-              code: request.action.code!,
-              phases: Object.freeze(pending.expectedEvents.map((event) =>
-                event.type as "keydown" | "keyup"))
-            })
-          : null
-      }));
+      this.#surfaces.sendTrustedInputControl(frame, createTrustedInputArmEnvelope(
+        request, frame.frameToken, inputSequence, pending.expectedEvents
+      ));
     } catch {
       this.#terminalize(
         pending,

@@ -1393,7 +1393,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Create a one-shot toggle Macro assigned to Role A with Roles A and B as visible shortcut sources. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout."
+      "description": "Create a one-shot toggle Macro assigned to Role A with Roles A and B as visible shortcut sources. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004",

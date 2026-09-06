@@ -1,3 +1,4 @@
+import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
 import { sameChromiumViewInputIdentity, validChromiumViewInputIdentity,
   validChromiumViewInputObservation, chromiumViewInputObservationKey } from "./chromiumViewTrustedInputValidation";
 import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
@@ -9,7 +10,6 @@ import { randomUUID } from "node:crypto";
 import type { BrowserAction } from "../../shared/generated";
 import {
   CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
-  type ChromiumRoleTrustedInputArmEnvelope,
   type ChromiumRoleTrustedInputExpectedEvent,
   type ChromiumRoleTrustedInputReceipt
 } from "../ipc/chromiumRoleTrustedInputProtocol";
@@ -610,24 +610,9 @@ implements ChromiumNativeTrustedInputPort {
       );
     }, request.deadlineMs - now);
     try {
-      this.#surfaces.sendTrustedInputControl(frame, Object.freeze({
-        kind: "arm",
-        roleId: request.roleId,
-        generation: request.surfaceGeneration,
-        frameToken: frame.frameToken,
-        inputSequence,
-        expectedEvents: pending.expectedEvents,
-        // Every key in this lane is Macro-owned, even without a shortcut
-        // collision. The page guard also keeps it out of physical-key blur
-        // cleanup, which would otherwise synthesize a premature release.
-        shortcutSuppression: request.action.type === "key"
-          ? Object.freeze({
-              code: request.action.code!,
-              phases: Object.freeze(pending.expectedEvents.map((event) =>
-                event.type as "keydown" | "keyup"))
-            })
-          : null
-      } satisfies ChromiumRoleTrustedInputArmEnvelope));
+      this.#surfaces.sendTrustedInputControl(frame, createTrustedInputArmEnvelope(
+        request, frame.frameToken, inputSequence, pending.expectedEvents
+      ));
     } catch {
       this.#terminalize(
         pending,

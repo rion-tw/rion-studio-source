@@ -4726,3 +4726,59 @@ trusted input are outside this Windows child-host removal.
   uses the collision flag for page guards; audit its ownership behavior and
   shared guard construction next rather than assuming native equivalence from
   the Windows repair.
+
+### CP-08/CP-09 share exact Macro keyboard arming on both native adapters
+
+- The macOS adapter had the same collision-only guard condition as Windows.
+  Two new hold/release tests with suppressOverlayShortcut false reproduced
+  null page guards there as well. Correct both platforms through the shared
+  createTrustedInputArmEnvelope function: exact role/generation/frame/sequence,
+  expected events and Macro keyboard ownership now have one construction site.
+  Each adapter retains native admission, submission, deadlines and independent
+  receipt checks; AppKit presentation and trusted native input remain intact.
+- The adjacent macOS/Windows adapter and overlay focus suites pass 85 tests.
+  Both new macOS cases failed before the change and pass afterward. Existing
+  click cases still require no keyboard guard, and untrusted/stale/cancelled
+  inputs retain their original terminal checks.
+- Local macOS profile chromium-macos-appkit-smoke, focused phase
+  chromium-macro-background-tab, passed with native AppKit evidence and clean
+  exit in artifact 2026-09-06T19-30-38-199Z-darwin. The report binds 33da5f3e
+  plus this dirty worktree and verifies
+  CHROMIUM-MACOS-APPKIT-MACRO-BACKGROUND-TAB-004 only. Hidden start, return to
+  the Role, retained consumer hold, trusted stop and neutral cleanup all passed.
+  It does not certify the entire smoke profile or Windows execution.
+- Update the paired journey descriptions to retain ordinary Macro ownership
+  across in-page focus cleanup. Source consolidation alone is not native parity;
+  the new exact-commit Windows run and full candidate gates remain required.
+
+### CP-10 identify the pinned Electron Windows stdout preamble
+
+- Upstream issue [28072](https://github.com/electron/electron/issues/28072#issuecomment-797141819)
+  identifies deliberate browser startup output. Inspection of the downloaded
+  pinned Electron 43.4.1 source confirms shell/app/electron_main_delegate.cc
+  lines 180-186: under IS_WIN, IsBrowserProcess writes std::wcout << std::endl
+  before the application entry. This explains the exact CRLF at offset zero
+  independently of the helper's error response and NO_ATTACH_CONSOLE.
+- This is distinct from Console attachment in electron_main_win.cc. It cannot
+  be prevented by changing helper JavaScript after startup. Source reference:
+  [pinned main delegate](https://github.com/electron/electron/blob/v43.4.1/shell/app/electron_main_delegate.cc#L180-L186).
+- Next transport work must explicitly account for the fixed runtime envelope
+  or use a separate inherited response channel. Do not scan for magic, trim
+  arbitrary whitespace, accept optional/duplicate prefixes or omit any bytes
+  from the existing PID/clean-exit/response digest. If adopting the pinned
+  Windows envelope, require exactly one CRLF followed immediately by the full
+  canonical RCHRES01 frame, retain raw-wire hashing and bounded EOF, and reject
+  it on macOS. Add paired malformed/truncated/trailing-prefix cases and actual
+  Windows fresh-process storage/rollback acceptance. This is new evidence for
+  a precise transport revision, not acceptance of the currently failing wire.
+
+- Final local checks for shared keyboard arming: macOS Rust lint/tests pass
+  (1,643 passed, four ignored), both production builds and E2E isolation pass,
+  and TypeScript, ESLint, full hygiene and coverage checks pass. Full Vitest
+  reports 449 passing files / one failing file, 3,561 passing tests / one
+  failing test. The failure is the existing CP-16 real journal watcher case:
+  watch returned, access saw the file, unlink completed at 1 ms, and no event
+  followed before its five-second external deadline. Log:
+  /tmp/rion-shared-key-full-vitest.log. Do not certify a green full suite or
+  rerun this failure into acceptance. Focused keyboard/native evidence above
+  remains separate from the still-open updater acknowledgement repair.

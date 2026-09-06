@@ -251,7 +251,17 @@ function validateWebOnlyHistory(phase, observations, platform) {
   } else {
     requireRuntime(
       ready >= 0 && terminal.phase === "ready" && terminal.visible === true &&
-        observations.every((observation) => observation.phase === "ready"),
+        observations.every((observation, index) =>
+          observation.phase === (index < ready ? "activating" : "ready") &&
+          observation.tabId === terminal.tabId &&
+          observation.windowId === terminal.windowId &&
+          observation.parentNativeHostId === terminal.parentNativeHostId &&
+          observation.windowGeneration === terminal.windowGeneration &&
+          observation.attemptGeneration === terminal.attemptGeneration &&
+          observation.web.surfaceId === terminal.web.surfaceId &&
+          observation.web.generation === terminal.web.generation &&
+          observation.appKitIdentity?.nativeGeneration === terminal.appKitIdentity?.nativeGeneration
+        ),
       `${phase}: restart did not restore the exact ready Web-only tab`
     );
   }

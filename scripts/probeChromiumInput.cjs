@@ -17,6 +17,10 @@ const keyboard = [
   { type: "keyDown", keyCode: "A" },
   { type: "keyUp", keyCode: "A" }
 ];
+const middleButton = [
+  { type: "mouseDown", x: 120, y: 90, button: "middle", clickCount: 1 },
+  { type: "mouseUp", x: 120, y: 90, button: "middle", clickCount: 1 }
+];
 const state = contents => contents.executeJavaScript(`({
   focused: document.hasFocus(), visibility: document.visibilityState,
   width: innerWidth, height: innerHeight
@@ -89,12 +93,18 @@ async function probe() {
       { type: "keyUp", keyCode: "A", modifiers: ["shift"] },
       { type: "keyUp", keyCode: "Shift" }
     ], ["keydown", "keydown", "keydown", "keyup", "keyup"]));
+    for (const [keyCode, modifier] of [["Control", "control"], ["Alt", "alt"], ["Meta", "meta"]]) {
+      outcomes.push(await sample(view, host, `modifier-${modifier}`, [
+        { type: "keyDown", keyCode, modifiers: [modifier] },
+        { type: "keyDown", keyCode: "A", modifiers: [modifier] },
+        { type: "keyUp", keyCode: "A", modifiers: [modifier] },
+        { type: "keyUp", keyCode }
+      ], ["keydown", "keydown", "keyup", "keyup"]));
+    }
     for (const zoom of [1, 1.5]) {
       view.webContents.setZoomFactor(zoom);
-      outcomes.push(await sample(view, host, `middle-button-zoom-${zoom}`, [
-        { type: "mouseDown", x: 120, y: 90, button: "middle", clickCount: 1 },
-        { type: "mouseUp", x: 120, y: 90, button: "middle", clickCount: 1 }
-      ], ["mousedown", "mouseup"]));
+      outcomes.push(await sample(view, host, `middle-button-zoom-${zoom}`,
+        middleButton, ["mousedown", "mouseup"]));
     }
     view.webContents.setZoomFactor(1);
     outcomes.push(await sample(view, host, "held-before-reload", [keyboard[0]], ["keydown"]));
@@ -105,11 +115,14 @@ async function probe() {
     // Do not focus either target after hiding/backgrounding it to repair delivery.
     view.setVisible(false);
     outcomes.push(await sample(view, host, "hidden-view", keyboard, ["keydown", "keyup"]));
+    outcomes.push(await sample(view, host, "hidden-view-middle", middleButton, ["mousedown", "mouseup"]));
     view.setVisible(true);
     await focus(other, { webContents: other.webContents });
     outcomes.push(await sample(view, host, "background-host", keyboard, ["keydown", "keyup"]));
+    outcomes.push(await sample(view, host, "background-host-middle", middleButton, ["mousedown", "mouseup"]));
     host.hide();
     outcomes.push(await sample(view, host, "hidden-host", keyboard, ["keydown", "keyup"]));
+    outcomes.push(await sample(view, host, "hidden-host-middle", middleButton, ["mousedown", "mouseup"]));
     await writeFile(reportPath, JSON.stringify({ platform: process.platform,
       electron: process.versions.electron, chromium: process.versions.chrome,
       scope: "isolated WebContentsView API probe; not a Role/native-adapter receipt", outcomes

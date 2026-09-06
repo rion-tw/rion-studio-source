@@ -886,3 +886,127 @@ tokens, and runtime migration gates remain enforced. The executable migration
 gate and its eight focused tests passed locally; the corrective commit requires
 a new exact-SHA CI run. Existing local native evidence remains qualified by the
 source revision and scope recorded above.
+
+### CP-07 terminal-event source audit while native CI runs
+
+Source inspection at corrective commit `e94c26a90d754d420cbfec825433f54bc9e15594`
+identifies a concrete replacement constraint. In
+`crates/rion-node/src/windows_runtime_shortcut_owner.rs`,
+`classify_f11_transition` consumes the initial plain key-down and subsequent
+repeats, then emits once on the captured key-up even when modifiers changed
+during the press. The hook first selects the exact registered foreground HWND;
+its callback is acknowledged through the current owner revision before dispatch.
+The source explains why dispatch waits until the native input transaction exits:
+fullscreen entry from key-down can reenter that transaction.
+
+By contrast, the host `before-input-event` listener in
+`chromiumRuntimeHostFactory.ts` and the managed surface interceptor in
+`chromiumRoleQuickAccessShortcut.ts` dispatch on non-repeat key-down and match
+plain modifiers separately for each event. The application menu still disables
+F11 accelerator registration. These existing paths therefore are not evidence
+that removing the hook preserves its terminal-event semantics.
+
+The CP-07 physical replacement matrix must additionally measure command timing
+relative to key-up, repeated downs, modifier changes during a captured press,
+focus/owner change before release, and registration retirement. Capture the
+authoritative native and page event order for both mechanisms; a fullscreen
+toggle alone cannot establish equivalence. This audit does not change input
+behavior, assert that a race occurred, or close the native replacement probe.
+
+Exact corrective CI run
+[34005620760](https://github.com/rion-tw/rion-studio-source/actions/runs/34005620760)
+has passed the prior migration-boundary step and entered macOS Chromium E2E.
+Both platform results remain pending until terminal job and artifact evidence
+is inspected. The superseded run was explicitly cancelled after its verified
+boundary failure; its unfinished jobs are not acceptance evidence.
+
+### CP-08 expanded modifier and hidden-pointer samples
+
+Extended the isolated input probe with Control, Alt and Meta press/chord/release
+sequences and middle-button down/up in hidden-view, background-host and
+hidden-host states. The expanded macOS run received all 16 expected sequences;
+the recorded modifier fields were set for the chord and cleared on release,
+and background/hidden hosts remained unfocused before and after pointer input.
+This closes gaps in the API experiment's sample inventory, not the actual Role
+adapter equivalence gate. Report:
+`/tmp/rion-chromium-input-expanded/chromium-input-darwin.json`; native test log:
+`/tmp/rion-chromium-input-expanded.log`.
+
+The native probe test, focused ESLint and executable migration-boundary check
+passed. This is lower-layer-covered research infrastructure with no product
+journey change. These added samples are working-tree changes after `e94c26a9`;
+run `34005620760` still validates the earlier ten-sample probe and cannot be
+cited for the expansion. Its live jobs are left running to obtain their exact
+candidate results.
+
+### Windows cfg and macOS restart-history findings from e94c26a9 CI
+
+Windows native job `101412221427` failed Rust lint after diagnostic removal:
+two WebGL imports remained at the shared runtime root, and macOS experiment
+types/functions were still compiled without Windows consumers. Moved the two
+imports into the macOS adapter, gated experiment types/implementation to macOS
+or tests, and gated the environment-reading function to macOS. No dead-code
+allowance was added. Local native Rust lint, complete Rust tests, Tauri build,
+Electron build and pure-renderer verification passed. Windows verification of
+the correction remains pending. Log: `/tmp/rion-e94-windows-native.log`.
+
+The macOS Chromium job `101412129350` reached Web-only restart and failed the
+post-run evidence predicate. Its artifact contains hidden `activating` followed
+by visible `ready`, with the same exact tab/window/surface/native owner and
+generations. The predicate incorrectly required every startup observation to
+already be ready. It now accepts initial hidden activation followed by ready,
+while fencing the entire history to the terminal identity and rejecting
+post-ready regression or generation/owner changes. Seven focused tests passed,
+including positive and negative histories for both platforms. The corrected
+validator accepts the downloaded CI artifact; this is artifact revalidation,
+not a fresh successful full-profile run.
+
+The Windows Chromium job `101412129373` still fails HTML fullscreen Escape.
+Unlike the earlier run with no key events, this candidate records trusted
+Escape down/up in the expected page but no `contained-fullscreen-exit` receipt.
+This narrows the failure beyond input targeting; the cause is not yet proven.
+Logs and downloaded artifacts are under `/tmp/rion-e94-windows-package.log`,
+`/tmp/rion-e94-win-artifacts` and `/tmp/rion-e94-mac-artifacts`. Other live jobs
+remain independent evidence; no full native acceptance or CP-17 gate is closed
+by these partial results.
+
+### Escape driver reproduction and correction
+
+An isolated sandboxed WebContentsView on the pinned macOS Electron/ChromeDriver
+reproduces the Windows symptom using the same generic W3C key action: a visible
+click enters HTML fullscreen, Escape does not exit, and the document remains
+fullscreen. Sending `Input.dispatchKeyEvent` through that same ChromeDriver with
+explicit Escape code plus Windows/native virtual-key values exits fullscreen.
+A separate low-level experiment shows that a missing Windows virtual-key value
+can produce the same non-exiting behavior; the exact Windows W3C wire payload
+has not been captured, so its missing-field cause remains an inference.
+
+Added the shared E2E-only `sendChromiumEscapeKey` helper. The Windows page action
+keeps the existing exact URL and document-focus fence, then sends both key
+halves through ChromeDriver with complete codes. It does not invoke
+`document.exitFullscreen`, call a product debug action, or change production
+fullscreen behavior. AppKit Escape retains its native input path. Journey:
+`CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017`; the existing contained-fullscreen
+spec remains the acceptance action.
+
+The new native integration test uses that same helper after a visible fixture
+button click, independently observes DOM fullscreen exit, and records the
+generic-W3C comparison. Any research-case cleanup runs only after the helper's
+exit assertion. macOS passed; report:
+`/tmp/rion-fullscreen-native-regression/fullscreen-escape-darwin.json`.
+The fixture automatically joins both native CI platforms and their existing
+input-report upload. Windows correction acceptance is still pending a new run.
+
+CI `34005620760` is terminal: renderer build, shared checks, Linux sanitizer,
+both retained Tauri desktop jobs and macOS native validation passed. Both
+Chromium package jobs and Windows native validation failed as recorded above.
+These are exact `e94c26a9` results; the subsequent working-tree corrections are
+not retroactively validated by that run.
+
+Before corrective submission, all four Electron native integration files / eight
+tests passed on macOS (`/tmp/rion-escape-all-native.log`), including the expanded
+input and shared Escape helper probes. Twelve focused E2E evidence/source tests,
+focused ESLint, TypeScript, repository hygiene and whitespace checks passed.
+The previously recorded native Rust checks and dual-shell builds cover the cfg
+correction. Windows native lint and the paired Chromium smoke/package jobs must
+still run on the corrective commit.

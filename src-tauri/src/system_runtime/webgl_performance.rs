@@ -55,6 +55,7 @@ pub(super) struct MacWebGlPolicy {
     pub(super) web_gl_preference: WebKitFeaturePreference,
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MacWebGlExperimentMode {
     SystemDefault,
@@ -66,6 +67,7 @@ pub(super) enum MacWebGlExperimentMode {
     StpGpuProcessAllRendering,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl MacWebGlExperimentMode {
     pub(super) fn parse(value: &str) -> Option<Self> {
         match value {
@@ -105,10 +107,8 @@ impl MacWebGlExperimentMode {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(super) fn active_mac_web_gl_experiment() -> Option<MacWebGlExperimentMode> {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
     #[cfg(debug_assertions)]
     {
         if std::env::var("RION_WEBKIT_EXPERIMENT_ISOLATED").as_deref() != Ok("1") {

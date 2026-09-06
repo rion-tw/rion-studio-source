@@ -1,5 +1,6 @@
 import { $, browser } from "@wdio/globals";
 import { Key } from "webdriverio";
+import { sendChromiumEscapeKey } from "./chromium-escape-key";
 
 import {
   electronDesktopE2eRolePlaceholderRuntime,
@@ -319,14 +320,10 @@ export async function submitElectronPageEscape(
         targetMode: "focused-runtime"
       });
     } else {
-      // ChromeDriver's W3C key source addresses the already URL- and
-      // document-focus-fenced WebContents. A process-wide Win32 SendInput can
-      // address only the shared top-level Game Window after a native file
-      // dialog, leaving Chromium free to route Escape to a sibling child HWND.
-      await browser.action("key")
-        .down(Key.Escape)
-        .up(Key.Escape)
-        .perform();
+      // The generic W3C action can deliver DOM Escape without triggering
+      // Chromium's exclusive-access handling. Keep the exact page target and
+      // submit complete native/Windows virtual key codes through ChromeDriver.
+      await sendChromiumEscapeKey(browser, input.platform);
     }
   });
 }

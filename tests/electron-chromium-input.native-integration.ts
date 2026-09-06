@@ -23,14 +23,15 @@ it("records native Chromium input delivery without treating absent receipts as p
     expect(report.platform).toBe(process.platform);
     expect(report.electron).toBe(require("electron/package.json").version);
     expect(report.outcomes.map((outcome: { name: string }) => outcome.name)).toEqual([
-      "foreground", "modifiers-and-repeat", "middle-button-zoom-1", "middle-button-zoom-1.5",
-      "held-before-reload", "held-release-after-reload", "reloaded", "hidden-view",
-      "background-host", "hidden-host"
+      "foreground", "modifiers-and-repeat", "modifier-control", "modifier-alt", "modifier-meta",
+      "middle-button-zoom-1", "middle-button-zoom-1.5", "held-before-reload",
+      "held-release-after-reload", "reloaded", "hidden-view", "hidden-view-middle",
+      "background-host", "background-host-middle", "hidden-host", "hidden-host-middle"
     ]);
     for (const outcome of report.outcomes) {
       expect(["received", "mismatch", "indeterminate"]).toContain(outcome.receipt.status);
       expect(outcome.receipt.events.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
-      if (["background-host", "hidden-host"].includes(outcome.name)) {
+      if (outcome.name.startsWith("background-host") || outcome.name.startsWith("hidden-host")) {
         expect(outcome.before.hostFocused).toBe(false);
         expect(outcome.after.hostFocused).toBe(false);
       }

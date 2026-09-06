@@ -91,18 +91,22 @@ function webOnlyObservation(input: Readonly<{
 }
 
 async function validateWebOnlyHistory(
-  observations: readonly ReturnType<typeof webOnlyObservation>[]
+  observations: readonly ReturnType<typeof webOnlyObservation>[],
+  phase = "chromium-workspace-web-only-seed",
+  platform: "macos" | "windows" = "macos"
 ) {
   const directory = await mkdtemp(join(tmpdir(), "rion-web-only-evidence-"));
   try {
     await writeFile(
       join(directory, "electron-workspace-web-only-observations.json"),
-      JSON.stringify(observations)
+      JSON.stringify(platform === "macos" ? observations : observations.map(observation => ({
+        ...observation, appKitIdentity: null, hostKind: "bundled-chromium"
+      })))
     );
     return await validateChromiumWorkspaceCutoverRuntimeEvidence({
-      phase: "chromium-workspace-web-only-seed",
+      phase,
       phaseDirectory: directory,
-      platform: "macos"
+      platform
     });
   } finally {
     await rm(directory, { force: true, recursive: true });
@@ -110,6 +114,28 @@ async function validateWebOnlyHistory(
 }
 
 describe("Chromium Workspace cutover paired replacements", () => {
+  it.each(["macos", "windows"] as const)(
+    "accepts exact hidden restore activation before readiness on %s", async platform => {
+      const activating = webOnlyObservation({
+        attemptGeneration: "restore-1", generation: 1, phase: "activating", visible: false
+      });
+      const ready = webOnlyObservation({
+        attemptGeneration: "restore-1", generation: 1, phase: "ready", visible: true
+      });
+      const phase = "chromium-workspace-web-only-restart";
+      await expect(validateWebOnlyHistory([activating, ready], phase, platform))
+        .resolves.toMatchObject({ navigationFailureRecovered: false });
+      await expect(validateWebOnlyHistory([ready], phase, platform)).resolves.toBeDefined();
+      for (const invalid of [
+        [activating], [ready, activating, ready],
+        [activating, { ...ready, attemptGeneration: "another-attempt" }],
+        [activating, { ...ready, web: { ...ready.web, generation: 2 } }],
+        [activating, { ...ready, parentNativeHostId: 99 }]
+      ]) {
+        await expect(validateWebOnlyHistory(invalid, phase, platform)).rejects.toThrow();
+      }
+    }
+  );
   it("accepts only the hidden activating projection sampled during visible reopen", async () => {
     const ready = webOnlyObservation({
       attemptGeneration: "attempt-1", generation: 1, phase: "ready", visible: true

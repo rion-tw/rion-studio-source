@@ -1,5 +1,7 @@
 // macos system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
+use rion_core::{PerformanceTargetStatus, WebGlExecutionPath};
+
 use super::super::*;
 
 #[cfg(target_os = "macos")]

@@ -34,7 +34,7 @@ use rion_core::{
     LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroCoordinateContextRecord, MacroInputDiagnosticsRecord, MacroRunStatus,
-    OperationCompletionPolicy, PerformanceTargetStatus,
+    OperationCompletionPolicy,
     RuntimeTabMutationRequestRecord,
     RuntimeWindowStopRequestRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
@@ -59,7 +59,7 @@ use rion_core::{
     RuntimeWindowPlacementCommitInput as KernelWindowPlacementCommitInput,
     RuntimeWindowTopologyCommit as KernelWindowTopologyCommit, RuntimeWindowPreferencesRecord,
     SystemWebViewRuntimeRegistrationRecord,
-    WebGlExecutionPath, WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor,
+    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor,
     WorkspaceDividerResizeInput, WorkspaceLayoutInput,
 };
 #[cfg(test)]

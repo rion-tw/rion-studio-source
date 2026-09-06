@@ -124,8 +124,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(pageSurface).toContain("selector,\n    false\n  );");
     expect(pageSurface).toContain('command: "escape"');
     expect(pageSurface).toContain('targetMode: "focused-runtime"');
-    expect(pageSurface).toContain(".down(Key.Escape)");
-    expect(pageSurface).toContain(".up(Key.Escape)");
+    expect(pageSurface).toContain("await sendChromiumEscapeKey(browser, input.platform)");
     expect(fixture).toContain('target="_blank" rel="noopener"');
     expect(fixture).toContain('roleId === "chromium-workspace-web-fullscreen"');
     expect(fixture).toContain("navigator.geolocation.getCurrentPosition(");

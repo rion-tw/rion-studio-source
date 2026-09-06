@@ -9,13 +9,13 @@ import { expect, it } from "vitest";
 const executeFile = promisify(execFile);
 const require = createRequire(import.meta.url);
 
-it("records actual hidden and occluded renderer zoom acknowledgements without inferring parity", async () => {
+it.each([true, false])("records hidden and occluded zoom with backgroundThrottling=%s without inferring parity", async backgroundThrottling => {
   expect(["darwin", "win32"]).toContain(process.platform);
   const directory = await mkdtemp(join(tmpdir(), "rion-chromium-viewport-"));
   try {
     const reportPath = join(directory, "viewport.json");
     await executeFile(require("electron") as string, [
-      "scripts/probeChromiumViewport.cjs", reportPath, join(directory, "data")
+      "scripts/probeChromiumViewport.cjs", reportPath, join(directory, "data"), String(backgroundThrottling)
     ], { windowsHide: true, timeout: 30_000, maxBuffer: 1024 * 1024 });
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     // CI preserves the complete evidence even if a later assertion fails.
@@ -23,6 +23,7 @@ it("records actual hidden and occluded renderer zoom acknowledgements without in
     expect(report.platform).toBe(process.platform);
     expect(report.electron).toBe(require("electron/package.json").version);
     expect(report.isolatedSessions).toBe(true);
+    expect(report.backgroundThrottling).toBe(backgroundThrottling);
     expect(report.outcomes.map((item: { mode: string }) => item.mode)).toEqual(["hidden", "occluded"]);
     for (const outcome of report.outcomes) {
       expect(outcome.calibration).toMatchObject({ status: "applied", ...outcome.expected });
@@ -35,6 +36,9 @@ it("records actual hidden and occluded renderer zoom acknowledgements without in
           siblingFocused: true, targetAttached: true, siblingAttached: true });
       }
       expect(outcome.after.browserZoom).toBe(outcome.factor);
+      expect(outcome.immediateReadback.focused).toBe(false);
+      expect(Number.isSafeInteger(outcome.immediateReadback.width)).toBe(true);
+      expect(Number.isSafeInteger(outcome.immediateReadback.height)).toBe(true);
       expect(["applied", "indeterminate"]).toContain(outcome.whileCovered.status);
       if (outcome.whileCovered.status === "applied") {
         expect(outcome.whileCovered).toMatchObject(outcome.expected);

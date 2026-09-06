@@ -46,6 +46,8 @@ afterAll(async () => { if (directory) await rm(directory, { recursive: true, for
 async function invoke(request: ChromiumSessionMigrationFreshHelperRequest, envelope: Buffer) {
   const environment = { ...process.env };
   delete environment.ELECTRON_RUN_AS_NODE;
+  // Match the production helper's dedicated binary stdio boundary.
+  environment.ELECTRON_NO_ATTACH_CONSOLE = "1";
   const child = spawn(electron, [entry, "--rion-internal-chrome-profile-helper"], {
     // Match Rust background_command's CREATE_NO_WINDOW with non-inherited pipes.
     windowsHide: true,

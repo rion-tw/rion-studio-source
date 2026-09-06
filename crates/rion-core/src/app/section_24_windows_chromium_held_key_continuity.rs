@@ -124,9 +124,10 @@ impl AppCore {
             }
             match input.loss_reason.as_str() {
                 "hidden" => {
+                    // Selecting a sibling hides the View without hiding its tab chrome.
+                    // Explicit tab hiding is a separate logical presentation state.
                     window.selected_tab_id.is_some()
                         && window.selected_tab_id.as_deref() != Some(input.tab_id.as_str())
-                        && window.hidden_tab_ids.contains(&input.tab_id)
                 }
                 "blur" => {
                     window.selected_tab_id.as_deref() == Some(input.tab_id.as_str())

@@ -1,4 +1,7 @@
-fn windows_held_continuity_core() -> (tempfile::TempDir, Arc<AppCore>, u64) {
+fn windows_held_continuity_core(
+    explicitly_hidden: bool,
+    held_tab_selected: bool,
+) -> (tempfile::TempDir, Arc<AppCore>, u64) {
     let (directory, core) = core_for_runtime_contract("win32", 23);
     core.invoke(CoreCommand::BrowserRuntimeRegister {
         registration: chromium_registration("win32", true),
@@ -39,10 +42,18 @@ fn windows_held_continuity_core() -> (tempfile::TempDir, Arc<AppCore>, u64) {
             source: "command".to_owned(),
             primary_window_id: "held-window".to_owned(),
             windows: vec![crate::RuntimeWindowTopologyCommit {
-                active_tab_id: Some("00000000-0000-4000-8000-000000000042".to_owned()),
-                hidden_tab_ids: std::collections::HashSet::from([
-                    "00000000-0000-4000-8000-000000000041".to_owned(),
-                ]),
+                active_tab_id: Some(if held_tab_selected {
+                    "00000000-0000-4000-8000-000000000041".to_owned()
+                } else {
+                    "00000000-0000-4000-8000-000000000042".to_owned()
+                }),
+                hidden_tab_ids: if explicitly_hidden {
+                    std::collections::HashSet::from([
+                        "00000000-0000-4000-8000-000000000041".to_owned(),
+                    ])
+                } else {
+                    std::collections::HashSet::new()
+                },
                 tabs: vec![
                     runtime_ui_test_tab(
                         "00000000-0000-4000-8000-000000000041",
@@ -91,7 +102,7 @@ fn windows_held_continuity_input(
 
 #[test]
 fn windows_hidden_role_continuity_requires_exact_core_topology_and_capability() {
-    let (_directory, core, owner_generation) = windows_held_continuity_core();
+    let (_directory, core, owner_generation) = windows_held_continuity_core(true, false);
     let receipt = core
         .restore_windows_chromium_held_keys_internal(windows_held_continuity_input(
             owner_generation,
@@ -125,4 +136,22 @@ fn appkit_chromium_never_enters_the_windows_continuity_boundary() {
         .unwrap_err();
     assert_eq!(error.code(), "WINDOWS_CHROMIUM_BACKGROUND_INPUT_UNAVAILABLE");
     core.shutdown();
+}
+
+#[test]
+fn ordinary_background_tab_continuity_does_not_require_explicit_tab_hiding() {
+    for held_tab_selected in [false, true] {
+        let (_directory, core, owner_generation) =
+            windows_held_continuity_core(false, held_tab_selected);
+        let receipt = core
+            .restore_windows_chromium_held_keys_internal(windows_held_continuity_input(
+                owner_generation,
+            ))
+            .unwrap();
+        assert_eq!(
+            receipt.status,
+            if held_tab_selected { "superseded" } else { "noHeldKeys" }
+        );
+        core.shutdown();
+    }
 }

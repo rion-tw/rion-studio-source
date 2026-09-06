@@ -2,8 +2,9 @@
 const { app, BrowserWindow, WebContentsView, session } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
-const [reportPath, userData] = process.argv.slice(2);
-if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
+const [reportPath, userData, throttling] = process.argv.slice(2);
+const backgroundThrottling = throttling === "true";
+if (!reportPath || !userData || !["true", "false"].includes(throttling) || !["darwin", "win32"].includes(process.platform)) {
   throw new Error("Bundled Electron viewport probe requires native report and isolated data paths.");
 }
 app.setPath("userData", resolve(userData));
@@ -36,7 +37,7 @@ async function armViewport(view, expected) {
 const receipt = view => view.webContents.executeJavaScript("window.viewportReceipt");
 
 async function probe() {
-  const preferences = { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false };
+  const preferences = { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling };
   const host = new BrowserWindow({ show: false, width: 700, height: 500, webPreferences: preferences });
   const target = new WebContentsView({ webPreferences: { ...preferences, session: session.fromPartition("viewport-target") } });
   const sibling = new WebContentsView({ webPreferences: { ...preferences, session: session.fromPartition("viewport-sibling") } });
@@ -75,15 +76,17 @@ async function probe() {
       const before = { native: nativeState(), document: await documentState(target) };
       await armViewport(target, expected);
       target.webContents.setZoomFactor(factor);
+      // One ordered renderer response, without waiting for resize or a timer.
+      const immediateReadback = await documentState(target);
       const whileCovered = await receipt(target);
       const after = { native: nativeState(), document: await documentState(target), browserZoom: target.webContents.getZoomFactor() };
       await armViewport(target, expected);
       sibling.setVisible(false); target.setVisible(true); target.webContents.focus();
       const revealed = await receipt(target);
-      outcomes.push({ mode, factor, expected, calibration, baseline, before, whileCovered, after, revealed });
+      outcomes.push({ mode, factor, expected, calibration, baseline, before, immediateReadback, whileCovered, after, revealed });
     }
     return { platform: process.platform, electron: process.versions.electron, chromium: process.versions.chrome,
-      scope: "isolated View viewport observation; not product zoom completion", backgroundThrottling: false,
+      scope: "isolated View viewport observation; not product zoom completion", backgroundThrottling,
       isolatedSessions: target.webContents.session !== sibling.webContents.session, outcomes };
   } finally {
     target.webContents.close(); sibling.webContents.close(); host.destroy();

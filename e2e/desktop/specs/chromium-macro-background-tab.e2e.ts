@@ -314,6 +314,8 @@ describe("Chromium Macro background-tab exact replacement", () => {
       hidden: tabA,
       visible: tabB
     });
+    expect(firstHiddenPresentation.topology.tabIds).toContain(tabA.tabId);
+    expect(firstHiddenPresentation.topology.tabIds).toContain(tabB.tabId);
     const firstHiddenEvent = await waitFixtureEvent({
       afterSequence: firstHiddenAfter,
       kind: "hidden",

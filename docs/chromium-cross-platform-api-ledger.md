@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | Windows physical View gate passed; full product parity and legacy deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | Windows foreground View gate passed; ordinary background continuity corrected, native parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; macOS fresh-process storage passed, Windows/import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -4358,3 +4358,88 @@ trusted input are outside this Windows child-host removal.
   completion change or retained-AppKit/hardware acceptance. Windows evidence
   remains pending. Local native probe, TypeScript, ESLint and complete hygiene
   checks passed; no product runtime, native Rust or shared contracts changed.
+
+
+### CP-11 product-default throttling and immediate readback comparison
+
+- Source audit distinguishes ordinary Role Views (Electron's default
+  backgroundThrottling true) from Session-maintenance Views (explicit false).
+  The viewport probe now runs both configurations; the earlier false-only
+  experiment cannot establish ordinary product behavior. Host and both sibling
+  Views use the same explicit configuration within each isolated run.
+- Each covered zoom now records a single ordered renderer response immediately
+  after setZoomFactor, before waiting for the resize event or its deadline.
+  There is no polling or retry. The later resize-event result is still recorded
+  independently and cannot rewrite an indeterminate result as success.
+- macOS at both settings returned matching immediate dimensions for native-hidden
+  1.25 (480x320) and sibling-occluded 1.5 (400x266). With throttling true, the
+  native-hidden case did not deliver the resize notification within its external
+  boundary despite the immediate readback already matching. All other resize
+  cases acknowledged. Focus stayed on the visible sibling throughout.
+- Therefore the prior resize-only acceptance criterion is insufficient to
+  distinguish stale layout from suppressed notification. Future product receipt
+  design must bind the exact renderer response and operation/frame identity;
+  browser getZoomFactor or a timeout alone remains insufficient. The probe
+  runner can pass with an indeterminate resize event, and its JSON must still
+  be inspected for exact immediate dimensions, native state and visible
+  calibration. These API observations do not close product or Windows parity.
+
+
+### CP-08 ordinary background selection and current candidate failures
+
+- Windows run 34050457198 at 33dde3dd passed the initial foreground Macro
+  shortcut after the physical focus correction. Its next failure was held
+  Digit2 continuity after selecting sibling tab B. Both tab identities remained
+  in the strip and the selected tab was B; this was not an explicit hide-tab
+  operation. Core incorrectly required membership in hidden_tab_ids, which
+  describes hidden tab chrome rather than an unselected Chromium View.
+- Remove that extra condition while preserving the exact owner, generation,
+  capability, membership and selected-sibling checks. A focused regression
+  failed before the correction (superseded instead of noHeldKeys) and passed
+  afterward. The selected-tab negative case and existing explicit-hide/stale
+  owner test also pass. CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004 now checks
+  both tab identities survive selection. Windows native acceptance is pending.
+- Local macOS lint:rust and test:rust passed after the continuity correction:
+  1,643 tests passed and four ignored across the workspace. TypeScript, lint
+  (existing warnings only), hygiene/coverage, both builds and production E2E
+  isolation passed. No new full desktop profile ran on this worktree.
+- The full Vitest run recorded 448 passing files and two failures (3,553 passing
+  tests, two failing). The new viewport probe lacked its exact product-gate
+  allowlist entry; that entry is now added and all eight focused gate tests
+  pass. The real updater-journal deletion test missed its filesystem event
+  after initial presence readback. That failure remains open; no deadline
+  extension, polling or successful rerun is accepted as a repair.
+- Newer CI invalidates any current-candidate all-green claim: 33dde3dd macOS
+  Chromium failed saved mixed Workspace restore during restart, and Windows
+  Session helper tests still received CRLF before the exact response magic.
+  The earlier 280027d7 56-phase success remains historical evidence only.
+
+### CP-10 isolate the helper protocol from Electron console routing
+
+- CREATE_NO_WINDOW/windowsHide did not repair the Windows native helper
+  response in run 34050457198. Electron 43.4.1 calls RouteStdioToConsole before
+  application entry unless ELECTRON_NO_ATTACH_CONSOLE is set (or RunAsNode is
+  active): [pinned Electron startup source](https://github.com/electron/electron/blob/v43.4.1/shell/app/electron_main_win.cc#L153-L163).
+- Set ELECTRON_NO_ATTACH_CONSOLE=1 on the dedicated Rust helper command and
+  matching fresh-process native test. Do not strip leading bytes or weaken
+  exact magic, length, process-exit or response-digest validation. The setting
+  is scoped to the helper, not ordinary application launches. Windows native
+  proof remains required; this source-based correction is not acceptance.
+- The subsequent local validation attempt hit ENOSPC while compiling Rust and
+  before native tests loaded. Those attempts are infrastructure failures, not
+  passing tests. Rebuildable compiler cache cleanup and revalidation follow.
+
+- Removed only rebuildable target/debug/incremental cache after active compilation
+  ended, recovering approximately 39 GiB free space. Source and E2E evidence
+  were preserved. The corrected native command then passed both Session cases
+  and both viewport configurations (four tests). The default-throttling hidden
+  resize event remained indeterminate despite matching immediate dimensions;
+  this does not close CP-11. Typecheck, lint, hygiene/coverage, builds and
+  production E2E isolation passed after the helper launch change.
+- A separate bounded 20-attempt journal-watch reproduction observed every
+  deletion. It neither identifies the original failure nor closes it. The full
+  suite's earlier filesystem observation failure remains pending diagnosis.
+- After cache recovery, required macOS lint:rust and test:rust also completed
+  successfully (1,643 passed, four ignored). Windows native execution and both
+  current-candidate full Chromium desktop profiles remain CI gates. No physical
+  mixed-DPI or Windows hardware profile ran locally.

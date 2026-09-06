@@ -267,6 +267,9 @@ pub(crate) fn launch(
     }
     let child = match command
         .arg(FIXED_HELPER_SWITCH)
+        // Electron's Windows console routing runs before the helper entry and
+        // can write into the binary protocol pipe even with CREATE_NO_WINDOW.
+        .env("ELECTRON_NO_ATTACH_CONSOLE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

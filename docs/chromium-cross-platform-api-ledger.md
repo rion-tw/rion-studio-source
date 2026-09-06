@@ -5165,3 +5165,27 @@ trusted input are outside this Windows child-host removal.
   3,604 tests in 156.23 seconds. Native macOS Rust lint and workspace tests
   pass (1,645 passed, four ignored). No native desktop profile reran locally;
   exact Windows CI still has to capture and resolve the postcondition failure.
+
+
+### CP-16 independent Windows receipt publication failure at 3a6207c5
+
+- CI 34058525934 native Windows job 101554855635 fails in
+  rion-updater persistence::tests::terminal_receipt_create_new_commit_has_exactly_one_concurrent_winner.
+  One writer unwraps UnsafePath at persistence.rs:1311; its parent thread then
+  fails to join. Updater tests report 39 passed, one failed and two ignored.
+  Do not treat this job as native acceptance or a loader failure.
+- The failing helper's UnsafePath path is ensure_private_directory, which
+  validates the parent and maps restrict_directory_to_current_user errors to
+  UnsafePath. The Windows platform helper reapplies the root ACL and traverses
+  existing descendants. Concurrent writers publish/remove unique temporary
+  files in that same directory; descendant enumeration, metadata and ACL calls
+  currently fail on disappearance. This identifies a plausible interleaving,
+  not the exact failing native API/error, because the wrapper discards it.
+- Investigate this independently of the placement postcondition failure. Keep
+  no-replace publication, one durable winner, owner-only permissions and all
+  unsafe-path rejection intact. Capture the underlying ACL failure before
+  deciding whether a disappearing descendant may be safely ignored; do not
+  broadly suppress permission, reparse-point or sharing errors.
+- New diagnostic candidate e7bee0ae is active in CI 34059403980, including both
+  native desktop package jobs. No new local native UI run was attempted while
+  the protected system-dialog obstruction remains unresolved.

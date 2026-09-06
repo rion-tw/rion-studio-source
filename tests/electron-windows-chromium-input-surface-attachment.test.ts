@@ -138,7 +138,7 @@ function probe(
   parentHandle: Buffer
 ): RawWindowsChromiumInputHwndProbeReceipt {
   return {
-    abiVersion: 5,
+    abiVersion: 6,
     surfaceHandleToken: token(surfaceHandle, 0),
     parentHandleToken: token(parentHandle, 1),
     processId: 42,
@@ -152,6 +152,7 @@ function probe(
     foregroundWindowPreserved: true,
     activeWindowPreserved: true,
     focusWindowPreserved: true,
+    focusIdentity: "a".repeat(64),
     parentWasForeground: false,
     parentVisible: true,
     surfaceVisible: false,
@@ -243,18 +244,10 @@ function harness() {
     project(surfaceHandle, parentHandle, false);
   const coordinator = new WindowsChromiumInputSurfaceAttachmentCoordinator({
     addon: {
-      windowsChromiumInputProbeAbiVersion: () => 5,
+      windowsChromiumInputProbeAbiVersion: () => 6,
       attachWindowsChromiumInputHwnd: attachNative,
       projectWindowsChromiumInputHwnd: project,
-      probeWindowsChromiumInputHwnd: readProbe,
-      submitWindowsChromiumBackgroundKey: (_surface, _parent, requestJson) => {
-        keyRequests.push(JSON.parse(requestJson) as Record<string, unknown>);
-        return JSON.stringify({ status: "submitted", kind: "key" });
-      },
-      submitWindowsChromiumBackgroundMouse: (_surface, _parent, requestJson) => {
-        mouseRequests.push(JSON.parse(requestJson) as Record<string, unknown>);
-        return JSON.stringify({ status: "submitted", kind: "mouse" });
-      }
+      probeWindowsChromiumInputHwnd: readProbe
     },
     baseWindows: {
       create: (options) => {
@@ -287,6 +280,10 @@ function harness() {
   });
 
   const view = fakeView();
+  view.webContents.sendInputEvent = (event) => {
+    if (event.type === "keyDown" || event.type === "keyUp") keyRequests.push({ ...event });
+    else mouseRequests.push({ ...event });
+  };
   let physicalParent: ChromiumRoleSurfaceParentPort | null = null;
   const attach = (parent = parentA, generation = 3) => coordinator.attach({
     roleId: "role-1",
@@ -359,7 +356,7 @@ describe("Windows Chromium input child-host ownership", () => {
       clientHeight: 900
     }));
 
-    binding.native.submitNativeBackgroundKey(binding.identity, {
+    const keyReceipt = binding.native.submitNativeBackgroundKey(binding.identity, {
       requestId: "request-1",
       roleId: "role-1",
       surfaceGeneration: 3,
@@ -386,14 +383,15 @@ describe("Windows Chromium input child-host ownership", () => {
       zoomFactor: 1.25,
       button: 0
     });
-    expect(subject.keyRequests[0]).toEqual(expect.objectContaining({
+    expect(keyReceipt).toEqual(expect.objectContaining({
+      submissionApi: "webContents.sendInputEvent",
       roleId: "role-1",
       nativeGeneration: binding.identity.nativeGeneration,
       probeRevision: nativeProbe.probeRevision
     }));
+    expect(subject.keyRequests).toEqual([{ type: "keyDown", keyCode: "A", modifiers: ["control"] }]);
     expect(subject.mouseRequests[0]).toEqual(expect.objectContaining({
-      nativeOriginX: 20,
-      nativeOriginY: 30
+      type: "mouseDown", x: 5, y: 6
     }));
   });
 

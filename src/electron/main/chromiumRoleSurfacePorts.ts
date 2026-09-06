@@ -1,3 +1,4 @@
+import type { KeyboardInputEvent, MouseInputEvent } from "electron";
 import type { RolePathsRecord } from "../../shared/generated";
 import type {
   ChromiumRoleSessionHandle,
@@ -68,6 +69,7 @@ export interface ChromiumRoleSurfaceEventMap {
 }
 
 export interface ChromiumRoleSurfaceWebContentsPort {
+  sendInputEvent?: (event: KeyboardInputEvent | MouseInputEvent) => void;
   readonly id?: number;
   readonly mainFrame?: Readonly<{ readonly frameToken: string }>;
   readonly session: ChromiumRoleSessionPort;

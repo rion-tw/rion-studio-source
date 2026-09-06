@@ -5,7 +5,7 @@ import type {
   ChromiumNativeTrustedInputRequest
 } from "./chromiumTrustedInputCoordinator";
 
-export const WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 5;
+export const WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 6;
 
 export type WindowsChromiumInputDeliveryMode = "foreground" | "background";
 
@@ -46,7 +46,7 @@ export interface WindowsChromiumInputSurfaceIdentity {
 export interface WindowsChromiumInputSurfaceProbeReceipt
   extends WindowsChromiumInputSurfaceIdentity {
   readonly status: "verified";
-  readonly abiVersion: 5;
+  readonly abiVersion: 6;
   readonly deliveryMode: WindowsChromiumInputDeliveryMode;
   readonly probeRevision: string;
   readonly processId: number;
@@ -70,6 +70,7 @@ export interface WindowsChromiumInputSurfaceProbeReceipt
 export interface WindowsNativeTrustedInputSubmissionBase
   extends WindowsChromiumInputSurfaceIdentity {
   readonly status: "submitted";
+  readonly submissionApi: "webContents.sendInputEvent";
   readonly requestId: string;
   readonly inputEpoch: string;
   readonly deliveryMode: WindowsChromiumInputDeliveryMode;
@@ -118,14 +119,10 @@ export interface WindowsNativeTrustedKeySubmissionReceipt
   extends WindowsNativeTrustedInputSubmissionBase {
   readonly eventType: "keyDown" | "keyUp";
   readonly code: string;
-  readonly virtualKeyCode: number;
-  readonly scanCode: number;
-  readonly extendedKey: boolean;
   readonly ctrl: boolean;
   readonly alt: boolean;
   readonly shift: boolean;
   readonly meta: boolean;
-  readonly keyboardStateRestored: true;
   readonly dispatchedEventCount: 1;
 }
 
@@ -148,9 +145,9 @@ export interface WindowsNativeTrustedMouseSubmissionReceipt
   readonly clientX: number;
   readonly clientY: number;
   readonly zoomFactor: number;
-  readonly nativeClientX: number;
-  readonly nativeClientY: number;
-  /** Coordinate expected back from Chromium after native pixel conversion. */
+  readonly inputX: number;
+  readonly inputY: number;
+  /** Integral CSS coordinate expected back after Chromium zoom conversion. */
   readonly expectedDomClientX: number;
   readonly expectedDomClientY: number;
   readonly dispatchedEventCount: 2;

@@ -20,7 +20,6 @@ mod chrome_profile_import_helper_launcher;
 mod updater;
 pub mod windows_chromium_input_attachment;
 pub mod windows_chromium_input_probe;
-pub mod windows_chromium_input_submission;
 pub mod windows_runtime_shortcut_owner;
 
 pub use updater::*;

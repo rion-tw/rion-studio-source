@@ -16,7 +16,7 @@ describe("Windows Chromium physical input candidate gate", () => {
         "utf8"
       ),
       readFile("crates/rion-node/src/windows_chromium_input_probe.rs", "utf8"),
-      readFile("crates/rion-node/src/windows_chromium_input_submission.rs", "utf8")
+      readFile("src/electron/main/chromiumOwnedInputSubmission.ts", "utf8")
     ]);
 
     expect(probe).toContain("new BaseWindow({");
@@ -33,8 +33,9 @@ describe("Windows Chromium physical input candidate gate", () => {
     expect(probe).toContain("controlProbe");
     expect(probe).toContain("hiddenPresentationPreserved");
     expect(preload).toContain("event.isTrusted");
-    expect(nativeSubmission).toContain("f64::from(dpi) / 96.0");
-    expect(nativeSubmission).toContain("SendMessageTimeoutW");
+    expect(nativeSubmission).toContain("sendChromiumKey");
+    expect(nativeSubmission).not.toContain("SendMessageTimeoutW");
+    expect(probe).toContain("require(\"./electronLoadChromiumInputOwner.cjs\")");
     expect(nativeAttachment).toContain("SetParent(");
     expect(nativeAttachment).toContain("SetLastError(WIN32_ERROR(0))");
     expect(nativeAttachment).not.toContain(

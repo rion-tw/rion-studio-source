@@ -19,7 +19,7 @@ function capabilities(
 }
 
 function configuration(
-  abiVersion = 5
+  abiVersion = 6
 ): WindowsChromiumTrustedInputRuntimeConfiguration {
   return {
     addon: {
@@ -31,12 +31,6 @@ function configuration(
         throw new Error("not attached");
       },
       probeWindowsChromiumInputHwnd: () => {
-        throw new Error("not attached");
-      },
-      submitWindowsChromiumBackgroundKey: () => {
-        throw new Error("not attached");
-      },
-      submitWindowsChromiumBackgroundMouse: () => {
         throw new Error("not attached");
       }
     },

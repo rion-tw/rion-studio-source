@@ -1,3 +1,4 @@
+import { submitOwnedChromiumKey, submitOwnedChromiumClick } from "./chromiumOwnedInputSubmission";
 import { RionBridgeError } from "../ipc/errors";
 import type {
   ChromiumRoleSurfaceBounds,
@@ -47,6 +48,7 @@ export interface RawWindowsChromiumInputHwndProbeReceipt {
   readonly foregroundWindowPreserved: boolean;
   readonly activeWindowPreserved: boolean;
   readonly focusWindowPreserved: boolean;
+  readonly focusIdentity: string;
   readonly parentWasForeground: boolean;
   readonly parentVisible: boolean;
   readonly surfaceVisible: boolean;
@@ -72,16 +74,7 @@ export interface RawWindowsChromiumTrustedInputAddon {
     surfaceHandle: Buffer,
     parentHandle: Buffer
   ) => RawWindowsChromiumInputHwndProbeReceipt;
-  submitWindowsChromiumBackgroundKey: (
-    surfaceHandle: Buffer,
-    parentHandle: Buffer,
-    requestJson: string
-  ) => string;
-  submitWindowsChromiumBackgroundMouse: (
-    surfaceHandle: Buffer,
-    parentHandle: Buffer,
-    requestJson: string
-  ) => string;
+
 }
 
 interface WindowsInputSurfaceContentPort {
@@ -257,23 +250,6 @@ function sameIdentity(
     left.bindingRevision === right.bindingRevision &&
     left.surfaceHandleToken === right.surfaceHandleToken &&
     left.parentHandleToken === right.parentHandleToken;
-}
-
-function parseNativeReceipt<Value>(value: string, operation: string): Value {
-  if (typeof value !== "string" || value.length === 0 || value.length > 16 * 1024) {
-    fail(
-      "ELECTRON_WINDOWS_INPUT_NATIVE_RECEIPT_INVALID",
-      `Win32 returned an invalid ${operation} receipt envelope.`
-    );
-  }
-  try {
-    return JSON.parse(value) as Value;
-  } catch {
-    fail(
-      "ELECTRON_WINDOWS_INPUT_NATIVE_RECEIPT_INVALID",
-      `Win32 returned malformed JSON for the ${operation} receipt.`
-    );
-  }
 }
 
 /**
@@ -905,16 +881,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     request: WindowsNativeTrustedKeyRequest
   ): WindowsNativeTrustedKeySubmissionReceipt {
     this.#requireExpectedRequest(record, expected, request);
-    const receipt = this.#addon.submitWindowsChromiumBackgroundKey(
-      Buffer.from(record.surfaceHandle),
-      Buffer.from(record.parentHandle),
-      JSON.stringify({
-        ...record.identity,
-        ...request,
-        probeRevision: record.probeRevision
-      })
-    );
-    return parseNativeReceipt(receipt, "key submission");
+    return submitOwnedChromiumKey(this.#submissionOwner(record, expected), request);
   }
 
   #submitMouse(
@@ -923,19 +890,24 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     request: WindowsNativeTrustedMouseRequest
   ): WindowsNativeTrustedMouseSubmissionReceipt {
     this.#requireExpectedRequest(record, expected, request);
-    const bounds = record.view.getBounds();
-    const receipt = this.#addon.submitWindowsChromiumBackgroundMouse(
-      Buffer.from(record.surfaceHandle),
-      Buffer.from(record.parentHandle),
-      JSON.stringify({
-        ...record.identity,
-        ...request,
-        probeRevision: record.probeRevision,
-        nativeOriginX: bounds.x,
-        nativeOriginY: bounds.y
-      })
-    );
-    return parseNativeReceipt(receipt, "mouse submission");
+    return submitOwnedChromiumClick(this.#submissionOwner(record, expected), request);
+  }
+
+  #submissionOwner(record: SurfaceRecord, expected: WindowsChromiumInputSurfaceIdentity) {
+    return {
+      identity: record.identity, probeRevision: record.probeRevision, nowMs: this.#nowMs,
+      viewport: () => record.view.getBounds(),
+      probe: () => {
+        this.#requireExpected(record, expected);
+        this.#requireLiveRecord(record);
+        return this.#probeRaw(record.surfaceHandle, record.parentHandle);
+      },
+      contents: { sendInputEvent: (event: Parameters<NonNullable<typeof record.view.webContents.sendInputEvent>>[0]) => {
+        const contents = record.view.webContents;
+        if (!contents.sendInputEvent) fail("SYSTEM_TRUSTED_INPUT_UNAVAILABLE", "The Chromium input API is unavailable.");
+        contents.sendInputEvent(event);
+      } }
+    };
   }
 
   #requireExpectedRequest(
@@ -1120,6 +1092,7 @@ implements ChromiumRoleSurfaceNativeAttachmentPort,
     if (!raw || raw.abiVersion !== WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION ||
       !HANDLE_TOKEN_PATTERN.test(raw.surfaceHandleToken) ||
       !HANDLE_TOKEN_PATTERN.test(raw.parentHandleToken) ||
+      !HANDLE_TOKEN_PATTERN.test(raw.focusIdentity) ||
       raw.surfaceHandleToken === raw.parentHandleToken ||
       !Number.isSafeInteger(raw.processId) || raw.processId < 1 ||
       !Number.isSafeInteger(raw.uiThreadId) || raw.uiThreadId < 1 ||

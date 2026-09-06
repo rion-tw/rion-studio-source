@@ -1087,7 +1087,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "On a live Windows Electron runner, fail closed unless ABI v4 converts the exact Electron-owned surface into one dedicated no-activate WS_CHILD, proves that it owns exactly one WebContentsView under the exact foreground runtime parent, native foreground KeyA and mouse submission produce isolated-preload DOM receipts with isTrusted=true, then the same Role surface remains hidden and unfocused behind a visible sibling while native background KeyB produces trusted DOM receipts without showing, selecting, focusing, or changing the foreground owner."
+      "description": "On a live Windows Electron runner, fail closed unless ABI v6 converts the exact Electron-owned surface into one dedicated no-activate WS_CHILD, proves that it owns exactly one WebContentsView under the exact foreground runtime parent, the product Chromium sendInputEvent owner submits foreground KeyA and view-local DIP mouse events that produce isolated-preload DOM receipts with isTrusted=true, then the same Role surface remains hidden and unfocused behind a visible sibling while the same product Chromium owner submits background KeyB and produces trusted DOM receipts without showing, selecting, focusing, or changing the foreground owner."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-POPUP-012",

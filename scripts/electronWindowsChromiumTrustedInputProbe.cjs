@@ -19,21 +19,10 @@ function withDiagnosticDeadline(promise, milliseconds) {
   ]).finally(() => clearTimeout(deadline));
 }
 
-function parsedReceipt(value, operation) {
-  if (typeof value !== "string" || value.length === 0 || value.length > 16_384) {
-    throw new Error(`Win32 returned an invalid ${operation} receipt envelope.`);
-  }
-  try {
-    return JSON.parse(value);
-  } catch {
-    throw new Error(`Win32 returned malformed JSON for ${operation}.`);
-  }
-}
-
 function exactProbe(receipt, surfaceHandle, parentHandle) {
   if (
     !receipt ||
-    receipt.abiVersion !== 5 ||
+    receipt.abiVersion !== 6 ||
     !receipt.currentProcessOwned ||
     !receipt.exactParent ||
     !receipt.childWindowStyle ||
@@ -42,6 +31,7 @@ function exactProbe(receipt, surfaceHandle, parentHandle) {
     !receipt.foregroundWindowPreserved ||
     !receipt.activeWindowPreserved ||
     !receipt.focusWindowPreserved ||
+    !/^[0-9a-f]{64}$/u.test(receipt.focusIdentity) ||
     typeof receipt.parentWasForeground !== "boolean" ||
     typeof receipt.parentVisible !== "boolean" ||
     typeof receipt.surfaceVisible !== "boolean" ||
@@ -69,6 +59,7 @@ function exactProbe(receipt, surfaceHandle, parentHandle) {
 function exactNativeBase(receipt, expected, probe) {
   if (
     receipt.status !== "submitted" ||
+    receipt.submissionApi !== "webContents.sendInputEvent" ||
     receipt.roleId !== expected.roleId ||
     receipt.surfaceGeneration !== expected.surfaceGeneration ||
     receipt.nativeGeneration !== expected.nativeGeneration ||
@@ -141,7 +132,7 @@ void (async () => {
     );
     await app.whenReady();
     const addon = require(addonPath);
-    if (addon.windowsChromiumInputProbeAbiVersion() !== 5) {
+    if (addon.windowsChromiumInputProbeAbiVersion() !== 6) {
       throw new Error("The Win32 trusted-input probe ABI does not match Electron.");
     }
 
@@ -382,14 +373,29 @@ void (async () => {
       inputEpoch: "1",
       deliveryMode: "foreground"
     };
+    const { submitOwnedChromiumKey, submitOwnedChromiumClick } =
+      require("./electronLoadChromiumInputOwner.cjs");
+    const submissionOwner = (request) => ({
+      identity: {
+        roleId: identity.roleId, surfaceGeneration: identity.surfaceGeneration,
+        nativeGeneration: identity.nativeGeneration, bindingRevision: identity.bindingRevision,
+        surfaceHandleToken: identity.surfaceHandleToken, parentHandleToken: identity.parentHandleToken
+      },
+      probeRevision: request.probeRevision,
+      contents: view.webContents,
+      viewport: () => view.getBounds(),
+      nowMs: Date.now,
+      probe: () => exactProbe(addon.probeWindowsChromiumInputHwnd(
+        surfaceHandle, parentHandle
+      ), surfaceHandle, parentHandle)
+    });
+    const submitKey = request => submitOwnedChromiumKey(submissionOwner(request), request);
+    const submitClick = request => submitOwnedChromiumClick(submissionOwner(request), request);
     const keyPending = await armInput("windows-probe-key", [
       { type: "keydown", code: "KeyA" },
       { type: "keyup", code: "KeyA" }
     ]);
-    const keyDown = parsedReceipt(addon.submitWindowsChromiumBackgroundKey(
-      surfaceHandle,
-      parentHandle,
-      JSON.stringify({
+    const keyDown = submitKey({
         ...identity,
         requestId: "windows-probe-key-down",
         deadlineMs: String(Date.now() + 5_000),
@@ -401,12 +407,8 @@ void (async () => {
         shift: false,
         meta: false,
         repeat: false
-      })
-    ), "key-down submission");
-    const keyUp = parsedReceipt(addon.submitWindowsChromiumBackgroundKey(
-      surfaceHandle,
-      parentHandle,
-      JSON.stringify({
+      });
+    const keyUp = submitKey({
         ...identity,
         requestId: "windows-probe-key-up",
         deadlineMs: String(Date.now() + 5_000),
@@ -418,8 +420,7 @@ void (async () => {
         shift: false,
         meta: false,
         repeat: false
-      })
-    ), "key-up submission");
+      });
     exactNativeBase(keyDown, identity, foregroundProbe);
     exactNativeBase(keyUp, identity, foregroundProbe);
     if (
@@ -429,8 +430,6 @@ void (async () => {
       keyUp.eventType !== "keyUp" ||
       keyDown.code !== "KeyA" ||
       keyUp.code !== "KeyA" ||
-      keyDown.keyboardStateRestored !== true ||
-      keyUp.keyboardStateRestored !== true ||
       BigInt(keyUp.dispatchSequence) <= BigInt(keyDown.dispatchSequence)
     ) {
       throw new Error("The exact native key receipt sequence is invalid.");
@@ -438,56 +437,7 @@ void (async () => {
     const keyDom = await withDiagnosticDeadline(keyPending.input, 3_000);
     if (!keyDom.received || keyDom.value.length !== 2 ||
         keyDom.value.some((receipt) => !receipt.matches || !receipt.isTrusted)) {
-      // Failure-only equivalence experiment. These samples never replace the
-      // required native receipt or turn this failed product-path gate green.
-      const publicInputComparison = [];
-      try {
-        await cancelInput("windows-probe-key");
-      } catch (error) {
-        throw new Error("Native input failed and its probe sequence could not be cancelled.",
-          { cause: error });
-      }
-      for (const visibility of ["visible-child", "hidden-child"]) {
-        const sequence = `public-comparison-${visibility}`;
-        const keyCode = visibility === "visible-child" ? "B" : "C";
-        try {
-          if (visibility === "hidden-child") {
-            child.hide();
-            exactProbe(addon.projectWindowsChromiumInputHwnd(
-              surfaceHandle, parentHandle, false
-            ), surfaceHandle, parentHandle);
-          }
-          const before = exactProbe(addon.probeWindowsChromiumInputHwnd(
-            surfaceHandle, parentHandle
-          ), surfaceHandle, parentHandle);
-          const pending = await armInput(sequence, [
-            { type: "keydown", code: `Key${keyCode}` },
-            { type: "keyup", code: `Key${keyCode}` }
-          ]);
-          view.webContents.sendInputEvent({ type: "keyDown", keyCode });
-          view.webContents.sendInputEvent({ type: "keyUp", keyCode });
-          const dom = await withDiagnosticDeadline(pending.input, 3_000);
-          const after = exactProbe(addon.probeWindowsChromiumInputHwnd(
-            surfaceHandle, parentHandle
-          ), surfaceHandle, parentHandle);
-          publicInputComparison.push({
-            visibility, before, after, received: dom.received,
-            receipts: privateReceipts.filter(receipt =>
-              receipt.inputSequence === sequence).slice(-8)
-          });
-        } catch (error) {
-          publicInputComparison.push({ visibility,
-            error: String(error instanceof Error ? error.message : error).slice(0, 512) });
-        } finally {
-          try {
-            await cancelInput(sequence);
-          } catch (error) {
-            publicInputComparison.push({ visibility, cancellationError: String(error).slice(0, 512) });
-          }
-        }
-      }
       throw new Error(`Chromium did not emit the exact trusted DOM key sequence: ${JSON.stringify({
-        publicInputComparison,
         preDispatchDomState,
         foregroundProbe,
         keyDown,
@@ -498,6 +448,7 @@ void (async () => {
       })}`);
     }
 
+    await cancelInput("windows-probe-key");
     const zoomFactor = 1.25;
     const clientX = 80;
     const clientY = 96;
@@ -507,10 +458,7 @@ void (async () => {
       { type: "mouseup", button: 0, clientX: null, clientY: null },
       { type: "click", button: 0, clientX: null, clientY: null }
     ]);
-    const mouse = parsedReceipt(addon.submitWindowsChromiumBackgroundMouse(
-      surfaceHandle,
-      parentHandle,
-      JSON.stringify({
+    const mouse = submitClick({
         ...identity,
         requestId: "windows-probe-mouse",
         inputEpoch: "2",
@@ -519,26 +467,23 @@ void (async () => {
         clientX,
         clientY,
         zoomFactor,
-        button: 0,
-        nativeOriginX: viewBounds.x,
-        nativeOriginY: viewBounds.y
-      })
-    ), "mouse submission");
+        button: 0
+      });
     exactNativeBase(mouse, { ...identity, inputEpoch: "2" }, foregroundProbe);
     const expectedNativeX = Math.round(
-      (viewBounds.x + clientX * zoomFactor) * foregroundProbe.dpi / 96
+      clientX * zoomFactor
     );
     const expectedNativeY = Math.round(
-      (viewBounds.y + clientY * zoomFactor) * foregroundProbe.dpi / 96
+      clientY * zoomFactor
     );
     if (
       mouse.requestId !== "windows-probe-mouse" ||
       mouse.button !== 0 ||
-      mouse.nativeClientX !== expectedNativeX ||
-      mouse.nativeClientY !== expectedNativeY ||
+      mouse.inputX !== expectedNativeX ||
+      mouse.inputY !== expectedNativeY ||
       mouse.dispatchedEventCount !== 2
     ) {
-      throw new Error("The native DPI-aware mouse receipt is invalid.");
+      throw new Error("The Chromium view-local DIP mouse receipt is invalid.");
     }
     const mouseDom = await withDiagnosticDeadline(mousePending.input, 3_000);
     if (!mouseDom.received || mouseDom.value.length !== 3 ||
@@ -647,10 +592,7 @@ void (async () => {
       { type: "keydown", code: "KeyB" },
       { type: "keyup", code: "KeyB" }
     ]);
-    const hiddenKeyDown = parsedReceipt(addon.submitWindowsChromiumBackgroundKey(
-      surfaceHandle,
-      parentHandle,
-      JSON.stringify({
+    const hiddenKeyDown = submitKey({
         ...hiddenIdentity,
         requestId: "windows-probe-hidden-key-down",
         deadlineMs: String(Date.now() + 5_000),
@@ -661,12 +603,8 @@ void (async () => {
         shift: false,
         meta: false,
         repeat: false
-      })
-    ), "hidden key-down submission");
-    const hiddenKeyUp = parsedReceipt(addon.submitWindowsChromiumBackgroundKey(
-      surfaceHandle,
-      parentHandle,
-      JSON.stringify({
+      });
+    const hiddenKeyUp = submitKey({
         ...hiddenIdentity,
         requestId: "windows-probe-hidden-key-up",
         deadlineMs: String(Date.now() + 5_000),
@@ -677,8 +615,7 @@ void (async () => {
         shift: false,
         meta: false,
         repeat: false
-      })
-    ), "hidden key-up submission");
+      });
     exactNativeBase(hiddenKeyDown, hiddenIdentity, hiddenProbe);
     exactNativeBase(hiddenKeyUp, hiddenIdentity, hiddenProbe);
     const hiddenKeyDom = await withDiagnosticDeadline(hiddenKeyPending.input, 3_000);

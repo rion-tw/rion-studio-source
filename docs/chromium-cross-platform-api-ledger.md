@@ -3491,3 +3491,44 @@ zoom conversion; exact DOM acknowledgement remains required. Evidence:
 `/tmp/rion-chromium-fractional-report.json`. This isolated API experiment is not
 Windows or product Role acceptance. Pure Electron build and production E2E
 isolation also pass for the new leaf's source graph.
+
+- CP-08/09 working-tree continuation after `fad92f6b`: the Windows product
+  attachment owner now calls the shared Chromium key/click primitives. Removed
+  the 1,044-line Rust Win32 key/mouse submission module and its addon exports.
+  ABI v6 adds an opaque read-only foreground/active/focus identity; submission
+  compares exact native observations and viewport before every event and after
+  delivery. Receipts explicitly name `webContents.sendInputEvent` and no longer
+  claim Win32 scan codes or keyboard-state restoration. Trusted DOM completion,
+  Core input epochs, cancellation and AppKit remain separate existing gates.
+  The Windows physical probe loads these exact product modules through a closed
+  E2E-only loader; it no longer maintains an independent native submission path
+  or a failure-only public-API comparison. Journey
+  CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009 reflects the ABI/API change.
+  Focused seven-file validation passed 50 tests, including stale identity,
+  deadline, focus/viewport changes, hidden delivery and partial mouse submission.
+  Native Windows product and full Macro acceptance remain pending. The extra
+  per-Role native child attachment still requires a subsequent necessity audit.
+- Latest historical CI `34032865591` at `dffdfb6d` completed with failures: both
+  native validation jobs, checks, renderer, sanitizer and macOS Tauri desktop
+  E2E passed; Windows Tauri desktop E2E and both Chromium package validation
+  jobs failed. Earlier successful package/profile evidence is historical and
+  does not certify this working-tree input replacement or final cutover.
+
+- CP-08/18 continuation validation: all 441 Vitest files / 3,428 tests passed
+  after moving the E2E loader into the existing `scripts/electron*` transition
+  scope; the first full run correctly rejected its unscoped filename. Typecheck,
+  macOS Rust lint, source hygiene and unchanged E2E coverage targets passed.
+  The paired SYSTEM-SETTINGS-013 legal-document action now waits for the actual
+  Open button to exist and become clickable after route navigation, instead of
+  asserting a transient empty element collection. This addresses the observed
+  macOS `dffdfb6d` failure location; native rerun remains required and is not
+  inferred from the selector change.
+
+- CP-08/18 final local continuation checks: macOS workspace Rust tests, stable
+  `build`, production `build:electron`, and `check:desktop-e2e-isolation` passed.
+  Full ESLint passed with the same 23 existing renderer warnings and no errors.
+  Final pointer receipt checks compare view-local DIP with the requested zoom
+  and integral DOM CSS coordinates rather than mixing native physical pixels;
+  the two affected suites passed 23 tests and typecheck passed afterward.
+  No macOS or Windows desktop E2E profile ran locally for this batch; paired CI
+  and mixed-scale hardware gates remain pending.

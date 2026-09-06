@@ -1,6 +1,6 @@
 import { prepareChromiumFontRole, verifyChromiumFontApplication } from "./chromium-font-application-support";
 
-import { $, $$, browser, expect } from "@wdio/globals";
+import { $, browser, expect } from "@wdio/globals";
 
 import {
   electronDesktopE2eDiagnosticsExportJournal,
@@ -143,9 +143,11 @@ async function verifyNativeDiagnosticsExportCancel(input: Readonly<{
 
 async function verifyLegalCancelBoundary(): Promise<void> {
   await openSettingsSection("About & Legal", "about-legal");
-  const openButtons = await $$("button=Open");
-  expect(await openButtons.length).toBeGreaterThan(0);
-  await openButtons[0].click();
+  const openDocument = await $("button=Open");
+  await openDocument.waitForExist({ timeout: 10_000 });
+  await openDocument.scrollIntoView({ block: "center" });
+  await openDocument.waitForClickable({ timeout: 10_000 });
+  await openDocument.click();
 
   const legalDialog = await $("[role='dialog']");
   await legalDialog.waitForDisplayed({ timeout: 10_000 });

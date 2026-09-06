@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 #[cfg(windows)]
 use std::mem::size_of;
 
-const WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION: u32 = 5;
+const WINDOWS_CHROMIUM_INPUT_PROBE_ABI_VERSION: u32 = 6;
 
 #[napi(object)]
 pub struct WindowsChromiumInputHwndProbeReceipt {
@@ -23,6 +23,7 @@ pub struct WindowsChromiumInputHwndProbeReceipt {
     pub foreground_window_preserved: bool,
     pub active_window_preserved: bool,
     pub focus_window_preserved: bool,
+    pub focus_identity: String,
     pub parent_was_foreground: bool,
     pub parent_visible: bool,
     pub surface_visible: bool,
@@ -356,6 +357,12 @@ pub fn probe_windows_chromium_input_hwnd(
             foreground_window_preserved,
             active_window_preserved,
             focus_window_preserved,
+            focus_identity: format!(
+                "{:x}",
+                Sha256::digest(format!(
+                    "{current_process_id}:{foreground_before:?}:{active_before:?}:{focus_before:?}"
+                ))
+            ),
             parent_was_foreground: foreground_before == parent,
             parent_visible: IsWindowVisible(parent).as_bool(),
             surface_visible: IsWindowVisible(surface).as_bool(),
@@ -614,6 +621,6 @@ mod tests {
 
     #[test]
     fn probe_abi_is_stable_without_advertising_platform_capability() {
-        assert_eq!(windows_chromium_input_probe_abi_version(), 5);
+        assert_eq!(windows_chromium_input_probe_abi_version(), 6);
     }
 }

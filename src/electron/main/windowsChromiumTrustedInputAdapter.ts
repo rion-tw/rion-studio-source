@@ -215,7 +215,7 @@ function prepareDispatch(
     if (!TRUSTED_KEY_CODE_SET.has(action.code)) {
       fail(
         "SYSTEM_TRUSTED_INPUT_CODE_UNSUPPORTED",
-        "The DOM code has no locked Win32 virtual-key mapping."
+        "The DOM code has no supported Chromium key mapping."
       );
     }
     const down = action.phase !== "release";
@@ -352,7 +352,7 @@ function validateNativeBase(
   const scheduledAt = BigInt(pending.request.scheduledAtMs);
   const deadline = BigInt(pending.request.deadlineMs);
   if (
-    receipt.status !== "submitted" || receipt.requestId !== nativeRequestId ||
+    receipt.status !== "submitted" || receipt.submissionApi !== "webContents.sendInputEvent" || receipt.requestId !== nativeRequestId ||
     !validateIdentityFields(receipt, pending.host.identity) ||
     receipt.roleId !== pending.request.roleId ||
     receipt.surfaceGeneration !== pending.request.surfaceGeneration ||
@@ -382,14 +382,14 @@ function validateNativeBase(
   ) {
     fail(
       "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-      "The Win32 host returned a malformed or mismatched native submission receipt."
+      "The Chromium owner returned a malformed or mismatched submission receipt."
     );
   }
   return dispatchSequence;
 }
 
 /**
- * Accepts Win32 submission only after an exact per-surface child-host probe,
+ * Accepts Chromium submission only after an exact per-surface child-host probe,
  * then correlates it with private main-frame `isTrusted` DOM observations.
  *
  * Bootstrap construction is capability-gated. Every effect is locked to the
@@ -824,8 +824,8 @@ implements ChromiumNativeTrustedInputPort {
           ? "SYSTEM_TRUSTED_INPUT_PARTIAL_NATIVE_SUBMISSION"
           : "SYSTEM_TRUSTED_INPUT_NATIVE_SUBMISSION_FAILED",
         pending.nativeInvoked
-          ? "Win32 invocation did not return a complete exact receipt sequence."
-          : "Win32 rejected input before any native transition was invoked.",
+          ? "Chromium invocation did not return a complete exact receipt sequence."
+          : "Chromium rejected input before any native transition was invoked.",
         !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
     }
@@ -839,19 +839,14 @@ implements ChromiumNativeTrustedInputPort {
   ): void {
     if (
       receipt.eventType !== transition.eventType || receipt.code !== transition.code ||
-      !Number.isSafeInteger(receipt.virtualKeyCode) ||
-      receipt.virtualKeyCode < 1 || receipt.virtualKeyCode > 0xff ||
-      !Number.isSafeInteger(receipt.scanCode) ||
-      receipt.scanCode < 0 || receipt.scanCode > 0x1ff ||
-      typeof receipt.extendedKey !== "boolean" ||
       receipt.ctrl !== modifiers.ctrlKey || receipt.alt !== modifiers.altKey ||
       receipt.shift !== modifiers.shiftKey || receipt.meta !== modifiers.metaKey ||
-      receipt.keyboardStateRestored !== true || receipt.dispatchedEventCount !== 1 ||
+      receipt.dispatchedEventCount !== 1 ||
       receipt.probeRevision !== pending.probe.probeRevision
     ) {
       fail(
         "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-        "The Win32 key receipt does not match the exact native transition."
+        "The Chromium key receipt does not match the exact native transition."
       );
     }
   }
@@ -861,14 +856,16 @@ implements ChromiumNativeTrustedInputPort {
     transition: Extract<NativeTransition, { type: "mouse" }>,
     receipt: WindowsNativeTrustedMouseSubmissionReceipt
   ): void {
-    const nativePointValid = Number.isSafeInteger(receipt.nativeClientX) &&
-      receipt.nativeClientX >= 0 && receipt.nativeClientX < receipt.clientWidth &&
-      Number.isSafeInteger(receipt.nativeClientY) &&
-      receipt.nativeClientY >= 0 && receipt.nativeClientY < receipt.clientHeight;
+    const nativePointValid = Number.isSafeInteger(receipt.inputX) &&
+      receipt.inputX >= 0 && receipt.inputX === Math.round(transition.clientX * transition.zoomFactor) &&
+      Number.isSafeInteger(receipt.inputY) &&
+      receipt.inputY >= 0 && receipt.inputY === Math.round(transition.clientY * transition.zoomFactor);
     const domPointValid = Number.isFinite(receipt.expectedDomClientX) &&
       receipt.expectedDomClientX >= 0 && receipt.expectedDomClientX <= 1_000_000 &&
       Number.isFinite(receipt.expectedDomClientY) &&
-      receipt.expectedDomClientY >= 0 && receipt.expectedDomClientY <= 1_000_000;
+      receipt.expectedDomClientY >= 0 && receipt.expectedDomClientY <= 1_000_000 &&
+      receipt.expectedDomClientX === Math.floor(receipt.inputX / transition.zoomFactor) &&
+      receipt.expectedDomClientY === Math.floor(receipt.inputY / transition.zoomFactor);
     if (
       receipt.button !== transition.button || receipt.clientX !== transition.clientX ||
       receipt.clientY !== transition.clientY ||
@@ -878,7 +875,7 @@ implements ChromiumNativeTrustedInputPort {
     ) {
       fail(
         "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-        "The Win32 mouse receipt does not match the exact CSS-to-native point."
+        "The Chromium mouse receipt does not match the exact CSS-to-native point."
       );
     }
     pending.expectedEvents = Object.freeze(pending.expectedEvents.map((event) =>

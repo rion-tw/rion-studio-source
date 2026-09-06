@@ -119,7 +119,7 @@ function harness() {
   const probe = (): WindowsChromiumInputSurfaceProbeReceipt => ({
     ...identity,
     status: "verified",
-    abiVersion: 5,
+    abiVersion: 6,
     deliveryMode,
     probeRevision,
     processId: 100,
@@ -146,6 +146,7 @@ function harness() {
   ) => ({
     ...identity,
     status: "submitted" as const,
+    submissionApi: "webContents.sendInputEvent" as const,
     requestId,
     inputEpoch: "7",
     deliveryMode: requestDeliveryMode,
@@ -202,14 +203,10 @@ function harness() {
         ...baseReceipt(request.requestId, request.deliveryMode),
         eventType: request.eventType,
         code: request.code,
-        virtualKeyCode: 0x41,
-        scanCode: 0x1e,
-        extendedKey: false,
         ctrl: request.ctrl,
         alt: request.alt,
         shift: request.shift,
         meta: request.meta,
-        keyboardStateRestored: true,
         dispatchedEventCount: 1
       };
     }),
@@ -224,8 +221,8 @@ function harness() {
         clientX: request.clientX,
         clientY: request.clientY,
         zoomFactor: request.zoomFactor,
-        nativeClientX: 250,
-        nativeClientY: 500,
+        inputX: 125,
+        inputY: 250,
         expectedDomClientX: 100,
         expectedDomClientY: 200,
         dispatchedEventCount: 2

@@ -74,7 +74,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | verified retained adapters; both native validation jobs passed | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | full macOS smoke passed; Windows/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS package/updater verified at c0e09041; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS package/updater verified at 26c4fd4b; Windows/release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -2739,3 +2739,32 @@ coverage validation, pure Electron production build and production E2E isolation
 The latter now passes after restoring the production renderer. Windows remains
 pending a fresh immutable-candidate CI run; no release/cutover gate is waived.
 Logs: `/tmp/rion-foreground-*`.
+
+
+### Complete macOS package evidence advances to 26c4fd4b
+
+CI 34022067330 package job 101456344940 is terminal success at exact commit
+26c4fd4b8edcd8ace88a4f77b2f8665079696ec1. Downloaded source report
+`/tmp/rion-26c-mac-shell-artifacts/2026-09-06T08-32-17-682Z-darwin/report.json`
+confirms all 49 journeys, 52 passing phases and four expected forced exits.
+The job verifies the packaged Rust-owned updater transaction for 8.5.0 at
+09:06:43 UTC. The final packaged black-box report is passed with exit 0,
+visible OS accessibility interaction, retained appkit-chromium hosting and
+remoteDebugging=false. Its app.asar SHA-256 is
+`dc565c836b34e63e40c467de2f6ed92e6e8208eadfc059adf3c488d2ee400d81`.
+Packaged artifact: 9986360142;
+report root: `/tmp/rion-26c-mac-packaged-artifacts/2026-09-06T09-06-45-184Z-6f9eeac5-fdb8-4b90-95e4-04835e1778a5-darwin-packaged-black-box`.
+Job log: `/tmp/rion-26c-mac-package.log`.
+
+This advances CP-16 macOS evidence; it does not make the aggregate CI run pass:
+that candidate's Windows Chromium and stable macOS desktop jobs failed.
+The later 75562cc1 stable macOS job 101457881273 repeats the native
+setPresentation/deminiaturization timeout at cross-domain-runtime.e2e.ts:1184;
+its subsequent screenshot also times out. Exact native thread evidence is still
+missing, so no speculative AppKit removal or timeout relaxation is applied.
+Log: `/tmp/rion-755-mac-tauri.log`.
+
+Fresh immutable candidate b76e249b93801c11774a0b575320a9a55da7af95 is running in
+CI 34024329384. Its Windows Chromium job 101462497385 has reached the shell E2E
+step. Latest candidate macOS jobs are queued; these are live/pending evidence,
+not passed gates. The worktree is not promoted to the sole production engine.

@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | Windows foreground View gate passed; ordinary background continuity corrected, native parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | Windows visible/hidden sibling native View gates passed; background-parent correction and full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -5533,3 +5533,57 @@ trusted input are outside this Windows child-host removal.
   candidate CI. a20bddec macOS job 101561949187 separately completes its Chromium
   shell E2E step successfully; this does not resolve intermittent local-chrome
   restart or validate the current background-parent candidate.
+
+
+### CP-15/CP-16 bounded follow-up evidence after 1422ea67
+
+- Windows native validation job 101563096997 for f0beec3c is now completed
+  SUCCESS. Its full log confirms the 256-round concurrent receipt publication
+  test passed, followed by 8 native integration files / 15 tests and the
+  platform-filtered portable suite (442 files, 3568 tests; 10 files / 48 tests
+  skipped). No retained native ACL error was reproduced in this run; the
+  earlier UnsafePath failure is not explained by this success.
+- Diagnose the separate macOS Macro stop timeout with a fresh standalone
+  rion-core test executable built from current source. Run the exact sibling
+  cancellation test in 256 fresh processes with RUST_BACKTRACE=1, stopping at
+  the first nonzero exit. All 256 rounds pass. This bounded experiment does not
+  erase the earlier full-workspace failure or prove that load-sensitive
+  interleavings cannot recur. No test deadline, production logic or assertion
+  changed; raw evidence is /tmp/rion-macro-stop-bounded-soak.log on this host.
+- The 192120ad Windows stable full E2E job 101566159388 is confirmed in progress;
+  its tab-focus correction is still awaiting native acceptance. The 1422ea67
+  Windows Chromium job 101567161742 is also live, restoring its Rust cache;
+  macOS jobs remain queued. Neither elapsed time nor prior-candidate success
+  closes the current full parity gate.
+
+
+### CP-08 1422ea67 Windows background-parent API evidence
+
+- CI 34063144726 artifact chromium-input-windows-latest-34063144726-1 contains
+  four received direct-background cases: hidden/visible sibling times key/
+  middle button. Every key edge is trusted KeyB with Control+Shift; middle
+  edges are trusted at DOM coordinates 80,96 with viewport 240x160 and zoom
+  1.25. The target remains attached, unfocused, and in its specified visibility
+  state; its parent remains visible and unfocused. The other WebContents id 2
+  remains the exact focused identity before and after every sample.
+- This artifact explicitly records nativeParentOwner false. It verifies the
+  direct shared Chromium primitive only, not the production native View-owner
+  receipt path or whole Macro journey. The Windows native-owner integration and
+  full Chromium E2E jobs are still live. Preserve that distinction before
+  claiming background-parent parity or deleting the legacy native input code.
+
+
+### CP-08 c57075f1 exact Windows sibling View-owner gate passes
+
+- Windows native job 101564351639 completes SUCCESS. Artifact
+  chromium-view-owner-windows-latest-34062078527-1 contains four received
+  direct sibling samples with nativeParentOwner true: hidden and visible target
+  keyboard/middle input. All DOM events are trusted, the sibling remains
+  focused before/after, and target/sibling remain attached with isolated
+  Sessions and exact zoom 1.25 / acknowledged viewport 240x160.
+- The actual production owner emits submitted native receipts with monotonically
+  increasing dispatch sequences 1 through 6 and foregroundPreserved true.
+  This supplies the native-owner evidence that was pending for c57075f1's
+  visible unfocused sibling change. It does not test a background parent;
+  1422ea67's extended owner probe and full multi-Role/transfer/restart E2E remain
+  required before full input parity or legacy implementation removal.

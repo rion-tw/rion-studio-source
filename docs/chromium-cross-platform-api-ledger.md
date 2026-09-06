@@ -2483,3 +2483,36 @@ under immutable-ref CI
 [34021272996](https://github.com/rion-tw/rion-studio-source/actions/runs/34021272996).
 The preceding Windows Chromium stop-admission run 34020983154 remains live in
 its shell E2E step at this observation; it is not a passing result yet.
+
+
+### Windows loading cancellation passes; recovery evidence follows event order
+
+CI 34020983154 at 4bd48816 now passes the complete Windows recovery UI spec at
+08:15:53 UTC (one passing test, including visible gated cancellation, both
+transport cancellations and final Core tab/Role-status absence). The runner then
+fails its post-run recovery-history verifier, so the aggregate journey remains
+unverified. Evidence is under
+`/tmp/rion-4bd-win-package-artifacts/2026-09-06T08-09-01-957Z-win32/phases/chromium-workspaces-recovery`;
+log: `/tmp/rion-4bd-win-package.log`.
+
+The exact observations show Core runtime-crashed in sample 2 while native phase
+is still ready/revision 10; sample 3 projects degraded/revision 11 with the same
+Role, Core owner and native generation. The verifier incorrectly required the
+first Core failure sample itself to contain the later native degraded phase.
+It now requires the ordered degraded observation for that same failed Role,
+with identical Core owner and native generation, while retaining the first Core
+failure, healthy-sibling preservation and explicit relaunch generation checks.
+Missing degradation, replacement ownership/native generation and missing
+relaunch still fail. No product runtime or E2E user action changes.
+
+Ten platform-explicit behavioral cases cover this ordering and the rejection
+boundaries. Replaying both the actual Windows failure artifact and the prior
+c0e09041 macOS recovery artifact through the corrected verifier succeeds.
+This is internal-only evidence validation; the affected existing journeys are
+CHROMIUM-WINDOWS-WORKSPACES-RECOVERY-026 and
+CHROMIUM-MACOS-APPKIT-WORKSPACES-RECOVERY-026. Fresh aggregate CI remains pending;
+replay does not retroactively change the failed CI verdict.
+
+Validation: all 3,358 Vitest tests, typecheck, lint and complete hygiene pass.
+Logs: `/tmp/rion-recovery-phase-*`. No native imports, shared runtime contracts
+or product code changed; native Rust checks are not repeated for this verifier.

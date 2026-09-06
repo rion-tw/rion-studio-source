@@ -325,6 +325,12 @@ function validateRecoveryHistory(phase, observations, platform) {
   );
   requireRuntime(failedIndex > 0, `${phase}: no authoritative failing Role was observed`);
   const failed = observations[failedIndex];
+  // Core reports the issue before the native degraded projection is applied.
+  // Require both events in order without treating their first sample as atomic.
+  const degraded = observations.slice(failedIndex).find((observation) =>
+    observation.roleId === failed.roleId && observation.phase === "degraded" &&
+      observation.coreStatus.issueReason === "runtime-crashed"
+  );
   const failedBefore = observations.slice(0, failedIndex).findLast(
     (observation) => observation.roleId === failed.roleId &&
       observation.coreStatus.issueReason === null
@@ -344,7 +350,9 @@ function validateRecoveryHistory(phase, observations, platform) {
     (observation) => observation.roleId === healthyAfter?.roleId
   );
   requireRuntime(
-    failed.phase === "degraded" && failedBefore && healthyBefore && healthyAfter &&
+    degraded && sameValue(degraded.coreOwner, failed.coreOwner) &&
+      degraded.nativeOwner.generation === failed.nativeOwner.generation &&
+      failedBefore && healthyBefore && healthyAfter &&
       failed.nativeOwner.generation === failedBefore.nativeOwner.generation &&
       sameValue(failed.coreOwner, failedBefore.coreOwner) &&
       healthyAfter.nativeOwner.generation === healthyBefore.nativeOwner.generation &&

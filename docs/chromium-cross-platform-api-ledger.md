@@ -61,7 +61,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | --- | --- | --- | --- | --- |
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
 | CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
-| CP-03 | P0 / Core + Sessions | implemented; both native Rust gates passed, Windows Chromium smoke pending | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
+| CP-03 | P0 / Core + Sessions | implemented; both native Rust gates and paired Chromium persistence smoke passed | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; macOS smoke passed, Windows/hardware pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 280027d7; Windows 25 at cbdd80fe, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 280027d7; Windows 25 at 17431e59, full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 280027d7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -4641,3 +4641,40 @@ trusted input are outside this Windows child-host removal.
   supplies paired stable-shell recovery evidence for the persistence receipt
   correction; it does not certify the pending Chromium jobs or this later
   AppKit driver change.
+
+### Windows persistence acceptance and remaining input failure
+
+- Windows Chromium job 101541710883, run 34053711912 at 17431e59, completed
+  25 phases as PASS before chromium-macro-background-tab failed. Evidence:
+  artifact 9995489407, report 2026-09-06T19-05-58-231Z-win32/report.json.
+  Settings seed/restart and CHROMIUM-WINDOWS-SETTINGS-PERSIST-006 passed.
+  This validates general preferences only: the separate system-settings phase
+  owns retired-control absence and font selection, and was not reached.
+  CP-02, CP-06 and CP-13 therefore retain Windows Chromium acceptance pending.
+  Previous macOS and native font evidence remains version-qualified; this
+  does not close same-candidate full parity.
+- The same report verifies native file upload
+  CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028, workspace web fullscreen,
+  security policy, paired Role/workspace persistence, workspace recovery,
+  game-window UI and the foreground Macro effect. The HWND chooser repair
+  therefore has native Windows acceptance, beyond its earlier source tests.
+- Background continuity now reaches the second hidden start and final stop.
+  Fixture sequences 433/434 record trusted hidden Digit2 keydown/consumer
+  keydown. After restoring the Role, a pointer-down at sequence 442 precedes
+  an untrusted Digit2 keyup/consumer keyup at 443/444. The stop chord follows
+  at 450-453, and trusted Digit2 release arrives at 454/455. The strict
+  assertion fails on 443 in stopFromShortcut, spec line 425. Do not filter
+  away this earlier release or certify uninterrupted ownership from the later
+  trusted event. Investigate overlay physical-key classification and focus
+  cleanup before changing the test or input behavior.
+- Source follow-up: normal Macro dispatch computes suppressOverlayShortcut
+  from shortcut collisions, while held-key continuity sets it true. The
+  Windows adapter arms the page Macro guard only when that flag is true;
+  unguarded trusted keys enter the overlay's physical-key bookkeeping, whose
+  blur cleanup can dispatch synthetic keyup. This is a concrete candidate
+  mechanism, not yet a proven repair; retain focused reproduction and native
+  acceptance requirements.
+- Windows native job 101541034613 at 8387a3c9 now passes both viewport probe
+  configurations after removing windowsHide from the visible probe. Its two
+  remaining native failures are Session response framing (leading CRLF).
+  Probe success does not close hidden resize notification or hardware parity.

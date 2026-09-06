@@ -31,7 +31,8 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(spec).toContain("electron-fullscreen-toolbar-observations.json");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("runtimeUiAction(");
-    expect(roleSurface).toContain('browser.action("key").down(Key.F11).up(Key.F11)');
+    expect(roleSurface).not.toContain('browser.action("key").down(Key.F11)');
+    expect(roleSurface).toContain("await pressVisibleWindowsApplicationShortcut({");
     expect(roleSurface).toMatch(
       /movePointerToWindowsRuntimeHostRevealEdge[\s\S]*?browser\.action\("pointer"/u
     );

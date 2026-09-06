@@ -3,11 +3,13 @@ import { Key } from "webdriverio";
 import { sendChromiumEscapeKey } from "./chromium-escape-key";
 
 import {
+  electronDesktopE2eProbe,
   electronDesktopE2eRolePlaceholderRuntime,
   type ElectronDesktopE2eRolePlaceholderInspection
 } from "./electron-driver";
 import {
-  pressVisibleMacosApplicationShortcut
+  pressVisibleMacosApplicationShortcut,
+  pressVisibleWindowsApplicationShortcut
 } from "./native-application-actions";
 
 type ElectronWindowTracker = {
@@ -495,11 +497,12 @@ export async function submitElectronRolePageQuickAccessShortcut(
   });
 }
 
-/** Sends real F11 input to the visible managed Role document. */
+/** Sends native Windows F11 input through the retained foreground hook. */
 export async function submitElectronRolePageFullscreenShortcut(
   expectedUrl: string,
   mainWindowHandle: string
 ): Promise<void> {
+  const { processId } = await electronDesktopE2eProbe();
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const button = await $("#qa-target");
     await button.waitForDisplayed({ timeout: 10_000 });
@@ -508,7 +511,10 @@ export async function submitElectronRolePageFullscreenShortcut(
       () => browser.execute(() => document.hasFocus()),
       { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
     );
-    await browser.action("key").down(Key.F11).up(Key.F11).perform();
+    // WebDriver key injection bypasses the Win32 hook that owns F11 routing.
+    await pressVisibleWindowsApplicationShortcut({
+      command: "toggleFullscreen", processId, targetMode: "focused-runtime"
+    });
   });
 }
 

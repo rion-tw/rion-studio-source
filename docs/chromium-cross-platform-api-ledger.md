@@ -2609,3 +2609,32 @@ remains pending CI; the previous screenshot is failure evidence, not a pass.
 Logs: `/tmp/rion-unsaved-placement-*`.
 Final verification also passes all 3,359 Vitest tests, typecheck, lint, complete
 hygiene and pure Electron build after updating both receipt consumers.
+
+### Fullscreen E2E sends F11 through the retained Windows native hook
+
+CI 34022067330 at 26c4fd4b passes the corrected Settings locator but fails
+waiting for fullscreen auto-hide. Its toolbar history contains only the normal
+presentation and Core flow contains no fullscreen UI action after the key
+submission. The driver used WebDriver key injection for F11 even though CP-07
+retains the native Win32 foreground hook as the authoritative Windows routing
+boundary. This does not exercise that physical shortcut path. Evidence:
+`/tmp/rion-26c-win-package-artifacts/2026-09-06T08-32-52-294Z-win32/phases/chromium-fullscreen-toolbar-seed`;
+log: `/tmp/rion-26c-win-package.log`.
+
+The shared Role F11 helper now obtains the exact process identity before
+focusing the Role page and invokes the existing Windows scan-code shortcut
+helper in focused-runtime mode. The native helper checks foreground PID and
+visibility and requires SendInput's exact inserted count. The existing caller
+still requires fullscreen projection, actual toolbar/content geometry and no
+F11 page delivery; input submission alone cannot pass. Both callers use this
+helper only in their Windows branch. AppKit controls remain unchanged.
+
+This internal-only desktop driver correction affects
+CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012 and
+CHROMIUM-WINDOWS-NATIVE-DISPLAY-001. The manifest now states native scan-code
+input explicitly. The adjacent source boundary check no longer requires the
+incorrect WebDriver F11 path. Typecheck, scoped lint, source hygiene, E2E
+production isolation, coverage validation and 11 adjacent native-action and
+toolbar checks pass. Actual Windows/fullscreen and hardware profile results
+remain pending; no macOS execution is claimed for a Windows-only driver change.
+Logs: `/tmp/rion-native-f11-*`.

@@ -2533,3 +2533,25 @@ terminal cancelled; this does not change individual completed job results or
 turn failed aggregate journeys into passes. Existing artifacts and recorded
 commit-specific evidence remain valid only for their stated scope. No current
 candidate job was cancelled or restarted.
+
+
+### Windows recovery aggregate passes; fix scoped toolbar-settings selector
+
+CI 34021561250 at 27deee12 now records WORKSPACES-RECOVERY-026 PASS in the
+aggregate report, confirming the ordered verifier as well as actual visible
+cancellation and final Core retirement. The Windows source profile advances to
+13 passing phases and 16 passing journeys before the next failure; 33 journeys
+remain not run. Report:
+`/tmp/rion-27d-win-package-artifacts/2026-09-06T08-21-52-165Z-win32/report.json`.
+
+The fullscreen-toolbar seed fails before its preference action because
+`.settings-mode-sidebar button=Preferences` is sent as an invalid CSS selector.
+The driver now scopes to the sidebar first, then uses WebdriverIO's exact
+button-text selector, matching the existing system-settings driver pattern.
+The failure screenshot confirms the visible Preferences section and toolbar
+switch. The persisted preference assertions and native fullscreen actions are
+unchanged. This is an internal-only E2E locator correction affecting
+CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012; Windows execution remains pending CI.
+Typecheck, scoped lint, source hygiene, production E2E isolation and coverage
+validation pass. Logs: `/tmp/rion-toolbar-selector-*`,
+`/tmp/rion-27d-win-package.log`.

@@ -774,6 +774,7 @@ impl CoreCommand {
                 | Self::BrowserPopupLifecycleCommit { .. }
                 | Self::BrowserRoleStop { .. }
                 | Self::BrowserWorkspaceStop { .. }
+                | Self::EmbeddedTabStop { .. }
                 | Self::BrowserWindowCloseAdmit { .. }
                 | Self::BrowserWindowStop { .. }
                 | Self::BrowserWindowDelete { .. }

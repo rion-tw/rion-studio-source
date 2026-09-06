@@ -43,7 +43,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     }
     if ([ShortcutProbeInput]::GetForegroundWindow() -ne $handle) { throw 'Exact target is not foreground' }
     foreach ($key in $request.keys) {
-      if (-not [ShortcutProbeInput]::Send([ushort]$key.code, [bool]$key.up)) {
+      if (-not [ShortcutProbeInput]::Send([System.UInt16]$key.code, [bool]$key.up)) {
         throw 'SendInput did not insert the exact event'
       }
     }

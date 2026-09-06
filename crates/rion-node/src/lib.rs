@@ -1233,6 +1233,16 @@ mod tests {
     }
 
     #[test]
+    fn generic_napi_tab_stop_uses_async_dispatch() {
+        let command = decode_command(
+            r#"{"type":"embeddedTabStop","request":{"operationId":"stop-tab","mutationKind":"stop","tabId":"tab-1","sourceWindowId":"window-1","sourceWindowGeneration":7,"lifecycleEpoch":3},"sourceId":"workspace-1","tabType":"workspace"}"#,
+        )
+        .unwrap();
+        assert!(matches!(&command, CoreCommand::EmbeddedTabStop { .. }));
+        assert!(command.requires_async_dispatch());
+    }
+
+    #[test]
     fn authoritative_event_batches_are_never_best_effort() {
         assert!(event_batch_is_critical(&[CoreEvent::Ready {
             schema_version: 1,

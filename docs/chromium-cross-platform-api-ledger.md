@@ -1585,3 +1585,44 @@ probe successfully (`/tmp/rion-updater-cache-offline-build.log`). This verifies
 offline compilation, not the full packaged updater transaction. Additional logs
 use `/tmp/rion-updater-cache-*`. This tooling change is `internal-only` for E2E;
 the native package gate remains pending a run containing the correction.
+
+### Windows pending-popup close: asynchronous Core command routing
+
+Run `34012430832` reached the visible native parent-tab close in the Windows
+Chromium fullscreen seed phase. Core's flow journal recorded `embeddedTabStop`
+as started, then rejected it with "asynchronous browser intent reached the
+synchronous core dispatcher". The UI Automation action arrived; no popup close
+receipt followed because the command never reached its asynchronous handler.
+Evidence is `/tmp/rion-2420-windows-package.log` and
+`/tmp/rion-2420-win-artifacts/2026-09-06T04-51-03-534Z-win32/`.
+
+`CoreCommand::requires_async_dispatch` now includes `EmbeddedTabStop`, matching
+the existing async-only handler. A serialized Node-API command regression checks
+the classification, and a real native addon integration test closes a retired
+tab through the public invoke boundary and observes the idempotent empty
+topology. The exact popup cancellation and native-close E2E assertions remain.
+
+Local macOS validation passed: 1,640 Rust tests, zero failures and four ignored;
+Rust formatting/Clippy; six real native Core startup integration tests;
+typecheck, lint, source hygiene, E2E coverage, and the pure Electron production
+build. Logs use `/tmp/rion-tab-stop-*`. The affected paired journey is
+WORKSPACE-WEB-FULLSCREEN-017. Windows native and full Chromium confirmation of
+this routing correction remain pending a new exact-commit run. The current run
+has passed both Tauri full jobs and macOS native validation, but predates this
+correction and the isolated updater toolchain-home fix.
+
+Windows native validation subsequently completed its Rust checks and passed
+eight native integration tests, including production Chromium font enumeration.
+The font report contains 89 canonical families; reload preserves the inventory,
+foreign owners/subframes receive no fonts, permission denial returns an empty
+inventory, and navigation retires the provider. Evidence:
+`/tmp/rion-2420-win-fonts/local-fonts-win32.json`. CP-06's native provider is now
+verified on both systems; Windows FONT-APPLICATION-033 remains pending because
+the full Chromium profile stopped earlier at tab close.
+
+The new F11 probe failed before collecting its matrix: Windows PowerShell does
+not resolve the `[ushort]` alias used by its test driver. The driver now uses
+`[System.UInt16]`, matching the C# method argument without changing any input
+semantics or assertions. This fixture-only correction is `internal-only`; its
+Windows execution and all CP-07 comparison outcomes remain pending. The other
+native test successes do not turn the failed native job into a pass.

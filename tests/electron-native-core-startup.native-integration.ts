@@ -462,6 +462,27 @@ async function expectCoreError(
 }
 
 describe("real native Core startup integration", () => {
+  it("dispatches a retired tab close through the real asynchronous Node-API boundary", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rion-native-tab-stop-"));
+    activeDirectories.add(directory);
+    const binding = await nativeAddon().createAppCore({
+      userDataDir: directory, platform: runtimePlatform, appVersion: "23.0.0-test",
+      packaged: false, runtimeContractVersion: 23
+    });
+    try {
+      binding.subscribeCoreEvents(() => {}, () => {});
+      const result = JSON.parse(await binding.invoke(JSON.stringify({
+        type: "embeddedTabStop", sourceId: "retired-workspace", tabType: "workspace",
+        request: { operationId: "retired-tab-stop", mutationKind: "stop", tabId: "retired-tab",
+          sourceWindowId: "retired-window", sourceWindowGeneration: 7, lifecycleEpoch: 3 }
+      })));
+      expect(result.tabs).toEqual([]);
+      expect(result.windows).toEqual([]);
+    } finally {
+      await binding.shutdown();
+    }
+  });
+
   it("admits one exact exported journal before registration and the raw bridge", async () => {
     const { directory, exported } = await seedExportedMigration();
     const order: string[] = [];

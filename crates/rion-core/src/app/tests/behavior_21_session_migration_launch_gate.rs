@@ -1050,7 +1050,12 @@ fn a_fully_verified_import_journal_allows_launch_without_new_role_evidence() {
             "2026-08-30T05:00:01Z",
         ))
         .unwrap();
-    stable.shutdown();
+    assert_eq!(
+        stable
+            .shutdown_checked()
+            .expect("v22 shutdown must complete before Chromium reopens the data directory"),
+        crate::AppCoreShutdownOutcome::Completed,
+    );
 
     let chromium = Arc::new(
         AppCore::create(migration_gate_options(directory.path(), platform, 23)).unwrap(),
@@ -1182,7 +1187,12 @@ fn a_fully_verified_import_journal_allows_launch_without_new_role_evidence() {
     );
     assert!(launch.is_ok(), "{launch:?}");
     assert!(!actions.is_empty());
-    chromium.shutdown();
+    assert_eq!(
+        chromium
+            .shutdown_checked()
+            .expect("verified import launch must complete Chromium teardown"),
+        crate::AppCoreShutdownOutcome::Completed,
+    );
 }
 
 #[test]

@@ -68,7 +68,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; Windows shutdown/import restart failure and consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
@@ -5781,3 +5781,33 @@ trusted input are outside this Windows child-host removal.
   observation, so no Rust unit rerun or local native desktop execution was
   performed. Native journal diagnosis and the separately observed restart-lock
   failure remain open; no success criterion was changed in this batch.
+
+
+### CP-10 shutdown failure attribution and source audit
+
+- The verified-import restart test now requires `shutdown_checked()` to return
+  `Completed` before reopening the v22 data directory with Chromium, and again
+  for final Chromium teardown. Previously the compatibility `shutdown()`
+  printed the original error and allowed the test to continue into
+  `APP_INSTANCE_LOCKED`. The assertion change preserves the first failing
+  boundary; it does not repair the Windows shutdown timeout.
+- Source audit confirms the state worker acknowledges only after its explicit
+  WAL checkpoint and SQLite connection close. Core retains the instance lock
+  when this acknowledgement fails. Its SQLite busy timeout is five seconds
+  while the shutdown receive boundary is three seconds; this is a possible
+  source of an unknown acknowledgement, not proof of lock contention in the
+  observed failure. Existing logs do not distinguish queue delay, checkpoint,
+  and connection close. No deadlines, retries, locking rules or production
+  behavior are changed.
+- Latest journal-diagnostic candidate b310c06d / CI 34065969000 remains live:
+  Windows Chromium job 101574657954 is executing its shell E2E and Windows
+  native job 101574759393 is executing Rust tests. The macOS Chromium and
+  native jobs remain queued at this observation. Retain these run handles.
+
+- Validation for this lower-layer-covered test change: the focused macOS
+  import test passes; full native Rust workspace passes 1647 tests with 4
+  declared ignored tests, and Rust lint passes. Vitest passes 452 files /
+  3642 tests in 159.22 seconds; JavaScript lint passes with 23 existing
+  warnings, and full hygiene / coverage checks pass. No user-visible behavior
+  or journey membership changed. No local macOS desktop E2E profile ran;
+  Windows execution of the stronger shutdown assertion remains pending CI.

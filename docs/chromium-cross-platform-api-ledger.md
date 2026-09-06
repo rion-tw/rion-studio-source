@@ -5486,3 +5486,50 @@ trusted input are outside this Windows child-host removal.
   production E2E isolation pass. Full hygiene, ESLint and coverage checks pass; full
   JavaScript regression passes (452 files, 3632 tests). No local desktop profile ran for this
   batch; MACRO-BACKGROUND-TAB-004 remains pending exact-candidate paired CI.
+
+
+### CP-08/CP-09 preserve Macro input while the visible parent is backgrounded
+
+- The c57075f1 Windows raw Chromium probe records received, trusted key down/up
+  and middle-button down/up for background-host, with hostFocused false before
+  and after. These raw API samples support feasibility only; they do not prove
+  the attached native View owner's full receipt path.
+- Allow a boolean parentForeground in exact View input admission while retaining
+  visible/non-minimized parent, attached live View, exact generations, geometry,
+  zoom, input epoch and consistent content focus. A non-foreground parent must
+  report unfocused target contents. The immutable observation and native focus
+  token are still compared before every edge and after the final edge, so input
+  cannot acquire foreground or follow a changed foreground owner silently.
+- Visibility continues to select the existing foreground/background delivery
+  mode; no extra mode, activation call, legacy HWND fallback or new timing path.
+  Explicit focus admission retains its independent foreground requirement for
+  both visible and hidden targets. Initial focused regression caught the hidden
+  focus postcondition changing through the shared validator; preserving that
+  condition restores all 111 tests across four suites without changing them.
+- Add paired unit evidence for key input under a background parent, rejection
+  after foreground changes during a click, contradictory focused contents,
+  and the exact host bridge for visible and hidden targets. Extend both native
+  probes with four background-parent cases: hidden/visible target times key/
+  middle button. Require unchanged focused external WebContents, unfocused
+  target/parent, trusted DOM edges and the existing scaled viewport. The Windows
+  View-owner test additionally requires exact native receipts and monotonic
+  dispatch sequence through the same production owner; no portable mock can
+  satisfy that gate. macOS AppKit product input remains unchanged.
+- Affected existing paired journeys: MACRO-MULTIROLE-005 and
+  MACRO-OWNERSHIP-TRANSFER-010. Their actions, assertions and manifest membership
+  remain unchanged. Full Windows topology-seed must still visibly stop the
+  running Macro, transfer ownership, and independently pass restart before
+  these tasks or legacy input deletion can close.
+- Native probes and desktop acceptance for this correction remain pending CI.
+  No local native UI was run around the unresolved protected system dialog.
+
+
+- Final background-parent validation: 452 Vitest files / 3642 tests pass in
+  157.61 seconds; macOS Rust lint and all 1647 workspace tests pass (4 ignored).
+  TypeScript, ESLint, full hygiene/coverage, stable-shell build, Electron build
+  and production isolation pass. The initial two hidden-focus regressions were
+  fixed by preserving that existing focus contract, not weakening expectations.
+  Native background-parent probes and full paired E2E remain pending the exact
+  candidate CI. a20bddec macOS job 101561949187 separately completes its Chromium
+  shell E2E step successfully; this does not resolve intermittent local-chrome
+  restart or validate the current background-parent candidate.

@@ -207,8 +207,9 @@ async function probe() {
       };
     }
     let directVisible = false;
+    let backgroundParent = false;
     const inputFence = requestId => ({ roleId,
-      surfaceGeneration: 1, requestId: `${directVisible ? "visible" : "hidden"}-${requestId}`, inputEpoch: "1", deadlineMs: String(Date.now() + 3000),
+      surfaceGeneration: 1, requestId: `${backgroundParent ? "background-" : ""}${directVisible ? "visible" : "hidden"}-${requestId}`, inputEpoch: "1", deadlineMs: String(Date.now() + 3000),
       deliveryMode: directVisible ? "foreground" : "background" });
     const directSamples = [
       ["direct-hidden-sibling-key", ["keydown", "keyup"], () => {
@@ -226,15 +227,27 @@ async function probe() {
           : sendChromiumClick(view.webContents, request, view.getBounds());
       }]
     ];
-    for (const visible of [false, true]) {
+    for (const scenario of [
+      { visible: false, background: false }, { visible: true, background: false },
+      { visible: false, background: true }, { visible: true, background: true }
+    ]) {
+      const { visible, background } = scenario;
+      if (background && !backgroundParent) await focus(other, { webContents: other.webContents });
+      backgroundParent = background;
       directVisible = visible;
       if (visible) sibling.setBounds({ x: 350, y: 36, width: 250, height: 200 });
       view.setVisible(visible);
       for (const [name, types, submit] of directSamples) {
         const siblingFocusedBefore = sibling.webContents.isFocused();
-        const outcome = await sample(view, host, directVisible ? name.replace("hidden", "visible") : name, [], types, submit);
+        const foregroundContentsBefore = webContents.getFocusedWebContents()?.id ?? null;
+        let sampleName = directVisible ? name.replace("hidden", "visible") : name;
+        if (backgroundParent) sampleName = sampleName.replace("direct-", "direct-background-");
+        const outcome = await sample(view, host, sampleName, [], types, submit);
         outcomes.push({ ...outcome, directHost: {
-          nativeParentOwner: viewOwner !== null,
+          nativeParentOwner: viewOwner !== null, backgroundParent,
+          foregroundContentsBefore,
+          foregroundContentsAfter: webContents.getFocusedWebContents()?.id ?? null,
+          otherContentsId: other.webContents.id,
           children: host.contentView.children.length,
           isolatedSessions: view.webContents.session !== sibling.webContents.session,
           zoomFactor: view.webContents.getZoomFactor(), viewportAcknowledgement,

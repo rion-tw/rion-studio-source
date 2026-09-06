@@ -22,15 +22,16 @@ export function validChromiumViewInputObservation(
 ): boolean {
   if ((mode !== "foreground" && mode !== "background") || !value || !value.identity || !value.bounds) return false;
   return validChromiumViewInputIdentity(value.identity) && sameChromiumViewInputIdentity(value.identity, expected) &&
-    token(value.focusIdentity) && value.parentForeground === true && value.parentVisible === true &&
+    token(value.focusIdentity) && typeof value.parentForeground === "boolean" && value.parentVisible === true &&
     value.parentMinimized === false && value.viewAttached === true && value.contentsDestroyed === false &&
     value.viewVisible === (mode === "foreground") &&
     typeof value.contentsFocused === "boolean" &&
     (value.focusedWebContentsId === null || (Number.isSafeInteger(value.focusedWebContentsId) && value.focusedWebContentsId > 0)) &&
     value.contentsFocused === (value.focusedWebContentsId === expected.webContentsId) &&
-    // Visible Workspace siblings share one foreground host, not one focused
-    // WebContents. Submission must preserve whichever sibling currently owns focus.
-    (mode === "foreground" ? value.focusedWebContentsId !== null : !value.contentsFocused) &&
+    // Visibility chooses the delivery mode; a background parent must not acquire
+    // content focus. Submission preserves the exact foreground identity per edge.
+    (!value.parentForeground ? !value.contentsFocused :
+      mode === "foreground" ? value.focusedWebContentsId !== null : !value.contentsFocused) &&
     [value.bounds.x, value.bounds.y, value.bounds.width, value.bounds.height].every(Number.isSafeInteger) &&
     value.bounds.width > 0 && value.bounds.height > 0 &&
     Number.isFinite(value.zoomFactor) && value.zoomFactor >= 0.25 && value.zoomFactor <= 5;

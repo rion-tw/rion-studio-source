@@ -37,6 +37,17 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
     expect(f.contents.sendInputEvent).toHaveBeenCalledOnce();
   });
 
+  it.each([true, false])("admits an unfocused parent with visible=%s through the exact host", viewVisible => {
+    const f = fixture(platform);
+    f.change({ parentForeground: false, viewVisible, focusedWebContentsId: 1 });
+    const { native, identity } = f.host.resolve("role-one", 1)!;
+    const deliveryMode = viewVisible ? "foreground" : "background";
+    expect(native.currentInputDeliveryMode(identity)).toBe(deliveryMode);
+    expect(native.submitNativeBackgroundKey(identity, { ...f.key, deliveryMode }))
+      .toMatchObject({ observation: { parentForeground: false, focusedWebContentsId: 1 } });
+    expect(f.contents.sendInputEvent).toHaveBeenCalledOnce();
+  });
+
   it("keeps stable binding identity and emits the actual engine owner's observation", () => {
     const f = fixture(platform);
     const binding = f.host.resolve("role-one", 1)!;

@@ -28,6 +28,8 @@ it("records native Chromium input delivery without treating absent receipts as p
       "held-release-after-reload", "reloaded", "hidden-view", "hidden-view-middle",
       "direct-hidden-sibling-key", "direct-hidden-sibling-middle",
       "direct-visible-sibling-key", "direct-visible-sibling-middle",
+      "direct-background-hidden-sibling-key", "direct-background-hidden-sibling-middle",
+      "direct-background-visible-sibling-key", "direct-background-visible-sibling-middle",
       "background-host", "background-host-middle", "hidden-host", "hidden-host-middle"
     ]);
     for (const outcome of report.outcomes) {
@@ -39,15 +41,20 @@ it("records native Chromium input delivery without treating absent receipts as p
       }
     }
     for (const name of ["direct-hidden-sibling-key", "direct-hidden-sibling-middle",
-      "direct-visible-sibling-key", "direct-visible-sibling-middle"]) {
+      "direct-visible-sibling-key", "direct-visible-sibling-middle",
+      "direct-background-hidden-sibling-key", "direct-background-hidden-sibling-middle",
+      "direct-background-visible-sibling-key", "direct-background-visible-sibling-middle"]) {
       const outcome = report.outcomes.find((value: { name: string }) => value.name === name);
       expect(outcome.receipt.status).toBe("received");
-      expect(outcome.before.hostFocused).toBe(true);
-      expect(outcome.after.hostFocused).toBe(true);
+      const background = name.startsWith("direct-background-");
+      expect(outcome.before.hostFocused).toBe(!background);
+      expect(outcome.after.hostFocused).toBe(!background);
+      expect(outcome.directHost.foregroundContentsAfter).toBe(outcome.directHost.foregroundContentsBefore);
+      if (background) expect(outcome.directHost.foregroundContentsBefore).toBe(outcome.directHost.otherContentsId);
       expect(outcome.before.contentsFocused).toBe(false);
       expect(outcome.after.contentsFocused).toBe(false);
       expect(outcome.directHost).toMatchObject({ targetAttached: true, siblingAttached: true,
-        targetVisible: name.startsWith("direct-visible"), siblingFocusedBefore: true, siblingFocusedAfter: true,
+        targetVisible: name.includes("visible-sibling"), siblingFocusedBefore: !background, siblingFocusedAfter: !background,
         isolatedSessions: true, zoomFactor: 1.25,
         viewportAcknowledgement: { status: "applied", width: 240, height: 160 } });
       expect(outcome.before.document).toMatchObject({ width: 240, height: 160 });

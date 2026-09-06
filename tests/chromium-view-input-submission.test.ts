@@ -39,6 +39,24 @@ describe.each(["macos", "windows"] as const)("%s exact Chromium View input owner
     expect(f.sendInputEvent).toHaveBeenCalledOnce();
   });
 
+  it.each([true, false])("preserves a background parent during input (hidden=%s)", hidden => {
+    const f = fixture(platform, hidden);
+    f.change({ parentForeground: false, contentsFocused: false, focusedWebContentsId: null });
+    expect(f.owner.key(f.key)).toMatchObject({ status: "submitted",
+      observation: { parentForeground: false, contentsFocused: false } });
+    f.sendInputEvent.mockImplementationOnce(() => f.change({ parentForeground: true,
+      focusIdentity: "c".repeat(64) }));
+    expect(() => f.owner.click(f.click)).toThrow("ownership changed");
+    expect(f.sendInputEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a background parent reporting focused target contents", () => {
+    const f = fixture(platform, false);
+    f.change({ parentForeground: false });
+    expect(() => f.owner.key(f.key)).toThrow();
+    expect(f.sendInputEvent).not.toHaveBeenCalled();
+  });
+
   it("rejects focus stealing during visible sibling submission", () => {
     const f = fixture(platform, false);
     f.change({ contentsFocused: false, focusedWebContentsId: 6 });
@@ -79,7 +97,7 @@ describe.each(["macos", "windows"] as const)("%s exact Chromium View input owner
   });
 
   it.each([
-    { viewAttached: false }, { contentsDestroyed: true }, { parentForeground: false },
+    { viewAttached: false }, { contentsDestroyed: true }, { parentForeground: undefined },
     { parentVisible: false }, { parentMinimized: true }, { contentsFocused: true },
     { focusedWebContentsId: 5 }, { viewVisible: true }
   ])("rejects invalid admission before any input: %j", patch => {

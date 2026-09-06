@@ -10,7 +10,7 @@ const executeFile = promisify(execFile);
 const require = createRequire(import.meta.url);
 
 // macOS retains its AppKit input owner. This test requires the real Win32 parent probe.
-it.runIf(process.platform === "win32")("submits hidden and visible sibling View input through its exact native parent owner", async () => {
+it.runIf(process.platform === "win32")("submits hidden and visible sibling View input through its exact foreground and background native parent owner", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rion-chromium-view-owner-"));
   try {
     const reportDirectory = process.env.RION_CHROMIUM_INPUT_REPORT_DIR ?? directory;
@@ -24,20 +24,23 @@ it.runIf(process.platform === "win32")("submits hidden and visible sibling View 
     expect(report.platform).toBe("win32");
     expect(report.status).not.toBe("failed");
     const samples = report.outcomes.filter((sample: { name: string }) =>
-      /^direct-(hidden|visible)-sibling-/u.test(sample.name));
-    expect(samples).toHaveLength(4);
+      /^direct-(?:background-)?(hidden|visible)-sibling-/u.test(sample.name));
+    expect(samples).toHaveLength(8);
     let sequence = 0n;
     for (const sample of samples) {
-      const visible = sample.name.startsWith("direct-visible");
+      const visible = sample.name.includes("visible-sibling");
+      const background = sample.name.startsWith("direct-background-");
       expect(sample.receipt.status).toBe("received");
       expect(sample.directHost).toMatchObject({ nativeParentOwner: true,
         targetAttached: true, siblingAttached: true, targetVisible: visible,
-        siblingFocusedBefore: true, siblingFocusedAfter: true,
+        siblingFocusedBefore: !background, siblingFocusedAfter: !background,
         viewportAcknowledgement: { status: "applied", width: 240, height: 160 } });
       expect(sample.before.contentsFocused).toBe(false);
       expect(sample.after.contentsFocused).toBe(false);
-      expect(sample.before.hostFocused).toBe(true);
-      expect(sample.after.hostFocused).toBe(true);
+      expect(sample.before.hostFocused).toBe(!background);
+      expect(sample.after.hostFocused).toBe(!background);
+      expect(sample.directHost.foregroundContentsAfter).toBe(sample.directHost.foregroundContentsBefore);
+      if (background) expect(sample.directHost.foregroundContentsBefore).toBe(sample.directHost.otherContentsId);
       for (const event of sample.receipt.events) expect(event.trusted).toBe(true);
       expect(sample.receipt.events).toHaveLength(2);
       const submissions = Array.isArray(sample.submission) ? sample.submission : [sample.submission];

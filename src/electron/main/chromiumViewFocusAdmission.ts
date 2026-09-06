@@ -36,7 +36,9 @@ export class ChromiumViewFocusAdmission {
     if (this.#pending.has(request.roleId)) return Promise.resolve(receipt("failed", "ELECTRON_VIEW_FOCUS_CONFLICT"));
     try {
       if (!target.view.getVisible()) {
-        return Promise.resolve(validChromiumViewInputObservation(target.observe(), target.identity, "background")
+        const observation = target.observe();
+        return Promise.resolve(observation.parentForeground &&
+          validChromiumViewInputObservation(observation, target.identity, "background")
           ? receipt("applied", null) : receipt("failed", "ELECTRON_VIEW_BACKGROUND_FOCUS_INVALID"));
       }
     } catch { return Promise.resolve(receipt("superseded", "ELECTRON_VIEW_FOCUS_SUPERSEDED")); }
@@ -67,7 +69,7 @@ export class ChromiumViewFocusAdmission {
           if (nowMs() >= request.deadlineMs) { finish("failed", "SYSTEM_TRUSTED_INPUT_FOREGROUND_DEADLINE"); return; }
           if (parentReady && viewFocusRequested) {
             const observation = target.observe();
-            if (observation.contentsFocused &&
+            if (observation.parentForeground && observation.contentsFocused &&
                 observation.focusedWebContentsId === target.identity.webContentsId &&
                 validChromiumViewInputObservation(observation, target.identity, "foreground")) finish("applied", null);
           }

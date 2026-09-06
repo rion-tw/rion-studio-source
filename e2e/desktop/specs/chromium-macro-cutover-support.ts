@@ -732,7 +732,9 @@ export async function expectChromiumNativeRoleBinding(
         electronDesktopE2eRoleSessionRuntime(tab.role.id),
         electronDesktopE2eGameWindowRuntime(tab.windowId)
       ]);
-      return Boolean(roleRuntime.currentRuntime && windowRuntime.currentRuntime);
+      return roleRuntime.currentRuntime?.tabId === tab.tabId &&
+        roleRuntime.currentRuntime.windowId === tab.windowId &&
+        windowRuntime.currentRuntime !== null;
     } catch (error) {
       // The test harness can observe Core's next revision before Electron has
       // acknowledged the matching AppKit projection. Retry only that explicit

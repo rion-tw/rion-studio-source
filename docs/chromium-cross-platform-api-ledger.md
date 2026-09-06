@@ -2994,3 +2994,41 @@ This is macOS evidence only; native Windows Ctrl+K still requires the next CI.
 
 Pure Electron production build and production E2E isolation pass after restoring
 the production renderer; documentation validation also passes.
+
+
+### Await transferred native ownership before the target Role click
+
+macOS job 101466512710 in CI 34025834042 at e380920e fails
+chromium-macro-cutover-topology-seed waiting for the post-Claim trusted click.
+The fixture history instead records visibility, a new session and blur after
+the transfer cursor. The test clicks immediately after the visible Claim button,
+then checks the new native binding and automation readiness only after expecting
+the click. The final artifact shows the transferred Role with native generation
+2 and owner generation 3, so the target arrives after the unsafe click window.
+
+The test now awaits the exact new tab/window binding, verifies increased owner
+generation, and awaits automation-ready before clicking once. The shared native
+binding wait requires the requested tab and window rather than accepting any
+non-null prior binding. Existing platform identity assertions remain. Claim,
+target click, macro start/stop and tab-close actions stay visible UI; no action
+retry or mandatory reload is introduced. Core/Chromium product behavior is
+unchanged. Both MACRO-MULTIROLE-005 and MACRO-OWNERSHIP-TRANSFER-010 Chromium
+platform journeys are affected. Windows execution remains pending.
+Evidence root: `/tmp/rion-e38-mac-shell-artifacts`;
+log: `/tmp/rion-e38-mac-package.log`; checks: `/tmp/rion-macro-transfer-ready-*`.
+
+A separate macOS package failure at 0d2d437c (job 101464991913) times out waiting
+for the updater install journal acknowledgement in the packaged helper probe.
+Its exact cause is not established by the timeout, and no larger timeout or
+success-on-unknown rule is applied. It remains failure evidence pending further
+native diagnosis; log: `/tmp/rion-0d2-mac-package.log`.
+
+The focused macOS AppKit topology seed/restart profile passes on the working
+tree. Report: `.desktop-e2e-artifacts/2026-09-06T10-38-17-594Z-darwin/report.json`.
+This verifies the visible ownership-transfer and multirole journey with the
+new ordering on macOS; Windows remains independently pending CI.
+
+Pure Electron production build, production E2E isolation, documentation, source
+hygiene, coverage and scoped lint pass after the local native run. Five adjacent
+source checks pass; the E2E build includes typecheck. No Windows completion is
+inferred from this macOS result.

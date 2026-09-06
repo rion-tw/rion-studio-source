@@ -143,13 +143,6 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
     roleId: shared.id,
     targetTabId: tabB.tabId
   });
-  await clickVisibleElectronRolePageButton(shared.launchUrl!, context.mainWindowHandle);
-  const transferredClick = await waitFixtureEvent({
-    afterSequence: transferCursor,
-    kind: "click",
-    roleId: SHARED_FIXTURE
-  });
-  expect(transferredClick.isTrusted).toBe(true);
   const bindingAfter = await expectChromiumNativeRoleBinding(context, {
     role: shared,
     tabId: tabB.tabId,
@@ -157,6 +150,13 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
   });
   expect(bindingAfter.ownerGeneration).toBeGreaterThan(bindingBefore.ownerGeneration);
   await waitForChromiumMacroRoleReady(shared.id);
+  await clickVisibleElectronRolePageButton(shared.launchUrl!, context.mainWindowHandle);
+  const transferredClick = await waitFixtureEvent({
+    afterSequence: transferCursor,
+    kind: "click",
+    roleId: SHARED_FIXTURE
+  });
+  expect(transferredClick.isTrusted).toBe(true);
   await closeVisibleRuntimeTab({
     mainWindowHandle: context.mainWindowHandle,
     platform: context.platform,

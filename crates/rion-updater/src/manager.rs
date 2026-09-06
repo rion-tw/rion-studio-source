@@ -166,7 +166,9 @@ impl UpdateManagerError {
             },
             Self::Persistence(error) => match error {
                 PersistenceError::InvalidPath => "UPDATE_PERSISTENCE_PATH_INVALID",
-                PersistenceError::UnsafePath => "UPDATE_PERSISTENCE_PATH_UNSAFE",
+                PersistenceError::UnsafePath | PersistenceError::DirectoryProtection(_) => {
+                    "UPDATE_PERSISTENCE_PATH_UNSAFE"
+                }
                 PersistenceError::Io(_) => "UPDATE_PERSISTENCE_IO_FAILED",
                 PersistenceError::Json(_) => "UPDATE_PERSISTENCE_JSON_INVALID",
                 PersistenceError::TooLarge => "UPDATE_PERSISTENCE_TOO_LARGE",

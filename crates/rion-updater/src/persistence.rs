@@ -254,6 +254,8 @@ pub enum PersistenceError {
     InvalidPath,
     #[error("UPDATE_PERSISTENCE_PATH_UNSAFE")]
     UnsafePath,
+    #[error("UPDATE_PERSISTENCE_PATH_UNSAFE")]
+    DirectoryProtection(#[source] rion_platform::PlatformError),
     #[error("UPDATE_PERSISTENCE_IO_FAILED")]
     Io(#[source] std::io::Error),
     #[error("UPDATE_PERSISTENCE_JSON_INVALID")]
@@ -1036,7 +1038,7 @@ pub(crate) fn ensure_private_directory(path: &Path) -> Result<(), PersistenceErr
             .map_err(PersistenceError::Io)?;
     }
     rion_platform::restrict_directory_to_current_user(path)
-        .map_err(|_| PersistenceError::UnsafePath)
+        .map_err(PersistenceError::DirectoryProtection)
 }
 
 fn write_private_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), PersistenceError> {

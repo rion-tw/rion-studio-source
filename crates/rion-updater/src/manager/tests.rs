@@ -947,3 +947,19 @@ fn is_ordered_subsequence(values: &[&str], expected: &[&str]) -> bool {
     }
     offset == expected.len()
 }
+
+#[test]
+fn directory_protection_preserves_native_cause_without_changing_public_error_code() {
+    use std::error::Error;
+
+    let detail = "inspect migrated data ACL entry: fixture native error 2";
+    let persistence = PersistenceError::DirectoryProtection(
+        rion_platform::PlatformError::Operation(detail.to_owned()),
+    );
+    assert_eq!(persistence.to_string(), "UPDATE_PERSISTENCE_PATH_UNSAFE");
+    assert!(persistence.source().unwrap().to_string().contains(detail));
+    assert!(format!("{persistence:?}").contains(detail));
+    let error = UpdateManagerError::Persistence(persistence);
+    assert_eq!(error.code(), "UPDATE_PERSISTENCE_PATH_UNSAFE");
+    assert!(!error.to_string().contains(detail));
+}

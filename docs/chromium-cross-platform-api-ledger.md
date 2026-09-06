@@ -5189,3 +5189,25 @@ trusted input are outside this Windows child-host removal.
 - New diagnostic candidate e7bee0ae is active in CI 34059403980, including both
   native desktop package jobs. No new local native UI run was attempted while
   the protected system-dialog obstruction remains unresolved.
+
+
+### CP-16 preserve the ACL failure source for exact native diagnosis
+
+- Replace the discarded PlatformError from restrict_directory_to_current_user
+  with PersistenceError::DirectoryProtection carrying that source. Display and
+  UpdateManagerError::code remain UPDATE_PERSISTENCE_PATH_UNSAFE. Invalid
+  parent/symlink handling still uses UnsafePath, and no ACL or publication
+  error becomes success. Native test panic Debug output now retains the actual
+  platform operation/error needed to distinguish disappearance from denial.
+- A focused manager test verifies the source chain and Debug evidence while
+  keeping the public error text/code free of native detail. It passes locally;
+  TypeScript, hygiene and native macOS Rust lint also pass. Full Rust workspace
+  verification is active. This is lower-layer-covered error preservation,
+  not a concurrency fix or a new desktop journey.
+
+
+- Final native macOS validation passes: Rust lint and 1,646 workspace tests
+  (four ignored), stable-shell build, production Electron build and E2E
+  production isolation. No local desktop profile ran around the known protected
+  system-dialog obstruction. Windows must exercise the retained error source
+  in exact-candidate native CI; no ACL race repair is claimed.

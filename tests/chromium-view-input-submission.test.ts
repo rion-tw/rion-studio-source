@@ -30,6 +30,34 @@ function fixture(platform: "macos" | "windows", background = true) {
 }
 
 describe.each(["macos", "windows"] as const)("%s exact Chromium View input owner", platform => {
+  it("submits to a visible unfocused sibling without changing its focus receipt", () => {
+    const f = fixture(platform, false);
+    f.change({ contentsFocused: false, focusedWebContentsId: 6 });
+    const receipt = f.owner.key(f.key);
+    expect(receipt).toMatchObject({ status: "submitted", deliveryMode: "foreground",
+      observation: { viewVisible: true, contentsFocused: false, focusedWebContentsId: 6 } });
+    expect(f.sendInputEvent).toHaveBeenCalledOnce();
+  });
+
+  it("rejects focus stealing during visible sibling submission", () => {
+    const f = fixture(platform, false);
+    f.change({ contentsFocused: false, focusedWebContentsId: 6 });
+    f.sendInputEvent.mockImplementationOnce(() => f.change({ contentsFocused: true, focusedWebContentsId: 5 }));
+    expect(() => f.owner.click(f.click)).toThrow("ownership changed");
+    expect(f.sendInputEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { contentsFocused: false, focusedWebContentsId: null },
+    { contentsFocused: true, focusedWebContentsId: 6 },
+    { contentsFocused: false, focusedWebContentsId: 5 }
+  ])("rejects missing or inconsistent visible focus before submission: %j", patch => {
+    const f = fixture(platform, false);
+    f.change(patch);
+    expect(() => f.owner.key(f.key)).toThrow();
+    expect(f.sendInputEvent).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])("submits with an honest View receipt (background=%s)", background => {
     const f = fixture(platform, background);
     const key = f.owner.key(f.key);

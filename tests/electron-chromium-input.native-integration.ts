@@ -27,6 +27,7 @@ it("records native Chromium input delivery without treating absent receipts as p
       "middle-button-zoom-1", "middle-button-zoom-1.5", "held-before-reload",
       "held-release-after-reload", "reloaded", "hidden-view", "hidden-view-middle",
       "direct-hidden-sibling-key", "direct-hidden-sibling-middle",
+      "direct-visible-sibling-key", "direct-visible-sibling-middle",
       "background-host", "background-host-middle", "hidden-host", "hidden-host-middle"
     ]);
     for (const outcome of report.outcomes) {
@@ -37,7 +38,8 @@ it("records native Chromium input delivery without treating absent receipts as p
         expect(outcome.after.hostFocused).toBe(false);
       }
     }
-    for (const name of ["direct-hidden-sibling-key", "direct-hidden-sibling-middle"]) {
+    for (const name of ["direct-hidden-sibling-key", "direct-hidden-sibling-middle",
+      "direct-visible-sibling-key", "direct-visible-sibling-middle"]) {
       const outcome = report.outcomes.find((value: { name: string }) => value.name === name);
       expect(outcome.receipt.status).toBe("received");
       expect(outcome.before.hostFocused).toBe(true);
@@ -45,7 +47,7 @@ it("records native Chromium input delivery without treating absent receipts as p
       expect(outcome.before.contentsFocused).toBe(false);
       expect(outcome.after.contentsFocused).toBe(false);
       expect(outcome.directHost).toMatchObject({ targetAttached: true, siblingAttached: true,
-        targetVisible: false, siblingFocusedBefore: true, siblingFocusedAfter: true,
+        targetVisible: name.startsWith("direct-visible"), siblingFocusedBefore: true, siblingFocusedAfter: true,
         isolatedSessions: true, zoomFactor: 1.25,
         viewportAcknowledgement: { status: "applied", width: 240, height: 160 } });
       expect(outcome.before.document).toMatchObject({ width: 240, height: 160 });

@@ -65,8 +65,12 @@ export class ChromiumViewFocusAdmission {
           const current = attachments.resolveFocusTarget(request.roleId, request.surfaceGeneration);
           if (current?.input !== target.input || !target.view.getVisible()) { cancel(); return; }
           if (nowMs() >= request.deadlineMs) { finish("failed", "SYSTEM_TRUSTED_INPUT_FOREGROUND_DEADLINE"); return; }
-          if (parentReady && viewFocusRequested &&
-              validChromiumViewInputObservation(target.observe(), target.identity, "foreground")) finish("applied", null);
+          if (parentReady && viewFocusRequested) {
+            const observation = target.observe();
+            if (observation.contentsFocused &&
+                observation.focusedWebContentsId === target.identity.webContentsId &&
+                validChromiumViewInputObservation(observation, target.identity, "foreground")) finish("applied", null);
+          }
         } catch { cancel(); }
       };
       const focusView = () => {

@@ -206,9 +206,10 @@ async function probe() {
         click: request => bindingOwner.native.submitNativeBackgroundMouse(bindingOwner.identity, request)
       };
     }
+    let directVisible = false;
     const inputFence = requestId => ({ roleId,
-      surfaceGeneration: 1, requestId, inputEpoch: "1", deadlineMs: String(Date.now() + 3000),
-      deliveryMode: "background" });
+      surfaceGeneration: 1, requestId: `${directVisible ? "visible" : "hidden"}-${requestId}`, inputEpoch: "1", deadlineMs: String(Date.now() + 3000),
+      deliveryMode: directVisible ? "foreground" : "background" });
     const directSamples = [
       ["direct-hidden-sibling-key", ["keydown", "keyup"], () => {
         const request = { code: "KeyB", ctrl: true, alt: false, shift: true, meta: false, repeat: false };
@@ -225,19 +226,24 @@ async function probe() {
           : sendChromiumClick(view.webContents, request, view.getBounds());
       }]
     ];
-    for (const [name, types, submit] of directSamples) {
-      const siblingFocusedBefore = sibling.webContents.isFocused();
-      const outcome = await sample(view, host, name, [], types, submit);
-      outcomes.push({ ...outcome, directHost: {
-        nativeParentOwner: viewOwner !== null,
-        children: host.contentView.children.length,
-        isolatedSessions: view.webContents.session !== sibling.webContents.session,
-        zoomFactor: view.webContents.getZoomFactor(), viewportAcknowledgement,
-        targetAttached: host.contentView.children.includes(view),
-        siblingAttached: host.contentView.children.includes(sibling),
-        targetVisible: view.getVisible(), siblingFocusedBefore,
-        siblingFocusedAfter: sibling.webContents.isFocused()
-      } });
+    for (const visible of [false, true]) {
+      directVisible = visible;
+      if (visible) sibling.setBounds({ x: 350, y: 36, width: 250, height: 200 });
+      view.setVisible(visible);
+      for (const [name, types, submit] of directSamples) {
+        const siblingFocusedBefore = sibling.webContents.isFocused();
+        const outcome = await sample(view, host, directVisible ? name.replace("hidden", "visible") : name, [], types, submit);
+        outcomes.push({ ...outcome, directHost: {
+          nativeParentOwner: viewOwner !== null,
+          children: host.contentView.children.length,
+          isolatedSessions: view.webContents.session !== sibling.webContents.session,
+          zoomFactor: view.webContents.getZoomFactor(), viewportAcknowledgement,
+          targetAttached: host.contentView.children.includes(view),
+          siblingAttached: host.contentView.children.includes(sibling),
+          targetVisible: view.getVisible(), siblingFocusedBefore,
+          siblingFocusedAfter: sibling.webContents.isFocused()
+        } });
+      }
     }
     if (attachmentFailure) throw attachmentFailure;
     if (attachments) {

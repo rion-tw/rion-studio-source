@@ -26,6 +26,17 @@ function fixture(platform: "macos" | "windows") {
 }
 
 describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge", platform => {
+  it("admits a visible sibling through the same exact foreground receipt lane", () => {
+    const f = fixture(platform);
+    f.change({ viewVisible: true });
+    const { native, identity } = f.host.resolve("role-one", 1)!;
+    expect(native.currentInputDeliveryMode(identity)).toBe("foreground");
+    const receipt = native.submitNativeBackgroundKey(identity, { ...f.key, deliveryMode: "foreground" });
+    expect(receipt).toMatchObject({ deliveryMode: "foreground",
+      observation: { viewVisible: true, contentsFocused: false, focusedWebContentsId: 5 } });
+    expect(f.contents.sendInputEvent).toHaveBeenCalledOnce();
+  });
+
   it("keeps stable binding identity and emits the actual engine owner's observation", () => {
     const f = fixture(platform);
     const binding = f.host.resolve("role-one", 1)!;

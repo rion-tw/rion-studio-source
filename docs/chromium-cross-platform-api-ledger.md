@@ -5369,3 +5369,59 @@ trusted input are outside this Windows child-host removal.
 
 
 - Bounded receipt soak final macOS validation: Rust lint passes; workspace tests total 1646 passed, 0 failed, 4 ignored. Source hygiene, documentation and diff checks pass. This test-only batch does not rerun renderer tests or desktop profiles; Windows execution of all 256 rounds remains pending CI.
+
+
+### CP-08/CP-09 admit visible unfocused Workspace siblings without taking focus
+
+- d27e7129 native evidence shows the same foreground parent containing multiple
+  visible Role Views, with only one focused WebContents. The View validator
+  now permits foreground visibility with a different positive focused sibling
+  id while requiring contentsFocused to agree exactly with that id. Missing
+  foreground focus, inconsistent focus facts, focused hidden Views and all
+  existing parent/generation/bounds/epoch fences still fail admission.
+- The submission loop continues to compare the full immutable observation
+  before every native input edge and after the final edge. Focus stealing or
+  changed geometry/identity cannot produce a submitted receipt; the independent
+  authenticated trusted-DOM receipt remains required. No focus() call, fallback
+  HWND adapter, extra delivery mode, polling or deadline change is introduced.
+- Add paired platform tests for visible sibling admission, missing/inconsistent
+  focus rejection, focus stealing during a click, and the exact host bridge
+  delivery mode. The three focused suites pass 83 tests. These are portable
+  regression evidence, not native parity.
+- Extend the existing Chromium native probe with both key and middle-button
+  cases for distinct visible sibling bounds. Require trusted DOM events,
+  target remaining unfocused, sibling remaining focused, matching viewport and
+  exact native View-owner receipt on Windows. The prior hidden cases remain.
+  macOS probes observe Chromium behavior only; retained AppKit product input
+  remains unchanged. The full multi-Role E2E assertions are unchanged and must
+  pass independently before old input implementation deletion.
+
+
+- Affected paired Chromium journey suffixes: MACRO-MULTIROLE-005 and
+  MACRO-OWNERSHIP-TRANSFER-010. Their manifest membership and exact visible
+  user actions remain unchanged; native validation for this candidate is pending.
+
+### CP-15 independent stable Windows background-tab failure at a20bddec
+
+- CI 34061202087 stable Windows job 101561949113 fails
+  verifyBackgroundTabContinuity at macro-runtime-background-tab.ts:158.
+  After switching to Role B, the test submits a physical KeyZ down/up sequence
+  but receives no consumer-keyup after fixture cursor 767. Diagnostic Role B
+  state has zero keydowns/keyups. This is separate from the Chromium visible
+  sibling admission failure and cannot be marked resolved by that correction.
+- Preserve the failing stable profile and its assertions; inspect its native
+  focus/input artifacts before deciding whether the user-input precondition or
+  stable product routing failed. Earlier passing stable profiles remain
+  version-qualified evidence only.
+
+
+- Full regression initially found ten failures in the explicit View focus
+  admission suite: input eligibility alone cannot prove an explicit focus
+  request complete. Preserve that operation's stricter postcondition by
+  additionally requiring contentsFocused and the exact target WebContents id
+  in ChromiumViewFocusAdmission. Existing focus-event, retirement, hidden-state
+  and deadline tests remain unchanged. All four focused suites now pass 101
+  tests; full regression is rerunning after this correction.
+
+
+- Final visible sibling validation: Test Files  452 passed (452); Tests  3632 passed (3632); Duration  157.36s (transform 3.09s, setup 0ms, import 13.93s, tests 94.69s, environment 21.13s). macOS Rust lint and workspace tests pass (1646 passed, 4 ignored); TypeScript, ESLint, hygiene, documentation, coverage, stable-shell build, final Electron build and production isolation pass. No local native UI probe ran around the unresolved protected system dialog. Both extended native probes and Windows multi-Role E2E remain pending exact-candidate CI.

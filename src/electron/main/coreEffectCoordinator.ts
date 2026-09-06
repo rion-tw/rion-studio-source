@@ -355,6 +355,7 @@ export class CoreEffectCoordinator {
   readonly #recordsByEffectId = new Map<string, EffectExecutionRecord>();
   readonly #effectRecordOrder: string[] = [];
   #projectionSequence = 0;
+  #coreRevision = -1;
   #nextProjectionAdmission = projectionAdmissionSignal();
   #state: CoordinatorState = "idle";
   #unsubscribe: (() => void) | null = null;
@@ -444,6 +445,14 @@ export class CoreEffectCoordinator {
 
   readonly #onCoreEvent = (event: CoreEvent): void => {
     if (this.#state !== "open") return;
+    // Core can commit final topology after acknowledging the last native
+    // effect, without admitting another effect (for example an empty window
+    // retirement). Snapshot readers must observe that authoritative progress.
+    if (event.type === "stateChanged" && event.revision > this.#coreRevision) {
+      this.#coreRevision = event.revision;
+      this.#advanceProjectionSequence();
+      return;
+    }
     if (event.type === "coreEffects") {
       for (const effect of event.effects) this.#enqueue(effect);
       return;
@@ -557,16 +566,20 @@ export class CoreEffectCoordinator {
     this.#recordsByEffectId.set(effect.effectId, record);
     this.#effectRecordOrder.push(effect.effectId);
     if (mutatesRuntimeProjection(effect)) {
-      this.#projectionSequence += 1;
-      const admitted = this.#nextProjectionAdmission;
-      this.#nextProjectionAdmission = projectionAdmissionSignal();
-      admitted.resolve();
+      this.#advanceProjectionSequence();
       this.#projectionTasks.add(record.projectionSettled);
       void record.projectionSettled.then(() => {
         this.#projectionTasks.delete(record.projectionSettled);
       });
     }
     this.#enqueueTask(effect, () => this.#executeFirst(effect, record));
+  }
+
+  #advanceProjectionSequence(): void {
+    this.#projectionSequence += 1;
+    const admitted = this.#nextProjectionAdmission;
+    this.#nextProjectionAdmission = projectionAdmissionSignal();
+    admitted.resolve();
   }
 
   #enqueueTask(effect: CoreEffectRequest, task: () => Promise<void>): void {

@@ -181,7 +181,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "ClassNameProperty, 'Edit'",
       "ClassNameProperty, 'Button'",
       "Send-LiteralKeys $fixturePath",
-      "[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')",
+      "Click-VisibleControl $openButtons[0]",
       "exact Windows file dialog controls are not visibly actionable",
       "dialogOwnership: \"exact-application-native-owner\""
     ]) {

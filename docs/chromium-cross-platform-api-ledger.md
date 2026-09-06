@@ -2202,3 +2202,50 @@ Artifacts: `/tmp/rion-173-win-package-artifacts`; log:
 reply/driver boundary without weakening the close assertion. On macOS,
 34017674641 has completed source E2E and advanced to release artifact build;
 its complete packaged updater verdict is still pending.
+
+### Wake coherent snapshot readers for final Core-only topology commits
+
+The Windows Web-only timeout at 17306f6e is consistent with a missing Core
+commit wakeup, and source inspection identifies that gap. Effect 161 destroys
+the last tab; receipt 165 already has empty native windows/tabs and acknowledgement
+167 is accepted. Snapshot 168 still contains an empty Core window at runtime
+revision 9; snapshot 169 removes it at revision 10. No later native effect is
+needed. A reader receiving snapshot 168 fails the exact Core/native equality
+check but previously waited only for another native effect admission. The final
+Core stateChanged event could not wake it. Detailed evidence is in
+`/tmp/rion-173-win-package-artifacts/2026-09-06T07-04-11-294Z-win32/phases/chromium-workspace-web-only-seed/electron-core-flow-observations.json`.
+
+The shared effect coordinator now advances its projection observation sequence
+on a strictly newer Core stateChanged revision as well as native effect
+admission. Existing pending native/acknowledgement fences still settle before
+readers retry. Duplicate/older Core revisions do not wake readers. Exact
+Core/native projection equality is unchanged; no polling or timer was added.
+
+Validation: all 3,340 Vitest tests pass, including both platform cases for a
+Core-only final commit, an already-delivered commit, stale/duplicate events, and
+a Core event that must not bypass an outstanding native acknowledgement.
+Typecheck, lint, complete hygiene, macOS Rust lint and all 1,642 Rust tests pass
+(4 existing ignored). Local retained-AppKit Web-only seed and restart phases
+pass at be7b28b3 plus this working diff, 07:23:40–07:24:24 UTC, report
+`.desktop-e2e-artifacts/2026-09-06T07-23-40-900Z-darwin/report.json`. Affected
+journeys are CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-ONLY-024 and its Windows
+counterpart. Windows native acceptance remains pending. Logs:
+`/tmp/rion-core-projection-wakeup-*`.
+
+### Use visible native pointer actions for the file chooser controls
+
+CI 34018711131 at be7b28b3 progresses past container focus but the exact file-name
+Edit also rejects UIA SetFocus. The chooser helper now clicks each verified
+control's UIA GetClickablePoint through the existing Win32 physical pointer
+mechanism used by desktop resize tests. It clicks the file-name control, checks
+the exact dialog foreground HWND before typing, then clicks Open. Owner and
+cardinality checks, enabled/visible controls, literal keyboard entry and native
+dialog disappearance remain required. Evidence: `/tmp/rion-be7-win-package.log`.
+
+This is internal-only E2E driver work for
+CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028. Eleven adjacent tests, typecheck,
+scoped lint, source hygiene, coverage and production isolation pass. Actual
+Windows pointer/dialog acceptance is pending fresh CI; the macOS helper is
+unchanged. Logs: `/tmp/rion-native-file-pointer-*`.
+
+Normal build and restored pure Electron build/isolation also pass for this batch.

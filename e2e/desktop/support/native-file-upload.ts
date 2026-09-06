@@ -443,6 +443,8 @@ using System.Runtime.InteropServices;
 public static class RionFileDialogOwnership {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 }
@@ -513,6 +515,15 @@ function Test-ExactFileDialogControls($candidate) {
   $openButtons = $candidate.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants, $openCondition)
   return $openButtons.Count -eq 1
+}
+
+function Click-VisibleControl($control) {
+  $point = $control.GetClickablePoint()
+  if (![RionFileDialogOwnership]::SetCursorPos([int]$point.X, [int]$point.Y)) {
+    throw 'Windows rejected the exact file control pointer location'
+  }
+  [RionFileDialogOwnership]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+  [RionFileDialogOwnership]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 }
 
 function Send-LiteralKeys([string]$value) {
@@ -705,11 +716,11 @@ if ($edits[0].Current.IsOffscreen -or !$edits[0].Current.IsEnabled -or
   throw 'exact Windows file dialog controls are not visibly actionable'
 }
 Write-Progress 'focusing-dialog'
-# A common-item dialog container need not support UIA keyboard focus. Activate
-# its exact HWND, then focus the already-fenced editable file-name control.
+# Native file controls can reject UIA SetFocus. Click the exact visible
+# file-name control and require its dialog to own foreground before typing.
 $dialogHandle = [IntPtr]$dialog.Current.NativeWindowHandle
 [RionFileDialogOwnership]::SetForegroundWindow($dialogHandle) | Out-Null
-$edits[0].SetFocus()
+Click-VisibleControl $edits[0]
 if ([RionFileDialogOwnership]::GetForegroundWindow() -ne $dialogHandle) {
   throw 'exact Windows file dialog is not foreground for input'
 }
@@ -717,8 +728,7 @@ Write-Progress 'entering-file-name'
 [System.Windows.Forms.SendKeys]::SendWait('^a')
 Send-LiteralKeys $fixturePath
 Write-Progress 'submitting-open'
-$openButtons[0].SetFocus()
-[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+Click-VisibleControl $openButtons[0]
 do {
   $dialogs = @(Read-ExactDialogs)
   if ($dialogs.Count -eq 0) { Write-Progress 'dialog-closed'; break }

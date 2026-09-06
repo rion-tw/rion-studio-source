@@ -175,6 +175,31 @@ function harness(
 }
 
 describe("Electron Core effect coordinator", () => {
+  it.each(["macos", "windows"])(
+    "wakes a %s snapshot reader on a final Core commit without another native effect",
+    async (_platform) => {
+      const test = harness(async () => undefined);
+      test.emit({ type: "stateChanged", revision: 9, changedCollections: [] });
+      const initial = await test.coordinator.settleCurrentProjectionEffects();
+      let awakened = false;
+      const read = test.coordinator.waitForProjectionAfter(initial).then(() => {
+        awakened = true;
+      });
+      test.emit({ type: "stateChanged", revision: 9, changedCollections: [] });
+      test.emit({ type: "stateChanged", revision: 8, changedCollections: [] });
+      await Promise.resolve();
+      expect(awakened).toBe(false);
+      test.emit({ type: "stateChanged", revision: 10, changedCollections: [] });
+      await read;
+      expect(awakened).toBe(true);
+      expect(test.dispatchCoreEffectResults).not.toHaveBeenCalled();
+      // A commit delivered before the reader starts waiting is not lost.
+      await expect(test.coordinator.waitForProjectionAfter(initial))
+        .resolves.toBe(initial + 1);
+      await test.coordinator.dispose();
+    }
+  );
+
   it("settles a projection fence only after current native work and its Core acknowledgement", async () => {
     const native = deferred<unknown>();
     const postDispatch = deferred<void>();
@@ -198,6 +223,8 @@ describe("Electron Core effect coordinator", () => {
     await vi.waitFor(() => {
       expect(test.dispatchCoreEffectResults).toHaveBeenCalledOnce();
     });
+    test.emit({ type: "stateChanged", revision: 1, changedCollections: [] });
+    await Promise.resolve();
     expect(settled).toBe(false);
 
     postDispatch.resolve();

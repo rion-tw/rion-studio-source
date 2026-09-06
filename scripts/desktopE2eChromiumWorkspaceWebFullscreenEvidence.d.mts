@@ -8,6 +8,7 @@ export const chromiumWorkspaceWebFullscreenPhaseNamespaces: ReadonlyArray<readon
 ]>;
 
 export function isChromiumWorkspaceWebFullscreenPhase(phase: string): boolean;
+export function validPopupParentRevisionSequence(before: unknown, during: unknown, after: unknown): boolean;
 export function validateChromiumWorkspaceWebPopupLifecycleEvidence(
   journal: unknown,
   workspace: unknown,

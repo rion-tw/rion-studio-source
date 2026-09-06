@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-import { validateChromiumWorkspaceWebPopupLifecycleEvidence } from
+import { validPopupParentRevisionSequence, validateChromiumWorkspaceWebPopupLifecycleEvidence } from
   "../scripts/desktopE2eChromiumWorkspaceWebFullscreenEvidence.mjs";
 
 async function source(path: string): Promise<string> {
@@ -59,6 +59,16 @@ function popupEvidenceObservation(input: Record<string, unknown>) {
 }
 
 describe("Chromium Workspace Web contained-fullscreen exact replacement", () => {
+  it.each([
+    { platform: "windows", revisions: [8, 8, 8] },
+    { platform: "macos", revisions: [8, 9, 10] }
+  ])("accepts $platform parent revisions independently of exact popup receipts", ({ revisions }) => {
+    expect(validPopupParentRevisionSequence(...revisions as [number, number, number])).toBe(true);
+    expect(validPopupParentRevisionSequence(8, 7, 9)).toBe(false);
+    expect(validPopupParentRevisionSequence(8, 9, 8)).toBe(false);
+    expect(validPopupParentRevisionSequence(0, 0, 0)).toBe(false);
+    expect(validPopupParentRevisionSequence(8, undefined, 9)).toBe(false);
+  });
   it("shares visible main and popup actions across exact platform journeys", async () => {
     const [spec, pageSurface, fixture, nativeUpload] = await Promise.all([
       source("e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts"),
@@ -475,6 +485,19 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       popupId: POPUP_EVIDENCE_RETIRED_ID,
       terminalSequence: 7
     });
+    const sameParentRevisionJournal = {
+      ...journal,
+      observations: observations.map(entry => ({ ...entry, parent: popupEvidenceParent }))
+    };
+    expect(validateChromiumWorkspaceWebPopupLifecycleEvidence(
+      sameParentRevisionJournal, first, visiblePopup
+    ).terminalSequence).toBe(7);
+    expect(() => validateChromiumWorkspaceWebPopupLifecycleEvidence({
+      ...journal,
+      observations: observations.map(entry => ({ ...entry, parent: {
+        ...entry.parent, parentTopologyRevision: 8
+      } }))
+    }, first, visiblePopup)).toThrow();
     expect(() => validateChromiumWorkspaceWebPopupLifecycleEvidence({
       ...journal,
       observations: [

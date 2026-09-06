@@ -142,6 +142,14 @@ function positiveInteger(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
+export function validPopupParentRevisionSequence(before, during, after) {
+  // A popup has its own topology owner. Its lifecycle must not require a
+  // mutation of the parent window; AppKit may also project a newer revision.
+  // Exact popup admission and destruction are verified by the lifecycle journal.
+  return [before, during, after].every(positiveInteger) &&
+    during >= before && after >= during;
+}
+
 function boundedString(value, maximum = 512) {
   return typeof value === "string" && value.length > 0 &&
     value.length <= maximum && value.trim() === value;
@@ -325,7 +333,7 @@ export function validateChromiumWorkspaceWebPopupLifecycleEvidence(
       visibleTerminal?.terminalReason === "user" && retiredOperations.length === 1 &&
       retiredOperation.map((entry) => entry.action).join(",") ===
         "nativeReady,closeRequested,nativeClosed" &&
-      retiredParent?.parentTopologyRevision > expectedParent.parentTopologyRevision &&
+      retiredParent?.parentTopologyRevision >= expectedParent.parentTopologyRevision &&
       retiredOperation.every((entry) =>
         samePopupParentFence(entry.parent, expectedRetiredParent)) &&
       nativeReady?.sequence > visibleTerminal?.sequence &&
@@ -588,15 +596,16 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
       mainFullscreenObservations.every((observation) =>
         observation.topologyRevision === mainTopologyRevision &&
         observation.focused === true && observation.popups.length === 0
-      ) && popupTopologyRevision > mainTopologyRevision &&
+      ) && validPopupParentRevisionSequence(
+        mainTopologyRevision, popupTopologyRevision, last.topologyRevision
+      ) &&
       revisions.every((revision, index) => index === 0 || revision >= revisions[index - 1]) &&
       Math.max(...revisions) >= 4 && contained.length >= 2 &&
       popupObservations.length >= 4 && popupObservations.every((observation) =>
         observation.topologyRevision === popupTopologyRevision &&
         observation.focused === false &&
         sameValue(observation.popups, popupObservations[0].popups)
-      ) && last.focused === true && last.popups.length === 0 &&
-      last.topologyRevision > popupTopologyRevision,
+      ) && last.focused === true && last.popups.length === 0,
     `${phase}: bounded fullscreen changed native host or crossed transient topology fences`
   );
   const popupRetirement = validateChromiumWorkspaceWebPopupLifecycleEvidence(

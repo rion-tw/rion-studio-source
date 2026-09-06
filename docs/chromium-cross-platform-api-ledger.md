@@ -1677,3 +1677,29 @@ outcome and command event record it. The native test rejects command events
 whose revision differs from their scenario. Reusing a revision after unregister
 could otherwise misattribute a late callback to the next observation; the probe
 must not hide that ownership distinction. This changes only test instrumentation.
+
+### Windows completed popup actions and parent-revision evidence correction
+
+Run `34013275719` at `b22dd888` completed the Windows fullscreen seed's visible
+actions, including parent-tab close and pending-popup cancellation. The post-run
+validator then rejected its evidence because it required the parent window's
+topology revision to increase when opening and closing an independently owned
+popup. All 14 observations retain parent revision 8, exact host, bounds and slot
+identities; popup revision 1 is independently recorded. Parent focus returns
+after popup closure. The Core journal contains both exact operation sequences:
+nativeReady/pageReady/closeRequested/nativeClosed for user close, followed by
+nativeReady/closeRequested/nativeClosed with parentRetired/nativeDestroyed for
+the gated popup. The asynchronous tab-close dispatch correction is therefore
+observed working in this Windows phase; the overall job still failed.
+
+Evidence is `/tmp/rion-b22-windows-package.log` and
+`/tmp/rion-b22-win-artifacts/2026-09-06T05-11-10-610Z-win32/phases/chromium-workspace-web-fullscreen-seed/`.
+The validator now accepts non-decreasing parent revisions across independent
+popup lifecycles. It retains invariant host/layout/focus checks, exact popup
+identity and revision, ordered lifecycle receipts and native-destruction
+terminality. Seven focused tests cover unchanged and advancing parent revisions,
+backward/missing revisions and forged terminality. Replaying the raw Windows
+report locally passes the corrected topology and lifecycle checks and reaches
+the native upload path check, which correctly differs after downloading Windows
+artifacts to a macOS path. This replay is not a Windows E2E pass; a new native
+run remains required for WORKSPACE-WEB-FULLSCREEN-017 and POPUP-012.

@@ -504,17 +504,21 @@ async function submitWindowsRolePageShortcut(
       await button.click();
       await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
     }
-    await browser.waitUntil(
-      () => browser.execute(() => document.hasFocus()),
-      { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
-    );
+    // The no-activate Role child need not own OS keyboard focus for the
+    // top-level host's application shortcut. Its native click was acknowledged.
+    if (command === "toggleFullscreen") {
+      await browser.waitUntil(
+        () => browser.execute(() => document.hasFocus()),
+        { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
+      );
+    }
     console.info("Windows Role focus after native foreground", await browser.execute(() => ({
       focused: document.hasFocus(),
       activeTag: document.activeElement?.tagName ?? null,
       activeId: document.activeElement?.id ?? null,
       visibility: document.visibilityState
     })));
-    // Native input must reach the exact foreground host and its focused Role.
+    // Native input must reach the exact foreground host.
     await pressVisibleWindowsApplicationShortcut({
       command, processId, nativeWindowHandle, targetMode: "focused-runtime"
     });

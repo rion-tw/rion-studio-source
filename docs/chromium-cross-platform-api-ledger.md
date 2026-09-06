@@ -3176,3 +3176,42 @@ isolation pass. Settings macOS E2E passed before the Windows-only host routing
 change; the later macOS Quick Access profile failed in its entity prerequisite as
 recorded above. Windows Ctrl+K, the new native click and the shared updater
 acknowledgement still require the next immutable CI candidate.
+
+
+### Clarify the local launch trace while the combined candidate runs
+
+The local 11:08:40 entity failure trace does not establish premature shutdown.
+cleanExitDiagnosticsObserver also labels normal placeholder reconcile calls as
+cleanExitRolePlaceholders. embeddedFollowRoleOwnership can return an EventBound
+continuation, so the executor wrapper's completed observation does not mean the
+native transition terminalized or its acknowledgement was lost. The shared
+AppKit focus ABI already activates NSApp and makes the exact window key. No
+speculative AppKit focus change is justified by this trace. The unresolved local
+failure remains recorded; native acceptance of 79ea9b13 is CI 34029657056.
+
+The earlier 03d80de1 cohort now has terminal success for both native validation
+jobs and Windows Tauri desktop E2E. Its Chromium package failures and macOS Tauri
+failure remain independent failures; those native passes do not close CP-15/18.
+
+
+### Windows native click acknowledged; remove the incompatible child-focus precondition
+
+CI 34029657056 at 79ea9b13 (Windows job 101476744058) reaches Quick Access after
+its prior 17 passing phases. The exact native content click and trusted qa-target
+fixture receipt pass; the next wait fails because document.hasFocus remains
+false. Ctrl+K has not yet been submitted, so this does not test the new host
+routing. This matches the explicitly non-focusable/no-activate child host.
+
+Quick Access now proceeds from the trusted native click to the existing exact
+foreground HWND/PID chord submission, without requiring the child document to
+own OS keyboard focus. The fullscreen helper keeps its existing document-focus
+check. Native focus diagnostics, the real palette-open assertion, K suppression,
+Escape source restoration and persistence outcomes remain. This internal-only
+E2E precondition correction affects CHROMIUM-WINDOWS-QUICK-ACCESS-015; it does
+not waive the product's host input or Quick Access outcomes. Native Windows
+acceptance remains pending. Log: `/tmp/rion-79e-win-package.log`.
+
+Twenty-one adjacent checks, typecheck, scoped lint, source hygiene, coverage,
+documentation and production E2E isolation pass. No local desktop profile was
+rerun for this Windows-only E2E precondition change.
+Checks: `/tmp/rion-quick-access-host-focus-*`.

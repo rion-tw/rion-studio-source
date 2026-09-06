@@ -295,6 +295,13 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
       await fixtureRequest("/api/release", { roleId: HEALTHY_FIXTURE });
       await fixtureRequest("/api/release", { roleId: FAILING_FIXTURE });
     }
+    // Native click and transport cancellation precede Core tab retirement.
+    await browser.waitUntil(async () => !(await rendererCall(
+      "getEmbeddedRuntimeState"
+    )).tabs.some((tab) => tab.sourceId === workspace.id), {
+      timeout: 45_000,
+      timeoutMsg: "The cancelled Workspace did not reach Core tab retirement"
+    });
     const cancelled = await rendererCall("getEmbeddedRuntimeState");
     expect(cancelled.tabs.some((tab) => tab.sourceId === workspace.id)).toBe(false);
     expect((await rendererCall("listRoleStatuses")).some((status) =>

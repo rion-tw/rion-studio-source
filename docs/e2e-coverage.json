@@ -2580,7 +2580,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "cancel"],
-      "description": "Run the same active-navigation failure isolation, healthy Role interaction, no-auto-recovery, visible stop/relaunch, fresh native attachment, and gated relaunch cancellation in the bundled Windows Chromium host. Windows execution retains an independent CI verdict. Cancel gated loading through the exact visible native tab control before releasing either fixture; require both transport-cancelled events and empty final topology."
+      "description": "Run the same active-navigation failure isolation, healthy Role interaction, no-auto-recovery, visible stop/relaunch, fresh native attachment, and gated relaunch cancellation in the bundled Windows Chromium host. Windows execution retains an independent CI verdict. Cancel gated loading through the exact visible native tab control while Core presentation may be ahead in the same window generation; before releasing either fixture require both transport-cancelled events, then require final Core tab retirement and empty topology."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-NATIVE-001",

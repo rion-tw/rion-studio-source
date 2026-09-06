@@ -316,6 +316,8 @@ class BackendHarness {
           );
         }
         return operationSummary(command.operationId);
+      case "embeddedTabStop":
+        return undefined;
       case "embeddedWindowsShow":
         return structuredClone(this.snapshot.browserRuntime);
       default:
@@ -431,6 +433,39 @@ function addMoveTarget(harness: BackendHarness): void {
 }
 
 describe("Core-owned Chromium runtime action backend", () => {
+  it("admits Windows stop during a newer Core presentation revision", async () => {
+    const harness = new BackendHarness("win32");
+    harness.snapshot.logicalWindows[0]!.revision = 9;
+    const result = await harness.backend().execute(action("stop-loading", 1, {
+      type: "stopGameWindowTab", tabId: TAB_ID
+    }));
+    expect(result.status).toBe("applied");
+    expect(harness.commands).toContainEqual(expect.objectContaining({
+      type: "embeddedTabStop",
+      request: expect.objectContaining({
+        tabId: TAB_ID, sourceWindowId: WINDOW_ID, sourceWindowGeneration: 3
+      })
+    }));
+  });
+
+  it.each(["generation", "membership", "uninitialized", "native-ahead"])(
+    "rejects Windows loading stop with %s mismatch",
+    async (mismatch) => {
+      const harness = new BackendHarness("win32");
+      const native = harness.native.windows[0]!;
+      harness.native = { ...harness.native, windows: [{
+        ...native,
+        ...(mismatch === "generation" ? { windowGeneration: 4 }
+          : mismatch === "membership" ? { tabIds: ["another-tab"] }
+            : { topologyRevision: mismatch === "uninitialized" ? 0 : 9 })
+      }] };
+      await expect(harness.backend().execute(action("stop-stale", 1, {
+        type: "stopGameWindowTab", tabId: TAB_ID
+      }))).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_RUNTIME_ACTION_WINDOW_STALE" });
+      expect(harness.commands.some((command) => command.type === "embeddedTabStop")).toBe(false);
+    }
+  );
+
   it("projects a macOS name through exact AppKit and replays idempotently", async () => {
     const harness = new BackendHarness("darwin");
     const backend = harness.backend();

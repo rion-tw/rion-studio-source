@@ -2370,3 +2370,41 @@ execution of this precondition remains pending CI; the earlier Windows
 be7b28b3 full PASS is not reused as its verification. Logs:
 `/tmp/rion-cleanup-restore-ready-*`. Separately, macOS Tauri full E2E on
 CI 34019181794 at c0e09041 has completed successfully.
+
+### Admit exact Windows tab cancellation while presentation is catching up
+
+CI 34019883290 at 028cc461 and 34020264959 at 32ff548f reach native gated
+Workspace close but fail final tab absence. The former's native log reports
+ELECTRON_CHROMIUM_RUNTIME_ACTION_WINDOW_STALE; no corresponding gated-tab
+embeddedTabStop command reaches Core before the load deadline. Native topology
+observation 11 has window generation 41/revision 43 with the exact tab, while
+Core's pending presentation has revision 44 in that same generation. Requiring
+revision equality for stop rejects a valid cancellation while presentation
+is catching up. The resulting transport cancellation came from load expiry,
+so it did not establish a successful user stop. Evidence:
+`/tmp/rion-028-win-package-artifacts/2026-09-06T07-44-13-885Z-win32`; the
+authoritative downloaded report and phase paths are under that artifact root.
+Logs: `/tmp/rion-028-win-package.log`, `/tmp/rion-32ff-win-package.log`.
+
+Windows stop now permits a positive native revision no newer than Core's,
+while retaining identical window generation, complete ordered tab membership
+and presentation. It submits the exact tab ID and current Core source-window
+generation to the existing Rust stop transaction. Uninitialized, ahead,
+different-generation and different-membership states still fail. Other
+actions retain revision equality; AppKit retains its exact projection/event
+protocol. No native handles or domain ownership are inferred from elapsed time.
+
+The recovery E2E also waits for actual Core tab retirement after the native
+click and two transport-cancelled events. The final absence/Role-status
+assertions remain mandatory; an early native input return is not terminality.
+Affected journeys are CHROMIUM-WINDOWS-WORKSPACES-RECOVERY-026 and its retained
+AppKit counterpart.
+
+Validation: 20 action-backend tests, all 3,347 Vitest tests, typecheck, lint,
+complete hygiene, normal build, macOS Rust lint and all 1,642 Rust tests pass
+(4 existing ignored). The seven adjacent Workspace source checks also pass
+after the terminal-wait update. Final local macOS recovery E2E passes at
+32ff548f plus this working diff; report:
+`.desktop-e2e-artifacts/2026-09-06T08-01-03-549Z-darwin/report.json`. Windows
+native verification of the corrected admission remains pending fresh CI.
+Logs: `/tmp/rion-stop-pending-revision-*`.

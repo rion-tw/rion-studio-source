@@ -345,7 +345,9 @@ implements ChromiumRuntimeActionBackend {
     return status === "superseded" ? "superseded" : "applied";
   }
 
-  async #coherentWindow(windowId: string): Promise<CoherentWindowFence> {
+  async #coherentWindow(
+    windowId: string, allowPendingRevision = false
+  ): Promise<CoherentWindowFence> {
     const core = await this.#input.core.invoke({ type: "appSnapshot" });
     const logical = core.logicalWindows.find((window) => window.windowId === windowId);
     const native = this.#input.readNativeSnapshot().windows.find(
@@ -354,7 +356,9 @@ implements ChromiumRuntimeActionBackend {
     if (
       !logical || !native ||
       logical.windowGeneration !== native.windowGeneration ||
-      logical.revision !== native.topologyRevision ||
+      (allowPendingRevision
+        ? native.topologyRevision < 1 || native.topologyRevision > logical.revision
+        : logical.revision !== native.topologyRevision) ||
       logical.presentation !== native.presentation ||
       !exactStringArrays(logical.tabs.map((tab) => tab.id), native.tabIds)
     ) {
@@ -366,7 +370,9 @@ implements ChromiumRuntimeActionBackend {
     return { core, logical, native };
   }
 
-  async #coherentTab(tabId: string): Promise<CoherentWindowFence> {
+  async #coherentTab(
+    tabId: string, allowPendingRevision = false
+  ): Promise<CoherentWindowFence> {
     const core = await this.#input.core.invoke({ type: "appSnapshot" });
     const owners = core.logicalWindows.filter((window) =>
       window.tabs.some((tab) => tab.id === tabId)
@@ -377,7 +383,7 @@ implements ChromiumRuntimeActionBackend {
         "The runtime tab has no exact Core window owner."
       );
     }
-    return this.#coherentWindow(owners[0]!.windowId);
+    return this.#coherentWindow(owners[0]!.windowId, allowPendingRevision);
   }
 
   #appKitObservations(windowIds: readonly string[]) {
@@ -694,7 +700,10 @@ implements ChromiumRuntimeActionBackend {
     intent: AnyAuthenticatedChromiumRuntimeAction,
     tabId: string
   ): Promise<SystemRuntimeOperationSummaryRecord> {
-    const fence = await this.#coherentTab(tabId);
+    // Windows stop is admitted by Core against exact tab membership and source
+    // generation. A pending presentation revision must not block cancellation
+    // of that same loading tab. AppKit retains its exact projection protocol.
+    const fence = await this.#coherentTab(tabId, this.#input.platform === "win32");
     const tab = fence.logical.tabs.find((candidate) => candidate.id === tabId)!;
     if (this.#input.platform === "darwin") {
       const remaining = fence.logical.tabs

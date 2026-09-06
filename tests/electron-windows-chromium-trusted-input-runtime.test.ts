@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { ChromiumRoleWebContentsViewPort } from "../src/electron/main/chromiumRoleSurfacePorts";
-import type { WindowsChromiumInputRuntimeParentBinding } from "../src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator";
+import type { WindowsChromiumInputRuntimeParentBinding } from "../src/electron/main/windowsChromiumInputHostPorts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { EngineCapabilitySnapshotRecord } from "../src/shared/generated";

@@ -108,8 +108,8 @@ import { installElectronDesktopE2eNativeWindowControlObserver } from
   "./nativeWindowControlObserver";
 import { installElectronDesktopE2eCleanExitDiagnosticsObserver } from
   "./cleanExitDiagnosticsObserver";
-import { WindowsChromiumInputSurfaceAttachmentCoordinator } from
-  "../main/windowsChromiumInputSurfaceAttachmentCoordinator";
+import { ChromiumViewAttachmentCoordinator } from
+  "../main/chromiumViewAttachmentCoordinator";
 import type { WindowsRuntimeShortcutOwnerDiagnostic } from
   "../main/windowsRuntimeHostNativePorts";
 
@@ -1615,7 +1615,7 @@ installElectronDesktopE2eApplicationLifecycleObserver();
 installElectronDesktopE2eRoleRuntimeObserver();
 installElectronDesktopE2eRoleSurfaceLifecycleObserver(app, artifactDirectory);
 installElectronDesktopE2eNativeAttachmentLifecycleObserver(
-  WindowsChromiumInputSurfaceAttachmentCoordinator.prototype,
+  ChromiumViewAttachmentCoordinator.prototype,
   artifactDirectory
 );
 installElectronDesktopE2eTrustedInputObserver();

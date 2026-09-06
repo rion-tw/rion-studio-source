@@ -489,29 +489,23 @@ async function submitWindowsRolePageShortcut(
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const button = await $("#qa-target");
     await button.waitForDisplayed({ timeout: 10_000 });
-    if (command === "quickAccess") {
-      const roleId = await $("#role-id").getText();
-      if (!roleId) throw new Error("The exact Role fixture identity is missing");
-      const afterSequence = await fixtureCursor();
-      await focusWindowsRuntimeNativeWindow({
-        processId, nativeWindowHandle, pointerTarget: "content-click"
-      });
-      const click = await waitFixtureEvent({ afterSequence, kind: "click", roleId });
-      if (click.isTrusted !== true || click.targetId !== "qa-target") {
-        throw new Error("The native click did not reach the exact Role fixture target");
-      }
-    } else {
-      await button.click();
-      await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
+    const roleId = await $("#role-id").getText();
+    if (!roleId) throw new Error("The exact Role fixture identity is missing");
+    const afterSequence = await fixtureCursor();
+    // Native foreground admission precedes the physical content click. A
+    // WebDriver click made while another native window is active cannot prove
+    // that this View owns the keyboard focus needed by the following shortcut.
+    await focusWindowsRuntimeNativeWindow({
+      processId, nativeWindowHandle, pointerTarget: "content-click"
+    });
+    const click = await waitFixtureEvent({ afterSequence, kind: "click", roleId });
+    if (click.isTrusted !== true || click.targetId !== "qa-target") {
+      throw new Error("The native click did not reach the exact Role fixture target");
     }
-    // The no-activate Role child need not own OS keyboard focus for the
-    // top-level host's application shortcut. Its native click was acknowledged.
-    if (command === "toggleFullscreen") {
-      await browser.waitUntil(
-        () => browser.execute(() => document.hasFocus()),
-        { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
-      );
-    }
+    await browser.waitUntil(
+      () => browser.execute(() => document.hasFocus()),
+      { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
+    );
     console.info("Windows Role focus after native foreground", await browser.execute(() => ({
       focused: document.hasFocus(),
       activeTag: document.activeElement?.tagName ?? null,

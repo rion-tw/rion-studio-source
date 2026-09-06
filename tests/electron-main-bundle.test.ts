@@ -36,6 +36,8 @@ describe("Electron executable main bundles", () => {
     expect(main.code).toContain("ELECTRON_STARTUP_FAILED");
     expect(main.code).toContain("createWindowsChromiumTrustedInputRuntime");
     expect(main.code).toContain("readWindowsRuntimeForeground");
+    expect(main.code).not.toContain("attachWindowsChromiumInputHwnd");
+    expect(main.code).not.toContain("windowsChromiumInputProbeAbiVersion");
     expect(main.code.includes("rion:e2e:invoke")).toBe(mode === "e2e");
     if (mode === "e2e") expect(main.code).toContain("retainedV22Precondition");
   });

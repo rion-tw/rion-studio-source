@@ -9,8 +9,8 @@ import type { ChromiumRoleOverlayFrameIdentity } from
   "./chromiumRoleSurfaceRegistry";
 import type {
   WindowsChromiumInputPresentationEvent,
-  WindowsChromiumInputSurfaceAttachmentCoordinator
-} from "./windowsChromiumInputSurfaceAttachmentCoordinator";
+  WindowsChromiumInputPresentationPort
+} from "./windowsChromiumInputHostPorts";
 
 interface HeldKeyContinuitySurfaceIdentity {
   readonly roleId: string;
@@ -86,7 +86,7 @@ export class WindowsChromiumHeldKeyContinuityCoordinator {
   constructor(input: Readonly<{
     core: HeldKeyContinuityCorePort;
     surfaces: HeldKeyContinuitySurfacePort;
-    attachments: Pick<WindowsChromiumInputSurfaceAttachmentCoordinator, "subscribePresentation">;
+    attachments: WindowsChromiumInputPresentationPort;
     resolveIdentity: (
       identity: ChromiumRoleOverlayFrameIdentity
     ) => HeldKeyContinuitySurfaceIdentity;

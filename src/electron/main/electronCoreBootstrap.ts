@@ -7,9 +7,6 @@ import {
   type RawNodeApiCoreFactory
 } from "../core/coreAddonClient";
 import type {
-  RawWindowsChromiumTrustedInputAddon
-} from "./windowsChromiumInputSurfaceAttachmentCoordinator";
-import type {
   WindowsRuntimeForegroundProbePort,
   WindowsRuntimeShortcutOwnerDiagnosticPort,
   WindowsRuntimeShortcutOwnerPort
@@ -30,7 +27,7 @@ interface NativeAppCoreOptions {
 
 export interface LoadedRionNodeAddon
   extends RawNodeApiCoreFactory<NativeAppCoreOptions>, RawAppKitRuntimeAddon,
-    RawChromiumUpdaterFactory, RawWindowsChromiumTrustedInputAddon,
+    RawChromiumUpdaterFactory,
     WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort,
     WindowsRuntimeShortcutOwnerDiagnosticPort {}
 

@@ -8,8 +8,8 @@ import type { ChromiumRoleOverlayFrameIdentity } from
   "../src/electron/main/chromiumRoleSurfaceRegistry";
 import type {
   WindowsChromiumInputPresentationEvent,
-  WindowsChromiumInputSurfaceAttachmentCoordinator
-} from "../src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator";
+  WindowsChromiumInputPresentationPort
+} from "../src/electron/main/windowsChromiumInputHostPorts";
 
 function receipt(input: WindowsChromiumHeldKeyContinuityInputInternal) {
   return Object.freeze({
@@ -48,7 +48,7 @@ describe("Windows Chromium held-key continuity", () => {
           presentationListener = listener;
           return () => { presentationListener = null; };
         }
-      } as unknown as WindowsChromiumInputSurfaceAttachmentCoordinator,
+      } as unknown as WindowsChromiumInputPresentationPort,
       resolveIdentity: () => ({
         roleId: "role-1",
         tabId: "tab-1",
@@ -107,7 +107,7 @@ describe("Windows Chromium held-key continuity", () => {
       surfaces: { currentOverlayFrame: () => identity },
       attachments: {
         subscribePresentation: () => () => undefined
-      } as unknown as WindowsChromiumInputSurfaceAttachmentCoordinator,
+      } as unknown as WindowsChromiumInputPresentationPort,
       resolveIdentity: () => {
         throw new Error("must not resolve");
       },

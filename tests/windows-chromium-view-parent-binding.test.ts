@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { windowsChromiumViewParentBinding } from "../src/electron/main/windowsChromiumViewParentBinding";
-import type { WindowsChromiumInputRuntimeParentBinding } from "../src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator";
+import type { WindowsChromiumInputRuntimeParentBinding } from "../src/electron/main/windowsChromiumInputHostPorts";
 import type { ChromiumRoleWebContentsViewPort } from "../src/electron/main/chromiumRoleSurfacePorts";
 
 describe("Windows public View parent binding", () => {

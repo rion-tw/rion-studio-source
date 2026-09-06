@@ -7,7 +7,7 @@ import {
   type ChromiumTrustedInputRecoveryProof,
   type ChromiumTrustedInputSurfacePort
 } from "./chromiumTrustedInputCoordinator";
-import type { WindowsChromiumInputRuntimeParentResolverPort } from "./windowsChromiumInputSurfaceAttachmentCoordinator";
+import type { WindowsChromiumInputRuntimeParentResolverPort } from "./windowsChromiumInputHostPorts";
 import { ChromiumViewAttachmentCoordinator } from "./chromiumViewAttachmentCoordinator";
 import { ChromiumViewTrustedInputHost } from "./chromiumViewTrustedInputHost";
 import { ChromiumViewFocusAdmission } from "./chromiumViewFocusAdmission";

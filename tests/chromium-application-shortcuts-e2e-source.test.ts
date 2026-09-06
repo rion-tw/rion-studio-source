@@ -38,6 +38,19 @@ beforeAll(async () => {
 });
 
 describe("Chromium application-shortcut E2E journey", () => {
+  it("requires a native content click before Role-origin Windows shortcut input", async () => {
+    const source = await readFile("e2e/desktop/support/electron-role-surface.ts", "utf8");
+    const helper = source.slice(source.indexOf("async function submitWindowsRolePageShortcut("),
+      source.indexOf("export async function submitElectronRolePageQuickAccessShortcut("));
+    expect(helper).toContain('pointerTarget: "content-click"');
+    expect(helper).toContain('click.isTrusted !== true || click.targetId !== "qa-target"');
+    expect(helper).toContain("document.hasFocus()");
+    expect(helper).not.toContain("await button.click()");
+    expect(helper).not.toContain('if (command === "quickAccess")');
+    expect(helper.indexOf("await focusWindowsRuntimeNativeWindow")).toBeLessThan(helper.indexOf("await waitFixtureEvent"));
+    expect(helper.indexOf("await waitFixtureEvent")).toBeLessThan(helper.indexOf("await pressVisibleWindowsApplicationShortcut"));
+  });
+
   it("uses visible Quick Access and exact focused-runtime OS input", () => {
     expect(shellSpec).toContain("launchChromiumRoleVisible");
     expect(shellSpec).toContain('rendererCall("getEmbeddedRuntimeState")');

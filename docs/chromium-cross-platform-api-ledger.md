@@ -66,7 +66,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | direct-View product bootstrap implemented; native product parity and legacy deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-08 | P1 / Trusted input | Windows physical View gate passed; full product parity and legacy deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
@@ -3967,3 +3967,41 @@ trusted input are outside this Windows child-host removal.
   The migration contract and Macro runbook now describe the direct-View ownership
   boundary instead of the superseded WS_CHILD/ABI-v5 gate; eight adjacent
   contract/source checks passed after that documentation update.
+
+### Windows physical View gate passed; production dependency cleanup
+
+- Candidate `242ab2f9`, CI `34043767144`, Windows package job `101515054943`
+  passed `chromium-windows-trusted-input-physical` in 1.2 seconds. The raw
+  `chromium-shell-e2e-Windows-34043767144-1` artifact confirms two exact sibling
+  Views in separate Sessions, a 480x320 renderer acknowledgement for the 600x400
+  DIP View at 125% zoom, trusted foreground KeyA/left-click events, hidden
+  Ctrl+Shift+B down/up, and hidden middle down/up/auxclick at CSS (80,96).
+  Hidden presentation and the foreground sibling were preserved. This proves
+  the new physical gate, not every Core Macro/reload/topology journey.
+- The same Windows smoke subsequently failed in
+  `chromium-fullscreen-toolbar-seed`: the visible Role document did not gain
+  focus. Its helper clicked through WebDriver before native foreground admission.
+  Both Role-origin shortcut branches now bring the exact native parent forward
+  and issue a physical content click, require the exact Role's trusted fixture
+  click, then confirm document focus before sending native F11/Ctrl+K. The focus
+  requirement is retained. The updated FULLSCREEN-TOOLBAR-012 manifest describes
+  this primary-action provenance; native Windows verification remains pending.
+- Public parent/presentation ports moved out of the legacy child coordinator.
+  Product bootstrap no longer requires the old attachment addon interface.
+  E2E attachment observation now wraps the actual View manager, and its loader
+  no longer loads the unused legacy submission owner. Actual production and E2E
+  bundle tests reject legacy HWND attachment/ABI entry points, while legacy
+  implementation tests remain until full replacement parity permits deletion.
+- The interrupted local validation had no remaining process handles or live
+  compiler/test processes. Its incomplete full-test log included a macOS DMG
+  resource error, so it was not accepted. A fresh single-worker full regression
+  passed 448 files / 3,540 tests; no timeout or failed assertion was converted to
+  success. After the shortcut helper update, five focused files passed 31 tests.
+  The native macOS Chromium API experiment also passed with the reduced loader.
+  Rust and final build completion are recorded after their active handles finish.
+
+- Final local completion: native macOS Rust lint and workspace tests passed
+  (1,640 passed, 4 ignored); typecheck, lint, hygiene, coverage, stable build,
+  production Electron build and E2E isolation passed. No new local desktop E2E
+  profile ran for the Windows-only native shortcut sequence. Windows smoke and
+  both hardware-extended profiles remain pending their exact native execution.

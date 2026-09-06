@@ -19,7 +19,7 @@ import type { ChromiumPopupHostLifecycleObserver } from "./chromiumPopupPorts";
 import type {
   WindowsChromiumInputBaseWindowPort,
   WindowsChromiumInputRuntimeParentBinding
-} from "./windowsChromiumInputSurfaceAttachmentCoordinator";
+} from "./windowsChromiumInputHostPorts";
 import type {
   ChromiumRuntimeEmptyHostIdentity,
   ChromiumRuntimeHostFactoryPort,

@@ -1,5 +1,5 @@
 import type { ChromiumViewParentBinding } from "./chromiumViewAttachmentCoordinator";
-import type { WindowsChromiumInputRuntimeParentBinding } from "./windowsChromiumInputSurfaceAttachmentCoordinator";
+import type { WindowsChromiumInputRuntimeParentBinding } from "./windowsChromiumInputHostPorts";
 import type { WindowsRuntimeForegroundProbePort } from "./windowsRuntimeWindowState";
 
 /** Public Electron View ownership plus the existing read-only foreground proof. */

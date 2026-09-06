@@ -17,6 +17,7 @@ describe("Windows Chromium physical input candidate gate", () => {
     }
     expect(probe).toContain('require("./electronLoadChromiumInputOwner.cjs")');
     expect(loader).toContain('"chromiumViewFocusAdmission"');
+    expect(loader).not.toContain("chromiumOwnedInputSubmission");
     expect(parentBinding).toContain("readWindowsRuntimeForeground");
     expect(submission).toContain("sendChromiumKey");
     expect(probe).toContain('candidateEvidence: "foreground-and-hidden-product-path"');

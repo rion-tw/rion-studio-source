@@ -652,7 +652,7 @@ if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
     await runEncodedPowerShellJson(script, {
       command: input.command,
       processId: input.processId,
-      nativeWindowHandle: input.nativeWindowHandle,
+      nativeWindowHandle: input.nativeWindowHandle ?? "",
       targetMode: input.targetMode ?? "launcher"
     }, {
       // DeadlineBound: Windows PowerShell may cold-start Add-Type while the CI

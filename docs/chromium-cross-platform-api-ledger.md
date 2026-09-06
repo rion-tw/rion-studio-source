@@ -2768,3 +2768,26 @@ Fresh immutable candidate b76e249b93801c11774a0b575320a9a55da7af95 is running in
 CI 34024329384. Its Windows Chromium job 101462497385 has reached the shell E2E
 step. Latest candidate macOS jobs are queued; these are live/pending evidence,
 not passed gates. The worktree is not promoted to the sole production engine.
+
+
+### Keep optional native handle present in strict PowerShell payloads
+
+CI 34024329384 Windows Chromium job 101462497385 fails at shell-smoke before
+file upload or Role fullscreen. Strict PowerShell rejects the absent
+nativeWindowHandle property for ordinary launcher shortcuts: JSON serialization
+omits undefined object fields. The driver now always sends the optional property
+as an empty string when absent. Launcher PID/window selection is unchanged;
+provided Role HWNDs still require exact foreground equality before F11. No
+strict-mode downgrade or native ownership bypass is introduced.
+
+This internal-only transport correction affects
+CHROMIUM-WINDOWS-APPLICATION-SHORTCUTS-030 and callers of the common native
+shortcut driver. It does not establish whether the previous candidate's native
+Edit or exact Role focus corrections pass: this run never reaches those phases.
+Evidence: `/tmp/rion-b76-win-package.log`. Windows execution remains pending
+on the corrected candidate.
+
+All 29 adjacent native-action/transport/foreground/shortcut checks pass locally,
+along with typecheck, scoped lint, source hygiene, production E2E isolation and
+coverage validation. No native runtime, AppKit behavior, shared contract or
+coverage threshold changes. Logs: `/tmp/rion-shortcut-optional-*`.

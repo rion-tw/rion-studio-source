@@ -391,6 +391,7 @@ export class WindowsRuntimeHostChromeController {
       } else if (
         candidate.type === "activateTab" || candidate.type === "closeTab" ||
         candidate.type === "hideTab" || candidate.type === "moveTab" ||
+        candidate.type === "setTabMuted" ||
         candidate.type === "moveTabToNewWindow" ||
         candidate.type === "reloadTab" || candidate.type === "reorderTab"
       ) {
@@ -682,6 +683,13 @@ export class WindowsRuntimeHostChromeController {
           : { beforeTabId: command.beforeTabId }),
         type: "reorderTab"
       });
+      return;
+    }
+    if (command.type === "setTabMuted") {
+      await this.#requestTabControl(command.tabId, {
+        type: "setTabMuted", muted: command.muted
+      });
+      await this.#relayout();
       return;
     }
     const action: ChromiumRuntimeNativeTabAction = command.type === "activateTab"

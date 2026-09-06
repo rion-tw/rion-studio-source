@@ -1,3 +1,8 @@
+import {
+  applyChromiumSurfaceProjection, captureChromiumSurfaceProjections,
+  restoreChromiumSurfaceProjections, applyChromiumSurfaceReparent,
+  restoreChromiumSurfaceReparents, type ChromiumSurfaceReparent
+} from "./chromiumRuntimeSurfaceProjection";
 import type {
   EmbeddedRuntimeWindowProjectionRecord,
   EmbeddedRuntimeWorkspaceTabProjectionRecord
@@ -13,8 +18,6 @@ import type {
   ChromiumRuntimeWebSurfaceRecord,
   ChromiumRuntimeWindowRecord
 } from "./chromiumRuntimeAppKitProjection";
-import type { ChromiumRuntimeSurfaceProjection } from
-  "./chromiumRuntimeProjectionTransaction";
 import { bindChromiumRuntimeWindowLayout } from
   "./chromiumRuntimeFullscreenToolbar";
 import { effectiveChromiumRuntimeZoomFactor } from
@@ -53,13 +56,6 @@ interface ProjectedTab {
     index: number;
   }>[];
   readonly specification: ChromiumRuntimeTabRecord["specification"];
-}
-
-interface CompletedReparent {
-  readonly kind: "role" | "web";
-  readonly id: string;
-  readonly generation: number;
-  readonly sourceWindowId: string;
 }
 
 function projectionError(code: string, message: string): RionBridgeError {
@@ -287,86 +283,26 @@ export async function applyChromiumRuntimeWindowsProjection(
     });
   }
 
-  const roleSnapshots = new Map<string, ChromiumRuntimeSurfaceProjection>();
-  const webSnapshots = new Map<string, ChromiumRuntimeSurfaceProjection>();
-  for (const role of input.roles.values()) {
-    roleSnapshots.set(
-      role.roleId,
-      input.ports.surfaces.readProjection(role.roleId, role.generation)
-    );
-  }
-  for (const surface of input.webSurfaces.values()) {
-    webSnapshots.set(
-      surface.surfaceId,
-      input.ports.webSurfaces.readProjection(surface.surfaceId, surface.generation)
-    );
-  }
+  const roleSnapshots = captureChromiumSurfaceProjections(
+    input.ports.surfaces,
+    [...input.roles.values()].map((role) => [role.roleId, role.generation])
+  );
+  const webSnapshots = captureChromiumSurfaceProjections(
+    input.ports.webSurfaces,
+    [...input.webSurfaces.values()].map((surface) => [surface.surfaceId, surface.generation])
+  );
 
-  const completed: CompletedReparent[] = [];
+  const completed: ChromiumSurfaceReparent[] = [];
   const compensate = async (primaryError: unknown): Promise<never> => {
     const failures: unknown[] = [];
-    for (const [roleId, snapshot] of roleSnapshots) {
-      const role = input.roles.get(roleId)!;
-      try {
-        if (snapshot.zoomFactor !== undefined) {
-          input.ports.surfaces.setZoomFactor(
-            roleId,
-            role.generation,
-            snapshot.zoomFactor
-          );
-        }
-        input.ports.surfaces.setBounds(roleId, role.generation, snapshot.bounds);
-        input.ports.surfaces.setVisible(roleId, role.generation, snapshot.visible);
-      } catch (error) {
-        failures.push(error);
-      }
-    }
-    for (const [surfaceId, snapshot] of webSnapshots) {
-      const surface = input.webSurfaces.get(surfaceId)!;
-      try {
-        if (snapshot.zoomFactor !== undefined) {
-          input.ports.webSurfaces.setZoomFactor(
-            surfaceId,
-            surface.generation,
-            snapshot.zoomFactor
-          );
-        }
-        input.ports.webSurfaces.setBounds(surfaceId, surface.generation, snapshot.bounds);
-        input.ports.webSurfaces.setVisible(
-          surfaceId,
-          surface.generation,
-          snapshot.visible
-        );
-      } catch (error) {
-        failures.push(error);
-      }
-    }
-    for (const item of [...completed].reverse()) {
-      const source = input.windows.get(item.sourceWindowId);
-      try {
-        if (!source || source.host.isDestroyed()) {
-          throw projectionError(
-            "ELECTRON_CHROMIUM_WINDOWS_PROJECTION_SOURCE_STALE",
-            "A Windows topology rollback lost its exact source host."
-          );
-        }
-        if (item.kind === "role") {
-          await input.ports.surfaces.reparentRole!(
-            item.id,
-            item.generation,
-            source.host
-          );
-        } else {
-          await input.ports.webSurfaces.reparentSurface!(
-            item.id,
-            item.generation,
-            source.host
-          );
-        }
-      } catch (error) {
-        failures.push(error);
-      }
-    }
+    restoreChromiumSurfaceProjections(input.ports.surfaces, roleSnapshots, failures);
+    restoreChromiumSurfaceProjections(input.ports.webSurfaces, webSnapshots, failures);
+    await restoreChromiumSurfaceReparents(
+      input.ports, input.windows, completed, failures, () => projectionError(
+        "ELECTRON_CHROMIUM_WINDOWS_PROJECTION_SOURCE_STALE",
+        "A Windows topology rollback lost its exact source host."
+      )
+    );
     if (failures.length > 0) {
       try {
         await input.quarantineWindows([...projectionByWindow.keys()]);
@@ -399,33 +335,22 @@ export async function applyChromiumRuntimeWindowsProjection(
             "The Chromium Role surface registry cannot apply a cross-window move."
           );
         }
-        await input.ports.surfaces.reparentRole(
-          role.roleId,
-          role.generation,
-          input.windows.get(projected.windowId)!.host
-        );
-        completed.push({
+        await applyChromiumSurfaceReparent(input.ports, {
           kind: "role",
           id: role.roleId,
           generation: role.generation,
           sourceWindowId: role.windowId
-        });
+        }, input.windows.get(projected.windowId)!.host, completed);
       }
-      input.ports.surfaces.setZoomFactor(
-        role.roleId,
-        role.generation,
-        effectiveChromiumRuntimeZoomFactor(
+      applyChromiumSurfaceProjection(input.ports.surfaces, role.roleId, role.generation, {
+        zoomFactor: effectiveChromiumRuntimeZoomFactor(
           role.zoomFactor,
           input.windows.get(projected.windowId)!.windowZoomFactor ?? 1
-        )
-      );
-      input.ports.surfaces.setBounds(role.roleId, role.generation, bounds);
-      input.ports.surfaces.setVisible(
-        role.roleId,
-        role.generation,
-        projected.active && !projected.hidden &&
+        ),
+        bounds,
+        visible: projected.active && !projected.hidden &&
           input.windows.get(projected.windowId)!.host.isVisible()
-      );
+      });
     }
     for (const surface of input.webSurfaces.values()) {
       const projected = projectedTabs.get(surface.tabId);
@@ -444,33 +369,22 @@ export async function applyChromiumRuntimeWindowsProjection(
             "The global Web surface registry cannot apply a cross-window move."
           );
         }
-        await input.ports.webSurfaces.reparentSurface(
-          surface.surfaceId,
-          surface.generation,
-          input.windows.get(projected.windowId)!.host
-        );
-        completed.push({
+        await applyChromiumSurfaceReparent(input.ports, {
           kind: "web",
           id: surface.surfaceId,
           generation: surface.generation,
           sourceWindowId: surface.windowId
-        });
+        }, input.windows.get(projected.windowId)!.host, completed);
       }
-      input.ports.webSurfaces.setZoomFactor(
-        surface.surfaceId,
-        surface.generation,
-        effectiveChromiumRuntimeZoomFactor(
+      applyChromiumSurfaceProjection(input.ports.webSurfaces, surface.surfaceId, surface.generation, {
+        zoomFactor: effectiveChromiumRuntimeZoomFactor(
           surface.zoomFactor,
           input.windows.get(projected.windowId)!.windowZoomFactor ?? 1
-        )
-      );
-      input.ports.webSurfaces.setBounds(surface.surfaceId, surface.generation, bounds);
-      input.ports.webSurfaces.setVisible(
-        surface.surfaceId,
-        surface.generation,
-        projected.active && !projected.hidden &&
+        ),
+        bounds,
+        visible: projected.active && !projected.hidden &&
           input.windows.get(projected.windowId)!.host.isVisible()
-      );
+      });
     }
   } catch (error) {
     return compensate(error);
@@ -502,6 +416,7 @@ export async function applyChromiumRuntimeWindowsProjection(
           const tab = input.tabs.get(tabId)!;
           return Object.freeze({
             active: projection.activeTabId === tabId,
+            audioMuted: tab.audioMuted,
             hidden: projection.hiddenTabIds.includes(tabId),
             name: tab.specification.name,
             phase: projectedTabs.get(tabId)!.phase,

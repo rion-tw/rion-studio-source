@@ -25,21 +25,6 @@ pub(in crate::system_runtime) fn ensure_platform_automation_surface_ready(
 }
 
 #[cfg(target_os = "macos")]
-pub(in crate::system_runtime) fn platform_webview_diagnostics(
-    _webview: &Webview,
-) -> PlatformWebViewDiagnostics {
-    PlatformWebViewDiagnostics {
-        browser_process_present: None,
-        graphics_renderer: None,
-        graphics_vendor: None,
-        hardware_acceleration_enabled: None,
-        runtime_version: macos_webkit_runtime_version(),
-        renderer_process_present: Some(true),
-        gpu_process_present: None,
-    }
-}
-
-#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn macos_webkit_runtime_version() -> Option<String> {
     use std::ffi::CStr;
 
@@ -593,22 +578,15 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
     app: &AppHandle,
     builder: WebviewBuilder<tauri::Wry>,
     data_store_identifier: [u8; 16],
-    high_refresh_rate_enabled: bool,
     contained_fullscreen_enabled: bool,
-) -> (
-    WebviewBuilder<tauri::Wry>,
-    HighRefreshRateDiagnosticStatus,
-    RoleWebGlConfiguration,
-) {
+) -> (WebviewBuilder<tauri::Wry>, RoleWebGlConfiguration) {
     unsafe extern "C" {
         fn rion_wk_create_role_configuration(
             data_store_identifier_bytes: *const u8,
-            high_refresh_rate_enabled: bool,
             contained_fullscreen_enabled: bool,
             web_gl_preference: i32,
             dom_rendering_preference: i32,
             canvas_rendering_preference: i32,
-            high_refresh_rate_status: *mut i32,
             maximum_web_gl_performance_status: *mut i32,
             dom_rendering_status: *mut i32,
             canvas_rendering_status: *mut i32,
@@ -623,19 +601,16 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
     let canvas_rendering_preference = policy.canvas_rendering_preference;
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let scheduling = app.run_on_main_thread(move || {
-        let mut raw_status = 2_i32;
         let mut raw_maximum_status = 2_i32;
         let mut raw_dom_rendering_status = 2_i32;
         let mut raw_canvas_rendering_status = 2_i32;
         let raw_configuration = unsafe {
             rion_wk_create_role_configuration(
                 data_store_identifier.as_ptr(),
-                high_refresh_rate_enabled,
                 contained_fullscreen_enabled,
                 web_gl_preference.native_value(),
                 dom_rendering_preference.native_value(),
                 canvas_rendering_preference.native_value(),
-                &mut raw_status,
                 &mut raw_maximum_status,
                 &mut raw_dom_rendering_status,
                 &mut raw_canvas_rendering_status,
@@ -645,7 +620,6 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
         if sender
             .send((
                 raw_configuration,
-                raw_status,
                 raw_maximum_status,
                 raw_dom_rendering_status,
                 raw_canvas_rendering_status,
@@ -658,21 +632,15 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
         }
     });
     let outcome = if scheduling.is_err() {
-        (
-            builder,
-            HighRefreshRateDiagnosticStatus::ScheduleFailed,
-            failed_web_gl_configuration(policy.configuration),
-        )
+        (builder, failed_web_gl_configuration(policy.configuration))
     } else {
         match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
             Ok((
                 raw_configuration,
-                raw_status,
                 raw_maximum_status,
                 raw_dom_rendering_status,
                 raw_canvas_rendering_status,
             )) => {
-                let status = decode_macos_high_refresh_rate_status(raw_status);
                 let web_gl_configuration = applied_mac_web_gl_configuration(
                     policy,
                     raw_maximum_status,
@@ -688,50 +656,28 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
                     );
                 }
                 if raw_configuration == 0 {
-                    (
-                        builder,
-                        HighRefreshRateDiagnosticStatus::Failed,
-                        failed_web_gl_configuration(policy.configuration),
-                    )
+                    (builder, failed_web_gl_configuration(policy.configuration))
                 } else {
                     let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
                     let configuration = unsafe { Retained::from_raw(raw_configuration) }
                         .expect("native WKWebView configuration pointer was non-null");
                     (
                         builder.with_webview_configuration(configuration),
-                        status,
                         web_gl_configuration,
                     )
                 }
             }
-            Err(_) => (
-                builder,
-                HighRefreshRateDiagnosticStatus::Timeout,
-                failed_web_gl_configuration(policy.configuration),
-            ),
+            Err(_) => (builder, failed_web_gl_configuration(policy.configuration)),
         }
     };
     eprintln!(
-        "System WebView macOS performance configuration: WebKit={}, high-refresh={}, path={:?}, batching={:?}, experiment={:?}.",
+        "System WebView macOS performance configuration: WebKit={}, path={:?}, batching={:?}, experiment={:?}.",
         runtime_version.as_deref().unwrap_or("unknown"),
-        high_refresh_rate_status_label(outcome.1),
-        outcome.2.execution_path,
-        outcome.2.command_batching_status,
+        outcome.1.execution_path,
+        outcome.1.command_batching_status,
         experiment,
     );
     outcome
-}
-
-#[cfg(target_os = "macos")]
-pub(in crate::system_runtime) fn decode_macos_high_refresh_rate_status(
-    value: i32,
-) -> HighRefreshRateDiagnosticStatus {
-    match value {
-        0 => HighRefreshRateDiagnosticStatus::Applied,
-        1 => HighRefreshRateDiagnosticStatus::Unavailable,
-        3 => HighRefreshRateDiagnosticStatus::Disabled,
-        _ => HighRefreshRateDiagnosticStatus::Failed,
-    }
 }
 
 #[cfg(target_os = "macos")]

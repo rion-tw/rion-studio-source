@@ -128,8 +128,6 @@ export const RION_API_INVOKE_METHODS = {
   setLogLevel: true,
   clearLogs: true,
   revealLogs: true,
-  beginBrowserPerformanceDiagnostics: true,
-  cancelBrowserPerformanceDiagnostics: true,
   exportDiagnostics: true,
   listSystemFonts: true,
   consumePendingMacroPageRequest: true,
@@ -169,7 +167,6 @@ export const RION_API_EVENT_METHODS = {
   onShellError: true,
   onLogEntryAdded: true,
   onChromeProfileImportProgress: true,
-  onBrowserPerformanceDiagnosticsChanged: true
 } as const satisfies Record<RionApiEventMethod, true>;
 
 export function isRionApiInvokeMethod(value: unknown): value is RionApiInvokeMethod {

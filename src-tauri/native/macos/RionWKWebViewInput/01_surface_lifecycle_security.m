@@ -10,13 +10,6 @@
 #include <uuid/uuid.h>
 
 enum {
-  RionWKHighRefreshRateApplied = 0,
-  RionWKHighRefreshRateUnavailable = 1,
-  RionWKHighRefreshRateFailed = 2,
-  RionWKHighRefreshRateDisabled = 3,
-};
-
-enum {
   RionWKMaximumWebGLPerformanceApplied = 0,
   RionWKMaximumWebGLPerformanceUnavailable = 1,
   RionWKMaximumWebGLPerformanceFailed = 2,
@@ -646,30 +639,6 @@ static id RionWKFeatureWithKey(NSArray *features, NSString *expectedKey) {
   return nil;
 }
 
-static int32_t RionWKConfigureHighRefreshRate(
-    WKWebViewConfiguration *configuration) {
-  WKPreferences *preferences = configuration.preferences;
-  Class preferencesClass = NSClassFromString(@"WKPreferences");
-  SEL featuresSelector = NSSelectorFromString(@"_features");
-  SEL setEnabledSelector = NSSelectorFromString(@"_setEnabled:forFeature:");
-  if (!preferences || !preferencesClass ||
-      ![(id)preferencesClass respondsToSelector:featuresSelector] ||
-      ![preferences respondsToSelector:setEnabledSelector]) {
-    return RionWKHighRefreshRateUnavailable;
-  }
-  id features = ((id (*)(id, SEL))objc_msgSend)(
-      (id)preferencesClass, featuresSelector);
-  if (![features isKindOfClass:NSArray.class]) {
-    return RionWKHighRefreshRateUnavailable;
-  }
-  id feature = RionWKFeatureWithKey(
-      (NSArray *)features, @"PreferPageRenderingUpdatesNear60FPSEnabled");
-  if (!feature) return RionWKHighRefreshRateUnavailable;
-  ((void (*)(id, SEL, BOOL, id))objc_msgSend)(
-      preferences, setEnabledSelector, NO, feature);
-  return RionWKHighRefreshRateApplied;
-}
-
 static int32_t RionWKConfigureFeatureForPreferences(
     id preferences, Class preferencesClass, NSString *featureKey,
     BOOL enabled) {
@@ -729,21 +698,14 @@ static bool RionEnableContainedElementFullscreen(id preferences) {
 
 void *rion_wk_create_role_configuration(
     const uint8_t *dataStoreIdentifierBytes,
-    bool highRefreshRateEnabled,
     bool containedFullscreenEnabled,
     int32_t webGLPreference,
     int32_t domRenderingPreference,
     int32_t canvasRenderingPreference,
-    int32_t *highRefreshRateStatus,
     int32_t *maximumWebGLPerformanceStatus,
     int32_t *domRenderingStatus,
     int32_t *canvasRenderingStatus) {
   @autoreleasepool {
-    if (highRefreshRateStatus) {
-      *highRefreshRateStatus = highRefreshRateEnabled
-          ? RionWKHighRefreshRateFailed
-          : RionWKHighRefreshRateDisabled;
-    }
     if (maximumWebGLPerformanceStatus) {
       *maximumWebGLPerformanceStatus = webGLPreference < 0
           ? RionWKMaximumWebGLPerformanceEngineManaged
@@ -773,9 +735,6 @@ void *rion_wk_create_role_configuration(
       if (containedFullscreenEnabled &&
           !RionEnableContainedElementFullscreen(configuration.preferences)) {
         return NULL;
-      }
-      if (highRefreshRateEnabled && highRefreshRateStatus) {
-        *highRefreshRateStatus = RionWKConfigureHighRefreshRate(configuration);
       }
       if (maximumWebGLPerformanceStatus) {
         *maximumWebGLPerformanceStatus =
@@ -816,45 +775,6 @@ char *rion_wk_copy_runtime_version(void) {
 
 void rion_wk_free_c_string(char *value) {
   free(value);
-}
-
-int32_t rion_ns_low_power_mode_enabled(void) {
-  @autoreleasepool {
-    @try {
-      NSProcessInfo *processInfo = NSProcessInfo.processInfo;
-      SEL selector = NSSelectorFromString(@"isLowPowerModeEnabled");
-      if (!processInfo || ![processInfo respondsToSelector:selector]) return -1;
-      return ((BOOL (*)(id, SEL))objc_msgSend)(processInfo, selector) ? 1 : 0;
-    } @catch (__unused NSException *exception) {
-      return -1;
-    }
-  }
-}
-
-int32_t rion_ns_thermal_state(void) {
-  @autoreleasepool {
-    @try {
-      NSProcessInfo *processInfo = NSProcessInfo.processInfo;
-      SEL selector = NSSelectorFromString(@"thermalState");
-      if (!processInfo || ![processInfo respondsToSelector:selector]) return -1;
-      NSInteger state =
-          ((NSInteger (*)(id, SEL))objc_msgSend)(processInfo, selector);
-      switch (state) {
-        case NSProcessInfoThermalStateNominal:
-          return 0;
-        case NSProcessInfoThermalStateFair:
-          return 1;
-        case NSProcessInfoThermalStateSerious:
-          return 2;
-        case NSProcessInfoThermalStateCritical:
-          return 3;
-        default:
-          return 4;
-      }
-    } @catch (__unused NSException *exception) {
-      return -1;
-    }
-  }
 }
 
 @interface RionWKFeatureFixture : NSObject
@@ -900,20 +820,6 @@ static NSMutableArray *RionWKRecordedFeatureWrites;
   [RionWKRecordedFeatureWrites addObject:@[feature, @(enabled)]];
 }
 @end
-
-bool rion_wk_high_refresh_rate_self_test(void) {
-  @autoreleasepool {
-    RionWKFeatureFixture *other = [[RionWKFeatureFixture alloc] init];
-    other.key = @"OtherFeature";
-    RionWKFeatureFixture *target = [[RionWKFeatureFixture alloc] init];
-    target.key = @"PreferPageRenderingUpdatesNear60FPSEnabled";
-    NSArray *features = @[other, @42, target];
-    return RionWKFeatureWithKey(
-                   features,
-                   @"PreferPageRenderingUpdatesNear60FPSEnabled") == target &&
-        RionWKFeatureWithKey(features, @"MissingFeature") == nil;
-  }
-}
 
 bool rion_wk_maximum_webgl_performance_self_test(void) {
   @autoreleasepool {
@@ -967,23 +873,6 @@ bool rion_wk_maximum_webgl_performance_self_test(void) {
     return exactMatch && exactDomMatch && exactCanvasMatch && wroteDisabled &&
         rejected == RionWKMaximumWebGLPerformanceFailed &&
         missing == RionWKMaximumWebGLPerformanceUnavailable;
-  }
-}
-
-double rion_ns_window_display_refresh_rate(void *rawWindow) {
-  @autoreleasepool {
-    if (!rawWindow) return 0;
-    @try {
-      NSWindow *window = (__bridge NSWindow *)rawWindow;
-      NSScreen *screen = window.screen;
-      SEL selector = NSSelectorFromString(@"maximumFramesPerSecond");
-      if (!screen || ![screen respondsToSelector:selector]) return 0;
-      NSInteger framesPerSecond =
-          ((NSInteger (*)(id, SEL))objc_msgSend)(screen, selector);
-      return framesPerSecond > 1 ? (double)framesPerSecond : 0;
-    } @catch (__unused NSException *exception) {
-      return 0;
-    }
   }
 }
 

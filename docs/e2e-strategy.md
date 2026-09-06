@@ -153,7 +153,7 @@ KeyB in the ABI-v3 physical probe.
 
 Both Chromium profiles also run one shared system-Settings phase with separate
 platform verdicts. It enters every section through visible sidebar controls,
-proves the macOS-only high-refresh selector (and its Windows absence), inspects
+proves the retired high-refresh selector is absent on both platforms, inspects
 font-preview layout, cancels before portable export crosses into a native save
 dialog, verifies the unpackaged updater boundary, and opens then visibly closes
 a legal document. Separately, the visible Export diagnostics action crosses the
@@ -161,12 +161,9 @@ typed production bridge into the unique native save dialog owned by the exact
 application PID. macOS and Windows OS automation cancel their respective dialog,
 then the authenticated E2E-only read bridge returns a bounded production-call
 journal whose exact new observation must contain typed outcome `null` and zero
-Core `diagnosticsExport` invocations. The FPS action
-is backed by the production Electron diagnostic-operation owner: begin publishes
-`waitingForFocus`, exact cancel publishes a higher-revision terminal event, and
-the renderer returns to Measure only from that event. The test bridge supplies
-runtime identity only; its sole Core read verifies the high-refresh value and
-never performs the setting change.
+Core `diagnosticsExport` invocations. Both profiles assert the retired performance
+measurement and cancellation controls are absent. A read-only Core inspection
+confirms retired performance preferences are absent from current settings.
 
 The paired P1 Chromium application-recovery journeys use three phases in one
 standalone user-data namespace and the same visible-UI spec on both targets.
@@ -425,3 +422,19 @@ Current planned extended work includes complete portable import/export, Chrome
 profile import, font installation, diagnostics-export completion beyond the
 exact native cancel journey, staged updater installation, remaining tray/menu
 behavior, and native window controls.
+
+
+Native Electron integration also probes Local Font Access using the exact bundled
+runtime and isolated sandboxed fixtures. It checks automatic enumeration,
+reload, denial, child-frame exclusion, navigation and distinct WebContents
+ownership, and records differences from the Rust provider. Both native CI jobs
+upload JSON evidence. This compatibility experiment does not change production
+font permission policy or establish a completed cross-platform adoption gate.
+
+
+Native file-upload failures retain the exact phase screenshot. The macOS driver
+also writes a bounded `macos-native-file-dialog-failure.json` when an expected
+chooser item cannot be found; it excludes remote Web content and exits with a
+failure status instead of raising a Swift fatal error. This diagnostic does not
+replace a visible file-input click, native chooser selection or page file-digest
+verification, and does not authorize handling system permission prompts.

@@ -7,7 +7,6 @@ import type {
 import type {
   ApplicationShortcutCommand,
   AppSnapshot,
-  BrowserPerformanceDiagnosticOperation,
   ChromeProfileImportPreview,
   DisplayTopology,
   EmbeddedRuntimeState,
@@ -28,9 +27,6 @@ import type { RendererIdentity } from "./rendererIdentity";
 type MaybePromise<Value> = Value | Promise<Value>;
 
 export interface ElectronBaselineActions {
-  beginBrowserPerformanceDiagnostics: () =>
-    MaybePromise<BrowserPerformanceDiagnosticOperation>;
-  cancelBrowserPerformanceDiagnostics: (operationId: string) => MaybePromise<void>;
   confirmApplicationQuit: (identity: RendererIdentity) => MaybePromise<void>;
   getAppSnapshot: () => MaybePromise<AppSnapshot>;
   getAppVersion: () => string;
@@ -84,15 +80,6 @@ export function createElectronBaselineDispatcher(
     ): Promise<RionApiResult<Method>> {
       let value: unknown;
       switch (method) {
-        case "beginBrowserPerformanceDiagnostics":
-          value = await actions.beginBrowserPerformanceDiagnostics();
-          break;
-        case "cancelBrowserPerformanceDiagnostics": {
-          const [operationId] = args as unknown as
-            RionApiArgs<"cancelBrowserPerformanceDiagnostics">;
-          value = await actions.cancelBrowserPerformanceDiagnostics(operationId);
-          break;
-        }
         case "getAppSnapshot":
           value = await actions.getAppSnapshot();
           break;

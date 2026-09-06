@@ -25,7 +25,6 @@ import { CoreAddonClient } from "../core/coreAddonClient";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import { createElectronBaselineDispatcher } from "./baselineDispatcher";
 import { enforceChromiumCommandLinePolicy } from "./chromiumCommandLinePolicy";
-import { ElectronBrowserPerformanceDiagnosticsController } from "./electronBrowserPerformanceDiagnosticsController";
 import {
   ElectronApplicationShortcutController,
   type ElectronShortcutMainWindowPort
@@ -1065,18 +1064,6 @@ async function bootstrapReadyPhase(
       processId: process.pid
     })
   );
-  const browserPerformanceDiagnostics =
-    new ElectronBrowserPerformanceDiagnosticsController({
-      publish: (operation) => {
-        if (mainIdentity) {
-          ipcBridge?.publish(
-            mainIdentity,
-            "onBrowserPerformanceDiagnosticsChanged",
-            operation
-          );
-        }
-      }
-    });
   type ElectronShortcutWindow = BrowserWindow & ElectronShortcutMainWindowPort;
   const shortcutWindow = (identity: RendererIdentity): ElectronShortcutWindow =>
     currentWindow(identity) as ElectronShortcutWindow;
@@ -1143,10 +1130,6 @@ async function bootstrapReadyPhase(
     resolveMainWindow: currentWindow
   });
   const baselineDispatcher = createElectronBaselineDispatcher({
-    beginBrowserPerformanceDiagnostics: () =>
-      browserPerformanceDiagnostics.begin(),
-    cancelBrowserPerformanceDiagnostics: (operationId) =>
-      browserPerformanceDiagnostics.cancel(operationId),
     getAppSnapshot: readAppSnapshot,
     getAppVersion: () => app.getVersion(),
     getApplicationLifecycleStatus: () => {

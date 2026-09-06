@@ -2,7 +2,6 @@ import { isAbsolute } from "node:path";
 
 import type {
   ApplicationDiagnosticsSnapshotRecord,
-  BrowserPerformanceDiagnosticsRecord,
   CoreCommand,
   CoreCommandResult,
   DiagnosticDisplayRecord,
@@ -66,9 +65,7 @@ export interface ElectronDiagnosticsExportInput<
   readonly captureGpuFeatureStatus: () => unknown;
   readonly captureGpuInfo: () => Promise<unknown>;
   readonly captureNativeRuntime: () => MaybePromise<SystemRuntimeDiagnosticsRecord>;
-  readonly captureBrowserPerformance?: () => MaybePromise<
-    BrowserPerformanceDiagnosticsRecord | undefined
-  >;
+
 }
 
 function diagnosticsError(code: string, message: string): RionBridgeError {
@@ -192,10 +189,9 @@ export class ElectronDiagnosticsExport<
       this.#input.captureGpuFeatureStatus(),
       "GPU feature-status snapshot"
     );
-    const [gpuInfo, nativeRuntime, browserPerformance] = await Promise.all([
+    const [gpuInfo, nativeRuntime] = await Promise.all([
       this.#input.captureGpuInfo(),
       this.#input.captureNativeRuntime(),
-      this.#input.captureBrowserPerformance?.()
     ]);
     this.#resolveExactMainWindow(identity, window);
 
@@ -218,7 +214,6 @@ export class ElectronDiagnosticsExport<
       displays,
       gpuFeatureStatusRawJson,
       gpuInfoRawJson: rawJson(gpuInfo, "GPU information snapshot"),
-      ...(browserPerformance === undefined ? {} : { browserPerformance }),
       nativeRuntime
     };
     return this.#input.core.invoke({

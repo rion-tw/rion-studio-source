@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
@@ -95,41 +95,13 @@ function renderSettings(
 }
 
 describe("browser performance settings", () => {
-  it("shows and persists the experimental high refresh preference on macOS", async () => {
-    const onGameBrowserSettingsPatch = vi.fn(async () => ({
-      ...DEFAULT_GAME_BROWSER_SETTINGS,
-      performance: { macosHighRefreshMode: "enabled" as const }
-    }));
-    renderSettings("mac", onGameBrowserSettingsPatch, "/settings");
-
+  it.each(["mac", "windows"] as const)("removes the high refresh control on %s", (platform) => {
+    const save = vi.fn(async () => DEFAULT_GAME_BROWSER_SETTINGS);
+    renderSettings(platform, save, "/settings");
     expect(screen.getByRole("heading", { name: "Preferences" })).toBeTruthy();
-    const languageRow = screen.getByRole("combobox", { name: "Language" }).closest(".settings-row");
-    const highRefreshSelect = screen.getByRole("combobox", { name: "Experimental high refresh rate" });
-    const highRefreshRow = highRefreshSelect.closest(".settings-row");
-    expect(languageRow?.nextElementSibling).toBe(highRefreshRow);
-    expect(screen.queryByRole("heading", { name: "Game" })).toBeNull();
-    expect(screen.getByRole("switch", { name: "Restore Game Windows on startup" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Customize fonts" })).toBeNull();
-    expect(screen.queryByText("Maximum WebGL performance")).toBeNull();
-
-    expect(
-      screen.getByText(/Requires restarting Rion Studio and may increase energy use and temperature/u)
-    ).toBeTruthy();
-    fireEvent.click(highRefreshSelect);
-    fireEvent.click(await screen.findByRole("option", { name: "Enabled" }));
-
-    await waitFor(() => {
-      expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
-        performance: { macosHighRefreshMode: "enabled" }
-      });
-    });
-  });
-
-  it("does not expose the macOS-only control on Windows", () => {
-    renderSettings("windows", async () => DEFAULT_GAME_BROWSER_SETTINGS);
-
+    expect(screen.getByRole("combobox", { name: "Language" })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Experimental high refresh rate" })).toBeNull();
-    expect(screen.queryByText("Maximum WebGL performance")).toBeNull();
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("keeps performance and Game Window behavior out of Interface settings", () => {

@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { runChromeProfileImportHelperProcess } from
@@ -12,7 +14,7 @@ import {
 import type { ChromiumRoleSessionPort } from
   "../src/electron/main/chromiumRoleSessionRegistry";
 
-describe("fresh Chrome profile import helper process", () => {
+describe.each(["darwin", "win32"] as const)("fresh Chromium maintenance helper process (%s)", (platform) => {
   it("reads one inherited frame and emits one canonical indeterminate terminal frame", async () => {
     const request = encodeChromeProfileImportHelperRequestForTest(
       Buffer.from("{}", "utf8"),
@@ -22,7 +24,7 @@ describe("fresh Chrome profile import helper process", () => {
     const exit = vi.fn();
     const ready = vi.fn(async () => undefined);
     await runChromeProfileImportHelperProcess({
-      platform: "darwin",
+      platform,
       sessions: {
         fromPath: vi.fn(() => {
           throw new Error("No Session may open for invalid metadata.");
@@ -58,21 +60,22 @@ describe("fresh Chrome profile import helper process", () => {
 
   it("dispatches a role clear to one fresh exact-path Session and drains it", async () => {
     const roleId = "11111111-1111-4111-8111-111111111111";
-    const browser = `/RionData/roles/${roleId}/browser`;
-    const chromiumPath = `${browser}/chromium`;
+    const paths = platform === "win32" ? path.win32 : path.posix;
+    const browser = paths.join(platform === "win32" ? "C:\\RionData" : "/RionData", "roles", roleId, "browser");
+    const chromiumPath = paths.join(browser, "chromium");
     const metadata = encodeChromiumRoleBrowserDataClearFreshHelperRequest({
       version: 1,
       family: "roleBrowserDataClear",
       kind: "clearAndVerify",
       evidenceRevision: 1,
-      platform: "darwin",
+      platform,
       effectId: "effect-clear-role-data",
       operationId: "operation-clear-role-data",
       roleId,
       rolePaths: {
         browserUserDataDir: browser,
-        systemBrowserDataDir: `${browser}/system-webview`,
-        webview2UserDataDir: `${browser}/system-webview/webview2`,
+        systemBrowserDataDir: paths.join(browser, "system-webview"),
+        webview2UserDataDir: paths.join(browser, "system-webview", "webview2"),
         chromiumUserDataDir: chromiumPath,
         webkitDataStoreKey: `role:${roleId}:wkwebview`,
         webkitDataStoreIdentifier: roleId
@@ -111,7 +114,7 @@ describe("fresh Chrome profile import helper process", () => {
     const exit = vi.fn();
 
     await runChromeProfileImportHelperProcess({
-      platform: "darwin",
+      platform,
       sessions: { fromPath },
       views: {
         create: vi.fn(() => {
@@ -142,4 +145,61 @@ describe("fresh Chrome profile import helper process", () => {
     expect([...request]).toEqual(new Array(request.byteLength).fill(0));
     response.fill(0);
   });
+
+  it("does not exit or erase the terminal response until the pipe write settles", async () => {
+    const request = encodeChromeProfileImportHelperRequestForTest(
+      Buffer.from("{}"), Buffer.from("private payload")
+    );
+    let finishWrite!: () => void;
+    let reportWriteStarted!: () => void;
+    const started = new Promise<void>((resolve) => { reportWriteStarted = resolve; });
+    const written = new Promise<void>((resolve) => { finishWrite = resolve; });
+    let borrowedResponse!: Buffer;
+    const exit = vi.fn();
+    const work = runChromeProfileImportHelperProcess({
+      platform,
+      sessions: { fromPath: vi.fn(() => { throw new Error("Unexpected Session"); }) },
+      views: { create: vi.fn(() => { throw new Error("Unexpected view"); }) },
+      readInheritedRequest: () => request,
+      ready: vi.fn(async () => undefined),
+      writeInheritedResponse: async (bytes) => {
+        borrowedResponse = bytes;
+        reportWriteStarted();
+        await written;
+      },
+      exit
+    });
+    await started;
+    expect(exit).not.toHaveBeenCalled();
+    expect(borrowedResponse.subarray(0, 8).toString("ascii")).toBe("RCHRES01");
+    expect(request.every((byte) => byte === 0)).toBe(true);
+    finishWrite();
+    await work;
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0);
+    expect(borrowedResponse.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("returns a failed process exit when the terminal pipe cannot acknowledge", async () => {
+    const request = encodeChromeProfileImportHelperRequestForTest(
+      Buffer.from("{}"), Buffer.alloc(0)
+    );
+    const exit = vi.fn();
+    let borrowedResponse!: Buffer;
+    await runChromeProfileImportHelperProcess({
+      platform,
+      sessions: { fromPath: vi.fn(() => { throw new Error("Unexpected Session"); }) },
+      views: { create: vi.fn(() => { throw new Error("Unexpected view"); }) },
+      readInheritedRequest: () => request,
+      ready: vi.fn(async () => undefined),
+      writeInheritedResponse: async (bytes) => {
+        borrowedResponse = bytes;
+        throw new Error("Pipe closed");
+      },
+      exit
+    });
+    expect(exit).toHaveBeenCalledExactlyOnceWith(71);
+    expect(borrowedResponse.every((byte) => byte === 0)).toBe(true);
+    expect(request.every((byte) => byte === 0)).toBe(true);
+  });
+
 });

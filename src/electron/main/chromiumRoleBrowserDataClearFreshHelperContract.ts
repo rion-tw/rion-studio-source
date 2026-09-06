@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { posix, win32 } from "node:path";
+import {
+  chromiumPathApi as pathsFor,
+  canonicalChromiumPath
+} from "./chromiumSessionPath";
 
 import type { RolePathsRecord } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
@@ -69,10 +72,6 @@ function boundedIdentity(value: unknown): value is string {
     });
 }
 
-function pathsFor(platform: "darwin" | "win32"): typeof posix {
-  return platform === "win32" ? win32 : posix;
-}
-
 function validateRolePaths(
   value: unknown,
   roleId: string,
@@ -92,8 +91,8 @@ function validateRolePaths(
   const chromiumPath = rolePaths.chromiumUserDataDir as string;
   const roleDirectory = paths.dirname(browserRoot);
   if (
-    !paths.isAbsolute(browserRoot) || paths.normalize(browserRoot) !== browserRoot ||
-    !paths.isAbsolute(chromiumPath) || paths.normalize(chromiumPath) !== chromiumPath ||
+    canonicalChromiumPath(browserRoot, platform) === null ||
+    canonicalChromiumPath(chromiumPath, platform) === null ||
     paths.basename(browserRoot) !== "browser" ||
     paths.basename(roleDirectory) !== roleId ||
     paths.basename(paths.dirname(roleDirectory)) !== "roles" ||

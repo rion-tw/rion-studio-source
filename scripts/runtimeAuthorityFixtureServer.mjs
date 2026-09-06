@@ -218,6 +218,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     dt { color: #8ea0bc; font-size: 12px; } dd { margin: 5px 0 0; font-size: 22px; }
     #last-event { color: #fbbf24; }
     #game-input-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: 0; }
+    #font-evidence[hidden] { display: none; }
+    #font-evidence:not([hidden]) { position: fixed; right: 16px; top: 16px; z-index: 3; margin: 0; }
     #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
     #qa-target.contained-fullscreen-layout { position: static; transform: none; }
     #active-navigation-failure { position: fixed; left: 50%; bottom: 24px; z-index: 3; height: 56px; margin: 0; transform: translateX(-50%); line-height: normal; }
@@ -241,6 +243,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
   <main>
     <h1>[Runtime QA] <span id="role-id"></span></h1>
     <p>Local-only WKWebView/WebView2 lifecycle, focus, input, and macro fixture.</p>
+    <button id="font-evidence" type="button" hidden>Read page font evidence</button>
     <button id="qa-target" type="button">Macro click target</button>
     <button id="active-navigation-failure" type="button" hidden>Navigate active page</button>
     <section id="contained-fullscreen-controls" hidden>
@@ -337,6 +340,24 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       }
       document.querySelector("#game-input-canvas").focus();
     });
+    const fontEvidence = document.querySelector("#font-evidence");
+    if (roleId === "chromium-font-application") {
+      fontEvidence.hidden = false;
+      fontEvidence.addEventListener("click", (event) => {
+        const context = document.createElement("canvas").getContext("2d");
+        context.font = "16px sans-serif";
+        fontEvidence.dataset.evidence = JSON.stringify({
+          canvasHookInstalled: Object.prototype.hasOwnProperty.call(CanvasRenderingContext2D.prototype, "__rionStudioBrowserFontsCanvasHook"),
+          loadedFamilies: [...document.fonts].filter((face) => face.status === "loaded").map((face) => face.family).sort(),
+          bodyFamily: getComputedStyle(document.body).fontFamily,
+          canvasFont: context.font,
+          wideGlyphWidth: context.measureText("W").width,
+          narrowGlyphWidth: context.measureText("i").width,
+          style: document.getElementById("rion-studio-browser-fonts")?.textContent ?? "",
+          trusted: event.isTrusted
+        });
+      });
+    }
     const activeNavigationFailure = document.querySelector("#active-navigation-failure");
     if (activeNavigationFailureEnabled) {
       activeNavigationFailure.hidden = false;

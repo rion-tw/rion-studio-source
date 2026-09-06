@@ -1,15 +1,12 @@
-import type { BaseWindow, Menu, MenuItemConstructorOptions } from "electron";
-import type { ApplicationShortcutCommand } from "../../shared/types";
+import type { BaseWindow } from "electron";
+import {
+  createElectronApplicationMenuCommands,
+  type ElectronApplicationMenuPort,
+  type ElectronApplicationMenuShortcut
+} from "./electronApplicationMenuCommands";
 
-export interface MacosApplicationMenuPort {
-  buildFromTemplate: (template: MenuItemConstructorOptions[]) => Menu;
-  setApplicationMenu: (menu: Menu | null) => void;
-}
-
-export type MacosApplicationMenuShortcut = (
-  command: ApplicationShortcutCommand,
-  focusedWindow?: BaseWindow
-) => void;
+export type MacosApplicationMenuPort = ElectronApplicationMenuPort;
+export type MacosApplicationMenuShortcut = ElectronApplicationMenuShortcut;
 
 export type MacosQuickAccessShortcut = (focusedWindow?: BaseWindow) => void;
 
@@ -27,12 +24,9 @@ export function installMacosApplicationMenu(
   executeShortcut: MacosApplicationMenuShortcut,
   executeQuickAccess: MacosQuickAccessShortcut
 ): void {
-  const execute = (command: ApplicationShortcutCommand) => (
-    _item: Electron.MenuItem,
-    focusedWindow?: BaseWindow
-  ) => {
-    executeShortcut(command, focusedWindow);
-  };
+  const commands = createElectronApplicationMenuCommands(
+    "darwin", applicationName, executeShortcut
+  );
   const applicationMenu = menu.buildFromTemplate([
     {
       label: applicationName,
@@ -45,21 +39,13 @@ export function installMacosApplicationMenu(
         { role: "hideOthers" },
         { role: "unhide" },
         { type: "separator" },
-        {
-          accelerator: "Command+Q",
-          click: execute("quitApplication"),
-          label: `Quit ${applicationName}`
-        }
+        commands.quit
       ]
     },
     {
       label: "File",
       submenu: [
-        {
-          accelerator: "Command+N",
-          click: execute("newGameWindow"),
-          label: "New Game Window"
-        },
+        commands.newWindow,
         { role: "close" }
       ]
     },
@@ -74,27 +60,7 @@ export function installMacosApplicationMenu(
           label: "Quick Open"
         },
         { type: "separator" },
-        {
-          accelerator: "Command+0",
-          click: execute("zoomReset"),
-          label: "Actual Size"
-        },
-        {
-          accelerator: "Command+Plus",
-          click: execute("zoomIn"),
-          label: "Zoom In"
-        },
-        {
-          accelerator: "Command+-",
-          click: execute("zoomOut"),
-          label: "Zoom Out"
-        },
-        { type: "separator" },
-        {
-          accelerator: "Control+Command+F",
-          click: execute("toggleFullscreen"),
-          label: "Toggle Full Screen",
-        }
+        ...commands.view
       ]
     },
     { role: "windowMenu" }

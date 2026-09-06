@@ -1,3 +1,5 @@
+import { prepareChromiumFontRole, verifyChromiumFontApplication } from "./chromium-font-application-support";
+
 import { $, $$, browser, expect } from "@wdio/globals";
 
 import {
@@ -8,13 +10,13 @@ import { cancelVisibleNativeDiagnosticsSaveDialog } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
 import {
-  acceptLegalAndSkipFirstRun,
-  ensureEnglishUi,
   waitForRoute
 } from "../support/ui";
 
 // [journey:CHROMIUM-MACOS-APPKIT-SYSTEM-SETTINGS-013]
 // [journey:CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013]
+// [journey:CHROMIUM-MACOS-APPKIT-FONT-APPLICATION-033]
+// [journey:CHROMIUM-WINDOWS-FONT-APPLICATION-033]
 // [journey:CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-EXPORT-029]
 // [journey:CHROMIUM-WINDOWS-DIAGNOSTICS-EXPORT-029]
 
@@ -43,24 +45,6 @@ async function openSettingsSection(
   await waitForRoute(`/settings?section=${section}`);
 }
 
-async function waitForHighRefreshMode(
-  label: "Auto" | "Disabled",
-  value: "auto" | "disabled"
-): Promise<void> {
-  await browser.waitUntil(async () => {
-    const control = await $(
-      "button[role='combobox'][aria-label='Experimental high refresh rate']"
-    );
-    const settings = await rendererCall("getGameBrowserSettings");
-    return settings.performance.macosHighRefreshMode === value
-      && (await control.getText()).includes(label)
-      && await control.isEnabled();
-  }, {
-    timeout: 15_000,
-    timeoutMsg: `Chromium settings did not persist high-refresh mode ${value}`
-  });
-}
-
 async function verifyPreferences(
   platform: "macos" | "windows"
 ): Promise<void> {
@@ -72,24 +56,8 @@ async function verifyPreferences(
   const highRefresh = await $(
     "button[role='combobox'][aria-label='Experimental high refresh rate']"
   );
-  if (platform === "windows") {
-    expect(await highRefresh.isExisting()).toBe(false);
-    return;
-  }
-
-  await highRefresh.waitForDisplayed({ timeout: 10_000 });
-  await waitForHighRefreshMode("Disabled", "disabled");
-  await highRefresh.click();
-  const automatic = await $("[role='option']=Auto");
-  await automatic.waitForDisplayed({ timeout: 10_000 });
-  await automatic.click();
-  await waitForHighRefreshMode("Auto", "auto");
-
-  await highRefresh.click();
-  const disabled = await $("[role='option']=Disabled");
-  await disabled.waitForDisplayed({ timeout: 10_000 });
-  await disabled.click();
-  await waitForHighRefreshMode("Disabled", "disabled");
+  await expect(highRefresh).not.toExist();
+  expect(await rendererCall("getGameBrowserSettings")).not.toHaveProperty("performance");
 }
 
 async function verifyInterface(): Promise<void> {
@@ -137,16 +105,11 @@ async function verifyUpdateBoundary(): Promise<void> {
   await expect($("button*=Check updates")).toBeDisabled();
 }
 
-async function verifyEventBoundDiagnosticsCancel(): Promise<void> {
+async function verifyDiagnosticsControls(): Promise<void> {
   await openSettingsSection("Diagnostics & logs", "diagnostics");
-  const measure = await $("button=Measure presentation FPS");
-  await measure.waitForDisplayed({ timeout: 10_000 });
-  await measure.click();
-
-  const cancel = await $("button=Cancel measurement");
-  await cancel.waitForDisplayed({ timeout: 10_000 });
-  await cancel.click();
-  await measure.waitForDisplayed({ timeout: 10_000 });
+  await expect($("button=Export diagnostics")).toBeDisplayed();
+  await expect($("button=Measure presentation FPS")).not.toExist();
+  await expect($("button=Cancel measurement")).not.toExist();
 }
 
 async function verifyNativeDiagnosticsExportCancel(input: Readonly<{
@@ -201,14 +164,14 @@ describe("Chromium system settings boundaries", () => {
     expect(probe.driver).toBe("electron");
     expect(probe.packaged).toBe(false);
 
-    await ensureEnglishUi();
-    await acceptLegalAndSkipFirstRun();
+    const fontRole = await prepareChromiumFontRole();
     await openSettingsThroughVisibleUi();
     await verifyPreferences(probe.platform);
     await verifyInterface();
+    await verifyChromiumFontApplication(fontRole);
     await verifyDataCancelBoundary();
     await verifyUpdateBoundary();
-    await verifyEventBoundDiagnosticsCancel();
+    await verifyDiagnosticsControls();
     await verifyNativeDiagnosticsExportCancel(probe);
     await verifyLegalCancelBoundary();
   });

@@ -1,3 +1,8 @@
+import {
+  applyChromiumSurfaceProjection, captureChromiumSurfaceProjections,
+  restoreChromiumSurfaceProjections, applyChromiumSurfaceReparent,
+  restoreChromiumSurfaceReparents, type ChromiumSurfaceReparent
+} from "./chromiumRuntimeSurfaceProjection";
 import type {
   AppKitRuntimeProjectionEffectRecord,
   AppKitRuntimeWindowProjectionRecord,
@@ -14,8 +19,7 @@ import type {
   ChromiumRuntimeHostPort
 } from "./chromiumRuntimeEffectExecutor";
 import type {
-  ChromiumRuntimeAppKitProjectionTransaction,
-  ChromiumRuntimeSurfaceProjection
+  ChromiumRuntimeAppKitProjectionTransaction
 } from "./chromiumRuntimeProjectionTransaction";
 import { effectiveChromiumRuntimeZoomFactor } from
   "./chromiumRuntimeWindowZoomController";
@@ -74,14 +78,6 @@ export interface ApplyChromiumRuntimeAppKitProjectionInput {
 
 function runtimeError(code: string, message: string): RionBridgeError {
   return new RionBridgeError({ code, message });
-}
-
-function sameBounds(
-  left: ChromiumRoleSurfaceBounds,
-  right: ChromiumRoleSurfaceBounds
-): boolean {
-  return left.x === right.x && left.y === right.y &&
-    left.width === right.width && left.height === right.height;
 }
 
 function requireIdentifier(value: string, field: string): string {
@@ -323,37 +319,19 @@ export async function applyChromiumRuntimeAppKitProjection(
     );
   }
 
-  const roleSurfaceSnapshots = new Map<string, ChromiumRuntimeSurfaceProjection>();
-  for (const role of roles.values()) {
-    if (
-      touchedWindowIds.has(role.windowId) ||
-      projectedLayoutsByRole.has(role.roleId)
-    ) {
-      roleSurfaceSnapshots.set(
-        role.roleId,
-        ports.surfaces.readProjection(role.roleId, role.generation)
-      );
-    }
-  }
-  const webSurfaceSnapshots = new Map<string, ChromiumRuntimeSurfaceProjection>();
-  for (const surface of webSurfaces.values()) {
-    if (
-      touchedWindowIds.has(surface.windowId) ||
-      projectedLayoutsByWebSurface.has(surface.surfaceId)
-    ) {
-      webSurfaceSnapshots.set(
-        surface.surfaceId,
-        ports.webSurfaces.readProjection(surface.surfaceId, surface.generation)
-      );
-    }
-  }
+  const roleSurfaceSnapshots = captureChromiumSurfaceProjections(
+    ports.surfaces,
+    [...roles.values()].filter((role) => touchedWindowIds.has(role.windowId) ||
+      projectedLayoutsByRole.has(role.roleId)).map((role) => [role.roleId, role.generation])
+  );
+  const webSurfaceSnapshots = captureChromiumSurfaceProjections(
+    ports.webSurfaces,
+    [...webSurfaces.values()].filter((surface) => touchedWindowIds.has(surface.windowId) ||
+      projectedLayoutsByWebSurface.has(surface.surfaceId))
+      .map((surface) => [surface.surfaceId, surface.generation])
+  );
 
-  const completedReparents: Array<Readonly<{
-    kind: "role" | "web";
-    id: string;
-    generation: number;
-    sourceWindowId: string;
-  }>> = [];
+  const completedReparents: ChromiumSurfaceReparent[] = [];
   const committedHosts: Array<Readonly<{
     windowId: string;
     transaction: ChromiumRuntimeAppKitProjectionTransaction;
@@ -370,82 +348,15 @@ export async function applyChromiumRuntimeAppKitProjection(
   ): Promise<never> => {
     const compensationFailures: unknown[] = [];
     if (surfaceProjectionStarted) {
-      for (const [roleId, snapshot] of roleSurfaceSnapshots) {
-        const role = roles.get(roleId)!;
-        try {
-          if (snapshot.zoomFactor !== undefined) {
-            ports.surfaces.setZoomFactor(
-              roleId,
-              role.generation,
-              snapshot.zoomFactor
-            );
-          }
-          ports.surfaces.setBounds(roleId, role.generation, snapshot.bounds);
-        } catch (error) {
-          compensationFailures.push(error);
-        }
-        try {
-          ports.surfaces.setVisible(roleId, role.generation, snapshot.visible);
-        } catch (error) {
-          compensationFailures.push(error);
-        }
-      }
-      for (const [surfaceId, snapshot] of webSurfaceSnapshots) {
-        const surface = webSurfaces.get(surfaceId)!;
-        try {
-          if (snapshot.zoomFactor !== undefined) {
-            ports.webSurfaces.setZoomFactor(
-              surfaceId,
-              surface.generation,
-              snapshot.zoomFactor
-            );
-          }
-          ports.webSurfaces.setBounds(
-            surfaceId,
-            surface.generation,
-            snapshot.bounds
-          );
-        } catch (error) {
-          compensationFailures.push(error);
-        }
-        try {
-          ports.webSurfaces.setVisible(
-            surfaceId,
-            surface.generation,
-            snapshot.visible
-          );
-        } catch (error) {
-          compensationFailures.push(error);
-        }
-      }
+      restoreChromiumSurfaceProjections(ports.surfaces, roleSurfaceSnapshots, compensationFailures);
+      restoreChromiumSurfaceProjections(ports.webSurfaces, webSurfaceSnapshots, compensationFailures);
     }
-    for (const completed of [...completedReparents].reverse()) {
-      const source = windows.get(completed.sourceWindowId);
-      if (!source || source.host.isDestroyed()) {
-        compensationFailures.push(runtimeError(
-          "ELECTRON_MACOS_APPKIT_PROJECTION_REPARENT_SOURCE_STALE",
-          "An AppKit projection rollback lost its exact source host."
-        ));
-        continue;
-      }
-      try {
-        if (completed.kind === "role") {
-          await ports.surfaces.reparentRole!(
-            completed.id,
-            completed.generation,
-            source.host
-          );
-        } else {
-          await ports.webSurfaces.reparentSurface!(
-            completed.id,
-            completed.generation,
-            source.host
-          );
-        }
-      } catch (error) {
-        compensationFailures.push(error);
-      }
-    }
+    await restoreChromiumSurfaceReparents(
+      ports, windows, completedReparents, compensationFailures, () => runtimeError(
+        "ELECTRON_MACOS_APPKIT_PROJECTION_REPARENT_SOURCE_STALE",
+        "An AppKit projection rollback lost its exact source host."
+      )
+    );
     for (const completed of [...committedDividers].reverse()) {
       try {
         completed.transaction.rollback();
@@ -487,29 +398,23 @@ export async function applyChromiumRuntimeAppKitProjection(
       const role = roles.get(roleId)!;
       if (role.windowId === layout.windowId) continue;
       const target = windows.get(layout.windowId)!;
-      await ports.surfaces.reparentRole!(roleId, role.generation, target.host);
-      completedReparents.push({
+      await applyChromiumSurfaceReparent(ports, {
         kind: "role",
         id: roleId,
         generation: role.generation,
         sourceWindowId: role.windowId
-      });
+      }, target.host, completedReparents);
     }
     for (const [surfaceId, layout] of projectedLayoutsByWebSurface) {
       const surface = webSurfaces.get(surfaceId)!;
       if (surface.windowId === layout.windowId) continue;
       const target = windows.get(layout.windowId)!;
-      await ports.webSurfaces.reparentSurface!(
-        surfaceId,
-        surface.generation,
-        target.host
-      );
-      completedReparents.push({
+      await applyChromiumSurfaceReparent(ports, {
         kind: "web",
         id: surfaceId,
         generation: surface.generation,
         sourceWindowId: surface.windowId
-      });
+      }, target.host, completedReparents);
     }
   } catch (error) {
     return compensate(error, false);
@@ -538,15 +443,9 @@ export async function applyChromiumRuntimeAppKitProjection(
         role.zoomFactor,
         windows.get(layout.windowId)!.windowZoomFactor ?? 1
       );
-      if (current.zoomFactor !== zoomFactor) {
-        ports.surfaces.setZoomFactor(roleId, role.generation, zoomFactor);
-      }
-      if (!sameBounds(current.bounds, layout.bounds)) {
-        ports.surfaces.setBounds(roleId, role.generation, layout.bounds);
-      }
-      if (current.visible !== layout.visible) {
-        ports.surfaces.setVisible(roleId, role.generation, layout.visible);
-      }
+      applyChromiumSurfaceProjection(ports.surfaces, roleId, role.generation, {
+        bounds: layout.bounds, visible: layout.visible, zoomFactor
+      }, current);
     }
     for (const [surfaceId, layout] of projectedLayoutsByWebSurface) {
       const surface = webSurfaces.get(surfaceId)!;
@@ -555,15 +454,9 @@ export async function applyChromiumRuntimeAppKitProjection(
         surface.zoomFactor,
         windows.get(layout.windowId)!.windowZoomFactor ?? 1
       );
-      if (current.zoomFactor !== zoomFactor) {
-        ports.webSurfaces.setZoomFactor(surfaceId, surface.generation, zoomFactor);
-      }
-      if (!sameBounds(current.bounds, layout.bounds)) {
-        ports.webSurfaces.setBounds(surfaceId, surface.generation, layout.bounds);
-      }
-      if (current.visible !== layout.visible) {
-        ports.webSurfaces.setVisible(surfaceId, surface.generation, layout.visible);
-      }
+      applyChromiumSurfaceProjection(ports.webSurfaces, surfaceId, surface.generation, {
+        bounds: layout.bounds, visible: layout.visible, zoomFactor
+      }, current);
     }
     for (const role of roles.values()) {
       if (

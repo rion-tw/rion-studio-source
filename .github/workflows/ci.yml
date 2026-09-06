@@ -204,10 +204,31 @@ jobs:
         id: target_rust_tests
         run: pnpm run test:rust
 
-      - name: Lint and test real native Electron startup without visible UI
+      - name: Lint and test native Electron startup and compatibility probes
         run: |
           pnpm run lint:electron:native-integration-fixture
           pnpm run test:electron:native-integration
+        env:
+          RION_LOCAL_FONTS_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/local-fonts
+          RION_CHROMIUM_INPUT_REPORT_DIR: ${{ github.workspace }}/.desktop-e2e-artifacts/chromium-input
+
+      - name: Upload Chromium input compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: chromium-input-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .desktop-e2e-artifacts/chromium-input/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Local Font Access compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: local-fonts-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .desktop-e2e-artifacts/local-fonts/*.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Test renderer behavior on Windows
         if: runner.os == 'Windows'

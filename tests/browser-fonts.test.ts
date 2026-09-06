@@ -68,7 +68,6 @@ describe("browser font settings normalization", () => {
       },
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
       macroOverlay: DEFAULT_GAME_BROWSER_SETTINGS.macroOverlay,
-      performance: DEFAULT_GAME_BROWSER_SETTINGS.performance,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
   });
@@ -268,32 +267,16 @@ describe("browser font settings normalization", () => {
     });
   });
 
-  it("defaults and validates the macOS high refresh preference", () => {
-    expect(normalizeGameBrowserSettings({}).performance).toEqual({
-      macosHighRefreshMode: "disabled"
-    });
-    expect(
-      normalizeGameBrowserSettings({ performance: { macosHighRefreshRate: true } }).performance
-    ).toEqual({ macosHighRefreshMode: "enabled" });
-    expect(
-      normalizeGameBrowserSettings({ performance: { macosHighRefreshRate: false } }).performance
-    ).toEqual({ macosHighRefreshMode: "disabled" });
-    expect(
-      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "enabled" } }).performance
-    ).toEqual({ macosHighRefreshMode: "enabled" });
-    expect(
-      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "auto" } }).performance
-    ).toEqual({ macosHighRefreshMode: "auto" });
-    expect(
-      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "disabled" } })
-        .performance
-    ).toEqual({ macosHighRefreshMode: "disabled" });
-    expect(
-      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "invalid" } }).performance
-    ).toEqual({ macosHighRefreshMode: "disabled" });
-    expect(
-      normalizeGameBrowserSettings({ performance: { maximumWebGlPerformance: false } }).performance
-    ).toEqual({ macosHighRefreshMode: "disabled" });
+  it.each([
+    { macosHighRefreshRate: true },
+    { macosHighRefreshRate: false },
+    { macosHighRefreshMode: "auto" },
+    { macosHighRefreshMode: "enabled" },
+    { macosHighRefreshMode: "disabled" },
+    { macosHighRefreshMode: "invalid" },
+    { maximumWebGlPerformance: false }
+  ])("ignores retired performance preferences %j", (performance) => {
+    expect(normalizeGameBrowserSettings({ performance })).toEqual(DEFAULT_GAME_BROWSER_SETTINGS);
   });
 
   it("normalizes macro badge position options and falls back for invalid values", () => {

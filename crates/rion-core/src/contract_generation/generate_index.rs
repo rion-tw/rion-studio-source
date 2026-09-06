@@ -6,6 +6,26 @@ use std::{fs, path::PathBuf};
 fn export_bindings_index() {
     let path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../src/shared/generated/index.ts");
+    // Retired Rust contracts no longer have ts-rs export tests to remove their outputs.
+    for retired in [
+        "BrowserPerformanceSettingsRecord.ts",
+        "MacosHighRefreshMode.ts",
+        "HighRefreshRateDiagnosticStatus.ts",
+        "BrowserCanvasDiagnosticRecord.ts",
+        "BrowserWebGlContextAttributesRecord.ts",
+        "BrowserPerformanceSurfaceDiagnosticRecord.ts",
+        "BrowserPerformanceDiagnosticsRecord.ts",
+        "BrowserPerformanceDiagnosticOperationPhase.ts",
+        "BrowserPerformanceDiagnosticOperationRecord.ts",
+        "BrowserPerformanceDiagnosticStatus.ts",
+    ] {
+        let retired_path = path.parent().unwrap().join(retired);
+        match fs::remove_file(retired_path) {
+            Ok(()) => {},
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) => panic!("Failed to remove retired binding: {error}"),
+        }
+    }
     fs::write(
             path,
             concat!(
@@ -47,14 +67,6 @@ fn export_bindings_index() {
                 "export type { BrowserFontRuntimePayloadRecord } from \"./BrowserFontRuntimePayloadRecord\";\n",
                 "export type { BrowserFontSelectionRecord } from \"./BrowserFontSelectionRecord\";\n",
                 "export type { BrowserFontSettingsRecord } from \"./BrowserFontSettingsRecord\";\n",
-                "export type { BrowserPerformanceSettingsRecord } from \"./BrowserPerformanceSettingsRecord\";\n",
-                "export type { BrowserCanvasDiagnosticRecord } from \"./BrowserCanvasDiagnosticRecord\";\n",
-                "export type { BrowserWebGlContextAttributesRecord } from \"./BrowserWebGlContextAttributesRecord\";\n",
-                "export type { BrowserPerformanceDiagnosticOperationPhase } from \"./BrowserPerformanceDiagnosticOperationPhase\";\n",
-                "export type { BrowserPerformanceDiagnosticOperationRecord } from \"./BrowserPerformanceDiagnosticOperationRecord\";\n",
-                "export type { BrowserPerformanceDiagnosticStatus } from \"./BrowserPerformanceDiagnosticStatus\";\n",
-                "export type { BrowserPerformanceDiagnosticsRecord } from \"./BrowserPerformanceDiagnosticsRecord\";\n",
-                "export type { BrowserPerformanceSurfaceDiagnosticRecord } from \"./BrowserPerformanceSurfaceDiagnosticRecord\";\n",
                 "export type { BrowserHostKind } from \"./BrowserHostKind\";\n",
                 "export type { BrowserLaunchAdmissionCompletion } from \"./BrowserLaunchAdmissionCompletion\";\n",
                 "export type { BrowserLaunchAdmissionRecord } from \"./BrowserLaunchAdmissionRecord\";\n",
@@ -194,8 +206,6 @@ fn export_bindings_index() {
                 "export type { RuntimeWindowPersistenceReceiptRecord } from \"./RuntimeWindowPersistenceReceiptRecord\";\n",
                 "export type { RuntimeWindowPersistenceBatchReceiptRecord } from \"./RuntimeWindowPersistenceBatchReceiptRecord\";\n",
                 "export type { RuntimeWindowTabSnapshotRecord } from \"./RuntimeWindowTabSnapshotRecord\";\n",
-                "export type { HighRefreshRateDiagnosticStatus } from \"./HighRefreshRateDiagnosticStatus\";\n",
-                "export type { MacosHighRefreshMode } from \"./MacosHighRefreshMode\";\n",
                 "export type { PerformanceTargetStatus } from \"./PerformanceTargetStatus\";\n",
                 "export type { WebGlCommandBatchingStatus } from \"./WebGlCommandBatchingStatus\";\n",
                 "export type { WebGlExecutionPath } from \"./WebGlExecutionPath\";\n",

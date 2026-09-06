@@ -24,44 +24,7 @@ describe("system settings boundaries", () => {
     await acceptLegalAndSkipFirstRun();
 
     await navigate("/settings?section=preferences");
-    const isMacOS = await browser.execute(
-      () => document.documentElement.dataset.platform === "mac"
-    );
-    const highRefresh = await $("button[role='combobox'][aria-label='Experimental high refresh rate']");
-    if (isMacOS) {
-      await highRefresh.waitForExist({ timeout: 10_000 });
-      await browser.waitUntil(
-        async () => (await highRefresh.getText()).includes("Disabled") && await highRefresh.isEnabled(),
-        {
-          timeout: 10_000,
-          timeoutMsg: "macOS high refresh preference did not default to Disabled"
-        }
-      );
-      await highRefresh.click();
-      const automatic = await $("[role='option']=Auto");
-      await automatic.waitForExist({ timeout: 10_000 });
-      await automatic.click();
-      await browser.waitUntil(
-        async () => (await highRefresh.getText()).includes("Auto") && await highRefresh.isEnabled(),
-        {
-          timeout: 10_000,
-          timeoutMsg: "macOS high refresh preference did not update to Auto"
-        }
-      );
-      await highRefresh.click();
-      const disabled = await $("[role='option']=Disabled");
-      await disabled.waitForExist({ timeout: 10_000 });
-      await disabled.click();
-      await browser.waitUntil(
-        async () => (await highRefresh.getText()).includes("Disabled") && await highRefresh.isEnabled(),
-        {
-          timeout: 10_000,
-          timeoutMsg: "macOS high refresh preference did not update"
-        }
-      );
-    } else {
-      expect(await highRefresh.isExisting()).toBe(false);
-    }
+    await expect($("button[role='combobox'][aria-label='Experimental high refresh rate']")).not.toExist();
     await navigate("/settings?section=interface");
     await $("button[aria-label='Font smoothing']").waitForExist({ timeout: 10_000 });
     await $("button=Customize fonts").click();
@@ -109,12 +72,9 @@ describe("system settings boundaries", () => {
     await expect($("button*=Check updates")).toBeDisabled();
 
     await navigate("/settings?section=diagnostics");
-    const measure = await $("button=Measure presentation FPS");
-    await measure.click();
-    const cancelMeasurement = await $("button=Cancel measurement");
-    await cancelMeasurement.waitForExist({ timeout: 10_000 });
-    await cancelMeasurement.click();
-    await measure.waitForExist({ timeout: 10_000 });
+    await expect($("button=Export diagnostics")).toBeDisplayed();
+    await expect($("button=Measure presentation FPS")).not.toExist();
+    await expect($("button=Cancel measurement")).not.toExist();
 
     await navigate("/settings?section=about-legal");
     const legalButtons = await $$("button=Open");

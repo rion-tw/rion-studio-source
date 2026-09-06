@@ -467,7 +467,6 @@ impl AppCore {
         )?;
         let patch_macro_badge_position = patch.macro_badge_position.is_some();
         let patch_macro_overlay = patch.macro_overlay.is_some();
-        let patch_performance = patch.performance.is_some();
         let patch_workspace = patch.workspace.is_some();
         let mut candidate = settings.clone();
         if let Some(macro_badge_position) = patch.macro_badge_position {
@@ -484,9 +483,6 @@ impl AppCore {
                 candidate.macro_overlay.show_click_markers = show_click_markers;
             }
         }
-        if let Some(performance) = patch.performance {
-            candidate.performance = performance;
-        }
         if let Some(workspace) = patch.workspace {
             candidate.workspace = workspace;
         }
@@ -497,9 +493,6 @@ impl AppCore {
         }
         if patch_macro_overlay {
             settings.macro_overlay = candidate.macro_overlay;
-        }
-        if patch_performance {
-            settings.performance = candidate.performance;
         }
         if patch_workspace {
             settings.workspace = candidate.workspace;

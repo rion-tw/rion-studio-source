@@ -4,7 +4,6 @@ import { ElectronDiagnosticsExport } from
   "../src/electron/main/electronDiagnosticsExport";
 import type { RendererIdentity } from "../src/electron/main/rendererIdentity";
 import type {
-  BrowserPerformanceDiagnosticsRecord,
   CoreCommand,
   DisplayTopologySnapshotRecord,
   SystemRuntimeDiagnosticsRecord
@@ -55,18 +54,6 @@ function displayTopology(): DisplayTopologySnapshotRecord {
   };
 }
 
-function browserPerformance(): BrowserPerformanceDiagnosticsRecord {
-  return {
-    capturedAt: "2026-08-31T01:02:04.000Z",
-    platform: "macos",
-    status: "available",
-    windowFocused: true,
-    highRefreshRateRequested: true,
-    sampleDurationMs: 1_000,
-    surfaces: []
-  };
-}
-
 function harness() {
   const window = {
     id: identity.windowId,
@@ -98,7 +85,6 @@ function harness() {
     gpuDevice: [{ vendorId: 0x106b, deviceId: 1 }]
   }));
   const captureNativeRuntime = vi.fn(async () => nativeRuntime());
-  const captureBrowserPerformance = vi.fn(async () => browserPerformance());
   const invoke = vi.fn(async (command: CoreCommand) => ({
     filePath: command.type === "diagnosticsExport" ? command.path : "",
     logFileCount: 4
@@ -113,11 +99,9 @@ function harness() {
     captureGpuFeatureStatus,
     captureGpuInfo,
     captureNativeRuntime,
-    captureBrowserPerformance
   });
   return {
     captureApplication,
-    captureBrowserPerformance,
     captureDisplayTopology,
     captureGpuFeatureStatus,
     captureGpuInfo,
@@ -167,7 +151,6 @@ describe("Electron diagnostics export", () => {
         gpuFeatureStatusRawJson: "{\"webgl\":\"enabled\"}",
         gpuInfoRawJson:
           "{\"gpuDevice\":[{\"vendorId\":4203,\"deviceId\":1}]}",
-        browserPerformance: browserPerformance(),
         nativeRuntime: nativeRuntime()
       }
     });

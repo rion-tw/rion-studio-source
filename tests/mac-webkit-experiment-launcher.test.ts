@@ -14,7 +14,7 @@ import { macDevBundleInfoPlist } from "../scripts/macDevBundleInfoPlist.mjs";
 describe("macOS WKWebView experiment launcher", () => {
   it("keeps system experiments isolated without inheriting an STP framework", () => {
     const options = parseMacWebKitExperimentArguments(
-      ["--mode=system-direct", "--sample-ms=10000"],
+      ["--mode=system-direct"],
       { cwd: "/workspace", platform: "darwin" }
     );
     const environment = macWebKitExperimentEnvironment(options, {
@@ -66,10 +66,9 @@ describe("macOS WKWebView experiment launcher", () => {
     )).toThrow("--game-mode must be one of: off, on");
   });
 
-  it("derives the STP framework path and bounds diagnostic duration", () => {
+  it("derives the STP framework path and rejects retired sampling options", () => {
     const options = parseMacWebKitExperimentArguments([
       "--mode=stp-gpu-process-dom-rendering",
-      "--sample-ms=600000",
       "--stp-app=/Applications/Safari Technology Preview.app"
     ], { platform: "darwin" });
     expect(options.stpFrameworkPath).toBe(
@@ -80,7 +79,7 @@ describe("macOS WKWebView experiment launcher", () => {
     expect(() => parseMacWebKitExperimentArguments(
       ["--mode=stp-direct", "--sample-ms=600001", "--stp-app=/tmp/STP.app"],
       { platform: "darwin" }
-    )).toThrow("between 1500 and 600000");
+    )).toThrow("Unknown WKWebView experiment option: --sample-ms");
   });
 
   it("rejects STP modes without an explicit app and non-macOS hosts", () => {

@@ -1,4 +1,8 @@
-import { posix, win32 } from "node:path";
+import {
+  chromiumPathApi as pathApi,
+  chromiumPathKey as ownershipKey,
+  canonicalChromiumPath as canonicalPath
+} from "./chromiumSessionPath";
 
 import type { RolePathsRecord } from "../../shared/generated";
 import {
@@ -145,27 +149,6 @@ function indeterminate(stableErrorCode: string): ChromiumRoleBrowserDataClearRes
     stableErrorCode,
     mutation: "unknown"
   });
-}
-
-function pathApi(platform: SupportedPlatform): typeof posix {
-  return platform === "win32" ? win32 : posix;
-}
-
-function canonicalPath(
-  value: unknown,
-  platform: SupportedPlatform
-): string | null {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0")) {
-    return null;
-  }
-  const paths = pathApi(platform);
-  return paths.isAbsolute(value) && paths.normalize(value) === value
-    ? value
-    : null;
-}
-
-function ownershipKey(path: string, platform: SupportedPlatform): string {
-  return platform === "win32" ? path.toLowerCase() : path;
 }
 
 function preflight(

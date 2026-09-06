@@ -48,6 +48,7 @@ function harness(input: Readonly<{
     currentRolePreloadFrame: vi.fn(() => ({
       documentInstanceId: "50000000-0000-4000-8000-000000000001"
     })),
+    audioMuted: vi.fn(() => false),
     readProjection: vi.fn(() => ({ visible: true }))
   };
   const observer = new ElectronDesktopE2eRuntimeTabReloadObserver({

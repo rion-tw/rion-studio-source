@@ -139,6 +139,20 @@ function geometryCenter(
   });
 }
 
+/** Reads evidence produced by the fixture's real main-world event handler. */
+export async function readElectronRoleFontState(expectedUrl: string, mainWindowHandle: string) {
+  await clickVisibleElectronPageElement(expectedUrl, mainWindowHandle, "#font-evidence");
+  return withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
+    const raw = await $("#font-evidence").getAttribute("data-evidence");
+    if (!raw || raw.length > 16_384) throw new Error("Page font evidence is missing or oversized");
+    return JSON.parse(raw) as {
+      canvasHookInstalled: boolean; loadedFamilies: string[];
+      bodyFamily: string; canvasFont: string; wideGlyphWidth: number;
+      narrowGlyphWidth: number; style: string; trusted: boolean;
+    };
+  });
+}
+
 /** Reads one visible DOM point without synthesizing the user action. */
 export async function readVisibleElectronPageElementPoint(
   expectedUrl: string,

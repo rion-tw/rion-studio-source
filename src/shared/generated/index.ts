@@ -36,14 +36,6 @@ export type { BrowserFontRuntimeFaceRecord } from "./BrowserFontRuntimeFaceRecor
 export type { BrowserFontRuntimePayloadRecord } from "./BrowserFontRuntimePayloadRecord";
 export type { BrowserFontSelectionRecord } from "./BrowserFontSelectionRecord";
 export type { BrowserFontSettingsRecord } from "./BrowserFontSettingsRecord";
-export type { BrowserPerformanceSettingsRecord } from "./BrowserPerformanceSettingsRecord";
-export type { BrowserCanvasDiagnosticRecord } from "./BrowserCanvasDiagnosticRecord";
-export type { BrowserWebGlContextAttributesRecord } from "./BrowserWebGlContextAttributesRecord";
-export type { BrowserPerformanceDiagnosticOperationPhase } from "./BrowserPerformanceDiagnosticOperationPhase";
-export type { BrowserPerformanceDiagnosticOperationRecord } from "./BrowserPerformanceDiagnosticOperationRecord";
-export type { BrowserPerformanceDiagnosticStatus } from "./BrowserPerformanceDiagnosticStatus";
-export type { BrowserPerformanceDiagnosticsRecord } from "./BrowserPerformanceDiagnosticsRecord";
-export type { BrowserPerformanceSurfaceDiagnosticRecord } from "./BrowserPerformanceSurfaceDiagnosticRecord";
 export type { BrowserHostKind } from "./BrowserHostKind";
 export type { BrowserLaunchAdmissionCompletion } from "./BrowserLaunchAdmissionCompletion";
 export type { BrowserLaunchAdmissionRecord } from "./BrowserLaunchAdmissionRecord";
@@ -183,8 +175,6 @@ export type { GlobalWebProfileClearReceiptRecord } from "./GlobalWebProfileClear
 export type { RuntimeWindowPersistenceReceiptRecord } from "./RuntimeWindowPersistenceReceiptRecord";
 export type { RuntimeWindowPersistenceBatchReceiptRecord } from "./RuntimeWindowPersistenceBatchReceiptRecord";
 export type { RuntimeWindowTabSnapshotRecord } from "./RuntimeWindowTabSnapshotRecord";
-export type { HighRefreshRateDiagnosticStatus } from "./HighRefreshRateDiagnosticStatus";
-export type { MacosHighRefreshMode } from "./MacosHighRefreshMode";
 export type { PerformanceTargetStatus } from "./PerformanceTargetStatus";
 export type { WebGlCommandBatchingStatus } from "./WebGlCommandBatchingStatus";
 export type { WebGlExecutionPath } from "./WebGlExecutionPath";

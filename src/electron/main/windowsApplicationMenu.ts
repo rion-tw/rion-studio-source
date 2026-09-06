@@ -1,15 +1,11 @@
-import type { BaseWindow, Menu, MenuItemConstructorOptions } from "electron";
-import type { ApplicationShortcutCommand } from "../../shared/types";
+import {
+  createElectronApplicationMenuCommands,
+  type ElectronApplicationMenuPort,
+  type ElectronApplicationMenuShortcut
+} from "./electronApplicationMenuCommands";
 
-export interface WindowsApplicationMenuPort {
-  buildFromTemplate: (template: MenuItemConstructorOptions[]) => Menu;
-  setApplicationMenu: (menu: Menu | null) => void;
-}
-
-export type WindowsApplicationMenuShortcut = (
-  command: ApplicationShortcutCommand,
-  focusedWindow?: BaseWindow
-) => void;
+export type WindowsApplicationMenuPort = ElectronApplicationMenuPort;
+export type WindowsApplicationMenuShortcut = ElectronApplicationMenuShortcut;
 
 /**
  * Installs native accelerators without letting Electron roles bypass the
@@ -20,60 +16,18 @@ export function installWindowsApplicationMenu(
   menu: WindowsApplicationMenuPort,
   executeShortcut: WindowsApplicationMenuShortcut
 ): void {
-  const execute = (command: ApplicationShortcutCommand) => (
-    _item: Electron.MenuItem,
-    focusedWindow?: BaseWindow
-  ) => {
-    executeShortcut(command, focusedWindow);
-  };
+  const commands = createElectronApplicationMenuCommands(
+    "win32", "Rion Studio", executeShortcut
+  );
   const applicationMenu = menu.buildFromTemplate([
     {
       label: "&File",
-      submenu: [
-        {
-          accelerator: "Ctrl+N",
-          click: execute("newGameWindow"),
-          label: "&New Game Window"
-        },
-        { type: "separator" },
-        {
-          accelerator: "Ctrl+Q",
-          click: execute("quitApplication"),
-          label: "E&xit Rion Studio"
-        }
-      ]
+      submenu: [commands.newWindow, { type: "separator" }, commands.quit]
     },
     { role: "editMenu" },
     {
       label: "&View",
-      submenu: [
-        {
-          accelerator: "Ctrl+0",
-          click: execute("zoomReset"),
-          label: "Actual Si&ze"
-        },
-        {
-          accelerator: "Ctrl+Plus",
-          click: execute("zoomIn"),
-          label: "Zoom &In"
-        },
-        {
-          accelerator: "Ctrl+-",
-          click: execute("zoomOut"),
-          label: "Zoom &Out"
-        },
-        { type: "separator" },
-        {
-          accelerator: "F11",
-          click: execute("toggleFullscreen"),
-          label: "Toggle Full Screen",
-          // Keep the discoverable menu label without registering Electron's
-          // native F11 accelerator. Chromium consumes that accelerator before
-          // the focused WebContents can fence the exact runtime tab, so the
-          // launcher renderer and runtime before-input owners handle F11.
-          registerAccelerator: false
-        }
-      ]
+      submenu: commands.view
     },
     { role: "windowMenu" }
   ]);

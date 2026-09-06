@@ -89,7 +89,7 @@ describe("runtime window lifecycle authority", () => {
     ]);
     const fullscreen = windowControl.slice(
       windowControl.indexOf("pub fn toggle_runtime_window_fullscreen("),
-      windowControl.indexOf("fn collect_browser_performance_diagnostics(")
+      windowControl.indexOf("pub fn zoom_focused_runtime(")
     );
     const refreshMetadata = metadata.slice(
       metadata.indexOf("pub(crate) fn refresh_projection_metadata("),

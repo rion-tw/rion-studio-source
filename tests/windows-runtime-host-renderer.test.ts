@@ -79,6 +79,7 @@ describe("Windows runtime-host renderer", () => {
       tabs: [
         {
           active: true,
+          audioMuted: false,
           hidden: false,
           name: "First",
           phase: "ready",
@@ -86,6 +87,7 @@ describe("Windows runtime-host renderer", () => {
         },
         {
           active: false,
+          audioMuted: false,
           hidden: false,
           name: "Second",
           phase: "ready",
@@ -93,6 +95,7 @@ describe("Windows runtime-host renderer", () => {
         },
         {
           active: false,
+          audioMuted: false,
           hidden: true,
           name: "Hidden",
           phase: "dormant",
@@ -177,6 +180,15 @@ describe("Windows runtime-host renderer", () => {
       clientX: 20,
       clientY: 20
     }));
+    const mute = document.querySelector<HTMLButtonElement>(
+      "[data-runtime-tab-menu-action='setTabMuted']"
+    )!;
+    expect(mute.getAttribute("aria-checked")).toBe("false");
+    mute.click();
+    expect(submit).toHaveBeenLastCalledWith({
+      type: "setTabMuted", muted: true, projectionRevision: 5, tabId: firstTabId, windowId
+    });
+    items[0]!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
     const reload = document.querySelector<HTMLButtonElement>(
       "[data-runtime-tab-menu-action='reloadTab']"
     )!;
@@ -244,6 +256,7 @@ describe("Windows runtime-host renderer", () => {
       projectionRevision: 5,
       tabs: [{
         active: true,
+        audioMuted: false,
         hidden: false,
         name: "First",
         phase: "ready",

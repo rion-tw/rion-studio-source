@@ -26,7 +26,7 @@ function projection(active = tabId) {
     moveTargets: [],
     projectionRevision: 1,
     tabs: [
-      { active: true, hidden: false, name: "Role", phase: "ready" as const, tabId }
+      { active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready" as const, tabId }
     ],
     toolbarVisible: true,
     topologyRevision: 1,
@@ -108,6 +108,24 @@ function harness() {
 }
 
 describe("Windows runtime-host chrome controller", () => {
+  it("requires a boolean mute intent and rejects stale menu projections", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    const revision = subject.controller.readObservation().projectionRevision;
+    const command = { type: "setTabMuted", muted: true, projectionRevision: revision, tabId, windowId };
+    expect(isWindowsRuntimeHostCommand(command)).toBe(true);
+    expect(isWindowsRuntimeHostCommand({ ...command, muted: "true" })).toBe(false);
+    expect(isWindowsRuntimeHostCommand({ ...command, extra: true })).toBe(false);
+    await subject.controller.handleCommand(documentUrl, command);
+    expect(subject.requestTabControl).toHaveBeenCalledWith(tabId, { type: "setTabMuted", muted: true });
+    expect(subject.relayout).toHaveBeenCalledTimes(1);
+    await subject.controller.applyCoreProjection({
+      ...projection(), tabs: projection().tabs.map((tab) => ({ ...tab, audioMuted: true }))
+    });
+    await expect(subject.controller.handleCommand(documentUrl, command)).rejects.toThrow();
+    expect(subject.requestTabControl).toHaveBeenCalledTimes(1);
+  });
+
   it("strictly rejects an active flag on a tab other than activeTabId", () => {
     expect(isWindowsRuntimeHostProjection(projection())).toBe(true);
     expect(isWindowsRuntimeHostProjection({
@@ -116,7 +134,7 @@ describe("Windows runtime-host chrome controller", () => {
     })).toBe(false);
     expect(isWindowsRuntimeHostProjection({
       ...projection(),
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "unknown", tabId }]
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "unknown", tabId }]
     })).toBe(false);
     expect(isWindowsRuntimeHostCommand({
       projectionRevision: 2,
@@ -196,7 +214,7 @@ describe("Windows runtime-host chrome controller", () => {
         activeTabId: tabId,
         contentBounds: { height: 640, width: 960, x: 0, y: 40 },
         moveTargets: [],
-        tabs: [{ active: true, hidden: false, name: "Role", phase, tabId }],
+        tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase, tabId }],
         topologyRevision,
         windowGeneration: 4,
         workspaceDividers: [],
@@ -225,7 +243,7 @@ describe("Windows runtime-host chrome controller", () => {
     await subject.controller.applyRetainedPhaseLayoutProjection({
       activeTabId: tabId,
       contentBounds: { height: 600, width: 900, x: 0, y: 40 },
-      tabs: [{ active: true, hidden: false, name: "Role", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", tabId }],
       topologyRevision: 10,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -240,7 +258,7 @@ describe("Windows runtime-host chrome controller", () => {
     await expect(subject.controller.applyRetainedPhaseLayoutProjection({
       activeTabId: secondTabId,
       contentBounds: { height: 600, width: 900, x: 0, y: 40 },
-      tabs: [{ active: true, hidden: false, name: "Invented", tabId: secondTabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Invented", tabId: secondTabId }],
       topologyRevision: 10,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -257,9 +275,10 @@ describe("Windows runtime-host chrome controller", () => {
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
       tabs: [
-        { active: true, hidden: false, name: "Role A", phase: "ready", tabId },
+        { active: true, audioMuted: false, hidden: false, name: "Role A", phase: "ready", tabId },
         {
           active: false,
+          audioMuted: false,
           hidden: false,
           name: "Role B",
           phase: "ready",
@@ -306,9 +325,10 @@ describe("Windows runtime-host chrome controller", () => {
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
       tabs: [
-        { active: true, hidden: false, name: "Role A", phase: "ready", tabId },
+        { active: true, audioMuted: false, hidden: false, name: "Role A", phase: "ready", tabId },
         {
           active: false,
+          audioMuted: false,
           hidden: false,
           name: "Role B",
           phase: "ready",
@@ -369,9 +389,10 @@ describe("Windows runtime-host chrome controller", () => {
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
       tabs: [
-        { active: true, hidden: false, name: "Role A", phase: "ready", tabId },
+        { active: true, audioMuted: false, hidden: false, name: "Role A", phase: "ready", tabId },
         {
           active: false,
+          audioMuted: false,
           hidden: false,
           name: "Role B",
           phase: "ready",
@@ -442,7 +463,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready", tabId }],
       topologyRevision: 9,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -480,7 +501,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: hidden ? null : tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: !hidden, hidden, name: "Role", phase: "ready" as const, tabId }],
+      tabs: [{ active: !hidden, audioMuted: false, hidden, name: "Role", phase: "ready" as const, tabId }],
       topologyRevision: 9,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -520,9 +541,10 @@ describe("Windows runtime-host chrome controller", () => {
         windowId: targetWindowId
       }],
       tabs: [
-        { active: true, hidden: false, name: "Role A", phase: "ready", tabId },
+        { active: true, audioMuted: false, hidden: false, name: "Role A", phase: "ready", tabId },
         {
           active: false,
+          audioMuted: false,
           hidden: false,
           name: "Role B",
           phase: "ready",
@@ -586,9 +608,10 @@ describe("Windows runtime-host chrome controller", () => {
         windowId: targetWindowId
       }],
       tabs: [
-        { active: true, hidden: false, name: "Role A", phase: "ready", tabId },
+        { active: true, audioMuted: false, hidden: false, name: "Role A", phase: "ready", tabId },
         {
           active: false,
+          audioMuted: false,
           hidden: false,
           name: "Role B",
           phase: "ready",
@@ -636,6 +659,7 @@ describe("Windows runtime-host chrome controller", () => {
       moveTargets: [],
       tabs: [{
         active: true,
+        audioMuted: false,
         hidden: false,
         name: "Mixed workspace",
         phase: "ready",
@@ -702,6 +726,7 @@ describe("Windows runtime-host chrome controller", () => {
       moveTargets: [],
       tabs: [{
         active: true,
+        audioMuted: false,
         hidden: false,
         name: "Mixed workspace",
         phase: "ready",
@@ -753,6 +778,7 @@ describe("Windows runtime-host chrome controller", () => {
       moveTargets: [],
       tabs: [{
         active: true,
+        audioMuted: false,
         hidden: false,
         name: "Mixed workspace",
         phase: "ready",
@@ -803,7 +829,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready", tabId }],
       topologyRevision: 9,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -894,7 +920,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready", tabId }],
       topologyRevision: 1,
       windowGeneration: 1,
       workspaceDividers: [],
@@ -935,7 +961,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready", tabId }],
       topologyRevision: 9,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -959,7 +985,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready", tabId }],
       topologyRevision: 10,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -990,7 +1016,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready", tabId }],
       topologyRevision: 9,
       windowGeneration: 4,
       workspaceDividers: [],
@@ -1013,7 +1039,7 @@ describe("Windows runtime-host chrome controller", () => {
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
       moveTargets: [],
-      tabs: [{ active: true, hidden: false, name: "Role", phase: "ready", tabId }],
+      tabs: [{ active: true, audioMuted: false, hidden: false, name: "Role", phase: "ready", tabId }],
       topologyRevision: 9,
       windowGeneration: 4,
       workspaceDividers: [],

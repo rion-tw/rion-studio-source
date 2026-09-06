@@ -1,3 +1,4 @@
+import { isSupportedStrictSemanticVersion } from "./releaseVersionPolicy.mjs";
 import { spawn } from "node:child_process";
 import {
   createHash,
@@ -154,11 +155,6 @@ export function validateElectronProductionCandidateInputs(input) {
   };
 }
 
-function isSupportedStrictSemanticVersion(value) {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u.exec(value);
-  if (!match) return false;
-  return !(match[4]?.split(".").some((part) => /^\d+$/u.test(part) && part.startsWith("0") && part.length > 1));
-}
 
 function isStrictRfc3339Timestamp(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/u.exec(value);

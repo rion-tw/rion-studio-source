@@ -272,7 +272,6 @@ impl AppCore {
         let mut browser_engines = json!({
             "activeRoles": browser_role_statuses,
             "activeWorkspaces": browser_workspace_statuses,
-            "foregroundPerformance": snapshot.browser_performance,
             "nativeRuntime": snapshot.native_runtime,
         });
         browser_engines

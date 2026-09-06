@@ -142,11 +142,17 @@
 
   function canvasStackForFamily(fontFamily) {
     const families = splitFontFamilies(fontFamily).map(fontFamilyKey);
-    if (families.includes("math")) return state.canvasStacks.math;
-    if (families.includes("monospace") || families.includes("ui-monospace")) {
-      return state.canvasStacks.monospace;
-    }
-    return state.canvasStacks.general;
+    const stack = families.includes("math")
+      ? state.canvasStacks.math
+      : families.includes("monospace") || families.includes("ui-monospace")
+        ? state.canvasStacks.monospace
+        : state.canvasStacks.general;
+    // Chromium Canvas accepts ui-monospace syntax but can resolve it as a
+    // proportional fallback. Keep DOM's UI family; supply the interoperable
+    // monospace generic for Canvas text drawing and measurement.
+    return stack.flatMap((family) =>
+      fontFamilyKey(family) === "ui-monospace" ? [family, "monospace"] : [family]
+    );
   }
 
   function prependCanvasFamilies(fontFamily, customFamilies) {

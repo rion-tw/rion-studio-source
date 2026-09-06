@@ -4,7 +4,6 @@ import type {
   BrowserFontSettings,
   BrowserFontSettingsMode,
   BrowserFontSlot,
-  BrowserPerformanceSettings,
   GameBrowserSettings,
   MacroOverlaySettings,
   WorkspaceAppearanceSettings,
@@ -201,10 +200,6 @@ export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
   }
 };
 
-const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
-  macosHighRefreshMode: "disabled"
-};
-
 export const workspaceGapSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceGapSize[];
 
 export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings = {
@@ -222,7 +217,6 @@ export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
   macroOverlay: DEFAULT_MACRO_OVERLAY_SETTINGS,
-  performance: DEFAULT_BROWSER_PERFORMANCE_SETTINGS,
   workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 };
 
@@ -239,7 +233,6 @@ export function normalizeGameBrowserSettings(
       fallback.macroBadgePosition
     ),
     macroOverlay: normalizeMacroOverlaySettings(input.macroOverlay, fallback.macroOverlay),
-    performance: normalizeBrowserPerformanceSettings(input.performance, fallback.performance),
     workspace: normalizeWorkspaceAppearanceSettings(input.workspace, fallback.workspace)
   };
 }
@@ -256,24 +249,6 @@ function normalizeMacroOverlaySettings(
       typeof input.showRunningBadges === "boolean" ? input.showRunningBadges : fallback.showRunningBadges,
     showToolButton:
       typeof input.showToolButton === "boolean" ? input.showToolButton : fallback.showToolButton
-  };
-}
-
-function normalizeBrowserPerformanceSettings(
-  value: unknown,
-  fallback: BrowserPerformanceSettings = DEFAULT_BROWSER_PERFORMANCE_SETTINGS
-): BrowserPerformanceSettings {
-  const input = isRecord(value) ? value : {};
-  const legacyHighRefreshRate = input.macosHighRefreshRate;
-  return {
-    macosHighRefreshMode:
-      input.macosHighRefreshMode === "auto" ||
-      input.macosHighRefreshMode === "enabled" ||
-      input.macosHighRefreshMode === "disabled"
-        ? input.macosHighRefreshMode
-        : typeof legacyHighRefreshRate === "boolean"
-          ? legacyHighRefreshRate ? "enabled" : "disabled"
-          : fallback.macosHighRefreshMode
   };
 }
 

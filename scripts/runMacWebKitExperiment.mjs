@@ -42,17 +42,13 @@ export function parseMacWebKitExperimentArguments(
     throw new Error(`--mode must be one of: ${[...MODES].join(", ")}`);
   }
   for (const key of options.keys()) {
-    if (!["data-dir", "game-mode", "mode", "sample-ms", "stp-app"].includes(key)) {
+    if (!["data-dir", "game-mode", "mode", "stp-app"].includes(key)) {
       throw new Error(`Unknown WKWebView experiment option: --${key}`);
     }
   }
   const gameMode = options.get("game-mode") ?? "off";
   if (!GAME_MODES.has(gameMode)) {
     throw new Error("--game-mode must be one of: off, on");
-  }
-  const sampleMs = Number(options.get("sample-ms") ?? 10_000);
-  if (!Number.isSafeInteger(sampleMs) || sampleMs < 1_500 || sampleMs > 600_000) {
-    throw new Error("--sample-ms must be an integer between 1500 and 600000.");
   }
   const dataDir = resolve(options.get("data-dir") ?? join(cwd, "target", "rion-webkit-experiment-data"));
   const modes = mode === "matrix"
@@ -72,7 +68,6 @@ export function parseMacWebKitExperimentArguments(
     gameMode,
     mode,
     modes,
-    sampleMs,
     stpApp: resolvedStpApp,
     stpFrameworkPath: resolvedStpApp
       ? posix.join(resolvedStpApp, "Contents", "Frameworks")
@@ -88,7 +83,6 @@ export function macWebKitExperimentEnvironment(options, inherited = process.env)
     RION_WEBKIT_EXPERIMENT_ISOLATED: "1",
     RION_WEBKIT_EXPERIMENT_GAME_MODE: options.gameMode,
     RION_WEBKIT_EXPERIMENT_MODE: options.mode,
-    RION_WEBKIT_EXPERIMENT_SAMPLE_MS: String(options.sampleMs)
   };
   if (options.mode.startsWith("stp-") && options.stpFrameworkPath) {
     environment.DYLD_FRAMEWORK_PATH = options.stpFrameworkPath;
@@ -134,14 +128,13 @@ async function runExperimentCell(options, mode, index, count) {
   process.stdout.write([
     `Rion WKWebView experiment ${index}/${count}: ${mode}`,
     `Isolated data: ${cell.dataDir}`,
-    `Sample duration: ${cell.sampleMs} ms`,
     `WebKit: ${environment.DYLD_FRAMEWORK_PATH ?? "system framework"}`,
     `Game Mode metadata: ${cell.gameMode}`,
-    "Diagnostic overlay: original WebGL canvas presentation (baseline).",
+    "Measurement: use fixture or external tooling; in-app performance diagnostics are retired.",
     cell.gameMode === "on"
       ? "Enter native fullscreen and confirm the macOS Game Mode indicator is active; otherwise discard the sample."
       : "Keep macOS Game Mode inactive for this control sample.",
-    "Warm up the same Flyff scene for 30 seconds, run the in-app performance diagnostic, then export its result.",
+    "Warm up the same scene for 30 seconds and capture results with the experiment measurement tool.",
     count > 1 ? "Close Rion Studio to continue to the next A/B cell." : ""
   ].filter(Boolean).join("\n") + "\n");
   return new Promise((resolveExit, reject) => {

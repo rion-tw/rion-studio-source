@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { sha256File } from "./releaseFileHash.mjs";
 import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -70,7 +69,7 @@ async function releaseChecksumDocument(directory) {
     .filter((name) => ALLOWED_RELEASE_ASSETS.has(name) && name !== CHECKSUM_ASSET_NAME)
     .sort();
   const lines = [];
-  for (const name of names) lines.push(`${await hashFile(join(directory, name), "sha256", "hex")}  ${name}`);
+  for (const name of names) lines.push(`${await sha256File(join(directory, name))}  ${name}`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -115,7 +114,7 @@ async function verifyUpdaterManifest(manifestPath, expectedVersion, directory, c
     if (typeof artifact.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(artifact.sha256)) {
       throw new Error(`${basename(manifestPath)} has an invalid ${platform} sha256.`);
     }
-    const payloadSha256 = await hashFile(join(directory, name), "sha256", "hex");
+    const payloadSha256 = await sha256File(join(directory, name));
     if (artifact.sha256 !== payloadSha256) {
       throw new Error(`${basename(manifestPath)} ${platform} sha256 does not match ${name}.`);
     }
@@ -165,15 +164,6 @@ async function readReleaseChecksumEntries(directory) {
   return entries;
 }
 
-function hashFile(path, algorithm, encoding) {
-  return new Promise((resolveHash, reject) => {
-    const hash = createHash(algorithm);
-    const input = createReadStream(path);
-    input.on("error", reject);
-    input.on("data", (chunk) => hash.update(chunk));
-    input.on("end", () => resolveHash(hash.digest(encoding)));
-  });
-}
 
 async function runCli() {
   const [directoryArg, version, ...flags] = process.argv.slice(2);

@@ -1,4 +1,6 @@
-import { $, browser } from "@wdio/globals";
+import { MACOS_NATIVE_CHROME_ELEMENTS } from "./macos-native-chrome";
+
+import { $, browser, expect } from "@wdio/globals";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -115,7 +117,7 @@ async function readAppKitAction(
   }
   const result = await executeFile("/usr/bin/osascript", [
     "-e",
-    script,
+    `${MACOS_NATIVE_CHROME_ELEMENTS}\n${script}`,
     "--",
     ...arguments_
   ], { encoding: "utf8", timeout: 10_000 });
@@ -165,7 +167,7 @@ on run argv
     set targetCount to 0
     set observedTabs to ""
     repeat with appWindow in windows of targetProcess
-      set allElements to entire contents of appWindow
+      set allElements to my nativeChromeElements(appWindow)
       repeat with candidate in allElements
         try
           if role of candidate is "AXRadioButton" then
@@ -520,7 +522,7 @@ export async function dragVisibleWindowsRuntimeTab(input: Readonly<{
 }
 
 export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
-  action: "hide" | "move" | "moveToNewWindow" | "reload";
+  action: "hide" | "move" | "moveToNewWindow" | "reload" | "mute" | "unmute";
   mainWindowHandle: string;
   tabId: string;
   targetWindowId?: string;
@@ -545,7 +547,9 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
       ? "hideTab"
       : input.action === "move"
         ? "moveTab"
-        : input.action === "reload" ? "reloadTab" : "moveTabToNewWindow";
+        : input.action === "mute" || input.action === "unmute"
+          ? "setTabMuted"
+          : input.action === "reload" ? "reloadTab" : "moveTabToNewWindow";
     const target = input.targetWindowId === undefined
       ? await $(`[data-runtime-tab-menu-action='${action}']`)
       : await $(
@@ -553,6 +557,9 @@ export async function selectVisibleWindowsRuntimeTabMenuAction(input: Readonly<{
           `[data-target-window-id='${input.targetWindowId}']`
         );
     await target.waitForClickable({ timeout: 10_000 });
+    if (input.action === "mute" || input.action === "unmute") {
+      expect(await target.getAttribute("aria-checked")).toBe(String(input.action === "unmute"));
+    }
     await target.click();
   });
 }

@@ -1,5 +1,7 @@
 import { browser, expect } from "@wdio/globals";
 
+import { verifyVisibleChromiumTabAudio } from "./chromium-tab-audio-support";
+
 import type { Role } from "../../../src/shared/types";
 import {
   electronDesktopE2eRuntimeTabReload,
@@ -26,6 +28,8 @@ import {
 
 // [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-RELOAD-031]
 // [journey:CHROMIUM-WINDOWS-RUNTIME-TAB-RELOAD-031]
+// [journey:CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-AUDIO-032]
+// [journey:CHROMIUM-WINDOWS-RUNTIME-TAB-AUDIO-032]
 
 const WINDOW_ID = "c8e00000-0000-4000-8000-000000000031";
 const WINDOW_NAME = "Chromium Controlled Reload Window";
@@ -146,6 +150,10 @@ describe("Chromium controlled Role Reload", () => {
       // test remains the three user-visible AppKit context-menu Reload actions.
       await rendererCall("showGameWindowTab", tab.tabId);
     }
+
+    await verifyVisibleChromiumTabAudio({
+      ...context, muted: true, tabId: tab.tabId, tabName: role.name, windowId: WINDOW_ID
+    });
 
     const initial = await waitForReloads(WINDOW_ID, 0, context.platform);
     expect(initial.roles).toHaveLength(1);
@@ -303,6 +311,7 @@ describe("Chromium controlled Role Reload", () => {
     expect(failed.nativeWindow.topologyRevision).toBeGreaterThanOrEqual(
       second.nativeWindow.topologyRevision
     );
+    expect(second.roles.every((role) => role.audioMuted)).toBe(true);
     expect(failed.roles).toEqual(second.roles);
     expect(failed.popups).toEqual(second.popups);
     expect(failed.failures).toEqual([
@@ -363,6 +372,10 @@ describe("Chromium controlled Role Reload", () => {
       failed.nativeWindow.topologyRevision
     );
     expect(recovered.popups).toEqual(second.popups);
+    expect(recovered.roles.every((role) => role.audioMuted)).toBe(true);
+    await verifyVisibleChromiumTabAudio({
+      ...context, muted: false, tabId: tab.tabId, tabName: role.name, windowId: WINDOW_ID
+    });
     expect(await runtimeTabShellErrors()).toHaveLength(1);
   });
 });

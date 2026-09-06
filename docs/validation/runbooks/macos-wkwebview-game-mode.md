@@ -20,14 +20,22 @@ not authorize new WebKit preferences.
 Use the production-default System WebKit path and the same isolated login store:
 
 ```bash
-pnpm run performance:webkit:experiment --mode=system-default --game-mode=off --sample-ms=10000
-pnpm run performance:webkit:experiment --mode=system-default --game-mode=on --sample-ms=10000
+pnpm run performance:webkit:experiment --mode=system-default --game-mode=off
+pnpm run performance:webkit:experiment --mode=system-default --game-mode=on
 ```
 
 The first command produces an isolated control bundle without Game Mode metadata.
 The second matches production by adding `LSSupportsGameMode=true` and
 `LSApplicationCategoryType=public.app-category.games` to the generated debug
 bundle under `target/rion-dev`.
+
+The launcher configures the isolated v22 comparison bundle; it does not collect
+performance samples. Rion's built-in FPS/power/thermal diagnostics and the
+`--sample-ms` option have been removed. Obtain measurements from the game's
+own HUD or separately operated system profiling tools, record each source, and
+mark unavailable metrics explicitly. An unavailable required metric leaves the
+corresponding acceptance gate unproven. These measurements do not reopen the
+removed product feature or authorize a v23 WebKit runtime.
 
 ## Procedure
 

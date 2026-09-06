@@ -386,31 +386,15 @@ fn prepare_platform_role_webview_builder(
     _app: &AppHandle,
     builder: WebviewBuilder<tauri::Wry>,
     _data_store_identifier: [u8; 16],
-    _high_refresh_rate_enabled: bool,
     _contained_fullscreen_enabled: bool,
 ) -> (
     WebviewBuilder<tauri::Wry>,
-    HighRefreshRateDiagnosticStatus,
     RoleWebGlConfiguration,
 ) {
     (
         builder,
-        HighRefreshRateDiagnosticStatus::NotApplicable,
         RoleWebGlConfiguration::windows(),
     )
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn high_refresh_rate_status_label(status: HighRefreshRateDiagnosticStatus) -> &'static str {
-    match status {
-        HighRefreshRateDiagnosticStatus::Applied => "applied",
-        HighRefreshRateDiagnosticStatus::Disabled => "disabled",
-        HighRefreshRateDiagnosticStatus::Unavailable => "unavailable",
-        HighRefreshRateDiagnosticStatus::Failed => "failed",
-        HighRefreshRateDiagnosticStatus::Timeout => "timeout",
-        HighRefreshRateDiagnosticStatus::ScheduleFailed => "schedule-failed",
-        HighRefreshRateDiagnosticStatus::NotApplicable => "not-applicable",
-    }
 }
 
 #[cfg(any(windows, test))]

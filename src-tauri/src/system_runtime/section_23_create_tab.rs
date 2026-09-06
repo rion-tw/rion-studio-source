@@ -427,7 +427,7 @@ impl SystemRuntimeExecutor {
                     role_session_paths(&self.user_data_dir, &role_id)?
                 };
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
-                let (builder, high_refresh_rate_status, web_gl_configuration) =
+                let (builder, _) =
                     if role.web.is_some() {
                         self.workspace_webview_builder(
                             &window,
@@ -589,8 +589,6 @@ impl SystemRuntimeExecutor {
                         RoleSurface {
                             current_url: None,
                             generation,
-                            high_refresh_rate_status,
-                            web_gl_configuration,
                             lifecycle: Arc::clone(&lifecycle),
                             navigation: Arc::clone(&navigation),
                             rect: role.rect.clone(),

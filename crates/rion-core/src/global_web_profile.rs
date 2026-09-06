@@ -36,7 +36,9 @@ pub(crate) fn ensure(user_data_dir: &Path) -> CoreResult<GlobalWebProfilePathsRe
         return Err(invalid_profile_path(&chromium_user_data_dir));
     }
 
-    let chromium_user_data_dir = chromium_engine_path(&canonical_chromium_user_data_dir)?;
+    let chromium_user_data_dir =
+        crate::chromium_path::engine_path(&canonical_chromium_user_data_dir)
+            .ok_or_else(|| invalid_profile_path(&canonical_chromium_user_data_dir))?;
     let record = GlobalWebProfilePathsRecord {
         profile_key: GLOBAL_WEB_PROFILE_KEY.to_owned(),
         chromium_user_data_dir,
@@ -63,30 +65,13 @@ pub(crate) fn validate(record: &GlobalWebProfilePathsRecord) -> CoreResult<()> {
     }
     let canonical = fs::canonicalize(chromium_user_data_dir)
         .map_err(|_| invalid_profile_path(chromium_user_data_dir))?;
-    if chromium_engine_path(&canonical)? != record.chromium_user_data_dir {
+    if crate::chromium_path::engine_path(&canonical)
+        .ok_or_else(|| invalid_profile_path(&canonical))?
+        != record.chromium_user_data_dir
+    {
         return Err(invalid_profile_path(chromium_user_data_dir));
     }
     Ok(())
-}
-
-pub(crate) fn chromium_engine_path(path: &Path) -> CoreResult<String> {
-    let path = path.to_str().ok_or_else(|| invalid_profile_path(path))?;
-    #[cfg(windows)]
-    {
-        Ok(windows_chromium_path(path))
-    }
-    #[cfg(not(windows))]
-    {
-        Ok(path.to_owned())
-    }
-}
-
-#[cfg(any(windows, test))]
-fn windows_chromium_path(path: &str) -> String {
-    if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
-        return format!(r"\\{path}");
-    }
-    path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
 }
 
 fn ensure_owned_directory(path: &Path) -> CoreResult<()> {
@@ -139,24 +124,10 @@ mod tests {
         assert_eq!(record.profile_key, "global-web");
         assert_eq!(
             record.chromium_user_data_dir,
-            chromium_engine_path(&expected).unwrap()
+            crate::chromium_path::engine_path(&expected).unwrap()
         );
         assert!(expected.is_dir());
         assert!(!directory.path().join("roles").exists());
-    }
-
-    #[test]
-    fn converts_windows_verbatim_paths_to_chromium_compatible_absolute_paths() {
-        assert_eq!(
-            windows_chromium_path(r"\\?\C:\RionData\web-profiles\global-web\chromium"),
-            r"C:\RionData\web-profiles\global-web\chromium"
-        );
-        assert_eq!(
-            windows_chromium_path(
-                r"\\?\UNC\server\share\RionData\web-profiles\global-web\chromium"
-            ),
-            r"\\server\share\RionData\web-profiles\global-web\chromium"
-        );
     }
 
     #[cfg(unix)]

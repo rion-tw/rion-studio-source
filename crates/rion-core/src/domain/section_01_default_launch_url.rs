@@ -9,7 +9,7 @@ use crate::{
     error::{CoreError, CoreResult},
     model::StateCollection,
     model::{
-        BrowserFontSettingsRecord, BrowserPerformanceSettingsRecord, DisplayTargetRecord,
+        BrowserFontSettingsRecord, DisplayTargetRecord,
         GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
         GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord,
         GameWindowSaveRuntimeInputRecord,
@@ -39,7 +39,6 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             top_px: 128,
         },
         macro_overlay: MacroOverlaySettingsRecord::default(),
-        performance: BrowserPerformanceSettingsRecord::default(),
         workspace: WorkspaceAppearanceSettingsRecord {
             background: "material".to_owned(),
             gap: 4,

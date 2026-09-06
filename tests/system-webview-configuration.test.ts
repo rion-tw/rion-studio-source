@@ -2,8 +2,8 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 import { describe, expect, it } from "vitest";
 
-describe("macOS System WebView high refresh mode", () => {
-  it("configures role data stores and high refresh before WKWebView initialization", async () => {
+describe("macOS System WebView configuration", () => {
+  it("configures role data stores before WKWebView initialization without retired refresh overrides", async () => {
     const [runtime, native] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/native/macos/RionWKWebViewInput.m", import.meta.url), "utf8")
@@ -21,7 +21,7 @@ describe("macOS System WebView high refresh mode", () => {
       runtime.indexOf("fn prepare_automation_focus(")
     );
 
-    expect(native).toContain("PreferPageRenderingUpdatesNear60FPSEnabled");
+    expect(native).not.toContain("PreferPageRenderingUpdatesNear60FPSEnabled");
     expect(native).toContain("UseGPUProcessForWebGLEnabled");
     expect(native).toContain("UseGPUProcessForDOMRenderingEnabled");
     expect(native).toContain("UseGPUProcessForCanvasRenderingEnabled");
@@ -45,11 +45,7 @@ describe("macOS System WebView high refresh mode", () => {
     expect(roleBuilder).not.toContain("popup_high_refresh_rate");
     expect(roleBuilder).not.toContain("configure_platform_high_refresh_rate");
     expect(createTab).toContain("self.role_webview_builder(");
-    expect(createTab).toContain("high_refresh_rate_status,");
-    expect(createTab).toContain("web_gl_configuration,");
     expect(recovery).toContain("self.role_webview_builder(");
-    expect(recovery).toContain("high_refresh_rate_status,");
-    expect(recovery).toContain("web_gl_configuration,");
     expect(runtime).toContain("rion_wk_create_role_configuration");
     expect(runtime).toContain("builder.with_webview_configuration(configuration)");
     expect(runtime).toContain("mac_web_gl_policy");
@@ -58,7 +54,6 @@ describe("macOS System WebView high refresh mode", () => {
     expect(runtime).toContain("execution_path: WebGlExecutionPath::EngineManaged");
     expect(runtime).not.toContain("maximum_web_gl_performance_enabled");
     expect(runtime).toContain("RION_WEBKIT_EXPERIMENT_ISOLATED");
-    expect(runtime).toContain("macos_high_refresh_rate_enabled");
     expect(runtime).toContain("#[cfg(not(target_os = \"macos\"))]");
     expect(runtime).not.toContain("disable-frame-rate-limit");
     expect(runtime).not.toContain("force-high-performance-gpu");

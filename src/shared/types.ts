@@ -7,9 +7,6 @@ import type {
   BrowserFontCatalogEntryRecord,
   BrowserFontInstallResultRecord,
   BrowserFontRuntimePayloadRecord,
-  BrowserPerformanceDiagnosticsRecord,
-  BrowserPerformanceDiagnosticOperationRecord,
-  BrowserPerformanceSettingsRecord,
   BrowserRuntimeFailureReason as RustBrowserRuntimeFailureReason,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
@@ -37,7 +34,6 @@ import type {
   LogQuery as RustLogQuery,
   LogSource as RustLogSource,
   LogStorageStatusRecord,
-  MacosHighRefreshMode as RustMacosHighRefreshMode,
   MacroCreateRequest,
   MacroBadgePositionRecord,
   MacroOverlaySettingsRecord,
@@ -387,9 +383,6 @@ export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 
 export type BrowserFontSettings = BrowserFontSettingsRecord;
 
-export type BrowserPerformanceSettings = BrowserPerformanceSettingsRecord;
-export type MacosHighRefreshMode = RustMacosHighRefreshMode;
-
 export type WorkspaceAppearanceSettings = WorkspaceAppearanceSettingsRecord;
 
 export type MacroBadgeHorizontalAlign = "left" | "center" | "right";
@@ -473,6 +466,3 @@ export interface RendererLogEvent {
 }
 
 export type DiagnosticExportResult = DiagnosticExportResultRecord;
-
-export type BrowserPerformanceDiagnostics = BrowserPerformanceDiagnosticsRecord;
-export type BrowserPerformanceDiagnosticOperation = BrowserPerformanceDiagnosticOperationRecord;

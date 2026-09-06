@@ -328,6 +328,21 @@ function createRuntimeDocumentFixture(
 }
 
 describe("browser font document-start runtime", () => {
+  it.each(["macos", "windows"] as const)("preserves UI monospace with a Canvas fallback on %s", async (platform) => {
+    const invoke = vi.fn(async () => ({
+      settings: { mode: "custom", slots: { latin: { source: "system", family: "ui-monospace" } } },
+      faces: []
+    }));
+    const fixture = createRuntimeDocumentFixture(invoke, class UnusedFontFace {}, { canvas: true, platform });
+    vm.runInContext(runtimeSource, fixture.context);
+    await vi.waitFor(() => expect(fixture.styles).toHaveLength(1));
+    const canvas = fixture.createCanvasContext();
+    canvas.font = "16px sans-serif";
+    canvas.measureText("Wi");
+    expect(canvas.font).toBe("16px sans-serif");
+    expect(canvas.calls.at(-1)?.font).toContain("ui-monospace,monospace,sans-serif");
+  });
+
 it("consumes one-shot Chromium payloads without exposing or calling the Tauri bridge", async () => {
     class LoadedFontFace {
       async load(): Promise<this> {

@@ -658,13 +658,12 @@ impl SystemRuntimeExecutor {
 
     fn role_webview_builder(
         &self,
-        window: &Window,
+        _window: &Window,
         label: String,
         paths: &SessionPaths,
         role_id: &str,
     ) -> RuntimeResult<(
         WebviewBuilder<tauri::Wry>,
-        HighRefreshRateDiagnosticStatus,
         RoleWebGlConfiguration,
     )> {
         let builder = self.webview_builder(
@@ -676,26 +675,17 @@ impl SystemRuntimeExecutor {
         #[cfg(all(windows, feature = "desktop-e2e"))]
         let builder = builder
             .initialization_script(&desktop_e2e_windows_role_viewport_probe_script(role_id));
-        let high_refresh_rate_enabled = if cfg!(target_os = "macos") {
-            macos_high_refresh_rate_enabled(
-                self.configuration.macos_high_refresh_mode,
-                platform_display_refresh_rate(window),
-            )
-        } else {
-            false
-        };
         Ok(prepare_platform_role_webview_builder(
             &self.app,
             builder,
             paths.webkit_identifier,
-            high_refresh_rate_enabled,
             false,
         ))
     }
 
     fn workspace_webview_builder(
         &self,
-        window: &Window,
+        _window: &Window,
         label: String,
         paths: &SessionPaths,
         surface_id: &str,
@@ -703,7 +693,6 @@ impl SystemRuntimeExecutor {
         generation: u64,
     ) -> RuntimeResult<(
         WebviewBuilder<tauri::Wry>,
-        HighRefreshRateDiagnosticStatus,
         RoleWebGlConfiguration,
     )> {
         let identity = serde_json::to_string(&json!({
@@ -722,16 +711,10 @@ impl SystemRuntimeExecutor {
                 WebviewSurfaceFeaturePolicy::WorkspaceWeb,
             )?
             .initialization_script(&identity_script);
-        let high_refresh_rate_enabled = cfg!(target_os = "macos")
-            && macos_high_refresh_rate_enabled(
-                self.configuration.macos_high_refresh_mode,
-                platform_display_refresh_rate(window),
-            );
         Ok(prepare_platform_role_webview_builder(
             &self.app,
             builder,
             paths.webkit_identifier,
-            high_refresh_rate_enabled,
             true,
         ))
     }
@@ -1155,26 +1138,5 @@ fn browser_data_utility_surface_creation_outcome<T>(
             Err(error)
         }
         (Err(error), Ok(())) | (Err(_), Err(error)) => Err(error),
-    }
-}
-
-fn macos_high_refresh_rate_enabled(
-    mode: MacosHighRefreshMode,
-    display_refresh_rate_hz: Option<f64>,
-) -> bool {
-    if !cfg!(target_os = "macos") {
-        return false;
-    }
-    macos_high_refresh_mode_requests(mode, display_refresh_rate_hz)
-}
-
-fn macos_high_refresh_mode_requests(
-    mode: MacosHighRefreshMode,
-    display_refresh_rate_hz: Option<f64>,
-) -> bool {
-    match mode {
-        MacosHighRefreshMode::Auto => display_refresh_rate_hz.is_some_and(|rate| rate > 60.0),
-        MacosHighRefreshMode::Enabled => true,
-        MacosHighRefreshMode::Disabled => false,
     }
 }

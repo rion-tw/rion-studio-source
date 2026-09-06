@@ -198,7 +198,7 @@ fn game_browser_setting_patches_merge_non_font_sections_atomically() {
     let initial = core.invoke(CoreCommand::GameBrowserSettingsGet).unwrap();
     let initial_fonts = initial["fonts"].clone();
     let workspace_core = Arc::clone(&core);
-    let performance_core = Arc::clone(&core);
+    let overlay_core = Arc::clone(&core);
 
     let workspace = thread::spawn(move || {
         workspace_core.invoke(command(json!({
@@ -206,14 +206,14 @@ fn game_browser_setting_patches_merge_non_font_sections_atomically() {
             "patch": { "workspace": { "background": "black", "gap": 12 } }
         })))
     });
-    let performance = thread::spawn(move || {
-        performance_core.invoke(command(json!({
+    let overlay = thread::spawn(move || {
+        overlay_core.invoke(command(json!({
             "type": "gameBrowserSettingsPatch",
-            "patch": { "performance": { "macosHighRefreshMode": "enabled" } }
+            "patch": { "macroOverlay": { "showRunningBadges": false } }
         })))
     });
     workspace.join().unwrap().unwrap();
-    performance.join().unwrap().unwrap();
+    overlay.join().unwrap().unwrap();
     core.invoke(command(json!({
         "type": "gameBrowserSettingsPatch",
         "patch": {
@@ -242,11 +242,11 @@ fn game_browser_setting_patches_merge_non_font_sections_atomically() {
         settings["workspace"],
         json!({ "background": "black", "gap": 12 })
     );
-    assert_eq!(settings["performance"]["macosHighRefreshMode"], "enabled");
+    assert!(settings.get("performance").is_none());
     assert_eq!(settings["macroBadgePosition"]["horizontalAlign"], "right");
     assert_eq!(settings["macroOverlay"]["showToolButton"], false);
     assert_eq!(settings["macroOverlay"]["showClickMarkers"], false);
-    assert_eq!(settings["macroOverlay"]["showRunningBadges"], true);
+    assert_eq!(settings["macroOverlay"]["showRunningBadges"], false);
     core.shutdown();
 }
 

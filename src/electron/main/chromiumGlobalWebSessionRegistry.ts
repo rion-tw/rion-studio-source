@@ -1,4 +1,9 @@
-import { posix, win32 } from "node:path";
+import {
+  chromiumPathApi as pathApi,
+  chromiumPathKey as ownershipKey,
+  chromiumPathSegmentEquals as fixedSegmentEquals,
+  canonicalChromiumPath
+} from "./chromiumSessionPath";
 
 import type { GlobalWebProfilePathsRecord } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
@@ -61,41 +66,18 @@ function registryError(code: string, message: string): never {
   throw new RionBridgeError({ code, message });
 }
 
-function pathApi(platform: SupportedPlatform): typeof posix {
-  return platform === "win32" ? win32 : posix;
-}
-
-function ownershipKey(path: string, platform: SupportedPlatform): string {
-  return platform === "win32" ? path.toLowerCase() : path;
-}
-
-function fixedSegmentEquals(
-  actual: string,
-  expected: string,
-  platform: SupportedPlatform
-): boolean {
-  return platform === "win32"
-    ? actual.toLowerCase() === expected.toLowerCase()
-    : actual === expected;
-}
-
 function canonicalAbsolutePath(
   value: unknown,
   platform: SupportedPlatform
 ): string {
-  const paths = pathApi(platform);
-  if (
-    typeof value !== "string" || value.length === 0 || value.includes("\0") ||
-    (platform === "win32" &&
-      (value.startsWith("\\\\?\\") || value.startsWith("\\\\.\\"))) ||
-    !paths.isAbsolute(value) || paths.normalize(value) !== value
-  ) {
+  const path = canonicalChromiumPath(value, platform);
+  if (path === null) {
     registryError(
       "ELECTRON_GLOBAL_WEB_SESSION_PATH_INVALID",
       "The global Web Chromium profile must be a canonical absolute Rust-owned path."
     );
   }
-  return value;
+  return path;
 }
 
 function globalWebChromiumPath(

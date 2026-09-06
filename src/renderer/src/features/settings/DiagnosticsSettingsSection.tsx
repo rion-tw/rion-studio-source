@@ -1,14 +1,11 @@
-import { Download, ExternalLink, Gauge, RefreshCw, Trash2 } from "lucide-react";
-import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, ExternalLink, RefreshCw, Trash2 } from "lucide-react";
+import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
-  BrowserPerformanceDiagnosticOperation,
-  BrowserPerformanceDiagnostics,
   LogEntry,
   LogLevel,
   LogSource,
   LogStorageStatus,
-  Role
 } from "../../../../shared/types";
 import { CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY } from "../../app/constants";
 import { useConfirmation } from "../../components/confirmation";
@@ -22,11 +19,9 @@ import type { Translator } from "../../i18n";
 const ALL = "all";
 
 export function DiagnosticsSettingsSection({
-  roles,
   t,
   onError
 }: {
-  roles: Role[];
   t: Translator;
   onError: (error: unknown) => void;
 }): JSX.Element {
@@ -42,12 +37,6 @@ export function DiagnosticsSettingsSection({
     () => localStorage.getItem(CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY) !== "false"
   );
   const [busy, setBusy] = useState(false);
-  const [performanceBusy, setPerformanceBusy] = useState(false);
-  const [performanceOperation, setPerformanceOperation] =
-    useState<BrowserPerformanceDiagnosticOperation | null>(null);
-  const performanceOperationRef = useRef<BrowserPerformanceDiagnosticOperation | null>(null);
-  const [performance, setPerformance] = useState<BrowserPerformanceDiagnostics | null>(null);
-
   const query = useMemo(() => ({
     ...(search.trim() ? { search: search.trim() } : {}),
     ...(level !== ALL ? { levels: [level] } : {}),
@@ -76,37 +65,6 @@ export function DiagnosticsSettingsSection({
     if (search.trim() && !JSON.stringify(entry).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) return;
     setEntries((current) => [entry, ...current].slice(0, 500));
   }), [level, live, search, source]);
-  const applyPerformanceOperation = useCallback((
-    operation: BrowserPerformanceDiagnosticOperation
-  ): void => {
-    const current = performanceOperationRef.current;
-    if (
-      current
-      && current.operationId !== operation.operationId
-      && operation.phase !== "waitingForFocus"
-    ) return;
-    if (
-      current?.operationId === operation.operationId
-      && current.revision >= operation.revision
-    ) return;
-    performanceOperationRef.current = operation;
-    setPerformanceOperation(operation);
-    if (operation.phase === "completed" && operation.diagnostics) {
-      setPerformance(operation.diagnostics);
-      setPerformanceBusy(false);
-    } else if (operation.phase === "failed") {
-      setPerformanceBusy(false);
-      onError(new Error(operation.error ?? "Performance diagnostics failed."));
-    } else if (operation.phase === "cancelled") {
-      setPerformanceBusy(false);
-    } else {
-      setPerformanceBusy(true);
-    }
-  }, [onError]);
-  useEffect(() => window.rionStudio.onBrowserPerformanceDiagnosticsChanged(
-    applyPerformanceOperation
-  ), [applyPerformanceOperation]);
-
   async function run(action: () => Promise<unknown>): Promise<void> {
     setBusy(true);
     try { await action(); await refresh(); } catch (error) { onError(error); }
@@ -146,62 +104,8 @@ export function DiagnosticsSettingsSection({
     finally { setBusy(false); }
   }
 
-  async function runPerformanceDiagnostics(): Promise<void> {
-    setPerformanceBusy(true);
-    try {
-      const operation = await window.rionStudio.beginBrowserPerformanceDiagnostics();
-      applyPerformanceOperation(operation);
-    } catch (error) {
-      onError(error);
-      setPerformanceBusy(false);
-    }
-  }
-
-  async function cancelPerformanceDiagnostics(): Promise<void> {
-    if (!performanceOperation || !performanceBusy) return;
-    try {
-      await window.rionStudio.cancelBrowserPerformanceDiagnostics(
-        performanceOperation.operationId
-      );
-    } catch (error) {
-      onError(error);
-    }
-  }
-
   return (
     <div className="grid gap-5">
-      <section className="grid gap-2">
-        <Surface className="settings-group overflow-hidden" radius="md">
-          <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-body font-semibold text-foreground">{t("settings.performanceDiagnosticsTitle")}</p>
-              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.performanceDiagnosticsDescription")}</p>
-              <p className="mt-1 text-caption text-warning-foreground">{t("settings.performanceDiagnosticsHint")}</p>
-              {performanceBusy && performanceOperation ? (
-                <p className="mt-1 text-caption text-muted-foreground">
-                  {t(`settings.performanceDiagnosticsPhase.${performanceOperation.phase}`)}
-                </p>
-              ) : null}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void (performanceBusy
-                ? cancelPerformanceDiagnostics()
-                : runPerformanceDiagnostics())}
-            >
-              <Gauge className={performanceBusy ? "animate-pulse" : undefined} size={14} />
-              {t(performanceBusy
-                ? "settings.performanceDiagnosticsCancel"
-                : "settings.performanceDiagnosticsRun")}
-            </Button>
-          </div>
-          {performance ? (
-            <PerformanceDiagnosticsResult performance={performance} roles={roles} t={t} />
-          ) : null}
-        </Surface>
-      </section>
-
       <section className="grid gap-2">
         <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
           <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -278,251 +182,6 @@ export function DiagnosticsSettingsSection({
       </section>
     </div>
   );
-}
-
-function PerformanceDiagnosticsResult({
-  performance,
-  roles,
-  t
-}: {
-  performance: BrowserPerformanceDiagnostics;
-  roles: Role[];
-  t: Translator;
-}): JSX.Element {
-  if (performance.status !== "available") {
-    return (
-      <div className="border-t border-border/50 px-4 py-3 text-xs leading-5 text-muted-foreground">
-        {t(performance.status === "noRunningRole"
-          ? "settings.performanceDiagnosticsNoRunningRole"
-          : "settings.performanceDiagnosticsNoVisibleWindow")}
-      </div>
-    );
-  }
-  return (
-    <div className="grid gap-3 border-t border-border/50 px-4 py-3">
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-caption text-muted-foreground">
-        <span>{t("settings.performanceDiagnosticsDisplay")}: {formatHertz(performance.displayRefreshRateHz, t)}</span>
-        <span>{t("settings.performanceDiagnosticsWindowFocus")}: {t(performance.windowFocused
-          ? "settings.performanceDiagnosticsFocused"
-          : "settings.performanceDiagnosticsUnfocused")}</span>
-        {performance.systemLowPowerModeEnabled !== undefined ? (
-          <span>
-            {t("settings.performanceDiagnosticsLowPower")}: {t(performance.systemLowPowerModeEnabled
-              ? "settings.performanceDiagnosticsEnabled"
-              : "settings.performanceDiagnosticsDisabled")}
-          </span>
-        ) : null}
-        {performance.systemThermalState ? (
-          <span>
-            {t("settings.performanceDiagnosticsThermal")}: {t(`settings.performanceDiagnosticsThermal.${performance.systemThermalState}`)}
-          </span>
-        ) : null}
-        <span>{new Date(performance.capturedAt).toLocaleString()}</span>
-      </div>
-      {performance.surfaces.map((surface) => {
-        const roleName = roles.find((role) => role.id === surface.roleId)?.name ?? surface.roleId;
-        return (
-          <div key={surface.roleId} className="rounded-md border border-border/60 bg-background/40 p-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold text-foreground">{roleName}</p>
-                {surface.origin ? <p className="text-micro text-muted-foreground">{surface.origin}</p> : null}
-              </div>
-              <p className="font-mono text-lg font-semibold text-foreground">
-                {formatFps(surface.presentationFps)} {t("settings.performanceDiagnosticsPresentationFpsUnit")}
-              </p>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-caption sm:grid-cols-4">
-              <DiagnosticValue label={t("settings.performanceDiagnosticsVisibility")} value={t(`settings.performanceDiagnosticsVisibility.${surface.documentVisibilityState}`)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsPageFocus")} value={t(surface.documentHasFocus ? "settings.performanceDiagnosticsFocused" : "settings.performanceDiagnosticsUnfocused")} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsP95")} value={formatMilliseconds(surface.p95FrameIntervalMs, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsP99")} value={formatMilliseconds(surface.p99FrameIntervalMs, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsViewport")} value={`${Math.round(surface.viewportWidth)} × ${Math.round(surface.viewportHeight)} @ ${surface.devicePixelRatio.toFixed(2)}×`} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsSlowFrames")} value={formatCount(surface.slowFrameCount, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsMissedVsync")} value={formatCount(surface.missedVsyncCount, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsLongTasks")} value={formatLongTasks(surface, t)} />
-              <DiagnosticValue label="WebGL 2" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgl2}`)} />
-              <DiagnosticValue label="WebGPU" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgpu}`)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={formatHighRefreshStatus(surface.highRefreshRateStatus)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsWebGlPath")} value={t(`settings.performanceDiagnosticsWebGlPath.${surface.webGlExecutionPath}`)} />
-              {performance.platform === "macos" ? (
-                <DiagnosticValue label={t("settings.performanceDiagnosticsBatching")} value={t(`settings.performanceDiagnosticsBatching.${surface.webGlCommandBatchingStatus}`)} />
-              ) : null}
-              <DiagnosticValue label={t("settings.performanceDiagnosticsTarget")} value={t(`settings.performanceDiagnosticsTarget.${surface.performanceTargetStatus}`)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsCanvas")} value={formatCanvas(surface, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsWebGlAttributes")} value={formatWebGlAttributes(surface, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsBrowserProcess")} value={formatBoolean(surface.browserProcessPresent, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsRendererProcess")} value={formatBoolean(surface.rendererProcessPresent, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsGpuProcess")} value={formatBoolean(surface.gpuProcessPresent, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsHardwareAcceleration")} value={formatBoolean(surface.hardwareAccelerationEnabled, t)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsFrames")} value={String(surface.frameCount)} />
-              {surface.gameLoopFps !== undefined ? (
-                <DiagnosticValue label={t("settings.performanceDiagnosticsGameLoop")} value={`${surface.gameLoopFps.toFixed(1)} FPS`} />
-              ) : null}
-              {surface.gameLoopP10Fps !== undefined ? (
-                <DiagnosticValue label={t("settings.performanceDiagnosticsGameLoopP10")} value={`${surface.gameLoopP10Fps.toFixed(1)} FPS`} />
-              ) : null}
-              {surface.gameLoopTimerDriftP95Ms !== undefined ? (
-                <DiagnosticValue label={t("settings.performanceDiagnosticsGameLoopDrift")} value={formatMilliseconds(surface.gameLoopTimerDriftP95Ms, t)} />
-              ) : null}
-              {surface.contextLossCount !== undefined ? (
-                <DiagnosticValue label={t("settings.performanceDiagnosticsContextLoss")} value={String(surface.contextLossCount)} />
-              ) : null}
-            </div>
-            <p className="mt-3 text-caption text-muted-foreground">
-              {performanceFinding(performance, surface, t)}
-            </p>
-            {surface.graphics.renderer ? (
-              <p className="mt-1 break-all text-micro text-muted-foreground">GPU: {surface.graphics.renderer}</p>
-            ) : null}
-            {surface.webviewRuntimeVersion ? (
-              <p className="mt-1 break-all text-micro text-muted-foreground">WebView: {surface.webviewRuntimeVersion}</p>
-            ) : null}
-            {surface.webKitRuntimeVersion ? (
-              <p className="mt-1 break-all text-micro text-muted-foreground">WebKit: {formatWebKitRuntimeVersion(surface.webKitRuntimeVersion)}</p>
-            ) : null}
-            {surface.error || surface.graphics.error ? (
-              <p className="mt-2 break-words text-micro text-destructive">{surface.error ?? surface.graphics.error}</p>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function DiagnosticValue({ label, value }: { label: string; value: string }): JSX.Element {
-  return <div><p className="text-muted-foreground">{label}</p><p className="mt-0.5 break-words font-medium text-foreground">{value}</p></div>;
-}
-
-function formatHighRefreshStatus(
-  status: BrowserPerformanceDiagnostics["surfaces"][number]["highRefreshRateStatus"]
-): string {
-  return status;
-}
-
-function formatWebKitRuntimeVersion(version: string): string {
-  return version === "21626.1.1" ? `STP 249／${version}` : version;
-}
-
-function performanceFinding(
-  performance: BrowserPerformanceDiagnostics,
-  surface: BrowserPerformanceDiagnostics["surfaces"][number],
-  t: Translator
-): string {
-  if (surface.error) return t("settings.performanceDiagnosticsFindingFailed");
-  if (surface.documentVisibilityState !== "visible") return t("settings.performanceDiagnosticsFindingHidden");
-  if (!surface.documentHasFocus) return t("settings.performanceDiagnosticsFindingUnfocused");
-  if (performance.systemLowPowerModeEnabled) {
-    return t(performance.platform === "macos"
-      ? "settings.performanceDiagnosticsFindingMacLowPower"
-      : "settings.performanceDiagnosticsFindingWindowsBatterySaver");
-  }
-  if (performance.systemThermalState === "serious" || performance.systemThermalState === "critical") {
-    return t("settings.performanceDiagnosticsFindingThermal")
-      .replace(
-        "{state}",
-        t(`settings.performanceDiagnosticsThermal.${performance.systemThermalState}`)
-      );
-  }
-  if (surface.performanceTargetStatus === "failed") {
-    return t("settings.performanceDiagnosticsFindingTargetFailed");
-  }
-  if (surface.performanceTargetStatus === "passed") {
-    return t("settings.performanceDiagnosticsFindingTargetPassed");
-  }
-  if (
-    performance.platform === "macos"
-    && performance.highRefreshRateRequested
-    && surface.highRefreshRateStatus !== "applied"
-  ) {
-    return t("settings.performanceDiagnosticsFindingHighRefreshFailed")
-      .replace(
-        "{status}",
-        t(`settings.performanceDiagnosticsHighRefresh.${surface.highRefreshRateStatus}`)
-      );
-  }
-  if (
-    performance.platform === "macos"
-    && !performance.highRefreshRateRequested
-    && (performance.displayRefreshRateHz ?? 0) > 60
-  ) {
-    return t("settings.performanceDiagnosticsFindingHighRefreshDisabled");
-  }
-  if ((surface.longTaskCount ?? 0) > 0 && (surface.longestTaskMs ?? 0) >= 50) {
-    return t("settings.performanceDiagnosticsFindingLongTasks")
-      .replace("{count}", String(surface.longTaskCount))
-      .replace("{longest}", (surface.longestTaskMs ?? 0).toFixed(1));
-  }
-  if (surface.presentationFps === undefined || performance.displayRefreshRateHz === undefined) {
-    return t("settings.performanceDiagnosticsFindingIncomplete");
-  }
-  if (surface.presentationFps < performance.displayRefreshRateHz * 0.8) {
-    return t("settings.performanceDiagnosticsFindingBelowRefresh")
-      .replace("{fps}", surface.presentationFps.toFixed(1))
-      .replace("{hz}", performance.displayRefreshRateHz.toFixed(0));
-  }
-  if ((surface.missedVsyncCount ?? 0) > 0) {
-    return t("settings.performanceDiagnosticsFindingFramePacing")
-      .replace("{count}", String(surface.missedVsyncCount));
-  }
-  return t("settings.performanceDiagnosticsFindingNearRefresh");
-}
-
-function formatFps(value: number | undefined): string {
-  return value === undefined ? "—" : value.toFixed(1);
-}
-
-function formatHertz(value: number | undefined, t: Translator): string {
-  return value === undefined ? t("settings.performanceDiagnosticsUnknown") : `${value.toFixed(0)} Hz`;
-}
-
-function formatMilliseconds(value: number | undefined, t: Translator): string {
-  return value === undefined ? t("settings.performanceDiagnosticsUnknown") : `${value.toFixed(2)} ms`;
-}
-
-function formatCount(value: number | undefined, t: Translator): string {
-  return value === undefined ? t("settings.performanceDiagnosticsUnknown") : String(value);
-}
-
-function formatBoolean(value: boolean | undefined, t: Translator): string {
-  if (value === undefined) return t("settings.performanceDiagnosticsUnknown");
-  return t(value
-    ? "settings.performanceDiagnosticsEnabled"
-    : "settings.performanceDiagnosticsDisabled");
-}
-
-function formatCanvas(
-  surface: BrowserPerformanceDiagnostics["surfaces"][number],
-  t: Translator
-): string {
-  const canvas = surface.primaryCanvas;
-  if (!canvas) return t("settings.performanceDiagnosticsUnknown");
-  return `${canvas.pixelWidth} × ${canvas.pixelHeight} (${canvas.megapixels.toFixed(2)} MP)`;
-}
-
-function formatWebGlAttributes(
-  surface: BrowserPerformanceDiagnostics["surfaces"][number],
-  t: Translator
-): string {
-  const attributes = surface.webGlContextAttributes;
-  if (!attributes) return t("settings.performanceDiagnosticsUnknown");
-  return [
-    `AA ${attributes.antialias ? "on" : "off"}`,
-    `alpha ${attributes.alpha ? "on" : "off"}`,
-    `depth ${attributes.depth ? "on" : "off"}`,
-    `stencil ${attributes.stencil ? "on" : "off"}`
-  ].join(" · ");
-}
-
-function formatLongTasks(
-  surface: BrowserPerformanceDiagnostics["surfaces"][number],
-  t: Translator
-): string {
-  if (surface.longTaskCount === undefined) return t("settings.performanceDiagnosticsUnsupported");
-  return t("settings.performanceDiagnosticsLongTaskValue")
-    .replace("{count}", String(surface.longTaskCount))
-    .replace("{duration}", (surface.longTaskTotalDurationMs ?? 0).toFixed(1));
 }
 
 function LogEntryRow({ entry, t: _t }: { entry: LogEntry; t: Translator }): JSX.Element {

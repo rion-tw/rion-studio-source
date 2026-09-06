@@ -685,9 +685,6 @@ pub fn run() {
                         }
                         tauri::WindowEvent::Focused(true) if label != "main" => {
                             state.runtime.observe_window_focus(&label);
-                            state
-                                .runtime
-                                .begin_performance_diagnostic_for_focused_window();
                             let runtime = Arc::clone(&state.runtime);
                             let _ = thread::Builder::new()
                                 .name("rion-runtime-focus-persist".to_owned())

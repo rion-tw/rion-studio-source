@@ -80,7 +80,7 @@ impl SystemRuntimeExecutor {
             "game-role",
             &format!("{}:generation-{native_generation}", role.role.id),
         );
-        let (builder, high_refresh_rate_status, web_gl_configuration) =
+        let (builder, _) =
             self.role_webview_builder(&window, label, &paths, &role.role.id)?;
         let builder = builder.on_page_load(move |webview, payload| {
             callback_navigation.page_event(payload.event(), payload.url());
@@ -159,8 +159,6 @@ impl SystemRuntimeExecutor {
                     RoleSurface {
                         current_url: None,
                         generation: native_generation,
-                        high_refresh_rate_status,
-                        web_gl_configuration,
                         lifecycle: Arc::clone(&installed_lifecycle),
                         navigation: Arc::clone(&navigation),
                         rect: role.rect.clone(),

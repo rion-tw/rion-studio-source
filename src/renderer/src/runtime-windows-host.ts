@@ -140,10 +140,29 @@ function openTabMenu(event: MouseEvent, tabId: string): void {
       windowId: projection.windowId
     });
   });
+  const muteLabels = navigator.language.startsWith("ja")
+    ? ["タブをミュート", "タブのミュートを解除"]
+    : /zh-(?:TW|HK|Hant)/iu.test(navigator.language)
+      ? ["分頁靜音", "取消分頁靜音"]
+      : navigator.language.startsWith("zh")
+        ? ["标签页静音", "取消标签页静音"]
+        : ["Mute tab", "Unmute tab"];
+  const mute = menuButton(muteLabels[tab.audioMuted ? 1 : 0]!, "setTabMuted", () => {
+    bridge!.submit({
+      muted: !tab.audioMuted,
+      projectionRevision: projection.projectionRevision,
+      tabId,
+      type: "setTabMuted",
+      windowId: projection.windowId
+    });
+  });
+  mute.setAttribute("role", "menuitemcheckbox");
+  mute.setAttribute("aria-checked", String(tab.audioMuted));
   const hide = menuButton("Hide tab", "hideTab", () => submitTab(tabId, "hideTab"));
   hide.disabled = projection.tabs.filter((candidate) => !candidate.hidden).length <= 1;
   tabMenu.append(
     reload,
+    mute,
     hide,
     ...moveButtons,
     menuButton("Move to new window", "moveTabToNewWindow", () =>

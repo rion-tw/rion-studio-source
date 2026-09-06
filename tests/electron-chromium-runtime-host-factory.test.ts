@@ -477,6 +477,7 @@ async function applyWindowFence(
     moveTargets: [],
     tabs: [{
       active: true,
+      audioMuted: false,
       hidden: false,
       name: "Role 1",
       phase: "ready",
@@ -948,6 +949,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       moveTargets: [],
       tabs: [{
         active: true,
+        audioMuted: false,
         hidden: false,
         name: "Role 1",
         phase: "ready",
@@ -1079,6 +1081,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
       moveTargets: [],
       tabs: [{
         active: true,
+        audioMuted: false,
         hidden: false,
         name: "Role 1",
         phase: "ready",

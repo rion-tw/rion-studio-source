@@ -1,4 +1,9 @@
-import { posix, win32 } from "node:path";
+import {
+  chromiumPathApi as pathApi,
+  chromiumPathKey as pathKey,
+  chromiumPathSegmentEquals as fixedSegmentEquals,
+  canonicalChromiumPath as canonicalPath
+} from "./chromiumSessionPath";
 
 import type { GlobalWebProfilePathsRecord } from "../../shared/generated";
 import {
@@ -79,32 +84,6 @@ function indeterminate(
     stableErrorCode,
     mutation: "unknown"
   });
-}
-
-function pathApi(platform: SupportedPlatform): typeof posix {
-  return platform === "win32" ? win32 : posix;
-}
-
-function canonicalPath(value: unknown, platform: SupportedPlatform): string | null {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0")) {
-    return null;
-  }
-  const paths = pathApi(platform);
-  return paths.isAbsolute(value) && paths.normalize(value) === value ? value : null;
-}
-
-function pathKey(path: string, platform: SupportedPlatform): string {
-  return platform === "win32" ? path.toLowerCase() : path;
-}
-
-function fixedSegmentEquals(
-  value: string,
-  expected: string,
-  platform: SupportedPlatform
-): boolean {
-  return platform === "win32"
-    ? value.toLowerCase() === expected.toLowerCase()
-    : value === expected;
 }
 
 function preflight(

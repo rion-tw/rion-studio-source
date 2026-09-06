@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { sha256File } from "./releaseFileHash.mjs";
 import { lstat, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -103,7 +102,7 @@ async function requiredArtifact(options, name) {
 async function updaterArtifact(baseUrl, artifact) {
   const [signature, sha256] = await Promise.all([
     readFile(artifact.signaturePath, "utf8").then((value) => value.trim()),
-    hashFile(artifact.archivePath)
+    sha256File(artifact.archivePath)
   ]);
   if (!signature || signature.includes("\0")) {
     throw new Error(`${artifact.signaturePath} is empty or invalid.`);
@@ -124,15 +123,6 @@ function ensureTrailingSlash(url) {
   return value;
 }
 
-function hashFile(filePath) {
-  return new Promise((resolveHash, reject) => {
-    const hash = createHash("sha256");
-    const input = createReadStream(filePath);
-    input.on("error", reject);
-    input.on("data", (chunk) => hash.update(chunk));
-    input.on("end", () => resolveHash(hash.digest("hex")));
-  });
-}
 
 async function requiredFile(filePath) {
   let metadata;

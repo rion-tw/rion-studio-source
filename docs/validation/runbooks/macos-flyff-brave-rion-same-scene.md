@@ -127,3 +127,13 @@ stability run and an identified, independently varied cause.
 When reporting, include invalidated samples and their reasons, screenshots,
 exact versions, process evidence, the Effects-off control, and any remaining
 measurement limitation. Do not infer a WebKit fix solely from Brave being faster.
+
+
+## Measurement sources after diagnostics removal
+
+Rion no longer provides the built-in presentation FPS, process/GPU or thermal
+sample collector. Use game-owned HUD output and separately operated system
+profilers, recording the source beside each metric. Do not interpret a missing
+rAF, missed-frame or process measurement as zero. Leave any acceptance criterion
+that depends on unavailable evidence unproven; this runbook does not require
+restoring the removed diagnostics UI or bridge.

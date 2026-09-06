@@ -746,8 +746,8 @@ function validateChromiumSystemSettingsSqliteEvidence(phase, settings) {
     (setting) => setting.key === "gameBrowserSettings"
   )?.payload;
   requireEvidence(
-    browserSettings?.performance?.macosHighRefreshMode === "disabled",
-    `${phase}: the high-refresh preference did not finish at Disabled`
+    browserSettings !== undefined && !Object.hasOwn(browserSettings, "performance"),
+    `${phase}: retired performance preferences remain in persisted settings`
   );
   const session = settings.find(
     (setting) => setting.key === "runtimeRestoreSession"
@@ -758,7 +758,7 @@ function validateChromiumSystemSettingsSqliteEvidence(phase, settings) {
   );
   return {
     cleanExit: true,
-    macosHighRefreshMode: "disabled"
+    retiredPerformanceSettingsAbsent: true
   };
 }
 

@@ -229,6 +229,7 @@ export class ElectronDesktopE2eRuntimeTabReloadObserver {
         );
         const projection = owner.registry.readProjection(role.roleId, role.generation);
         return Object.freeze({
+          audioMuted: owner.registry.audioMuted(role.roleId, role.generation),
           documentInstanceId: frame.documentInstanceId,
           ownerGeneration: role.ownerGeneration,
           roleId: role.roleId,

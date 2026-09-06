@@ -145,6 +145,19 @@ function chromeImportInput(
 }
 
 describe("Electron Chromium role-session registry", () => {
+  it.each(["\\\\?\\C:\\RionData", "\\\\?\\UNC\\server\\share", "\\\\.\\C:\\RionData"])(
+    "rejects Windows device paths before creating a Role Session: %s",
+    (root) => {
+      const native = createSession();
+      const { factory, fromPath } = createFactory(native.session);
+      const registry = new ChromiumRoleSessionRegistry(factory, "win32");
+      expect(() => registry.ensure("role-1", rolePaths("win32", "role-1", root)))
+        .toThrowError(expect.objectContaining({ code: "ELECTRON_ROLE_SESSION_PATH_INVALID" }));
+      expect(fromPath).not.toHaveBeenCalled();
+      expect(registry.activeCount).toBe(0);
+    }
+  );
+
   it("leases the exact Core Chrome-import destination until cookie flush", async () => {
     const roleId = "11111111-1111-4111-8111-111111111111";
     const flush = deferred();

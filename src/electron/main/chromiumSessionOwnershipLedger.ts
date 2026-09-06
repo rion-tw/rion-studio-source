@@ -1,4 +1,7 @@
-import { posix, win32 } from "node:path";
+import {
+  chromiumPathKey as pathKey,
+  canonicalChromiumPath
+} from "./chromiumSessionPath";
 
 import { RionBridgeError } from "../ipc/errors";
 
@@ -21,14 +24,6 @@ function ownershipError(code: string, message: string): never {
   throw new RionBridgeError({ code, message });
 }
 
-function pathApi(platform: SupportedPlatform): typeof posix {
-  return platform === "win32" ? win32 : posix;
-}
-
-function pathKey(path: string, platform: SupportedPlatform): string {
-  return platform === "win32" ? path.toLowerCase() : path;
-}
-
 function validateOwnerId(ownerId: unknown): asserts ownerId is string {
   if (
     typeof ownerId !== "string" || ownerId.length === 0 || ownerId.length > 300 ||
@@ -46,17 +41,14 @@ function validateOwnerId(ownerId: unknown): asserts ownerId is string {
 }
 
 function validatePath(path: unknown, platform: SupportedPlatform): string {
-  const paths = pathApi(platform);
-  if (
-    typeof path !== "string" || path.length === 0 || path.includes("\0") ||
-    !paths.isAbsolute(path) || paths.normalize(path) !== path
-  ) {
+  const canonical = canonicalChromiumPath(path, platform);
+  if (canonical === null) {
     ownershipError(
       "ELECTRON_CHROMIUM_SESSION_OWNERSHIP_PATH_INVALID",
       "A canonical absolute Rust-owned Chromium session path is required."
     );
   }
-  return path;
+  return canonical;
 }
 
 /**

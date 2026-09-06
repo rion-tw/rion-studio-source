@@ -24,12 +24,6 @@ describe("Electron baseline API dispatcher", () => {
     }));
     const startCurrentWindowDrag = vi.fn(async () => ({ marker: "drag" }) as never);
     const dispatcher = createElectronBaselineDispatcher({
-      beginBrowserPerformanceDiagnostics: vi.fn(async () => ({
-        operationId: "performance-diagnostic-1",
-        phase: "waitingForFocus" as const,
-        revision: 1
-      })),
-      cancelBrowserPerformanceDiagnostics: vi.fn(),
       confirmApplicationQuit,
       getAppSnapshot,
       getAppVersion: () => "1.2.3",
@@ -89,8 +83,6 @@ describe("Electron baseline API dispatcher", () => {
 
   it("returns a coded non-success for domain methods not migrated yet", async () => {
     const dispatcher = createElectronBaselineDispatcher({
-      beginBrowserPerformanceDiagnostics: vi.fn(),
-      cancelBrowserPerformanceDiagnostics: vi.fn(),
       confirmApplicationQuit: vi.fn(),
       getAppSnapshot: vi.fn(),
       getAppVersion: () => "1.2.3",

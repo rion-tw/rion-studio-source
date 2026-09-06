@@ -7,6 +7,7 @@ import type { LayoutBounds, RuntimeTabActivationPhaseRecord } from "./generated"
 
 export interface WindowsRuntimeHostTabProjection {
   readonly active: boolean;
+  readonly audioMuted: boolean;
   readonly hidden: boolean;
   readonly name: string;
   readonly phase: RuntimeTabActivationPhaseRecord;
@@ -65,6 +66,7 @@ export type WindowsRuntimeHostTabCommand =
   | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "activateTab" }>
   | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "closeTab" }>
   | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "hideTab" }>
+  | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "setTabMuted"; muted: boolean }>
   | WindowsRuntimeHostTabCommandBase & Readonly<{ type: "moveTabToNewWindow" }>
   | WindowsRuntimeHostTabCommandBase & Readonly<{
       lifecycleEpoch: number;
@@ -159,9 +161,10 @@ export function isWindowsRuntimeHostProjection(
   let activeCount = 0;
   let projectedActiveTabId: string | null = null;
   for (const tab of value.tabs) {
-    if (!isRecord(tab) || Object.keys(tab).length !== 5 ||
+    if (!isRecord(tab) || Object.keys(tab).length !== 6 ||
         !validIdentifier(tab.tabId) || !validIdentifier(tab.name) ||
         typeof tab.active !== "boolean" || typeof tab.hidden !== "boolean" ||
+        typeof tab.audioMuted !== "boolean" ||
         (tab.active && tab.hidden) ||
         !new Set([
           "dormant",
@@ -228,6 +231,10 @@ export function isWindowsRuntimeHostCommand(
     return false;
   }
   if (value.type !== "workspaceDividerPointer") {
+    if (value.type === "setTabMuted") {
+      return Object.keys(value).length === 5 && validIdentifier(value.tabId) &&
+        typeof value.muted === "boolean";
+    }
     if (value.type === "reloadTab") {
       return Object.keys(value).length === 7 && validIdentifier(value.tabId) &&
         Number.isSafeInteger(value.windowGeneration) &&

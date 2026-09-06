@@ -6,8 +6,6 @@ pub struct GameBrowserSettingsRecord {
     pub macro_badge_position: MacroBadgePositionRecord,
     #[serde(default)]
     pub macro_overlay: MacroOverlaySettingsRecord,
-    #[serde(default)]
-    pub performance: BrowserPerformanceSettingsRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
 }
 
@@ -23,60 +21,7 @@ pub struct GameBrowserSettingsPatchRecord {
     pub macro_overlay: Option<MacroOverlaySettingsPatchRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub performance: Option<BrowserPerformanceSettingsRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub workspace: Option<WorkspaceAppearanceSettingsRecord>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserPerformanceSettingsRecord {
-    pub macos_high_refresh_mode: MacosHighRefreshMode,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum MacosHighRefreshMode {
-    Auto,
-    Enabled,
-    #[default]
-    Disabled,
-}
-
-impl<'de> Deserialize<'de> for BrowserPerformanceSettingsRecord {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct CompatibleRecord {
-            #[serde(default)]
-            macos_high_refresh_mode: Option<MacosHighRefreshMode>,
-            #[serde(default)]
-            macos_high_refresh_rate: Option<bool>,
-        }
-
-        let compatible = CompatibleRecord::deserialize(deserializer)?;
-        let macos_high_refresh_mode = compatible
-            .macos_high_refresh_mode
-            .or_else(|| {
-                compatible.macos_high_refresh_rate.map(|enabled| {
-                    if enabled {
-                        MacosHighRefreshMode::Enabled
-                    } else {
-                        MacosHighRefreshMode::Disabled
-                    }
-                })
-            })
-            .unwrap_or_default();
-        Ok(Self {
-            macos_high_refresh_mode,
-        })
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -567,28 +512,6 @@ pub struct DiagnosticDisplayRecord {
     pub scale_factor: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum BrowserPerformanceDiagnosticStatus {
-    Available,
-    NoRunningRole,
-    NoVisibleGameWindow,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum HighRefreshRateDiagnosticStatus {
-    Applied,
-    Disabled,
-    Unavailable,
-    Failed,
-    Timeout,
-    ScheduleFailed,
-    NotApplicable,
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -625,194 +548,6 @@ pub enum PerformanceTargetStatus {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserCanvasDiagnosticRecord {
-    pub css_width: f64,
-    pub css_height: f64,
-    pub pixel_width: u32,
-    pub pixel_height: u32,
-    pub device_pixel_ratio: f64,
-    pub megapixels: f64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserWebGlContextAttributesRecord {
-    pub alpha: bool,
-    pub antialias: bool,
-    pub depth: bool,
-    pub premultiplied_alpha: bool,
-    pub preserve_drawing_buffer: bool,
-    pub stencil: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub desynchronized: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub power_preference: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserPerformanceSurfaceDiagnosticRecord {
-    pub role_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub origin: Option<String>,
-    #[ts(type = "\"visible\" | \"hidden\" | \"prerender\" | \"unknown\"")]
-    pub document_visibility_state: String,
-    pub document_has_focus: bool,
-    pub viewport_width: f64,
-    pub viewport_height: f64,
-    pub device_pixel_ratio: f64,
-    pub hardware_concurrency: u32,
-    pub frame_count: u32,
-    pub observed_duration_ms: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub presentation_fps: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub p50_frame_interval_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub p95_frame_interval_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub p99_frame_interval_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub longest_frame_interval_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub slow_frame_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub missed_vsync_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub long_task_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub long_task_total_duration_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub longest_task_ms: Option<f64>,
-    pub graphics: StateWebGraphicsRecord,
-    pub high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
-    #[serde(default)]
-    pub web_gl_execution_path: WebGlExecutionPath,
-    #[serde(default)]
-    pub web_gl_command_batching_status: WebGlCommandBatchingStatus,
-    #[serde(default)]
-    pub performance_target_status: PerformanceTargetStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub webview_runtime_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub web_kit_runtime_version: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_process_present: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub renderer_process_present: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub gpu_process_present: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub hardware_acceleration_enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub primary_canvas: Option<BrowserCanvasDiagnosticRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub web_gl_context_attributes: Option<BrowserWebGlContextAttributesRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub game_loop_fps: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub game_loop_p10_fps: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub game_loop_timing_mode: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub game_loop_timing_value: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub game_loop_timer_drift_p95_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub context_loss_count: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserPerformanceDiagnosticsRecord {
-    pub captured_at: String,
-    #[ts(type = "\"macos\" | \"windows\"")]
-    pub platform: String,
-    pub status: BrowserPerformanceDiagnosticStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub window_id: Option<String>,
-    pub window_focused: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub display_refresh_rate_hz: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub system_low_power_mode_enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(
-        optional,
-        type = "\"nominal\" | \"fair\" | \"serious\" | \"critical\" | \"unknown\""
-    )]
-    pub system_thermal_state: Option<String>,
-    pub high_refresh_rate_requested: bool,
-    pub sample_duration_ms: u32,
-    pub surfaces: Vec<BrowserPerformanceSurfaceDiagnosticRecord>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum BrowserPerformanceDiagnosticOperationPhase {
-    WaitingForFocus,
-    Sampling,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserPerformanceDiagnosticOperationRecord {
-    pub operation_id: String,
-    #[ts(type = "number")]
-    pub revision: u64,
-    pub phase: BrowserPerformanceDiagnosticOperationPhase,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub diagnostics: Option<BrowserPerformanceDiagnosticsRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ApplicationDiagnosticsSnapshotRecord {
     pub application_name: String,
     pub application_version: String,
@@ -831,9 +566,6 @@ pub struct ApplicationDiagnosticsSnapshotRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub gpu_info_raw_json: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub browser_performance: Option<BrowserPerformanceDiagnosticsRecord>,
     pub native_runtime: SystemRuntimeDiagnosticsRecord,
 }
 

@@ -574,22 +574,6 @@ async fn rion_shell_invoke(
             preview_chrome_profile_import(&app, &window, &state).await
         }
         "revealLogs" => reveal_logs(&state).await,
-        "beginBrowserPerformanceDiagnostics" => {
-            let operation = state
-                .runtime
-                .begin_browser_performance_diagnostics()
-                .map_err(|error| shell_error("PERFORMANCE_DIAGNOSTIC_FAILED", error))?;
-            serde_json::to_value(operation)
-                .map_err(|error| shell_error("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string()))
-        }
-        "cancelBrowserPerformanceDiagnostics" => {
-            let operation_id = string_argument(&args, 0, "Performance diagnostic operation ID")?;
-            state
-                .runtime
-                .cancel_browser_performance_diagnostics(&operation_id)
-                .map(|()| Value::Null)
-                .map_err(|error| shell_error("PERFORMANCE_DIAGNOSTIC_FAILED", error))
-        }
         "exportDiagnostics" => export_diagnostics(&app, &window, &state).await,
         "appVersion" => Ok(Value::String(app.package_info().version.to_string())),
         "updateStatus" => serde_json::to_value(state.updates.status_record())

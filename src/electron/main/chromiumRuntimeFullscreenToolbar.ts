@@ -19,6 +19,7 @@ import type {
 
 export interface ChromiumRuntimeWindowChromeTab {
   readonly active: boolean;
+  readonly audioMuted: boolean;
   readonly hidden: boolean;
   readonly name: string;
   readonly phase: RuntimeTabActivationPhaseRecord;
@@ -27,6 +28,7 @@ export interface ChromiumRuntimeWindowChromeTab {
 
 export interface ChromiumRuntimeWindowChromeLayoutTab {
   readonly active: boolean;
+  readonly audioMuted: boolean;
   readonly hidden: boolean;
   readonly name: string;
   readonly tabId: string;
@@ -261,6 +263,7 @@ export function bindChromiumRuntimeWindowLayout(input: {
           }
           return Object.freeze({
             active: record.activeTabId === tabId,
+            audioMuted: tab.audioMuted,
             hidden: record.hiddenTabIds.has(tabId),
             name: tab.specification.name,
             tabId

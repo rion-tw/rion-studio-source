@@ -30,13 +30,6 @@ pub(in crate::system_runtime) fn ensure_platform_automation_surface_ready(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub(in crate::system_runtime) fn platform_webview_diagnostics(
-    _webview: &Webview,
-) -> PlatformWebViewDiagnostics {
-    PlatformWebViewDiagnostics::default()
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
 pub(in crate::system_runtime) fn platform_page_zoom(_webview: &Webview) -> RuntimeResult<f64> {
     Err(RuntimeError::new(
         "BROWSER_PAGE_ZOOM_UNAVAILABLE",

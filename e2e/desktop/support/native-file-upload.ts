@@ -325,6 +325,30 @@ func openTarget(_ element: AXUIElement) -> AXUIElement? {
   return nil
 }
 
+func recordSelectionFailure(_ application: AXUIElement, stage: String) {
+  guard let output = environment["RION_DESKTOP_E2E_NATIVE_UPLOAD_DIAGNOSTIC_PATH"] else { return }
+  var nodes: [[String: String]] = []
+  func visit(_ element: AXUIElement, depth: Int) {
+    guard depth <= 12, nodes.count < 300 else { return }
+    let role = attributeText(element, kAXRoleAttribute as CFString)
+    if role == "AXWebArea" { return }
+    nodes.append([
+      "role": role,
+      "subrole": attributeText(element, kAXSubroleAttribute as CFString),
+      "title": String(attributeText(element, kAXTitleAttribute as CFString).prefix(160)),
+      "description": String(attributeText(element, kAXDescriptionAttribute as CFString).prefix(160)),
+      "value": String(attributeText(element, kAXValueAttribute as CFString).prefix(160)),
+      "actions": actionNames(element).joined(separator: ",")
+    ])
+    for child in directChildren(element) { visit(child, depth: depth + 1) }
+  }
+  if let panel = currentPanel(application) { visit(panel, depth: 0) }
+  let report: [String: Any] = ["stage": stage, "processId": processId, "nodes": nodes]
+  if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+    try? data.write(to: URL(fileURLWithPath: output))
+  }
+}
+
 func waitAndOpen(
   _ value: String,
   application: AXUIElement,
@@ -349,7 +373,9 @@ func waitAndOpen(
     }
     Thread.sleep(forTimeInterval: 0.05)
   } while Date() <= expiry
-  fatalError("exact native upload item unavailable: " + value)
+  recordSelectionFailure(application, stage: value)
+  FileHandle.standardError.write(Data(("exact native upload item unavailable: " + value + "\n").utf8))
+  exit(1)
 }
 
 let application = AXUIElementCreateApplication(processId)
@@ -369,6 +395,9 @@ waitAndOpen(fixtureName, application: application, browserOnly: true)
       encoding: "utf8",
       env: {
         ...process.env,
+        RION_DESKTOP_E2E_NATIVE_UPLOAD_DIAGNOSTIC_PATH: resolve(
+          artifactDirectory(), "macos-native-file-dialog-failure.json"
+        ),
         RION_DESKTOP_E2E_NATIVE_UPLOAD_FILE_NAME: FIXTURE_FILE_NAME,
         RION_DESKTOP_E2E_NATIVE_UPLOAD_HOME_NAME: basename(homedir()),
         RION_DESKTOP_E2E_NATIVE_UPLOAD_PID: String(processId),

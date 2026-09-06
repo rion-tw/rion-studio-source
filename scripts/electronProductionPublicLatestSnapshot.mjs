@@ -1,3 +1,4 @@
+import { isSupportedStrictSemanticVersion } from "./releaseVersionPolicy.mjs";
 import { createHash } from "node:crypto";
 import { constants as fileConstants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
@@ -1162,13 +1163,6 @@ function requiredSemanticVersion(value, label) {
   return value;
 }
 
-function isSupportedStrictSemanticVersion(value) {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u.exec(value);
-  if (!match) return false;
-  return !(match[4]?.split(".").some((part) =>
-    /^\d+$/u.test(part) && part.startsWith("0") && part.length > 1
-  ));
-}
 
 function requiredRfc3339(value, label) {
   if (typeof value !== "string" || !isStrictRfc3339Timestamp(value)) {

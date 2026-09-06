@@ -1,6 +1,5 @@
 use serde_json::json;
 
-    use crate::MacosHighRefreshMode;
     use super::*;
 
     fn macro_input(value: Value) -> MacroCreateInputRecord {
@@ -299,10 +298,7 @@ use serde_json::json;
             serde_json::to_value(&settings.fonts).unwrap()["slots"]["monospace"],
             json!({"source":"system","family":"Courier New"})
         );
-        assert_eq!(
-            settings.performance.macos_high_refresh_mode,
-            MacosHighRefreshMode::Enabled
-        );
+        assert!(serde_json::to_value(&settings).unwrap().get("performance").is_none());
         validate_game_browser_settings(&settings).unwrap();
         assert!(
             serde_json::to_value(&settings)
@@ -359,10 +355,7 @@ use serde_json::json;
             );
             assert_eq!(defaults.workspace.background, "material");
             assert_eq!(defaults.workspace.gap, 4);
-            assert_eq!(
-                defaults.performance.macos_high_refresh_mode,
-                MacosHighRefreshMode::Disabled
-            );
+            assert!(serde_json::to_value(&defaults).unwrap().get("performance").is_none());
             assert!(defaults.macro_overlay.show_tool_button);
             assert!(defaults.macro_overlay.show_running_badges);
             assert!(defaults.macro_overlay.show_click_markers);

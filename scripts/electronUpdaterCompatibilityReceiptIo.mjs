@@ -1,3 +1,4 @@
+import { isSupportedStrictSemanticVersion } from "./releaseVersionPolicy.mjs";
 import { createHash } from "node:crypto";
 import { constants as fileConstants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
@@ -193,15 +194,7 @@ export function requiredPositiveInteger(value, label) {
 }
 
 export function requiredSemanticVersion(value, label) {
-  const match = typeof value === "string"
-    ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u.exec(value)
-    : null;
-  if (
-    !match ||
-    match[4]?.split(".").some(
-      (part) => /^\d+$/u.test(part) && part.length > 1 && part.startsWith("0")
-    )
-  ) {
+  if (!isSupportedStrictSemanticVersion(value)) {
     throw new Error(`The ${label} must be strict SemVer without build metadata.`);
   }
   return value;

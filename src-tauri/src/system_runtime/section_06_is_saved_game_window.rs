@@ -1,11 +1,6 @@
 impl SystemRuntimeExecutor {
     pub fn new(app: AppHandle, user_data_dir: PathBuf, core: Arc<AppCore>) -> Result<Self, String> {
         let app_snapshot = core.app_snapshot().map_err(|error| error.to_string())?;
-        let settings = app_snapshot
-            .state
-            .game_browser_settings
-            .clone()
-            .ok_or_else(|| "Game browser settings are missing from AppSnapshot.".to_owned())?;
         #[cfg(windows)]
         let additional_browser_arguments = rion_core::additional_browser_arguments(
             rion_platform::Platform::Windows,
@@ -145,7 +140,6 @@ impl SystemRuntimeExecutor {
                 #[cfg(windows)]
                 additional_browser_arguments,
                 document_start_script,
-                macos_high_refresh_mode: settings.performance.macos_high_refresh_mode,
                 overlay_document_start_script_template,
             },
             core: Arc::clone(&core),
@@ -160,9 +154,6 @@ impl SystemRuntimeExecutor {
             resolved_theme: Mutex::new("light".to_owned()),
             #[cfg(windows)]
             role_cookie_checkpoint_lane: Mutex::new(()),
-            last_performance_diagnostics: Mutex::new(None),
-            performance_diagnostic_operation: Mutex::new(None),
-            performance_diagnostic_sequence: AtomicU64::new(0),
             launch_effect_sender: OnceLock::new(),
             input_effect_sender: OnceLock::new(),
             input_effect_lanes: Mutex::new(HashMap::new()),

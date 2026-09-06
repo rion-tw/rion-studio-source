@@ -61,6 +61,7 @@ export interface ElectronDesktopE2eRuntimeTabReloadInspection {
     visible: boolean;
   }>[];
   readonly roles: readonly Readonly<{
+    audioMuted: boolean;
     documentInstanceId: string;
     ownerGeneration: number;
     roleId: string;
@@ -161,7 +162,7 @@ export function parseElectronDesktopE2eRuntimeTabReloadInspection(
   }
   if (inspection.roles.some((role) =>
     !identifier(role.roleId) || !identifier(role.tabId) ||
-    !identifier(role.documentInstanceId) ||
+    !identifier(role.documentInstanceId) || typeof role.audioMuted !== "boolean" ||
     !positiveInteger(role.ownerGeneration) ||
     !positiveInteger(role.surfaceGeneration) || typeof role.visible !== "boolean" ||
     !native.tabIds.includes(role.tabId)

@@ -18,10 +18,6 @@ use rion_core::{
     AppCore, ApplicationLifecycleStatusRecord, BrowserAction, BrowserActionRequest,
     BrowserLaunchCompletionRecord, BrowserRuntimeRoleOwnerRecord, BrowserRuntimeRoleRecord,
     BrowserRuntimeTabRecord, BrowserRuntimeWorkspaceRecord,
-    BrowserCanvasDiagnosticRecord, BrowserPerformanceDiagnosticOperationPhase,
-    BrowserPerformanceDiagnosticOperationRecord, BrowserPerformanceDiagnosticStatus,
-    BrowserPerformanceDiagnosticsRecord, BrowserPerformanceSurfaceDiagnosticRecord,
-    BrowserWebGlContextAttributesRecord,
     BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreAppSnapshotRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
     CoreEffectRequest, CoreEffectResult,
@@ -35,10 +31,9 @@ use rion_core::{
     GameWindowRuntimeSnapshotCommitInputRecord,
     GameWindowRoleSlotRecord, GameWindowSaveRuntimeInputRecord,
     GameWindowTabRecord,
-    HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
+    LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroCoordinateContextRecord, MacroInputDiagnosticsRecord, MacroRunStatus,
-    MacosHighRefreshMode,
     OperationCompletionPolicy, PerformanceTargetStatus,
     RuntimeTabMutationRequestRecord,
     RuntimeWindowStopRequestRecord,
@@ -47,7 +42,7 @@ use rion_core::{
     SessionTransferPayloadRecord, StateGameRecord,
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     StateWorkspaceSlotRecord,
-    StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
+    SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
     SystemRuntimeOperationCompletionScope, SystemRuntimeOperationStatus,
     SystemRuntimeOperationSubsystem, SystemRuntimeOperationSummaryRecord, NativeWindowStateRecord,
@@ -290,66 +285,6 @@ const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
   });
 })();
 "#;
-// @source "../../../src/shared/browser-overlay/performanceDiagnostics.js"
-const PERFORMANCE_DIAGNOSTIC_SOURCE_TEMPLATE: &str =
-    include_str!("../../../src/shared/browser-overlay/performanceDiagnostics.js");
-#[cfg(debug_assertions)]
-// @source "../../../src/shared/browser-overlay/performanceDiagnosticsGameLoopDev.js"
-const PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE: &str =
-    include_str!("../../../src/shared/browser-overlay/performanceDiagnosticsGameLoopDev.js");
-fn performance_diagnostic_source(
-    action: &str,
-    operation_id: &str,
-    include_game_loop_probe: bool,
-) -> String {
-    let include_dev_source = include_game_loop_probe && action == "start";
-    let action = serde_json::to_string(action).expect("static diagnostic action serializes");
-    let operation_id =
-        serde_json::to_string(operation_id).expect("validated diagnostic operation ID serializes");
-    let source = PERFORMANCE_DIAGNOSTIC_SOURCE_TEMPLATE
-        .replace("__RION_PERFORMANCE_ACTION_JSON__", &action)
-        .replace("__RION_PERFORMANCE_OPERATION_ID_JSON__", &operation_id);
-    #[cfg(debug_assertions)]
-    let source = {
-        let mut source = source;
-        if include_dev_source {
-            source = format!(
-                "{};\n{}",
-                source.trim_end(),
-                PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE
-                    .replace("__RION_PERFORMANCE_OPERATION_ID_JSON__", &operation_id)
-            );
-        }
-        source
-    };
-    let _ = include_game_loop_probe;
-    source
-}
-
-fn performance_diagnostic_game_loop_enabled() -> bool {
-    active_mac_web_gl_experiment().is_some()
-}
-
-fn performance_diagnostic_sample_duration() -> Duration {
-    #[cfg(debug_assertions)]
-    if active_mac_web_gl_experiment().is_some() {
-        return std::env::var("RION_WEBKIT_EXPERIMENT_SAMPLE_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| (1_500..=600_000).contains(value))
-            .map(Duration::from_millis)
-            .unwrap_or(Duration::from_secs(10));
-    }
-    Duration::from_millis(1_500)
-}
-
-fn bounded_performance_diagnostic_duration(requested: Duration) -> Duration {
-    #[cfg(debug_assertions)]
-    if active_mac_web_gl_experiment().is_some() {
-        return requested.clamp(Duration::from_millis(1_500), Duration::from_secs(600));
-    }
-    requested.clamp(Duration::from_millis(500), Duration::from_millis(5_000))
-}
 const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
 (() => {
   if (globalThis.__rionSystemAudioObserverInstalled || globalThis.top !== globalThis) return;
@@ -475,8 +410,6 @@ const TAURI_MACRO_OVERLAY_BRIDGE_SOURCE: &str =
 struct RoleSurface {
     current_url: Option<Url>,
     generation: u64,
-    high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
-    web_gl_configuration: RoleWebGlConfiguration,
     lifecycle: Arc<SurfaceLifecycleTracker>,
     navigation: Arc<NavigationTracker>,
     rect: rion_core::StateNormalizedRectRecord,

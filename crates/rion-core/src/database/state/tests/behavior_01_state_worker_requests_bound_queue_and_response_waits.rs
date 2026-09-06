@@ -1,6 +1,5 @@
 use std::fs;
 
-    use crate::MacosHighRefreshMode;
     use tempfile::tempdir;
 
     use super::*;
@@ -37,40 +36,26 @@ use std::fs;
     }
 
     #[test]
-    fn legacy_browser_performance_settings_migrate_and_drop_maximum_webgl_mode() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        create_schema(&connection, false).unwrap();
-        let mut legacy = serde_json::to_value(default_game_browser_settings()).unwrap();
-        legacy["performance"]["maximumWebGlPerformance"] = json!(false);
-        legacy["performance"]
-            .as_object_mut()
-            .unwrap()
-            .remove("macosHighRefreshMode");
-        legacy["performance"]["macosHighRefreshRate"] = json!(true);
-        replace_scalar(&mut connection, "gameBrowserSettings", legacy).unwrap();
-
-        repair_required_settings(&connection).unwrap();
-
-        let stored = read_scalar(&connection, "gameBrowserSettings")
-            .unwrap()
-            .unwrap();
-        assert!(stored["performance"].get("maximumWebGlPerformance").is_none());
-        assert!(stored["performance"].get("macosHighRefreshRate").is_none());
-        assert_eq!(stored["performance"]["macosHighRefreshMode"], "enabled");
-
-        let mut explicit_auto = stored;
-        explicit_auto["performance"]["macosHighRefreshMode"] = json!("auto");
-        replace_scalar(&mut connection, "gameBrowserSettings", explicit_auto).unwrap();
-        repair_required_settings(&connection).unwrap();
-
-        let stored = read_scalar(&connection, "gameBrowserSettings")
-            .unwrap()
-            .unwrap();
-        assert_eq!(stored["performance"]["macosHighRefreshMode"], "auto");
-
-        let mut invalid_mode = stored;
-        invalid_mode["performance"]["macosHighRefreshMode"] = json!("invalid");
-        assert!(serde_json::from_value::<GameBrowserSettingsRecord>(invalid_mode).is_err());
+    fn retired_browser_performance_settings_are_removed_without_losing_preferences() {
+        for performance in [
+            json!({"macosHighRefreshRate": true, "maximumWebGlPerformance": false}),
+            json!({"macosHighRefreshMode": "auto"}),
+            json!({"macosHighRefreshMode": "enabled"}),
+            json!({"macosHighRefreshMode": "disabled"}),
+            json!({"macosHighRefreshMode": "invalid"}),
+        ] {
+            let mut connection = Connection::open_in_memory().unwrap();
+            create_schema(&connection, false).unwrap();
+            let expected = serde_json::to_value(default_game_browser_settings()).unwrap();
+            let mut legacy = expected.clone();
+            legacy["performance"] = performance;
+            replace_scalar(&mut connection, "gameBrowserSettings", legacy).unwrap();
+            repair_required_settings(&connection).unwrap();
+            let stored = read_scalar(&connection, "gameBrowserSettings").unwrap().unwrap();
+            assert_eq!(stored, expected);
+            repair_required_settings(&connection).unwrap();
+            assert_eq!(read_scalar(&connection, "gameBrowserSettings").unwrap().unwrap(), expected);
+        }
     }
 
     #[test]
@@ -333,10 +318,7 @@ use std::fs;
             }))
             .unwrap();
             let settings = normalize_game_browser_settings(settings);
-            assert_eq!(
-                settings.performance.macos_high_refresh_mode,
-                MacosHighRefreshMode::Disabled
-            );
+            assert!(serde_json::to_value(&settings).unwrap().get("performance").is_none());
             assert!(settings.macro_overlay.show_tool_button);
             assert!(settings.macro_overlay.show_running_badges);
             assert!(settings.macro_overlay.show_click_markers);

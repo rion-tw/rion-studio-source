@@ -31,7 +31,6 @@ function renderDiagnostics(apiOverrides: Partial<RionStudioApi> = {}) {
     getLogStatus,
     queryLogs,
     onLogEntryAdded: () => () => undefined,
-    onBrowserPerformanceDiagnosticsChanged: () => () => undefined,
     exportDiagnostics: async () => ({ filePath: "/exports/diagnostics.zip", logFileCount: 1 }),
     clearLogs: async () => logStatus,
     ...apiOverrides
@@ -39,7 +38,7 @@ function renderDiagnostics(apiOverrides: Partial<RionStudioApi> = {}) {
 
   render(
     <ConfirmationProvider>
-      <DiagnosticsSettingsSection roles={[]} t={t} onError={onError} />
+      <DiagnosticsSettingsSection t={t} onError={onError} />
     </ConfirmationProvider>
   );
 
@@ -57,6 +56,14 @@ afterEach(() => {
 });
 
 describe("diagnostic export log cleanup", () => {
+  it("offers log export without retired performance measurement controls", async () => {
+    const { getLogStatus } = renderDiagnostics();
+    await waitForInitialLogRefresh(getLogStatus);
+    expect(screen.getByRole("button", { name: "Export diagnostics" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Measure presentation FPS" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel measurement" })).toBeNull();
+  });
+
   it.each([
     { name: "defaults cleanup to enabled when no preference is stored", storedValue: undefined },
     { name: "defaults cleanup to enabled when the stored preference is invalid", storedValue: "unexpected" }

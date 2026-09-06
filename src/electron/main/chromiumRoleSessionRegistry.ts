@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { posix, win32 } from "node:path";
+import {
+  chromiumPathApi as pathApi,
+  chromiumPathKey as ownershipKey,
+  canonicalChromiumPath
+} from "./chromiumSessionPath";
 
 import type { FromPathOptions, Session } from "electron";
 
@@ -256,29 +260,19 @@ function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-function pathApi(platform: SupportedPlatform): typeof posix {
-  return platform === "win32" ? win32 : posix;
-}
-
 function canonicalAbsolutePath(
   value: unknown,
   platform: SupportedPlatform,
   fieldName: string
 ): string {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0")) {
-    registryError(
-      "ELECTRON_ROLE_SESSION_PATH_INVALID",
-      `${fieldName} must be a non-empty absolute path supplied by Rust.`
-    );
-  }
-  const paths = pathApi(platform);
-  if (!paths.isAbsolute(value) || paths.normalize(value) !== value) {
+  const path = canonicalChromiumPath(value, platform);
+  if (path === null) {
     registryError(
       "ELECTRON_ROLE_SESSION_PATH_INVALID",
       `${fieldName} must be a canonical absolute path supplied by Rust.`
     );
   }
-  return value;
+  return path;
 }
 
 function roleChromiumPath(
@@ -315,28 +309,18 @@ function roleChromiumPath(
   return chromiumPath;
 }
 
-function ownershipKey(path: string, platform: SupportedPlatform): string {
-  return platform === "win32" ? path.toLowerCase() : path;
-}
-
 function nativeStoragePathKey(
   value: string | null,
   platform: SupportedPlatform
 ): string {
-  const paths = pathApi(platform);
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.includes("\0") ||
-    !paths.isAbsolute(value) ||
-    paths.normalize(value) !== value
-  ) {
+  const path = canonicalChromiumPath(value, platform);
+  if (path === null) {
     registryError(
       "CHROMIUM_ROLE_SESSION_NATIVE_PATH_MISMATCH",
       "The native Chromium session did not expose the exact Rust-owned profile path."
     );
   }
-  return ownershipKey(value, platform);
+  return ownershipKey(path, platform);
 }
 
 export class ChromiumRoleSessionRegistry {

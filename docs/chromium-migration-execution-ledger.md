@@ -8,6 +8,10 @@ only an execution view and must never be used to waive a gate.
 
 Last reconciled: 2026-09-06.
 
+The separate [Chromium Cross-Platform API Ledger](chromium-cross-platform-api-ledger.md)
+tracks shared API adoption and justified native boundaries. Its maintenance
+tasks do not waive or replace the release-cutover gates in this ledger.
+
 ## Current count
 
 - Five release-cutover work packages remain before the migration can be called

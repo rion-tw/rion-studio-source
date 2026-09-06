@@ -690,6 +690,8 @@ CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
 }
 
 const TAB_MENU_LABELS = Object.freeze({
+  mute: Object.freeze(["Mute Tab", "將分頁靜音", "将标签页静音", "タブをミュート"]),
+  unmute: Object.freeze(["Unmute Tab", "取消分頁靜音", "取消标签页静音", "タブのミュートを解除"]),
   hide: Object.freeze([
     "Hide tab (keeps running)",
     "隱藏分頁（保持運行）",
@@ -718,7 +720,7 @@ const TAB_MENU_LABELS = Object.freeze({
 
 /** Opens the visible native NSMenu and selects one of its real menu items. */
 export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
-  action: "hide" | "move" | "moveToNewWindow" | "reload";
+  action: "hide" | "move" | "moveToNewWindow" | "reload" | "mute" | "unmute";
   tabId: string;
   tabName: string;
   targetWindowName?: string;

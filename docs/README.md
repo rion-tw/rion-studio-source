@@ -11,6 +11,9 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [System WebView Runtime Contract](system-webview-runtime-contract.md) | Active, version owner | Any Core/Tauri/native runtime contract changes |
 | [Chromium Runtime Migration](chromium-runtime-migration.md) | Active, staged contract | Electron/Chromium architecture, session transfer, cutover, or Tauri retirement |
 | [Chromium Migration Execution Ledger](chromium-migration-execution-ledger.md) | Active, non-normative ledger | Remaining work count, gate status, or migration handoff |
+| [Chromium Cross-Platform API Ledger](chromium-cross-platform-api-ledger.md) | Active, non-normative ledger | Shared Chromium API adoption, retained native boundaries, maintenance tasks and equivalence evidence |
+| [Chromium Capability Ownership Audit](chromium-capability-ownership-audit.md) | Active, non-normative audit | Browser API owners, authoritative receipts, behavior evidence and native coverage gaps |
+| [Chromium Platform Data Boundaries](chromium-platform-data-audit.md) | Active, non-normative audit | Retained filesystem, lock, encryption and Chrome-import adapters with native validation limits |
 | [Operations and Receipts](contracts/system-runtime/operations-and-receipts.md) | Active, normative | Operation identity, completion, revisions, diagnostics |
 | [Ownership and Activation](contracts/system-runtime/ownership-and-activation.md) | Active, normative | Window/tab ownership, launch, activation, topology |
 | [Native Projections and Placement](contracts/system-runtime/native-projections-and-placement.md) | Active, normative | Native chrome, destructive stop, persistence, placement |

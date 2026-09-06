@@ -27,7 +27,12 @@ pub(crate) enum DeleteQuarantineOutcome {
 
 pub fn paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord> {
     validate_role_id(role_id)?;
-    let browser_user_data_dir = browser_directory(user_data_dir, role_id);
+    let browser_directory = browser_directory(user_data_dir, role_id);
+    let browser_user_data_dir = PathBuf::from(
+        crate::chromium_path::engine_path(&browser_directory).ok_or_else(|| {
+            CoreError::InvalidInput("The role browser path is not valid UTF-8.".to_owned())
+        })?,
+    );
     Ok(RolePathsRecord {
         browser_user_data_dir: browser_user_data_dir.to_string_lossy().into_owned(),
         system_browser_data_dir: browser_user_data_dir

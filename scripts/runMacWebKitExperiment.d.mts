@@ -18,7 +18,6 @@ export interface MacWebKitExperimentOptions {
   gameMode: "off" | "on";
   mode: MacWebKitExperimentSelection;
   modes: MacWebKitExperimentMode[];
-  sampleMs: number;
   stpApp?: string;
   stpFrameworkPath?: string;
   usesStp: boolean;

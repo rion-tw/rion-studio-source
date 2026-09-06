@@ -933,7 +933,7 @@
       "kind": "ui",
       "risk": "external",
       "outcomes": ["success", "cancel"],
-      "description": "Verify the macOS-only high-refresh selector defaults to Disabled and remains visibly selectable in Preferences (and verify its Windows absence), Interface font previews and override-warning placement, Data transfer, event-bound performance diagnostics and cancellation, update, and legal entry points plus their non-destructive cancel boundaries."
+      "description": "Verify the retired high-refresh selector is absent on both platforms, Interface font previews and override-warning placement, Data transfer, absence of retired performance measurement controls and retained log export, update, and legal entry points plus their non-destructive cancel boundaries."
     },
     {
       "id": "NATIVE-DISPLAY-001",
@@ -1692,7 +1692,7 @@
       "kind": "ui",
       "risk": "external",
       "outcomes": ["success", "cancel"],
-      "description": "Through visible macOS Chromium UI, prove the AppKit-platform-only high-refresh selector and exact persisted Auto-to-Disabled transition, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, event-bound performance-diagnostic cancellation, and legal-document close boundary."
+      "description": "Through visible macOS Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, and legal-document close boundary."
     },
     {
       "id": "CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013",
@@ -1708,7 +1708,7 @@
       "kind": "ui",
       "risk": "external",
       "outcomes": ["success", "cancel"],
-      "description": "Through visible Windows Chromium UI, prove absence of the macOS-only high-refresh selector, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, event-bound performance-diagnostic cancellation, and legal-document close boundary."
+      "description": "Through visible Windows Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, and legal-document close boundary."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-EXPORT-029",
@@ -2369,6 +2369,94 @@
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
       "description": "Use real WebDriver pointer drag and the visible bundled-host context menu to reorder, move to an existing window, detach to a new window, hide, and visibly reveal Role tabs; prove selected detach leaves the exact source successor, every Core/native generation, topology revision, and parent fence agrees, and the distributed topology persists across restart before visible consolidation. Resize differently sized source and target windows, prove each Chromium controller fills its exact current-root viewport with no shell failure, and prove minimize/visible restore preserves bounds without a resize event."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-FONT-APPLICATION-033",
+      "coverageGroup": "chromium-v23-font-application",
+      "feature": "settings",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-system-settings"
+      ],
+      "spec": "e2e/desktop/specs/chromium-system-settings.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "cancel"
+      ],
+      "description": "Select the local ui-monospace generic for Latin and numbers through visible settings. Cancel a draft without altering the live Role; apply and require matching Core selection, actual Role CSS and equal Canvas widths for W/i while preserving the page font getter; visibly reset and restore original CSS and proportional Canvas metrics. Wait for automatic inventory loading, then also apply Courier New and require loaded Latin/numeric FontFace aliases, Core selection and monospace Canvas metrics before reset. Evidence is produced by a trusted click in the fixture main world. No downloaded font or preview substitutes for live-page evidence."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-FONT-APPLICATION-033",
+      "coverageGroup": "chromium-v23-font-application",
+      "feature": "settings",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-system-settings"
+      ],
+      "spec": "e2e/desktop/specs/chromium-system-settings.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "cancel"
+      ],
+      "description": "Select the local ui-monospace generic for Latin and numbers through visible settings. Cancel a draft without altering the live Role; apply and require matching Core selection, actual Role CSS and equal Canvas widths for W/i while preserving the page font getter; visibly reset and restore original CSS and proportional Canvas metrics. Wait for automatic inventory loading, then also apply Courier New and require loaded Latin/numeric FontFace aliases, Core selection and monospace Canvas metrics before reset. Evidence is produced by a trusted click in the fixture main world. No downloaded font or preview substitutes for live-page evidence."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-AUDIO-032",
+      "coverageGroup": "chromium-v23-runtime-tab-audio",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-controlled-role-reload"
+      ],
+      "spec": "e2e/desktop/specs/chromium-controlled-role-reload.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Use the visible native tab menu to mute and unmute a live Role. Require agreement between Core audioMuted and exact Chromium WebContents audio readback, preserving document, owner and surface identity for each audio mutation. Retain mute through controlled Reload success, an injected Reload failure and visible recovery before unmuting."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-RUNTIME-TAB-AUDIO-032",
+      "coverageGroup": "chromium-v23-runtime-tab-audio",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-controlled-role-reload"
+      ],
+      "spec": "e2e/desktop/specs/chromium-controlled-role-reload.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Use the visible native tab menu to mute and unmute a live Role. Require agreement between Core audioMuted and exact Chromium WebContents audio readback, preserving document, owner and surface identity for each audio mutation. Retain mute through controlled Reload success, an injected Reload failure and visible recovery before unmuting."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-RELOAD-031",

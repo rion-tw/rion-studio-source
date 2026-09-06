@@ -32,7 +32,7 @@ pub struct MacroOverlayViewModelRecord {
 mod command_tests {
     use serde_json::json;
 
-    use super::{BrowserPerformanceDiagnosticsRecord, CoreCommand, CoreEvent, StateCollection};
+    use super::{CoreCommand, CoreEvent, StateCollection};
 
     #[test]
     fn enum_fields_use_the_generated_camel_case_contract() {
@@ -101,41 +101,4 @@ mod command_tests {
         ));
     }
 
-    #[test]
-    fn browser_performance_diagnostics_power_fields_are_optional_and_camel_case() {
-        let with_system_state = json!({
-            "capturedAt": "2026-07-31T00:00:00Z",
-            "platform": "macos",
-            "status": "available",
-            "windowFocused": true,
-            "displayRefreshRateHz": 144.0,
-            "systemLowPowerModeEnabled": true,
-            "systemThermalState": "serious",
-            "highRefreshRateRequested": true,
-            "sampleDurationMs": 1500,
-            "surfaces": []
-        });
-        let record =
-            serde_json::from_value::<BrowserPerformanceDiagnosticsRecord>(with_system_state)
-                .unwrap();
-        assert_eq!(record.system_low_power_mode_enabled, Some(true));
-        assert_eq!(record.system_thermal_state.as_deref(), Some("serious"));
-        let serialized = serde_json::to_value(record).unwrap();
-        assert_eq!(serialized["systemLowPowerModeEnabled"], json!(true));
-        assert_eq!(serialized["systemThermalState"], json!("serious"));
-        assert!(serialized.get("system_low_power_mode_enabled").is_none());
-
-        let legacy = serde_json::from_value::<BrowserPerformanceDiagnosticsRecord>(json!({
-            "capturedAt": "2026-07-31T00:00:00Z",
-            "platform": "macos",
-            "status": "noRunningRole",
-            "windowFocused": false,
-            "highRefreshRateRequested": false,
-            "sampleDurationMs": 1500,
-            "surfaces": []
-        }))
-        .unwrap();
-        assert_eq!(legacy.system_low_power_mode_enabled, None);
-        assert_eq!(legacy.system_thermal_state, None);
-    }
 }

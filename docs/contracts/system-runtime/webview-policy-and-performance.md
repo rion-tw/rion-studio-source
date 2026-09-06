@@ -14,41 +14,24 @@ catalog remains read-only evidence for WebGL command batching and never compares
 version strings numerically. Explicit process-path and rendering-feature writes
 exist only behind the isolated debug experiment gate.
 
-The separate macOS high-refresh preference is `auto`, `enabled`, or `disabled`.
-New or missing settings default to `disabled`; explicitly stored modes are not
-migrated. `disabled` leaves WebKit's standard presentation preference untouched.
-`auto` requests WebKit's high-refresh presentation feature when the selected
-display is above 60 Hz. The preference is resolved before creating each role
-WKWebView and takes effect after Rion Studio restarts.
+The owner retired the high-refresh preference and foreground performance
+measurement on 2026-09-06. Both shells leave frame cadence to the browser engine.
+Retired persisted or imported performance settings are ignored and omitted from
+current settings. The settings UI, sample IPC/events, page probes, native
+power/thermal probes and diagnostic sample export are removed. General log and
+runtime diagnostics export remains available.
 
 On Windows, WebView2 owns the hardware-accelerated renderer and GPU-process path.
 Production arguments never include GPU
 VSync, frame-limit, in-process GPU, ANGLE selection, or sandbox-disabling flags.
-Diagnostics enumerate renderer and GPU processes through
-`ICoreWebView2Environment8::GetProcessInfos`, record the WebView2/Chromium runtime
-version, and summarize `SystemInfo.getInfo` GPU evidence. The WebKit-specific
-command-batching catalog is `notApplicable` on Windows. Missing supported evidence
-is reported; it is never compensated by lower resolution or an
-unsupported production flag.
-
-Foreground diagnostics are operation-ID and revision fenced. Begin returns a
-`waitingForFocus` operation, an exact runtime-window focus event starts the
-1.5-second presentation sample, and terminal state is `completed`, `failed`, or
-`cancelled`. Cancellation wakes the DeadlineBound sample and removes only the
-matching operation's page probe. A readback deadline cannot become success. `presentationFps` is rAF
-presentation cadence, not a page's timer/Wasm game-loop FPS counter. The probe
-only reads dimensions and an already-exposed active `GLctx`; it never requests a
-new context from a canvas.
-
 Debug-only WebKit experiments run from an isolated Rion user-data directory.
 They may load an explicitly supplied Safari Technology Preview framework and
 select an exact WebGL/DOM-rendering A/B cell. The `matrix` launcher orders all
 seven cells while reusing only that isolated login store. The `system-default`
-cell leaves every WebKit feature preference untouched. Their overlay reads Emscripten's
-public `MainLoop` counters every approximately 100 ms from the existing rAF
-observer, does not replace timers or WebGL methods, and is removed on read,
-cancel, supersede, or navigation. STP frameworks and experiment environment
-switches are absent from production behavior.
+cell leaves every WebKit feature preference untouched. The retired in-app
+sampling overlay is unavailable; experiments require separate fixture or external
+measurement evidence. STP frameworks and experiment environment switches remain
+absent from production behavior.
 
 Production macOS bundles and ordinary development bundles declare
 `LSSupportsGameMode=true` and the games application category. macOS activates

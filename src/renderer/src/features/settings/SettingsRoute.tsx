@@ -26,7 +26,7 @@ import { normalizeGameBrowserSettings, workspaceGapSizes } from "../../../../sha
 
 import { getLegalDocumentVersion, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 
-import type { AppUpdateStatus, BrowserPerformanceSettings, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacosHighRefreshMode, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, QuickAccessPreferences, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
+import type { AppUpdateStatus, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, QuickAccessPreferences, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
 
 import { MacroSettingsSection } from "./MacroSettingsSection";
 
@@ -143,7 +143,6 @@ function SettingsViewBase({
   const [isPortableBusy, setIsPortableBusy] = useState(false);
   const [legalDocumentKind, setLegalDocumentKind] = useState<LegalDocumentKind | null>(null);
   const [isWorkspaceAppearanceSaving, setIsWorkspaceAppearanceSaving] = useState(false);
-  const [isBrowserPerformanceSaving, setIsBrowserPerformanceSaving] = useState(false);
   const [isFontSmoothingSaving, setIsFontSmoothingSaving] = useState(false);
   const [isRuntimeWindowPreferencesSaving, setIsRuntimeWindowPreferencesSaving] =
     useState(false);
@@ -174,7 +173,6 @@ function SettingsViewBase({
       ...(patch.macroOverlay ? {
         macroOverlay: { ...normalizedSettings.macroOverlay, ...patch.macroOverlay }
       } : {}),
-      ...(patch.performance ? { performance: patch.performance } : {}),
       ...(patch.workspace ? { workspace: patch.workspace } : {})
     });
   });
@@ -194,25 +192,6 @@ function SettingsViewBase({
     })
       .catch(onError)
       .finally(() => setIsWorkspaceAppearanceSaving(false));
-  }
-
-  function updateBrowserPerformanceSettings(
-    update: Partial<BrowserPerformanceSettings>
-  ): void {
-    if (isBrowserPerformanceSaving) {
-      return;
-    }
-
-    const normalizedSettings = normalizeGameBrowserSettings(gameBrowserSettings);
-    setIsBrowserPerformanceSaving(true);
-    void saveNonFontPatch({
-      performance: {
-        ...normalizedSettings.performance,
-        ...update
-      }
-    })
-      .catch(onError)
-      .finally(() => setIsBrowserPerformanceSaving(false));
   }
 
   function updateFontSmoothingSetting(fontSmoothingEnabled: boolean): void {
@@ -390,34 +369,6 @@ function SettingsViewBase({
                   </Select>
                 }
               />
-              {isMacOS ? (
-                <SettingsRow
-                  title={t("settings.macosHighRefreshRate")}
-                  description={t("settings.macosHighRefreshRateDescription")}
-                  control={
-                    <Select
-                      value={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshMode}
-                      disabled={isBrowserPerformanceSaving}
-                      onValueChange={(macosHighRefreshMode) =>
-                        updateBrowserPerformanceSettings({
-                          macosHighRefreshMode: macosHighRefreshMode as MacosHighRefreshMode
-                        })}
-                    >
-                      <SelectTrigger
-                        className="settings-menu-control"
-                        aria-label={t("settings.macosHighRefreshRate")}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">{t("settings.macosHighRefreshRate.auto")}</SelectItem>
-                        <SelectItem value="enabled">{t("settings.macosHighRefreshRate.enabled")}</SelectItem>
-                        <SelectItem value="disabled">{t("settings.macosHighRefreshRate.disabled")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  }
-                />
-              ) : null}
             </SettingsSection>
           </>
         ) : null}
@@ -728,7 +679,7 @@ function SettingsViewBase({
           </SettingsSection>
         ) : null}
 
-        {activeSection === "diagnostics" ? <DiagnosticsSettingsSection roles={roles ?? []} t={t} onError={onError} /> : null}
+        {activeSection === "diagnostics" ? <DiagnosticsSettingsSection t={t} onError={onError} /> : null}
 
         {activeSection === "aboutLegal" ? (
           <>

@@ -98,7 +98,6 @@ export class MemoryStateRepository {
       ...(patch.macroOverlay ? {
         macroOverlay: { ...current.macroOverlay, ...patch.macroOverlay }
       } : {}),
-      ...(patch.performance ? { performance: patch.performance } : {}),
       ...(patch.workspace ? { workspace: patch.workspace } : {})
     });
     this.state.gameBrowserSettings = structuredClone(next);

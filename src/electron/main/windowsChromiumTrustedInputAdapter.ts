@@ -1,11 +1,13 @@
+import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
+  "./chromiumTrustedInputDomReceipt";
+import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } from
+  "./chromiumTrustedInputPendingLane";
 import { randomUUID } from "node:crypto";
 
 import type { BrowserAction } from "../../shared/generated";
 import {
   CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
   type ChromiumRoleTrustedInputArmEnvelope,
-  type ChromiumRoleTrustedInputCancelEnvelope,
-  type ChromiumRoleTrustedInputDomReceipt,
   type ChromiumRoleTrustedInputExpectedEvent,
   type ChromiumRoleTrustedInputReceipt
 } from "../ipc/chromiumRoleTrustedInputProtocol";
@@ -34,7 +36,6 @@ import {
   type WindowsNativeTrustedMouseSubmissionReceipt
 } from "./windowsChromiumTrustedInputContract";
 
-const MAX_RECEIPT_BYTES = 16 * 1024;
 const INPUT_SEQUENCE_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const OPAQUE_HANDLE_PATTERN = /^[0-9a-f]{32,128}$/u;
@@ -118,14 +119,6 @@ function fail(code: string, message: string): never {
   throw inputError(code, message);
 }
 
-function sameFrame(
-  left: ChromiumRoleOverlayFrameIdentity,
-  right: ChromiumRoleOverlayFrameIdentity
-): boolean {
-  return left.roleId === right.roleId && left.generation === right.generation &&
-    left.frame === right.frame && left.frameToken === right.frameToken &&
-    left.documentInstanceId === right.documentInstanceId;
-}
 
 function sameIdentity(
   left: WindowsChromiumInputSurfaceIdentity,
@@ -270,93 +263,8 @@ function prepareDispatch(
   });
 }
 
-function serializedSize(value: unknown): number {
-  try {
-    const serialized = JSON.stringify(value);
-    return serialized === undefined
-      ? Number.POSITIVE_INFINITY
-      : new TextEncoder().encode(serialized).byteLength;
-  } catch {
-    return Number.POSITIVE_INFINITY;
-  }
-}
-
-function exactKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
-  const keys = Object.keys(record).sort();
-  const expectedKeys = [...expected].sort();
-  return keys.length === expectedKeys.length &&
-    keys.every((key, index) => key === expectedKeys[index]);
-}
-
 function parseReceipt(value: unknown): ChromiumRoleTrustedInputReceipt {
-  if (
-    !value || typeof value !== "object" || Array.isArray(value) ||
-    serializedSize(value) > MAX_RECEIPT_BYTES
-  ) {
-    fail(
-      "ELECTRON_WINDOWS_CHROMIUM_INPUT_RECEIPT_INVALID",
-      "The trusted-input preload receipt is malformed or too large."
-    );
-  }
-  const record = value as Record<string, unknown>;
-  const identityValid = typeof record.roleId === "string" &&
-    Number.isSafeInteger(record.generation) && (record.generation as number) >= 1 &&
-    typeof record.frameToken === "string" && record.frameToken.length > 0 &&
-    typeof record.inputSequence === "string" &&
-    INPUT_SEQUENCE_PATTERN.test(record.inputSequence);
-  const baseKeys = ["frameToken", "generation", "inputSequence", "kind", "roleId"];
-  if (!identityValid) {
-    fail(
-      "ELECTRON_WINDOWS_CHROMIUM_INPUT_RECEIPT_INVALID",
-      "The trusted-input preload receipt has an invalid identity."
-    );
-  }
-  if (record.kind === "armed" && exactKeys(record, [...baseKeys, "expectedEventCount"])) {
-    if (!Number.isSafeInteger(record.expectedEventCount) ||
-      (record.expectedEventCount as number) < 1 ||
-      (record.expectedEventCount as number) > 3) {
-      fail(
-        "ELECTRON_WINDOWS_CHROMIUM_INPUT_RECEIPT_INVALID",
-        "The trusted-input arm receipt is invalid."
-      );
-    }
-    return record as unknown as ChromiumRoleTrustedInputReceipt;
-  }
-  if (record.kind === "cancelled" && exactKeys(record, baseKeys)) {
-    return record as unknown as ChromiumRoleTrustedInputReceipt;
-  }
-  if (record.kind === "rejected" && exactKeys(record, [...baseKeys, "reason"]) &&
-    ["busy", "invalid-control", "stale-frame"].includes(String(record.reason))) {
-    return record as unknown as ChromiumRoleTrustedInputReceipt;
-  }
-  if (record.kind === "input" && exactKeys(record, [
-    ...baseKeys, "altKey", "button", "clientX", "clientY", "code", "ctrlKey",
-    "isTrusted", "matches", "metaKey", "observedIndex", "repeat", "shiftKey", "type"
-  ])) {
-    const valid = Number.isSafeInteger(record.observedIndex) &&
-      (record.observedIndex as number) >= 0 &&
-      typeof record.isTrusted === "boolean" && typeof record.matches === "boolean" &&
-      typeof record.altKey === "boolean" && typeof record.ctrlKey === "boolean" &&
-      typeof record.metaKey === "boolean" && typeof record.shiftKey === "boolean" &&
-      typeof record.repeat === "boolean" && typeof record.type === "string";
-    if (valid) return record as unknown as ChromiumRoleTrustedInputReceipt;
-  }
-  fail(
-    "ELECTRON_WINDOWS_CHROMIUM_INPUT_RECEIPT_INVALID",
-    "The trusted-input preload receipt contains unsupported fields."
-  );
-}
-
-function sameExpected(
-  receipt: ChromiumRoleTrustedInputDomReceipt,
-  expected: ChromiumRoleTrustedInputExpectedEvent
-): boolean {
-  return receipt.matches === true && receipt.isTrusted === true &&
-    receipt.type === expected.type && receipt.code === expected.code &&
-    receipt.button === expected.button && receipt.clientX === expected.clientX &&
-    receipt.clientY === expected.clientY && receipt.altKey === expected.altKey &&
-    receipt.ctrlKey === expected.ctrlKey && receipt.metaKey === expected.metaKey &&
-    receipt.shiftKey === expected.shiftKey && receipt.repeat === expected.repeat;
+  return parseTrustedInputDomReceipt(value, (message) => fail("ELECTRON_WINDOWS_CHROMIUM_INPUT_RECEIPT_INVALID", message));
 }
 
 function canonicalU64(value: unknown, positive = false): bigint | null {
@@ -499,8 +407,7 @@ implements ChromiumNativeTrustedInputPort {
   readonly #deadlines: WindowsChromiumTrustedInputDeadlinePort;
   readonly #createInputSequence: () => string;
   readonly #backgroundSupported: boolean;
-  readonly #pendingByRole = new Map<string, PendingDispatch>();
-  readonly #pendingByRequest = new Map<string, PendingDispatch>();
+  readonly #pending: ChromiumTrustedInputPendingLane<PendingDispatch>;
   readonly #unsubscribeLifecycle: () => void;
   readonly #ipcListener = (
     event: WindowsChromiumTrustedInputIpcEventPort,
@@ -531,6 +438,11 @@ implements ChromiumNativeTrustedInputPort {
     this.#deadlines = input.deadlines;
     this.#backgroundSupported = input.backgroundSupported;
     this.#createInputSequence = input.createInputSequence ?? randomUUID;
+    this.#pending = new ChromiumTrustedInputPendingLane({
+      nowMs: this.#nowMs,
+      cancelDeadline: (handle) => this.#deadlines.cancel(handle),
+      sendCancel: (frame, envelope) => this.#surfaces.sendTrustedInputControl(frame, envelope)
+    });
     this.#unsubscribeLifecycle = this.#surfaces.subscribeTrustedInputLifecycle(
       (event) => this.#onSurfaceLifecycle(event)
     );
@@ -557,8 +469,7 @@ implements ChromiumNativeTrustedInputPort {
         "The Windows trusted-input receipt lane is unavailable."
       ));
     }
-    if (this.#pendingByRole.has(request.roleId) ||
-      this.#pendingByRequest.has(request.requestId)) {
+    if (this.#pending.busy(request.roleId, request.requestId)) {
       return Promise.resolve(this.#immediateFailure(
         request,
         "ELECTRON_WINDOWS_CHROMIUM_INPUT_LANE_BUSY",
@@ -642,8 +553,10 @@ implements ChromiumNativeTrustedInputPort {
       terminal: false,
       lastNativeDispatchSequence: 0n
     };
-    this.#pendingByRole.set(request.roleId, pending);
-    this.#pendingByRequest.set(request.requestId, pending);
+    if (!this.#pending.add(pending)) {
+      return Promise.resolve(this.#immediateFailure(request,
+        "ELECTRON_WINDOWS_CHROMIUM_INPUT_LANE_BUSY", "The role already has one exact trusted-input request in flight."));
+    }
     pending.timer = this.#deadlines.schedule(() => {
       this.#terminalize(
         pending,
@@ -694,7 +607,7 @@ implements ChromiumNativeTrustedInputPort {
       event.senderFrame,
       receipt.frameToken
     );
-    const pending = this.#pendingByRole.get(identity.roleId);
+    const pending = this.#pending.forRole(identity.roleId);
     if (!pending || pending.terminal || !sameFrame(identity, pending.frame) ||
       receipt.roleId !== pending.request.roleId ||
       receipt.generation !== pending.request.surfaceGeneration ||
@@ -732,7 +645,7 @@ implements ChromiumNativeTrustedInputPort {
   }
 
   cancel(requestId: string): boolean {
-    const pending = this.#pendingByRequest.get(requestId);
+    const pending = this.#pending.forRequest(requestId);
     if (!pending || pending.terminal) return false;
     this.#terminalize(
       pending,
@@ -759,7 +672,7 @@ implements ChromiumNativeTrustedInputPort {
       );
       this.#ipcMain = null;
     }
-    for (const pending of [...this.#pendingByRole.values()]) {
+    for (const pending of this.#pending.values()) {
       this.#terminalize(
         pending,
         pending.nativeInvoked ? "indeterminate" : "superseded",
@@ -979,25 +892,11 @@ implements ChromiumNativeTrustedInputPort {
   }
 
   #maybeApply(pending: PendingDispatch): void {
-    if (pending.terminal || !pending.nativeComplete ||
-      pending.nextDomIndex !== pending.expectedEvents.length) return;
-    this.#terminalize(
-      pending,
-      "applied",
-      null,
-      null,
-      pending.request.expectedInputNeutralityAfter
-    );
+    this.#pending.maybeApply(pending);
   }
 
   #terminalizeMismatch(pending: PendingDispatch): void {
-    this.#terminalize(
-      pending,
-      pending.nativeInvoked ? "indeterminate" : "failed",
-      "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_MISMATCH",
-      "The isolated preload did not report the exact trusted DOM sequence.",
-      !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
-    );
+    this.#pending.mismatch(pending);
   }
 
   #terminalize(
@@ -1007,35 +906,7 @@ implements ChromiumNativeTrustedInputPort {
     errorMessage: string | null,
     confirmedInputNeutrality: boolean
   ): void {
-    if (pending.terminal) return;
-    pending.terminal = true;
-    this.#deadlines.cancel(pending.timer);
-    this.#pendingByRole.delete(pending.request.roleId);
-    this.#pendingByRequest.delete(pending.request.requestId);
-    if (status !== "applied") {
-      try {
-        this.#surfaces.sendTrustedInputControl(pending.frame, Object.freeze({
-          kind: "cancel",
-          roleId: pending.request.roleId,
-          generation: pending.request.surfaceGeneration,
-          frameToken: pending.frame.frameToken,
-          inputSequence: pending.inputSequence
-        } satisfies ChromiumRoleTrustedInputCancelEnvelope));
-      } catch {
-        // Navigation/retirement may already have destroyed the exact frame.
-      }
-    }
-    pending.completion.resolve(Object.freeze({
-      requestId: pending.request.requestId,
-      roleId: pending.request.roleId,
-      inputEpoch: pending.request.inputEpoch,
-      surfaceGeneration: pending.request.surfaceGeneration,
-      status,
-      completedAtMs: this.#nowMs(),
-      errorCode,
-      errorMessage,
-      confirmedInputNeutrality
-    }));
+    this.#pending.finish(pending, status, errorCode, errorMessage, confirmedInputNeutrality);
   }
 
   #immediateFailure(
@@ -1057,18 +928,6 @@ implements ChromiumNativeTrustedInputPort {
   }
 
   #onSurfaceLifecycle(event: ChromiumRoleOverlayLifecycleEvent): void {
-    const pending = this.#pendingByRole.get(event.roleId);
-    if (!pending || pending.request.surfaceGeneration !== event.generation) return;
-    this.#terminalize(
-      pending,
-      pending.nativeInvoked ? "indeterminate" : "superseded",
-      pending.nativeInvoked
-        ? "SYSTEM_TRUSTED_INPUT_DOCUMENT_SUPERSEDED"
-        : "BROWSER_ACTION_STALE",
-      event.reason === "document-superseded"
-        ? "The Chromium document changed before exact trusted-input completion."
-        : "The Chromium surface retired before exact trusted-input completion.",
-      !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
-    );
+    this.#pending.surfaceChanged(event);
   }
 }

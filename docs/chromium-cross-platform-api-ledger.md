@@ -64,7 +64,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-03 | P0 / Core + Sessions | implemented; both native Rust gates passed, Windows Chromium smoke pending | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
-| CP-06 | P1 / Fonts + bridge | implemented; macOS native/settings passed, Windows pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
+| CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | probe | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | retain native submission by API contract; paired acceptance pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
@@ -1626,3 +1626,24 @@ not resolve the `[ushort]` alias used by its test driver. The driver now uses
 semantics or assertions. This fixture-only correction is `internal-only`; its
 Windows execution and all CP-07 comparison outcomes remain pending. The other
 native test successes do not turn the failed native job into a pass.
+
+### Refreshed macOS Chromium evidence and corrective CI
+
+The downloaded macOS report from run `34012430832`, source `2420e72a`, records
+52 passing phases, four expected force-termination phases and all 49 journeys
+passing under `chromium-macos-appkit-smoke`. It ran from 04:49:40 to 05:09:20
+UTC on 2026-09-06. The report's `worktreeDirty` flag is true; this is source E2E
+evidence and must not be presented as a clean packaged production candidate.
+Local evidence:
+`/tmp/rion-2420-mac-artifacts/2026-09-06T04-49-39-946Z-darwin/report.json`.
+The full run includes the updated SYSTEM-SETTINGS-013 and FONT-APPLICATION-033
+journeys, extending the earlier isolated macOS settings evidence. Packaging
+and updater transaction outcomes remain separate gates.
+
+Corrective run
+[34013275719](https://github.com/rion-tw/rion-studio-source/actions/runs/34013275719)
+validates exact source `b22dd888d4e6afb7ac930446c6041057803a852a`: asynchronous
+tab-close dispatch, the PowerShell F11 input-driver type correction and isolated
+updater toolchain homes. Its renderer build passed and both native, desktop E2E
+and Chromium package jobs are active. No pending Windows or release item is
+closed merely because this new run started.

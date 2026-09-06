@@ -256,22 +256,24 @@ impl SystemRuntimeExecutor {
             .iter()
             .filter(|(tab_id, _)| selected_tab_id.as_deref() == Some(tab_id.as_str()))
             .flat_map(|(_, tab)| tab.dividers.iter())
-            .map(|divider| {
-                let position = divider
-                    .webview
-                    .position()
-                    .map_err(|error| error.to_string())?;
-                let size = divider.webview.size().map_err(|error| error.to_string())?;
+            .map(|divider| (divider.webview.clone(), divider.descriptor.axis.clone(), divider.index))
+            .collect::<Vec<_>>();
+        // Native geometry may synchronously wait for the UI thread. Release the
+        // runtime lock first so presentation callbacks can acquire it.
+        let divider_surfaces = divider_surfaces.into_iter()
+            .map(|(webview, axis, index)| {
+                let position = webview.position().map_err(|error| error.to_string())?;
+                let size = webview.size().map_err(|error| error.to_string())?;
                 Ok(json!({
-                    "axis": divider.descriptor.axis,
+                    "axis": axis,
                     "bounds": {
                         "height": size.height,
                         "width": size.width,
                         "x": position.x,
                         "y": position.y,
                     },
-                    "dividerIndex": divider.index,
-                    "webviewLabel": divider.webview.label(),
+                    "dividerIndex": index,
+                    "webviewLabel": webview.label(),
                 }))
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -287,15 +289,12 @@ impl SystemRuntimeExecutor {
                 .iter()
                 .filter(|(tab_id, _)| selected_tab_id.as_deref() == Some(tab_id.as_str()))
                 .flat_map(|(_, tab)| tab.roles.iter())
-                .map(|(role_id, surface)| {
-                    let position = surface
-                        .webview
-                        .position()
-                        .map_err(|error| error.to_string())?;
-                    let size = surface
-                        .webview
-                        .size()
-                        .map_err(|error| error.to_string())?;
+                .map(|(role_id, surface)| (role_id.clone(), surface.webview.clone()))
+                .collect::<Vec<_>>();
+            let role_surfaces = role_surfaces.into_iter()
+                .map(|(role_id, webview)| {
+                    let position = webview.position().map_err(|error| error.to_string())?;
+                    let size = webview.size().map_err(|error| error.to_string())?;
                     let bounds = json!({
                         "height": size.height,
                         "width": size.width,
@@ -320,30 +319,27 @@ impl SystemRuntimeExecutor {
                 .filter(|(tab_id, _)| selected_tab_id.as_deref() == Some(tab_id.as_str()))
                 .flat_map(|(_, tab)| tab.roles.iter())
                 .filter_map(|(role_id, surface)| {
-                    surface.workspace_web.as_ref().map(|workspace| {
-                        let position = workspace
-                            .chrome
-                            .webview
-                            .position()
-                            .map_err(|error| error.to_string())?;
-                        let size = workspace
-                            .chrome
-                            .webview
-                            .size()
-                            .map_err(|error| error.to_string())?;
-                        Ok(json!({
-                            "bounds": {
-                                "height": size.height,
-                                "width": size.width,
-                                "x": position.x,
-                                "y": position.y,
-                            },
-                            "fullscreen": workspace.fullscreen,
-                            "roleId": role_id,
-                            "visible": !workspace.fullscreen,
-                            "webviewLabel": workspace.chrome.webview.label(),
-                        }))
-                    })
+                    surface.workspace_web.as_ref().map(|workspace| (
+                        role_id.clone(), workspace.chrome.webview.clone(), workspace.fullscreen,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            let workspace_web_chrome_surfaces = workspace_web_chrome_surfaces.into_iter()
+                .map(|(role_id, webview, fullscreen)| {
+                    let position = webview.position().map_err(|error| error.to_string())?;
+                    let size = webview.size().map_err(|error| error.to_string())?;
+                    Ok(json!({
+                        "bounds": {
+                            "height": size.height,
+                            "width": size.width,
+                            "x": position.x,
+                            "y": position.y,
+                        },
+                        "fullscreen": fullscreen,
+                        "roleId": role_id,
+                        "visible": !fullscreen,
+                        "webviewLabel": webview.label(),
+                    }))
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             native_object.insert(

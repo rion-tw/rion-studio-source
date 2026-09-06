@@ -3276,3 +3276,39 @@ initial timing failure. No production Rust/native implementation changed in
 this candidate. The local macOS Chromium Quick Access profile fails its entity
 prerequisite as recorded above; Windows and Tauri hook acceptance require CI.
 Evidence logs: `/tmp/rion-resume-*`.
+
+
+### Release the E2E runtime lock before native geometry readback
+
+Downloaded cbbf3c9a Tauri event artifacts narrow the native-control stalls:
+Windows records `native-control-submitted` sequence 899 for the real minimize
+click and the subsequent visible pointer/control receipts. macOS records the
+restore submission (`action: normal`) at sequence 372 after the minimized
+observation. Both control helpers then synchronously request a window snapshot;
+the native action itself is not simply missing from the event stream.
+
+Source inspection finds the snapshot holds the runtime-state mutex while calling
+WebView position/size accessors for divider surfaces on both platforms and Role /
+Workspace chrome surfaces on macOS. Those native accessors may wait for the UI
+thread while presentation callbacks need the same mutex, contrary to the Tauri
+scope's no-lock-across-native-calls invariant. The snapshot now clones the exact
+handles and metadata under the lock, ends that statement, then reads native
+geometry. The Windows Role/Workspace snapshot already follows this pattern.
+This removes a concrete deadlock risk; native E2E must still establish whether
+it resolves the observed stalls. No timeout, event fence or assertion is waived.
+
+This internal-only change affects RUNTIME-TAB-TOPOLOGY-009 and
+MACRO-OWNERSHIP-TRANSFER-010 through their existing full-profile phase. It adds no
+product behavior or E2E omission. Chromium snapshot owners remain separate and
+unchanged. Native macOS validation is running; Windows validation is pending CI.
+Evidence: `/tmp/rion-cbb-tauri-{mac,win}-artifacts` and
+`/tmp/rion-snapshot-lock-*`.
+
+Native validation after the lock correction: macOS Rust lint passes; all 1643
+Rust tests pass with four existing ignored tests; the desktop-e2e feature build
+passes. The local `full --phase=p1-cross-domain-topology-force` profile records seed PASS and topology EXPECTED_FORCE_TERMINATION after the
+spec passes, including the previously failing minimize/restore and Macro
+ownership-transfer path. All three selected journeys report PASS. Report:
+`.desktop-e2e-artifacts/2026-09-06T11-51-13-828Z-darwin/report.json`.
+This is focused native evidence, not a full-profile pass or Windows validation.
+Source hygiene, documentation and the unchanged coverage manifest also pass.

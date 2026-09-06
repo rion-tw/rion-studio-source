@@ -2133,7 +2133,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Run the identical visible mixed-Workspace contained-fullscreen journey in the bundled Windows Chromium host. Real remote-page clicks and Escape expand only the global-Web content to its exact slot while hiding/restoring the paired local Rion chrome, keep sibling Role/Core and native window geometry fixed, and keep the controlled popup in its revision-fenced native envelope across website exit and restart; Windows execution retains an independent CI verdict."
+      "description": "Run the identical visible mixed-Workspace contained-fullscreen journey in the bundled Windows Chromium host. Real remote-page clicks and Escape expand only the global-Web content to its exact slot while hiding/restoring the paired local Rion chrome, keep sibling Role/Core and native window geometry fixed, and keep the controlled popup in its revision-fenced native envelope across website exit and restart. Close the popup through its visible window control selected by its exact logical window ID, require the popup Core lifecycle to terminalize, and preserve the parent; Windows execution retains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-SECURITY-POLICY-027",

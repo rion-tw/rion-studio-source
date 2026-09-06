@@ -249,10 +249,11 @@ function validateWebOnlyHistory(phase, observations, platform) {
       `${phase}: ready/degraded/visible-reopen ordering or generation is incomplete`
     );
   } else {
+    const firstReady = observations.findIndex((observation) => observation.phase === "ready");
     requireRuntime(
       ready >= 0 && terminal.phase === "ready" && terminal.visible === true &&
         observations.every((observation, index) =>
-          observation.phase === (index < ready ? "activating" : "ready") &&
+          observation.phase === (index < firstReady ? "activating" : "ready") &&
           observation.tabId === terminal.tabId &&
           observation.windowId === terminal.windowId &&
           observation.parentNativeHostId === terminal.parentNativeHostId &&

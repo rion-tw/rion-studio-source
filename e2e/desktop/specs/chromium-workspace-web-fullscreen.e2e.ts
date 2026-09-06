@@ -772,7 +772,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
   await closeVisibleRuntimeWindow({
     mainWindowHandle,
     platform,
-    tabId: popup.popupId,
+    windowId: popup.logicalWindowId,
     tabName: new URL(popupUrl()).hostname
   });
   let restoredParent: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;

@@ -50,7 +50,8 @@ export async function runtimeTabShellErrors(): Promise<readonly unknown[]> {
 
 async function windowsRuntimeHostHandle(
   mainWindowHandle: string,
-  tabId?: string
+  tabId?: string,
+  windowId?: string
 ): Promise<string> {
   let target: string | undefined;
   await browser.waitUntil(async () => {
@@ -62,6 +63,9 @@ async function windowsRuntimeHostHandle(
         if (current.protocol === "file:" && current.pathname.endsWith(
           "/runtime-windows-host.html"
         )) {
+          if (windowId && await browser.execute(() =>
+            document.documentElement.dataset.runtimeWindowId
+          ) !== windowId) continue;
           if (tabId && !await $(`[data-tab-id='${tabId}']`).isExisting()) {
             continue;
           }
@@ -87,9 +91,10 @@ async function windowsRuntimeHostHandle(
 async function withWindowsRuntimeHost<Value>(
   mainWindowHandle: string,
   tabId: string | undefined,
-  action: () => Promise<Value>
+  action: () => Promise<Value>,
+  windowId?: string
 ): Promise<Value> {
-  const target = await windowsRuntimeHostHandle(mainWindowHandle, tabId);
+  const target = await windowsRuntimeHostHandle(mainWindowHandle, tabId, windowId);
   await switchTrackedWindow(target);
   try {
     return await action();
@@ -641,7 +646,7 @@ export async function closeVisibleRuntimeWindow(input: Readonly<{
     const close = await $("button[data-window-command='closeWindow']");
     await close.waitForClickable({ timeout: 10_000 });
     await close.click();
-  });
+  }, input.windowId);
 }
 
 /** Reads the visible native phase adornment without mutating runtime state. */

@@ -711,6 +711,17 @@ implements ChromiumRuntimeHostFactoryPort {
         "The provisional Windows popup host became visible before Core native-ready."
       );
     }
+    // Popup admission owns a standalone window, with no Game Window tab rows.
+    host.applyWindowsChromeProjection?.({
+      activeTabId: null,
+      contentBounds: host.getContentBounds(),
+      moveTargets: [],
+      tabs: [],
+      topologyRevision: 1,
+      windowGeneration: 1,
+      windowId: admission.target.windowId,
+      workspaceDividers: []
+    });
     return Object.freeze({
       host,
       receipt: Object.freeze({
@@ -906,10 +917,21 @@ implements ChromiumRuntimeHostFactoryPort {
       documentUrl: record.documentUrl,
       native,
       readProjection: () => this.#readProjection(record),
-      requestWindowControl: (action) => this.#onWindowControl(
-        record.logicalWindowId,
-        action
-      ),
+      requestWindowControl: (action) => {
+        if (record.popupId && action === "closeWindow") {
+          return this.#withCurrent(record, () => {
+            if (!record.popupObserver) {
+              throw hostError(
+                "ELECTRON_CHROMIUM_POPUP_OBSERVER_UNAVAILABLE",
+                "The popup close requires its exact Core lifecycle observer."
+              );
+            }
+            record.popupObserver.closeRequested();
+            return record.closed.promise;
+          });
+        }
+        return this.#onWindowControl(record.logicalWindowId, action);
+      },
       requestTabControl: this.#onTabControl,
       requestTabReload: this.#onTabReload,
       readLifecycleEpoch: this.#lifecycleEpoch,

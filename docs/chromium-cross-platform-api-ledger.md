@@ -1100,3 +1100,47 @@ Both shell builds subsequently passed (`/tmp/rion-import-path-build.log` and
 `/tmp/rion-import-path-electron-build.log`). The final renderer was restored to
 the pure Electron bundle (36 sources, 3,275,470 bytes). Source hygiene, AI context
 validation and `git diff --check` passed as well.
+
+### Follow-up native CI: restore visibility and Windows popup close
+
+CI `34007374169` at `e70f47dd` passed shared checks. macOS Chromium job
+`101416964234` observed `[ready hidden, ready visible]` on Web-only restart:
+readiness and native visibility are separate authoritative events. The evidence
+validator now orders activation against the first ready observation, while still
+requiring a visible ready terminal and identical tab/window/attempt/native/surface
+identities throughout. Paired platform tests reject activation after readiness,
+changed identities and histories without visible completion. The downloaded
+history validates; a fresh local seed/restart passed in
+`.desktop-e2e-artifacts/2026-09-06T03-03-56-589Z-darwin/report.json` (dirty
+`fc5affaf`, macOS Chromium profile, both selected phases PASS).
+
+Windows job `101416964239` progressed through main/popup website and Escape
+fullscreen exits, then failed selecting a nonexistent popup tab row. A Windows
+popup is a standalone Core-admitted window without Game Window tabs. The E2E now
+selects its exact published logical window ID before clicking the visible close
+control. Source review and the focused regression also identified missing initial
+popup chrome publication and incorrect routing of that control to the ordinary
+Game Window stop command. The Windows factory now projects the admitted standalone
+window with empty tab membership; its close control uses the existing popup
+lifecycle observer and waits for the exact native closed event. Core retains
+popup terminality. The native window-close event follows the same observer.
+
+The affected automated journey is
+`CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017`; its manifest description and
+adjacent visible E2E were updated. macOS AppKit close remains covered by
+`CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FULLSCREEN-017` with the same logical popup
+identity. The host-factory suite passes 37 tests, including visible-control
+admission to the popup observer before any closed receipt. Twelve focused E2E
+validation tests passed. Windows native acceptance of these new changes is
+pending a new exact-SHA CI run; the earlier failure is not relabeled as success.
+
+The completed local validation for this follow-up is 428 Vitest files / 3,287
+tests, typecheck, lint (zero errors; 23 existing warnings), source hygiene,
+E2E coverage, AI context validation and the Electron build. The final bundle is
+pure Electron (36 sources, 3,275,470 bytes). Logs are
+`/tmp/rion-popup-close-full-tests.log`, `/tmp/rion-popup-close-typecheck.log`,
+`/tmp/rion-popup-close-lint.log`, `/tmp/rion-popup-close-hygiene.log`,
+`/tmp/rion-popup-close-coverage.log`, `/tmp/rion-popup-close-build.log` and
+`/tmp/rion-e70-web-only-local.log`. The prior physical-path fix was submitted as
+`fc5affaf` to CI `34007906617`; its still-running native jobs remain separate
+from the popup/visibility changes recorded here.

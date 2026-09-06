@@ -1150,6 +1150,16 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     window.emit("close", closeEvent);
     expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
     expect(observer.closeRequested).toHaveBeenCalledOnce();
+    const projection = window.webContents.sent.at(-1)![1] as {
+      projectionRevision: number;
+    };
+    window.webContents.emit("ipc-message", {}, WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL, {
+      projectionRevision: projection.projectionRevision,
+      type: "closeWindow",
+      windowId: popupAdmission().target.windowId
+    });
+    await vi.waitFor(() => expect(observer.closeRequested).toHaveBeenCalledTimes(2));
+    expect(observer.closed).not.toHaveBeenCalled();
     window.emit("resize");
     expect(observer.layoutChanged).toHaveBeenCalledWith({
       x: 0,

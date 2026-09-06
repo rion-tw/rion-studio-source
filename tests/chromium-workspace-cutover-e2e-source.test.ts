@@ -126,8 +126,15 @@ describe("Chromium Workspace cutover paired replacements", () => {
       await expect(validateWebOnlyHistory([activating, ready], phase, platform))
         .resolves.toMatchObject({ navigationFailureRecovered: false });
       await expect(validateWebOnlyHistory([ready], phase, platform)).resolves.toBeDefined();
+      const hiddenReady = webOnlyObservation({
+        attemptGeneration: "restore-1", generation: 1, phase: "ready", visible: false
+      });
+      for (const history of [[hiddenReady, ready], [activating, hiddenReady, ready]]) {
+        await expect(validateWebOnlyHistory(history, phase, platform)).resolves.toBeDefined();
+      }
       for (const invalid of [
-        [activating], [ready, activating, ready],
+        [activating], [hiddenReady], [ready, activating, ready],
+        [hiddenReady, activating, ready],
         [activating, { ...ready, attemptGeneration: "another-attempt" }],
         [activating, { ...ready, web: { ...ready.web, generation: 2 } }],
         [activating, { ...ready, parentNativeHostId: 99 }]

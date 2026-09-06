@@ -2103,3 +2103,32 @@ counterpart still needs fresh native CI. Both now explicitly assert positive
 placeholder window fences. Pure Electron build/isolation is restored and passes.
 Logs: `/tmp/rion-placeholder-init-*`. No ownership checks, retries or timeouts
 were weakened, and no platform-specific placeholder initialization path was added.
+
+### Native test window controls release the Tauri IPC thread
+
+Windows Tauri CI 34015776112 reached the cross-domain minimize action but failed
+the exact WebView2 ExecuteScriptCompleted bounds readback. The test command was
+synchronous: Tauri's blocking command dispatch ran the native wait on its IPC
+thread, preventing the callback from completing. The command now dispatches the
+existing synchronous native control on spawn_blocking, matching the adjacent
+runtime UI action command. Authorization, HWND/geometry fences, physical input,
+terminal receipts and deadlines are unchanged.
+
+Validation: 23 desktop E2E isolation tests, source hygiene, macOS Rust lint and
+all 1,642 Rust tests pass (4 existing ignored). The desktop-e2e build and local
+Tauri full-profile phase p1-cross-domain-topology-force pass, including its
+required setup, at 522f7d4a plus this working diff, 06:57:11–06:58:37 UTC. Report:
+`.desktop-e2e-artifacts/2026-09-06T06-57-11-002Z-darwin/report.json`. Affected
+journeys are RUNTIME-TAB-TOPOLOGY-009 and MACRO-OWNERSHIP-TRANSFER-010; this
+focused phase does not establish all restart outcomes. This is internal-only
+test-driver scheduling work; product behavior and journey definitions are
+unchanged. Windows native execution of this correction remains pending CI.
+Logs: `/tmp/rion-window-control-*`.
+
+Both macOS and Windows native validation passed on CI 34016712833 at fa5c7737,
+including the POSIX updater toolchain-path correction. Later cleanup and
+placeholder changes are not covered by that result. CI 34017674641 at 522f7d4a
+failed earlier in Windows Chromium fullscreen seed: the native file chooser
+helper was terminated at its external deadline. This run therefore does not
+validate the later shared-Role correction; investigation continues from its
+artifacts rather than treating earlier phase successes as full profile parity.

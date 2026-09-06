@@ -558,7 +558,7 @@ pub(crate) fn desktop_e2e_inject_page_finish_failure(
 }
 
 #[tauri::command]
-pub(crate) fn desktop_e2e_control_window(
+pub(crate) async fn desktop_e2e_control_window(
     control: State<'_, Arc<DesktopE2eControl>>,
     state: State<'_, crate::CoreState>,
     token: String,
@@ -629,9 +629,14 @@ pub(crate) fn desktop_e2e_control_window(
             .map_err(|error| format!("Desktop E2E main-window focus task failed: {error}"))?;
         return Ok(json!({ "submitted": true }));
     }
-    state
-        .runtime
-        .desktop_e2e_control_window(&window_id, request)
+    let runtime = Arc::clone(&state.runtime);
+    // Native controls may wait for WebView2 ExecuteScriptCompleted. Keep the
+    // synchronous wait away from IPC so the platform event loop can deliver it.
+    tauri::async_runtime::spawn_blocking(move || {
+        runtime.desktop_e2e_control_window(&window_id, request)
+    })
+    .await
+    .map_err(|error| format!("Desktop E2E native window-control task failed: {error}"))?
 }
 
 #[tauri::command]

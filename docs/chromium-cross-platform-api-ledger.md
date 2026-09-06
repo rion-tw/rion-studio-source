@@ -3392,3 +3392,59 @@ probe change affects CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009 and its existin
 Macro-dependent journeys; their failure remains a failed profile. Eight adjacent
 checks, scoped lint and coverage validation pass; Windows execution of the
 comparison remains pending.
+
+
+### Pinned Electron input source audit and native file-dialog acceptance
+
+The pinned [WebContents implementation](https://github.com/electron/electron/blob/v43.4.1/shell/browser/api/electron_api_web_contents.cc#L3498)
+looks up the exact RenderWidgetHostView, converts the supplied event and forwards
+keyboard/mouse input to its RenderWidgetHost. That wrapper has no window-focus
+check; downstream delivery conditions still require evidence. The pinned
+[Windows focusability implementation](https://github.com/electron/electron/blob/v43.4.1/shell/browser/native_window_views.cc#L1332)
+sets the no-activate style and removes focus when focusability is disabled.
+These sources explain why native HWND-message routing and direct Chromium input
+may differ; they do not override the public API's documented focus condition or
+establish successful product delivery. The first same-attachment comparison attempt is recorded below.
+
+CI 34031929737 at efd818cf, Windows Chromium job 101482931161, reaches the
+physical-input phase after the native-dialog-control correction. Its preceding
+visible file-upload phases pass; the new lookup therefore has native Windows
+execution evidence, beyond portable source tests. The job still fails native
+key input with zero DOM events, independently reproducing the 69ee94df result.
+Log: `/tmp/rion-efd-win-package.log`. The parent/child ownership, restored keyboard
+state and arm receipt remain valid; none can substitute for the missing DOM
+acknowledgement.
+
+
+### Cancel the failed probe sequence before independent public-input samples
+
+CI 34032327982 at 9e74a2f4, Windows job 101484013474, reproduces missing native
+DOM input. Both public comparisons fail preload arm admission: the original
+unfulfilled sequence remains pending. No public input was submitted, so this
+run is not evidence that sendInputEvent succeeds or fails on that attachment.
+Structured report: `/tmp/rion-9e-public-comparison.json`.
+
+The private probe protocol now cancels only the exact requested pending sequence
+and returns an authenticated cancellation acknowledgement before another sample
+can be armed. Wrong-sequence cancellation is rejected without changing pending
+state. Each comparison also cancels its sequence on completion/failure. Native
+input uses KeyA, visible public input KeyB, and hidden public input KeyC; delayed
+events from an earlier sample cannot satisfy a later sample. The product gate
+still fails its original native receipt requirement. No product IPC, input
+adapter or deadline changes.
+
+Executable preload-protocol tests cover exact cancellation, rejected overlapping
+arms and a delayed native key failing the comparison. Ten focused/adjacent tests,
+typecheck, scoped lint, source hygiene and coverage checks pass. This remains
+internal-only work for CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009; native comparison
+acceptance awaits the corrected candidate. Windows file upload acceptance is
+independently confirmed by the efd818cf report: both fullscreen seed/restart
+phases and CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028 pass.
+
+Full-suite validation for the cancellation correction: the first run passes 3407
+and fails two tests (real journal removal and escaped-helper pipe cleanup) at
+existing native I/O deadlines. Both unchanged files pass all 14 tests in an
+isolated recheck; the subsequent complete suite passes all 3409 tests. No timeout
+or production behavior was modified to obtain that result. The initial failures
+remain recorded as intermittent validation limitations. Documentation and
+production E2E isolation pass. Logs: `/tmp/rion-input-cancel-*`.

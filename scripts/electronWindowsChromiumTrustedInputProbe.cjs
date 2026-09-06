@@ -117,6 +117,7 @@ void (async () => {
   let view;
   const armWaiters = new Map();
   const inputWaiters = new Map();
+  const cancelWaiters = new Map();
   const privateReceipts = [];
   let resolveReady;
   const ready = new Promise((resolve) => { resolveReady = resolve; });
@@ -210,6 +211,11 @@ void (async () => {
       privateReceipts.push(receipt);
       if (receipt.kind === "ready" && receipt.documentUrl.startsWith("data:")) {
         resolveReady(receipt);
+        return;
+      }
+      if (receipt.kind === "cancelled" || receipt.kind === "cancel-rejected") {
+        cancelWaiters.get(receipt.inputSequence)?.(receipt);
+        cancelWaiters.delete(receipt.inputSequence);
         return;
       }
       if (receipt.kind === "armed" || receipt.kind === "arm-rejected") {
@@ -315,6 +321,17 @@ void (async () => {
         throw new Error(`The preload rejected input sequence ${inputSequence}.`);
       }
       return { armReceipt: armReceipt.value, input };
+    };
+
+    const cancelInput = async (inputSequence) => {
+      const cancelled = new Promise(resolve => cancelWaiters.set(inputSequence, resolve));
+      view.webContents.send(`${channel}:cancel`, { inputSequence });
+      const receipt = await withDiagnosticDeadline(cancelled, 3_000);
+      cancelWaiters.delete(inputSequence);
+      if (!receipt.received || receipt.value.kind !== "cancelled") {
+        throw new Error(`The preload did not acknowledge cancellation of ${inputSequence}.`);
+      }
+      inputWaiters.delete(inputSequence);
     };
 
     const parentFocused = new Promise((resolve) => parent.once("focus", resolve));
@@ -424,7 +441,15 @@ void (async () => {
       // Failure-only equivalence experiment. These samples never replace the
       // required native receipt or turn this failed product-path gate green.
       const publicInputComparison = [];
+      try {
+        await cancelInput("windows-probe-key");
+      } catch (error) {
+        throw new Error("Native input failed and its probe sequence could not be cancelled.",
+          { cause: error });
+      }
       for (const visibility of ["visible-child", "hidden-child"]) {
+        const sequence = `public-comparison-${visibility}`;
+        const keyCode = visibility === "visible-child" ? "B" : "C";
         try {
           if (visibility === "hidden-child") {
             child.hide();
@@ -435,13 +460,12 @@ void (async () => {
           const before = exactProbe(addon.probeWindowsChromiumInputHwnd(
             surfaceHandle, parentHandle
           ), surfaceHandle, parentHandle);
-          const sequence = `public-comparison-${visibility}`;
           const pending = await armInput(sequence, [
-            { type: "keydown", code: "KeyA" },
-            { type: "keyup", code: "KeyA" }
+            { type: "keydown", code: `Key${keyCode}` },
+            { type: "keyup", code: `Key${keyCode}` }
           ]);
-          view.webContents.sendInputEvent({ type: "keyDown", keyCode: "A" });
-          view.webContents.sendInputEvent({ type: "keyUp", keyCode: "A" });
+          view.webContents.sendInputEvent({ type: "keyDown", keyCode });
+          view.webContents.sendInputEvent({ type: "keyUp", keyCode });
           const dom = await withDiagnosticDeadline(pending.input, 3_000);
           const after = exactProbe(addon.probeWindowsChromiumInputHwnd(
             surfaceHandle, parentHandle
@@ -454,6 +478,12 @@ void (async () => {
         } catch (error) {
           publicInputComparison.push({ visibility,
             error: String(error instanceof Error ? error.message : error).slice(0, 512) });
+        } finally {
+          try {
+            await cancelInput(sequence);
+          } catch (error) {
+            publicInputComparison.push({ visibility, cancellationError: String(error).slice(0, 512) });
+          }
         }
       }
       throw new Error(`Chromium did not emit the exact trusted DOM key sequence: ${JSON.stringify({

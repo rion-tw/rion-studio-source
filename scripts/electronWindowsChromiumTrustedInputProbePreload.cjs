@@ -55,6 +55,17 @@ function validExpectedEvent(candidate) {
         Number.isFinite(candidate.clientY) && candidate.clientY >= 0));
 }
 
+ipcRenderer.on(`${channel}:cancel`, (_event, candidate) => {
+  const sequence = candidate?.inputSequence;
+  const accepted = typeof sequence === "string" && sequence.length > 0 &&
+    sequence.length <= 128 && (pending === null || pending.inputSequence === sequence);
+  if (accepted) pending = null;
+  ipcRenderer.send(channel, {
+    ...identity(accepted ? "cancelled" : "cancel-rejected"),
+    inputSequence: sequence ?? null
+  });
+});
+
 ipcRenderer.on(armChannel, (_event, candidate) => {
   if (
     pending !== null ||

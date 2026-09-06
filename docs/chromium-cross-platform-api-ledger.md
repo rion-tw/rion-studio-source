@@ -2890,3 +2890,38 @@ Final validation passes 30 adjacent checks and all 3,388 Vitest tests, typecheck
 scoped lint, complete hygiene, coverage and production E2E isolation.
 No fresh macOS desktop execution is claimed for this Windows-only driver change;
 its native Windows run is still required. Logs: `/tmp/rion-toolbar-native-pointer-*`.
+
+
+### Macro UI setup awaits the native Role observation
+
+macOS package job 101462497267 in CI 34024329384 at b76e249b fails
+chromium-macro-ui-seed after logical Role running is visible but before the
+E2E native Role observation arrives. The immediate assertion receives null.
+The uploaded native topology history later contains the same visible AppKit
+window at revision 5 without its Role surface, then the Role at revision 7;
+the final session/runtime artifact contains its exact visible appkit-chromium
+identity. This proves an observation-order race in the test prerequisite,
+not an unavailable final native host.
+
+After the existing visible launch and logical running checks, Macro UI setup now
+awaits the exact Role's visible runtime observation and expected platform host,
+then performs its existing Role and AppKit identity assertions. Its native
+observation is event-fed; no product polling, launch retry or inferred success
+is introduced. The E2E wait uses the same 45-second readiness budget as the
+adjacent logical-running wait. A host that never arrives still fails.
+
+This internal-only desktop driver correction affects both
+CHROMIUM-MACOS-APPKIT-MACROS-UI-017 and CHROMIUM-WINDOWS-MACROS-UI-017.
+Evidence: `/tmp/rion-b76-mac-shell-artifacts/2026-09-06T09-23-42-759Z-darwin/phases/chromium-macro-ui-seed`;
+log: `/tmp/rion-b76-mac-package.log`.
+
+The focused macOS Chromium AppKit Macro UI seed/restart profile passes on the
+working tree, including both entity-persistence prerequisites (four passing
+phases). Report: `.desktop-e2e-artifacts/2026-09-06T10-11-50-318Z-darwin/report.json`.
+The MACROS-UI-017 aggregate journey passes. Three adjacent source checks,
+typecheck through the E2E build, scoped lint, source hygiene and coverage pass.
+Windows execution of this common preparation correction remains pending.
+Logs: `/tmp/rion-macro-native-ready-*`.
+
+The pure Electron production build and production E2E isolation check also pass
+after restoring production assets; documentation validation passes.

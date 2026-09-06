@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { isDarwinProcessGroupAlive } from "./darwinProcessGroupLiveness.mjs";
 import {
   access,
   lstat,
@@ -449,13 +450,7 @@ function signalProcessGroup(processGroupId, signal) {
 
 function isProcessGroupAlive(processGroupId) {
   requireSafeProcessGroupId(processGroupId);
-  try {
-    process.kill(-processGroupId, 0);
-    return true;
-  } catch (error) {
-    if (error?.code === "ESRCH") return false;
-    throw error;
-  }
+  return isDarwinProcessGroupAlive(processGroupId);
 }
 
 async function waitForPathRemoval(path, timeoutMilliseconds) {

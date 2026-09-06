@@ -2024,3 +2024,31 @@ Tauri run. The older macOS package job 101436911578 passes previous-version
 fixture construction and subsequently fails its updater transaction probe with
 `kill EPERM`. This moves past the prior missing offline cache failure but does
 not complete CP-16. Evidence: `/tmp/rion-edc-mac-package.log`.
+
+### Darwin updater cleanup: independently verify zombie-only groups
+
+The `edc757d0` macOS updater failure is the single cleanup error after the main
+helper path, not an earlier Cargo/fixture error. A detached `/usr/bin/true` group
+returns ESRCH after exit. A controlled native fixture instead forks a child into
+its own session, waits for exit with WNOWAIT and keeps only the unreaped child in
+that group: `kill(-pgid, 0)` returns EPERM while `/bin/ps` reports only state Z.
+This reproduces the kernel edge locally without changing user processes.
+Apple's [XNU killpg1 implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c)
+filters zombie members and can return EPERM when no signalable member remains.
+That explains a possible cleanup result; EPERM alone still cannot prove absence.
+
+The shared Darwin group liveness helper now resolves only EPERM through a
+bounded native `ps` snapshot of the exact detached group. Empty/reaped or entirely
+zombie state establishes the existing `active-zero` outcome. A live member,
+wrong group, malformed state or read failure remains a failure. Signals still
+target only the captured group, and independent application-tree supervision is
+unchanged. The full packaged updater transaction remains pending fresh CI.
+
+Validation: 16 adjacent tests pass, including the real macOS WNOWAIT fixture and
+negative live/permission/malformed/read-failure cases. All 3,336 Vitest tests,
+typecheck, lint (23 existing warnings), complete hygiene and normal build pass.
+Logs: `/tmp/rion-group-liveness-*`. This is `lower-layer-covered` E2E work:
+it changes probe cleanup classification, not a visible product action; native
+fixture evidence covers the exact kernel edge and the existing packaged updater
+CI remains required. No Windows runtime behavior changes; Windows portable test
+execution remains pending.

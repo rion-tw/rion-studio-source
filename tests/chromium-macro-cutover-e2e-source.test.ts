@@ -156,9 +156,9 @@ describe("Chromium Macro paired cutover E2E source", () => {
     expect(evidence).toContain(
       'candidateEvidence === "foreground-and-hidden-product-path"'
     );
-    expect(evidence).toContain("foregroundProbe?.parentWasForeground === true");
-    expect(evidence).toContain("hiddenProbe?.surfaceVisible === false");
-    expect(evidence).toContain("trustedDom(evidence.hiddenKeyDom)");
+    expect(evidence).toContain("validateWindowsPhysicalInputEvidence(evidence)");
+    expect(evidence).toContain("observation.viewVisible === visible");
+    expect(evidence).toContain("evidence.hiddenMouseDom");
     expect(evidence).toContain('"appkit-chromium"');
   });
 

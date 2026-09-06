@@ -5071,3 +5071,32 @@ trusted input are outside this Windows child-host removal.
 - The independent same-run native API probe records 18 received trusted event
   scenarios, including hidden/background input with preserved host focus; its
   declared scope is isolated WebContentsView API behavior, not a Role receipt.
+
+
+### CP-15 shared physical View evidence gate correction
+
+- Replace the obsolete ABI-v3 child-HWND post-phase predicate with exported
+  validateWindowsPhysicalInputEvidence. The visible Windows physical-input
+  spec and Macro cutover post-phase validator now call this same implementation,
+  removing duplicate assertions and their divergent legacy assumptions.
+- Require View owner kind, exact sibling Views, applied focus/viewport receipts,
+  positive display scale, exact observation identities and generations, shared
+  parent, live attached surfaces, foreground/control focus, hidden target
+  non-focus, unchanged hidden-to-final focus identity, 125% zoom readback and
+  trusted matching foreground/hidden keyboard and mouse DOM receipts. Missing,
+  retired and contradicted evidence remains rejected.
+- Four adjacent suites pass 42 tests, including malformed identity, focus,
+  visibility, viewport and untrusted-event cases. Against the same downloaded
+  ae6d8350 input-recovery artifact, the old source reproduces its exact rejection
+  and the new validator returns bundled-chromium with one exact native binding
+  and foreground-and-hidden-product-path evidence. This is revalidation of an
+  existing artifact, not a new full E2E PASS.
+- TypeScript, ESLint (zero errors, 23 warnings), hygiene and coverage pass.
+  Full regression is running. E2E omission for local execution is internal-only;
+  the external macOS system-dialog obstruction is unchanged and Windows must
+  execute the remaining profile phases in a new exact-candidate CI run.
+
+
+- Final local full regression for the shared physical View gate passes 451
+  files / 3,602 tests in 156.72 seconds. Windows profile continuation remains
+  required in exact-candidate CI; earlier post-phase failure is not erased.

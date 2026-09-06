@@ -4,52 +4,13 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 
-import { expect } from "@wdio/globals";
+import { validateWindowsPhysicalInputEvidence } from
+  "../../../scripts/desktopE2eChromiumMacroCutoverEvidence.mjs";
 
 // [journey:CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009]
 
 const execFileAsync = promisify(execFile);
 const PROBE_PREFIX = "RION_ELECTRON_WINDOWS_CHROMIUM_INPUT_PROBE=";
-
-interface ProbeDomReceipt {
-  readonly received: boolean;
-  readonly value: readonly Readonly<{
-    readonly isTrusted: boolean;
-    readonly matches: boolean;
-  }>[];
-}
-
-interface WindowsInputProbeEvidence {
-  readonly candidateEvidence: "foreground-and-hidden-product-path";
-  readonly platform: "win32";
-  readonly ownerKind: "view";
-  readonly exactSiblingViews: boolean;
-  readonly displayScaleFactor: number;
-  readonly foregroundProbe: ViewProbe;
-  readonly controlProbe: ViewProbe;
-  readonly hiddenProbe: ViewProbe;
-  readonly finalProbe: ViewProbe;
-  readonly focusReceipt: { status: string };
-  readonly hiddenFocusReceipt: { status: string };
-  readonly viewportAcknowledgement: { status: string; width: number; height: number };
-  readonly keyDom: ProbeDomReceipt;
-  readonly mouseDom: ProbeDomReceipt;
-  readonly hiddenKeyDom: ProbeDomReceipt;
-  readonly hiddenMouseDom: ProbeDomReceipt;
-  readonly hiddenPresentationPreserved: boolean;
-}
-
-interface ViewProbe {
-  readonly ownerKind: "view";
-  readonly parentIdentity: string;
-  readonly webContentsId: number;
-  readonly observation: {
-    readonly bounds: { width: number; height: number };
-    readonly zoomFactor: number;
-    readonly focusedWebContentsId: number | null;
-    readonly focusIdentity: string;
-  };
-}
 
 function required(name: string): string {
   const value = process.env[name];
@@ -109,43 +70,8 @@ describe("Windows Chromium physical trusted-input candidate", () => {
     if (!evidenceLine) throw new Error("The Windows input probe emitted no evidence.");
     const evidence = JSON.parse(
       evidenceLine.slice(PROBE_PREFIX.length)
-    ) as WindowsInputProbeEvidence;
+    );
 
-    expect(evidence).toMatchObject({
-      candidateEvidence: "foreground-and-hidden-product-path", platform: "win32", ownerKind: "view",
-      exactSiblingViews: true, hiddenPresentationPreserved: true,
-      focusReceipt: { status: "applied" }, hiddenFocusReceipt: { status: "applied" },
-      viewportAcknowledgement: { status: "applied" }
-    });
-    for (const [probe, visible] of [[evidence.foregroundProbe, true], [evidence.controlProbe, true],
-      [evidence.hiddenProbe, false], [evidence.finalProbe, false]] as const) {
-      expect(probe).toMatchObject({ ownerKind: "view", status: "verified", observation: {
-        parentForeground: true, parentVisible: true, parentMinimized: false,
-        viewAttached: true, viewVisible: visible, contentsDestroyed: false, contentsFocused: visible
-      } });
-      expect(probe.parentIdentity).toMatch(/^[0-9a-f]{64}$/u);
-      expect(probe.parentIdentity).toBe(evidence.foregroundProbe.parentIdentity);
-      expect(probe.observation.focusIdentity).toMatch(/^[0-9a-f]{64}$/u);
-      expect(probe.observation.focusedWebContentsId).toBe(visible ? probe.webContentsId : evidence.controlProbe.webContentsId);
-    }
-    expect(evidence.foregroundProbe.webContentsId).not.toBe(evidence.controlProbe.webContentsId);
-    expect(evidence.finalProbe.webContentsId).toBe(evidence.foregroundProbe.webContentsId);
-    expect(evidence.finalProbe.observation.focusIdentity).toBe(evidence.hiddenProbe.observation.focusIdentity);
-    expect(evidence.finalProbe.observation.zoomFactor).toBe(1.25);
-    expect(evidence.viewportAcknowledgement.width).toBe(Math.round(evidence.finalProbe.observation.bounds.width / 1.25));
-    expect(evidence.viewportAcknowledgement.height).toBe(Math.round(evidence.finalProbe.observation.bounds.height / 1.25));
-    expect(evidence.displayScaleFactor).toBeGreaterThan(0);
-    for (const dom of [
-      evidence.keyDom,
-      evidence.mouseDom,
-      evidence.hiddenKeyDom,
-      evidence.hiddenMouseDom
-    ]) {
-      expect(dom.received).toBe(true);
-      expect(dom.value.length).toBeGreaterThan(0);
-      expect(dom.value.every((receipt) =>
-        receipt.isTrusted && receipt.matches
-      )).toBe(true);
-    }
+    validateWindowsPhysicalInputEvidence(evidence);
   });
 });

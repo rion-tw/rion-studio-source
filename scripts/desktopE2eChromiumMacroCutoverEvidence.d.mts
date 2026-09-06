@@ -35,3 +35,5 @@ export function validateChromiumMacroCutoverSqliteEvidence(input: Readonly<{
   phase: string;
   settings: readonly Readonly<{ key: string; payload?: Record<string, unknown> }>[];
 }>): unknown | undefined;
+
+export function validateWindowsPhysicalInputEvidence(evidence: unknown): void;

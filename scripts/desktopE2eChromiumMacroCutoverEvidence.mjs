@@ -102,6 +102,52 @@ export function isChromiumMacroCutoverPhase(candidate) {
   return phases.includes(candidate);
 }
 
+/** Shared by the visible native probe and every Macro cutover post-phase gate. */
+export function validateWindowsPhysicalInputEvidence(evidence) {
+  const requireView = (condition) => requireEvidence(condition,
+    "Windows physical input did not prove exact foreground and hidden trusted DOM effects");
+  const positive = (value) => Number.isSafeInteger(value) && value > 0;
+  const token = (value) => typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+  const identityKeys = ["roleId", "surfaceGeneration", "nativeGeneration",
+    "bindingRevision", "parentIdentity", "webContentsId"];
+  const sameIdentity = (left, right) => identityKeys.every((key) => left?.[key] === right?.[key]);
+  requireView(evidence?.candidateEvidence === "foreground-and-hidden-product-path"
+    && evidence.platform === "win32" && evidence.ownerKind === "view"
+    && evidence.exactSiblingViews === true && evidence.hiddenPresentationPreserved === true
+    && evidence.focusReceipt?.status === "applied" && evidence.hiddenFocusReceipt?.status === "applied"
+    && evidence.viewportAcknowledgement?.status === "applied"
+    && Number.isFinite(evidence.displayScaleFactor) && evidence.displayScaleFactor > 0);
+  const { foregroundProbe: foreground, controlProbe: control, hiddenProbe: hidden, finalProbe: final } = evidence;
+  for (const [probe, visible] of [[foreground, true], [control, true], [hidden, false], [final, false]]) {
+    const observation = probe?.observation;
+    requireView(probe?.ownerKind === "view" && probe.status === "verified"
+      && typeof probe.roleId === "string" && probe.roleId.length > 0
+      && positive(probe.surfaceGeneration) && positive(probe.nativeGeneration)
+      && typeof probe.bindingRevision === "string" && /^[1-9][0-9]*$/u.test(probe.bindingRevision)
+      && positive(probe.webContentsId) && token(probe.parentIdentity)
+      && probe.parentIdentity === foreground.parentIdentity
+      && sameIdentity(probe, observation?.identity)
+      && observation?.parentIdentity === probe.parentIdentity
+      && observation.parentForeground === true && observation.parentVisible === true
+      && observation.parentMinimized === false && observation.viewAttached === true
+      && observation.viewVisible === visible && observation.contentsDestroyed === false
+      && observation.contentsFocused === visible && token(observation.focusIdentity)
+      && observation.focusedWebContentsId === (visible ? probe.webContentsId : control?.webContentsId)
+      && Number.isFinite(observation.bounds?.width) && observation.bounds.width > 0
+      && Number.isFinite(observation.bounds?.height) && observation.bounds.height > 0);
+  }
+  requireView(foreground.webContentsId !== control.webContentsId
+    && sameIdentity(foreground, hidden) && sameIdentity(foreground, final)
+    && final.observation.focusIdentity === hidden.observation.focusIdentity
+    && final.observation.zoomFactor === 1.25
+    && evidence.viewportAcknowledgement.width === Math.round(final.observation.bounds.width / 1.25)
+    && evidence.viewportAcknowledgement.height === Math.round(final.observation.bounds.height / 1.25));
+  for (const receipt of [evidence.keyDom, evidence.mouseDom, evidence.hiddenKeyDom, evidence.hiddenMouseDom]) {
+    requireView(receipt?.received === true && Array.isArray(receipt.value) && receipt.value.length > 0
+      && receipt.value.every((entry) => entry?.isTrusted === true && entry.matches === true));
+  }
+}
+
 async function windowsPhysicalEvidence(phaseDirectory) {
   const path = resolve(
     phaseDirectory,
@@ -112,39 +158,9 @@ async function windowsPhysicalEvidence(phaseDirectory) {
   const log = await readFile(path, "utf8");
   const prefix = "RION_ELECTRON_WINDOWS_CHROMIUM_INPUT_PROBE=";
   const line = log.split(/\r?\n/u).find((candidate) => candidate.startsWith(prefix));
-  requireEvidence(line, "Windows physical ABI-v3 evidence is absent");
+  requireEvidence(line, "Windows physical View evidence is absent");
   const evidence = JSON.parse(line.slice(prefix.length));
-  const trustedDom = (receipt) => receipt?.received === true &&
-    Array.isArray(receipt.value) && receipt.value.length > 0 &&
-    receipt.value.every((entry) => entry.isTrusted === true && entry.matches === true);
-  requireEvidence(
-    evidence.candidateEvidence === "foreground-and-hidden-product-path"
-      && evidence.platform === "win32"
-      && evidence.singleWebContentsSurface === true
-      && evidence.foregroundProbe?.abiVersion === 3
-      && evidence.foregroundProbe?.parentWasForeground === true
-      && evidence.foregroundProbe?.exactParent === true
-      && evidence.foregroundProbe?.surfaceVisible === true
-      && evidence.foregroundProbe?.targetWasForeground === false
-      && evidence.foregroundProbe?.targetHadThreadFocus === false
-      && evidence.controlProbe?.exactParent === true
-      && evidence.controlProbe?.parentWasForeground === true
-      && evidence.controlProbe?.surfaceVisible === true
-      && evidence.hiddenProbe?.abiVersion === 3
-      && evidence.hiddenProbe?.parentWasForeground === true
-      && evidence.hiddenProbe?.parentVisible === true
-      && evidence.hiddenProbe?.surfaceVisible === false
-      && evidence.hiddenProbe?.targetWasForeground === false
-      && evidence.hiddenProbe?.targetHadThreadFocus === false
-      && evidence.finalProbe?.foregroundWindowPreserved === true
-      && evidence.finalProbe?.activeWindowPreserved === true
-      && evidence.finalProbe?.focusWindowPreserved === true
-      && evidence.hiddenPresentationPreserved === true
-      && trustedDom(evidence.keyDom)
-      && trustedDom(evidence.mouseDom)
-      && trustedDom(evidence.hiddenKeyDom),
-    "Windows physical input did not prove exact foreground and hidden trusted DOM effects"
-  );
+  validateWindowsPhysicalInputEvidence(evidence);
   return evidence;
 }
 

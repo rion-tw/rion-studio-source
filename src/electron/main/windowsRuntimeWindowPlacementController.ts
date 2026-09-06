@@ -323,17 +323,23 @@ export class WindowsRuntimeWindowPlacementController {
       after.nativeGeneration === event.nativeGeneration &&
       after.windowId === event.windowId &&
       after.windowGeneration === event.windowGeneration;
-    const appliedVerified = receipt.status === "applied" && identityStable &&
-      after.topologyRevision === receipt.topologyRevision &&
-      after.displayId === event.targetDisplay.id &&
-      after.presentation === event.placement.presentation &&
-      sameBounds(after.normalBounds, event.placement.normalBounds) &&
-      sameBounds(after.savedWorkArea, event.placement.savedWorkArea) &&
-      canonicalTopology(beforeTopology) === canonicalTopology(afterTopology);
+    const postconditions = {
+      identity: identityStable,
+      topologyRevision: after.topologyRevision === receipt.topologyRevision,
+      display: after.displayId === event.targetDisplay.id,
+      presentation: after.presentation === event.placement.presentation,
+      normalBounds: sameBounds(after.normalBounds, event.placement.normalBounds),
+      savedWorkArea: sameBounds(after.savedWorkArea, event.placement.savedWorkArea),
+      displayTopology: canonicalTopology(beforeTopology) === canonicalTopology(afterTopology)
+    };
+    const failedPostconditions = Object.entries(postconditions)
+      .filter(([, matches]) => !matches).map(([name]) => name);
+    const appliedVerified = receipt.status === "applied" && failedPostconditions.length === 0;
     if (receipt.status === "applied" && !appliedVerified) {
       const failure = normalizeRionBridgeError(placementError(
         "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE",
-        "The applied Core receipt lost its exact native or display postcondition."
+        `The applied Core receipt lost its exact native or display postcondition: ${failedPostconditions.join(", ")}; ` +
+        `topology receipt=${receipt.topologyRevision}, observed=${after.topologyRevision}.`
       ));
       this.#push({ event, receipt, status: "indeterminate", verified: false,
         failureCode: failure.code });

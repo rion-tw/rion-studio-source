@@ -5132,3 +5132,36 @@ trusted input are outside this Windows child-host removal.
   The newer shared physical-evidence validator at 3a6207c5 remains under live
   Windows package job 101554750598; do not transfer its older post-phase
   failure into a passing complete profile before that run finishes.
+
+
+### CP-11/CP-12 new Windows placement postcondition failure at 3a6207c5
+
+- CI 34058525934 Windows package job 101554750598 fails with 26 recorded
+  PASS phases and controlled-role-reload FAIL. Report
+  2026-09-06T20-38-23-628Z-win32 binds 3a6207c577b217e1bf713f3089ba250bfae18100.
+  Both reload receipts are inputReady/applied (69 and 70 ms); the failure is
+  the subsequent empty shell-error assertion, containing
+  ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE. It occurs before
+  the injected Reload failure/recovery subscenario and before the repaired
+  post-phase physical View validator is reached. Do not call this a recurrence
+  of the old Reload input-ready timeout or certify the new gate end to end.
+- Core flow records placement command 102 starting during Role launch and
+  completing at 147, plus another placement command at 175/176. Existing
+  artifacts do not include the exact before/after placement observations, so
+  they cannot distinguish newer projection supersession from a real geometry,
+  identity or display mismatch. Preserve the shell-error assertion.
+- Refactor the same seven postcondition booleans into named checks and include
+  only failing check names plus receipt/observed topology revisions in the
+  existing error message. Applied/indeterminate classification and onApplied
+  behavior remain unchanged. Seven focused tests pass, including both older
+  and newer observed revisions still being rejected and reported distinctly.
+- TypeScript, focused ESLint, complete hygiene, production Electron build and
+  E2E isolation pass. Full Vitest and native macOS Rust checks are running.
+  This lower-layer-covered diagnostic is not a placement repair; Windows must
+  provide a new native observation, and local native UI remains obstructed.
+
+
+- Placement diagnostic final validation: complete Vitest passes 451 files /
+  3,604 tests in 156.23 seconds. Native macOS Rust lint and workspace tests
+  pass (1,645 passed, four ignored). No native desktop profile reran locally;
+  exact Windows CI still has to capture and resolve the postcondition failure.

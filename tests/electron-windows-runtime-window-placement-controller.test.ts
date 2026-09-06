@@ -214,7 +214,30 @@ describe("Windows runtime-window placement controller", () => {
       failureCode: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE"
     })]);
     expect(errors).toHaveBeenCalledWith(expect.objectContaining({
-      code: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE"
+      code: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE",
+      message: expect.stringContaining("postcondition: identity;")
+    }));
+  });
+
+  it.each([10, 12])("reports the exact topology mismatch without accepting revision %s", async (revision) => {
+    let current = observation();
+    const errors = vi.fn();
+    const controller = new WindowsRuntimeWindowPlacementController({
+      core: {
+        invoke: async <Command extends CoreCommand>(command: Command) => {
+          const placement = command as Extract<CoreCommand, { type: "browserWindowsRuntimeWindowPlacement" }>;
+          current = { ...current, topologyRevision: revision };
+          return receiptFor(placement) as CoreCommandResult<Command>;
+        }
+      },
+      readDisplayTopology: () => topology(),
+      onError: errors
+    });
+    await controller.observe(hostFor(() => current));
+    expect(controller.inspect()).toEqual([expect.objectContaining({ status: "indeterminate", verified: false })]);
+    expect(errors).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_WINDOWS_RUNTIME_PLACEMENT_POSTCONDITION_STALE",
+      message: expect.stringContaining(`postcondition: topologyRevision; topology receipt=11, observed=${revision}.`)
     }));
   });
 

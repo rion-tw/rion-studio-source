@@ -150,14 +150,15 @@ async function probe() {
     outcomes.push(await sample(view, host, "hidden-view", keyboard, ["keydown", "keyup"]));
     outcomes.push(await sample(view, host, "hidden-view-middle", middleButton, ["mousedown", "mouseup"]));
     view.setVisible(true);
+    await focus(host, view);
+    view.setBounds({ x: 40, y: 36, width: 300, height: 200 });
+    const viewportAcknowledgement = await applyVisibleViewportZoom(view, 1.25);
     // Candidate topology: two views directly owned by one standard host, with
     // no per-Role BaseWindow, SetParent, or native child-handle input adapter.
     host.contentView.addChildView(sibling);
     sibling.setBounds({ x: 0, y: 0, width: 600, height: 400 });
     await sibling.webContents.loadURL(fixture);
     await focus(host, sibling);
-    view.setBounds({ x: 40, y: 36, width: 300, height: 200 });
-    const viewportAcknowledgement = await applyVisibleViewportZoom(view, 1.25);
     view.setVisible(false);
     const directSamples = [
       ["direct-hidden-sibling-key", ["keydown", "keyup"], () => {

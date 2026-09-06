@@ -3704,3 +3704,33 @@ trusted input are outside this Windows child-host removal.
   observed, but the sibling WebContents/document did not own focus. No hidden
   product input was submitted. Direct-View replacement remains required work;
   no focus precondition has been relaxed.
+
+
+### View-owned input boundary preparation
+
+- CP-08: added `ChromiumViewInputSubmission` for the direct-View replacement.
+  Its identity binds Role/surface/native generations, binding revision, exact
+  WebContents ID and native parent identity. Admission requires current View
+  membership, parent foreground/visibility, matching focused contents and View
+  visibility, exact zoom/bounds and an unexpired request. Every individual
+  Chromium event and final receipt rechecks the observation. Reentrant delivery
+  cannot interleave events. The receipt claims View ownership and API submission,
+  never a per-Role HWND, child style or trusted DOM acknowledgement.
+- This boundary is prepared source with focused tests, not yet wired into the
+  production attachment coordinator. CP-08 stays in progress: replacement of
+  child creation/reparent/retirement, receipt consumers and the physical product
+  probe is still required. The AppKit product input path is unchanged.
+- The focused new/existing input-owner suite passed 46 tests. Paired platform
+  cases exercise invalid admission, a different View sharing the same parent,
+  focus/binding/bounds/deadline changes after mouseDown, mutable observations and
+  reentrant calls. Typecheck, focused ESLint and source hygiene passed.
+- Candidate `b8711b59`, CI `34038920943`, Windows raw probe artifact now confirms
+  failure before the direct hidden samples: the zoom acknowledgement timed out
+  with an actual 300 by 200 viewport. All preceding 12 samples received events.
+  Separate Sessions alone did not fix the precondition while the sibling covered
+  the target. The next experiment acknowledges zoom while the target is focused
+  and uncovered, before adding/focusing the sibling, then tests hidden delivery.
+  macOS passed this revised native experiment. Windows remains pending.
+- CP-11 retains the separate requirement to handle zoom changes on already hidden
+  or occluded product Views. Preconfiguring the experiment while visible does not
+  satisfy that product behavior or justify guessing a platform-specific scale.

@@ -509,13 +509,21 @@ function Get-OwnerProcessId($candidate) {
   return Get-NativeWindowProcessId $ownerHandle
 }
 
+function Read-ExactDialogControls($candidate, [int]$controlId, [string]$className) {
+  Write-Progress 'reading-native-dialog-controls'
+  $dialogHandle = [IntPtr]$candidate.Current.NativeWindowHandle
+  $handles = @([RionFileDialogOwnership]::ExactDialogControls(
+    $dialogHandle, $controlId, $className))
+  foreach ($handle in $handles) {
+    Write-Progress 'admitting-dialog-control-automation'
+    [System.Windows.Automation.AutomationElement]::FromHandle($handle)
+  }
+}
+
 function Test-ExactFileDialogControls($candidate) {
-  Write-Progress 'reading-dialog-controls'
-  $edits = $candidate.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants, $editCondition)
+  $edits = @(Read-ExactDialogControls $candidate 1148 'Edit')
   if ($edits.Count -ne 1) { return $false }
-  $openButtons = $candidate.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants, $openCondition)
+  $openButtons = @(Read-ExactDialogControls $candidate 1 'Button')
   return $openButtons.Count -eq 1
 }
 
@@ -572,7 +580,8 @@ function Read-ExactDialogs {
     $handle = [int64]$candidate.Current.NativeWindowHandle
     if ($handle -eq 0 -or $matchedHandles.ContainsKey([string]$handle)) { continue }
     $ownerHandle = Get-OwnerNativeWindowHandle $candidate
-    if (!$targetWindowHandles.ContainsKey([string]$ownerHandle)) { continue }
+    if (!$targetWindowHandles.ContainsKey([string]$ownerHandle) -or
+        $candidate.Current.ClassName -ne '#32770') { continue }
     if (!(Test-ExactFileDialogControls $candidate)) { continue }
     $matches.Add($candidate)
     $matchedHandles[[string]$handle] = $true
@@ -702,11 +711,9 @@ do {
 } while ($true)
 Write-Progress 'dialog-matched'
 $dialog = $dialogs[0]
-$edits = $dialog.FindAll(
-  [System.Windows.Automation.TreeScope]::Descendants, $editCondition)
+$edits = @(Read-ExactDialogControls $dialog 1148 'Edit')
 if ($edits.Count -ne 1) { throw 'exact Windows file-name control unavailable' }
-$openButtons = $dialog.FindAll(
-  [System.Windows.Automation.TreeScope]::Descendants, $openCondition)
+$openButtons = @(Read-ExactDialogControls $dialog 1 'Button')
 if ($openButtons.Count -ne 1) { throw 'exact Windows Open control unavailable' }
 if ($edits[0].Current.IsOffscreen -or !$edits[0].Current.IsEnabled -or
     $openButtons[0].Current.IsOffscreen -or !$openButtons[0].Current.IsEnabled) {

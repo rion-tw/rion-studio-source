@@ -3312,3 +3312,36 @@ ownership-transfer path. All three selected journeys report PASS. Report:
 `.desktop-e2e-artifacts/2026-09-06T11-51-13-828Z-darwin/report.json`.
 This is focused native evidence, not a full-profile pass or Windows validation.
 Source hygiene, documentation and the unchanged coverage manifest also pass.
+
+
+### Bound Windows file-dialog control discovery to native child HWNDs
+
+At e9c528f8, CI 34031176626 Windows Chromium job 101480843434 fails earlier
+than the trusted-input phase: the visible Workspace Web upload's helper is
+terminated at its existing 15-second external deadline. The uploaded
+`windows-native-file-dialog-progress.json` records `reading-dialog-controls`.
+This run supplies no new keyboard-probe evidence and does not supersede the
+previous exact trusted-input failure.
+
+The helper previously searched the entire UIA descendant tree to discover only
+the standard filename Edit (1148) and Open Button (1). Discovery now enumerates
+real child HWNDs of the already owner-admitted #32770 dialog, with a finite 2048
+child bound and exact class/control-ID matching. Only matching handles are
+converted into UIA controls. Owner-admitted fallback windows must also be the
+common-dialog class before any child lookup. Unique control cardinality, visible
+clicks, enabled/offscreen checks, foreground ownership, exact native filename
+write/readback, dialog closure and the page's File receipt remain required.
+Neither the external deadline nor any product assertion changes. The native
+helper still needs Windows CI execution; portable tests cannot prove Win32
+control reachability. No product runtime code changes.
+
+This internal-only correction affects CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028
+through its existing fullscreen seed/restart profile. Eleven adjacent checks,
+typecheck, scoped lint and source hygiene pass. Logs:
+`/tmp/rion-native-dialog-controls-*`; native failure artifacts:
+`/tmp/rion-e9-win-shell-artifacts`.
+
+The same e9c528f8 CI's macOS Tauri job 101480843494 now reports full success,
+without the later snapshot-lock correction. This confirms intermittency; it does
+not invalidate the source-local lock violation or establish a single root cause.
+The corrected snapshot's local focused pass remains separately recorded above.

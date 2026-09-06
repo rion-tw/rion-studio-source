@@ -2828,3 +2828,28 @@ hygiene, coverage and production E2E isolation. The new verifier declaration
 matches the repository's adjacent script declarations. macOS evidence above is
 a replay of actual native histories; this Windows-only E2E assertion correction
 does not claim a fresh local macOS desktop run or fresh Windows completion.
+
+
+### Put the visible pointer inside the two-pixel reveal edge
+
+CI 34025263334 at 0d2d437c passes the first 13 Windows phases and enters native
+fullscreen, but never observes revealed controls. Its toolbar history contains
+normal and fullscreen-hidden only. The E2E pointer used element origin with
+x=1, y=1. The production reveal edge is exactly 2 CSS pixels high at y=0;
+WebDriver element-origin offsets are relative to its in-view center, so y=1
+moves to viewport y=2, outside the reveal edge. The driver now uses zero offsets
+to target the center. Product pointerenter behavior, the 2px edge, authoritative
+projection and complete revealed/pinned/restart requirements are unchanged.
+
+This internal-only E2E correction affects
+CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012. It keeps real WebDriver pointer input;
+no synthetic DOM event or runtime command replaces the user action. Native
+Windows acceptance remains pending. Evidence:
+`/tmp/rion-0d2-win-package-artifacts/2026-09-06T09-40-57-761Z-win32/phases/chromium-fullscreen-toolbar-seed`;
+log: `/tmp/rion-0d2-win-package.log`.
+The offset contract is specified by [WebDriver](https://www.w3.org/TR/webdriver/#dfn-get-coordinates-relative-to-an-origin).
+
+Sixteen adjacent toolbar checks, typecheck, scoped lint, source hygiene,
+production E2E isolation and coverage validation pass. This Windows-only driver
+correction introduces no shared/native product change; macOS's native pointer
+adapter is unchanged. Checks: `/tmp/rion-toolbar-pointer-*`.

@@ -559,8 +559,9 @@ export async function movePointerToWindowsRuntimeHostRevealEdge(
   try {
     const edge = await $("[data-runtime-reveal-edge]:not([hidden])");
     await edge.waitForDisplayed({ timeout: 10_000 });
+    // Element-origin offsets start at the center; +1px falls outside this 2px edge.
     await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-      .move({ duration: 200, origin: edge, x: 1, y: 1 })
+      .move({ duration: 200, origin: edge, x: 0, y: 0 })
       .perform();
   } finally {
     await switchTrackedWindow(mainWindowHandle);

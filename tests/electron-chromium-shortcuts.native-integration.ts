@@ -41,6 +41,12 @@ it.skipIf(process.platform !== "win32")("compares native F11 key terminality wit
         expect(events.every((event: { trusted: boolean }) => event.trusted)).toBe(true);
       }
     }
+    for (const outcome of [...report.outcomes, ...report.lifecycleOutcomes]) {
+      if (outcome.mode !== "native-hook") continue;
+      for (const event of outcome.events) {
+        if (event.kind === "command") expect(event.ownerRevision).toBe(outcome.ownerRevision);
+      }
+    }
     // API differences are reported, never converted into replacement parity.
     console.info(JSON.stringify(report.outcomes));
     console.info(JSON.stringify(report.lifecycleOutcomes));

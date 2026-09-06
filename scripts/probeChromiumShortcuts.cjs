@@ -89,11 +89,22 @@ async function probe() {
   const lifecycleOutcomes = [];
   let nativeRegistered = false;
   let nativeRevision = "1";
+  let nextOwnerRevision = 0;
   let activeHost = host;
   let mode = "observe";
   let events = [];
   let stage = "setup";
   const record = (kind, details = {}) => events.push({ kind, stage, ...details });
+  const registerNative = surface => {
+    const revision = String(++nextOwnerRevision);
+    const handle = surface.host.getNativeWindowHandle();
+    addon.registerWindowsRuntimeShortcutOwner(handle, revision, () => {
+      addon.acknowledgeWindowsRuntimeShortcutOwner(handle, revision);
+      record("command", { surface: surface.name, ownerRevision: revision });
+    }, message => record("native-error", { message, ownerRevision: revision }));
+    nativeRevision = revision;
+    nativeRegistered = true;
+  };
   try {
     for (const surface of surfaces) {
       await surface.contents.loadURL(fixture);
@@ -134,13 +145,7 @@ async function probe() {
         await driver.send(activeHost, [], true);
         surface.contents.focus();
         if (mode === "native-hook") {
-          nativeRevision = "1";
-          const nativeHandle = activeHost.getNativeWindowHandle();
-          addon.registerWindowsRuntimeShortcutOwner(nativeHandle, "1", () => {
-            addon.acknowledgeWindowsRuntimeShortcutOwner(nativeHandle, "1");
-            record("command", { surface: surface.name });
-          }, message => record("native-error", { message }));
-          nativeRegistered = true;
+          registerNative(surface);
         }
         try {
           for (const scenario of ["plain", "repeat", "modifier-during-press"]) {
@@ -165,11 +170,12 @@ async function probe() {
               ...(scenario === "modifier-during-press" ? [{ code: SHIFT, up: true }] : [])]);
             await observe();
             outcomes.push({ mode, surface: surface.name, scenario, commandsBeforeRelease,
+              ownerRevision: mode === "native-hook" ? nativeRevision : null,
               events: [...events], hostFocused: activeHost.isFocused(),
               pageEvents: await surface.contents.executeJavaScript("window.shortcutEvents") });
           }
           if (nativeRegistered) {
-            addon.unregisterWindowsRuntimeShortcutOwner(activeHost.getNativeWindowHandle(), "1");
+            addon.unregisterWindowsRuntimeShortcutOwner(activeHost.getNativeWindowHandle(), nativeRevision);
             nativeRegistered = false;
           }
           for (const scenario of ["focus-transfer", "hidden-owner", "retired-owner"]) {
@@ -181,13 +187,7 @@ async function probe() {
             await driver.send(activeHost, [], true);
             surface.contents.focus();
             if (mode === "native-hook") {
-              nativeRevision = "2";
-              const handle = activeHost.getNativeWindowHandle();
-              addon.registerWindowsRuntimeShortcutOwner(handle, "2", () => {
-                addon.acknowledgeWindowsRuntimeShortcutOwner(handle, "2");
-                record("command", { surface: surface.name });
-              }, message => record("native-error", { message }));
-              nativeRegistered = true;
+              registerNative(surface);
             }
             events = [];
             for (const target of [surface.contents, otherContents]) {
@@ -201,7 +201,7 @@ async function probe() {
               surface.shortcutActive = false;
               surface.resetCapture();
               if (nativeRegistered) {
-                addon.unregisterWindowsRuntimeShortcutOwner(activeHost.getNativeWindowHandle(), "2");
+                addon.unregisterWindowsRuntimeShortcutOwner(activeHost.getNativeWindowHandle(), nativeRevision);
                 nativeRegistered = false;
               }
               Menu.setApplicationMenu(null);
@@ -226,11 +226,12 @@ async function probe() {
               await observe();
             }
             lifecycleOutcomes.push({ mode, surface: surface.name, scenario,
+              ownerRevision: mode === "native-hook" ? nativeRevision : null,
               commandsBeforeRelease, ownerVisibleAtRelease, eventsAtRelease, events: [...events],
               pageEvents: await surface.contents.executeJavaScript("window.shortcutEvents"),
               destinationPageEvents: await otherContents.executeJavaScript("window.shortcutEvents") });
             if (nativeRegistered) {
-              addon.unregisterWindowsRuntimeShortcutOwner(activeHost.getNativeWindowHandle(), "2");
+              addon.unregisterWindowsRuntimeShortcutOwner(activeHost.getNativeWindowHandle(), nativeRevision);
               nativeRegistered = false;
             }
           }

@@ -1670,3 +1670,10 @@ and diff checks passed. The Windows-only native test is explicitly skipped on
 macOS (`/tmp/rion-f11-lifecycle-native.log`); the extended matrix still requires
 Windows execution and is not part of run `34013275719`. This probe-only change
 is `internal-only` for E2E and does not close CP-07.
+
+Each native probe registration now receives a distinct monotonic owner revision.
+The callback captures that exact revision for acknowledgement, and both the
+outcome and command event record it. The native test rejects command events
+whose revision differs from their scenario. Reusing a revision after unregister
+could otherwise misattribute a late callback to the next observation; the probe
+must not hide that ownership distinction. This changes only test instrumentation.

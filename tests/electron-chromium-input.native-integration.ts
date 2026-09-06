@@ -26,6 +26,7 @@ it("records native Chromium input delivery without treating absent receipts as p
       "foreground", "modifiers-and-repeat", "modifier-control", "modifier-alt", "modifier-meta",
       "middle-button-zoom-1", "middle-button-zoom-1.5", "held-before-reload",
       "held-release-after-reload", "reloaded", "hidden-view", "hidden-view-middle",
+      "direct-hidden-sibling-key", "direct-hidden-sibling-middle",
       "background-host", "background-host-middle", "hidden-host", "hidden-host-middle"
     ]);
     for (const outcome of report.outcomes) {
@@ -34,6 +35,28 @@ it("records native Chromium input delivery without treating absent receipts as p
       if (outcome.name.startsWith("background-host") || outcome.name.startsWith("hidden-host")) {
         expect(outcome.before.hostFocused).toBe(false);
         expect(outcome.after.hostFocused).toBe(false);
+      }
+    }
+    for (const name of ["direct-hidden-sibling-key", "direct-hidden-sibling-middle"]) {
+      const outcome = report.outcomes.find((value: { name: string }) => value.name === name);
+      expect(outcome.receipt.status).toBe("received");
+      expect(outcome.before.hostFocused).toBe(true);
+      expect(outcome.after.hostFocused).toBe(true);
+      expect(outcome.before.contentsFocused).toBe(false);
+      expect(outcome.after.contentsFocused).toBe(false);
+      expect(outcome.directHost).toMatchObject({ targetAttached: true, siblingAttached: true,
+        targetVisible: false, siblingFocusedBefore: true, siblingFocusedAfter: true });
+      if (name.endsWith("key")) {
+        expect(outcome.receipt.events).toHaveLength(2);
+        for (const event of outcome.receipt.events) {
+          expect(event).toMatchObject({ code: "KeyB", control: true, shift: true, trusted: true });
+        }
+      } else {
+        expect(outcome.submission).toMatchObject({ submissionApi: "webContents.sendInputEvent",
+          inputX: 100, inputY: 120, expectedDomClientX: 80, expectedDomClientY: 96 });
+        for (const event of outcome.receipt.events) {
+          expect(event).toMatchObject({ button: 1, x: 80, y: 96, trusted: true });
+        }
       }
     }
     const foreground = report.outcomes[0];

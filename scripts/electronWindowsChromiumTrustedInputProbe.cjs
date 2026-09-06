@@ -535,7 +535,20 @@ void (async () => {
         "<meta charset=utf-8><input id=foreground-role autofocus>"
       )}`
     );
+    // Match the product lifecycle: establish the exact native parent and child
+    // styles before attempting Chromium focus or checking sibling ownership.
+    const controlHandle = Buffer.from(control.getNativeWindowHandle());
+    exactProbe(
+      addon.attachWindowsChromiumInputHwnd(controlHandle, parentHandle),
+      controlHandle,
+      parentHandle
+    );
     control.showInactive();
+    exactProbe(
+      addon.projectWindowsChromiumInputHwnd(controlHandle, parentHandle, true),
+      controlHandle,
+      parentHandle
+    );
     view.setVisible(false);
     child.hide();
     exactProbe(
@@ -550,19 +563,14 @@ void (async () => {
     );
     if (!foregroundRoleFocused || view.webContents.isFocused() ||
         child.isVisible() || view.getVisible()) {
-      throw new Error("The sibling Role did not retain exact foreground ownership.");
+      throw new Error(`The sibling Role did not retain exact foreground ownership: ${JSON.stringify({
+        foregroundRoleFocused, parentFocused: parent.isFocused(),
+        siblingContentsFocused: controlView.webContents.isFocused(),
+        targetContentsFocused: view.webContents.isFocused(),
+        targetHostVisible: child.isVisible(), targetViewVisible: view.getVisible(),
+        controlProbe: addon.probeWindowsChromiumInputHwnd(controlHandle, parentHandle)
+      })}`);
     }
-    const controlHandle = Buffer.from(control.getNativeWindowHandle());
-    exactProbe(
-      addon.attachWindowsChromiumInputHwnd(controlHandle, parentHandle),
-      controlHandle,
-      parentHandle
-    );
-    exactProbe(
-      addon.projectWindowsChromiumInputHwnd(controlHandle, parentHandle, true),
-      controlHandle,
-      parentHandle
-    );
     const controlProbe = exactProbe(
       addon.probeWindowsChromiumInputHwnd(controlHandle, parentHandle),
       controlHandle,

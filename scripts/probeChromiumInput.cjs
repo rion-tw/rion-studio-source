@@ -2,6 +2,7 @@
 const { app, BrowserWindow, WebContentsView } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
+const { sendChromiumKey, sendChromiumClick } = require("./electronLoadChromiumInputOwner.cjs");
 
 const [reportPath, userData] = process.argv.slice(2);
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
@@ -26,7 +27,7 @@ const state = contents => contents.executeJavaScript(`({
   width: innerWidth, height: innerHeight
 })`);
 
-async function sample(view, host, name, inputs, expectedTypes) {
+async function sample(view, host, name, inputs, expectedTypes, submit) {
   const contents = view.webContents;
   const before = { hostFocused: host.isFocused(), hostVisible: host.isVisible(),
     contentsFocused: contents.isFocused(), document: await state(contents) };
@@ -54,9 +55,10 @@ async function sample(view, host, name, inputs, expectedTypes) {
       deadline = setTimeout(() => finish("indeterminate"), 1500);
     });
   })()`);
-  for (const input of inputs) contents.sendInputEvent(input);
+  const submission = submit ? submit() : undefined;
+  if (!submit) for (const input of inputs) contents.sendInputEvent(input);
   const receipt = await contents.executeJavaScript("window.inputProbe");
-  return { name, inputs, expectedTypes, before, receipt,
+  return { name, inputs, expectedTypes, before, receipt, submission,
     after: { hostFocused: host.isFocused(), hostVisible: host.isVisible(),
       contentsFocused: contents.isFocused(), document: await state(contents) } };
 }
@@ -80,6 +82,7 @@ async function probe() {
   const view = new WebContentsView({ webPreferences: options.webPreferences });
   host.contentView.addChildView(view);
   view.setBounds({ x: 0, y: 0, width: 600, height: 400 });
+  const sibling = new WebContentsView({ webPreferences: options.webPreferences });
   const outcomes = [];
   try {
     await view.webContents.loadURL(fixture);
@@ -117,6 +120,42 @@ async function probe() {
     outcomes.push(await sample(view, host, "hidden-view", keyboard, ["keydown", "keyup"]));
     outcomes.push(await sample(view, host, "hidden-view-middle", middleButton, ["mousedown", "mouseup"]));
     view.setVisible(true);
+    // Candidate topology: two views directly owned by one standard host, with
+    // no per-Role BaseWindow, SetParent, or native child-handle input adapter.
+    host.contentView.addChildView(sibling);
+    sibling.setBounds({ x: 0, y: 0, width: 600, height: 400 });
+    await sibling.webContents.loadURL(fixture);
+    await focus(host, sibling);
+    view.setBounds({ x: 40, y: 36, width: 300, height: 200 });
+    view.setVisible(false);
+    view.webContents.setZoomFactor(1.25);
+    const directSamples = [
+      ["direct-hidden-sibling-key", ["keydown", "keyup"], () => {
+        const request = { code: "KeyB", ctrl: true, alt: false, shift: true, meta: false, repeat: false };
+        return [
+          sendChromiumKey(view.webContents, { ...request, eventType: "keyDown" }),
+          sendChromiumKey(view.webContents, { ...request, eventType: "keyUp" })
+        ];
+      }],
+      ["direct-hidden-sibling-middle", ["mousedown", "mouseup"], () =>
+        sendChromiumClick(view.webContents, { clientX: 80, clientY: 96,
+          zoomFactor: 1.25, button: 1 }, view.getBounds())]
+    ];
+    for (const [name, types, submit] of directSamples) {
+      const siblingFocusedBefore = sibling.webContents.isFocused();
+      const outcome = await sample(view, host, name, [], types, submit);
+      outcomes.push({ ...outcome, directHost: {
+        children: host.contentView.children.length,
+        targetAttached: host.contentView.children.includes(view),
+        siblingAttached: host.contentView.children.includes(sibling),
+        targetVisible: view.getVisible(), siblingFocusedBefore,
+        siblingFocusedAfter: sibling.webContents.isFocused()
+      } });
+    }
+    host.contentView.removeChildView(sibling);
+    sibling.webContents.close();
+    view.setVisible(true);
+    view.webContents.setZoomFactor(1);
     await focus(other, { webContents: other.webContents });
     outcomes.push(await sample(view, host, "background-host", keyboard, ["keydown", "keyup"]));
     outcomes.push(await sample(view, host, "background-host-middle", middleButton, ["mousedown", "mouseup"]));
@@ -128,6 +167,8 @@ async function probe() {
       scope: "isolated WebContentsView API probe; not a Role/native-adapter receipt", outcomes
     }, null, 2) + "\n");
   } finally {
+    const siblingContents = sibling.webContents;
+    if (siblingContents && !siblingContents.isDestroyed()) siblingContents.close();
     view.webContents.close();
     host.destroy();
     other.destroy();

@@ -3532,3 +3532,29 @@ isolation also pass for the new leaf's source graph.
   the two affected suites passed 23 tests and typecheck passed afterward.
   No macOS or Windows desktop E2E profile ran locally for this batch; paired CI
   and mixed-scale hardware gates remain pending.
+
+- CP-08 child-host necessity audit, working tree after `6b672182`: extended the
+  existing native Chromium API experiment with two WebContentsViews attached
+  directly to one standard BrowserWindow. A visible sibling retains focus while
+  the target stays hidden and unfocused at a nonzero view origin and 125% zoom.
+  The experiment executes the same product key/click primitives through the
+  closed E2E loader, records their submission receipts, and requires trusted
+  Ctrl+Shift+KeyB down/up and middle-button down/up at DOM (80,96) from DIP
+  (100,120). Local macOS Electron 43.4.1 / Chromium 150.0.7871.224 passed both
+  samples and all 18 recorded scenarios; the native integration test passed.
+  Report: `/tmp/rion-direct-host-probe/chromium-input-darwin.json`; log:
+  `/tmp/rion-direct-host-native.log`. This is a standard-host experiment, not
+  retained AppKit product acceptance or Windows evidence. Windows native probe
+  execution and exact Role ownership/retirement parity must precede removal of
+  the per-Role Windows child host. Product code and capability claims are unchanged.
+
+- CP-08 exact candidate `6b672182`, CI `34034650727`, Windows Chromium job
+  `101490402619`: foreground key and mouse submission passed their exact public
+  API/native-fence/trusted-DOM assertions, advancing beyond the old Win32 input
+  failure. The physical phase then failed before hidden submission because the
+  sibling Role lacked document focus. Inspection found the probe attached its
+  sibling native HWND only after checking focus. The continuation moves exact
+  native attachment/projection before focus admission, matching product ordering,
+  and adds failure-only native/Chromium visibility/focus evidence. It retains the
+  strict focus assertions; hidden product parity is still unproven. Log:
+  `/tmp/rion-6b-win-package.log`. The other jobs remain independently live.

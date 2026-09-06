@@ -22,4 +22,4 @@ function load(name) {
   execute(dependency => load(dependency.replace(/^\.\//u, "")), module, module.exports);
   return module.exports;
 }
-module.exports = load("chromiumOwnedInputSubmission");
+module.exports = { ...load("chromiumOwnedInputSubmission"), ...load("chromiumWebContentsInput") };

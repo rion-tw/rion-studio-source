@@ -492,6 +492,7 @@ export async function pressVisibleWindowsApplicationShortcut(input: Readonly<{
     throw new Error("The native Windows shortcut requires one exact app PID");
   }
   const script = String.raw`
+[Console]::Error.WriteLine('shortcut-stage: compile-native-input')
 Add-Type @'
 using System;
 using System.Collections.Generic;
@@ -572,6 +573,7 @@ public static class RionNativeShortcutInput {
   }
 }
 '@
+[Console]::Error.WriteLine('shortcut-stage: select-exact-window')
 $targetPid = [uint32]$payload.processId
 $command = [string]$payload.command
 $targetMode = [string]$payload.targetMode
@@ -635,9 +637,11 @@ $scanCodes = [System.Collections.Generic.List[System.UInt16]]::new()
 if ($modifier) { $scanCodes.Add($ctrlScan) }
 if ($shiftModifier) { $scanCodes.Add($shiftScan) }
 $scanCodes.Add($keyScan)
+[Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
 if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
   throw 'Windows shortcut scan-code chord injection failed'
 }
+[Console]::Error.WriteLine('shortcut-stage: native-chord-submitted')
 `;
   try {
     await runEncodedPowerShellJson(script, {

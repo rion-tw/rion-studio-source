@@ -1144,3 +1144,27 @@ pure Electron (36 sources, 3,275,470 bytes). Logs are
 `/tmp/rion-e70-web-only-local.log`. The prior physical-path fix was submitted as
 `fc5affaf` to CI `34007906617`; its still-running native jobs remain separate
 from the popup/visibility changes recorded here.
+
+### Windows native shortcut helper observation boundary
+
+Run `34008237883` at `1893e7e2` reached Windows Chromium native E2E but job
+`101419316990` failed the initial `newGameWindow` OS shortcut before the popup
+journey. The PowerShell process reached its existing 30-second deadline and was
+terminated, with no stdout/stderr. The final Core journal and SQLite artifact
+contain no runtime or saved Game Window, so this run supplies no evidence that
+the shortcut's intended action completed. It also cannot establish which helper
+stage stalled or assess the popup fix.
+
+Added four fixed diagnostic stage markers around native-input compilation,
+exact-window selection and SendInput submission. These are test-helper stderr,
+not product performance diagnostics. The original deadline, exact PID/foreground
+checks and inserted-input-count requirement remain unchanged; no retry or elapsed
+success was added. Nine adjacent tooling tests, typecheck, source hygiene and
+diff checks passed. E2E omission for the logging-only change is `internal-only`;
+Windows execution of the actual user journeys remains pending.
+
+Evidence: `/tmp/rion-189-windows-package.log`,
+`/tmp/rion-189-win-artifacts/2026-09-06T03-10-27-155Z-win32/report.json`,
+`/tmp/rion-shortcut-stage-tests.log`, `/tmp/rion-shortcut-stage-typecheck.log` and
+`/tmp/rion-shortcut-stage-hygiene.log`. Remaining jobs in that run were left
+running; no new workflow was dispatched to supersede their native evidence.

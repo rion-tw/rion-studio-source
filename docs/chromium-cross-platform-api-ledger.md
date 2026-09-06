@@ -65,7 +65,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-04 | P1 / Runtime projection | implemented; macOS smoke passed, Windows pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
-| CP-07 | P1 / Application input | probe | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
+| CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | retain native submission by API contract; paired acceptance pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport verified; native acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
@@ -1896,3 +1896,43 @@ verdict. Logs: `/tmp/rion-web-loading-*`. Windows UIA execution remains pending
 fresh CI. Existing `edc757d0` CI has now passed macOS native validation and the
 macOS Tauri full profile; its Windows Tauri full profile reproduces the separate
 held-key macro failure. Those older results do not validate this test correction.
+
+
+### CP-07 retained-adapter decision verified on Windows
+
+The exact `edc757d0` Windows input artifact from CI 34014912798 contains all 72
+observations on Electron 43.4.1 / Chromium 150.0.7871.224:
+`chromium-input-windows-latest-34014912798-1`, artifact ID 9983820249;
+local copy `/tmp/rion-edc-win-input/chromium-shortcuts-win32.json`.
+Across main, Role-like view, global-Web-like view and popup, the native hook's
+12 plain/repeat/modifier-change cases each emit exactly one owner-revision-bound
+command after release and no page F11 events. Its 12 focus-transfer, hidden-owner
+and retired-owner cases now emit zero commands, including an uncaptured key-up
+after returning to the original host. This confirms the WM_ACTIVATE capture
+cancellation correction; the prior stale-capture reproduction is absent in all
+four host types.
+
+The replacement candidates remain incompatible: before-input-event emits zero
+commands in all eight plain/repeat cases and one in the four modifier-change
+cases; Menu emits before release in all 12 cases, repeats in the four repeat
+cases and delivers two or three page events. All 12 Menu lifecycle cases have
+already emitted before the ownership transition. CP-07 therefore closes its
+API-selection work as **retain the narrow native hook**, based on observed
+terminality and suppression differences, not a preference for duplicated OS
+code. Shared command routing stays centralized. The probe uses isolated real
+native hosts; it does not establish complete production Role parity. Windows
+product journey APPLICATION-SHORTCUTS-030 and the complete profile remain under
+CP-15/18. No globalShortcut fallback is introduced.
+
+The same CI's macOS Chromium report now records all 52 phases and 49 journeys
+PASS, 05:49:59–06:09:03 UTC on 2026-09-06. Artifact:
+`chromium-shell-e2e-macOS-34014912798-1`, ID 9983826074; local report
+`/tmp/rion-edc-mac-artifacts/2026-09-06T05-49-59-279Z-darwin/report.json`.
+It identifies source `edc757d0` and reports `worktreeDirty: true`, so this is the
+CI-built profile result, not a claim of a clean production package. Native
+release packaging/updater validation is still running.
+
+The gated Web-only UIA correction is committed as `2aed96909126d603c4f3eb62f2cfb3e58d3283e5`.
+Fresh paired CI [34015776112](https://github.com/rion-tw/rion-studio-source/actions/runs/34015776112)
+is running on that exact source. Its Windows loading-control result remains
+pending; older runs do not validate this correction.

@@ -180,8 +180,8 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "AutomationIdProperty, '1'",
       "ClassNameProperty, 'Edit'",
       "ClassNameProperty, 'Button'",
-      "$valuePattern.SetValue($fixturePath)",
-      "$valuePattern.Current.Value -cne $fixturePath",
+      "[RionFileDialogOwnership]::SetExactFileName(",
+      "$dialogHandle, [IntPtr]$edits[0].Current.NativeWindowHandle, $fixturePath)",
       "Click-VisibleControl $openButtons[0]",
       "exact Windows file dialog controls are not visibly actionable",
       "dialogOwnership: \"exact-application-native-owner\""

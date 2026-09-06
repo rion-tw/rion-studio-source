@@ -2692,3 +2692,50 @@ longer timeout is introduced; further native evidence is required. Logs:
 `/tmp/rion-27d-mac-package.log`, `/tmp/rion-27d-mac-tauri.log`,
 `/tmp/rion-26c-mac-tauri.log`. The latter's artifact root is
 `/tmp/rion-26c-mac-tauri-artifacts`.
+
+
+### Exact Windows foreground identity and native edit acknowledgement
+
+CI 34022924914 at 2dafe73b still records only normal presentation after F11.
+The native helper previously checked foreground process identity, which cannot
+separate the launcher from a Role host in the same Electron process. The
+read-only E2E toolbar inspection now exposes the exact Windows native handle
+from the Core-fenced BrowserWindow mapping. The driver activates that visible,
+PID-owned HWND and checks it again immediately before native scan-code F11.
+The existing fullscreen projection, page suppression and live geometry receipts
+remain the success conditions. AppKit does not expose or consume this field.
+Affected internal-only journeys: CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012 and
+CHROMIUM-WINDOWS-NATIVE-DISPLAY-001. Twelve focused parser/foreground tests cover
+valid Windows identity, absent optional evidence, malformed identities and
+native rejection. Full Vitest at this stage passes 3,373 tests; typecheck and
+lint pass. Exact Windows native execution is still pending.
+
+CI 34023120346 at 6ae8b6e7 fails before fullscreen in the native file chooser:
+the exact visible Edit control reports Unsupported Pattern for ValuePattern.
+The driver now uses that control's native handle and Win32 WM_SETTEXT followed
+by exact ordinal WM_GETTEXT readback. Both acknowledgements are bounded with
+SendMessageTimeoutW; missing acknowledgement is failure. Exact dialog-child and
+foreground identity are checked before and after. The visible file-input,
+physical Open click, dialog closure and page file bytes remain required.
+No retry, larger helper deadline or product chooser bypass is introduced.
+This internal-only correction affects
+CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028. Windows execution remains pending.
+Evidence: `/tmp/rion-6ae-win-package.log`.
+API contracts: [WM_SETTEXT](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-settext),
+[WM_GETTEXT](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-gettext),
+[SendMessageTimeoutW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendmessagetimeoutw).
+
+The focused macOS AppKit toolbar seed and restart profile passes on this working
+tree: `.desktop-e2e-artifacts/2026-09-06T09-15-16-318Z-darwin/report.json`.
+Affected macOS journey: CHROMIUM-MACOS-APPKIT-FULLSCREEN-TOOLBAR-012.
+After the native edit correction, all 22 adjacent checks, typecheck, scoped lint,
+source hygiene and coverage validation pass. E2E build passes. Production
+isolation must be checked against the restored production build; its initial
+invocation correctly rejected the still-installed E2E renderer build.
+
+Final working-tree validation passes all 3,373 Vitest tests, macOS Rust lint
+and 1,643 native Rust tests (four existing ignored), complete hygiene, typecheck,
+coverage validation, pure Electron production build and production E2E isolation.
+The latter now passes after restoring the production renderer. Windows remains
+pending a fresh immutable-candidate CI run; no release/cutover gate is waived.
+Logs: `/tmp/rion-foreground-*`.

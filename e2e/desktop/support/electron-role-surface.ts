@@ -4,6 +4,7 @@ import { sendChromiumEscapeKey } from "./chromium-escape-key";
 
 import {
   electronDesktopE2eProbe,
+  electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eRolePlaceholderRuntime,
   type ElectronDesktopE2eRolePlaceholderInspection
 } from "./electron-driver";
@@ -11,6 +12,8 @@ import {
   pressVisibleMacosApplicationShortcut,
   pressVisibleWindowsApplicationShortcut
 } from "./native-application-actions";
+
+import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 type ElectronWindowTracker = {
   electron?: { windowHandle?: string };
@@ -500,9 +503,12 @@ export async function submitElectronRolePageQuickAccessShortcut(
 /** Sends native Windows F11 input through the retained foreground hook. */
 export async function submitElectronRolePageFullscreenShortcut(
   expectedUrl: string,
-  mainWindowHandle: string
+  mainWindowHandle: string,
+  windowId: string
 ): Promise<void> {
   const { processId } = await electronDesktopE2eProbe();
+  const { nativeWindowHandle } = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+  if (!nativeWindowHandle) throw new Error("The exact Windows runtime handle is missing");
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const button = await $("#qa-target");
     await button.waitForDisplayed({ timeout: 10_000 });
@@ -511,9 +517,10 @@ export async function submitElectronRolePageFullscreenShortcut(
       () => browser.execute(() => document.hasFocus()),
       { timeout: 10_000, timeoutMsg: "The visible Chromium Role page did not gain focus" }
     );
+    await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
     // WebDriver key injection bypasses the Win32 hook that owns F11 routing.
     await pressVisibleWindowsApplicationShortcut({
-      command: "toggleFullscreen", processId, targetMode: "focused-runtime"
+      command: "toggleFullscreen", processId, nativeWindowHandle, targetMode: "focused-runtime"
     });
   });
 }

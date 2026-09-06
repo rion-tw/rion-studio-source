@@ -155,7 +155,7 @@ describe("Chromium native Game Window and real display parity", () => {
     if (platform === "macos") {
       await clickMacosVisibleFullscreenControl(gameWindow.id);
     } else {
-      await submitElectronRolePageFullscreenShortcut(activeRoleUrl, mainWindowHandle);
+      await submitElectronRolePageFullscreenShortcut(activeRoleUrl, mainWindowHandle, gameWindow.id);
     }
     await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.presentation === "fullscreen", "Native fullscreen did not commit");
@@ -167,7 +167,7 @@ describe("Chromium native Game Window and real display parity", () => {
         targetMode: "focused-runtime"
       });
     } else {
-      await submitElectronRolePageFullscreenShortcut(activeRoleUrl, mainWindowHandle);
+      await submitElectronRolePageFullscreenShortcut(activeRoleUrl, mainWindowHandle, gameWindow.id);
     }
     await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.presentation === "normal", "Native fullscreen exit did not commit");

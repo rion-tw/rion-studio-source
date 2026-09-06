@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 
+import { windowsNativeEditDeclarations } from "./windows-native-edit";
+
 const executeFile = promisify(execFile);
 
 const FIXTURE_FILE_NAME = "rion-e2e.txt";
@@ -440,6 +442,7 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class RionFileDialogOwnership {
+${windowsNativeEditDeclarations}
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
@@ -719,13 +722,8 @@ if ([RionFileDialogOwnership]::GetForegroundWindow() -ne $dialogHandle) {
   throw 'exact Windows file dialog is not foreground for input'
 }
 Write-Progress 'entering-file-name'
-$valuePattern = $edits[0].GetCurrentPattern(
-  [System.Windows.Automation.ValuePattern]::Pattern)
-if ($valuePattern.Current.IsReadOnly) { throw 'exact file-name control is read-only' }
-$valuePattern.SetValue($fixturePath)
-if ($valuePattern.Current.Value -cne $fixturePath) {
-  throw 'exact file-name control did not acknowledge the fixture path'
-}
+[RionFileDialogOwnership]::SetExactFileName(
+  $dialogHandle, [IntPtr]$edits[0].Current.NativeWindowHandle, $fixturePath)
 Write-Progress 'submitting-open'
 Click-VisibleControl $openButtons[0]
 do {

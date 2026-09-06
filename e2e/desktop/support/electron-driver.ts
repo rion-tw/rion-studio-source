@@ -305,6 +305,7 @@ export interface ElectronDesktopE2eApplicationShortcutRuntimeInspection {
 }
 
 export interface ElectronDesktopE2eFullscreenToolbarRuntimeInspection {
+  nativeWindowHandle?: string;
   hostKind: "appkit" | "windows";
   native: {
     alwaysShowToolbarInFullScreen: boolean;

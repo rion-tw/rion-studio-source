@@ -193,7 +193,8 @@ async function enterFullscreen(input: Readonly<{
   const afterSequence = await fixtureCursor();
   await submitElectronRolePageFullscreenShortcut(
     input.role.launchUrl,
-    input.mainWindowHandle
+    input.mainWindowHandle,
+    input.windowId
   );
   return afterSequence;
 }
@@ -207,7 +208,8 @@ async function exitFullscreen(input: Readonly<{
   if (input.platform === "windows") {
     await submitElectronRolePageFullscreenShortcut(
       input.role.launchUrl,
-      input.mainWindowHandle
+      input.mainWindowHandle,
+      input.windowId
     );
     return waitForToolbar(
       input.windowId,

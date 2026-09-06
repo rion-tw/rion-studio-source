@@ -1,4 +1,4 @@
-import { app, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -1509,9 +1509,17 @@ async function readFullscreenToolbarRuntime(
   const logical = logicalWindows[0]!;
   const browserWindow = browserWindows[0]!;
   const nativeWindow = nativeWindows[0]!;
-  const inspection = parseElectronDesktopE2eFullscreenToolbarInspection(
-    runtime.inspectFullscreenToolbar(windowId)
-  );
+  const nativeHost = e2ePlatform().platform === "win32"
+    ? BrowserWindow.fromId(nativeWindow.parentNativeHostId!) : null;
+  if (e2ePlatform().platform === "win32" && (!nativeHost || nativeHost.isDestroyed())) {
+    throw new Error(`Fullscreen toolbar ${windowId} lost its exact BrowserWindow.`);
+  }
+  const handle = nativeHost?.getNativeWindowHandle();
+  const inspection = parseElectronDesktopE2eFullscreenToolbarInspection({
+    ...runtime.inspectFullscreenToolbar(windowId),
+    ...(handle ? { nativeWindowHandle: (handle.length === 8
+      ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE())).toString() } : {})
+  });
   const coreTabIds = logical.tabs.map((tab) => tab.id);
   const platform = e2ePlatform();
   if (

@@ -1,4 +1,5 @@
 export interface ElectronDesktopE2eFullscreenToolbarInspection {
+  readonly nativeWindowHandle?: string;
   readonly hostKind: "appkit" | "windows";
   readonly native: Readonly<{
     alwaysShowToolbarInFullScreen: boolean;
@@ -70,7 +71,8 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
 ): ElectronDesktopE2eFullscreenToolbarInspection {
   if (!record(candidate) || !exact(candidate, [
     "hostKind", "native", "presentation", "surfaces", "tabIds",
-    "topologyRevision", "windowGeneration", "windowId"
+    "topologyRevision", "windowGeneration", "windowId",
+    ...("nativeWindowHandle" in candidate ? ["nativeWindowHandle"] : [])
   ]) || !ID.test(String(candidate.windowId)) ||
     !new Set(["appkit", "windows"]).has(String(candidate.hostKind)) ||
     !new Set(["fullscreen", "maximized", "normal"]).has(
@@ -81,6 +83,11 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
     new Set(candidate.tabIds).size !== candidate.tabIds.length ||
     !Array.isArray(candidate.surfaces) || !record(candidate.native)) {
     throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+  }
+  if ("nativeWindowHandle" in candidate &&
+      (candidate.hostKind !== "windows" || typeof candidate.nativeWindowHandle !== "string" ||
+        !/^[1-9]\d*$/u.test(candidate.nativeWindowHandle))) {
+    throw new Error("Electron desktop E2E native fullscreen window handle is invalid.");
   }
   const native = candidate.native;
   const commonKeys = [

@@ -2169,7 +2169,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Click the same visible remote file input while UIAutomation requires the unique top-level #32770 chooser owned by the exact Electron app PID, writes the bounded artifact-local fixture only through file-name AutomationId 1148, and invokes Open AutomationId 1. The trusted page change and detached evidence must match the exact filename, byte count, SHA-256, and phase path on seed and restart; Windows remains an independent CI verdict. Require the exact native file-name ValuePattern to read back the fixture path before clicking Open."
+      "description": "Click the same visible remote file input while UIAutomation requires the unique top-level #32770 chooser owned by the exact Electron app PID, writes the bounded artifact-local fixture only through file-name AutomationId 1148, and invokes Open AutomationId 1. The trusted page change and detached evidence must match the exact filename, byte count, SHA-256, and phase path on seed and restart; Windows remains an independent CI verdict. Require exact native file-name HWND ownership and acknowledged WM_SETTEXT/WM_GETTEXT readback of the fixture path before clicking Open."
     },
     {
       "id": "CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012",
@@ -2188,7 +2188,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Toggle the Core-owned preference through the visible Windows Settings switch, send native scan-code F11 through the exact foreground Windows process while the managed Chromium Role is focused, without page delivery, and move the real pointer onto the sandboxed local shell edge to prove the tab row and three window controls hide, reveal, pin in both directions with exact 2px/40px live content bounds, and restore auto-hide after restart."
+      "description": "Toggle the Core-owned preference through the visible Windows Settings switch, send native scan-code F11 through the exact foreground HWND obtained from Core-fenced runtime inspection while the managed Chromium Role is focused, without page delivery, and move the real pointer onto the sandboxed local shell edge to prove the tab row and three window controls hide, reveal, pin in both directions with exact 2px/40px live content bounds, and restore auto-hide after restart."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-SESSION-ISOLATION-003",

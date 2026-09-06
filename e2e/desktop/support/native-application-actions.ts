@@ -486,6 +486,7 @@ up.post(tap: .cghidEventTap)
 export async function pressVisibleWindowsApplicationShortcut(input: Readonly<{
   command: VisibleWindowsApplicationShortcut;
   processId: number;
+  nativeWindowHandle?: string;
   targetMode?: VisibleApplicationShortcutTargetMode;
 }>): Promise<void> {
   if (process.platform !== "win32" || !validProcessId(input.processId)) {
@@ -606,6 +607,10 @@ $foregroundWindow = [RionNativeShortcutInput]::GetForegroundWindow()
 if ($foregroundWindow -ne $inputWindow) {
   throw 'exact Rion window lost foreground before shortcut'
 }
+if ($payload.nativeWindowHandle -and
+    [string][int64]$foregroundWindow -ne [string]$payload.nativeWindowHandle) {
+  throw 'the exact runtime HWND lost foreground before shortcut'
+}
 $foregroundPid = [uint32]0
 [RionNativeShortcutInput]::GetWindowThreadProcessId(
   $foregroundWindow, [ref]$foregroundPid) | Out-Null
@@ -647,6 +652,7 @@ if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
     await runEncodedPowerShellJson(script, {
       command: input.command,
       processId: input.processId,
+      nativeWindowHandle: input.nativeWindowHandle,
       targetMode: input.targetMode ?? "launcher"
     }, {
       // DeadlineBound: Windows PowerShell may cold-start Add-Type while the CI

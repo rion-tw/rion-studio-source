@@ -8,6 +8,8 @@
     "e2e/desktop/support/platform.ts",
     "e2e/desktop/support/chromium-escape-key.ts",
     "e2e/desktop/support/windows-runtime-tab-close.ts",
+    "e2e/desktop/support/windows-runtime-foreground.ts",
+    "e2e/desktop/support/windows-native-edit.ts",
     "e2e/desktop/phaseSpecs.ts",
     "e2e/desktop/support/flyff-caret.ts",
     "e2e/desktop/support/transcript.ts",

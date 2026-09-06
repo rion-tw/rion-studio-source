@@ -684,10 +684,7 @@ export async function activateChromiumRoleVisible(
   });
 }
 
-export async function startChromiumMacroVisible(
-  macro: Macro,
-  roleIds: readonly string[]
-): Promise<number> {
+export async function clickChromiumMacroStartVisible(macro: Macro): Promise<number> {
   await openChromiumSection("Macros", "/macros");
   const row = await $(`[data-selection-id='${macro.id}']`);
   await row.waitForDisplayed({ timeout: 10_000 });
@@ -695,6 +692,14 @@ export async function startChromiumMacroVisible(
   const start = await row.$("button[aria-label='Start']");
   await start.waitForEnabled({ timeout: 20_000 });
   await start.click();
+  return cursor;
+}
+
+export async function startChromiumMacroVisible(
+  macro: Macro,
+  roleIds: readonly string[]
+): Promise<number> {
+  const cursor = await clickChromiumMacroStartVisible(macro);
   await waitForMacroProjection({
     afterSequence: cursor,
     macroId: macro.id,

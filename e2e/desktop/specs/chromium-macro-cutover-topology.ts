@@ -10,10 +10,12 @@ import {
   waitFixtureEvent
 } from "../support/fixture";
 import { closeVisibleRuntimeTab } from "../support/native-runtime-tabs";
+import { waitForMacroProjection } from "../support/renderer-events";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   bootstrapChromiumMacroCutover,
   createChromiumMacroWindow,
+  clickChromiumMacroStartVisible,
   expectChromiumNativeRoleBinding,
   launchChromiumWorkspaceVisible,
   macroFixtureUrl,
@@ -166,13 +168,17 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
   });
 
   const singleFixture = await fixtureCursor();
-  const singleCursor = await startChromiumMacroVisible(singleMacro, [shared.id]);
+  const singleCursor = await clickChromiumMacroStartVisible(singleMacro);
   const sharedOnly = await waitFixtureEvent({
     afterSequence: singleFixture,
     kind: "keydown",
     roleId: SHARED_FIXTURE
   });
   expect(sharedOnly).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  const released = await waitFixtureEvent({ afterSequence: sharedOnly.sequence,
+    kind: "consumer-keyup", roleId: SHARED_FIXTURE });
+  expect(released).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  await waitForMacroProjection({ afterSequence: singleCursor, macroId: singleMacro.id, absent: true });
   expect(await fixtureEvents({
     afterSequence: singleFixture,
     kind: "keydown",
@@ -218,13 +224,17 @@ export async function restartChromiumMacroTopologyCutover(): Promise<void> {
   });
   await waitForChromiumMacroRoleReady(shared.id);
   const fixtureAfter = await fixtureCursor();
-  await startChromiumMacroVisible(singleMacro, [shared.id]);
+  const singleCursor = await clickChromiumMacroStartVisible(singleMacro);
   const key = await waitFixtureEvent({
     afterSequence: fixtureAfter,
     kind: "keydown",
     roleId: SHARED_FIXTURE
   });
   expect(key).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  const released = await waitFixtureEvent({ afterSequence: key.sequence,
+    kind: "consumer-keyup", roleId: SHARED_FIXTURE });
+  expect(released).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  await waitForMacroProjection({ afterSequence: singleCursor, macroId: singleMacro.id, absent: true });
   await writeChromiumMacroEvidence("chromium-macro-topology-restart-evidence.json", {
     binding,
     platform: context.platform,

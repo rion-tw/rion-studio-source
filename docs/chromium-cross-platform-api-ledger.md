@@ -5676,3 +5676,39 @@ trusted input are outside this Windows child-host removal.
 - Current runtime acceptance candidate remains 5863c303 / CI 34064073603;
   no source implementation changed during this evidence update. Its Windows
   jobs are live and macOS jobs queued. Keep evidence tied to each exact SHA.
+
+
+### CP-15 5863c303 closes the inactive tab; short Macro presentation wait is invalid
+
+- CI 34064073603 Windows job 101569645720 report binds 5863c303, with 30 PASS
+  phases followed by topology-seed failure at startChromiumMacroVisible for the
+  single Role one-shot Macro after transfer and old-tab closure. The close
+  hover correction passes that operation. Core acknowledges macroStart and
+  input effects browser-action-17 through 19 without rejection; the transferred
+  exact Role remains running after old-tab destruction.
+- Fixture sequences 690-693 show trusted KeyS down/consumer-down/up/consumer-up
+  on macro-multirole-a's game-input-canvas in roughly 41 milliseconds. The
+  Macro did execute. Waiting for the renderer's transient running state is
+  inappropriate for this short task: Macro presentation updates are throttled
+  at 250 milliseconds, while terminal status propagation is reliable.
+- Extract the existing visible Start click from the ongoing-Macro helper.
+  Keep all ongoing callers' running-state requirement. The ownership seed and
+  restart one-shot cases now use the same visible click, require trusted KeyS
+  down and subsequent consumer-keyup, then require the Macro's absent terminal
+  projection. Keep exact owner transfer/readiness and non-target input rejection.
+  No loop/delay is added to keep the Macro artificially running; no product
+  behavior, event throttle, deadline or retry changes.
+- Affected paired journey suffix: MACRO-OWNERSHIP-TRANSFER-010. The existing
+  E2E now checks completed balanced input as well as eligibility; manifest
+  membership and native driver boundaries remain unchanged. Full paired
+  topology/restart acceptance remains pending the next candidate.
+
+
+- Final one-shot E2E correction validation: all 452 Vitest files / 3642 tests
+  pass in 157.22 seconds; TypeScript (including tsconfig.e2e), ESLint, full
+  hygiene/coverage, Electron E2E build, restored production build and isolation
+  pass. No Rust/product contract source changed, so Rust unit tests were not
+  rerun for this test-only batch. Local native desktop profiles remain paused;
+  paired seed/restart execution awaits exact-candidate CI. Separately,
+  1422ea67 macOS job 101567161677 has completed its Chromium shell E2E step
+  successfully while later package/update steps remain live.

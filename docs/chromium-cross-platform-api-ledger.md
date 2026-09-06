@@ -4512,3 +4512,56 @@ trusted input are outside this Windows child-host removal.
   checks pass. macOS E2E was not rerun for this Windows-only test-driver change;
   the prior 266f4abc four-phase macOS run remains separate evidence. No native
   Rust, shared runtime contract or product module changed in this batch.
+
+
+### CP-15 stable Windows persistence receipt observation
+
+- Run 34051980128 Windows stable Tauri E2E failed force-terminate while waiting
+  for alpha's window-state-persisted event. Transcript sequence 214 completed
+  alpha activation; 194/222 reported essentialReady/ready. SQLite preserved
+  activeTabId 141becfd-f19a-4331-96ed-ac7bb0d44741 (alpha), updated at
+  18:44:43.955989900Z, while no matching persisted event appeared. This is
+  evidence of saved state without the required observer receipt, not lost data.
+- The observer was attached to pending-lane retirement. When a newer queued
+  snapshot replaces that lane during the Core commit, the exact older applied
+  receipt could not emit because its lane was no longer current. Record the
+  event from the submitted snapshot identity and matching Core applied receipt
+  instead. Retire only an exactly matching pending lane; a newer request remains
+  queued. Superseded receipts do not become applied events.
+- Preserve the submitted active tab, window generation and revision in the
+  observation. Do not infer persistence from activation, page readiness or a
+  later SQLite query, and do not widen the test timeout. Event emission remains
+  desktop-e2e-only; persistence authority and actual writes stay in Core.
+- Local source-boundary tests pass (23). Required macOS Rust validation and
+  native stable recovery execution are running; Windows acceptance remains
+  pending. This internal-only observation repair does not close Chromium
+  cross-platform parity or the cutover gate.
+- macOS lint:rust and test:rust completed successfully (1,643 passed, four
+  ignored); the desktop-e2e feature build also compiled successfully. Focused
+  full-profile crash-restart execution failed in its seed dependency at the
+  maximized-presentation control command, before force-terminate. Artifact
+  2026-09-06T18-53-23-677Z-darwin is failed evidence, not recovery acceptance.
+
+### CP-10/CP-11 native Windows evidence at b8a3d3c9
+
+- Native job 101537220504 completed with four failures. Both Session cases
+  still received CRLF before RCHRES01 despite windowsHide and
+  ELECTRON_NO_ATTACH_CONSOLE. Console routing alone is therefore not a proven
+  cause or repair. Keep strict response framing and fresh-process acceptance
+  open; no preamble stripping or successful helper outcome is inferred.
+- Both viewport configurations recorded hostVisible false while hostFocused
+  and siblingFocused were true. These cannot establish visible-host parity.
+  Remove windowsHide from the visible viewport probe launcher, matching the
+  already-passing direct-input probe's native launch precondition. Retain exact
+  host visibility/focus assertions. Local macOS two-configuration execution
+  passed afterward; Windows execution remains required. The default-throttling
+  hidden resize notification is still indeterminate despite exact dimensions.
+- Windows job 101538819689 at e52dd066 progressed past desktop-root discovery
+  and compiled the native dialog helper, but UIA FromHandle failed with
+  ElementNotAvailableException on an exact native control. This identifies the
+  next driver boundary; it is not file-upload acceptance. Native HWND control
+  observation remains to be evaluated without relaxing visible primary actions.
+- Final local checks for this batch: both production builds, Electron renderer
+  verification, E2E production isolation, full hygiene/coverage and targeted
+  ESLint passed. The failed macOS recovery run is retained. This batch does not
+  claim either current-candidate full desktop profile is green.

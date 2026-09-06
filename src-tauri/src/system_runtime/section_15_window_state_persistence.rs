@@ -234,6 +234,7 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
                     input.snapshot.window_id.clone(),
                     input.snapshot.window_generation,
                     input.snapshot.revision,
+                    input.snapshot.active_tab_id.clone(),
                 )
             })
             .collect::<Vec<_>>();
@@ -242,7 +243,7 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
         );
         match result {
             Ok(batch) => {
-                for (window_id, window_generation, revision) in &requested {
+                for (window_id, window_generation, revision, _active_tab_id) in &requested {
                     let status = batch.receipts.iter().find_map(|receipt| {
                         (receipt.window_id == *window_id
                             && receipt.window_generation == *window_generation
@@ -256,8 +257,21 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
                             window_id,
                             *window_generation,
                             *revision,
-                            status,
                         );
+                        // The exact Core receipt acknowledges this submitted snapshot even
+                        // if a newer request has replaced its pending lane in the meantime.
+                        #[cfg(feature = "desktop-e2e")]
+                        if status == "applied" {
+                            crate::desktop_e2e::record_event(
+                                "window-state-persisted",
+                                Some(window_id),
+                                Some(*window_generation),
+                                Some(*revision),
+                                json!({ "activeTabId": _active_tab_id, "status": status }),
+                            );
+                        }
+                        #[cfg(not(feature = "desktop-e2e"))]
+                        let _ = status;
                     } else {
                         record_window_state_persist_failure(
                             &runtime,
@@ -271,7 +285,7 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
             }
             Err(error) => {
                 let message = error.to_string();
-                for (window_id, window_generation, revision) in requested {
+                for (window_id, window_generation, revision, _active_tab_id) in requested {
                     record_window_state_persist_failure(
                         &runtime,
                         &window_id,
@@ -294,35 +308,15 @@ fn retire_window_state_persist_lane(
     window_id: &str,
     window_generation: u64,
     revision: u64,
-    status: &str,
 ) {
-    let retired = if let Ok(mut lanes) = runtime.window_state_persistence.lanes.lock()
+    if let Ok(mut lanes) = runtime.window_state_persistence.lanes.lock()
         && lanes.get(window_id).is_some_and(|lane| {
             lane.window_generation == window_generation && lane.revision == revision
-        }) {
-        let retired = lanes.remove(window_id);
-        runtime.window_state_persistence.changed.notify_all();
-        retired
-    } else {
-        None
-    };
-    #[cfg(feature = "desktop-e2e")]
-    if status == "applied"
-        && let Some(lane) = retired
+        })
     {
-        crate::desktop_e2e::record_event(
-            "window-state-persisted",
-            Some(window_id),
-            Some(window_generation),
-            Some(revision),
-            json!({
-                "activeTabId": lane.input.snapshot.active_tab_id,
-                "status": status,
-            }),
-        );
+        lanes.remove(window_id);
+        runtime.window_state_persistence.changed.notify_all();
     }
-    #[cfg(not(feature = "desktop-e2e"))]
-    let _ = (retired, status);
 }
 
 fn record_window_state_persist_failure(

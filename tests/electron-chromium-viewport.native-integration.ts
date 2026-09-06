@@ -16,7 +16,8 @@ it.each([true, false])("records hidden and occluded zoom with backgroundThrottli
     const reportPath = join(directory, "viewport.json");
     await executeFile(require("electron") as string, [
       "scripts/probeChromiumViewport.cjs", reportPath, join(directory, "data"), String(backgroundThrottling)
-    ], { windowsHide: true, timeout: 30_000, maxBuffer: 1024 * 1024 });
+    // This probe requires a visible native host, like the direct-input probe.
+    ], { timeout: 30_000, maxBuffer: 1024 * 1024 });
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     // CI preserves the complete evidence even if a later assertion fails.
     process.stdout.write(`${JSON.stringify(report)}\n`);

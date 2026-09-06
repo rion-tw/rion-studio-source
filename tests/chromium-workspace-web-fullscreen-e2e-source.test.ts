@@ -121,6 +121,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     ]) {
       expect(spec).toContain(marker);
     }
+    expect(nativeUpload).not.toContain("AutomationElement]::RootElement");
     expect(spec).toContain("isTrusted: true");
     expect(spec).not.toContain("runtimeUiAction(");
     expect(spec).not.toContain("controlWindow(");
@@ -157,14 +158,12 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "await link(fixturePath, stagedFixturePath)",
       'actionNames(current).contains("AXOpen")',
       'AXUIElementPerformAction(target, "AXOpen" as CFString)',
-      "ProcessIdProperty, $targetPid",
-      "ClassNameProperty, '#32770'",
-      "$processCondition,\n  $commonDialogCondition)",
       "RionFileDialogOwnership",
-      "GetWindow([IntPtr]$handle, 4)",
-      "$targetWindowHandles.ContainsKey([string]$ownerHandle)",
+      "OwnedWindows($targetPid, $true)",
+      "pid != targetPid && ownerPid != targetPid",
+      'WindowClass(hwnd) != "#32770"',
+      "GetWindow($handle, 4)",
       "AutomationElement]::FromHandle($foregroundHandle)",
-      "$current.ClassName -eq '#32770'",
       "Test-ExactFileDialogControls",
       "ownerProcessId = $ownerProcessId",
       "ownerNativeWindowHandle = $ownerHandle",

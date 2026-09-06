@@ -449,25 +449,37 @@ ${windowsNativeEditDeclarations}
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+  private delegate bool WindowCallback(IntPtr hwnd, IntPtr parameter);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(WindowCallback callback, IntPtr parameter);
+  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+  public static string WindowClass(IntPtr hwnd) {
+    var name = new System.Text.StringBuilder(256);
+    GetClassName(hwnd, name, name.Capacity);
+    return name.ToString();
+  }
+  public static IntPtr[] OwnedWindows(int targetPid, bool dialogsOnly) {
+    var matches = new System.Collections.Generic.List<IntPtr>();
+    int inspected = 0;
+    bool enumerated = EnumWindows((hwnd, parameter) => {
+      if (++inspected > 4096) return false;
+      uint pid, ownerPid;
+      GetWindowThreadProcessId(hwnd, out pid);
+      GetWindowThreadProcessId(GetWindow(hwnd, 4), out ownerPid);
+      if (pid != targetPid && ownerPid != targetPid) return true;
+      if (dialogsOnly && (!IsWindowVisible(hwnd) || WindowClass(hwnd) != "#32770")) return true;
+      matches.Add(hwnd);
+      return true;
+    }, IntPtr.Zero);
+    if (!enumerated || inspected > 4096)
+      throw new InvalidOperationException("native window enumeration failed or exceeded its bound");
+    return matches.ToArray();
+  }
+
 }
 '@
-Write-Progress 'reading-root'
-$root = [System.Windows.Automation.AutomationElement]::RootElement
 $targetPid = [int]$payload.processId
 $fixturePath = [string]$payload.fixturePath
 $diagnosticPath = [string]$payload.diagnosticPath
-$processCondition = New-Object System.Windows.Automation.PropertyCondition(
-  [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
-$windowCondition = New-Object System.Windows.Automation.PropertyCondition(
-  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-  [System.Windows.Automation.ControlType]::Window)
-$classCondition = New-Object System.Windows.Automation.PropertyCondition(
-  [System.Windows.Automation.AutomationElement]::ClassNameProperty, '#32770')
-$commonDialogCondition = New-Object System.Windows.Automation.AndCondition(
-  $windowCondition, $classCondition)
-$directDialogCondition = New-Object System.Windows.Automation.AndCondition(
-  $processCondition,
-  $commonDialogCondition)
 $editCondition = New-Object System.Windows.Automation.AndCondition(
   (New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Edit')),
@@ -479,34 +491,12 @@ $openCondition = New-Object System.Windows.Automation.AndCondition(
   (New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '1')))
 $observedWindows = [ordered]@{}
-$targetWindowHandles = @{}
-Write-Progress 'reading-application-windows'
-$targetWindows = $root.FindAll(
-  [System.Windows.Automation.TreeScope]::Children,
-  (New-Object System.Windows.Automation.AndCondition(
-    $processCondition, $windowCondition)))
-foreach ($targetWindow in $targetWindows) {
-  $targetHandle = [int64]$targetWindow.Current.NativeWindowHandle
-  if ($targetHandle -gt 0) { $targetWindowHandles[[string]$targetHandle] = $true }
-}
-
-function Get-OwnerNativeWindowHandle($candidate) {
-  $handle = [int64]$candidate.Current.NativeWindowHandle
-  if ($handle -eq 0) { return [int64]0 }
-  return [int64][RionFileDialogOwnership]::GetWindow([IntPtr]$handle, 4)
-}
-
 function Get-NativeWindowProcessId([int64]$handle) {
   if ($handle -eq 0) { return 0 }
   $windowProcessId = [uint32]0
   [RionFileDialogOwnership]::GetWindowThreadProcessId(
     [IntPtr]$handle, [ref]$windowProcessId) | Out-Null
   return [int]$windowProcessId
-}
-
-function Get-OwnerProcessId($candidate) {
-  $ownerHandle = Get-OwnerNativeWindowHandle $candidate
-  return Get-NativeWindowProcessId $ownerHandle
 }
 
 function Read-ExactDialogControls($candidate, [int]$controlId, [string]$className) {
@@ -537,86 +527,32 @@ function Click-VisibleControl($control) {
 }
 
 function Read-ExactDialogs {
-  Write-Progress 'reading-direct-dialogs'
-  $directDialogs = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $directDialogCondition)
+  Write-Progress 'reading-owned-native-dialogs'
   $matches = New-Object System.Collections.Generic.List[System.Windows.Automation.AutomationElement]
-  $matchedHandles = @{}
-  foreach ($candidate in $directDialogs) {
-    if (!(Test-ExactFileDialogControls $candidate)) { continue }
-    $handle = [int64]$candidate.Current.NativeWindowHandle
-    $matches.Add($candidate)
-    $matchedHandles[[string]$handle] = $true
-  }
-  # The Windows common-item dialog can be absent from RootElement's direct
-  # children even while its HWND is the active foreground window. Resolve that
-  # exact HWND through UIA, then retain the same owner and semantic-control
-  # fences used for enumerated candidates.
-  Write-Progress 'reading-foreground-dialog'
-  $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
-  if ($foregroundHandle -ne [IntPtr]::Zero) {
-    try {
-      $candidate =
-        [System.Windows.Automation.AutomationElement]::FromHandle($foregroundHandle)
-      $current = $candidate.Current
-      $handle = [int64]$current.NativeWindowHandle
-      $ownerHandle = Get-OwnerNativeWindowHandle $candidate
-      if (
-        $handle -gt 0 -and
-        !$matchedHandles.ContainsKey([string]$handle) -and
-        $current.ClassName -eq '#32770' -and
-        $targetWindowHandles.ContainsKey([string]$ownerHandle) -and
-        (Test-ExactFileDialogControls $candidate)
-      ) {
-        $matches.Add($candidate)
-        $matchedHandles[[string]$handle] = $true
-      }
-    } catch {}
-  }
-  Write-Progress 'reading-window-candidates'
-  $windows = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $windowCondition)
-  foreach ($candidate in $windows) {
-    $handle = [int64]$candidate.Current.NativeWindowHandle
-    if ($handle -eq 0 -or $matchedHandles.ContainsKey([string]$handle)) { continue }
-    $ownerHandle = Get-OwnerNativeWindowHandle $candidate
-    if (!$targetWindowHandles.ContainsKey([string]$ownerHandle) -or
-        $candidate.Current.ClassName -ne '#32770') { continue }
-    if (!(Test-ExactFileDialogControls $candidate)) { continue }
-    $matches.Add($candidate)
-    $matchedHandles[[string]$handle] = $true
+  # Admit native HWND ownership and exact controls before invoking any UIA provider.
+  foreach ($handle in [RionFileDialogOwnership]::OwnedWindows($targetPid, $true)) {
+    $edits = @([RionFileDialogOwnership]::ExactDialogControls($handle, 1148, 'Edit'))
+    $buttons = @([RionFileDialogOwnership]::ExactDialogControls($handle, 1, 'Button'))
+    if ($edits.Count -ne 1 -or $buttons.Count -ne 1) { continue }
+    Write-Progress 'admitting-owned-dialog-automation'
+    $candidate = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
+    if (Test-ExactFileDialogControls $candidate) { $matches.Add($candidate) }
   }
   return $matches
 }
 
 function Capture-WindowSnapshot {
-  Write-Progress 'capturing-window-snapshot'
-  $windows = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $windowCondition)
-  foreach ($candidate in $windows) {
-    try {
-      $current = $candidate.Current
-      $handle = [int64]$current.NativeWindowHandle
-      $ownerHandle = Get-OwnerNativeWindowHandle $candidate
-      $ownerProcessId = Get-OwnerProcessId $candidate
-      if (
-        $current.ProcessId -ne $targetPid -and
-        $current.ClassName -ne '#32770' -and
-        $ownerProcessId -ne $targetPid
-      ) { continue }
-      $key = "$($current.ProcessId)|$handle|$($current.ClassName)|$($current.Name)"
-      $observedWindows[$key] = [ordered]@{
-        automationId = $current.AutomationId
-        className = $current.ClassName
-        controlType = $current.ControlType.ProgrammaticName
-        isOffscreen = $current.IsOffscreen
-        name = $current.Name
-        nativeWindowHandle = $handle
-        ownerNativeWindowHandle = $ownerHandle
-        ownerProcessId = $ownerProcessId
-        processId = $current.ProcessId
-      }
-    } catch {}
+  Write-Progress 'capturing-native-window-snapshot'
+  foreach ($handle in [RionFileDialogOwnership]::OwnedWindows($targetPid, $false)) {
+    $ownerHandle = [int64][RionFileDialogOwnership]::GetWindow($handle, 4)
+    $ownerProcessId = Get-NativeWindowProcessId $ownerHandle
+    $observedWindows[[string]$handle] = [ordered]@{
+      className = [RionFileDialogOwnership]::WindowClass($handle)
+      nativeWindowHandle = [int64]$handle
+      ownerNativeWindowHandle = $ownerHandle
+      ownerProcessId = $ownerProcessId
+      processId = Get-NativeWindowProcessId ([int64]$handle)
+    }
   }
 }
 

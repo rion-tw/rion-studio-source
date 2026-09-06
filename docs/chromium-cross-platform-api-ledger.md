@@ -4478,3 +4478,37 @@ trusted input are outside this Windows child-host removal.
   passed. Both production builds and E2E production isolation passed after the
   focused native run. The earlier journal-watch failure did not recur in this
   suite, but no watcher repair has been made and that issue remains open.
+
+
+### CP-15 Windows native chooser discovery without desktop UIA traversal
+
+- Run 34051980128 at b8a3d3c9 passed Windows Workspace slot persistence but
+  failed chromium-workspace-web-fullscreen-seed during visible file upload.
+  The native chooser helper was killed at its existing external deadline;
+  its durable progress receipt stopped at reading-root, before application
+  window enumeration. No chooser absence or product upload failure can be
+  inferred from that stalled UI Automation root call.
+- Replace UIA RootElement/FindAll desktop enumeration with bounded native
+  EnumWindows discovery. Admit only the exact application PID or a window
+  whose native owner belongs to that PID. Dialog candidates must be visible
+  #32770 HWNDs with exactly one native 1148/Edit and 1/Button descendant before
+  asking UIA for the admitted dialog and its two actionable controls.
+- Native window enumeration failure or exceeding 4,096 HWNDs throws; neither
+  can become an empty-dialog success. Discovery remains the existing bounded
+  external test-driver loop. Keep the original 15-second process deadline,
+  unique-dialog rule, foreground and visible-control checks, exact filename
+  write/readback and remote trusted-file/byte/hash evidence. No product file
+  upload bridge or hidden synthetic primary action is introduced.
+- Snapshot discovery also uses native ownership so collecting routine evidence
+  cannot reintroduce the desktop-root traversal. Removed obsolete UIA root
+  conditions and unused owner helpers. This is internal-only E2E driver work;
+  Windows native execution remains pending. Adjacent source-boundary and
+  PowerShell transport checks are not native dialog acceptance.
+- Affected journey: CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028, exercised
+  inside CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017. Both macOS and Windows
+  CI profiles remain required; no coverage target or journey is removed.
+- Local validation: 11 focused source-boundary/PowerShell transport tests,
+  TypeScript, ESLint (zero errors), full hygiene, documentation and coverage
+  checks pass. macOS E2E was not rerun for this Windows-only test-driver change;
+  the prior 266f4abc four-phase macOS run remains separate evidence. No native
+  Rust, shared runtime contract or product module changed in this batch.

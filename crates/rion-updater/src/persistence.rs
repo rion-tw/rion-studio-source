@@ -1297,8 +1297,10 @@ mod tests {
 
         // Exercise fresh parent/temporary-file interleavings. A native Windows
         // failure showed an UnsafePath rejection during concurrent
-        // publication; every round must still have exactly one durable winner.
-        for _round in 0..32 {
+        // publication; the expanded bounded soak captures the retained native
+        // error source. Every round must have exactly one durable winner; no
+        // failed round is retried or accepted after a later success.
+        for round in 0..256 {
             let directory = tempfile::tempdir().unwrap();
             let parent = directory.path().join("receipts");
             ensure_private_directory(&parent).unwrap();
@@ -1310,7 +1312,10 @@ mod tests {
                 std::thread::spawn(move || {
                     let value = serde_json::json!({ "marker": marker });
                     barrier.wait();
-                    let outcome = write_private_json_create_new(&path, &value).unwrap();
+                    let outcome =
+                        write_private_json_create_new(&path, &value).unwrap_or_else(|error| {
+                            panic!("receipt publication round {round}: {error:?}")
+                        });
                     (value, outcome)
                 })
             });

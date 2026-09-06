@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 01ca1f3b; Windows 29 phases passed at e7bee0ae; latest full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | macOS 56 phases passed at 01ca1f3b; Windows 30 phases passed at d27e7129; latest full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at 59b405b7; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -5327,3 +5327,45 @@ trusted input are outside this Windows child-host removal.
 
 
 - Local observer validation: Test Files  452 passed (452); Tests  3620 passed (3620); Duration  155.87s (transform 3.08s, setup 0ms, import 13.94s, tests 93.21s, environment 21.13s). TypeScript, full ESLint, source hygiene and documentation checks pass. Both E2E and production Electron builds pass, followed by production isolation. No product runtime, shared contract or Rust source changed; native Rust results remain those recorded at d27e7129, not a new run. Desktop evidence collection for this E2E-only change remains pending macOS/Windows CI.
+
+
+### CP-16 bounded concurrent receipt publication diagnosis
+
+- d0b99b68 Windows native job 101558302354 is SUCCESS, including the existing
+  32-round concurrent create-new receipt test. This does not resolve the
+  previously observed UnsafePath failure: no native cause was reproduced in
+  that run despite retaining PlatformError at the persistence boundary.
+- Expand the existing two-writer/fresh-parent test to 256 rounds on every native
+  platform, recording the failing round with the retained error source. All
+  rounds must still yield exactly one Created and one AlreadyExists outcome,
+  with winner bytes read back from the committed file. A failed round fails the
+  test immediately; no retry-after-failure or reduced acceptance is introduced.
+- The focused macOS test passes in 3.58 seconds. Windows must execute this
+  bounded soak to obtain stronger concurrent-native evidence. This changes
+  tests only and is lower-layer-covered; ACL policy, no-replace publication,
+  operation terminality, production update behavior and journey membership
+  are unchanged. It is not an ACL repair.
+
+
+### CP-08/CP-09/CP-12 Windows progresses through keyboard to multi-Role admission
+
+- Report 2026-09-06T21-23-05-670Z-win32 from CI 34060823634 / job 101560915332 binds d27e7129
+  and records 30 PASS phases, then chromium-macro-cutover-topology-seed FAIL.
+  Controlled Reload, standby recovery, input recovery and the complete keyboard
+  phase pass. This provides native evidence for both the placement supersession
+  correction and the visible canvas precondition correction; it is not a full
+  profile or legacy-input deletion gate.
+- The next failure occurs at the first multi-Role Macro KeyM input. Both roles
+  occupy the same visible three-column Workspace in one foreground parent.
+  Role B's View is attached/visible but not focused; the sibling Role owns
+  focusedWebContentsId 4. Core effects browser-action-5 and browser-action-6
+  reject with SYSTEM_TRUSTED_INPUT_DELIVERY_MODE_UNAVAILABLE before submission.
+- currentInputDeliveryMode selects foreground from viewVisible, but
+  validChromiumViewInputObservation requires foreground contentsFocused and
+  the same focusedWebContentsId. Thus visible unfocused sibling input is not
+  admitted, unlike the already-tested hidden sibling path. Investigate and
+  natively prove this distinct case without stealing focus, weakening exact
+  identity/epoch/DOM receipts or treating a portable mock as replacement parity.
+
+
+- Bounded receipt soak final macOS validation: Rust lint passes; workspace tests total 1646 passed, 0 failed, 4 ignored. Source hygiene, documentation and diff checks pass. This test-only batch does not rerun renderer tests or desktop profiles; Windows execution of all 256 rounds remains pending CI.

@@ -88,25 +88,31 @@ $loadingCondition = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::NameProperty, [string]$payload.loadingName)
 $root = [System.Windows.Automation.AutomationElement]::RootElement
 $matches = @()
+$observations = @()
 foreach ($window in @($root.FindAll(
     [System.Windows.Automation.TreeScope]::Children, $processCondition))) {
   if ($window.Current.IsOffscreen) { continue }
-  foreach ($button in @(FindCloseButton $window)) {
-    $parent = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($button)
-    if ($null -eq $parent) { continue }
-    $loading = @($parent.FindAll(
-      [System.Windows.Automation.TreeScope]::Descendants, $loadingCondition) | Where-Object {
-        -not $_.Current.IsOffscreen
-      })
-    if ($loading.Count -ne 1) { continue }
-    $matches += @{
-      nativeHandle = [string]$window.Current.NativeWindowHandle
-      controlName = $button.Current.Name
-      loadingName = $loading[0].Current.Name
-    }
+  $buttons = @(FindCloseButton $window)
+  $loadingCandidates = @($window.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants, $loadingCondition))
+  $loading = @($loadingCandidates | Where-Object { -not $_.Current.IsOffscreen })
+  $observations += @{
+    nativeHandle = [string]$window.Current.NativeWindowHandle
+    closeCount = $buttons.Count
+    loadingCount = $loading.Count
+    loadingCandidateCount = $loadingCandidates.Count
+  }
+  if ($buttons.Count -ne 1 -or $loading.Count -ne 1) { continue }
+  $matches += @{
+    nativeHandle = [string]$window.Current.NativeWindowHandle
+    controlName = $buttons[0].Current.Name
+    loadingName = $loading[0].Current.Name
   }
 }
-if ($matches.Count -ne 1) { throw 'The exact visible loading tab control is not unique' }
+if ($matches.Count -ne 1) {
+  throw ('The exact visible loading tab control is not unique: ' +
+    (ConvertTo-Json -InputObject @($observations) -Compress))
+}
 $matches[0] | ConvertTo-Json -Compress
 `, { ...input, controlName, loadingName }, { timeoutMilliseconds: 30_000 });
   const result = JSON.parse(output) as {

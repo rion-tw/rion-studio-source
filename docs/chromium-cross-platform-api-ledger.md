@@ -1956,3 +1956,25 @@ separately after the build. This is `internal-only` E2E work: it fixes the probe
 build environment, with no product journey or updater trust-policy change.
 Fresh Windows tooling execution remains pending; CI 34015776112 predates this
 correction. Logs: `/tmp/rion-updater-posix-*`.
+
+### Windows loading-control native tree scope
+
+CI 34015776112 at `2aed9690` now exits the gated Web-only observation in roughly
+14 seconds, before the product load deadline, but UIA does not find the required
+unique loading/close pair beneath the assumed immediate raw parent. The previous
+WebDriver deadlock no longer determines this result. Log:
+`/tmp/rion-2aed-win-package.log`; Windows job 101439155517. The same run passes
+both Workspace Web fullscreen/popup seed and restart phases before this failure.
+
+A local pinned-Chromium Accessibility.getFullAXTree experiment includes the
+named loading status inside the activation button; it does not prove the
+Windows UIA parent shape. The read-only helper now scopes both uniquely named
+visible controls to the exact process-owned native window, rather than assuming
+an immediate raw parent representation. It still requires exactly one matching
+window, one close control and one loading control, and binds the captured handle
+to the Core Workspace tab after gate release. Failure now includes per-window
+close/loading/total-loading match counts. No renderer behavior or acceptance
+outcome was weakened. The exact Windows tree behavior remains pending execution.
+Local evidence: `/tmp/rion-loading-ax-probe.log`, `/tmp/rion-loading-scope-*`;
+15 focused helper tests, typecheck, lint, source hygiene and coverage pass.
+The E2E requirement remains CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024.

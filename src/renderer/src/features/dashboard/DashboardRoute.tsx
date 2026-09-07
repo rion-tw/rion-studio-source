@@ -138,7 +138,6 @@ function DashboardRoute({
   return (
     <PageFrame>
       <PageHeader
-        kicker={t("dashboard.kicker")}
         title={t("dashboard.title")}
         description={t("dashboard.description")}
         actions={

@@ -274,7 +274,6 @@ function MacrosRoute({
   return (
     <PageFrame containerRef={pageRef} scrollPositionRef={scrollPositionRef} {...selection.collectionProps}>
       <PageHeader
-        kicker={t("app.navigation.play")}
         title={t("macros.title")}
         description={t("macros.description")}
         actions={

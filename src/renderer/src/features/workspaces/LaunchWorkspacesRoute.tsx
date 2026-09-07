@@ -173,7 +173,6 @@ function LaunchWorkspacesView({
   return (
     <PageFrame containerRef={pageRef} scrollPositionRef={scrollPositionRef} {...selection.collectionProps}>
       <PageHeader
-        kicker={t("app.navigation.play")}
         title={t("workspaces.title")}
         description={t("workspaces.description")}
         actions={

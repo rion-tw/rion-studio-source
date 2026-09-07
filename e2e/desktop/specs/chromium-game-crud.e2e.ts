@@ -61,6 +61,9 @@ async function exercisePrimaryNavigation(): Promise<void> {
   ] as const) {
     await sidebar.$(`button*=${label}`).click();
     await waitForRoute(route);
+    await expect($(".app-page-header")).toBeDisplayed();
+    await expect($(".app-page-kicker")).not.toExist();
+    await expect(sidebar.$("[role=group][aria-label=Play]")).not.toExist();
   }
   await sidebar.$("button*=Settings").click();
   await waitForRoute("/settings");

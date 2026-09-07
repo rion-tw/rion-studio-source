@@ -291,7 +291,6 @@ export default function GameWindowsRoute({
   return (
     <PageFrame containerRef={pageRef} {...selection.collectionProps}>
       <PageHeader
-        kicker={t("gameWindows.kicker")}
         title={t("gameWindows.title")}
         description={t("gameWindows.description")}
         actions={(

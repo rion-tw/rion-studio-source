@@ -215,7 +215,6 @@ function RolesView({
   return (
     <PageFrame containerRef={pageRef} scrollPositionRef={scrollPositionRef} {...selection.collectionProps}>
       <PageHeader
-        kicker={t("app.navigation.play")}
         title={t("roles.title")}
         description={t("roles.description")}
         actions={

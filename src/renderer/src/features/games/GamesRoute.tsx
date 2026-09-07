@@ -77,7 +77,6 @@ function GamesRoute({
   return (
     <PageFrame containerRef={pageRef} {...selection.collectionProps}>
       <PageHeader
-        kicker={t("app.navigation.play")}
         title={t("games.title")}
         description={t("games.description")}
         actions={<>

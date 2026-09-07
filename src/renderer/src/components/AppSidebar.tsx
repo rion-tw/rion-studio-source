@@ -52,52 +52,47 @@ export function AppSidebar({ extensionsAvailable = false, gameCount, gameWindowC
           noDrag
           onClick={() => navigate("/dashboard")}
         />
-        <div className="grid gap-1 pt-5" role="group" aria-label={t("app.navigation.play")}>
-          <p className="px-3 pb-1 text-caption font-semibold uppercase leading-none text-sidebar-foreground/42">
-            {t("app.navigation.play")}
-          </p>
-          <NavItem
-            active={location.pathname.startsWith("/games")}
-            count={gameCount}
-            icon={Gamepad2}
-            label={t("app.games")}
-            noDrag
-            onClick={() => navigate("/games")}
-          />
-          <NavItem
-            active={location.pathname.startsWith("/roles")}
-            count={roleCount}
-            icon={Users}
-            label={t("app.roles")}
-            noDrag
-            onClick={() => navigate("/roles")}
-          />
-          <NavItem
-            active={location.pathname.startsWith("/workspaces")}
-            count={workspaceCount}
-            icon={LayoutDashboard}
-            label={t("app.workspaces")}
-            noDrag
-            onClick={() => navigate("/workspaces")}
-          />
-          <NavItem
-            active={location.pathname.startsWith("/game-windows")}
-            count={gameWindowCount}
-            icon={PanelsTopLeft}
-            label={t("app.gameWindows")}
-            noDrag
-            onClick={() => navigate("/game-windows")}
-          />
-          <NavItem
-            active={location.pathname.startsWith("/macros")}
-            count={macroCount}
-            icon={Keyboard}
-            label={t("app.macros")}
-            noDrag
-            onClick={() => navigate("/macros")}
-          />
-          {extensionsAvailable && <NavItem active={location.pathname.startsWith("/extensions")} icon={Puzzle} label={t("extensions.title")} noDrag onClick={() => navigate("/extensions")} />}
-        </div>
+        <NavItem
+          active={location.pathname.startsWith("/games")}
+          count={gameCount}
+          icon={Gamepad2}
+          label={t("app.games")}
+          noDrag
+          onClick={() => navigate("/games")}
+        />
+        <NavItem
+          active={location.pathname.startsWith("/roles")}
+          count={roleCount}
+          icon={Users}
+          label={t("app.roles")}
+          noDrag
+          onClick={() => navigate("/roles")}
+        />
+        <NavItem
+          active={location.pathname.startsWith("/workspaces")}
+          count={workspaceCount}
+          icon={LayoutDashboard}
+          label={t("app.workspaces")}
+          noDrag
+          onClick={() => navigate("/workspaces")}
+        />
+        <NavItem
+          active={location.pathname.startsWith("/game-windows")}
+          count={gameWindowCount}
+          icon={PanelsTopLeft}
+          label={t("app.gameWindows")}
+          noDrag
+          onClick={() => navigate("/game-windows")}
+        />
+        <NavItem
+          active={location.pathname.startsWith("/macros")}
+          count={macroCount}
+          icon={Keyboard}
+          label={t("app.macros")}
+          noDrag
+          onClick={() => navigate("/macros")}
+        />
+        {extensionsAvailable && <NavItem active={location.pathname.startsWith("/extensions")} icon={Puzzle} label={t("extensions.title")} noDrag onClick={() => navigate("/extensions")} />}
       </nav>
 
       <div className="sidebar-settings mt-auto">

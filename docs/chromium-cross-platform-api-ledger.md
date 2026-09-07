@@ -28,6 +28,82 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows all-file Vitest qualification on the upgraded toolchain
+
+The local all-file run ends at 434 passing / 19 failing / 10 skipped files,
+3,626 passing / 42 failing / 48 skipped tests (1,121.34s). It ran alongside the
+cold Windows Rust build on the ARM64 VM using x64 tools. Exact failures include
+EPERM during symlink fixture creation, existing 10-second test deadlines,
+secondary ENOTEMPTY cleanup after timed-out writers, and one workspace layout
+assertion (Single versus Nine grid). These remain failed evidence, not an
+accepted host-performance explanation. No timeouts, isolation, assertions, or
+symlink security policy were weakened. The Linux shared CI job 101656032208
+passes its complete checks at ca7a0b3a; this does not replace Windows evidence.
+
+The subsequent bootstrap/navigation edits pass adjacent workflow/coverage tests (2 files, 28 tests, 28.18s), TypeScript, focused ESLint,
+source hygiene (2,494 files), and unchanged coverage thresholds. The real native
+pnpm command is selected through PATH and executes its child; a mismatched pin
+is rejected. Remaining Windows all-file failures require isolated attribution
+and an actual native acceptance run after the higher-priority Rust/input gates.
+### Exact ca7a0b3a failures: Windows pnpm no-op and seeded empty pages
+
+The isolated Windows npm installation reproduces the action's pnpm 12.3.4
+bootstrap with allowed pre/postinstall scripts. Its generated .bin/pnpm.ps1
+calls ../pnpm/pnpm without .exe: --version returns empty output and exit 0.
+The same installed pnpm/pnpm.exe returns 12.3.4. The native entrypoint also
+executes a child Node command with the expected exact output. Add
+scripts/selectWindowsPnpm.ps1 before setup-node caching in CI: select the
+installed native executable, require the repository-pinned version and actual
+child execution, then add its directory to GITHUB_PATH. No trust fixture,
+credential, package version, or gate assertion is replaced. Evidence lives in
+pnpm12-npm-shim-* and pnpm12-native-github-path.txt under this handoff directory.
+
+Windows stable job 101656032228 reports success but runs no desktop script and
+uploads no artifacts. This is a no-op, NOT Windows E2E acceptance. All pnpm-driven
+Windows checks in CI 34094846253 need the repaired bootstrap before acceptance.
+
+macOS artifact 10008366946 / 2026-09-07T07-19-44-811Z-darwin proves Extensions
+seed/restart and shell smoke PASS with final flush and exact process exit. It
+then fails Game CRUD seed primary navigation at chromium-game-crud.e2e.ts:64.
+Screenshot shows the intended empty Roles page (No roles yet / Create role),
+which intentionally has no PageHeader. The same newly added unconditional header
+assertion fails stable macOS smoke seed (artifact 10008407183).
+
+Use shared seed-navigation assertions for exact empty Roles, Workspaces and
+Macros headings/create actions; require no header on those known empty pages,
+and retain visible headers on other pages. Preserve visible sidebar clicks,
+route acknowledgement, absent kickers and absent Play category. This corrects
+the incoming c270d0b3 test's precondition mismatch without changing product UI.
+Affected journeys: DASHBOARD-NAV-001 and both Chromium PRIMARY-NAV-008 entries;
+manifest descriptions now state empty-page outcomes. Updated native acceptance
+is pending; previous AppKit cohort and Windows Macro fixes remain to be reached.
+### Electron 43.6 native revalidation and CI bootstrap failure — 2026-09-07
+
+Candidate ca7a0b3ae364bb45bf9780cb4b6dba80a38f6b57 preserves remote 44cef4f3
+and the three rebased fixes. Windows Rust 1.98.1 x64 lint passes (16m13s,
+CARGO_INCREMENTAL=0); full workspace tests are running. Full JavaScript lint
+passes with 0 errors / 23 warnings. Documentation and context validation pass.
+The all-file Windows Vitest run is still collecting symlink and timed-out test
+failures; no assertion or deadline has been relaxed, and it is not a green gate.
+
+New CI 34094846253 binds ca7a0b3a. Windows Chromium job 101656032137 stops
+before E2E: the fixture-version bash step reports
+RION_STUDIO_ELECTRON_PACKAGE_VERSION: unbound variable. The preceding PowerShell
+pnpm run prepare:electron-updater:ci step returns success without script output
+or the fixture receipt. macOS executes the same preparation successfully.
+Investigate the pnpm 12 native binary / Windows npm-generated shim boundary;
+this is not evidence of a fixture signer or product updater failure. Do not
+rerun this unchanged candidate to try to obtain acceptance.
+
+CP-01 incremental source audit of the preserved Extensions feature identifies
+Session.extensions getAllExtensions/loadExtension/removeExtension with exact
+extension-unloaded acknowledgement, Core-issued per-role leases, and a separate
+nonpersistent extension-store Session plus unprivileged WebContentsView.
+Core retains package/configuration/lease authority; Electron owns native handles.
+The new CHROMIUM-WINDOWS-EXTENSIONS-001 and
+CHROMIUM-MACOS-APPKIT-EXTENSIONS-001 seed/restart journeys are present in both
+profiles. Their current-candidate native acceptance remains CP-11/CP-15 pending;
+source inspection and 41/41 declared parity do not establish it.
 ### Concurrent remote feature/toolchain baseline preserved — 2026-09-07
 
 Before pushing the validated local fixes, fetch discovered remote 44cef4f3 with

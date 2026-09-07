@@ -1,3 +1,4 @@
+import { assertSeedPrimaryPage } from "../support/primary-navigation";
 import { exerciseMacroMindMapHover } from "../support/macro-mind-map";
 import { $, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
@@ -186,8 +187,7 @@ async function exercisePrimaryNavigation(): Promise<void> {
   for (const [label, path] of targets) {
     await sidebar.$(`button*=${label}`).click();
     await waitForRoute(path);
-    await expect($(".app-page-header")).toBeDisplayed();
-    await expect($(".app-page-kicker")).not.toExist();
+    await assertSeedPrimaryPage(path);
     await expect(sidebar.$("[role=group][aria-label=Play]")).not.toExist();
   }
   await sidebar.$("button*=Settings").click();

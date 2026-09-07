@@ -493,7 +493,7 @@
       "kind": "ui",
       "risk": "standard",
       "outcomes": ["success"],
-      "description": "Navigate every primary feature from the real application shell. Verify primary page headers omit category kickers and sidebar navigation has no Play category."
+      "description": "Navigate every primary feature from the real application shell. Verify seeded empty Roles, Workspaces, and Macros pages show their exact empty-state heading and create action; other primary pages show their header. Verify all primary pages omit category kickers and sidebar navigation has no Play category."
     },
     {
       "id": "GAMES-UI-001",
@@ -1256,7 +1256,7 @@
       "kind": "ui",
       "risk": "standard",
       "outcomes": ["success"],
-      "description": "Navigate every primary product section and return from Settings through the visible macOS Chromium application shell. Verify primary page headers omit category kickers and sidebar navigation has no Play category."
+      "description": "Navigate every primary product section and return from Settings through the visible macOS Chromium application shell. Verify seeded empty Roles, Workspaces, and Macros pages show their exact empty-state heading and create action; other primary pages show their header. Verify all primary pages omit category kickers and sidebar navigation has no Play category."
     },
     {
       "id": "CHROMIUM-WINDOWS-PRIMARY-NAV-008",
@@ -1272,7 +1272,7 @@
       "kind": "ui",
       "risk": "standard",
       "outcomes": ["success"],
-      "description": "Navigate every primary product section and return from Settings through the visible Windows Chromium application shell. Verify primary page headers omit category kickers and sidebar navigation has no Play category."
+      "description": "Navigate every primary product section and return from Settings through the visible Windows Chromium application shell. Verify seeded empty Roles, Workspaces, and Macros pages show their exact empty-state heading and create action; other primary pages show their header. Verify all primary pages omit category kickers and sidebar navigation has no Play category."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-PERSIST-003",

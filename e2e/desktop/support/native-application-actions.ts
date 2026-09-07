@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import { electronDesktopE2eProbe } from "./electron-driver";
+import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 
 const executeFile = promisify(execFile);
 
@@ -96,45 +97,24 @@ end run`;
 
 async function cancelWindowsNativeSaveDialog(processId: number): Promise<void> {
   const script = String.raw`
-Add-Type -AssemblyName UIAutomationClient
-$root = [System.Windows.Automation.AutomationElement]::RootElement
+Add-Type -TypeDefinition @'
+${windowsNativeDialogDeclarations}
+'@
 $targetPid = [int]$payload.processId
-$processCondition = New-Object System.Windows.Automation.PropertyCondition(
-  [System.Windows.Automation.AutomationElement]::ProcessIdProperty, $targetPid)
-$windowCondition = New-Object System.Windows.Automation.PropertyCondition(
-  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-  [System.Windows.Automation.ControlType]::Window)
-$classCondition = New-Object System.Windows.Automation.PropertyCondition(
-  [System.Windows.Automation.AutomationElement]::ClassNameProperty, '#32770')
-$dialogCondition = New-Object System.Windows.Automation.AndCondition(
-  $processCondition,
-  (New-Object System.Windows.Automation.AndCondition(
-    $windowCondition, $classCondition)))
 $expiry = [DateTime]::UtcNow.AddSeconds(10)
 do {
-  $dialogs = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $dialogCondition)
+  $dialogs = @([RionFileDialogOwnership]::OwnedWindows($targetPid, $true))
   if ($dialogs.Count -eq 1) { break }
   if ($dialogs.Count -gt 1) { throw 'multiple exact-PID Windows save dialogs' }
   if ([DateTime]::UtcNow -gt $expiry) { throw 'exact-PID Windows save dialog unavailable' }
   Start-Sleep -Milliseconds 50
 } while ($true)
 $dialog = $dialogs[0]
-$cancelCondition = New-Object System.Windows.Automation.AndCondition(
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Button)),
-  (New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, '2')))
-$cancelButtons = $dialog.FindAll(
-  [System.Windows.Automation.TreeScope]::Descendants, $cancelCondition)
+$cancelButtons = @([RionFileDialogOwnership]::ExactDialogControls($dialog, 2, 'Button'))
 if ($cancelButtons.Count -ne 1) { throw 'exact Windows Cancel control unavailable' }
-$invoke = $cancelButtons[0].GetCurrentPattern(
-  [System.Windows.Automation.InvokePattern]::Pattern)
-$invoke.Invoke()
+[RionFileDialogOwnership]::ClickVisibleControl($dialog, $cancelButtons[0], $targetPid)
 do {
-  $dialogs = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children, $dialogCondition)
+  $dialogs = @([RionFileDialogOwnership]::OwnedWindows($targetPid, $true))
   if ($dialogs.Count -eq 0) { break }
   if ([DateTime]::UtcNow -gt $expiry) { throw 'Windows save dialog did not close' }
   Start-Sleep -Milliseconds 50

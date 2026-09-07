@@ -354,6 +354,31 @@ and the eight-test Macro cutover harness suite passed. The failed attempt's
 post-test cleanup wrote `electron-final-flush.json` with `complete: true`;
 this does not substitute for the primary visible application Close assertion.
 
+`e72f5cbf` passed the complete focused physical prerequisite + terminal-cleanup
+seed/restart selection on Windows x64 (Electron 43.4.1 / Chromium 150.0.7871.224).
+Run `.desktop-e2e-artifacts/2026-09-07T02-49-57-194Z-win32`, profile
+`chromium-windows-smoke`, target `chromium-v23-windows`; seed UI 49.8s and
+restart UI 4s. CHROMIUM-WINDOWS-MACRO-TERMINAL-CLEANUP-006 now has native
+evidence for exact window removal, held-key tab/window cleanup, visible main
+Close and clean restored input. This focused result does not close the separate
+full-profile topology input-receipt failure or paired macOS/hardware gates.
+
+The first focused system-settings attempt at `e72f5cbf`,
+`.desktop-e2e-artifacts/2026-09-07T02-52-13-859Z-win32`, completed preference,
+font-application and removed-controls assertions, then failed native diagnostics
+Cancel discovery. Exact UIA inspection of PID 13488 found main HWND 1442506 with
+owned child dialog HWND 525698, title `Export Rion Studio Diagnostics`, class
+`#32770`. The root-only UIA selector omitted that child. Cancel HWND 3997956
+had native class `Button` and ID 2, but UIA reported `Pane` with no supported
+patterns on this host. The existing upload driver is extracted unchanged to
+`windows-native-dialog.ts`; diagnostics now reuses its native owner, class,
+control-ID, foreground, visibility and hit-test fences to click Cancel.
+It successfully cancelled that exact failed-run dialog; this manual cleanup
+does not count as journey acceptance. Typecheck/source hygiene and 19 focused
+tests passed; all prior upload hit-test assertions remain, now reading the
+shared source. Coverage remains P0/P1 100% and paired 40/40. Native settings
+and upload acceptance for this harness correction are pending.
+
 The completed uncontended x64 Vitest batch (`vitest-x64-uncontended.log`)
 reported 452 files: 430 passed, 12 failed, ten skipped; 3,582 tests passed,
 15 failed, 48 skipped, 742.31s. Eleven failures are exact `symlink` `EPERM`

@@ -1,3 +1,4 @@
+import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
 import { resolveMacosNativeTabPoint } from "./macos-native-tab-geometry";
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
@@ -589,49 +590,7 @@ export async function dragMacosVisibleRuntimeTab(input: Readonly<{
   ) {
     throw new Error("The exact AppKit runtime-tab drag geometry is unavailable");
   }
-  const processId = String(probe.processId);
-  const windowIdentifier =
-    `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
-  await readSystemEvents(`
-on run argv
-  set expectedWindowIdentifier to item 1 of argv
-  set targetPid to (item 2 of argv) as integer
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindowCount to 0
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is ¬
-            expectedWindowIdentifier then
-          set targetWindowCount to targetWindowCount + 1
-        end if
-      end try
-    end repeat
-    if targetWindowCount is not 1 then error "exact AppKit drag window unavailable"
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is ¬
-            expectedWindowIdentifier then
-          perform action "AXRaise" of appWindow
-          exit repeat
-        end if
-      end try
-    end repeat
-    set frontmost of targetProcess to true
-    repeat 40 times
-      if frontmost of targetProcess is true then exit repeat
-      delay 0.05
-    end repeat
-    if frontmost of targetProcess is false then error "exact Rion process did not become frontmost"
-    set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
-    if focusedWindow is missing value then error "exact AppKit drag window did not focus"
-    if value of attribute "AXIdentifier" of focusedWindow is not ¬
-        expectedWindowIdentifier then error "wrong AppKit drag window focused"
-    return "focused"
-  end tell
-end run`, windowIdentifier, processId);
+  await focusVisibleMacosAppKitRuntime({ processId: probe.processId, windowId: input.windowId });
   // The Core projection describes the Chromium content bounds, while AppKit's
   // titlebar can live above that content rect. Translate every window-relative
   // anchor through the first rendered tab's absolute on-screen frame so the
@@ -748,44 +707,8 @@ export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
     throw new Error("An AppKit move action requires one exact target Game Window");
   }
   const processId = String((await electronDesktopE2eProbe()).processId);
-  const expectedWindowIdentifier =
-    `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
+  await focusVisibleMacosAppKitRuntime({ processId: Number(processId), windowId: input.windowId });
   const { x: clickX, y: clickY } = await readMacosVisibleRuntimeTabPoint(input);
-  await readSystemEvents(`
-on run argv
-  set expectedWindowIdentifier to item 1 of argv
-  set targetPid to (item 2 of argv) as integer
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindow to missing value
-    set targetWindowCount to 0
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is ¬
-            expectedWindowIdentifier then
-          set targetWindow to appWindow
-          set targetWindowCount to targetWindowCount + 1
-        end if
-      end try
-    end repeat
-    if targetWindowCount is not 1 then error "exact AppKit menu window unavailable"
-    perform action "AXRaise" of targetWindow
-    set frontmost of targetProcess to true
-    repeat 40 times
-      if frontmost of targetProcess is true then exit repeat
-      delay 0.05
-    end repeat
-    if frontmost of targetProcess is false then ¬
-      error "exact Rion process did not become frontmost"
-    set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
-    if focusedWindow is missing value then error "exact AppKit menu window did not focus"
-    if value of attribute "AXIdentifier" of focusedWindow is not ¬
-        expectedWindowIdentifier then error "wrong AppKit menu window focused"
-    return "focused"
-  end tell
-end run`, expectedWindowIdentifier, processId);
   const rightClickScript = `
 import CoreGraphics
 import Foundation

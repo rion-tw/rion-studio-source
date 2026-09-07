@@ -80,12 +80,13 @@ JavaScript suite passes **472 files / 3833 tests**, complete hygiene and Rust li
 pass, and both affected Chromium Web slot/Web-only seed/restart chains pass on
 the physical Mac. The complete hardware and a8fab843 CI receipts in this table
 remain explicitly earlier-source evidence. New macOS-only CI **34143187025**
-validates the full 1f186739 SHA; its complete native/full/package gates are
-pending. No Windows acceptance is dispatched.
+validates the full 1f186739 SHA. Its native job now passes (1681 Rust PASS /
+five ignored; 14 Electron native PASS / two platform skips); complete desktop
+E2E and package/updater gates remain pending. No Windows acceptance is dispatched.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
-| CP-04 / CP-08 native and topology | 015dbaa2 local Rust 1681 PASS / 5 ignored and complete Chromium hardware profile PASS; a8fab843 native CI PASS; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
+| CP-04 / CP-08 native and topology | 015dbaa2 local Rust 1681 PASS / 5 ignored and complete Chromium hardware profile PASS; 1f186739 native CI PASS; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
 | CP-10 consented import | Complete visible consent/import/restart PASS in clean 015dbaa2 hardware profile | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 015dbaa2 complete hardware profile and actual dual-display controls PASS; real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
 | CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; a8fab843 stable full 31 PASS + 3 expected force exits | Final-source full and hardware profiles pending |
@@ -8656,3 +8657,34 @@ At the follow-up observation CI 34140975454 is live in previous-version updater
 fixture construction; CI 34143187025 has renderer and sanitizer/soak success,
 with native Rust, shared checks, stable full and Chromium/package jobs still
 live. Neither run has been restarted or treated as terminal on observation delay.
+
+
+### 1f186739 native CI receipts — 2026-09-08
+
+CI **34143187025**, exact source
+**1f186739135db07853e7c9e970f1db5ab8dabd00**, completes native job
+**101809598811** successfully. The downloaded ci-1f186739-native.log confirms
+**1681 Rust PASS / five ignored**, **14 native Electron PASS / two platform
+skips**, Rust formatting/clippy and the target-platform Tauri build. No updater
+concurrency assertion or ignored-test policy changed. This is current-source
+macOS native acceptance; Windows remains delegated to its later workstation.
+
+Shared checks **101809468356** also succeed. The hosted Linux JavaScript result
+is **470 passing files / two skipped files; 3824 PASS / nine skipped tests**.
+It is distinct from the complete physical-Mac result of 472 files / 3833 PASS.
+The Linux portable Rust result is 977 + 24 PASS / one ignored; it is not the
+native workspace count above. Renderer and sanitizer/soak jobs pass as well.
+
+Artifact **10026691318**, chromium-input-macos-latest-34143187025-1, records
+24 received input outcomes on Electron 43.6.0 / Chromium 150.0.7871.250, including
+foreground, modifiers/repeat, middle button at zoom, reload and hidden/background
+host and sibling cases. Its scope explicitly says isolated WebContentsView API
+probe, not a Role/native-adapter receipt. It does not authorize removing AppKit
+trusted input or replacing full Macro evidence. Artifact **10026947083** retains
+the paired current-source macOS local-font probe.
+
+At this checkpoint the exact-source stable full and Chromium/package jobs are
+still live. Earlier a8fab843 CI 34140975454 is also live, building previous-version
+updater fixtures. Observation intervals do not imply failure or completion;
+neither run is restarted. Runtime and E2E source after 1f186739 are unchanged by
+the intervening documentation commits. API closure remains 9/18.

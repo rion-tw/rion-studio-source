@@ -28,6 +28,32 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Passive AppKit window-state supersession and Windows tabs acceptance — 2026-09-07
+
+At 0c0a285d, Windows chromium-windows-smoke tabs visible seed/restart passed
+(94.5s / 28.1s), with empty shell-error journals, final flush and exact process
+exit. Artifact: 2026-09-07T05-56-36-912Z-win32; log:
+windows-handoff-b0c3c184/native-tab-foreground-tabs-x64.log. This accepts the
+Windows TABS-VISIBLE-ACTIVATION-019 / GAME-WINDOWS-TABS-020 repair; matching
+macOS and the latest complete Windows profile remain pending.
+
+CI 34087008739 at cbdcbeac finished with both native validation jobs, both stable
+desktop E2E jobs, shared checks, renderer build and sanitizer passing. Chromium
+package jobs failed earlier as recorded below. Exact macOS controlled Reload
+flow: windowState adapter sequence 1 at generation 3 / revision 5; newer Core
+ownership completes at flow 124; projection revision 6 is rejected at 127;
+receipt 133 incorrectly reports failed against current revision 8. Extend the
+existing passive Layout supersession rule to WindowState, requiring the exact
+superseded error, no committed topology, unchanged generations, non-regressing
+revisions and at least one strictly newer revision. User actions remain excluded.
+The focused regression failed before repair and passes afterward for Layout and
+WindowState with no advance, same-generation advance and generation replacement.
+Windows Rust formatting/Clippy and full workspace pass: 1,645 passed / three
+existing ignored, Core 954 in 182.60s, updater 41 in 1.49s including unchanged
+256-round concurrency coverage. Logs: appkit-window-state-{before,after,lint-rust,
+test-rust}-x64.log under the handoff evidence directory. Lower-layer-covered race;
+existing MACOS-APPKIT-RUNTIME-TAB-RELOAD-031 retains its empty shell-error assertion
+and requires fresh native CI. CP-04 remains implemented pending native parity.
 ### Windows visible tab driver requires native foreground — 2026-09-07
 
 At 2ca9b21f, artifact 2026-09-07T05-51-42-331Z-win32 passed seed and restart's

@@ -23,6 +23,7 @@ on:
         options:
           - all
           - macos
+          - windows
   workflow_call:
     inputs:
       ref:
@@ -174,7 +175,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'windows' && '[{"name":"Windows x64","os":"windows-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -296,7 +297,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'windows' && '[{"name":"Windows x64","os":"windows-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -534,7 +535,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'windows' && '[{"name":"Windows x64","os":"windows-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

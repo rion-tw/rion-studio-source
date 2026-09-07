@@ -410,6 +410,10 @@ function installElectronDesktopE2eRoleRuntimeObserver(): void {
   const originalStart = ChromiumRuntimeBootstrap.start;
   ChromiumRuntimeBootstrap.start = async (input) => {
     const owner = await originalStart(input);
+    if (!(input.core instanceof CoreAddonClient)) {
+      throw new Error("Desktop E2E bootstrap did not receive the actual Core addon owner.");
+    }
+    observedCore = input.core;
     observedRuntime = owner;
     return owner;
   };
@@ -938,7 +942,7 @@ async function readGameWindowRuntime(
   const runtime = observedRuntime;
   if (!core || !runtime) {
     throw new Error(
-      `Game Window ${windowId} has no observed Core/native Chromium ownership.`
+      `Game Window ${windowId} has no observed Core/native Chromium ownership (Core=${Boolean(core)}, runtime=${Boolean(runtime)}).`
     );
   }
   const coreSnapshot = await core.invoke({ type: "appSnapshot" });

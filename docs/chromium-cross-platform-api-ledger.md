@@ -28,6 +28,17 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Initial Core observer prerequisite — 2026-09-07
+
+Commit 1d9811c7 passed Windows Electron native integration: 8 files / 16 tests
+(75.79 s), log close-selection-native-integration-x64.log. Focused tabs at
+2026-09-07T04-35-31-475Z-win32 still failed the initial loading gate. Inspection
+showed the second missing prerequisite: Core ownership was bound only by the
+first effect acknowledgement, while initial loading held that batch open.
+Bind both actual CoreAddonClient and runtime at successful bootstrap; identify
+each missing owner in inspection errors. This follow-up is E2E-only and retains
+all runtime, identity, revision, and loading assertions. Native tabs still pending.
+
 ### Native tabs failure attribution after 718dc83a — 2026-09-07
 
 CI 34081543779 retained exact clean-SHA reports: Windows artifact 10004161262

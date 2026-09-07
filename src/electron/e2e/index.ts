@@ -1,6 +1,7 @@
 import { installElectronDesktopE2eViewInputObservationObserver } from "./viewInputObservationObserver";
 import { installElectronDesktopE2eTrustedInputDiagnostics } from "./trustedInputDiagnosticsObserver";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor } from "electron";
+import { emitObservedApplicationPowerSignal } from "./applicationPowerSignal";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -920,13 +921,8 @@ async function signalApplicationLifecycle(
   if (!lifecycle) {
     throw new Error("The Electron application lifecycle controller is unavailable.");
   }
-  const before = lifecycle.snapshot();
-  const terminal = await lifecycle.signal(event);
-  return Object.freeze({
-    before: Object.freeze({ ...before }),
-    event,
-    terminal: Object.freeze({ ...terminal })
-  });
+  return emitObservedApplicationPowerSignal(lifecycle, (powerEvent) =>
+    powerMonitor.emit(powerEvent), event);
 }
 
 function readTrustedInputRuntime(

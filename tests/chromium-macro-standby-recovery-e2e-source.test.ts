@@ -62,7 +62,8 @@ describe("Chromium Macro standby recovery exact replacement source", () => {
     ]) expect(bridge).toContain(marker);
     expect(entry).toContain("installElectronDesktopE2eApplicationLifecycleObserver");
     expect(entry).toContain("installElectronDesktopE2eTrustedInputObserver");
-    expect(entry).toContain("await lifecycle.signal(event)");
+    expect(entry).toContain("emitObservedApplicationPowerSignal(lifecycle");
+    expect(entry).toContain("powerMonitor.emit(powerEvent)");
     expect(entry).toContain("await originalExecute.call(this, request)");
 
     for (const marker of [

@@ -1489,7 +1489,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI, leave its assigned Role hidden behind a second tab in the retained AppKit Game Window, and inject the exact serialized power-suspend signal. Require the Core terminal lifecycle projection, native cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then inject resume, visibly restart the hidden Role Macro from a new run/input epoch, visibly stop it, and retain exact AppKit host and tab evidence."
+      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI, leave its assigned Role hidden behind a second tab in the retained AppKit Game Window, and emit a synthetic suspend event through Electron powerMonitor and its installed production listener. Require the Core terminal lifecycle projection, native cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then emit resume through the same powerMonitor ingress, visibly restart the hidden Role Macro from a new run/input epoch, visibly stop it, and retain exact AppKit host and tab evidence."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023",
@@ -1505,7 +1505,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI while its bundled-Chromium Role owns required foreground focus, move visibly to a second native tab, and inject the exact serialized power-suspend signal. Require the Core terminal lifecycle projection, native cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then inject resume, reselect the Role for this standby scenario, visibly restart from a new run/input epoch, visibly stop it, and retain exact Windows native-host and tab evidence."
+      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI while its bundled-Chromium Role owns required foreground focus, move visibly to a second native tab, and emit a synthetic suspend event through Electron powerMonitor and its installed production listener. Require the Core terminal lifecycle projection, native cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then emit resume through the same powerMonitor ingress, reselect the Role for this standby scenario, visibly restart from a new run/input epoch, visibly stop it, and retain exact Windows native-host and tab evidence."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-INPUT-RECOVERY-011",

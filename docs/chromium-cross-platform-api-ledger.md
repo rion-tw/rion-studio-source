@@ -34,7 +34,8 @@ Windows journey requires WM_DPICHANGED only when the actual move changes DPI;
 same-DPI placement still requires its exact native scale readback. No Windows
 profile is executed by this macOS session. At this policy checkpoint physical multi-display and real sleep/wake were open;
 the later 015dbaa2 report below completes macOS ordinary dual-display acceptance.
-Real sleep/wake remains pending.
+Real sleep/wake was unobserved at that checkpoint; see the later owner-directed
+automated power-event coverage below. No manual test assistance is required.
 
 `tests/electron-display-scale-data.test.ts` adds 22 deterministic cases with
 explicit macOS/Windows fixture data: 1x/1.25x/1.5x/1.75x/2x/3x scale factors,
@@ -70,7 +71,8 @@ API closure remains **9/18**. The nine open items are CP-04, CP-08, CP-10,
 CP-11, CP-12, CP-15, CP-16, CP-17 and CP-18; these are ledger items, not nine
 individual test invocations. CP-17 is the gated production Tauri/System WebView
 retirement; CP-18 records final validation. Physical mixed-DPI is removed by the
-owner, while ordinary multi-display and real power/lifecycle evidence remain.
+owner. Ordinary multi-display is now verified on the latest local candidate;
+automated lifecycle coverage and unobserved physical power behavior remain distinct.
 Earlier handoff tables below describe their historical checkpoint.
 
 The current validation candidate is
@@ -87,22 +89,81 @@ fixture package/updater and packaged AppKit black-box. Earlier CI **34145679440*
 including fixture package/updater and packaged AppKit black-box; the earlier
 a8fab843 cleanup failure remains unexplained rather than overwritten.
 
-The latest complete local hardware receipt remains **015dbaa2**, with 57 PASS +
-four expected force terminations / 54 journeys and ordinary dual-display
-acceptance. The later local replay fails while UserNotificationCenter owns
-native foreground. The owner reports no visible prompt; the foreground identity
-still does not change, so a manual switch to Finder/desktop is requested before
-another physical replay. No Windows acceptance is dispatched. Later
-source-identical documentation commits do not create another validation candidate.
+The latest complete local hardware receipt is
+**598eed6e05cab9de0923a9be43db8563d235d0d4**, with 57 PASS + four expected force
+terminations / 54 journeys and ordinary dual-display acceptance. Before this
+single replay, foreground had changed from UserNotificationCenter to Codex.
+The extension phase then proves the exact Electron PID active before and after
+its visible action. The earlier foreground failures remain historical evidence;
+manual foreground intervention is no longer a pending prerequisite. No Windows
+acceptance is dispatched. This source contains only documentation differences
+from b8bae38b; the subsequent power-event correction below is a newer candidate.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
-| CP-04 / CP-08 native and topology | 015dbaa2 local Rust 1681 PASS / 5 ignored and complete Chromium hardware profile PASS; b8bae38b native CI PASS; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
-| CP-10 consented import | Visible consent/import/restart PASS in 015dbaa2 physical hardware profile and b8bae38b full Chromium CI | Native chooser and complete consent/import/restart acceptance pending |
-| CP-11 / CP-12 hardware/lifecycle | Clean 015dbaa2 complete hardware profile and actual dual-display controls PASS; real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
-| CP-15 complete profiles | 015dbaa2 physical hardware 57 PASS + 4 expected force exits; b8bae38b Chromium 56 + 4 and stable 31 + 3 | Final-source full and hardware profiles pending |
+| CP-04 / CP-08 native and topology | 598eed6e complete Chromium hardware profile PASS; b8bae38b native CI 1681 Rust PASS / 5 ignored; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
+| CP-10 consented import | Visible consent/import/restart PASS in 598eed6e physical hardware profile and b8bae38b full Chromium CI | Native chooser and complete consent/import/restart acceptance pending |
+| CP-11 / CP-12 hardware/lifecycle | Clean 598eed6e complete hardware profile and actual dual-display controls PASS; power-event coverage strengthened below, actual sleep unobserved | Physical display/input/session-end gates pending; mixed-DPI removed |
+| CP-15 complete profiles | 598eed6e physical hardware 57 PASS + 4 expected force exits; b8bae38b Chromium 56 + 4 and stable 31 + 3 | Final-source full and hardware profiles pending |
 | CP-16 package/updater | b8bae38b fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
+
+### 598eed6e resumed physical macOS acceptance — 2026-09-08
+
+Report `.desktop-e2e-artifacts/2026-09-07T21-19-15-259Z-darwin/report.json`
+binds clean source 598eed6e05cab9de0923a9be43db8563d235d0d4 to
+chromium-macos-appkit-hardware-extended, started 2026-09-07T21:19:15.292Z and
+finished 21:28:51.990Z. All 57 ordinary phases pass with finalFlush=true and
+processExited=true; four classified forced exits remain expected, and all 54
+journeys pass. The extension phase records exact Electron PID 89536 active and
+foreground before and after the visible action. This changed native foreground
+precondition justifies the replay; it does not erase the earlier failed reports.
+
+The real displays are Studio Displays 2 and 3, both scale 2 and 2560x1440 logical
+pixels. A trusted Enter receipt hits the exact secondary-display menu item.
+Window c6c873a9-c91a-4559-8624-cbe752ea741a retains AppKit launch generation
+e6312f1f-308b-4042-98ea-428e06981d59, native generation 1, and native host 2.
+Native/Core stage receipts progress through display restore revision 20, physical
+titlebar drag 22, edge resize 23, maximize 24, restore 25, fullscreen 27 and
+fullscreen exit 29; minimize/restore also passes the owning phase. Final native
+and Core three-tab ownership agrees on display 3. No mixed-scale or real-sleep
+claim is made. Production Tauri and Electron builds are restored and production
+E2E isolation passes after this run.
+
+### Owner direction: automated sleep/wake coverage without manual assistance
+
+The owner requests maximum automated behavior coverage rather than depending on
+manual sleep/wake participation. A read-only, noninteractive authorization check
+for unattended pmset wake scheduling returns `sudo: a password is required`.
+No sleep command, wake schedule, credential change or power-setting mutation is
+performed. Actual machine sleep/wake remains unobserved, but is not assigned to
+the owner as a manual prerequisite. Synthetic signals cannot certify hardware,
+driver, network or OS wake behavior.
+
+New deterministic power-event cases reproduce a defect on both explicit darwin
+and win32 fixtures: when suspend cleanup fails after a newer resume arrives, the
+old signal incorrectly resolves with the newer nonterminal `resuming` projection.
+The pre-fix test run is 8 PASS / 2 FAIL, retained in
+`.desktop-e2e-artifacts/macos-takeover-8dff7722/macos-power-events-regression-before.log`.
+The correction applies the existing epoch/disposal fence to both success and
+failure acknowledgements, retaining the original Core error and rejecting the
+old request as superseded/disposed. Core remains the input and Macro authority.
+
+The isolated E2E hook now emits on Electron's real powerMonitor object and
+observes exactly one installed production listener's Core-backed promise. Missing
+or duplicate ingress fails without direct-controller fallback. Existing visible
+Macro Start/Stop, hidden-role trusted key release, input neutrality, disabled
+Start during suspension, new run/input epoch and retained AppKit topology
+assertions remain unchanged. Repeated/duplicate notifications, pending cleanup
+before wake, stale failed acknowledgements, rejected-wake recovery and teardown
+during successful/failed cleanup are automated with explicit platform fixtures.
+Affected journeys are the paired CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023
+and CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023. Native macOS validation of this
+new correction is in progress. Full local JavaScript passes 475 files / 3857
+tests, Rust lint/test passes (1681 PASS / five ignored), and typecheck plus full
+hygiene/coverage pass. Windows native validation remains assigned to the
+later workstation. Existing b8bae38b CI and 598eed6e hardware results do not claim
+to validate the newer production correction.
 
 ### Next Windows workstation: execution order and evidence to retain
 
@@ -110,7 +171,8 @@ This is a handoff checklist, not a request to run Windows CI from the Mac. The
 current complete macOS CI candidate is
 b8bae38bb10acb1e6d295c027c100d7267803815 (Electron 43.6.0), including the later
 Website changes and the WDIO initialization correction. The latest complete
-physical Mac hardware receipt remains 015dbaa2. Preserve any Windows
+physical Mac hardware receipt is 598eed6e. Power-event changes below require
+Windows-native replay on the later workstation. Preserve any Windows
 working-tree changes, fetch the
 shared branch safely, and record the actual complete HEAD SHA before building.
 Confirm 8dff7722462f51d5407cf520bc7d37629829ede9 and b0c3c184 remain ancestors.

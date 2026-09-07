@@ -101,18 +101,7 @@ export class ElectronApplicationLifecycleController {
       .then(async () => {
         try {
           await this.#input.applyRuntimeSuspended(suspended);
-          if (this.#disposed) {
-            throw new RionBridgeError({
-              code: "ELECTRON_APPLICATION_LIFECYCLE_DISPOSED",
-              message: "The Electron application lifecycle controller was disposed during transition."
-            });
-          }
-          if (this.#status.lifecycleEpoch !== lifecycleEpoch) {
-            throw new RionBridgeError({
-              code: "ELECTRON_APPLICATION_LIFECYCLE_SUPERSEDED",
-              message: "A newer application lifecycle signal superseded this transition."
-            });
-          }
+          this.#assertCurrentTransition(lifecycleEpoch);
           this.#commit(
             suspended ? "suspended" : "active",
             suspended ? "power-suspended" : "power-resumed",
@@ -129,14 +118,28 @@ export class ElectronApplicationLifecycleController {
             throw error;
           }
           this.#input.onError(normalized);
-          if (!this.#disposed && this.#status.lifecycleEpoch === lifecycleEpoch) {
-            this.#commit("degraded", normalized.code, lifecycleEpoch);
-          }
+          this.#assertCurrentTransition(lifecycleEpoch);
+          this.#commit("degraded", normalized.code, lifecycleEpoch);
           return this.#status;
         }
       });
     this.#lane = transition.then(() => undefined, () => undefined);
     return transition;
+  }
+
+  #assertCurrentTransition(lifecycleEpoch: number): void {
+    if (this.#disposed) {
+      throw new RionBridgeError({
+        code: "ELECTRON_APPLICATION_LIFECYCLE_DISPOSED",
+        message: "The Electron application lifecycle controller was disposed during transition."
+      });
+    }
+    if (this.#status.lifecycleEpoch !== lifecycleEpoch) {
+      throw new RionBridgeError({
+        code: "ELECTRON_APPLICATION_LIFECYCLE_SUPERSEDED",
+        message: "A newer application lifecycle signal superseded this transition."
+      });
+    }
   }
 
   #commit(

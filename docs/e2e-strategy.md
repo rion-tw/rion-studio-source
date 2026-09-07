@@ -382,9 +382,13 @@ platform is not success, but unavailable hardware runners do not block release.
 `CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023` and
 `CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023` replace the standby recovery
 journey with one shared Chromium spec. Macro Start and Stop remain visible UI
-actions. A token- and sender-fenced E2E signal injects suspend/resume into the
-same serialized production lifecycle lane as Electron's power monitor and
-awaits its exact Core-backed terminal projection; a separate read-only journal
+actions. A token- and sender-fenced E2E signal emits synthetic suspend/resume
+on Electron's real powerMonitor object. The E2E observer requires exactly one
+installed production listener to enter the serialized lifecycle lane and awaits
+that listener's exact Core-backed promise; absent or duplicate listeners fail,
+with no direct-controller fallback. This exercises the native application's
+power-event ingress, not actual OS sleep, hardware wake, or driver recovery.
+A separate read-only journal
 observes trusted-input requests and native receipts without becoming a success
 source. The verdict requires held-key cleanup and proved input neutrality,
 Macro terminality, disabled Start throughout suspension, and a new run/input
@@ -392,6 +396,16 @@ epoch after wake. macOS additionally binds the two-tab result to the retained
 AppKit host. Windows explicitly reselects the Role before the wake restart,
 while its separate ABI-v3 physical gates prove both exact foreground and hidden
 background delivery; neither result is simulated by the standby signal.
+
+The macOS owner does not require manual sleep/wake assistance. When unattended
+wake scheduling is unavailable, retain that physical limitation and maximize
+automated event/behavior coverage instead: repeated and duplicate power events,
+cleanup-before-wake serialization, stale failed acknowledgements, rejected wake
+and later recovery, and disposal during both successful and failed cleanup.
+Deterministic cases explicitly cover darwin and win32, but do not constitute
+Windows native acceptance. An old request cannot resolve with a newer pending
+projection; it terminalizes as superseded/disposed while the original Core error
+remains observable. No real-sleep PASS may be inferred from these tests.
 
 ## Journey authoring
 

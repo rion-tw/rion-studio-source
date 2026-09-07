@@ -82,22 +82,22 @@ powerMonitor listener. Complete local JavaScript (3857 PASS), Rust (1681 PASS /
 five ignored), lint/typecheck/hygiene and the focused native standby journey pass.
 The complete local hardware profile passes 57 normal phases plus four expected
 force terminations / 54 journeys. macOS-only CI **34164313951** passes shared
-checks, native validation, stable full and complete Chromium E2E; package/updater
-steps in the same job remain in progress; no Windows jobs are requested. This source includes the owner's
+checks, native validation, stable full, complete Chromium E2E, fixture
+package/updater and packaged AppKit black-box. The whole run is SUCCESS; no
+Windows jobs were requested. This source includes the owner's
 Website changes at **486e0842be6b14c132e9d4a33ece1c5a5fd16983** and the
 **8d68be93** WDIO service-order correction.
 
-The latest completely successful CI remains **34149031009**, source
-**b8bae38bb10acb1e6d295c027c100d7267803815**: shared checks (3828 JavaScript PASS /
-nine platform skips), native validation (1681 Rust PASS / five ignored;
-14 Electron native PASS / two platform skips), stable full (31 PASS + three
-expected force terminations / 40 journeys), complete Chromium E2E (56 PASS + four
-expected force terminations / 52 journeys), fixture package/updater and packaged
-AppKit black-box. All 60 Chromium phases prepare the native sampler once without
-the former undefined-windowHandle setup error. Earlier CI **34145679440** at
-90614cef is also completely SUCCESS. The a8fab843 cleanup failure remains
-unexplained rather than overwritten. These earlier runs do not validate the
-newer 85f662f4 production correction.
+The latest completely successful CI is **34164313951**, source **85f662f4**:
+shared checks (3848 JavaScript PASS / nine platform skips), native validation
+(1681 Rust PASS / five ignored; 14 Electron native PASS / two platform skips),
+stable full (31 PASS + three expected force terminations / 40 journeys), hosted
+Chromium (56 PASS + four expected force terminations / 52 journeys), fixture
+package/updater and packaged AppKit black-box. All 60 Chromium phases prepare
+the native sampler exactly once without the former setup error. Historical CI
+34149031009 at b8bae38b and 34145679440 at 90614cef remain SUCCESS at their own
+sources. The a8fab843 cleanup failure remains unexplained; current success does
+not erase or retrospectively repair it.
 
 The latest complete local hardware receipt is
 **85f662f4860c9af1623580510f35997256108b66**, with 57 PASS + four expected force
@@ -112,10 +112,10 @@ correction; earlier complete reports remain historical baselines.
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
 | CP-04 / CP-08 native and topology | 85f662f4 complete Chromium hardware profile PASS; 85f662f4 native CI 1681 Rust PASS / 5 ignored; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
-| CP-10 consented import | Visible consent/import/restart PASS in 85f662f4 physical hardware profile and b8bae38b full Chromium CI | Native chooser and complete consent/import/restart acceptance pending |
+| CP-10 consented import | Visible consent/import/restart PASS in 85f662f4 physical hardware profile and full Chromium CI | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 85f662f4 complete hardware profile and actual dual-display controls PASS; power-event coverage strengthened below, actual sleep unobserved | Physical display/input/session-end gates pending; mixed-DPI removed |
 | CP-15 complete profiles | 85f662f4 physical hardware 57 PASS + 4 expected force exits; 85f662f4 stable 31 + 3 and hosted Chromium 56 + 4 | Final-source full and hardware profiles pending |
-| CP-16 package/updater | b8bae38b fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
+| CP-16 package/updater | 85f662f4 fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
 ### 598eed6e resumed physical macOS acceptance — 2026-09-08
@@ -170,8 +170,7 @@ before wake, stale failed acknowledgements, rejected-wake recovery and teardown
 during successful/failed cleanup are automated with explicit platform fixtures.
 Affected journeys are the paired CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023
 and CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023. The focused native macOS standby phase passes for this
-new correction; the complete hardware profile also passes. CI verification remains
-in progress. Full local JavaScript passes 475 files / 3857
+new correction; the complete hardware profile also passes. Complete macOS CI also passes. Full local JavaScript passes 475 files / 3857
 tests, Rust lint/test passes (1681 PASS / five ignored), and typecheck plus full
 hygiene/coverage pass. Windows native validation remains assigned to the
 later workstation. Existing b8bae38b CI and 598eed6e hardware results do not claim
@@ -182,8 +181,7 @@ to validate the newer production correction.
 This is a handoff checklist, not a request to run Windows CI from the Mac. The
 current correction candidate is 85f662f4860c9af1623580510f35997256108b66
 (Electron 43.6.0), including the Website changes, WDIO initialization correction
-and the power-event fence/ingress correction. Latest complete CI remains
-b8bae38b until run 34164313951 terminalizes. The latest complete
+and the power-event fence/ingress correction. Complete macOS CI 34164313951 now passes at the same 85f662f4 source. The latest complete
 physical Mac hardware receipt is 85f662f4. Power-event changes below require
 Windows-native replay on the later workstation. Preserve any Windows
 working-tree changes, fetch the
@@ -2266,9 +2264,9 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | 85f662f4 macOS full hardware 57 PASS + 4 expected force exits, stable full 31 PASS + 3 expected force exits and hosted Chromium 56 PASS + 4 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | b8bae38b macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | 85f662f4 macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
-| CP-18 | P1 / Validation | 85f662f4 macOS native and full hardware passed; b8bae38b complete macOS CI passed, including package/updater; 85f662f4 CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
+| CP-18 | P1 / Validation | 85f662f4 macOS native and full hardware passed; 85f662f4 complete macOS CI passed, including package/updater; Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
 Start CP-02 and CP-03 after the baseline. CP-04 and CP-09 through CP-13 are
 independent of native replacement approval, except for their listed data
@@ -9311,3 +9309,60 @@ full E2E success. The existing watcher remains live; no unchanged rerun is
 requested. The separate migration execution ledger is now reconciled to this
 workstation policy and keeps its five work packages / nine deliverables distinct
 from the API ledger's nine remaining items.
+
+
+### 85f662f4 complete package/updater acceptance and remaining gates — 2026-09-08
+
+CI **34164313951** is now entirely **SUCCESS** at immutable source
+**85f662f4860c9af1623580510f35997256108b66**. Package job **101872214608**
+completes release artifacts, prior-version fixtures, extension persistence,
+pinned runtime/package/distribution verification, the Rust-owned packaged updater
+transaction and packaged native Role black-box. The log verifies Electron 43.6.0,
+Chromium 150.0.7871.250, Node 24.20.0, Node-API 10 and Rust Core 8.5.0 on
+darwin-arm64. At **2026-09-07T22:36:58.117630Z** it records:
+"Verified darwin packaged updater transaction for 8.5.0."
+
+The final packaged artifact **10034566802**,
+packaged-chromium-role-black-box-macOS-34164313951-1, contains
+**2026-09-07T22-37-00-222Z-c8a2245e-c065-47ad-9e83-2b761c1884b5-darwin-packaged-black-box/packaged-smoke-report.json**.
+It reports passed, exitCode=0, application 8.5.0,
+fixtureInteraction=visible-os-accessibility-click, hostKind=appkit-chromium and
+remoteDebugging=false. The screenshot visibly retains the AppKit native tab and
+window controls; its downloaded bytes match the receipt SHA-256.
+
+| Exact package identity | SHA-256 |
+| --- | --- |
+| Executable | a201ff1c2a939a214589f28991f3020d59e85c1205ab1c442cfd27ee2568ebf0 |
+| app.asar | 63092931623898ca39773c569a222b1fd3d8628dc1fab32136bb62ffae2538df |
+| Native addon | d8566b2de818ac7d29c1d0a985957a5718aa1c769b7f0c06ea341a5d70ae59a6 |
+| Package manifest | 94c90b027aa8488fa4460ada5b03cf2aea7f99d23ae11312441917e2c0d738f0 |
+| Native screenshot | 8c336d03e2e48512e1340d703484993f5ce2b906c4d7c9db282072e150d26a26 |
+
+The log and artifact are retained in
+`.desktop-e2e-artifacts/macos-takeover-8dff7722/ci-85f662f4-package.log` and
+`ci-85f662f4-packaged-blackbox`. No malformed process-group state or rejected
+processGroupObservation recurs in this run. The a8fab843 failure remains
+unexplained because its rejected ps row was unavailable; the existing bounded
+diagnostic is retained. Neither later green runs nor the earlier bounded
+unsuccessful reproduction prove a repair. No unchanged run is dispatched to
+hunt for another outcome. The existing watcher exits zero and is closed.
+
+This seals the currently executable macOS regression work at 85f662f4, including
+clean physical hardware, hosted Chromium, stable full, native validation,
+production builds/isolation, fixture update and packaged AppKit evidence.
+These use the existing ephemeral updater fixture, not production-key cutover.
+Root and remote remain synchronized; later documentation-only commits do not
+create a new runtime candidate or justify rerunning CI.
+
+| Remaining acceptance scope | Why the whole goal remains incomplete |
+| --- | --- |
+| Windows workstation, CP-04/08/10/11/12/15/16/18 | The seven ordered handoff workstreams above still need the owner's later Windows workstation: final-source full JS/native/full profiles, known recovery/detach failures, visible consented import, physical input/display/session-end and install/update. Mac and portable fixture results do not close them. No Windows CI is dispatched here. |
+| Four real updater transactions, CP-16/17/18 | Published Tauri v22 and prior Electron must each transition to the exact target on both platforms under the real production lineage/trust/endpoint gates. Current CI fixture signing is not that evidence. |
+| Promotion and final configuration delta | The terminal promotion receipt and final v22-configuration comparison remain separate execution gates. No publication, merge, credential change or inferred new infrastructure is authorized. The producer/finalizer/publication/recovery gates remain disabled. |
+| Sole-entry retirement, CP-17/18 | Delete Tauri/System WebView-only runtime, dependencies and transition paths only after the preceding gates pass; retain AppKit and Rust data/topology/Macro authority. |
+| Physical limitations and historical triage | Mixed-DPI is removed by owner decision. Actual sleep/wake is unobserved, with maximum automated behavior coverage and no manual-assistance prerequisite. The earlier a8fab843 cleanup diagnostic requires new exact failure evidence for further repair; current green acceptance does not supply it. |
+
+API closure remains **9/18**. The migration ledger still has **five overlapping
+work packages / nine deliverables**. No pending macOS CI watcher remains, and no
+whole-goal completion or protected Tauri retirement is inferred from this Mac's
+fully successful acceptance.

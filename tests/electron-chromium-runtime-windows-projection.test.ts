@@ -68,7 +68,7 @@ function windowRecord(nativeHost: ChromiumRuntimeHostPort): ChromiumRuntimeWindo
 
 function tabRecord(tabId: string, windowId: string): ChromiumRuntimeTabRecord {
   return {
-    specification: { tabId } as EmbeddedTabEffectRecord,
+    specification: { tabId, target: windowRecord(host(windowId)).hostTarget } as EmbeddedTabEffectRecord,
     windowId,
     roleViews: new Map(),
     webViews: new Map(),
@@ -200,7 +200,14 @@ describe("Windows Chromium runtime topology projection", () => {
   });
 
   it("applies one exact cross-window move and commits ownership after reparent", async () => {
+    const destinationLayoutTargets: string[] = [];
     const subject = harness();
+    const resolveLayout = subject.input.ports.layout.resolveWorkspaceLayout!;
+    subject.input.ports.layout.resolveWorkspaceLayout = async (specification, nativeHost) => {
+      expect(specification.target.windowId).toBe(nativeHost.logicalWindowId);
+      destinationLayoutTargets.push(specification.target.windowId);
+      return resolveLayout(specification, nativeHost);
+    };
     await expect(applyChromiumRuntimeWindowsProjection({
       ...subject.input,
       projections: [
@@ -209,6 +216,10 @@ describe("Windows Chromium runtime topology projection", () => {
       ]
     })).resolves.toEqual(["window-1", "window-2"]);
 
+    expect(destinationLayoutTargets).toEqual(["window-2", "window-2"]);
+    expect(subject.tabs.get("tab-1")!.specification.target).toEqual(
+      subject.windows.get("window-2")!.hostTarget
+    );
     expect(subject.reparentRole).toHaveBeenCalledWith(
       "role-1", 1, subject.windows.get("window-2")!.host
     );

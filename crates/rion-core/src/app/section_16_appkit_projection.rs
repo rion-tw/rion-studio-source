@@ -19,7 +19,7 @@ impl AppCore {
             Err(error)
                 if error.code() == "MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED"
                     && !topology_committed
-                    && self.appkit_layout_projection_was_superseded(&event, &quarantine_scope)? =>
+                    && self.appkit_passive_projection_was_superseded(&event, &quarantine_scope)? =>
             {
                 self.appkit_superseded_receipt(&event, &primary, Some(error.code()))
             }
@@ -69,12 +69,16 @@ impl AppCore {
         }
     }
 
-    fn appkit_layout_projection_was_superseded(
+    fn appkit_passive_projection_was_superseded(
         &self,
         event: &crate::model::AppKitRuntimeEventRecord,
         projected: &[crate::model::AppKitRuntimeWindowProjectionRecord],
     ) -> CoreResult<bool> {
-        if !matches!(event.action, crate::model::AppKitRuntimeEventActionRecord::Layout { .. }) {
+        if !matches!(
+            event.action,
+            crate::model::AppKitRuntimeEventActionRecord::Layout { .. }
+                | crate::model::AppKitRuntimeEventActionRecord::WindowState { .. }
+        ) {
             return Ok(false);
         }
         let snapshot = self.browser_runtime.snapshot()?;

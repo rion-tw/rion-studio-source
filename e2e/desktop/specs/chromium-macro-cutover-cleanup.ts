@@ -206,6 +206,9 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     platform: context.platform,
     windowId: WINDOW_A
   });
+  const afterWindowClose = await rendererCall("getEmbeddedRuntimeState");
+  expect(afterWindowClose.windows.some((window) => window.windowId === WINDOW_A)).toBe(false);
+  expect(afterWindowClose.tabs.some((tab) => tab.windowId === WINDOW_A)).toBe(false);
 
   const tabWindow = await launchBound(
     context,

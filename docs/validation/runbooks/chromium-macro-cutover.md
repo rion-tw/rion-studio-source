@@ -57,6 +57,14 @@ window, and trusted-input receipts.
 
 ## Evidence gates
 
+Core scheduling, native submission and adapter terminal receipts use the shared
+Rust `macroInputEpochMillis` clock. JavaScript `Date.now()` observations are
+diagnostic only: Windows can sample that clock a few milliseconds behind Rust.
+Never clamp completion to scheduled time or extend a request deadline to hide
+that difference. Receipt completion must still be at or after its scheduled
+time and no later than the authoritative observation, with the existing exact
+deadline and identity checks retained.
+
 Every phase writes one phase-local JSON artifact. Runtime validation requires:
 
 - `appkit-chromium` with a retained AppKit identity on macOS;

@@ -29,7 +29,10 @@ export interface LoadedRionNodeAddon
   extends RawNodeApiCoreFactory<NativeAppCoreOptions>, RawAppKitRuntimeAddon,
     RawChromiumUpdaterFactory,
     WindowsRuntimeForegroundProbePort, WindowsRuntimeShortcutOwnerPort,
-    WindowsRuntimeShortcutOwnerDiagnosticPort {}
+    WindowsRuntimeShortcutOwnerDiagnosticPort {
+  /** Same clock domain as Core Macro scheduledAtMs and deadlineMs. */
+  macroInputEpochMillis: () => number;
+}
 
 interface ElectronCoreBootstrapOptions {
   readonly appVersion: string;

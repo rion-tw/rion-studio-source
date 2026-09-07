@@ -108,6 +108,20 @@ function subject(
 }
 
 describe("Electron Chromium trusted-input coordinator", () => {
+  it("keeps exact receipt ordering in the supplied Core clock domain", async () => {
+    const javascriptClock = vi.spyOn(Date, "now").mockReturnValue(999);
+    try {
+      const coreClock = subject();
+      await expect(coreClock.coordinator.execute(request("core-clock")))
+        .resolves.toMatchObject({ status: "applied" });
+      const earlierReceipt = subject(async nativeRequest => receipt(nativeRequest, 999));
+      await expect(earlierReceipt.coordinator.execute(request("one-ms-before-core")))
+        .rejects.toMatchObject({ code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE" });
+      expect(javascriptClock).not.toHaveBeenCalled();
+    } finally {
+      javascriptClock.mockRestore();
+    }
+  });
   it("runs the exact document-context preflight before native normal input but not cleanup", async () => {
     const preflight = vi.fn(() => {
       throw {

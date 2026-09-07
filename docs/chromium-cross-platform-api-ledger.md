@@ -28,6 +28,371 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Global Web navigation releases the Core mutation lane — 2026-09-07
+
+The CP-04 audit found embeddedLoadWebSurfaces still awaited native navigation in
+the shared effect admission lane after the equivalent Role path was corrected.
+Return an event-bound continuation, reserve exact opening Web identities, reject
+duplicate pending creation and managed Role aliases, and include opening surfaces
+in exact tab retirement. Readiness must retain the original tab and host records;
+late completion cannot resurrect a retired surface. Cancellation retains exact
+native close acknowledgement and the original failure. Four focused tests cover
+both platforms with pending navigation, newer ownership admission, duplicate
+rejection and close-before-readiness. The adjacent executor/Role tests passed
+82 cases; typecheck, focused lint and source hygiene pass. Lower-layer-covered
+admission race; existing paired WORKSPACE-WEB-SLOT-016 and WEB-ONLY-024 remain the
+native acceptance routes, including gated loading and restart. No new deadline,
+polling, native owner replacement or Tauri removal. Fresh native profiles remain
+required; CP-04 is not closed by these unit tests.
+### Passive AppKit window-state supersession and Windows tabs acceptance — 2026-09-07
+
+At 0c0a285d, Windows chromium-windows-smoke tabs visible seed/restart passed
+(94.5s / 28.1s), with empty shell-error journals, final flush and exact process
+exit. Artifact: 2026-09-07T05-56-36-912Z-win32; log:
+windows-handoff-b0c3c184/native-tab-foreground-tabs-x64.log. This accepts the
+Windows TABS-VISIBLE-ACTIVATION-019 / GAME-WINDOWS-TABS-020 repair; matching
+macOS and the latest complete Windows profile remain pending.
+
+CI 34087008739 at cbdcbeac finished with both native validation jobs, both stable
+desktop E2E jobs, shared checks, renderer build and sanitizer passing. Chromium
+package jobs failed earlier as recorded below. Exact macOS controlled Reload
+flow: windowState adapter sequence 1 at generation 3 / revision 5; newer Core
+ownership completes at flow 124; projection revision 6 is rejected at 127;
+receipt 133 incorrectly reports failed against current revision 8. Extend the
+existing passive Layout supersession rule to WindowState, requiring the exact
+superseded error, no committed topology, unchanged generations, non-regressing
+revisions and at least one strictly newer revision. User actions remain excluded.
+The focused regression failed before repair and passes afterward for Layout and
+WindowState with no advance, same-generation advance and generation replacement.
+Windows Rust formatting/Clippy and full workspace pass: 1,645 passed / three
+existing ignored, Core 954 in 182.60s, updater 41 in 1.49s including unchanged
+256-round concurrency coverage. Logs: appkit-window-state-{before,after,lint-rust,
+test-rust}-x64.log under the handoff evidence directory. Lower-layer-covered race;
+existing MACOS-APPKIT-RUNTIME-TAB-RELOAD-031 retains its empty shell-error assertion
+and requires fresh native CI. CP-04 remains implemented pending native parity.
+### Windows visible tab driver requires native foreground — 2026-09-07
+
+At 2ca9b21f, artifact 2026-09-07T05-51-42-331Z-win32 passed seed and restart's
+previous reorder/selection boundary, then exact native topology asserted focused
+true against false after a WebDriver tab/page click. Membership, visibility and
+revision were coherent. The Windows helper clicked a DOM button in a background
+native parent without bringing that parent forward (unlike the AppKit driver).
+Capture PID in the launcher, bind the visible tab's native UIA close control to
+its exact HWND, use the existing native foreground helper, then click the visible
+tab button. The driver does not invoke a runtime action or change production
+focus policy. Retain focused=true and every existing deadline. Focus/control
+helper tests and typecheck/lint/hygiene verify the driver boundary; native replay
+remains required for TABS-VISIBLE-ACTIVATION-019 / GAME-WINDOWS-TABS-020.
+
+### Windows tabs seed accepted; inactive drag selection corrected — 2026-09-07
+
+At 64dcfdc5, artifact 2026-09-07T05-45-15-608Z-win32 passed tabs visible seed
+(64.9 seconds), empty shell-error journal, final flush and exact process exit.
+Restart restored/distributed/moved its tabs, then failed the unchanged post-drag
+selection assertion. Core embeddedTabReorder 1069 completed at 1097; persisted
+order was Gamma/Alpha/Beta but activeTabId remained Beta. No activation command
+followed the Windows drag. Route selection of the dragged tab through the
+existing Core action only after successful reorder, retaining native generation
+and visible membership checks before selection; a closed window cannot be
+activated. The focused expected-call regression failed before repair; 24 adjacent
+chrome/renderer tests pass, including retirement during reorder. Typecheck, lint
+and source hygiene pass. AppKit selection remains native-owned. Update Windows
+GAME-WINDOWS-TABS-020; restart and full profile remain pending.
+
+### Reopen topology assertions consume accepted evidence — 2026-09-07
+
+At 393affb8, artifact 2026-09-07T05-41-01-163Z-win32 accepted the reopened
+three-tab cohort, then a redundant fullscreen inspector read failed at Core 56 /
+native 55, generation 39, identical membership/presentation/preferences. Run the
+unchanged exact native topology/display assertions against the owner/inspection
+already captured inside the existing showSavedWindow admission. Preserve its
+55-second deadline and generation-increase assertion; no added wait or weakening.
+Typecheck, focused lint and source hygiene pass; native tabs replay remains pending.
+
+CI 34087008739 at cbdcbeac has independent earlier failures: Windows Chromium
+job 101632871695 times out its native shortcut helper in chromium-shell-smoke;
+macOS Chromium job 101632871762 completes controlled Reload actions but its
+shell-error journal contains MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED.
+Artifacts 10005647362 and 10005718589 are downloaded under the handoff evidence
+directory for exact diagnosis. These jobs were not rerun. Neither accepts later
+local tab changes or permits legacy runtime deletion.
+
+### Exact hover and post-move completion races — 2026-09-07
+
+At cbdcbeac, artifact 2026-09-07T05-35-12-072Z-win32 completed all visible seed
+actions and retained three shell errors: hideToolbar submitted projection 12
+against 13; queued hideToolbar read a destroyed BrowserWindow; a redundant
+post-presentation exactTabOwner read observed the detached target at Core 74 /
+native 73 (generation 72, identical membership). The native close stream repair
+is confirmed by absence of its two earlier errors. Fullscreen hover is now
+submitted only when that presentation can change; exact native close cancels
+queued hover presentation. Move completion validates unique tab ownership and
+visibility in the existing post-show observation, without a second inconsistent
+post-terminal observation. Four regressions failed before repair and all 33
+adjacent tests pass afterward, including both platforms for post-move placement.
+No stale user-action fence, ownership assertion or empty shell-error journal is
+removed. Paired TABS-VISIBLE-ACTIVATION-019 / GAME-WINDOWS-TABS-020 still need
+native replay; manifest descriptions retain those obligations.
+
+Windows Rust checks at cbdcbeac passed: formatting/Clippy; workspace tests 1,645
+passed / three existing ignored, Core 954 in 211.94s, updater 41 with its unchanged
+256-round concurrency test. Logs: role-publish-diagnostics-{lint,test}-rust-x64.log
+under windows-handoff-b0c3c184. Fresh CI 34087008739 targets cbdcbeac; both native
+jobs and Chromium package profiles were still running when dispatched.
+
+Artifact 2026-09-07T05-32-10-877Z-win32 failed before E2E in addon copy with EBUSY.
+The prior failed fixture PID 15504 was still alive despite final flush; its exact
+command line and creation time matched 2026-09-07T05-21-36-270Z-win32. Only that
+fixture and its repository Electron children were terminated. The next build
+copied the addon successfully. The failed-E2E cleanup path does not wait for
+native process exit (the runner currently fences successful phases only); this
+remains a separate cleanup task, not a successful clean-exit acceptance.
+The original publish-role-tree failure did not recur during this diagnosed
+replay, so its OS cause remains unproven; no rename retry or ACL relaxation exists.
+
+### Paired component acceptance and first-role publication diagnostic — 2026-09-07
+
+CI 34081543779 at 718dc83abef08da489620d3bd268fe8d1bf350dc has now completed:
+Windows native 101617756987 and macOS native 101617756979 are SUCCESS, as are
+both stable desktop profiles and shared checks. Chromium package jobs still fail
+at the later tabs seed; they are not full-profile passes. Downloaded reports
+10004161262 (Windows) and 10004119340 (macOS) both record PASS for system settings,
+settings persistence seed/restart, Role isolation/reset seed/restart, Macro
+terminal-cleanup seed/restart, and app/mixed/window recovery. Both system-settings
+records assert retiredPerformanceSettingsAbsent and cleanExit; adjacent visible
+settings/font/diagnostics journeys and native provider probes supply CP-02/06/13
+acceptance. Native path/import regressions plus persistent restart close CP-03's
+shared-path scope. These four component rows are now verified (8 of 18 total),
+without declaring later runtime edits or CP-10 consented import accepted.
+Reports identify the source commit above and worktreeDirty=true; this is preserved
+as a reported build condition, not represented as a clean-worktree release gate.
+Profiles: chromium-windows-smoke and chromium-macos-appkit-smoke; journeys
+CHROMIUM-{WINDOWS,MACOS-APPKIT}-SYSTEM-SETTINGS-013, FONT-APPLICATION-033,
+DIAGNOSTICS-EXPORT-029 and the corresponding persistence/session journeys.
+
+At 692b4750, local artifact 2026-09-07T05-21-36-270Z-win32 did not reach tabs:
+Core roleCreate:47 rejected at publish-role-tree, with no role persisted.
+The previous diagnostic discarded the OS rename error; retain only its kind and
+numeric code (no paths), preserving atomic publication failure and exact cleanup.
+This diagnostic is internal-only, adds no retry/deadline or permission bypass,
+and does not establish the cause of that separate filesystem failure.
+
+### Native close stream and remaining terminal errors — 2026-09-07
+
+At 3aa30075, Windows artifact 2026-09-07T05-11-12-221Z-win32 completed the
+visible tabs seed actions including native resize/minimize/restore, but its final
+empty-shell-error assertion rejected five errors. The closed stream incorrectly
+called the fullscreen observation reader after BrowserWindow destruction. Making
+the fake native fullscreen accessor reject after destruction reproduced `failed`
+instead of `closed`; reading the controller's retained Core fence fixes that
+regression (60 host/chrome tests pass). Viewport validation/cache is extracted to
+windowsRuntimeHostGeometry to restore the 64 KiB host-factory limit; hygiene and
+typecheck pass. Toolbar stale-command diagnostics now retain command/projection
+identity, and new-window diagnostics retain Core/native generation/revision and
+membership; native errors retain their stack in the process log. These diagnose
+the remaining command race without suppressing the shell error journal. Paired
+journeys CHROMIUM-{WINDOWS,MACOS-APPKIT}-TABS-VISIBLE-ACTIVATION-019 and GAME-WINDOWS-TABS-020 remain pending; no input or Tauri deletion gate is
+released by this focused evidence.
+
+### Minimized native viewport preservation — 2026-09-07
+
+At 4c572d72, artifact 2026-09-07T05-06-16-754Z-win32 passed physical resize and
+exact layout comparisons, then failed show-after-minimize. Core-flow 2019
+rejected native content bounds before restore could be submitted. A minimized
+Windows host may report an empty native content rectangle; that is not a new
+viewport. Retain the exact last unminimized native content bounds per host and
+skip minimize-only layout/placement publication. Restore/resize replaces it with
+fresh native bounds; invalid bounds outside minimize still reject. The new
+regression failed before repair; 60 host/chrome tests passed afterward. No generic
+invalid-geometry fallback, polling, or deadline change was added. The native
+geometry subsection and paired tabs journeys remain pending.
+
+### Reopened generation belongs to the accepted snapshot — 2026-09-07
+
+At 8c0fe409, artifact 2026-09-07T05-03-50-998Z-win32 passed the exact reopen
+predicate, then an extra one-shot generation inspection overlapped the next
+placement projection (Core 56 / native 55, generation 39 and equal ownership).
+Return generation from the already-accepted showSavedWindow snapshot and retain
+the greater-than-old-generation assertion against that same evidence. This
+removes an inconsistent second observation, not an assertion or a native fence.
+
+### Resize probe document prerequisite — 2026-09-07
+
+At 791c65b4, artifact 2026-09-07T05-01-55-033Z-win32 reached resize but the new
+helper read the desktop E2E PID bridge after switching into the sandboxed runtime
+chrome document, which intentionally has no such bridge. Capture PID in the
+launcher before switching, then use only the runtime close control in native
+chrome. Preserve that preload isolation; do not expose the debug bridge there.
+
+### Windows native resize driver — 2026-09-07
+
+At c592bcc7, artifact 2026-09-07T04-58-41-423Z-win32 advanced through the repaired
+cross-window move, then failed in the resize driver before any resize gesture:
+ChromeDriver window/rect invoked unsupported Browser.getWindowForTarget.
+Use the exact visible tab close control to resolve its owning HWND, verify PID
+and foreground, read GetWindowRect in per-monitor DPI awareness, and drag its
+real OS border with DIP deltas converted by GetDpiForWindow. The visible action
+and subsequent exact layout/resize-event assertions remain unchanged; no debug
+resize command replaces the user action. This E2E-only repair still awaits native
+acceptance in the paired tabs 019/020 journey (Windows geometry subsection).
+
+### Windows moved-tab layout target — 2026-09-07
+
+Focused tabs at 7f0d2314, artifact 2026-09-07T04-54-15-191Z-win32, passed initial
+loading admission, all three Role launches, whole-window close/reopen, selection
+and reorder. It then failed moving Beta into the existing target window.
+Core-flow 1843 rejected the ownership projection because the tab layout still
+carried the source target while resolving against the destination native host.
+Project the tab specification with the already-fenced destination hostTarget
+before layout, and commit that same specification only after native projection.
+The strengthened move regression failed with window-1 versus window-2 before
+repair; 56 projection/layout/executor tests passed afterward. Paired tabs journeys
+019/020 remain pending overall; this is partial progress, not a profile pass.
+
+### Role load admission releases the projection lane — 2026-09-07
+
+At c8dfc9d1, artifact 2026-09-07T04-43-34-681Z-win32 retains the actual fence
+failure: Core window generation 3 / revision 6 versus native generation 3 /
+revision 5, with equal tab membership, display, bounds and target. Core-flow 142
+accepted browserWindowsRuntimeWindowPlacement while embeddedLoadRoles 138 held
+the application effect lane. Its revision-6 projection could execute only after
+load completion 763, which the E2E gate deliberately withheld. Earlier observer
+and ChromeDriver issues were real but did not resolve this product dependency.
+
+Managed Role loading now completes admission after paths/native creation are
+submitted, returns the existing Core event-continuation contract, and releases
+the mutation lane while the exact navigation remains pending. Opening owners
+stay separate from ready Role snapshots and input eligibility. Duplicate loads
+are rejected; close/destroy can reach the exact opening generation; a retired
+owner cannot be resurrected by late navigation completion. Core cancellation
+still closes the exact surface and no navigation deadline changes. The global
+Web loader is separately unchanged and must be audited against the same boundary.
+
+102 focused tests passed across executor, bootstrap, coordinator and paired
+Role load admission cases. The tests prove a revision-8 projection completes
+while navigation is pending, duplicate admission rejects, and late completion
+after native tab destruction rejects without resurrection. Existing cancellation
+assertions now await the continuation terminal. Paired TABS-VISIBLE-ACTIVATION-019
+and GAME-WINDOWS-TABS-020 remain the native acceptance journeys; pending until
+an exact-source native run completes.
+
+### Gated loading diagnostic transport — 2026-09-07
+
+At a2ed80eb, focused tabs artifact 2026-09-07T04-38-43-221Z-win32 crossed
+initial Core/native admission. The after-click body.getText command at
+04:39:23.038 blocked ChromeDriver until native load retirement at 04:40:08.256;
+fixture transport cancellation followed at 04:40:08.280. The later fixture
+waiter timeout is a consequence, not a missing initial launch. During the gate,
+retain the exact Core/native tab inspection and read Windows loading controls
+with the existing native UI Automation helper. Defer body diagnostics until
+outside that gate. No native navigation deadline or loading assertion changes.
+
+### Initial Core observer prerequisite — 2026-09-07
+
+Commit 1d9811c7 passed Windows Electron native integration: 8 files / 16 tests
+(75.79 s), log close-selection-native-integration-x64.log. Focused tabs at
+2026-09-07T04-35-31-475Z-win32 still failed the initial loading gate. Inspection
+showed the second missing prerequisite: Core ownership was bound only by the
+first effect acknowledgement, while initial loading held that batch open.
+Bind both actual CoreAddonClient and runtime at successful bootstrap; identify
+each missing owner in inspection errors. This follow-up is E2E-only and retains
+all runtime, identity, revision, and loading assertions. Native tabs still pending.
+
+### Native tabs failure attribution after 718dc83a — 2026-09-07
+
+CI 34081543779 retained exact clean-SHA reports: Windows artifact 10004161262
+has 51 PASS / 4 EXPECTED_FORCE_TERMINATION / 1 FAIL; macOS artifact 10004119340
+has 50 PASS / 4 EXPECTED_FORCE_TERMINATION / 1 FAIL. Both failed tabs-visible-seed;
+these are partial profile results, not complete platform acceptance.
+
+Windows loading admission inspection reported no observed runtime owner. The
+E2E observer discovered its owner only through the first snapshot, while the
+first gated navigation needed that observer before release. Bind the actual
+bootstrap owner at successful startup; retain exact Core/native inspection.
+
+macOS Core flow 737 accepted closeWindow. DestroyTab 739/751 released background
+Alpha, but native selection changed from surviving Gamma to Beta. Core projection
+758 retained Gamma and correctly rejected the mismatch at 759; receipt 765 was
+indeterminate. Preserve a surviving active tab when no explicit Core successor
+is supplied. Both-platform regression tests failed before the repair; all 60
+close-selection/executor/AppKit-projection tests passed afterward. The native
+journey now explicitly proves the complete three-tab cohort and last-tab
+selection before whole-window close. Affected paired journeys: TABS-VISIBLE-
+ACTIVATION-019 and GAME-WINDOWS-TABS-020. Native validation remains pending for
+this repair and focus-arming commit ecd9f128. No fence or deadline was weakened.
+
+### Windows user focus during Macro arming — 2026-09-07
+
+`718dc83a` passed focused topology seed/restart with its physical prerequisite
+(artifact `2026-09-07T03-57-25-179Z-win32`). Its local complete profile then
+recorded 30 PASS / 1 FAIL at topology seed, before visible Stop became enabled
+(`2026-09-07T04-00-42-048Z-win32`). Raw View observations 217/218 and 219/220
+retain role `8890f463-5f65-4bee-a9ee-715ebb3a6df0`, generation 1, binding 1,
+parent, geometry and zoom; only user focus moved from Role View 4 to launcher 1.
+Browser action 40 was superseded during arming at Core-flow 466; cleanup 41
+applied with input neutrality. This is an arming/admission race, not a Stop UI
+selector failure or the earlier clock mismatch.
+
+The follow-up validates the same owner/frame/visibility/geometry across arming,
+accepts only non-regressing exact View probe revisions, then binds submission
+to the newly validated user focus. Complete pre/post native focus observation
+and trusted DOM receipts remain mandatory. Legacy HWND validation is unchanged.
+Both foreground and hidden arming regressions failed before the repair;
+95 adapter/host/submission tests passed afterward, including changed geometry
+and forged post-submission focus rejection. No deadline or E2E assertion changed.
+
+Fresh CI [34081543779](https://github.com/rion-tw/rion-studio-source/actions/runs/34081543779)
+was dispatched once for pushed `718dc83abef08da489620d3bd268fe8d1bf350dc`.
+Both stable full desktop jobs (101617629343 Windows, 101617629362 macOS), portable
+checks, and macOS native 101617756979 passed. Windows native 101617756987 passed
+Rust and native Electron steps and was in renderer validation at observation.
+Chromium jobs failed at `chromium-tabs-visible-seed`: Windows 101617629229 did
+not observe loading Role admission; macOS 101617629271 did not reach dormant
+after close. Downloaded artifacts 10004161262 and 10004119340 are retained under
+`.desktop-e2e-artifacts/windows-handoff-b0c3c184/ci-718-*` for exact diagnosis.
+The original two handoff CI runs were not restarted. No release workflow ran.
+### Windows first native topology receipt — 2026-09-07
+
+`6af00a91` passed focused Macro UI seed/restart (4 phases including entity
+prerequisites, artifact `2026-09-07T03-33-27-712Z-win32`) and topology seed/restart
+with physical input prerequisite (3 phases, `2026-09-07T03-35-56-759Z-win32`).
+The complete `chromium-windows-smoke` run at that clean SHA reached topology
+restart and failed restoring window `c8e00000-0000-4000-8000-000000000023`
+(`2026-09-07T03-37-31-156Z-win32`). This is a distinct launch-cache failure.
+The first Workspace completed at Core-flow sequence 205; restore rejected at
+216 with `ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE`.
+Native observation 2 had the newly created host with generation/revision 0/0;
+subsequent observations bound the same host to generation 4, revisions 6 and 9.
+The launch cache permanently discarded the exact pending admission on that
+initial 0/0 observation, before its first authoritative topology receipt.
+
+A focused regression reproduced the rejection after the exact native receipt
+arrived. The repair retains only the initial 0/0 pending admission, validates all
+other source/attempt/display/Web identities, and still refuses reuse until an
+exact positive Core/native generation and revision agree. It adds no retry,
+polling, deadline, or inferred success. All 47 launch-coordinator tests passed.
+Affected paired journeys are `CHROMIUM-*-MACRO-OWNERSHIP-TRANSFER-010` and
+`CHROMIUM-*-MACRO-MULTIROLE-005`; the existing adjacent topology restart performs
+the visible Show and exact restored-cohort assertion. Native E2E remains pending
+for this follow-up. Legacy Windows input and Tauri deletion remain gated.
+### Windows Core clock validation — 2026-09-07
+
+The follow-up to `6f1468f1` uses the same exported Rust Core scheduler clock for
+Electron trusted-input admission, native submission, and receipt observation on
+both platforms. AppKit retains its native input authority and calls that same
+Core clock. No timestamp clamping, deadline extension, or receipt-order assertion
+was introduced. JavaScript diagnostic observation timestamps are explicitly
+labelled as a separate clock.
+
+Windows x64 on this ARM64 Parallels workstation passed Rust lint (40.36 seconds),
+all 1645 Rust tests (3 ignored), including the unchanged 256-round updater
+publication race, and native integration (8 files / 16 tests, 82.27 seconds).
+Focused coordinator/runtime tests passed (2 files / 24 tests). Full hygiene passed
+with P0/P1 70/70 each and both Chromium parity profiles 40/40. Logs are under
+`.desktop-e2e-artifacts/windows-handoff-b0c3c184/macro-clock-*`.
+The paired `CHROMIUM-*-MACROS-UI-017` journeys now name the exact clock boundary.
+Native macOS and complete Windows profile acceptance remain pending; these
+checks do not close physical-host, update, or migration-removal gates.
 ## Windows workstation handoff — 2026-09-07
 
 The owner is moving execution to a Windows workstation because hosted CI is
@@ -158,6 +523,279 @@ output before interpreting isolation results.
   policy and mandatory updater signatures/hashes. Do not enable disabled
   publisher/finalizer jobs or discard required AppKit/data adapters.
 
+## Windows workstation execution — 2026-09-07 (in progress)
+
+The receiving checkout was clean on `main`; fetched and created the tracking
+branch `codex/electron-chromium-v23-cutover` at
+`b0c3c184fb1d2d30d66175c67780a6108dde7184`. Confirmed `08dae0ce`, `7ec46086`
+and the handoff commit are ancestors. No local changes were discarded.
+This workstation is Windows **ARM64**, distinct from hosted Windows x64.
+Local tools: SHA-256-verified Node 24.18.0 ARM64, pnpm 11.13.0, Rust
+1.97.0-aarch64-pc-windows-msvc; frozen-lockfile installation passed.
+
+| Candidate / check | Observed result |
+| --- | --- |
+| Local `b0c3c184`, `pnpm run lint:rust` | PASS, Windows ARM64; 1m31s. Full log: `.desktop-e2e-artifacts/windows-handoff-b0c3c184/lint-rust.log`. |
+| Local `b0c3c184`, `pnpm run test:rust` | PASS, Windows ARM64: 1,642 tests, three existing ignored; Core 952 tests in 240.04s. The unchanged 256-round `terminal_receipt_create_new_commit_has_exactly_one_concurrent_winner` and `a_fully_verified_import_journal_allows_launch_without_new_role_evidence` passed without retries. Full log: `.desktop-e2e-artifacts/windows-handoff-b0c3c184/test-rust.log`. |
+| Local `b0c3c184`, focused Vitest | PASS: projection/coordinator 43 tests, View focus admission 20 tests. Native Electron integration is running next. |
+| Local `b0c3c184` + runtime-read repair, native integration | PASS: eight files / 15 tests, 111.23s, Windows ARM64 Electron 43.4.1 / Chromium 150.0.7871.224. Production View-owner probe includes all eight trusted key/middle samples, four applied hidden admissions, and preserved foreground identity. Log and native reports are under `.desktop-e2e-artifacts/windows-handoff-b0c3c184/`. |
+| Run 34067927527, job 101579982133 | Final API verdict SUCCESS, including Rust workspace, native Electron integration, renderer tests and Tauri build. macOS native 101579982173 and both stable desktop jobs also SUCCESS; both older Chromium package jobs FAILED. |
+| Run 34068441192, job 101581254621 | FAILED at `chromium-workspace-web-only-seed`, before Macro terminal cleanup. Downloaded artifact 9999811663; `report.json` binds `7ec46086`, `chromium-windows-smoke`, `chromium-v23-windows`. |
+
+The latest Chromium failure is `execute/async` script timeout in
+`chromium-workspace-web-only.e2e.ts:344`, reading `getEmbeddedRuntimeState`
+after visible tab close. Core flow records successful `embeddedTabStop` and
+empty browser/logical windows at revisions 27/28; native topology records an
+empty final snapshot. Local Web chrome reached `did-finish-load`, then exact
+destruction. This is not evidence of the earlier local chrome load stall or
+hidden View admission failure. Investigate the snapshot/projection read fence
+against local reproduction; do not lengthen the deadline or weaken equality.
+The post-failure direct View probe has eight received samples and four applied
+hidden-admission receipts, but does not close the full journey. The profile has
+10 PASS phases before its failure. Windows stable job 101581254735 subsequently
+completed successfully; Windows native job 101581357691 passed Rust tests and
+entered native Electron integration on the next read.
+Neither cited CI run was restarted. macOS, x64, hardware and real updater gates
+remain separately required; CP-08 deletion and CP-17 removal remain gated.
+
+The runtime-read repair adds `browserStatuses` to the coordinator's ordered
+projection progress fence. `browser_runtime_snapshot_without_persistence`
+publishes this authoritative event after the final tab isolation/removal, even
+when neither another SQLite `stateChanged` nor another native effect follows.
+The former reader ignored this event. Two platform-table regressions failed on
+the original implementation and passed after the repair; all 65 focused
+projection/focus tests passed. The reader still validates exact Core/native
+identity and topology; no polling, deadline extension or equality relaxation was
+added. Both WORKSPACE-WEB-ONLY-024 journeys now additionally require the empty
+renderer topology from a pre-close event cursor, alongside the existing runtime
+read and restart assertions. Typecheck and coverage passed (P0/P1 100%); the full
+Windows Chromium profile is running against the qualified working tree.
+
+The first ARM64 full-profile attempt
+`.desktop-e2e-artifacts/2026-09-07T00-30-34-572Z-win32/report.json` failed at
+shell startup, before any UI journey: ChromeDriver's log records
+`UPDATE_PLATFORM_BUILD_MISMATCH`. `crates/rion-node/src/updater.rs` deliberately
+accepts Windows x86_64 builds only. Preserve that product architecture check;
+prepare pinned x64 Node/Rust/Electron on this ARM64 Windows host instead of
+claiming ARM64 product support. This is a toolchain correction, not a retry of
+the CI Web-only failure or a native acceptance pass. x64 execution under Windows
+ARM64 emulation must be distinguished from hosted x64 and physical hardware.
+
+Full hygiene initially found `/bin/ps` unresolved on Windows. It is the existing
+absolute macOS OS executable in `darwinProcessGroupLiveness.mjs`, not a missing
+JavaScript dependency. Added that exact path to Knip `ignoreUnresolved`; full
+hygiene then passed, retaining existing export/type warnings and all other
+dependency checks. No runtime implementation or assertion was suppressed.
+
+Final run 34068441192 status: macOS native 101581357690, Windows native
+101581357691 and both stable desktop jobs 101581254848/101581254735 SUCCESS.
+macOS Chromium 101581254826 FAILED at `chromium-tabs-visible-seed`:
+`closeAndReopenSavedWindow` did not observe the exact window become dormant.
+Artifact 10000177203 was downloaded locally. Unlike the Windows snapshot wait,
+the macOS inspection keeps returning a live two-tab native host; Core records
+no close command before test cleanup. The helper caller omitted its already
+known `gameWindow.id`, causing the macOS helper to discover a target through
+whole-window Accessibility traversal. Pass that exact ID on both platforms;
+this removes an ambiguous targeting path but is not yet proof of the macOS
+failure's root cause or a successful close. Keep the native dormant assertion
+unchanged and require a new macOS verdict for TABS-VISIBLE-ACTIVATION-019 /
+GAME-WINDOWS-TABS-020. No AppKit product adapter was replaced.
+
+Pinned x64 Node 24.18.0 and Rust 1.97.0 are now installed for the supported
+Windows product build. Preserved the ARM64 dependency tree under ignored
+`.desktop-e2e-artifacts/toolchain-backup/node_modules-arm64`; a clean x64
+`pnpm install --frozen-lockfile` passed without lockfile changes. Merely running
+install over the ARM64 tree did not supply x64 optional native bindings.
+Windows x64 `pnpm run lint:rust` passed in 15m29s under ARM64 emulation
+(`lint-rust-x64.log`). The source repair is now committed as
+`72bc7da318faff7849772dc292e4a1c69a1f0b50` (local commit; no release or merge).
+The matching working-tree x64 `pnpm run test:rust` passed: 1,642 tests, three
+existing ignored, 11m50s cold compilation and 185.48s Core execution. The unchanged
+256-round updater concurrent-publication test passed in this run, and the exact
+import-journal restart test also passed. Log: `test-rust-x64.log`. x64 typecheck
+passed (`typecheck-x64.log`). This is a four-core Parallels ARM virtual machine;
+these x64-emulated Windows results are not physical mixed-DPI/display evidence.
+The sequential x64 native-integration run uses a separate `x64-native/` report
+directory so that the earlier ARM64 reports remain intact.
+`pnpm run test:electron:native-integration` passed all eight files / 15 tests
+in 93.13s. The production View-owner report has all eight `received` direct
+key/middle samples, all trusted DOM events, preserved foreground identity, and
+four `applied` hidden admissions including background parents. The log is
+`native-integration-x64.log`; input, shortcuts, View-owner, fullscreen and font
+JSON reports are in `x64-native/`. Full `chromium-windows-smoke` execution is
+now running against `72bc7da3` plus this documentation-only evidence update.
+The current run root is
+`.desktop-e2e-artifacts/2026-09-07T01-13-12-592Z-win32`. Its first 12 phases
+passed, including both `chromium-workspace-web-only-seed` and restart. This
+directly exercises the formerly failing last-tab close read and the additional
+empty renderer-topology event assertion for
+CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024. No deadline or assertion was relaxed.
+The full attempt subsequently stopped with **30 PASS / 1 FAIL** at
+`chromium-macro-cutover-topology-seed`; terminal-cleanup was not reached.
+After Role ownership transfer, fixture sequence 668 records trusted `KeyS`
+keydown, but the consumer keyup required at `chromium-macro-cutover-topology.ts:178`
+never arrives. Core flow rejects browser-action-16 with an invalid terminal
+receipt, then browser-action-20 with incomplete native submission; their cleanup
+actions expire before preload arming. This is distinct from hidden-parent
+admission and from the repaired Web-only read. The native View remains focused
+and attached in the final observations. Preserve the consumer release assertion.
+
+The E2E-only `trustedInputDiagnosticsObserver.ts` now retains bounded in-memory
+raw adapter/submission receipts and timing fields, returning original promises,
+receipts and exceptions. It writes on `will-quit`, outside input delivery.
+Typecheck passed. A focused topology-seed run is collecting this missing failure
+evidence; it is not a retry intended to establish full-profile acceptance.
+The focused run `.desktop-e2e-artifacts/2026-09-07T01-35-17-545Z-win32`
+completed its topology UI assertions, but the runner failed with `ENOENT` for
+`chromium-windows-trusted-input-physical/windows-input-physical-probe.log`.
+Its selected-phase dependency list omitted the native prerequisite that the
+unchanged validator requires. Added platform-aware prerequisite selection,
+preserving seed/restart order and avoiding duplication in full profiles; the
+eight-test Macro cutover suite passed. This fixes the focused harness, not the
+original input failure. All captured receipts in that focused UI run were
+applied; the original partial-submission failure remains unresolved.
+Next, the independent terminal-cleanup restart selection runs physical input,
+cleanup seed and cleanup restart with the diagnostic observer installed.
+Its first build was stopped by a missing adjacent `.d.mts` export, which is now
+added. The following attempt
+`.desktop-e2e-artifacts/2026-09-07T01-41-56-974Z-win32` failed the physical
+prerequisite before cleanup: `SYSTEM_TRUSTED_INPUT_FOREGROUND_DEADLINE` while
+admitting the probe's visible Role. No cleanup verdict was produced. Added
+failure-only exact View observation to that probe and asked whether the VM
+remained unlocked and free from competing desktop input. Full hygiene passed,
+including unchanged P0/P1 100% and paired cutover 40/40 targets. A diagnostic
+attempt now retains the missing foreground facts; neither intermittent UI
+failure is considered repaired by instrumentation alone.
+The diagnostic physical attempt returned `parentForeground: false` while the
+View remained attached/visible and Electron reported its content focused.
+The exact admission guard correctly rejected that combination. The standalone
+probe is spawned by WDIO's background Node process. Windows explicitly restricts
+[programmatic foreground activation](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow).
+The probe now establishes its initial foreground precondition with one visible
+caption click, fenced by PID, HWND, native hit-testing, occlusion and per-monitor
+DPI coordinates. It happens before the first foreground sample; no click or focus
+repair is added during hidden/background delivery. Native verification of this
+precondition passed in the subsequent focused run below. Future UI runs stream their original runner output,
+avoiding separate PowerShell log-reader launches during focus-sensitive work.
+
+The next focused attempt, `.desktop-e2e-artifacts/2026-09-07T02-07-46-063Z-win32`,
+passed the physical prerequisite and failed terminal-cleanup seed before Window B
+could show. Core effect 505 acknowledged Window A's native destruction with an
+empty topology; snapshots 512/514/516 retained Window A and its old tab despite
+empty role ownership. No Core effect was rejected. Windows `browserWindowStop`
+had omitted the Core logical-window removal performed by the AppKit close path.
+The working correction commits removal after exact native acknowledgement, with
+generation/revision/tab membership checked under the Rust authority barrier.
+Visibility quarantine uses that same commit. New platform-explicit Rust tests
+cover successful stop, saved configuration, surviving topology, failed destroy
+and a changed topology during acknowledgement. The paired terminal-cleanup
+journeys now explicitly assert absence of Window A and its tabs before launching
+Window B. The harness correction is committed as `d890d609`. Focused harness
+tests passed (13), typecheck/lint/full hygiene passed (23 existing ESLint
+warnings; P0/P1 100%, paired cutover 40/40). Windows x64 workspace Rust tests
+passed: **1,644 passed / three existing ignored**, Core 954 in 196.29s;
+the unchanged updater 256-round race passed again. Logs:
+`windows-handoff-b0c3c184/window-stop-test-rust-x64.log` and
+`window-stop-full-hygiene.log` under the artifact root. Final Windows x64
+`lint:rust` passed in 57.89s (`window-stop-lint-rust-final-x64.log`). Native
+terminal-cleanup validation is next; neither full-profile acceptance
+nor legacy input deletion is authorized by this correction. AppKit projection
+quarantine also uses the shared Core terminal commit, preserving its native
+authority and including hidden tabs in teardown. Its platform-aware Rust
+quarantine regressions passed; native macOS validation remains pending.
+
+Core correction commit: `4d42c351`. Its first E2E build attempt (`02-42-58`)
+could not replace the addon because the earlier `02-07-46` failed run still
+owned it. Exact user-data-path-matched orphan processes were terminated; no
+user app process was targeted. The next attempt,
+`.desktop-e2e-artifacts/2026-09-07T02-45-33-761Z-win32`, passed physical input,
+Window A projection removal, Window B held-key close and cleanup, then reached
+Window C's shutdown Macro. Core stop receipts 525/739 completed. It failed at
+the final visible application Close helper: the PID-only UIA selector required
+one window even though the scenario deliberately retained a Game Window.
+The helper now selects the process's fixed `Rion Studio` main-window title,
+retaining unique-window and unique native Close-button assertions. Typecheck
+and the eight-test Macro cutover harness suite passed. The failed attempt's
+post-test cleanup wrote `electron-final-flush.json` with `complete: true`;
+this does not substitute for the primary visible application Close assertion.
+
+`e72f5cbf` passed the complete focused physical prerequisite + terminal-cleanup
+seed/restart selection on Windows x64 (Electron 43.4.1 / Chromium 150.0.7871.224).
+Run `.desktop-e2e-artifacts/2026-09-07T02-49-57-194Z-win32`, profile
+`chromium-windows-smoke`, target `chromium-v23-windows`; seed UI 49.8s and
+restart UI 4s. CHROMIUM-WINDOWS-MACRO-TERMINAL-CLEANUP-006 now has native
+evidence for exact window removal, held-key tab/window cleanup, visible main
+Close and clean restored input. This focused result does not close the separate
+full-profile topology input-receipt failure or paired macOS/hardware gates.
+
+The first focused system-settings attempt at `e72f5cbf`,
+`.desktop-e2e-artifacts/2026-09-07T02-52-13-859Z-win32`, completed preference,
+font-application and removed-controls assertions, then failed native diagnostics
+Cancel discovery. Exact UIA inspection of PID 13488 found main HWND 1442506 with
+owned child dialog HWND 525698, title `Export Rion Studio Diagnostics`, class
+`#32770`. The root-only UIA selector omitted that child. Cancel HWND 3997956
+had native class `Button` and ID 2, but UIA reported `Pane` with no supported
+patterns on this host. The existing upload driver is extracted unchanged to
+`windows-native-dialog.ts`; diagnostics now reuses its native owner, class,
+control-ID, foreground, visibility and hit-test fences to click Cancel.
+It successfully cancelled that exact failed-run dialog; this manual cleanup
+does not count as journey acceptance. Typecheck/source hygiene and 19 focused
+tests passed; all prior upload hit-test assertions remain, now reading the
+shared source. Coverage remains P0/P1 100% and paired 40/40. Native settings
+and upload acceptance for this harness correction are pending.
+
+Dialog harness commits: `be57da38` plus `6f1468f1` (source-test project-boundary
+correction). The first intervening build stopped at TS6307 before UI execution;
+the fixture source is now read rather than directly imported into the node test
+project. `6f1468f1` then passed **chromium-system-settings** on Windows x64,
+run `.desktop-e2e-artifacts/2026-09-07T03-01-32-360Z-win32` (19.3s UI).
+This exercises CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013,
+CHROMIUM-WINDOWS-FONT-APPLICATION-033 and
+CHROMIUM-WINDOWS-DIAGNOSTICS-EXPORT-029: actual font application, absent retired
+controls, visible native diagnostics Cancel with exactly one cancelled journal
+entry and zero Core export invocation, and subsequent legal-dialog cancellation.
+CP-02/CP-06/CP-13 Windows settings acceptance is now satisfied; current-candidate
+macOS and other migration/hardware/update gates remain separate.
+
+The complete Windows profile at `6f1468f1` stopped after **22 PASS / 1 FAIL**
+at Macro UI seed, run `.desktop-e2e-artifacts/2026-09-07T03-02-59-012Z-win32`.
+Workspace Web fullscreen seed/restart, including native upload, passed with the
+shared dialog driver. The Macro failure now has exact raw receipt evidence:
+`browser-action-2` (focus) scheduled at **1788750894672** by Rust, while its
+applied JS receipt completed at **1788750894671**; JS dispatch began at
+1788750894668. Core flow 133 correctly rejects the out-of-order receipt and
+138 rejects Macro start. This is a demonstrated clock-domain mismatch, not a
+missed running-state sample. The working correction exposes the exact Core
+Macro epoch clock through Node-API and supplies it to both platform adapters,
+Windows View admission/submission, and receipt validation. AppKit native
+submission also reads the same Rust helper. No timestamps are clamped, deadline
+extended, or ordering assertion relaxed. Two platform-explicit regressions keep
+the one-millisecond early receipt rejection; 25 focused TypeScript tests and
+the native Rust clock unit test passed. New native integration checks that the
+clock remains native even when JavaScript Date.now is replaced. Full native
+validation is pending; the earlier topology failure is not independently
+attributed until its recorded sequence or new exact verification supports it.
+
+The completed uncontended x64 Vitest batch (`vitest-x64-uncontended.log`)
+reported 452 files: 430 passed, 12 failed, ten skipped; 3,582 tests passed,
+15 failed, 48 skipped, 742.31s. Eleven failures are exact `symlink` `EPERM`
+errors, two are `spawnSync bash ENOENT`, and two renderer cases hit the unchanged
+10-second limit. Git Bash exists at `C:/Program Files/Git/bin/bash.exe`; focused
+Bash validation now adds that existing directory to PATH. The initial-click
+helper's tests are separate from that batch's selected test files. No symlink
+test was skipped or substituted, and no timeout was enlarged. These results
+remain qualified Windows-VM evidence, not a green full suite.
+
+The x64 full Vitest batch with two workers was interrupted after repeated
+failures while competing with the cold Rust compilation on this four-core host.
+It is **incomplete**, not a passing suite. Its log is
+`vitest-x64-after-install.log`; several failures cluster at the existing 10-second
+test boundary, while file-symlink fixtures fail immediately. An independent
+Node file-symlink probe returned `EPERM` on this workstation, which lacks
+`SeCreateSymbolicLinkPrivilege`. Preserve those security assertions and the
+existing deadlines. Native/E2E validation will run without competing full-suite
+work; symlink-dependent checks still require a capable Windows environment.
+
 ## Feature and capability inventory
 
 The feature names below cover all nine entries in `docs/e2e-coverage.json`.
@@ -190,18 +828,18 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | ID | Priority / owner | State | Dependency | Deliverable and completion evidence |
 | --- | --- | --- | --- | --- |
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
-| CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
-| CP-03 | P0 / Core + Sessions | implemented; both native Rust gates and paired Chromium persistence smoke passed | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
+| CP-02 | P0 / Diagnostics | verified; paired settings/removal acceptance at 718dc83a | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
+| CP-03 | P0 / Core + Sessions | verified shared path boundaries; paired native Rust and restart acceptance at 718dc83a | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; surviving-window close projection repaired, paired native replay pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | verified adopt; production provider acceptance remains CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
-| CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
+| CP-06 | P1 / Fonts + bridge | verified v23 provider; paired native probes and settings acceptance at 718dc83a | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; Windows shutdown/import restart failure and consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
-| CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
+| CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | paired stable full passed at e85d2ea5; macOS Chromium 56 phases passed at 1422ea67; Windows topology seed/restart passed at 2e139861; full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at a20bddec; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |

@@ -19,15 +19,14 @@ import type {
 import {
   ATTEMPT_ID,
   CAPTURED_AT,
+  configureWorkspaceWebLaunch,
   dualDisplayTopology,
   emptyCoreSnapshot,
-  MANAGED_RECT,
   OPERATION_ID,
   RECT,
   ROLE_ID,
   TAB_ID,
   topology,
-  WEB_RECT,
   WEB_SLOT_ID,
   WEB_SURFACE_ID,
   WINDOW_ID,
@@ -454,107 +453,6 @@ function launchHarness(options: HarnessOptions = {}) {
   return { claimCommands, coordinator, coreInvoke, launchCommands, state };
 }
 
-function configureWorkspaceWebLaunch(
-  state: LaunchHarness,
-  options: Readonly<{
-    mixed?: boolean;
-    nativeSurface?: false | Partial<
-      ChromiumRuntimeExecutorSnapshot["webSurfaces"][number]
-    >;
-  }> = {}
-): void {
-  const runtimeTab = state.coreSnapshot.browserRuntime.tabs.find(
-    (tab) => tab.id === WORKSPACE_TAB_ID
-  )!;
-  const logicalTab = state.coreSnapshot.logicalWindows
-    .flatMap((window) => window.tabs)
-    .find((tab) => tab.id === WORKSPACE_TAB_ID)!;
-  const runtimeWorkspace = state.coreSnapshot.browserRuntime.workspaces.find(
-    (workspace) => workspace.tabId === WORKSPACE_TAB_ID
-  )!;
-  const savedWorkspace = state.coreSnapshot.state.launchWorkspaces.find(
-    (workspace) => workspace.id === WORKSPACE_ID
-  )!;
-  const webSlot = {
-    id: WEB_SLOT_ID,
-    web: {
-      name: "Workspace Web",
-      startUrl: "https://workspace-web.example.test/"
-    },
-    browserZoomPercent: 100,
-    rect: options.mixed ? WEB_RECT : RECT
-  };
-  runtimeTab.webSurfaces = [{
-    surfaceId: WEB_SURFACE_ID,
-    slotId: WEB_SLOT_ID
-  }];
-  logicalTab.workspaceSlots = options.mixed
-    ? [{
-        id: "workspace-managed-slot",
-        roleId: ROLE_ID,
-        browserZoomPercent: 100,
-        rect: MANAGED_RECT
-      }, webSlot]
-    : [webSlot];
-  savedWorkspace.slots = [...logicalTab.workspaceSlots];
-
-  if (options.mixed) {
-    logicalTab.roleSlots = [{
-      slotId: "workspace-managed-slot",
-      roleId: ROLE_ID,
-      browserZoomPercent: 100,
-      rect: MANAGED_RECT
-    }];
-    runtimeTab.slots = [{
-      slotId: "workspace-managed-slot",
-      roleId: ROLE_ID,
-      browserZoomPercent: 100,
-      rect: MANAGED_RECT,
-      state: "launching",
-      owner: {
-        tabId: WORKSPACE_TAB_ID,
-        slotId: "workspace-managed-slot",
-        generation: 1
-      }
-    }];
-    runtimeWorkspace.roleIds = [ROLE_ID];
-    state.coreSnapshot.browserRuntime.roles = [{
-      roleId: ROLE_ID,
-      runtime: "embedded",
-      owner: {
-        tabId: WORKSPACE_TAB_ID,
-        slotId: "workspace-managed-slot",
-        generation: 1
-      },
-      state: "launching"
-    }];
-    state.nativeSnapshot = {
-      ...state.nativeSnapshot,
-      roles: [{
-        roleId: ROLE_ID,
-        tabId: WORKSPACE_TAB_ID,
-        windowId: runtimeTab.windowId,
-        generation: 1,
-        ownerGeneration: 1
-      }]
-    };
-  }
-
-  const exactNativeSurface = {
-    surfaceId: WEB_SURFACE_ID,
-    slotId: WEB_SLOT_ID,
-    tabId: WORKSPACE_TAB_ID,
-    windowId: runtimeTab.windowId,
-    generation: 1
-  };
-  state.nativeSnapshot = {
-    ...state.nativeSnapshot,
-    webSurfaces: options.nativeSurface === false
-      ? []
-      : [{ ...exactNativeSurface, ...options.nativeSurface }]
-  };
-}
-
 function advanceWindowTopology(
   state: LaunchHarness,
   increment: number,
@@ -802,6 +700,36 @@ describe("Electron Chromium runtime launch coordinator", () => {
     });
   });
 
+  it("retains an admitted target while the native host awaits its first topology receipt", async () => {
+    const { coordinator, launchCommands, state } = launchHarness({
+      onLaunch: (command, current) => {
+        if (command.type !== "browserRoleLaunch") return;
+        current.nativeSnapshot = {
+          ...current.nativeSnapshot,
+          windows: current.nativeSnapshot.windows.map(window => ({
+            ...window, windowGeneration: 0, topologyRevision: 0
+          }))
+        };
+      }
+    });
+    await coordinator.launchRole(ROLE_ID, { kind: "new-window" });
+    await expect(coordinator.launchWorkspace(WORKSPACE_ID, {
+      kind: "game-window", windowId: WINDOW_ID
+    })).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE" });
+    expect(launchCommands).toHaveLength(1);
+    const logical = state.coreSnapshot.logicalWindows[0]!;
+    state.nativeSnapshot = {
+      ...state.nativeSnapshot,
+      windows: state.nativeSnapshot.windows.map(window => ({
+        ...window, windowGeneration: logical.windowGeneration,
+        topologyRevision: logical.revision
+      }))
+    };
+    await expect(coordinator.launchWorkspace(WORKSPACE_ID, {
+      kind: "game-window", windowId: WINDOW_ID
+    })).resolves.toMatchObject({ windowId: WINDOW_ID });
+    expect(launchCommands).toHaveLength(2);
+  });
   it("promotes a Web-only workspace only after its exact native Web surface exists", async () => {
     const { coordinator, launchCommands, state } = launchHarness({
       onLaunch: (command, harness) => {

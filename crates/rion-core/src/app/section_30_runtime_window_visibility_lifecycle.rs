@@ -261,41 +261,11 @@ impl AppCore {
             window_id: window_id.to_owned(),
             window_generation,
             topology_revision,
-            tab_ids: window.tab_ids(),
+            tab_ids: window.all_tab_ids(),
             intent_origin: "runtimeWindowVisibilityQuarantine".to_owned(),
             admission_id: None,
             closing_tabs: Vec::new(),
         };
-        self.stop_embedded_window(&request, false)?;
-
-        let after_native = self.browser_runtime.snapshot()?;
-        let current = after_native.windows.get(window_id).ok_or_else(|| {
-            runtime_window_visibility_native_error(
-                "RUNTIME_WINDOW_VISIBILITY_QUARANTINE_STALE",
-                "The quarantined Chromium window disappeared before Core removal.",
-            )
-        })?;
-        if current.window_generation != window_generation
-            || current.revision != topology_revision
-            || current.tab_ids() != request.tab_ids
-        {
-            return Err(runtime_window_visibility_native_error(
-                "RUNTIME_WINDOW_VISIBILITY_QUARANTINE_STALE",
-                "The quarantined Chromium window changed during Core teardown.",
-            ));
-        }
-        let removal = self.apply_runtime_intent(crate::RuntimeIntent::RemoveWindow {
-            operation_id: format!(
-                "{parent_operation_id}:remove-quarantined-runtime-window:{window_id}"
-            ),
-            window_id: window_id.to_owned(),
-        })?;
-        if removal.status == crate::RuntimeCommitStatus::Superseded {
-            return Err(runtime_window_visibility_native_error(
-                "RUNTIME_WINDOW_VISIBILITY_QUARANTINE_STALE",
-                "The quarantined Chromium window no longer owned its Core removal.",
-            ));
-        }
-        Ok(())
+        self.stop_embedded_window(&request, false)
     }
 }

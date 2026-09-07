@@ -3,11 +3,15 @@ import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it } from "vitest";
 
 let source = "";
+let windowsNativeDialogDeclarations = "";
 
 beforeAll(async () => {
   source = await readFile(
     "e2e/desktop/support/native-application-actions.ts",
     "utf8"
+  );
+  windowsNativeDialogDeclarations = await readFile(
+    "e2e/desktop/support/windows-native-dialog.ts", "utf8"
   );
 });
 
@@ -20,8 +24,14 @@ function sourceBetween(start: string, end: string): string {
 }
 
 describe("native application shortcut target modes", () => {
-  it("forms the exact nested Windows native save-dialog condition", () => {
-    expect(source).toContain("$windowCondition, $classCondition)))");
+  it("uses exact owned native dialog controls for Windows save cancellation", () => {
+    const cancel = sourceBetween("async function cancelWindowsNativeSaveDialog", "/** Cancels the unique");
+    expect(cancel).toContain("OwnedWindows($targetPid, $true)");
+    expect(cancel).toContain("ExactDialogControls($dialog, 2, 'Button')");
+    expect(cancel).toContain("$cancelButtons.Count -ne 1");
+    expect(windowsNativeDialogDeclarations).toContain("GetForegroundWindow() != dialog");
+    expect(windowsNativeDialogDeclarations).toContain("!IsChild(dialog, control)");
+    expect(windowsNativeDialogDeclarations).toContain("native file control is occluded at its click point");
   });
 
   it("resolves macOS save-panel AX queries inside the System Events scope", () => {

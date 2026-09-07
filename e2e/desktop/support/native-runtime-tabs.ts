@@ -1,5 +1,6 @@
 import { MACOS_NATIVE_CHROME_ELEMENTS } from "./macos-native-chrome";
 import { readWindowsRuntimeTabCloseEvidence } from "./windows-runtime-tab-close";
+import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 import { $, browser, expect } from "@wdio/globals";
 import { execFile } from "node:child_process";
@@ -450,11 +451,27 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
     await clickMacosAppKitTab(input.tabName);
     return;
   }
+  const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
     const activate = await $(
       `[data-runtime-tab-activate][data-tab-id='${input.tabId}']`
     );
     await activate.waitForClickable({ timeout: 10_000 });
+    await activate.moveTo();
+    const windowId = await browser.execute(() =>
+      document.documentElement.dataset.runtimeWindowId
+    );
+    if (!windowId) throw new Error("The exact visible tab omitted its logical window");
+    const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
+    await close.waitForDisplayed({ timeout: 10_000 });
+    const controlName = await close.getAttribute("aria-label");
+    if (!controlName) throw new Error("The exact visible tab omitted its native control name");
+    const evidence = await readWindowsRuntimeTabCloseEvidence({
+      processId, tabId: input.tabId, windowId, controlName
+    });
+    await focusWindowsRuntimeNativeWindow({
+      processId, nativeWindowHandle: evidence.nativeHandle
+    });
     await activate.click();
   });
 }
@@ -859,6 +876,7 @@ export async function resizeVisibleWindowsRuntimeWindow(input: Readonly<{
   deltaWidth: number;
   mainWindowHandle: string;
   tabId: string;
+  windowId: string;
 }>): Promise<void> {
   if (process.platform !== "win32") {
     throw new Error("The exact Windows runtime resize is Windows-only");
@@ -867,21 +885,45 @@ export async function resizeVisibleWindowsRuntimeWindow(input: Readonly<{
       Math.abs(input.deltaWidth) > 400 || Math.abs(input.deltaHeight) > 400) {
     throw new Error("The exact Windows runtime resize delta is invalid");
   }
+  const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
-    const rect = await browser.getWindowRect();
+    const controlName = await $(`.runtime-tab[data-tab-id='${input.tabId}'] .runtime-tab-close`)
+      .getAttribute("aria-label");
+    if (!controlName) throw new Error("The exact resize tab control has no accessible name");
+    const evidence = await readWindowsRuntimeTabCloseEvidence({
+      processId, tabId: input.tabId, windowId: input.windowId, controlName
+    });
     const script = String.raw`
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class RionExactVisibleResize {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint process);
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr handle);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
 }
 '@
-$right = [int]$payload.right
-$bottom = [int]$payload.bottom
-$deltaWidth = [int]$payload.deltaWidth
-$deltaHeight = [int]$payload.deltaHeight
+[RionExactVisibleResize]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
+$handle = [IntPtr]::new([long]$payload.nativeHandle)
+$owner = [uint32]0
+[RionExactVisibleResize]::GetWindowThreadProcessId($handle, [ref]$owner) | Out-Null
+if ($owner -ne [uint32]$payload.processId) { throw 'The exact resize HWND owner changed' }
+[RionExactVisibleResize]::SetForegroundWindow($handle) | Out-Null
+if ([RionExactVisibleResize]::GetForegroundWindow() -ne $handle) { throw 'The exact resize window did not gain foreground' }
+$rect = New-Object RionExactVisibleResize+RECT
+if (-not [RionExactVisibleResize]::GetWindowRect($handle, [ref]$rect)) { throw 'The exact resize window has no native rectangle' }
+$scale = [RionExactVisibleResize]::GetDpiForWindow($handle) / 96.0
+if ($scale -le 0) { throw 'The exact resize window has no native DPI' }
+$right = $rect.Right
+$bottom = $rect.Bottom
+$deltaWidth = [int]([int]$payload.deltaWidth * $scale)
+$deltaHeight = [int]([int]$payload.deltaHeight * $scale)
 [RionExactVisibleResize]::SetCursorPos($right - 2, $bottom - 2) | Out-Null
 [RionExactVisibleResize]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
 [RionExactVisibleResize]::SetCursorPos($right + $deltaWidth, $bottom + $deltaHeight) | Out-Null
@@ -889,10 +931,10 @@ $deltaHeight = [int]$payload.deltaHeight
 [RionExactVisibleResize]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 `;
     await runEncodedPowerShellJson(script, {
-      bottom: rect.y + rect.height,
+      nativeHandle: evidence.nativeHandle,
+      processId,
       deltaHeight: input.deltaHeight,
-      deltaWidth: input.deltaWidth,
-      right: rect.x + rect.width
+      deltaWidth: input.deltaWidth
     }, { timeoutMilliseconds: 10_000 });
   });
 }

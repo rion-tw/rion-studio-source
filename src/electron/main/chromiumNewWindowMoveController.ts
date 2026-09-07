@@ -236,7 +236,7 @@ implements ChromiumNewWindowMovePort {
 
     try {
       await this.#persistTarget(provision.target.windowId, proposed);
-      await this.#presentTarget(provision.target.windowId);
+      await this.#presentTarget(provision.target.windowId, tabId);
     } catch (error) {
       try {
         await this.#rollbackMove(
@@ -261,13 +261,8 @@ implements ChromiumNewWindowMovePort {
       throw error;
     }
 
-    const after = await this.#exactTabOwner(tabId);
-    if (after.logical.windowId !== provision.target.windowId) {
-      throw moveError(
-        "ELECTRON_CHROMIUM_NEW_WINDOW_OWNER_STALE",
-        "The moved tab did not retain its exact Core/native target owner."
-      );
-    }
+    // Presentation already accepted the exact tab owner and visible native target.
+    // A subsequent placement projection cannot revoke that completed move receipt.
     const sourceAfterMove = await this.#exactWindow(source.logical.windowId);
     if (sourceAfterMove.logical.tabs.length === 0) {
       try {
@@ -331,7 +326,7 @@ implements ChromiumNewWindowMovePort {
       provision.target.windowId,
       this.#proposedTarget(provision)
     );
-    await this.#presentTarget(provision.target.windowId);
+    await this.#presentTarget(provision.target.windowId, tabId);
     let receipt = this.#resumedSummary(operationId, tabId, target);
     const source = await this.#maybeExactWindow(provision.sourceWindowId);
     if (source?.logical.tabs.length === 0) {
@@ -570,12 +565,18 @@ implements ChromiumNewWindowMovePort {
     }
   }
 
-  async #presentTarget(windowId: string): Promise<void> {
+  async #presentTarget(windowId: string, tabId: string): Promise<void> {
     await this.#input.core.invoke({
       type: "embeddedWindowsShow",
       windowId
     });
-    const exact = await this.#exactWindow(windowId);
+    const exact = await this.#exactTabOwner(tabId);
+    if (exact.logical.windowId !== windowId) {
+      throw moveError(
+        "ELECTRON_CHROMIUM_NEW_WINDOW_OWNER_STALE",
+        "The moved tab did not retain its exact Core/native target owner."
+      );
+    }
     if (!exact.native.visible) {
       throw moveError(
         "ELECTRON_CHROMIUM_NEW_WINDOW_PRESENTATION_INCOMPLETE",
@@ -711,7 +712,7 @@ implements ChromiumNewWindowMovePort {
     ) {
       throw moveError(
         "ELECTRON_CHROMIUM_NEW_WINDOW_FENCE_STALE",
-        "The Core and native runtime-window ownership fence is stale."
+        `The Core and native runtime-window ownership fence is stale: ${JSON.stringify({ windowId, core: logical && { generation: logical.windowGeneration, revision: logical.revision, tabIds: logical.tabs.map((tab) => tab.id) }, native: native && { generation: native.windowGeneration, revision: native.topologyRevision, tabIds: native.tabIds } })}.`
       );
     }
     return { logical, native };

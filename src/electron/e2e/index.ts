@@ -1,4 +1,5 @@
 import { installElectronDesktopE2eViewInputObservationObserver } from "./viewInputObservationObserver";
+import { installElectronDesktopE2eTrustedInputDiagnostics } from "./trustedInputDiagnosticsObserver";
 import { app, BrowserWindow, ipcMain } from "electron";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
@@ -404,6 +405,18 @@ function installElectronDesktopE2eRoleRuntimeObserver(): void {
     ChromiumRuntimeBootstrap,
     "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" | "snapshot"
   >;
+  // Bind the actual owner at startup, before a gated first navigation can wait
+  // for an inspection whose snapshot was previously required to discover it.
+  const originalStart = ChromiumRuntimeBootstrap.start;
+  ChromiumRuntimeBootstrap.start = async (input) => {
+    const owner = await originalStart(input);
+    if (!(input.core instanceof CoreAddonClient)) {
+      throw new Error("Desktop E2E bootstrap did not receive the actual Core addon owner.");
+    }
+    observedCore = input.core;
+    observedRuntime = owner;
+    return owner;
+  };
   const runtime = ChromiumRuntimeBootstrap.prototype as unknown as RuntimeSnapshotPort;
   const originalSnapshot = runtime.snapshot;
   const observeRuntimeOwner = (owner: RuntimeSnapshotPort): void => {
@@ -929,7 +942,7 @@ async function readGameWindowRuntime(
   const runtime = observedRuntime;
   if (!core || !runtime) {
     throw new Error(
-      `Game Window ${windowId} has no observed Core/native Chromium ownership.`
+      `Game Window ${windowId} has no observed Core/native Chromium ownership (Core=${Boolean(core)}, runtime=${Boolean(runtime)}).`
     );
   }
   const coreSnapshot = await core.invoke({ type: "appSnapshot" });
@@ -1620,6 +1633,7 @@ installElectronDesktopE2eNativeAttachmentLifecycleObserver(
   artifactDirectory
 );
 installElectronDesktopE2eViewInputObservationObserver(ChromiumViewAttachmentCoordinator.prototype, artifactDirectory);
+installElectronDesktopE2eTrustedInputDiagnostics(artifactDirectory, listener => app.on("will-quit", listener));
 installElectronDesktopE2eTrustedInputObserver();
 installElectronDesktopE2eWorkspaceWebObserver();
 installElectronDesktopE2eNativeWindowControlObserver();

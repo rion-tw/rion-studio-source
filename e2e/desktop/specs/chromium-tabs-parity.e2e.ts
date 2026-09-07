@@ -39,6 +39,7 @@ import {
   selectVisibleWindowsRuntimeTabMenuAction,
   visibleRuntimeTabPhase
 } from "../support/native-runtime-tabs";
+import { readWindowsRuntimeTabLoadingEvidence } from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
@@ -218,11 +219,18 @@ function sameOrderedIds(left: readonly string[], right: readonly string[]): bool
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
+interface NativeTopologyEvidence {
+  inspection: Awaited<ReturnType<typeof electronDesktopE2eFullscreenToolbarRuntime>>;
+  owner: Awaited<ReturnType<typeof electronDesktopE2eGameWindowRuntime>>;
+}
+
 async function showSavedWindow(input: Readonly<{
   activeTabId: string;
   gameWindow: GameWindow;
   orderedTabIds: readonly string[];
-}>): Promise<void> {
+  validate?: (evidence: NativeTopologyEvidence) => Promise<void>;
+}>): Promise<number> {
+  let observedGeneration = 0;
   await openSection("Windows", "/game-windows");
   const row = await $(`[data-selection-id='${input.gameWindow.id}']`);
   await row.waitForDisplayed({ timeout: 10_000 });
@@ -248,13 +256,18 @@ async function showSavedWindow(input: Readonly<{
         const visibleSurfaceTabIds = inspection.surfaces
           .filter((surface) => surface.visible)
           .map((surface) => surface.tabId);
-        return current?.visible === true && current.focused &&
+        const matches = current?.visible === true && current.focused &&
           sameOrderedIds(current.coreTabIds, input.orderedTabIds) &&
           sameOrderedIds(current.nativeTabIds, input.orderedTabIds) &&
           sameOrderedIds(liveTabIds, input.orderedTabIds) &&
           logical?.activeTabId === input.activeTabId &&
           sameOrderedIds(inspection.tabIds, input.orderedTabIds) &&
           sameOrderedIds(visibleSurfaceTabIds, [input.activeTabId]);
+        if (matches) {
+          await input.validate?.({ inspection, owner });
+          observedGeneration = current.windowGeneration;
+        }
+        return matches;
       } catch {
         return false;
       }
@@ -276,6 +289,7 @@ async function showSavedWindow(input: Readonly<{
       { cause: error }
     );
   }
+  return observedGeneration;
 }
 
 async function launchRoleIntoWindow(
@@ -303,9 +317,10 @@ async function launchRoleIntoWindow(
   const fixtureId = ROLE_DEFINITIONS.find(
     (definition) => definition.name === role.name
   )!.fixtureId;
+  const processId = loading ? (await electronDesktopE2eProbe()).processId : undefined;
   if (loading) await fixtureRequest("/api/gate", { roleId: fixtureId });
   await savedWindow.click();
-  await captureLaunchDiagnostic("after-visible-destination-click", role, gameWindow);
+  if (!loading) await captureLaunchDiagnostic("after-visible-destination-click", role, gameWindow);
 
   let tabId: string | undefined;
   if (loading) {
@@ -334,12 +349,21 @@ async function launchRoleIntoWindow(
         { signal: AbortSignal.timeout(45_000) }
       );
       expect(waiter.ok).toBe(true);
-      expect(await visibleRuntimeTabPhase({
-        ...loading,
-        tabId: tabId!,
-        tabName: role.name,
-        windowId: gameWindow.id
-      })).toBe("loading");
+      if (loading.platform === "windows") {
+        // ChromeDriver target enumeration waits for the deliberately gated page.
+        // Read the visible loading control through the existing native UI owner.
+        const nativeLoading = await readWindowsRuntimeTabLoadingEvidence({
+          processId: processId!, tabName: role.name
+        });
+        expect(nativeLoading.controlName).toBe(`Stop and close ${role.name}`);
+      } else {
+        expect(await visibleRuntimeTabPhase({
+          ...loading,
+          tabId: tabId!,
+          tabName: role.name,
+          windowId: gameWindow.id
+        })).toBe("loading");
+      }
     } finally {
       await fixtureRequest("/api/release", { roleId: fixtureId });
     }
@@ -606,12 +630,14 @@ async function exerciseWindowsGeometry(input: Readonly<{
     tabId: input.targetTabId
   });
   await resizeVisibleWindowsRuntimeWindow({
+    windowId: input.sourceWindow.id,
     deltaHeight: 52,
     deltaWidth: 84,
     mainWindowHandle: input.mainWindowHandle,
     tabId: input.sourceTabId
   });
   await resizeVisibleWindowsRuntimeWindow({
+    windowId: input.targetWindow.id,
     deltaHeight: 76,
     deltaWidth: -48,
     mainWindowHandle: input.mainWindowHandle,
@@ -700,11 +726,11 @@ async function expectExactNativeTopology(input: Readonly<{
   gameWindow: GameWindow;
   orderedTabIds: readonly string[];
   platform: Platform;
-}>): Promise<void> {
-  const inspection = await electronDesktopE2eFullscreenToolbarRuntime(
+}>, evidence?: NativeTopologyEvidence): Promise<void> {
+  const inspection = evidence?.inspection ?? await electronDesktopE2eFullscreenToolbarRuntime(
     input.gameWindow.id
   );
-  const windowOwner = await electronDesktopE2eGameWindowRuntime(input.gameWindow.id);
+  const windowOwner = evidence?.owner ?? await electronDesktopE2eGameWindowRuntime(input.gameWindow.id);
   const topology = await rendererCall("getDisplayTopology");
   const nativeDisplay = windowOwner.currentRuntime?.nativeDisplay;
   const display = topology.displays.find(
@@ -812,25 +838,32 @@ async function closeAndReopenSavedWindow(input: Readonly<{
 }>): Promise<void> {
   const before = await electronDesktopE2eGameWindowRuntime(input.gameWindow.id);
   const generation = before.currentRuntime!.windowGeneration;
-  await closeVisibleRuntimeWindow(input);
+  expect(before.currentRuntime?.coreTabIds).toEqual(input.orderedTabIds);
+  expect(before.currentRuntime?.nativeTabIds).toEqual(input.orderedTabIds);
+  await expectExactNativeTopology({
+    activeTabId: input.orderedTabIds.at(-1)!,
+    gameWindow: input.gameWindow,
+    orderedTabIds: input.orderedTabIds,
+    platform: input.platform
+  });
+  await closeVisibleRuntimeWindow({ ...input, windowId: input.gameWindow.id });
   await waitForDormantWindow(input.gameWindow.id);
   const saved = await findWindow();
   expect(saved.tabs.map((tab) => tab.id)).toEqual(input.orderedTabIds);
   expect(saved.activeTabId).toBe(input.orderedTabIds.at(-1));
 
-  await showSavedWindow({
-    activeTabId: input.orderedTabIds.at(-1)!,
-    gameWindow: saved,
-    orderedTabIds: input.orderedTabIds
-  });
-  const reopened = await electronDesktopE2eGameWindowRuntime(saved.id);
-  expect(reopened.currentRuntime?.windowGeneration).toBeGreaterThan(generation);
-  await expectExactNativeTopology({
+  const reopenedGeneration = await showSavedWindow({
     activeTabId: input.orderedTabIds.at(-1)!,
     gameWindow: saved,
     orderedTabIds: input.orderedTabIds,
-    platform: input.platform
+    validate: (evidence) => expectExactNativeTopology({
+      activeTabId: input.orderedTabIds.at(-1)!,
+      gameWindow: saved,
+      orderedTabIds: input.orderedTabIds,
+      platform: input.platform
+    }, evidence)
   });
+  expect(reopenedGeneration).toBeGreaterThan(generation);
   await activateAndFocusEveryTab({ ...input, gameWindow: saved });
 }
 
@@ -1022,6 +1055,7 @@ async function seedPhase(input: Readonly<{
     roles,
     stage: "revealed"
   });
+  // Includes hover events during tab retirement and placement after a completed detach.
   expect(await runtimeTabShellErrors()).toEqual([]);
 
   for (const close of [
@@ -1148,6 +1182,7 @@ async function restartPhase(input: Readonly<{
     roles,
     stage: "restart-consolidated"
   });
+  // Includes hover events during tab retirement and placement after a completed detach.
   expect(await runtimeTabShellErrors()).toEqual([]);
   await closeVisibleRuntimeWindow({
     ...input,

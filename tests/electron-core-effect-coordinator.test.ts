@@ -176,6 +176,32 @@ function harness(
 
 describe("Electron Core effect coordinator", () => {
   it.each(["macos", "windows"])(
+    "wakes a %s snapshot reader on the runtime-only close publication",
+    async (_platform) => {
+      const test = harness(async () => undefined);
+      test.emit({ type: "stateChanged", revision: 9, changedCollections: [] });
+      const initial = await test.coordinator.settleCurrentProjectionEffects();
+      let awakened = false;
+      const read = test.coordinator.waitForProjectionAfter(initial).then(() => {
+        awakened = true;
+      });
+      // Closing the final Web-only tab publishes an empty BrowserStatuses
+      // after native isolation, without another SQLite revision or effect.
+      test.emit({ type: "browserStatuses", statuses: [] });
+      try {
+        await vi.waitFor(() => expect(awakened).toBe(true));
+        await read;
+        await expect(test.coordinator.waitForProjectionAfter(initial))
+          .resolves.toBe(initial + 1);
+        expect(test.dispatchCoreEffectResults).not.toHaveBeenCalled();
+      } finally {
+        await test.coordinator.dispose();
+        await read.catch(() => undefined);
+      }
+    }
+  );
+
+  it.each(["macos", "windows"])(
     "wakes a %s snapshot reader on a final Core commit without another native effect",
     async (_platform) => {
       const test = harness(async () => undefined);

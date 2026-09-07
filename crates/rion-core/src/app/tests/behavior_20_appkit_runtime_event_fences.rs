@@ -742,12 +742,20 @@ fn appkit_projection_quarantine_teardown_failure_is_indeterminate_and_keeps_wind
 }
 
 #[test]
-fn appkit_layout_supersession_requires_a_newer_same_generation_core_projection() {
-    for (advance, replace_generation) in [(false, false), (true, false), (true, true)] {
+fn appkit_passive_supersession_requires_a_newer_same_generation_core_projection() {
+    for (window_state, advance, replace_generation) in [
+        (false, false, false), (false, true, false), (false, true, true),
+        (true, false, false), (true, true, false), (true, true, true),
+    ] {
         let (_directory, core) = core_for_runtime_contract("darwin", 23);
-        let window_id = "appkit-layout-superseded";
+        let window_id = "appkit-passive-superseded";
         launch_single_appkit_projection_tab(Arc::clone(&core), window_id);
-        let event = current_appkit_layout_event(&core, window_id);
+        let mut event = current_appkit_layout_event(&core, window_id);
+        if window_state {
+            event.action = crate::model::AppKitRuntimeEventActionRecord::WindowState {
+                placement_sequence: 1,
+            };
+        }
         let (result, _, _) = drive_async_command_with(
             Arc::clone(&core),
             CoreCommand::BrowserAppKitRuntimeEvent { event },

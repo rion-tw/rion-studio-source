@@ -20,6 +20,11 @@ export const chromiumMacroCutoverReplacementPlan: readonly Readonly<{
 
 export function isChromiumMacroCutoverPhase(candidate: string): boolean;
 
+export function withChromiumMacroCutoverNativePrerequisites(input: Readonly<{
+  platform: string;
+  selectedPhases: readonly string[];
+}>): string[];
+
 export function validateChromiumMacroCutoverRuntimeEvidence(input: Readonly<{
   phase: string;
   phaseDirectory: string;

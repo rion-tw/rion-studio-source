@@ -1382,7 +1382,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "From the visible macOS Chromium Macro UI, create a Role-assigned delay-only Macro, reject Command+K with the dedicated reserved-shortcut message, prove real-pointer mind-map hover retains visible measured nodes and stable geometry/edges across frames, and stable focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart. Read-only runtime evidence binds the Role to retained AppKit Chromium without replacing native chrome; the dedicated Chromium native-effect journey owns input delivery."
+      "description": "From the visible macOS Chromium Macro UI, create a Role-assigned delay-only Macro, reject Command+K with the dedicated reserved-shortcut message, prove real-pointer mind-map hover retains visible measured nodes and stable geometry/edges across frames, and stable focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart, with startup focus receipts validated against the same Rust Core clock as their scheduling deadline. Read-only runtime evidence binds the Role to retained AppKit Chromium without replacing native chrome; the dedicated Chromium native-effect journey owns input delivery."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACROS-UI-017",
@@ -1398,7 +1398,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "From the visible Windows Chromium Macro UI, create a Role-assigned delay-only Macro, reject Ctrl+K with the dedicated reserved-shortcut message, prove real-pointer mind-map hover retains visible measured nodes and stable geometry/edges across frames, and stable focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart. This proves scheduler/UI availability in the bundled-Chromium host; the dedicated Chromium native-effect journey owns foreground input delivery."
+      "description": "From the visible Windows Chromium Macro UI, create a Role-assigned delay-only Macro, reject Ctrl+K with the dedicated reserved-shortcut message, prove real-pointer mind-map hover retains visible measured nodes and stable geometry/edges across frames, and stable focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart, with startup focus receipts validated against the same Rust Core clock as their scheduling deadline. This proves scheduler/UI availability in the bundled-Chromium host; the dedicated Chromium native-effect journey owns foreground input delivery."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-NATIVE-EFFECT-018",
@@ -1613,7 +1613,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["macos"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Keep a macro attached to shared Role identity through successful AppKit ownership transfer while blocking input to non-target and placeholder occurrences, then prove the transferred exact owner remains eligible after restart."
+      "description": "Keep a macro attached to shared Role identity through successful AppKit ownership transfer while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-OWNERSHIP-TRANSFER-010",
@@ -1625,7 +1625,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Keep a macro attached to shared Role identity through successful bundled-Chromium ownership transfer while blocking input to non-target and placeholder occurrences, then prove the transferred exact owner remains eligible after restart, with the ABI-v3 physical gate required."
+      "description": "Keep a macro attached to shared Role identity through successful bundled-Chromium ownership transfer and user focus changes during arming while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart, with the ABI-v3 physical gate required."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-SHORTCUT-REENTRY-007",
@@ -1661,7 +1661,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["macos"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through retained AppKit tab close, window close, and application Quit while proving exact input-neutrality receipts and clean restart."
+      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through retained AppKit tab close, window close, and application Quit while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-TERMINAL-CLEANUP-006",
@@ -1673,7 +1673,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through bundled native tab close, window close, and application Close while proving exact input-neutrality receipts and clean restart, with the ABI-v3 physical gate required."
+      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through bundled native tab close, window close, and application Close while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart, with the ABI-v3 physical gate required."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-KEY-BLUR-004",
@@ -2058,7 +2058,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create a mixed Web App and Role Workspace through visible slot-content controls, choose the visible YouTube popular-site menu item, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell inside the retained AppKit host. Drag the visible native AppKit divider with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey."
+      "description": "Create a mixed Web App and Role Workspace through visible slot-content controls, choose the visible YouTube popular-site menu item, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell inside the retained AppKit host. Drag the visible native AppKit divider with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FULLSCREEN-017",
@@ -2167,7 +2167,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create the same mixed Web App and Role Workspace through visible slot-content controls, choose the visible YouTube popular-site menu item, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell in the bundled Windows host. Drag its visible separator with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey and During the gated navigation, exact-process native UI Automation observes the visible activation button exposing its loading state alongside the named tab close control; after release, the same native host is bound to the Core tab. Windows execution retains an independent CI verdict."
+      "description": "Create the same mixed Web App and Role Workspace through visible slot-content controls, choose the visible YouTube popular-site menu item, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell in the bundled Windows host. Drag its visible separator with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey and During the gated navigation, exact-process native UI Automation observes the visible activation button exposing its loading state alongside the named tab close control; after release, the same native host is bound to the Core tab. Windows execution retains an independent CI verdict. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017",
@@ -2341,7 +2341,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart."
+      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020",
@@ -2357,7 +2357,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences."
+      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences; retain the accepted move completion across subsequent placement without shell errors."
     },
     {
       "id": "CHROMIUM-WINDOWS-GAME-WINDOWS-TABS-020",
@@ -2373,7 +2373,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Preserve the exact active, dormant, and ordered three-tab topology across multiple bundled-Chromium native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/native revision fences; Windows physical execution remains an independent CI verdict."
+      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple bundled-Chromium native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/native revision fences; select an inactive dragged tab through Core only after successful reorder, retain accepted new-window move completion across subsequent placement and require an empty shell-error journal; Windows physical execution remains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-LAUNCH-DESTINATIONS-008",
@@ -2520,7 +2520,7 @@
       "spec": "e2e/desktop/specs/chromium-controlled-role-reload.e2e.ts",
       "platforms": ["macos"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Right-click the retained AppKit tab at its exact native anchor, open its visible NSMenu twice, and select Reload twice. Each newly captured source fence must receive an Applied EventBound input-ready terminal, advance the permanent Chromium document/navigation sequence, resume native and Core input, and retain the exact Role surface, tab, Game Window, AppKit host, and already-open popup. Then arm one exact E2E-only window/tab failure, select the real NSMenu Reload, prove exactly one classified shell error with no owner/document/popup mutation, and visibly retry successfully. Stable Tauri v22 remains outside this Chromium-only command."
+      "description": "Right-click the retained AppKit tab at its exact native anchor, open its visible NSMenu twice, and select Reload twice. Each newly captured source fence must receive an Applied EventBound input-ready terminal, advance the permanent Chromium document/navigation sequence, resume native and Core input, and retain the exact Role surface, tab, Game Window, AppKit host, and already-open popup. Then arm one exact E2E-only window/tab failure, select the real NSMenu Reload, prove exactly one classified shell error with no owner/document/popup mutation, and visibly retry successfully. Stable Tauri v22 remains outside this Chromium-only command. Retain an empty shell-error journal when a passive native window-state projection is superseded by a newer same-generation Core projection."
     },
     {
       "id": "CHROMIUM-WINDOWS-RUNTIME-TAB-RELOAD-031",
@@ -2550,7 +2550,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create a single Web App Workspace through visible controls, prove event-bound Loading then Ready with no synthetic Role slots/statuses, and compare the persistent global-Web content session with the dedicated memory-only Rion chrome shell inside the retained AppKit host. Repeated launch deduplicates, visible chrome navigation produces an authoritative degraded failure, native AppKit tab close/reopen recovers only by user action, and the exact saved Web tab plus session survive process restart."
+      "description": "Create a single Web App Workspace through visible controls, prove event-bound Loading then Ready with no synthetic Role slots/statuses, and compare the persistent global-Web content session with the dedicated memory-only Rion chrome shell inside the retained AppKit host. Repeated launch deduplicates, visible chrome navigation produces an authoritative degraded failure, native AppKit tab close/reopen recovers only by user action, and the exact saved Web tab plus session survive process restart. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024",
@@ -2569,7 +2569,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Run the same visible Web-only Workspace lifecycle in the bundled Windows Chromium host: event-bound Loading and Ready, empty Role topology, persistent global-Web content isolated from the memory-only Rion chrome shell, deduplicated launch, authoritative degraded navigation failure, visible native tab close/reopen, and exact restart persistence. Windows execution retains an independent CI verdict."
+      "description": "Run the same visible Web-only Workspace lifecycle in the bundled Windows Chromium host: event-bound Loading and Ready, empty Role topology, persistent global-Web content isolated from the memory-only Rion chrome shell, deduplicated launch, authoritative degraded navigation failure, visible native tab close/reopen, and exact restart persistence. Windows execution retains an independent CI verdict. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025",

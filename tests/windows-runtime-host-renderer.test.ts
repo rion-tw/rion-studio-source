@@ -294,4 +294,36 @@ describe("Windows runtime-host renderer", () => {
       pointerSequence: 3
     }));
   });
+  it("submits hover chrome only when fullscreen presentation can change", async () => {
+    const submit = vi.fn();
+    let project!: (projection: WindowsRuntimeHostProjection) => void;
+    Object.assign(window, { rionStudioWindowsRuntimeHost: {
+      onProjection: (listener: typeof project) => { project = listener; return () => undefined; },
+      submit
+    } });
+    await import("../src/renderer/src/runtime-windows-host");
+    const value: WindowsRuntimeHostProjection = {
+      windowId, activeTabId: firstTabId, alwaysShowToolbarInFullScreen: false,
+      contentBounds: { height: 600, width: 900, x: 0, y: 40 },
+      fullscreen: false, lifecycleEpoch: 4, moveTargets: [], projectionRevision: 5,
+      tabs: [], toolbarVisible: true, topologyRevision: 8, windowGeneration: 2,
+      workspaceDividers: []
+    };
+    const leave = () => document.querySelector("[data-runtime-toolbar]")!
+      .dispatchEvent(new Event("pointerleave"));
+    const enter = () => document.querySelector("[data-runtime-reveal-edge]")!
+      .dispatchEvent(new Event("pointerenter"));
+    project(value);
+    leave(); enter();
+    expect(submit).not.toHaveBeenCalled();
+    project({ ...value, fullscreen: true, alwaysShowToolbarInFullScreen: true });
+    leave(); enter();
+    expect(submit).not.toHaveBeenCalled();
+    project({ ...value, fullscreen: true });
+    leave();
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ type: "hideToolbar" }));
+    project({ ...value, fullscreen: true, toolbarVisible: false });
+    enter();
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ type: "revealToolbar" }));
+  });
 });

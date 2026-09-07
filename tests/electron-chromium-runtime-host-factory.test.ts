@@ -211,6 +211,7 @@ class FakeWindow {
   }
 
   isFullScreen(): boolean {
+    if (this.destroyed) throw new Error("Object has been destroyed");
     return this.fullscreen;
   }
 
@@ -1185,6 +1186,30 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     window.emit("resize");
     await vi.waitFor(() => expect(observations).toHaveLength(2));
     expect(relayout).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains the last native content bounds while minimized and refreshes after restore", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new WindowsElectronChromiumRuntimeHostFactory(
+      browserWindows.port, runtimeDocumentPath, displays
+    );
+    const launchTarget = target();
+    const creation = factory.create(launchTarget, tab(launchTarget));
+    const window = browserWindows.windows[0]!;
+    const host = await finishCreation(creation, window);
+    const before = host.getContentBounds();
+    window.minimized = true;
+    window.contentBounds = { x: -32000, y: -32000, width: 0, height: 0 };
+    window.emit("minimize");
+    expect(host.getContentBounds()).toEqual(before);
+    window.minimized = false;
+    window.contentBounds = { x: 120, y: 80, width: 1000, height: 760 };
+    window.emit("restore");
+    expect(host.getContentBounds()).toEqual({
+      x: 0, y: before.y, width: 1000, height: 760 - before.y
+    });
+    window.contentBounds = { x: 0, y: 0, width: 0, height: 0 };
+    expect(() => host.getContentBounds()).toThrow();
   });
 
   it("projects a hidden popup host and binds exact close/layout receipts", async () => {

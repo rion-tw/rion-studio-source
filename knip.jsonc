@@ -47,6 +47,10 @@
       "binaries"
     ]
   },
+  "ignoreUnresolved": [
+    // macOS provides this absolute OS executable; Windows cannot resolve it.
+    "/bin/ps"
+  ],
   "rules": {
     // Knip 6 reports the existing intentional exports and shared types as warnings.
     "exports": "warn",

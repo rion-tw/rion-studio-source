@@ -383,7 +383,7 @@ export class WindowsRuntimeHostChromeController {
       ) {
         throw chromeError(
           "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE",
-          "The bundled toolbar command did not match its exact sender projection."
+          `The bundled toolbar command did not match its exact sender projection: ${JSON.stringify(isWindowsRuntimeHostCommand(candidate) ? { type: candidate.type, submitted: candidate.projectionRevision, current: this.#projectionRevision, windowId: candidate.windowId } : { malformed: true })}.`
         );
       }
       if (candidate.type === "workspaceDividerPointer") {
@@ -494,7 +494,7 @@ export class WindowsRuntimeHostChromeController {
     // belong to that pending event-bound transaction. Their intermediate
     // geometry must not enqueue relayout work ahead of the exact native
     // presentation event; that event applies the one authoritative layout.
-    if (this.#pending) return;
+    if (this.#pending || this.#native.isMinimized()) return;
     await this.#relayout();
     const observer = this.#placementObserver;
     if (!observer || this.#windowGeneration < 1 || this.#topologyRevision < 1) return;
@@ -559,6 +559,13 @@ export class WindowsRuntimeHostChromeController {
     return operation;
   }
 
+  readCoreFence(): Readonly<{ windowGeneration: number; topologyRevision: number }> {
+    return Object.freeze({
+      windowGeneration: this.#windowGeneration,
+      topologyRevision: this.#topologyRevision
+    });
+  }
+
   readObservation(): ChromiumRuntimeFullscreenToolbarObservation {
     const fullscreen = this.#native.isFullScreen();
     const nativeControlsVisible = this.#documentReady && this.#toolbarVisible();
@@ -612,6 +619,8 @@ export class WindowsRuntimeHostChromeController {
       await this.#requestWindowControl(command.type);
       return;
     }
+    // The exact native close cancels queued, non-authoritative hover presentation.
+    if (this.#native.isDestroyed()) return;
     if (!this.#native.isFullScreen() || this.#alwaysShow) return;
     const revealed = command.type === "revealToolbar";
     if (this.#revealed === revealed) return;
@@ -694,12 +703,23 @@ export class WindowsRuntimeHostChromeController {
           "The Windows tab drag did not match its complete visible-order preview."
         );
       }
+      const generation = this.#windowGeneration;
       await this.#requestTabControl(command.tabId, {
         ...(command.beforeTabId === undefined
           ? {}
           : { beforeTabId: command.beforeTabId }),
         type: "reorderTab"
       });
+      if (this.#native.isDestroyed() || this.#windowGeneration !== generation ||
+          !this.#tabs.some((candidate) => candidate.tabId === command.tabId && !candidate.hidden)) {
+        throw chromeError(
+          "ELECTRON_WINDOWS_RUNTIME_TAB_REORDER_SUPERSEDED",
+          "The dragged tab lost its exact window before Core selection."
+        );
+      }
+      if (this.#activeTabId !== command.tabId) {
+        await this.#requestTabControl(command.tabId, { type: "activateTab" });
+      }
       return;
     }
     if (command.type === "setTabMuted") {

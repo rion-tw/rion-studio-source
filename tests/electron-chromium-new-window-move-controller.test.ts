@@ -173,6 +173,7 @@ class MoveHarness {
   provision: RuntimeWindowProvisionReceiptRecord | null = null;
   displayScaleFactor = 2;
   failSave = false;
+  pendingPlacementAfterShowObservation = false;
   moveStatus: SystemRuntimeOperationStatus = "applied";
 
   constructor(
@@ -340,7 +341,15 @@ class MoveHarness {
           isInternal: true
         }]
       }),
-      readNativeSnapshot: () => structuredClone(this.nativeSnapshot),
+      readNativeSnapshot: () => {
+        const captured = structuredClone(this.nativeSnapshot);
+        if (this.pendingPlacementAfterShowObservation &&
+            captured.windows.some((window) => window.windowId === TARGET_WINDOW_ID && window.visible)) {
+          this.pendingPlacementAfterShowObservation = false;
+          this.logical(TARGET_WINDOW_ID).revision += 1;
+        }
+        return captured;
+      },
       targets: { resolve: this.targetResolver },
       ...(appKit === undefined ? {} : { appKit })
     });
@@ -636,4 +645,16 @@ describe("Chromium Core-owned move to new window", () => {
     expect(harness.logical(TARGET_WINDOW_ID).tabs.map((item) => item.id))
       .toEqual([TAB_ID]);
   });
+  it.each(["win32", "darwin"] as const)(
+    "retains the accepted move observation across later placement on %s", async (platform) => {
+      const harness = new MoveHarness(platform, [tab(TAB_ID), tab(SECOND_TAB_ID)]);
+      harness.pendingPlacementAfterShowObservation = true;
+      const result = await harness.controller().moveTabToNewWindow("move-placement", TAB_ID);
+      expect(result.receipt.status).toBe("applied");
+      expect(result.targetWindowId).toBe(TARGET_WINDOW_ID);
+      expect(harness.logical(TARGET_WINDOW_ID).revision)
+        .toBe(harness.native(TARGET_WINDOW_ID).topologyRevision + 1);
+      expect(harness.logical(TARGET_WINDOW_ID).tabs.map((item) => item.id)).toEqual([TAB_ID]);
+    }
+  );
 });

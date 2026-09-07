@@ -1,3 +1,4 @@
+import { isCoreEffectEventContinuation } from "../../src/electron/main/coreEffectContinuation";
 import type {
   BrowserActionRequest,
   EmbeddedRoleViewEffectRecord,
@@ -371,7 +372,7 @@ export async function loadRoles(
   specification = tab(),
   engine = "chromium"
 ): Promise<void> {
-  await subject.executor.execute(effect(
+  const execution = await subject.executor.execute(effect(
     specification.tabId,
     {
       type: "embeddedLoadRoles",
@@ -383,12 +384,13 @@ export async function loadRoles(
       }))
     }
   ));
+  if (isCoreEffectEventContinuation(execution)) await execution.completion;
 }
 export async function loadWebSurfaces(
   subject: Harness,
   specification = webTab()
 ): Promise<void> {
-  await subject.executor.execute(effect(
+  const execution = await subject.executor.execute(effect(
     specification.tabId,
     {
       type: "embeddedLoadWebSurfaces",
@@ -408,6 +410,7 @@ export async function loadWebSurfaces(
         }))
     }
   ));
+  if (isCoreEffectEventContinuation(execution)) await execution.completion;
 }
 
 function roleBounds(specification: EmbeddedTabEffectRecord) {

@@ -10,6 +10,14 @@ const phases = Object.freeze([
   "chromium-macro-cutover-topology-restart"
 ]);
 
+export function withChromiumMacroCutoverNativePrerequisites({ platform, selectedPhases }) {
+  const physical = "chromium-windows-trusted-input-physical";
+  return platform === "win32" && selectedPhases.some(phase => phases.includes(phase)) &&
+    !selectedPhases.includes(physical)
+    ? [physical, ...selectedPhases]
+    : [...selectedPhases];
+}
+
 const replacements = Object.freeze([
   ["MACRO-INPUT-RECOVERY-011", "P1", "macros", ["success", "failure"],
     ["chromium-macro-cutover-input-recovery"]],

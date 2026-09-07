@@ -1,6 +1,6 @@
 import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
 import { sameChromiumViewInputIdentity, validChromiumViewInputIdentity,
-  validChromiumViewInputObservation, chromiumViewInputObservationKey } from "./chromiumViewTrustedInputValidation";
+  validChromiumViewInputObservation, chromiumViewInputArmingKey, chromiumViewInputObservationKey } from "./chromiumViewTrustedInputValidation";
 import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
   "./chromiumTrustedInputDomReceipt";
 import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } from
@@ -90,7 +90,7 @@ interface PendingDispatch {
   readonly request: ChromiumNativeTrustedInputRequest;
   readonly frame: ChromiumRoleOverlayFrameIdentity;
   readonly host: WindowsChromiumTrustedInputHostBinding;
-  readonly probe: WindowsChromiumInputSurfaceProbeReceipt;
+  probe: WindowsChromiumInputSurfaceProbeReceipt;
   readonly deliveryMode: WindowsChromiumInputDeliveryMode;
   readonly inputSequence: string;
   expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[];
@@ -747,9 +747,11 @@ implements ChromiumNativeTrustedInputPort {
         liveHost.identity,
         pending.deliveryMode
       );
-      if (liveProbe.probeRevision !== pending.probe.probeRevision ||
-          (liveProbe.ownerKind === "view" && pending.probe.ownerKind === "view" &&
-            chromiumViewInputObservationKey(liveProbe.observation) !== chromiumViewInputObservationKey(pending.probe.observation))) {
+      const sameArmedSurface = liveProbe.ownerKind === "view" && pending.probe.ownerKind === "view"
+        ? BigInt(liveProbe.probeRevision) >= BigInt(pending.probe.probeRevision) &&
+          chromiumViewInputArmingKey(liveProbe.observation) === chromiumViewInputArmingKey(pending.probe.observation)
+        : liveProbe.probeRevision === pending.probe.probeRevision;
+      if (!sameArmedSurface) {
         fail(
           "BROWSER_ACTION_STALE",
           "The native surface observation changed before input submission."
@@ -765,6 +767,9 @@ implements ChromiumNativeTrustedInputPort {
       );
       return;
     }
+    // Bind the submission to the freshly validated user focus. The synchronous
+    // native edge and its receipt must still preserve this complete observation.
+    pending.probe = liveProbe;
     const action = pending.request.action;
     const modifiers = keyModifiers(action);
     try {

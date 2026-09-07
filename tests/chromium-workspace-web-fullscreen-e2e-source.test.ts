@@ -74,7 +74,10 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       source("e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts"),
       source("e2e/desktop/support/electron-role-surface.ts"),
       source("scripts/runtimeAuthorityFixtureServer.mjs"),
-      source("e2e/desktop/support/native-file-upload.ts")
+      Promise.all([
+        source("e2e/desktop/support/native-file-upload.ts"),
+        source("e2e/desktop/support/windows-native-dialog.ts")
+      ]).then(parts => parts.join("\n"))
     ]);
 
     for (const marker of [

@@ -215,7 +215,9 @@ export async function setNumericInputValue(input: ChainablePromiseElement, value
 
 export async function submitEditor(expectedRoute: string): Promise<void> {
   const submit = await $("#app-editor-form button[type='submit']");
+  await submit.scrollIntoView({ block: "center", inline: "center" });
   await expect(submit).toBeEnabled();
+  await submit.waitForClickable({ timeout: 10_000 });
   await submit.click();
   await waitForRoute(expectedRoute);
 }

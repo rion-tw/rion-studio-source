@@ -25,6 +25,26 @@ tab, trusted release, and neutrality assertions. No polling/deadline changes.
 Typecheck, focused ESLint, and renderer-events.test.ts (1 test) pass.
 Native seed/restart acceptance remains pending for this correction. Journey:
 existing Macro terminal-cleanup; both platform profiles remain required.
+### 64e1e1a9 Windows terminal cleanup accepted; visible submit correction
+
+Windows local focused chromium-macro-cutover-terminal-cleanup-restart passes
+at 64e1e1a96b933eaf6e8c912feece59cf4c081442: physical prerequisite, cleanup seed,
+and fresh-process restart. Report journeys
+CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009 and
+CHROMIUM-WINDOWS-MACRO-TERMINAL-CLEANUP-006 are PASS.
+Artifact .desktop-e2e-artifacts/2026-09-07T08-16-04-165Z-win32;
+log windows-handoff-b0c3c184/64e1e1a9-macro-terminal-cleanup-x64.log.
+This does not close macOS cleanup or the full Chromium profile.
+
+CI 34099004388 at 5266ff87: shared checks, renderer, sanitizer pass.
+macOS Chromium job 101668899323 advances past workspace-slot selection but fails
+chromium-entity-persistence-seed: submit button center (898,15) is covered by
+app-content-window-drag-region. The shared submitEditor driver now scrolls the
+visible button to the viewport center and waits for clickability before the same
+WebDriver click. Enabled and resulting route assertions remain intact; no DOM
+click or bridge mutation replaces the primary action. Both entity-persistence
+platform profiles require acceptance. Focused ESLint, source hygiene (2495),
+and coverage (P0 70/70, P1 75/75, paired cutover 41/41) pass.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

@@ -81,16 +81,18 @@ impl MacroRuntime {
             .lock()
             .map_err(|_| CoreError::Internal("macro run lock poisoned".to_owned()))?;
         let macro_id = request.macro_id.clone();
+        let source = dynamic_request_source(&request);
         let running = !self
             .controls_matching(|control| {
                 control
                     .macro_ids
                     .lock()
                     .is_ok_and(|ids| ids.contains(&macro_id))
+                    && (source.is_none() || control_source_matches(control, source))
             })?
             .is_empty();
         if running {
-            self.stop_macro_run_chain(&macro_id)?;
+            self.stop_macro_scoped(&macro_id, source)?;
             return Ok(Vec::new());
         }
         self.start_tracked(request, false)
@@ -258,20 +260,37 @@ impl MacroRuntime {
     }
 
     fn stop_macro_run_chain(&self, macro_id: &str) -> CoreResult<()> {
-        self.cancel_input_restarts_for_macros(&HashSet::from([macro_id.to_owned()]))?;
+        self.stop_macro_scoped(macro_id, None)
+    }
+
+    fn stop_macro_scoped(&self, macro_id: &str, source: Option<&str>) -> CoreResult<()> {
+        if source.is_none() { self.cancel_input_restarts_for_macros(&HashSet::from([macro_id.to_owned()]))?; }
+        else {
+            let mut inner = self.shared.inner.lock().map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            for recovery in inner.input_recoveries.values_mut() {
+                recovery.intents.retain(|intent| intent.macro_id != macro_id || intent.source_role_id.as_deref() != source);
+            }
+        }
         let controls = self.controls_matching(|control| {
             control
                 .macro_ids
                 .lock()
                 .is_ok_and(|ids| ids.contains(macro_id))
+                && (source.is_none() || control_source_matches(control, source))
         })?;
         cancel_and_wait_all(&controls)?;
-        self.remove_statuses(|status| status.macro_id == macro_id)?;
+        self.remove_statuses(|status| status.macro_id == macro_id && source.is_none_or(|id| id == status.role_id))?;
         Ok(())
     }
 
     pub fn stop_macro_from_role(&self, macro_id: &str, _source_role_id: &str) -> CoreResult<()> {
         self.stop_macro(macro_id)
+    }
+
+    pub fn stop_source_macro_from_role(&self, macro_id: &str, source_role_id: &str) -> CoreResult<()> {
+        let run_lock = macro_run_lock(&self.shared, macro_id)?;
+        let _run = run_lock.lock().map_err(|_| CoreError::Internal("macro run lock poisoned".to_owned()))?;
+        self.stop_macro_scoped(macro_id, Some(source_role_id))
     }
 
     pub fn stop_role(&self, role_id: &str) -> CoreResult<()> {
@@ -1007,11 +1026,19 @@ impl MacroRuntime {
         if invocation_macro_ids.iter().any(|macro_id| {
             macros
                 .get(macro_id)
-                .is_some_and(|definition| definition.role_ids.is_empty())
+                .is_some_and(|definition| !definition.uses_source_role() && definition.role_ids.is_empty())
         }) {
             return Err(CoreError::InvalidInput(
                 UNASSIGNED_WORKFLOW_MESSAGE.to_owned(),
             ));
+        }
+        for definition in invocation_macro_ids.iter().filter_map(|id| macros.get(id)).filter(|definition| definition.uses_source_role()) {
+            let source = request.source_role_id.as_deref().ok_or_else(|| CoreError::Domain {
+                code: "MACRO_SOURCE_ROLE_REQUIRED", message: "Choose a source role before starting this macro.".to_owned()
+            })?;
+            if !request.active_role_ids.iter().any(|id| id == source) || !crate::domain::macro_shortcut_source_contains(&definition.shortcut_source_scope, &definition.role_ids, source) {
+                return Err(CoreError::Domain { code: "MACRO_SOURCE_ROLE_UNAVAILABLE", message: "The source role is unavailable for this macro chain.".to_owned() });
+            }
         }
         if let Some(source_role_id) = &request.source_role_id
             && !root.role_ids.contains(source_role_id)
@@ -1026,7 +1053,7 @@ impl MacroRuntime {
             ));
         }
         let active_role_ids = request.active_role_ids.into_iter().collect::<HashSet<_>>();
-        let roles = assigned_active_roles(root, &active_role_ids);
+        let roles = assigned_active_roles(root, &active_role_ids, request.source_role_id.as_deref());
         if roles.is_empty() {
             return Err(CoreError::InvalidInput(UNAVAILABLE_ROLE_MESSAGE.to_owned()));
         }
@@ -1037,6 +1064,9 @@ impl MacroRuntime {
             request.macro_id.clone(),
             roles.iter().cloned().collect(),
         );
+        if root.uses_source_role() {
+            *control.execution_source.lock().map_err(|_| CoreError::Internal("macro source lock poisoned".to_owned()))? = request.source_role_id.clone();
+        }
         if let Ok(mut control_attempt_id) = control.start_attempt_id.lock() {
             *control_attempt_id = start_attempt_id.map(str::to_owned);
         }
@@ -1125,6 +1155,7 @@ impl MacroRuntime {
                     .macro_ids
                     .lock()
                     .is_ok_and(|ids| ids.contains(&request.macro_id))
+                    && (!root.uses_source_role() || control_source_matches(existing, request.source_role_id.as_deref()))
             }) {
                 return Err(CoreError::InvalidInput(
                     "macro is already running for this role".to_owned(),
@@ -1169,6 +1200,7 @@ impl MacroRuntime {
         let shared = Arc::clone(&self.shared);
         let macro_id = request.macro_id;
         let context = ExecutionContext {
+            source_role_id: request.source_role_id,
             active_role_ids: Arc::new(active_role_ids),
             control: Arc::clone(&control),
             macros: Arc::new(macros),

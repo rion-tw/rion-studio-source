@@ -20,6 +20,7 @@
             },
         ]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),

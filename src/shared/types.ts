@@ -247,6 +247,8 @@ export type MacroTrigger = RustMacroTrigger;
 
 export type MacroActivationMode = "toggle" | "while_held";
 
+export type { MacroExecutionMode } from "./generated";
+
 export type MacroKeyAction = "tap" | "hold_for_duration" | "hold_until_stop";
 
 export type MacroKeyModifier = "primary" | "ctrl" | "alt" | "shift" | "meta";

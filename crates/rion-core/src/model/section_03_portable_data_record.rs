@@ -289,6 +289,9 @@ pub struct WorkspaceUpdateRequest {
 pub struct MacroCreateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub execution_mode: Option<MacroExecutionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"toggle\" | \"while_held\"")]
@@ -311,6 +314,9 @@ pub struct MacroCreateRequest {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroUpdateRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub execution_mode: Option<MacroExecutionMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub enabled: Option<bool>,
@@ -589,6 +595,9 @@ pub enum MacroStepInputRecord {
 pub struct MacroCreateInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub execution_mode: Option<MacroExecutionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -611,6 +620,9 @@ pub struct MacroCreateInputRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroUpdateInputRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub execution_mode: Option<MacroExecutionMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub enabled: Option<bool>,

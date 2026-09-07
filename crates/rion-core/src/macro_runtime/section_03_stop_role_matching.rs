@@ -60,7 +60,7 @@ fn execute_macro(
     let assigned_roles = if root {
         roles.to_vec()
     } else {
-        assigned_active_roles(definition, &context.active_role_ids)
+        assigned_active_roles(definition, &context.active_role_ids, context.source_role_id.as_deref())
     };
     if assigned_roles.is_empty() {
         return Err(UNAVAILABLE_ROLE_MESSAGE.to_owned());

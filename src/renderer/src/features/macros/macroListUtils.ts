@@ -1,3 +1,4 @@
+import { allowsMacroSource } from "../../../../shared/macroExecution";
 import type { Macro, Role } from "../../../../shared/types";
 import type { Translator } from "../../i18n";
 import {
@@ -49,7 +50,7 @@ export function getMacroListGroups(options: GetMacroListItemsOptions): MacroList
 
   for (const macro of getMacroListItems(options)) {
     const roleIds = getCanonicalMacroRoleIds(macro.roleIds, roles);
-    const key = createMacroListGroupKey(roleIds);
+    const key = macro.executionMode === "source_role" ? "source_role" : createMacroListGroupKey(roleIds);
     const group = groupsByKey.get(key);
 
     if (group) {
@@ -93,7 +94,7 @@ export function getMacroListItems({
   return macros
     .map((macro, index) => ({ index, macro }))
     .filter(({ macro }) => {
-      if (roleFilterId && !macro.roleIds.includes(roleFilterId)) {
+      if (roleFilterId && !(macro.executionMode === "source_role" ? allowsMacroSource(macro, roleFilterId) : macro.roleIds.includes(roleFilterId))) {
         return false;
       }
 
@@ -101,7 +102,7 @@ export function getMacroListItems({
         return true;
       }
 
-      const roleNames = macro.roleIds.length > 0
+      const roleNames = macro.executionMode === "source_role" ? [t("macroForm.execution.sourceRole")] : macro.roleIds.length > 0
         ? macro.roleIds.map((roleId) => roleById.get(roleId)?.name ?? t("macros.unknownRole"))
         : [t("macros.noRoles")];
       const shortcutSourceRoleNames = macro.shortcutSourceScope.type === "selected_roles"

@@ -75,9 +75,9 @@ SelectScrollDownButton.displayName = SelectPrimitive.ScrollDownButton.displayNam
 
 export const SelectContent = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ children, className, position = "item-aligned", ...props }, ref) => (
-  <SelectPrimitive.Portal>
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content> & { portalContainer?: HTMLElement | null }
+>(({ children, className, position = "item-aligned", portalContainer, ...props }, ref) => (
+  <SelectPrimitive.Portal container={portalContainer ?? undefined}>
     <SelectPrimitive.Content
       ref={ref}
       data-selection-ignore

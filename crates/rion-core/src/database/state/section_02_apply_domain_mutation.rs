@@ -1142,6 +1142,7 @@ fn read_macro_configuration(
         .map_err(|error| CoreError::StateDatabase(format!("stored macros are invalid: {error}")))?
         .into_iter()
         .map(|record| MacroDefinition {
+            execution_mode: record.execution_mode,
             id: record.id,
             enabled: record.enabled,
             activation_mode: record.activation_mode,

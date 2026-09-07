@@ -107,6 +107,7 @@ export interface MacroMindMapModel {
 }
 
 interface MacroDefinition {
+  executionMode?: Macro["executionMode"];
   activationMode: Macro["activationMode"];
   enabled: boolean;
   id: string;
@@ -435,10 +436,10 @@ function createSettingsFields(
     : t("macroForm.noRoleSelected");
   const shortcutSources = definition.shortcutSourceScope.type === "all_execution_roles"
     ? t("macroForm.shortcutScope.allExecutionRoles")
-    : roleNames(definition.shortcutSourceScope.roleIds);
+    : definition.shortcutSourceScope.type === "all_roles" ? t("macroForm.sourceScope.allRoles") : roleNames(definition.shortcutSourceScope.roleIds);
 
   return [
-    { label: t("macroForm.roles"), value: roleNames(definition.roleIds) },
+    { label: t("macroForm.roles"), value: definition.executionMode === "source_role" ? t("macroForm.execution.sourceRole") : roleNames(definition.roleIds) },
     { label: t("macroForm.shortcut"), value: formatMacroShortcut(definition.trigger, t) },
     { label: t("macroForm.shortcutSourceRoles"), value: shortcutSources },
     { label: t("macroForm.activation"), value: formatMacroActivationMode(definition.activationMode, t) },
@@ -451,7 +452,7 @@ function getMacroWarnings(definition: MacroDefinition, t: Translator): string[] 
   if (!definition.enabled) {
     warnings.push(t("mindMap.warning.disabled"));
   }
-  if (definition.roleIds.length === 0) {
+  if (definition.executionMode !== "source_role" && definition.roleIds.length === 0) {
     warnings.push(t("mindMap.warning.unassigned"));
   }
   return warnings;
@@ -525,6 +526,7 @@ function toRootDefinition(form: MacroFormState): MacroDefinition {
     isCurrent: true,
     name: form.name,
     repeat: form.repeat,
+    executionMode: form.executionMode,
     roleIds: form.roleIds,
     shortcutSourceScope: form.shortcutSourceScope,
     steps: form.steps,
@@ -540,6 +542,7 @@ function toMacroDefinition(macro: Macro): MacroDefinition {
     isCurrent: false,
     name: macro.name,
     repeat: macro.repeat,
+    executionMode: macro.executionMode,
     roleIds: macro.roleIds,
     shortcutSourceScope: macro.shortcutSourceScope,
     steps: macro.steps,

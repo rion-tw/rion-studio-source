@@ -105,6 +105,7 @@ export function toMacroCreateInput(input: CreateMacroInput): MacroCreateInputRec
   return {
     ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
     ...(input.activationMode === undefined ? {} : { activationMode: input.activationMode }),
+    ...(input.executionMode === undefined ? {} : { executionMode: input.executionMode }),
     name: input.name,
     roleIds: [...input.roleIds],
     ...(input.shortcutSourceScope === undefined
@@ -120,6 +121,7 @@ export function toMacroUpdateInput(input: UpdateMacroInput): MacroUpdateInputRec
   return {
     ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
     ...(input.activationMode === undefined ? {} : { activationMode: input.activationMode }),
+    ...(input.executionMode === undefined ? {} : { executionMode: input.executionMode }),
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.roleIds === undefined ? {} : { roleIds: [...input.roleIds] }),
     ...(input.shortcutSourceScope === undefined

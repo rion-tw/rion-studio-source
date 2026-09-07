@@ -76,13 +76,13 @@ describe("desktop E2E coverage policy", () => {
     });
     expect(result.cutoverParity).toEqual({
       "chromium-v23-macos-appkit": {
-        covered: 40,
-        required: 40,
+        covered: 41,
+        required: 41,
         missingJourneyIds: []
       },
       "chromium-v23-windows": {
-        covered: 40,
-        required: 40,
+        covered: 41,
+        required: 41,
         missingJourneyIds: []
       }
     });
@@ -100,7 +100,7 @@ describe("desktop E2E coverage policy", () => {
 
     const result = await validateDesktopE2eCoverage(temporaryRoot);
     expect(result.failures).toContainEqual(expect.stringMatching(
-      /^chromium-v23-macos-appkit: cutover parity is incomplete \(39\/40; missing MACRO-BACKGROUND-TAB-004\)$/u
+      /^chromium-v23-macos-appkit: cutover parity is incomplete \(40\/41; missing MACRO-BACKGROUND-TAB-004\)$/u
     ));
   });
 
@@ -138,12 +138,12 @@ describe("desktop E2E coverage policy", () => {
     const result = await validateDesktopE2eCoverage(temporaryRoot);
     expect(result.failures).toEqual([]);
     expect(result.cutoverParity["chromium-v23-macos-appkit"]).toMatchObject({
-      covered: 40,
-      required: 40
+      covered: 41,
+      required: 41
     });
     expect(result.cutoverParity["chromium-v23-windows"]).toMatchObject({
-      covered: 40,
-      required: 40
+      covered: 41,
+      required: 41
     });
   });
 

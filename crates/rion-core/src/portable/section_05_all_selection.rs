@@ -181,6 +181,7 @@ fn portable_macro(macro_record: &StateMacroRecord) -> PortableMacroRecord {
         role_ids.sort();
     }
     PortableMacroRecord {
+        execution_mode: macro_record.execution_mode,
         id: macro_record.id.clone(),
         enabled: macro_record.enabled,
         activation_mode: macro_record

@@ -710,7 +710,7 @@ impl AppCore {
                 let assigned_count = macros
                     .iter()
                     .find(|definition| definition.id == macro_id)
-                    .map_or(0, |definition| definition.role_ids.len());
+                    .map_or(0, |definition| if definition.uses_source_role() { 1 } else { definition.role_ids.len() });
                 let statuses = self.macro_runtime.start(MacroStartRequest {
                     macros,
                     settings,
@@ -730,7 +730,7 @@ impl AppCore {
                 let assigned_count = macros
                     .iter()
                     .find(|definition| definition.id == macro_id)
-                    .map_or(0, |definition| definition.role_ids.len());
+                    .map_or(0, |definition| if definition.uses_source_role() { 1 } else { definition.role_ids.len() });
                 let statuses = self.macro_runtime.toggle(MacroStartRequest {
                     macros,
                     settings,
@@ -747,8 +747,9 @@ impl AppCore {
                 let (macros, _) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
                 crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
-                self.macro_runtime
-                    .stop_macro_from_role(&macro_id, role_id)?;
+                if macros.iter().any(|definition| definition.id == macro_id && definition.uses_source_role()) {
+                    self.macro_runtime.stop_source_macro_from_role(&macro_id, role_id)?;
+                } else { self.macro_runtime.stop_macro_from_role(&macro_id, role_id)?; }
             }
             MacroOverlayRequestRecord::Press { macro_id, press_id } => {
                 let (macros, settings) =
@@ -757,7 +758,7 @@ impl AppCore {
                 let assigned_count = macros
                     .iter()
                     .find(|definition| definition.id == macro_id)
-                    .map_or(0, |definition| definition.role_ids.len());
+                    .map_or(0, |definition| if definition.uses_source_role() { 1 } else { definition.role_ids.len() });
                 let statuses = self.macro_runtime.press(MacroPressRequest {
                     start: MacroStartRequest {
                         macros,
@@ -817,7 +818,8 @@ impl AppCore {
             .collect::<std::collections::HashSet<_>>();
         let shortcut_statuses = all_statuses
             .into_iter()
-            .filter(|status| shortcut_macro_id_set.contains(status.macro_id.as_str()))
+            .filter(|status| shortcut_macro_id_set.contains(status.macro_id.as_str()) &&
+                (status.role_id == role_id || macros.iter().any(|definition| definition.id == status.macro_id && !definition.uses_source_role())))
             .collect();
         let resolved_theme = self
             .resolved_theme

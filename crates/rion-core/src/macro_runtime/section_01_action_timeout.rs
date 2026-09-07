@@ -179,6 +179,7 @@ struct HeldLease {
 }
 
 struct InvocationControl {
+    execution_source: Mutex<Option<String>>,
     barriers: Mutex<HashMap<String, Arc<InvocationBarrier>>>,
     cancelled: AtomicBool,
     cancellation_error: Mutex<Option<String>>,
@@ -226,6 +227,7 @@ struct ChildInvocations {
 
 #[derive(Clone)]
 struct ExecutionContext {
+    source_role_id: Option<String>,
     active_role_ids: Arc<HashSet<String>>,
     control: Arc<InvocationControl>,
     macros: Arc<HashMap<String, MacroDefinition>>,

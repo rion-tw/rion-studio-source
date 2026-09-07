@@ -5,6 +5,7 @@
             let _ = events.send(batch);
         }));
         let parent = MacroDefinition {
+            execution_mode: None,
             id: "parent".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -20,6 +21,7 @@
             }],
         };
         let child = MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -34,6 +36,7 @@
             }],
         };
         let unrelated = MacroDefinition {
+            execution_mode: None,
             id: "unrelated".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -101,6 +104,7 @@
         }]);
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1 };
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -189,6 +193,7 @@
             },
         ]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -264,6 +269,7 @@
             },
         ]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -464,6 +470,7 @@
             },
         ]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -600,6 +607,7 @@
                 },
             ]);
             start.macros.push(MacroDefinition {
+                execution_mode: None,
                 id: "child".to_owned(),
                 enabled: child_enabled,
                 activation_mode: Some("toggle".to_owned()),

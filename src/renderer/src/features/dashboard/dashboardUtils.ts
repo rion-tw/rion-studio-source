@@ -1,3 +1,4 @@
+import { allowsMacroSource } from "../../../../shared/macroExecution";
 import type {
   LaunchWorkspace,
   Macro,
@@ -185,16 +186,17 @@ function createMacroActionState({
   runtimeInputAvailable: boolean;
   statusByRole: Map<string, RoleStatus>;
 }): DashboardMacroActionState {
-  const assignedRunStatuses = macro.roleIds
+  const executionRoleIds = macro.executionMode === "source_role" ? [...roleIds].filter((id) => allowsMacroSource(macro, id)) : macro.roleIds;
+  const assignedRunStatuses = executionRoleIds
     .map((roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
     .filter((status): status is MacroRunStatus => Boolean(status));
   const isRunning = assignedRunStatuses.some(isMacroRunActive);
   const isStopping = assignedRunStatuses.some((status) => status.state === "stopping");
-  const hasRoles = macro.roleIds.length > 0;
-  const hasRunningBrowser = macro.roleIds.some(
+  const hasRoles = macro.executionMode === "source_role" || macro.roleIds.length > 0;
+  const hasRunningBrowser = executionRoleIds.some(
     (roleId) => roleIds.has(roleId) && statusByRole.get(roleId)?.state === "running"
   );
-  const hasRunnableRole = macro.roleIds.some(
+  const hasRunnableRole = executionRoleIds.some(
     (roleId) =>
       roleIds.has(roleId) &&
       statusByRole.get(roleId)?.state === "running" &&
@@ -246,7 +248,7 @@ export function getDashboardMacroItems({
 
   return macros
     .map((macro) => {
-      const runningCount = macro.roleIds.filter(
+      const runningCount = (macro.executionMode === "source_role" ? [...roleIds] : macro.roleIds).filter(
         (roleId) => isMacroRunActive(macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
       ).length;
 

@@ -290,6 +290,8 @@ export function App(): JSX.Element {
   });
 
   const macroWorkflow = useMacroWorkflow({
+    roles: data.roles,
+    statusByRole: data.statusByRole,
     beginErrorOperation: data.beginErrorOperation,
     macros: data.macros,
     runtimeInputAvailable: applicationLifecycle.inputAvailable,
@@ -632,6 +634,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="liquid-app-shell flex h-screen overflow-hidden text-foreground">
+      {macroWorkflow.sourcePickerDialog}
       {location.pathname === "/settings" ? (
         <SettingsSidebar
           shortcutLabel={quickAccessShortcutLabel}

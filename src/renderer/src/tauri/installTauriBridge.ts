@@ -581,7 +581,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     }),
     deleteMacro: (id) => invokeCore({ type: "macroDelete", id }).then(() => undefined),
     deleteMacros: (input) => invokeCore({ type: "macrosDelete", ids: input.ids }),
-    startMacro: (macroId) => invokeShell("startMacro", [macroId]),
+    startMacro: (macroId, sourceRoleId) => invokeShell("startMacro", [macroId, sourceRoleId ?? null]),
     stopMacro: (macroId) => invokeCore({ type: "macroStop", macroId }).then(() => undefined),
     listMacroStatuses: () =>
       invokeCore({ type: "macroStatuses" }).then((statuses) => statuses as MacroRunStatus[]),

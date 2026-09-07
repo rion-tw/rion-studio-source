@@ -26,6 +26,7 @@
             default_loop_delay_ms: 0,
         };
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -51,6 +52,7 @@
             ],
         });
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "grandchild".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -170,6 +172,7 @@
             default_loop_delay_ms: 0,
         };
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -250,6 +253,7 @@
             call_mode: Some("wait".to_owned()),
         }]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -374,6 +378,7 @@
         }];
         let mut first = request(steps.clone());
         first.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "m2".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),

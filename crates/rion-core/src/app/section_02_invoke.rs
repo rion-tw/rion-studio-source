@@ -653,8 +653,10 @@ impl AppCore {
                         message: "This macro is not assigned to the current role.".to_owned(),
                     });
                 }
-                self.macro_runtime
-                    .stop_macro_from_role(&macro_id, &source_role_id)?;
+                if macro_definition.uses_source_role() {
+                    if !crate::domain::macro_shortcut_source_contains(&macro_definition.shortcut_source_scope, &macro_definition.role_ids, &source_role_id) { return Err(CoreError::InvalidInput("macro source role is not allowed".to_owned())); }
+                    self.macro_runtime.stop_source_macro_from_role(&macro_id, &source_role_id)?;
+                } else { self.macro_runtime.stop_macro(&macro_id)?; }
                 Ok(json!({ "stopped": true }))
             }
             CoreCommand::MacroStopRole { role_id } => {

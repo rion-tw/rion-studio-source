@@ -1,3 +1,4 @@
+import { sourceRoleDependencies } from "../../../shared/macroExecution";
 import { useCallback, useRef, useState } from "react";
 
 import { createCopyName } from "../app/copyName";
@@ -5,7 +6,7 @@ import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { MacroFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Macro } from "../../../shared/types";
+import type { Macro, Role, RoleStatus } from "../../../shared/types";
 import {
   DEFAULT_MACRO_LIST_SORT,
   type MacroListSortState,
@@ -14,7 +15,11 @@ import {
 import { getMacroPartialStartCounts } from "../features/macros/macroUtils";
 import { useBusyIds } from "./useBusyIds";
 
+import { useMacroSourcePicker } from "../features/macros/useMacroSourcePicker";
+
 interface UseMacroWorkflowOptions {
+  roles?: Role[];
+  statusByRole?: ReadonlyMap<string, RoleStatus>;
   beginErrorOperation: () => (error: unknown) => void;
   macros: Macro[];
   runtimeInputAvailable?: boolean;
@@ -24,12 +29,15 @@ interface UseMacroWorkflowOptions {
 
 export function useMacroWorkflow({
   beginErrorOperation,
+  roles = [],
+  statusByRole = new Map(),
   macros,
   runtimeInputAvailable = true,
   setNotice,
   t
 }: UseMacroWorkflowOptions) {
   const confirm = useConfirmation();
+  const sourcePicker = useMacroSourcePicker(macros, roles, statusByRole, t);
   const [isSavingMacro, setIsSavingMacro] = useState(false);
   const { beginBusy, beginBusyMany, busyIds: busyMacroIds } = useBusyIds();
   const busyRunKeys = busyMacroIds;
@@ -81,10 +89,11 @@ export function useMacroWorkflow({
 
     try {
       const input = {
+        executionMode: form.executionMode ?? "selected_roles",
         enabled: form.enabled,
         activationMode: form.activationMode,
         name: form.name,
-        roleIds: form.roleIds,
+        roleIds: form.executionMode === "source_role" ? [] : form.roleIds,
         shortcutSourceScope: form.shortcutSourceScope,
         repeat: form.repeat,
         steps: form.steps,
@@ -158,11 +167,12 @@ export function useMacroWorkflow({
 
     try {
       await window.rionStudio.createMacro({
+        executionMode: macro.executionMode,
         enabled: macro.enabled,
         activationMode: macro.activationMode === "while_held" ? "toggle" : macro.activationMode,
         name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
         roleIds: [...macro.roleIds],
-        shortcutSourceScope: { type: "all_execution_roles" },
+        shortcutSourceScope: macro.executionMode === "source_role" ? structuredClone(macro.shortcutSourceScope) : { type: "all_execution_roles" },
         repeat: macro.repeat.type === "loop" ? { ...macro.repeat } : { type: "once" },
         steps: macro.steps.map((step) => ({
           ...step,
@@ -192,6 +202,9 @@ export function useMacroWorkflow({
       return false;
     }
 
+    const sources = targets.some((macro) => sourceRoleDependencies(macros, macro.id).length > 0) ? await sourcePicker.pick(targets) : {};
+    if (!sources) return false;
+
     const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
     if (!finishBusy) {
       return false;
@@ -202,7 +215,7 @@ export function useMacroWorkflow({
 
     try {
       const results = await Promise.allSettled(
-        targets.map((macro) => window.rionStudio.startMacro(macro.id))
+        targets.map((macro) => sources[macro.id] ? window.rionStudio.startMacro(macro.id, sources[macro.id]) : window.rionStudio.startMacro(macro.id))
       );
       const successful = results.flatMap((result, index) =>
         result.status === "fulfilled"
@@ -317,6 +330,7 @@ export function useMacroWorkflow({
   }
 
   return {
+    sourcePickerDialog: sourcePicker.dialog,
     busyMacroIds,
     busyRunKeys,
     collapsedGroupKeys,

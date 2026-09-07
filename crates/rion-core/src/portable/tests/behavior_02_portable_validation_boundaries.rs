@@ -179,7 +179,7 @@
         }]);
 
         let normalized = normalize(&source.to_string()).unwrap();
-        assert_eq!(normalized["schemaVersion"], 19);
+        assert_eq!(normalized["schemaVersion"], PORTABLE_SCHEMA_VERSION);
         let slots = normalized["gameWindows"][0]["tabs"][0]["workspaceSlots"]
             .as_array()
             .unwrap();
@@ -797,7 +797,7 @@
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         {
-            assert_eq!(value["schemaVersion"], 19);
+            assert_eq!(value["schemaVersion"], PORTABLE_SCHEMA_VERSION);
             assert!(
                 value["launchWorkspaces"][0]
                     .get("browserZoomMode")

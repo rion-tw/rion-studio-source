@@ -1,3 +1,4 @@
+import { exerciseSourceRoleMacro } from "../support/macro-source-role";
 import { exerciseMacroMindMapHover } from "../support/macro-mind-map";
 import { $, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
@@ -20,6 +21,8 @@ import {
 
 // [journey:CHROMIUM-MACOS-APPKIT-MACROS-UI-017]
 // [journey:CHROMIUM-WINDOWS-MACROS-UI-017]
+// [journey:CHROMIUM-MACOS-APPKIT-MACRO-SOURCE-ROLE-014]
+// [journey:CHROMIUM-WINDOWS-MACRO-SOURCE-ROLE-014]
 
 const ROLE_NAME = "Chromium Entity Role Edited";
 const SEED_MACRO_NAME = "Chromium Entity Macro Edited";
@@ -381,6 +384,7 @@ async function seedPhase(): Promise<void> {
   await exerciseTablesAndSelection(macro, role);
   await ensureRoleAvailableThroughVisibleUi(role);
   await startAndStopThroughVisibleUi(macro);
+  await exerciseSourceRoleMacro(macro, [role]);
 }
 
 async function restartPhase(): Promise<void> {
@@ -390,6 +394,7 @@ async function restartPhase(): Promise<void> {
   await exerciseTablesAndSelection(macro, role);
   await ensureRoleAvailableThroughVisibleUi(role);
   await startAndStopThroughVisibleUi(macro);
+  await exerciseSourceRoleMacro(macro, [role]);
 }
 
 describe("Chromium Macro UI exact replacement", () => {

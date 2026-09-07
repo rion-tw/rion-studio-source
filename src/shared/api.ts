@@ -179,7 +179,7 @@ export interface RionStudioApi {
   updateMacro: (id: string, input: UpdateMacroInput) => Promise<Macro>;
   deleteMacro: (id: string) => Promise<void>;
   deleteMacros: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
-  startMacro: (macroId: string) => Promise<MacroRunStatus[]>;
+  startMacro: (macroId: string, sourceRoleId?: string) => Promise<MacroRunStatus[]>;
   stopMacro: (macroId: string) => Promise<void>;
   listMacroStatuses: () => Promise<MacroRunStatus[]>;
   getMacroSettings: () => Promise<MacroSettings>;

@@ -222,6 +222,7 @@ export type { MacroRunStatus } from "./MacroRunStatus";
 export type { MacroRuntimeSettings } from "./MacroRuntimeSettings";
 export type { MacroSettingsRecord } from "./MacroSettingsRecord";
 export type { MacroShortcutSourceScope } from "./MacroShortcutSourceScope";
+export type { MacroExecutionMode } from "./MacroExecutionMode";
 export type { MacroStartRequest } from "./MacroStartRequest";
 export type { MacroStepDefinition } from "./MacroStepDefinition";
 export type { MacroStepInputRecord } from "./MacroStepInputRecord";

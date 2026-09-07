@@ -55,6 +55,7 @@ export function macroShortcutSourcesOverlap(
   left: { roleIds: string[]; shortcutSourceScope: MacroShortcutSourceScope },
   right: { roleIds: string[]; shortcutSourceScope: MacroShortcutSourceScope }
 ): boolean {
+  if (left.shortcutSourceScope.type === "all_roles" || right.shortcutSourceScope.type === "all_roles") return true;
   return macroRoleAssignmentsOverlap(
     getMacroShortcutSourceRoleIds(left),
     getMacroShortcutSourceRoleIds(right)

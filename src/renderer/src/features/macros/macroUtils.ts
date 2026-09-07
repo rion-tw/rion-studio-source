@@ -239,8 +239,9 @@ export function createEmptyMacroForm(
     enabled: true,
     activationMode: "toggle",
     name: createEmptyMacroFormName(macros, t),
-    roleIds,
-    shortcutSourceScope: { type: "all_execution_roles" },
+    executionMode: requestedRoleIds?.length ? "selected_roles" : "source_role",
+    roleIds: requestedRoleIds?.length ? roleIds : [],
+    shortcutSourceScope: { type: requestedRoleIds?.length ? "all_execution_roles" : "all_roles" },
     repeat: { type: "once" },
     steps: []
   };
@@ -249,6 +250,7 @@ export function createEmptyMacroForm(
 export function createMacroFormState(macro: Macro): MacroFormState {
   return {
     id: macro.id,
+    executionMode: macro.executionMode ?? "selected_roles",
     enabled: macro.enabled,
     activationMode: macro.activationMode ?? "toggle",
     name: macro.name,
@@ -268,6 +270,7 @@ export function formatMacroShortcutSourceScope(
   roleById: ReadonlyMap<string, Role>,
   t: Translator
 ): string {
+  if (macro.shortcutSourceScope.type === "all_roles") return t("macroForm.sourceScope.allRoles");
   if (macro.shortcutSourceScope.type === "all_execution_roles") {
     return t("macros.shortcutScope.allExecutionRoles");
   }

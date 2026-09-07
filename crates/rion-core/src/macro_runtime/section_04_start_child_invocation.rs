@@ -17,7 +17,7 @@ fn start_child_invocation(
     if !definition.enabled {
         return Err(DISABLED_MACRO_MESSAGE.to_owned());
     }
-    let roles = assigned_active_roles(definition, &parent_context.active_role_ids);
+    let roles = assigned_active_roles(definition, &parent_context.active_role_ids, parent_context.source_role_id.as_deref());
     if roles.is_empty() {
         return Err(UNAVAILABLE_ROLE_MESSAGE.to_owned());
     }
@@ -28,6 +28,9 @@ fn start_child_invocation(
         macro_id.to_owned(),
         roles.iter().cloned().collect(),
     );
+    if definition.uses_source_role() {
+        *child.execution_source.lock().map_err(|_| "macro source lock poisoned")? = parent_context.source_role_id.clone();
+    }
     {
         let mut inner = shared
             .inner
@@ -38,6 +41,7 @@ fn start_child_invocation(
                 .macro_ids
                 .lock()
                 .is_ok_and(|ids| ids.contains(macro_id))
+                && (!definition.uses_source_role() || control_source_matches(control, parent_context.source_role_id.as_deref()))
         });
         if duplicate {
             return if ignore_duplicate {
@@ -132,6 +136,7 @@ fn start_child_invocation(
         let mut child_ancestry = ancestry;
         let child_macro_id = macro_id.to_owned();
         let child_context = ExecutionContext {
+            source_role_id: parent_context.source_role_id.clone(),
             active_role_ids: Arc::clone(&parent_context.active_role_ids),
             control: Arc::clone(&child),
             macros: Arc::clone(&parent_context.macros),
@@ -884,6 +889,7 @@ fn new_invocation_control(
     role_ids: HashSet<String>,
 ) -> Arc<InvocationControl> {
     Arc::new(InvocationControl {
+        execution_source: Mutex::new(None),
         barriers: Mutex::new(HashMap::new()),
         cancelled: AtomicBool::new(false),
         cancellation_error: Mutex::new(None),

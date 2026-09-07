@@ -111,6 +111,7 @@ use std::sync::mpsc;
     fn request(steps: Vec<MacroStepDefinition>) -> MacroStartRequest {
         MacroStartRequest {
             macros: vec![MacroDefinition {
+                execution_mode: None,
                 id: "m1".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -192,6 +193,7 @@ use std::sync::mpsc;
     fn suppresses_only_keys_that_can_match_an_enabled_role_shortcut() {
         let definitions = [
             MacroDefinition {
+                execution_mode: None,
                 id: "matching".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -209,6 +211,7 @@ use std::sync::mpsc;
                 steps: Vec::new(),
             },
             MacroDefinition {
+                execution_mode: None,
                 id: "other-role".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -263,6 +266,7 @@ use std::sync::mpsc;
             },
         ]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),

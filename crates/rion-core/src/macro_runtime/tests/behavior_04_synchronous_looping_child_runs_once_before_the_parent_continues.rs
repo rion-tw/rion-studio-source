@@ -20,6 +20,7 @@
             },
         ]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -282,6 +283,7 @@
                 call_mode: Some("wait".to_owned()),
             }]);
             start.macros.push(MacroDefinition {
+                execution_mode: None,
                 id: "child".to_owned(),
                 enabled: child_enabled,
                 activation_mode: Some("toggle".to_owned()),
@@ -333,6 +335,7 @@
             let _ = events.send(batch);
         }));
         let parent = MacroDefinition {
+            execution_mode: None,
             id: "parent".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -348,6 +351,7 @@
             }],
         };
         let child = MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -436,6 +440,7 @@
         ]);
         start.macros[0].role_ids.push("r2".to_owned());
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -507,6 +512,7 @@
             let _ = events.send(batch);
         }));
         let macro_c = MacroDefinition {
+            execution_mode: None,
             id: "c".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -525,6 +531,7 @@
             }],
         };
         let macro_b = MacroDefinition {
+            execution_mode: None,
             id: "b".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -606,6 +613,7 @@
             call_mode: Some("wait".to_owned()),
         }]);
         start.macros.push(MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),

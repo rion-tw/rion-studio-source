@@ -112,3 +112,27 @@ native submission. Their trusted down/up/auxclick sequence remains page-visible
 but cannot recursively enter the managed shortcut owner. The guard is scoped to
 one exact sequence and a later physical middle click starts a new ownership
 cycle. These flows are event-bound and use no timer, polling, or watchdog.
+
+## Execution-role modes
+
+`executionMode` distinguishes `source_role` from `selected_roles`; an absent
+field retains the existing fixed-role behavior. Core resolves dynamic targets
+from the authenticated overlay source or the role explicitly chosen in the
+main application's launch dialog. It never derives a source from focus. The
+`all_roles` source scope includes future roles; a selected scope remains bounded
+when roles are deleted. The entire reachable call graph is checked for required,
+allowed, active sources before admitting any input. Dynamic children inherit the
+original source; fixed children retain their own assignments.
+
+A dynamic invocation's toggle, press/release lease, duplicate admission, and
+role-local stop are scoped to its source role. Stopping from one source must not
+remove another source's statuses, recovery intent, or descendants. The main
+application's global stop still cancels every execution of that macro. Shortcut
+status projections for dynamic macros are source-local; fixed-role shortcut
+projections retain their existing aggregate behavior. Admission, native input,
+recovery and terminal cleanup retain the same event-bound epoch/generation
+fences on both stable and Chromium runtimes.
+
+Portable schema 20 preserves the execution mode and source restrictions even
+without a shortcut. Schemas 11–19 remain readable as fixed assignments when the
+mode is absent. SQLite records use the same backward-compatible optional field.

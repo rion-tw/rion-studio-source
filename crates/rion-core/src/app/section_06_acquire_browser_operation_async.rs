@@ -830,7 +830,8 @@ impl AppCore {
             .read_typed_state_collection::<StateMacroRecord>("macros")?
             .into_iter()
             .any(|macro_record| {
-                macro_record.enabled && macro_record.role_ids.iter().any(|id| id == &role.id)
+                macro_record.enabled && (macro_record.role_ids.iter().any(|id| id == &role.id) ||
+                    (macro_record.execution_mode == Some(crate::model::MacroExecutionMode::SourceRole) && crate::domain::macro_shortcut_source_contains(&macro_record.shortcut_source_scope, &macro_record.role_ids, &role.id)))
             });
         if role_uses_macros
             && (!system_capability_verified(runtime.capabilities.trusted_input)

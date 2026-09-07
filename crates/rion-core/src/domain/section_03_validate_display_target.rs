@@ -360,11 +360,15 @@ fn normalize_macro_role_ids(role_ids: Vec<String>) -> CoreResult<Vec<String>> {
 fn normalize_macro_shortcut_source_scope(
     scope: Option<MacroShortcutSourceScope>,
     has_trigger: bool,
+    uses_source_role: bool,
 ) -> CoreResult<MacroShortcutSourceScope> {
-    if !has_trigger {
+    if !has_trigger && !uses_source_role {
         return Ok(MacroShortcutSourceScope::AllExecutionRoles);
     }
     match scope.unwrap_or_default() {
+        MacroShortcutSourceScope::AllRoles if uses_source_role => Ok(MacroShortcutSourceScope::AllRoles),
+        MacroShortcutSourceScope::AllRoles => Err(domain("MACRO_SOURCE_SCOPE_INVALID", "All roles requires source-role execution.")),
+        MacroShortcutSourceScope::AllExecutionRoles if uses_source_role => Ok(MacroShortcutSourceScope::AllRoles),
         MacroShortcutSourceScope::AllExecutionRoles => {
             Ok(MacroShortcutSourceScope::AllExecutionRoles)
         }
@@ -386,6 +390,7 @@ pub(crate) fn macro_shortcut_source_role_ids<'a>(
     execution_role_ids: &'a [String],
 ) -> &'a [String] {
     match scope {
+        MacroShortcutSourceScope::AllRoles => &[],
         MacroShortcutSourceScope::AllExecutionRoles => execution_role_ids,
         MacroShortcutSourceScope::SelectedRoles { role_ids } => role_ids,
     }
@@ -396,7 +401,7 @@ pub(crate) fn macro_shortcut_source_contains(
     execution_role_ids: &[String],
     role_id: &str,
 ) -> bool {
-    macro_shortcut_source_role_ids(scope, execution_role_ids)
+    matches!(scope, MacroShortcutSourceScope::AllRoles) || macro_shortcut_source_role_ids(scope, execution_role_ids)
         .iter()
         .any(|candidate| candidate == role_id)
 }
@@ -808,9 +813,9 @@ fn validate_macro_candidate(
                 && item.trigger.as_ref().is_some_and(|other| {
                     serde_json::to_value(other).ok() == serde_json::to_value(trigger).ok()
                 })
-                && item_source_role_ids
-                    .iter()
-                    .any(|id| candidate_source_role_ids.contains(id))
+                && (matches!(candidate.shortcut_source_scope, MacroShortcutSourceScope::AllRoles)
+                    || matches!(item.shortcut_source_scope, MacroShortcutSourceScope::AllRoles)
+                    || item_source_role_ids.iter().any(|id| candidate_source_role_ids.contains(id)))
         })
     {
         return Err(domain(

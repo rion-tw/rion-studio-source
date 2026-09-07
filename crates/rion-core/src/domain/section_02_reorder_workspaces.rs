@@ -527,19 +527,22 @@ pub fn create_macro(
     input: MacroCreateInputRecord,
 ) -> CoreResult<StateMacroRecord> {
     let now = chrono::Utc::now().to_rfc3339();
+    let execution_mode = input.execution_mode;
     let trigger = input.trigger.map(normalize_macro_trigger).transpose()?;
     let shortcut_source_scope = normalize_macro_shortcut_source_scope(
         input.shortcut_source_scope,
         trigger.is_some(),
+        execution_mode == Some(crate::model::MacroExecutionMode::SourceRole),
     )?;
     let macro_record = StateMacroRecord {
+        execution_mode,
         id: Uuid::new_v4().to_string(),
         enabled: input.enabled.unwrap_or(true),
         activation_mode: Some(normalize_macro_activation_mode(
             input.activation_mode.as_deref(),
         )?),
         name: normalize_name(&input.name, "MACRO_NAME_REQUIRED", "MACRO_NAME_TOO_LONG")?,
-        role_ids: normalize_macro_role_ids(input.role_ids)?,
+        role_ids: if execution_mode == Some(crate::model::MacroExecutionMode::SourceRole) { Vec::new() } else { normalize_macro_role_ids(input.role_ids)? },
         shortcut_source_scope,
         trigger,
         repeat: normalize_macro_repeat(input.repeat)?,
@@ -565,6 +568,7 @@ pub fn update_macro(
         .position(|item| item.id == id)
         .ok_or_else(|| domain("MACRO_NOT_FOUND", "Macro not found."))?;
     let current = macros[index].clone();
+    let execution_mode = input.execution_mode.or(current.execution_mode);
     let trigger = if input.set_trigger {
         input.trigger.map(normalize_macro_trigger).transpose()?
     } else {
@@ -575,8 +579,10 @@ pub fn update_macro(
             .shortcut_source_scope
             .or_else(|| Some(current.shortcut_source_scope.clone())),
         trigger.is_some(),
+        execution_mode == Some(crate::model::MacroExecutionMode::SourceRole),
     )?;
     let macro_record = StateMacroRecord {
+        execution_mode,
         id: current.id.clone(),
         enabled: input.enabled.unwrap_or(current.enabled),
         activation_mode: input
@@ -592,11 +598,11 @@ pub fn update_macro(
             .map(|name| normalize_name(name, "MACRO_NAME_REQUIRED", "MACRO_NAME_TOO_LONG"))
             .transpose()?
             .unwrap_or_else(|| current.name.clone()),
-        role_ids: input
+        role_ids: if execution_mode == Some(crate::model::MacroExecutionMode::SourceRole) { Vec::new() } else { input
             .role_ids
             .map(normalize_macro_role_ids)
             .transpose()?
-            .unwrap_or_else(|| current.role_ids.clone()),
+            .unwrap_or_else(|| current.role_ids.clone()) },
         shortcut_source_scope,
         trigger,
         repeat: input
@@ -703,7 +709,7 @@ pub fn clear_macro_role(macros: &mut [StateMacroRecord], role_id: &str) {
         };
         if removed_last_selected_source {
             macro_record.trigger = None;
-            macro_record.shortcut_source_scope = MacroShortcutSourceScope::AllExecutionRoles;
+            if macro_record.execution_mode != Some(crate::model::MacroExecutionMode::SourceRole) { macro_record.shortcut_source_scope = MacroShortcutSourceScope::AllExecutionRoles; }
             if macro_record.activation_mode.as_deref() == Some("while_held") {
                 macro_record.activation_mode = Some("toggle".to_owned());
             }

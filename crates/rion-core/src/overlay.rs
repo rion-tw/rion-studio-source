@@ -73,10 +73,16 @@ pub fn ensure_macro_available(
 ) -> CoreResult<()> {
     if macros.iter().any(|definition| {
         definition.id == macro_id
-            && definition
+            && (definition
                 .role_ids
                 .iter()
                 .any(|candidate| candidate == role_id)
+                || (definition.uses_source_role()
+                    && macro_shortcut_source_contains(
+                        &definition.shortcut_source_scope,
+                        &definition.role_ids,
+                        role_id,
+                    )))
             && !has_unassigned_dependency(macros, &definition.id)
     }) {
         Ok(())
@@ -241,7 +247,7 @@ fn has_unassigned_dependency(macros: &[MacroDefinition], source_macro_id: &str) 
         let Some(definition) = by_id.get(macro_id) else {
             continue;
         };
-        if definition.role_ids.is_empty() {
+        if !definition.uses_source_role() && definition.role_ids.is_empty() {
             return true;
         }
         for step in &definition.steps {
@@ -532,6 +538,7 @@ mod tests {
 
     fn definition(id: &str, role_ids: &[&str], steps: Vec<MacroStepDefinition>) -> MacroDefinition {
         MacroDefinition {
+            execution_mode: None,
             id: id.to_owned(),
             enabled: true,
             activation_mode: None,

@@ -76,6 +76,7 @@ describe("editor form state", () => {
   it("detects nested changes while ignoring object key order and undefined properties", () => {
     const a = createMacroFormState(macro());
     const b = {
+      executionMode: a.executionMode,
       steps: a.steps.map((step) => ({ ...step })),
       repeat: { ...a.repeat },
       roleIds: [...a.roleIds],

@@ -711,3 +711,28 @@
             );
         };
     }
+
+#[test]
+fn source_macro_survives_sqlite_reopen_and_old_macros_keep_fixed_targets() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("source-macro.sqlite");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        create_schema(&connection, false).unwrap();
+        let record = |id: &str, mode: Option<&str>| {
+            let mut value = json!({ "id":id,"enabled":true,"name":id,"roleIds":[],
+                "shortcutSourceScope":{"type":"all_execution_roles"},
+                "repeat":{"type":"once"},"steps":[{"id":"wait","type":"delay","ms":1}],
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z" });
+            if let Some(mode) = mode { value["executionMode"] = json!(mode); value["shortcutSourceScope"] = json!({"type":"all_roles"}); }
+            value
+        };
+        replace_snapshot(&mut connection, &json!({"games":[],"roles":[],"launchWorkspaces":[],"macros":[record("old", None),record("source", Some("source_role"))]})).unwrap();
+    }
+    let connection = Connection::open(path).unwrap();
+    let (macros, _) = read_macro_configuration(&connection).unwrap();
+    assert!(!macros.iter().find(|item| item.id == "old").unwrap().uses_source_role());
+    let source = macros.iter().find(|item| item.id == "source").unwrap();
+    assert!(source.uses_source_role());
+    assert!(matches!(source.shortcut_source_scope, crate::model::MacroShortcutSourceScope::AllRoles));
+}

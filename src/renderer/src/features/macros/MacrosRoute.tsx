@@ -555,7 +555,7 @@ function MacroGroup({
         <td className="p-0" colSpan={5}>
           <div className="flex min-w-0 flex-wrap items-center gap-2 px-2 py-1.5">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              {group.roleIds.length === 0 ? (
+              {group.key === "source_role" ? <Badge variant="secondary">{t("macroForm.execution.sourceRole")}</Badge> : group.roleIds.length === 0 ? (
                 <Badge variant="warning" className="gap-1.5">
                   <CircleAlert aria-hidden="true" size={12} />
                   {t("macros.group.unassigned")}

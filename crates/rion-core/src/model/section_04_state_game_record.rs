@@ -377,6 +377,9 @@ pub struct StateNormalizedRectRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateMacroRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub execution_mode: Option<MacroExecutionMode>,
     pub id: String,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

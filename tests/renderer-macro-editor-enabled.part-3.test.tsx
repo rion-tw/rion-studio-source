@@ -535,7 +535,7 @@ it("selects external shortcut source roles and saves them separately from execut
 
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
     expect(screen.getByText("Effective scope")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Selected roles" }));
+    await user.click(within(screen.getByRole("group", { name: "Effective scope" })).getByRole("button", { name: "Selected roles" }));
     expect(screen.getAllByRole("button", { name: "Remove Main role" })).toHaveLength(2);
 
     const sourceInput = screen.getByRole("combobox", { name: "Shortcut source roles" });
@@ -546,7 +546,7 @@ it("selects external shortcut source roles and saves them separately from execut
     expect(sourceToolbar).not.toBeNull();
     await user.click(within(sourceToolbar!).getByRole("button", { name: "Remove Main role" }));
     await user.click(screen.getByRole("button", { name: "All execution roles" }));
-    await user.click(screen.getByRole("button", { name: "Selected roles" }));
+    await user.click(within(screen.getByRole("group", { name: "Effective scope" })).getByRole("button", { name: "Selected roles" }));
     expect(screen.getAllByRole("button", { name: "Remove Main role" })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Remove Controller" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Save changes" }));
@@ -580,8 +580,8 @@ it("blocks saving an empty selected shortcut source scope", async () => {
     ], { initialEntries: ["/macros/macro-1/edit"] });
 
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
-    await user.click(screen.getByRole("button", { name: "Selected roles" }));
-    await user.click(screen.getAllByRole("button", { name: "Remove Main role" })[0]);
+    await user.click(within(screen.getByRole("group", { name: "Effective scope" })).getByRole("button", { name: "Selected roles" }));
+    await user.click(screen.getAllByRole("button", { name: "Remove Main role" })[1]);
 
     expect(screen.getAllByText("Select at least one shortcut source role, or clear the shortcut."))
       .toHaveLength(2);

@@ -830,6 +830,9 @@ pub struct BrowserWorkspaceStatusRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroDefinition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub execution_mode: Option<MacroExecutionMode>,
     pub id: String,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -850,6 +853,7 @@ pub struct MacroDefinition {
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum MacroShortcutSourceScope {
+    AllRoles,
     #[default]
     AllExecutionRoles,
     SelectedRoles {
@@ -1155,4 +1159,19 @@ pub struct MacroCoordinateContextRecord {
     pub surface_generation: u64,
     #[ts(type = "number")]
     pub topology_revision: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacroExecutionMode {
+    SourceRole,
+    #[default]
+    SelectedRoles,
+}
+
+impl MacroDefinition {
+    pub(crate) fn uses_source_role(&self) -> bool {
+        self.execution_mode == Some(MacroExecutionMode::SourceRole)
+    }
 }

@@ -89,7 +89,7 @@ describe("desktop E2E manifest resolution", () => {
       "p1-macro-standby-recovery",
       "extended-native"
     ]));
-    expect(journeysForDesktopE2eProfile(repositoryManifest, "extended")).toHaveLength(40);
+    expect(journeysForDesktopE2eProfile(repositoryManifest, "extended")).toHaveLength(41);
 
     for (const profileName of [
       "chromium-macos-appkit-smoke",

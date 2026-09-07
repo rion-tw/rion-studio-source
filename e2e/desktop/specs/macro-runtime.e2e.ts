@@ -1,3 +1,4 @@
+import { exerciseSourceRoleMacro } from "../support/macro-source-role";
 import { $, $$, browser, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
@@ -54,6 +55,7 @@ import { verifyModifierFocusReconciliation } from "./macro-runtime-modifier-focu
 // [journey:MACRO-NATIVE-EFFECT-003]
 // [journey:MACRO-BACKGROUND-TAB-004]
 // [journey:MACRO-MULTIROLE-005]
+// [journey:MACRO-SOURCE-ROLE-014]
 // [journey:MACRO-SHORTCUT-REENTRY-007]
 // [journey:MACRO-MODIFIER-CONTINUITY-008] [journey:MACRO-MIDDLE-BUTTON-013]
 // [journey:MACRO-INPUT-RECOVERY-011]
@@ -612,6 +614,7 @@ async function multiRolePhase(): Promise<void> {
     .map((status) => status.iteration ?? 0);
   expect(Math.max(...iterations) - Math.min(...iterations)).toBeLessThanOrEqual(1);
   await stopMacro(scenario.macro, macroCursor);
+  await exerciseSourceRoleMacro(scenario.macro, scenario.roles);
   try {
     await verifyWorkspaceHeldKeyContinuity({
       roleAId: scenario.roles[0].id,

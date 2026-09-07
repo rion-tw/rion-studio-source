@@ -1,3 +1,4 @@
+import { allowsMacroSource } from "../../../../shared/macroExecution";
 // Focused implementation extracted from MacrosRoute.tsx.
 import { ArrowDown, ArrowUp, CircleAlert, Copy, type LucideIcon, Loader2, MoreHorizontal, Pause, Pencil, Play, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 
@@ -45,9 +46,7 @@ export function MacroFailureMessage({
   roleById: Map<string, Role>;
   t: Translator;
 }): JSX.Element | null {
-  const failed = macro.roleIds
-    .map((roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
-    .find((status) => status?.state === "failed");
+  const failed = [...macroStatusByRun.values()].find((status) => status.macroId === macro.id && status.state === "failed");
   if (!failed) return null;
   const roleName = roleById.get(failed.roleId)?.name ?? failed.roleId;
   const message = failed.error ?? t("macros.status.failed");
@@ -102,6 +101,7 @@ interface MacroRoleBadgeProps {
 const MAX_VISIBLE_MACRO_ROLES = 4;
 
 export function MacroRoleBadge({ macro, roleIds = macro.roleIds, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
+  if (macro.executionMode === "source_role" && roleIds === macro.roleIds) return <span className="text-control text-muted-foreground">{t("macroForm.execution.sourceRole")}</span>;
   if (roleIds.length === 0) {
     return <span className="leading-5 text-muted-foreground">{t("macros.noRoles")}</span>;
   }
@@ -172,22 +172,23 @@ export function createMacroListRunActionState({
   runtimeInputAvailable?: boolean;
   statusByRole: Map<string, RoleStatus>;
 }): MacroListRunActionState {
-  const assignedStatuses = macro.roleIds
+  const roleIds = macro.executionMode === "source_role" ? [...statusByRole.keys()].filter((id) => allowsMacroSource(macro, id)) : macro.roleIds;
+  const assignedStatuses = roleIds
     .map((roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
     .filter((status): status is MacroRunStatus => Boolean(status));
   const isRunning = assignedStatuses.some(isMacroRunActive);
   const isStopping = assignedStatuses.some((status) => status.state === "stopping");
-  const hasRunningBrowser = macro.roleIds.some(
+  const hasRunningBrowser = roleIds.some(
     (roleId) => statusByRole.get(roleId)?.state === "running"
   );
-  const hasRunnableRole = macro.roleIds.some(
+  const hasRunnableRole = roleIds.some(
     (roleId) =>
       statusByRole.get(roleId)?.state === "running" &&
       statusByRole.get(roleId)?.automationState === "ready" &&
       statusByRole.get(roleId)?.pageHealth !== "unresponsive"
   );
   const isBusy = busyMacroIds.has(macro.id) || busyRunKeys.has(macro.id) || isStopping;
-  const disabledReason = !isRunning && macro.roleIds.length === 0
+  const disabledReason = !isRunning && macro.executionMode !== "source_role" && macro.roleIds.length === 0
     ? "noRoles"
     : !isRunning && hasUnassignedDependency
       ? "unassignedDependency"
@@ -228,7 +229,7 @@ export function MacroRunButton({
   runState: MacroListRunActionState;
   t: Translator;
 }): JSX.Element {
-  const runLabel = t(runState.kind === "stop" ? "macros.stopShort" : "macros.startShort");
+  const runLabel = t(runState.kind === "stop" ? macro.executionMode === "source_role" ? "macros.stop" : "macros.stopShort" : "macros.startShort");
   const title = runState.disabledReason === "noRoles"
     ? t("macros.assignRoleFirst")
     : runState.disabledReason === "unassignedDependency"

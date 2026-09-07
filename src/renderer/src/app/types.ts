@@ -4,6 +4,7 @@ import type {
   GameSource,
   LaunchWorkspaceSlot,
   MacroActivationMode,
+  MacroExecutionMode,
   MacroRepeat,
   MacroShortcutSourceScope,
   MacroStep,
@@ -40,6 +41,7 @@ export interface GameFormState {
 }
 
 export interface MacroFormState {
+  executionMode?: MacroExecutionMode;
   id?: string;
   enabled: boolean;
   activationMode?: MacroActivationMode;

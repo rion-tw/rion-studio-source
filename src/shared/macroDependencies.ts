@@ -2,7 +2,7 @@ import type { Macro } from "./types";
 
 type MacroDependencyNode = Pick<Macro, "id" | "steps">;
 
-type MacroAssignmentNode = Pick<Macro, "id" | "roleIds" | "steps">;
+type MacroAssignmentNode = Pick<Macro, "id" | "roleIds" | "steps" | "executionMode">;
 
 function getMacroDependencyIds(macro: Pick<Macro, "steps">): string[] {
   return macro.steps.flatMap((step) => step.type === "macro" ? [step.macroId] : []);
@@ -44,7 +44,7 @@ export function findUnassignedMacroDependency<T extends MacroAssignmentNode>(
 
     const macro = macroById.get(macroId);
     if (!macro) continue;
-    if (macro.roleIds.length === 0) return macro;
+    if (macro.executionMode !== "source_role" && macro.roleIds.length === 0) return macro;
 
     pending.push(...getMacroDependencyIds(macro));
   }

@@ -316,6 +316,7 @@ fn finite_trigger_parent() -> MacroStartRequest {
     MacroStartRequest {
         macros: vec![
             MacroDefinition {
+                execution_mode: None,
                 id: "parent".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -331,6 +332,7 @@ fn finite_trigger_parent() -> MacroStartRequest {
                 }],
             },
             MacroDefinition {
+                execution_mode: None,
                 id: "child".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -365,6 +367,7 @@ fn nested_nonblocking_parent() -> MacroStartRequest {
     MacroStartRequest {
         macros: vec![
             MacroDefinition {
+                execution_mode: None,
                 id: "parent".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -386,6 +389,7 @@ fn nested_nonblocking_parent() -> MacroStartRequest {
                 ],
             },
             MacroDefinition {
+                execution_mode: None,
                 id: "child".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -401,6 +405,7 @@ fn nested_nonblocking_parent() -> MacroStartRequest {
                 }],
             },
             MacroDefinition {
+                execution_mode: None,
                 id: "grandchild".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -431,6 +436,7 @@ fn list_parent_with_nested_descendants() -> MacroStartRequest {
     MacroStartRequest {
         macros: vec![
             MacroDefinition {
+                execution_mode: None,
                 id: "parent".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -452,6 +458,7 @@ fn list_parent_with_nested_descendants() -> MacroStartRequest {
                 ],
             },
             MacroDefinition {
+                execution_mode: None,
                 id: "child".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -467,6 +474,7 @@ fn list_parent_with_nested_descendants() -> MacroStartRequest {
                 }],
             },
             MacroDefinition {
+                execution_mode: None,
                 id: "grandchild".to_owned(),
                 enabled: true,
                 activation_mode: Some("toggle".to_owned()),
@@ -500,6 +508,7 @@ fn list_parent_with_nested_descendants() -> MacroStartRequest {
 fn independent_child_definitions() -> Vec<MacroDefinition> {
     vec![
         MacroDefinition {
+            execution_mode: None,
             id: "parent".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),
@@ -529,6 +538,7 @@ fn independent_child_definitions() -> Vec<MacroDefinition> {
             ],
         },
         MacroDefinition {
+            execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
             activation_mode: Some("toggle".to_owned()),

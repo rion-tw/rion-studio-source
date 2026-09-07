@@ -348,10 +348,10 @@ async function invokeCoreBackedMethod<Method extends RionApiDispatchMethod>(
       return core.invoke({ type: "macrosDelete", ids: input.ids });
     }
     case "startMacro": {
-      const [macroId] = typedArgs<"startMacro">(args);
+      const [macroId, sourceRoleId] = typedArgs<"startMacro">(args);
       return core.invoke({
         type: "macroStart",
-        request: { macroId, sourceRoleId: null }
+        request: { macroId, sourceRoleId: sourceRoleId ?? null }
       });
     }
     case "stopMacro": {

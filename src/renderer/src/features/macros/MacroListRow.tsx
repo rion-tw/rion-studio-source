@@ -71,7 +71,7 @@ export function MacroListRow({
   const isActive = runState.isRunning || runState.isStopping;
   const rowTone = isActive
     ? "bg-activity/[0.08]"
-    : macro.roleIds.length === 0
+    : macro.executionMode !== "source_role" && macro.roleIds.length === 0
       ? "bg-warning/35"
       : isSelected
         ? "bg-activity/10"
@@ -90,7 +90,7 @@ export function MacroListRow({
           data-macro-active={isActive ? "true" : undefined}
           data-macro-disabled={!macro.enabled ? "true" : undefined}
           data-macro-id={macro.id}
-          data-macro-unassigned={macro.roleIds.length === 0 ? "true" : undefined}
+          data-macro-unassigned={macro.executionMode !== "source_role" && macro.roleIds.length === 0 ? "true" : undefined}
           data-selection-id={macro.id}
           tabIndex={-1}
           onClickCapture={onSelectionClick}

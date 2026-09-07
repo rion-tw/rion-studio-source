@@ -217,7 +217,7 @@ use super::*;
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         };
-        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":20");
+        let future = fixture(11).replace("\"schemaVersion\":11", &format!("\"schemaVersion\":{}", PORTABLE_SCHEMA_VERSION + 1));
         assert!(normalize(&future).is_err());
     }
 
@@ -231,7 +231,7 @@ use super::*;
 
             let normalized = normalize(&source.to_string()).unwrap();
 
-            assert_eq!(normalized["schemaVersion"], 19);
+            assert_eq!(normalized["schemaVersion"], PORTABLE_SCHEMA_VERSION);
             assert!(normalized["games"][0].get("localStorageSyncKeys").is_none());
             assert!(normalized["games"][0].get("localStorageSyncSelectors").is_none());
             assert!(normalized["roles"][0].get("localStorageSourceRoleId").is_none());
@@ -560,7 +560,7 @@ use super::*;
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 19);
+            assert_eq!(exported.schema_version, PORTABLE_SCHEMA_VERSION as u32);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);
@@ -761,3 +761,17 @@ use super::*;
             Some(crate::model::LogLevel::Debug)
         );
     }
+
+#[test]
+fn source_role_macro_portable_round_trip_without_a_shortcut() {
+    let mut value = fixture_value(PORTABLE_SCHEMA_VERSION);
+    value["macros"][0]["executionMode"] = json!("source_role");
+    value["macros"][0]["roleIds"] = json!([]);
+    value["macros"][0]["shortcutSourceScope"] = json!({"type":"all_roles"});
+    let normalized = normalize(&value.to_string()).unwrap();
+    let data: PortableDataRecord = serde_json::from_value(normalized.clone()).unwrap();
+    assert_eq!(data.macros[0].execution_mode, Some(crate::model::MacroExecutionMode::SourceRole));
+    assert!(matches!(data.macros[0].shortcut_source_scope, MacroShortcutSourceScope::AllRoles));
+    let normalized_again = normalize(&serde_json::to_string(&data).unwrap()).unwrap();
+    assert_eq!(normalized["macros"], normalized_again["macros"]);
+}

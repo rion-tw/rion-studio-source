@@ -35,7 +35,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 19;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 20;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -610,6 +610,10 @@ fn normalize_macro(value: &Value, supports_modifiers: bool, schema: u64) -> Core
         json!(required_string(source, "name", "macro")?),
     );
     macro_value.insert("roleIds".to_owned(), json!(role_ids));
+    let execution_mode = source.get("executionMode").map(|value| value.as_str().ok_or_else(|| invalid("portable macro executionMode is invalid"))).transpose()?.unwrap_or("selected_roles");
+    if !matches!(execution_mode, "source_role" | "selected_roles") { return Err(invalid("portable macro executionMode is invalid")); }
+    if source.contains_key("executionMode") { macro_value.insert("executionMode".to_owned(), json!(execution_mode)); }
+    if execution_mode == "source_role" { macro_value.insert("roleIds".to_owned(), json!([])); }
     let shortcut_source_scope = normalize_portable_macro_shortcut_source_scope(
         source,
         schema,
@@ -632,7 +636,7 @@ fn normalize_portable_macro_shortcut_source_scope(
     schema: u64,
     has_trigger: bool,
 ) -> CoreResult<Value> {
-    if !has_trigger || schema < 15 {
+    if (!has_trigger && source.get("executionMode").and_then(Value::as_str) != Some("source_role")) || schema < 15 {
         return Ok(json!({ "type": "all_execution_roles" }));
     }
     let scope = source
@@ -640,6 +644,7 @@ fn normalize_portable_macro_shortcut_source_scope(
         .and_then(Value::as_object)
         .ok_or_else(|| invalid("portable macro shortcutSourceScope is invalid"))?;
     match scope.get("type").and_then(Value::as_str) {
+        Some("all_roles") if source.get("executionMode").and_then(Value::as_str) == Some("source_role") => Ok(json!({ "type": "all_roles" })),
         Some("all_execution_roles") => Ok(json!({ "type": "all_execution_roles" })),
         Some("selected_roles") => {
             let role_ids = scope
@@ -655,7 +660,7 @@ fn normalize_portable_macro_shortcut_source_scope(
                         .ok_or_else(|| invalid("portable macro shortcut source roleId is invalid"))
                 })
                 .collect::<CoreResult<Vec<_>>>()?;
-            if role_ids.is_empty()
+            if (role_ids.is_empty() && (has_trigger || source.get("executionMode").and_then(Value::as_str) != Some("source_role")))
                 || role_ids.iter().collect::<HashSet<_>>().len() != role_ids.len()
             {
                 return Err(invalid(

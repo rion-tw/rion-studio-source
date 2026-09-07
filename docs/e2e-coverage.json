@@ -2678,6 +2678,80 @@
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "restart"],
       "description": "Select a real mixed-scale secondary display through visible UI and compare Chromium native displayId, bounds, scale, presentation, and work area with the same Rust display topology revision; absent hardware is BLOCKED, never pass."
+    },
+    {
+      "id": "MACRO-SOURCE-ROLE-014",
+      "feature": "macros",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phases": [
+        "p1-macro-multirole"
+      ],
+      "spec": "e2e/desktop/specs/macro-runtime.e2e.ts",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "cancel"
+      ],
+      "description": "Author a source-role macro with no shortcut through visible segments, verify the all-role scope and separate list group, cancel a manual launch without starting, then choose each available test role and prove Core reports only that execution target before visibly stopping all runs."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-MACRO-SOURCE-ROLE-014",
+      "coverageGroup": "chromium-v23-macro-source-role",
+      "feature": "macros",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-macro-ui-seed",
+        "chromium-macro-ui-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-macro-ui.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "cancel"
+      ],
+      "description": "Author a source-role macro with no shortcut through visible segments, verify the all-role scope and separate list group, cancel a manual launch without starting, then choose each available test role and prove Core reports only that execution target before visibly stopping all runs.",
+      "replaces": [
+        "MACRO-SOURCE-ROLE-014"
+      ]
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-MACRO-SOURCE-ROLE-014",
+      "coverageGroup": "chromium-v23-macro-source-role",
+      "feature": "macros",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-macro-ui-seed",
+        "chromium-macro-ui-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-macro-ui.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "cancel"
+      ],
+      "description": "Author a source-role macro with no shortcut through visible segments, verify the all-role scope and separate list group, cancel a manual launch without starting, then choose each available test role and prove Core reports only that execution target before visibly stopping all runs.",
+      "replaces": [
+        "MACRO-SOURCE-ROLE-014"
+      ]
     }
   ]
 }

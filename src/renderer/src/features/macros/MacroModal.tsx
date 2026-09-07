@@ -34,7 +34,7 @@ import { areMacroTriggersEqual, isReservedBrowserZoomMacroTrigger, isReservedQui
 
 import { DEFAULT_MACRO_SETTINGS, isValidMacroKeyHoldDuration } from "../../../../shared/macroSettings";
 
-import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroRepeat, MacroSettings, MacroShortcutSourceScope, MacroStep, Role } from "../../../../shared/types";
+import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroRepeat, MacroSettings, MacroStep, Role } from "../../../../shared/types";
 
 import { createClientId, getMacroTargetOptions, isCallableMacroTarget, isValidMacroInterval } from "./macroUtils";
 
@@ -44,7 +44,7 @@ import { MacroCommandImportDialog, MacroHelpSection, MacroIntervalControl, Short
 
 import { MacroMindMapPanel } from "./MacroMindMap";
 
-import { MacroRoleCombobox } from "./MacroRoleCombobox";
+import { MacroExecutionFields } from "./MacroExecutionFields";
 
 interface MacroEditorRouteProps {
   games: Game[];
@@ -140,14 +140,14 @@ function MacroEditor({
   const activationError = form.activationMode === "while_held" && !form.trigger
     ? t("macroForm.saveHint.holdNeedsShortcut")
     : undefined;
-  const shortcutSourceError = form.trigger &&
+  const shortcutSourceError = (form.trigger || form.executionMode === "source_role") &&
     form.shortcutSourceScope.type === "selected_roles" &&
     form.shortcutSourceScope.roleIds.length === 0
-    ? t("macroForm.saveHint.needsShortcutSourceRole")
+    ? t(form.executionMode === "source_role" ? "macroForm.execution.sourceRequired" : "macroForm.saveHint.needsShortcutSourceRole")
     : undefined;
   const canSubmit =
     form.name.trim().length > 0 &&
-    (form.roleIds.length > 0 || Boolean(form.id)) &&
+    (form.executionMode === "source_role" || form.roleIds.length > 0 || Boolean(form.id)) &&
     form.steps.length > 0 &&
     (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
     !activationError &&
@@ -156,7 +156,7 @@ function MacroEditor({
     !macroStepError &&
     !shortcutConflict;
   const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? holdDurationError ?? macroStepError ?? (
-    form.roleIds.length === 0
+    form.executionMode !== "source_role" && form.roleIds.length === 0
       ? t(form.id ? "macroForm.saveHint.unassigned" : "macroForm.saveHint.needsRole")
       : form.steps.length === 0
         ? t("macroForm.saveHint.needsStep")
@@ -242,11 +242,6 @@ function MacroForm({
   shortcutSourceError,
   t
 }: MacroFormProps): JSX.Element {
-  const selectedShortcutSourceRoleIdsRef = useRef<string[] | null>(
-    form.shortcutSourceScope.type === "selected_roles"
-      ? [...form.shortcutSourceScope.roleIds]
-      : null
-  );
   const macroTargetOptions = useMemo(
     () => getMacroTargetOptions(macros, form.id),
     [form.id, macros]
@@ -376,13 +371,10 @@ function MacroForm({
                   trigger={form.trigger}
                   t={t}
                   onChange={(trigger) => update((current) => {
-                    if (!trigger || !current.trigger) {
-                      selectedShortcutSourceRoleIdsRef.current = null;
-                    }
                     return {
                       ...current,
                       trigger,
-                      shortcutSourceScope: trigger
+                      shortcutSourceScope: current.executionMode === "source_role" ? current.shortcutSourceScope : trigger
                         ? current.trigger
                           ? current.shortcutSourceScope
                           : { type: "all_execution_roles" }
@@ -420,79 +412,6 @@ function MacroForm({
                 </FormField>
               ) : null}
 
-              {form.trigger ? (
-                <FormField
-                  label={t("macroForm.shortcutScope")}
-                  description={t("macroForm.shortcutScopeDescription")}
-                >
-                  <div className="grid gap-3">
-                    <SegmentedControl<MacroShortcutSourceScope["type"]>
-                      className={cn(
-                        "w-full grid-cols-2 p-0.5 [&>button]:h-6",
-                        isSaving && "pointer-events-none opacity-45"
-                      )}
-                      aria-disabled={isSaving}
-                      items={[
-                        {
-                          value: "all_execution_roles",
-                          label: t("macroForm.shortcutScope.allExecutionRoles")
-                        },
-                        {
-                          value: "selected_roles",
-                          label: t("macroForm.shortcutScope.selectedRoles")
-                        }
-                      ]}
-                      value={form.shortcutSourceScope.type}
-                      onValueChange={(type) => {
-                        if (isSaving) return;
-                        update((current) => {
-                          if (current.shortcutSourceScope.type === "selected_roles") {
-                            selectedShortcutSourceRoleIdsRef.current = [
-                              ...current.shortcutSourceScope.roleIds
-                            ];
-                          }
-                          const selectedRoleIds = selectedShortcutSourceRoleIdsRef.current ?? [
-                            ...current.roleIds
-                          ];
-                          if (type === "selected_roles") {
-                            selectedShortcutSourceRoleIdsRef.current = [...selectedRoleIds];
-                          }
-                          return {
-                            ...current,
-                            shortcutSourceScope: type === "selected_roles"
-                              ? { type, roleIds: selectedRoleIds }
-                              : { type }
-                          };
-                        });
-                      }}
-                    />
-                    {form.shortcutSourceScope.type === "selected_roles" ? (
-                      <FormField
-                        htmlFor="macro-shortcut-source-role"
-                        label={t("macroForm.shortcutSourceRoles")}
-                        description={t("macroForm.shortcutSourceRolesDescription")}
-                      >
-                        <MacroRoleCombobox
-                          ariaLabel={t("macroForm.shortcutSourceRoles")}
-                          disabled={isSaving}
-                          games={games}
-                          inputId="macro-shortcut-source-role"
-                          roles={roles}
-                          t={t}
-                          value={form.shortcutSourceScope.roleIds}
-                          onValueChange={(roleIds) => update((current) => {
-                            selectedShortcutSourceRoleIdsRef.current = [...roleIds];
-                            return {
-                              ...current,
-                              shortcutSourceScope: { type: "selected_roles", roleIds }
-                            };
-                          })}
-                        />
-                      </FormField>
-                    ) : null}
-                  </div>
-                </FormField>
-              ) : null}
             </Surface>
 
             <Surface className="p-4" padding="none" variant="inset">
@@ -538,28 +457,7 @@ function MacroForm({
               </FormField>
             </Surface>
 
-            <Surface className="p-4" padding="none" variant="inset">
-              <FormField
-                htmlFor="macro-role"
-                label={t("macroForm.roles")}
-                description={t("macroForm.rolesDescription")}
-              >
-                {roles.length > 0 ? (
-                  <MacroRoleCombobox
-                    disabled={isSaving}
-                    games={games}
-                    roles={roles}
-                    t={t}
-                    value={form.roleIds}
-                    onValueChange={(roleIds) => update((current) => ({ ...current, roleIds }))}
-                  />
-                ) : (
-                  <div className="glass-control flex h-[var(--control-height)] items-center rounded-md px-2.5 text-control text-muted-foreground">
-                    {t("macroForm.noRoles")}
-                  </div>
-                )}
-              </FormField>
-            </Surface>
+            <MacroExecutionFields form={form} games={games} roles={roles} isSaving={isSaving} t={t} onChange={onChange} />
 
             <div className="editor-layout-macro-help grid gap-4" data-macro-help-list>
               <HelpPanel data-macro-help="activation">

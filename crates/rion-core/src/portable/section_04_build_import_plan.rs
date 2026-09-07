@@ -450,6 +450,11 @@ fn build_import_plan(
                         Some(missing_source_count),
                     ));
                 }
+                if mapped_source_role_ids.is_empty() && macro_record.execution_mode == Some(crate::model::MacroExecutionMode::SourceRole) {
+                    warnings.push(warning("MACRO_SKIPPED_NO_ROLES", Some(macro_record.name.clone()), None, None));
+                    operations.macros.skip += 1;
+                    continue;
+                }
                 if mapped_source_role_ids.is_empty() {
                     warnings.push(warning(
                         "MACRO_SHORTCUT_CLEARED_NO_SOURCE_ROLES",
@@ -617,7 +622,7 @@ fn build_import_plan(
                         .trigger
                         .as_ref()
                         .is_some_and(|candidate_trigger| triggers_equal(candidate_trigger, trigger))
-                        && roles_overlap(candidate_source_role_ids, item_source_role_ids)
+                        && (matches!(candidate.shortcut_source_scope, MacroShortcutSourceScope::AllRoles) || matches!(item.macro_record.shortcut_source_scope, MacroShortcutSourceScope::AllRoles) || roles_overlap(candidate_source_role_ids, item_source_role_ids))
                 })
             }) {
                 warnings.push(warning(
@@ -636,6 +641,7 @@ fn build_import_plan(
                 .map(|step| remap_macro_step(step, &macro_id_map))
                 .collect::<CoreResult<Vec<_>>>()?;
             let merged = StateMacroRecord {
+                execution_mode: item.macro_record.execution_mode,
                 id: item.destination_id,
                 enabled: item.macro_record.enabled,
                 activation_mode: Some(if trigger.is_some() {
@@ -645,7 +651,7 @@ fn build_import_plan(
                 }),
                 name: item.name,
                 role_ids: item.role_ids,
-                shortcut_source_scope: if trigger.is_some() {
+                shortcut_source_scope: if trigger.is_some() || item.macro_record.execution_mode == Some(crate::model::MacroExecutionMode::SourceRole) {
                     item.macro_record.shortcut_source_scope
                 } else {
                     MacroShortcutSourceScope::AllExecutionRoles

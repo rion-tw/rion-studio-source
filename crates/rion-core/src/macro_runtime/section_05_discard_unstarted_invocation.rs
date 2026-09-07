@@ -1,12 +1,14 @@
 fn validate_shortcut_source(request: &MacroStartRequest) -> CoreResult<()> {
-    let Some(source_role_id) = request.source_role_id.as_deref() else {
-        return Ok(());
-    };
     let definition = request
         .macros
         .iter()
         .find(|definition| definition.id == request.macro_id)
         .ok_or_else(|| CoreError::InvalidInput("macro was not found".to_owned()))?;
+    let Some(source_role_id) = request.source_role_id.as_deref() else {
+        return if definition.uses_source_role() {
+            Err(CoreError::Domain { code: "MACRO_SOURCE_ROLE_REQUIRED", message: "Choose a source role before starting this macro.".to_owned() })
+        } else { Ok(()) };
+    };
     if crate::domain::macro_shortcut_source_contains(
         &definition.shortcut_source_scope,
         &definition.role_ids,
@@ -30,7 +32,7 @@ fn begin_macro_start_attempt(shared: &Arc<Shared>, request: &MacroStartRequest) 
         .macros
         .iter()
         .find(|definition| definition.id == request.macro_id)
-        .map(|definition| assigned_active_roles(definition, &active_role_ids))
+        .map(|definition| assigned_active_roles(definition, &active_role_ids, request.source_role_id.as_deref()))
         .unwrap_or_default();
     begin_macro_start_attempt_for_roles(
         shared,
@@ -466,7 +468,11 @@ fn wait_finished_with_timeout(control: &InvocationControl, timeout: Duration) ->
 fn assigned_active_roles(
     definition: &MacroDefinition,
     active_role_ids: &HashSet<String>,
+    source_role_id: Option<&str>,
 ) -> Vec<String> {
+    if definition.uses_source_role() {
+        return source_role_id.filter(|id| active_role_ids.contains(*id)).map(|id| vec![id.to_owned()]).unwrap_or_default();
+    }
     definition
         .role_ids
         .iter()
@@ -643,4 +649,14 @@ fn epoch_millis() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+
+fn control_source_matches(control: &InvocationControl, source: Option<&str>) -> bool {
+    control.execution_source.lock().is_ok_and(|value| value.as_deref() == source)
+}
+
+fn dynamic_request_source(request: &MacroStartRequest) -> Option<&str> {
+    request.macros.iter().find(|definition| definition.id == request.macro_id)
+        .filter(|definition| definition.uses_source_role())
+        .and(request.source_role_id.as_deref())
 }

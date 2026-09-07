@@ -530,7 +530,7 @@ async fn rion_shell_invoke(
                 &state,
                 json!({
                     "type": "macroStart",
-                    "request": { "macroId": macro_id, "sourceRoleId": null }
+                    "request": { "macroId": macro_id, "sourceRoleId": args.get(1).cloned().unwrap_or(Value::Null) }
                 }),
             )
             .await

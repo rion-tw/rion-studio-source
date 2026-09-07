@@ -578,7 +578,7 @@ function MacroRunRow({
   t: Translator;
 }): JSX.Element {
   const isStop = item.action.kind === "stop";
-  const actionLabel = isStop ? t("macros.stopShort") : t("macros.startShort");
+  const actionLabel = isStop ? t(item.macro.executionMode === "source_role" ? "macros.stop" : "macros.stopShort") : t("macros.startShort");
 
   return (
     <div className="grid min-w-0 grid-cols-[30px_minmax(0,1fr)_auto_72px] items-center gap-2 rounded-md border border-border/35 bg-background/18 px-2.5 py-2 transition-colors hover:border-border/55 hover:bg-background/25">
@@ -590,7 +590,7 @@ function MacroRunRow({
           {item.macro.name}
         </p>
         <span className="mt-0.5 block truncate text-caption font-medium text-muted-foreground">
-          {t("dashboard.macro.assignedRoles").replace("{count}", String(item.assignedCount))}
+          {item.macro.executionMode === "source_role" ? t("macroForm.execution.sourceRole") : t("dashboard.macro.assignedRoles").replace("{count}", String(item.assignedCount))}
           {" · "}
           {t("dashboard.macro.stepCount").replace("{count}", String(item.macro.steps.length))}
         </span>

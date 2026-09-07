@@ -906,3 +906,27 @@
         }))
         .is_err());
     }
+
+#[test]
+fn source_execution_preserves_manual_scope_and_conflicts_with_all_roles() {
+    let mut macros = Vec::new();
+    let dynamic = create_macro(&mut macros, macro_input(json!({
+        "name":"Dynamic", "executionMode":"source_role", "roleIds":["ignored"],
+        "shortcutSourceScope":{"type":"selected_roles","roleIds":["r1"]},
+        "steps":[{"type":"delay","ms":1}]
+    }))).unwrap();
+    assert!(dynamic.role_ids.is_empty());
+    assert_eq!(dynamic.execution_mode, Some(crate::model::MacroExecutionMode::SourceRole));
+    assert!(matches!(dynamic.shortcut_source_scope, MacroShortcutSourceScope::SelectedRoles { .. }));
+    let reopened: StateMacroRecord = serde_json::from_value(serde_json::to_value(&dynamic).unwrap()).unwrap();
+    assert_eq!(reopened.execution_mode, dynamic.execution_mode);
+    let mut all = macro_input(json!({"name":"All", "executionMode":"source_role", "roleIds":[], "shortcutSourceScope":{"type":"all_roles"}, "trigger":{"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false}, "steps":[{"type":"delay","ms":1}]}));
+    create_macro(&mut macros, all.clone()).unwrap();
+    all.name = "Conflicting".into();
+    all.execution_mode = None;
+    all.role_ids = vec!["future".into()];
+    all.shortcut_source_scope = None;
+    assert_eq!(create_macro(&mut macros, all).unwrap_err().code(), "MACRO_TRIGGER_CONFLICT");
+    clear_macro_role(&mut macros, "r1");
+    assert!(matches!(&macros[0].shortcut_source_scope, MacroShortcutSourceScope::SelectedRoles { role_ids } if role_ids.is_empty()));
+}

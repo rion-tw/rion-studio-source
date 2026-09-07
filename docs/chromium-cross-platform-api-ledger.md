@@ -339,6 +339,21 @@ quarantine also uses the shared Core terminal commit, preserving its native
 authority and including hidden tabs in teardown. Its platform-aware Rust
 quarantine regressions passed; native macOS validation remains pending.
 
+Core correction commit: `4d42c351`. Its first E2E build attempt (`02-42-58`)
+could not replace the addon because the earlier `02-07-46` failed run still
+owned it. Exact user-data-path-matched orphan processes were terminated; no
+user app process was targeted. The next attempt,
+`.desktop-e2e-artifacts/2026-09-07T02-45-33-761Z-win32`, passed physical input,
+Window A projection removal, Window B held-key close and cleanup, then reached
+Window C's shutdown Macro. Core stop receipts 525/739 completed. It failed at
+the final visible application Close helper: the PID-only UIA selector required
+one window even though the scenario deliberately retained a Game Window.
+The helper now selects the process's fixed `Rion Studio` main-window title,
+retaining unique-window and unique native Close-button assertions. Typecheck
+and the eight-test Macro cutover harness suite passed. The failed attempt's
+post-test cleanup wrote `electron-final-flush.json` with `complete: true`;
+this does not substitute for the primary visible application Close assertion.
+
 The completed uncontended x64 Vitest batch (`vitest-x64-uncontended.log`)
 reported 452 files: 430 passed, 12 failed, ten skipped; 3,582 tests passed,
 15 failed, 48 skipped, 742.31s. Eleven failures are exact `symlink` `EPERM`

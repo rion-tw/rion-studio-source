@@ -807,3 +807,70 @@ fn appkit_passive_supersession_requires_a_newer_same_generation_core_projection(
         core.shutdown();
     }
 }
+
+#[test]
+fn appkit_window_close_drains_the_exact_cohort_without_intermediate_phase_projection() {
+    for fail_first_destroy in [false, true] {
+        let (_directory, core) = core_for_runtime_contract("darwin", 23);
+        core.invoke(CoreCommand::BrowserRuntimeRegister {
+            registration: chromium_registration("darwin", true),
+        }).unwrap();
+        let game_id = first_game_id(&core);
+        let mut tab_ids = Vec::new();
+        for index in 1..=3 {
+            let role_id = create_role(&core, &game_id, index);
+            let (result, actions) = drive_command(Arc::clone(&core), command(json!({
+                "type": "embeddedRoleLaunch", "roleId": role_id,
+                "target": { "windowId": "appkit-cohort", "displayId": 1,
+                    "workArea": { "x": 0, "y": 0, "width": 1200, "height": 800 } }
+            })), None);
+            result.unwrap();
+            tab_ids.push(actions.iter().find_map(|action| match action {
+                CoreEffectAction::EmbeddedCreateTab { tab } => Some(tab.tab_id.clone()),
+                _ => None,
+            }).unwrap());
+        }
+        let snapshot = core.browser_runtime.snapshot().unwrap();
+        let window = &snapshot.windows["appkit-cohort"];
+        let mut observation = appkit_test_observation("appkit-cohort", 1);
+        observation.window_generation = window.window_generation;
+        observation.topology_revision = window.revision;
+        let event = crate::model::AppKitRuntimeEventRecord {
+            event_id: uuid::Uuid::new_v4().to_string(), adapter_sequence: 1,
+            hosts: vec![observation],
+            action: crate::model::AppKitRuntimeEventActionRecord::CloseWindow,
+        };
+        let (result, actions, _) = drive_async_command_with(Arc::clone(&core),
+            CoreCommand::BrowserAppKitRuntimeEvent { event }, |effect| {
+                let fail = match &effect.action {
+                    CoreEffectAction::EmbeddedDestroyTab { tab_id, .. }
+                        if fail_first_destroy && tab_id == &tab_ids[0] => Some("embeddedDestroyTab"),
+                    // The retained host cannot accept a phase-only projection
+                    // after just one member of the closing cohort is removed.
+                    CoreEffectAction::EmbeddedFollowRoleOwnership { .. } =>
+                        Some("embeddedFollowRoleOwnership"),
+                    _ => None,
+                };
+                effect_result(effect, fail)
+            });
+        let receipt: crate::model::AppKitRuntimeEventReceiptRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(receipt.status, if fail_first_destroy {
+            crate::model::SystemRuntimeOperationStatus::Indeterminate
+        } else { crate::model::SystemRuntimeOperationStatus::Applied });
+        let destroyed = actions.iter().filter_map(|action| match action {
+            CoreEffectAction::EmbeddedDestroyTab { tab_id, .. } => Some(tab_id.clone()),
+            _ => None,
+        }).collect::<Vec<_>>();
+        assert_eq!(destroyed, tab_ids);
+        assert!(!actions.iter().any(|action| matches!(action,
+            CoreEffectAction::EmbeddedFollowRoleOwnership { .. })));
+        let after = core.browser_runtime.snapshot().unwrap();
+        assert_eq!(after.windows.contains_key("appkit-cohort"), fail_first_destroy);
+        if fail_first_destroy {
+            assert!(!receipt.native_applied);
+            assert_eq!(after.windows["appkit-cohort"].all_tab_ids(), tab_ids);
+        }
+        core.shutdown();
+    }
+}

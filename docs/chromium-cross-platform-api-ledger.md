@@ -28,6 +28,30 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### AppKit whole-window retirement uses the Core cohort barrier — 2026-09-07
+
+At 05558a1c, Windows physical input and keyboard cutover pass (6.1s / 43.9s),
+including the unchanged held-Shift assertion and exact final flush/process exit.
+Artifact 2026-09-07T06-34-54-694Z-win32; log held-modifier-keyboard-x64.log.
+
+CI 34089874671 macOS artifact 10006918721 records 50 passed phases, four expected
+force terminations, then tabs visible seed fails waiting for dormant state.
+Controlled Reload, paired Web navigation/restart and all Macro cutover phases
+pass at 121ec958. Exact tabs flow: native closeWindow 757 admits generation 3 /
+revision 35; first DestroyTab 759 completes at 771; FollowRoleOwnership 775 sends
+two tabs while the native AppKit projection retains the original cohort. It
+rejects at 776 with ELECTRON_MACOS_APPKIT_PHASE_PROJECTION_STALE; receipt 781 is
+indeterminate, so the remaining tabs never close. The AppKit event now invokes
+the existing Rust whole-window close path, retaining the original event identity,
+generation/revision/cohort and the exact native acknowledgement barrier before
+logical RemoveWindow. No phase-only projection is interleaved with individual
+destructions. Failure attempts the remaining exact destroys but never removes
+an unacknowledged logical window. The new three-Role regression failed before
+repair and passes after repair, including first-destroy failure. Logs:
+appkit-cohort-{before,after}-x64.log. Windows Rust formatting/Clippy and full workspace pass: 1,646 tests / three existing ignored; Core 955 (190.97s), updater 41 (1.13s), unchanged 256-round concurrency. Logs: appkit-cohort-{lint-rust,test-rust}-x64.log. Fresh macOS
+native tabs acceptance are required; no stale phase assertion was relaxed.
+Journeys: CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020 and
+TABS-VISIBLE-ACTIVATION-019; CP-04 remains pending paired final acceptance.
 ### Exact held-key cancellation in the Windows tab hover driver — 2026-09-07
 
 At 121ec958, native Windows Electron integration passes all eight files / 16

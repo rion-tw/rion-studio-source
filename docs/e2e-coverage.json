@@ -2357,7 +2357,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences; retain the accepted move completion across subsequent placement without shell errors."
+      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences; retain the accepted move completion across subsequent placement without shell errors. Whole-window close must await every exact tab destruction before retiring the Core window, without interleaving phase-only projections of a partially closed cohort."
     },
     {
       "id": "CHROMIUM-WINDOWS-GAME-WINDOWS-TABS-020",

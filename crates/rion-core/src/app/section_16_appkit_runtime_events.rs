@@ -1199,63 +1199,27 @@ impl AppCore {
         else {
             return self.appkit_superseded_receipt(&event, &primary, Some("APPKIT_EVENT_STALE"));
         };
-        for (index, tab_id) in window.all_tab_ids().iter().enumerate() {
-            let current = self.browser_runtime.snapshot()?;
-            let Some(current_window) = current.windows.get(&window.window_id) else {
-                break;
-            };
-            let current_observation = crate::model::AppKitRuntimeHostObservationRecord {
-                window_generation: current_window.window_generation,
-                topology_revision: current_window.revision,
-                ..primary.clone()
-            };
-            let child_operation_id = format!("{}:tab:{}", event.event_id, index + 1);
-            let Some(close) = self.prepare_appkit_logical_close(
-                &child_operation_id,
-                &current_observation,
-                tab_id,
-                None,
-            )?
-            else {
-                return self.appkit_superseded_receipt(
-                    &event,
-                    &primary,
-                    Some("APPKIT_WINDOW_CLOSE_STALE"),
-                );
-            };
-            let request = crate::model::RuntimeTabMutationRequestRecord {
-                operation_id: close.operation_id.as_str().to_owned(),
-                mutation_kind: "stop".to_owned(),
-                tab_id: close.tab_id.as_str().to_owned(),
-                source_window_id: window.window_id.clone(),
-                source_window_generation: close.window_generation.0,
-                lifecycle_epoch: event.adapter_sequence,
-            };
-            if let Err(error) =
-                self.stop_embedded_tab_mutation(request, &close.source_id, &close.tab_type)
-            {
-                let failure_code = error.code().to_owned();
-                let _ = self.finish_runtime_logical_close(&close, "failed");
-                return self.appkit_receipt(
-                    &event,
-                    &primary,
-                    crate::model::SystemRuntimeOperationStatus::Indeterminate,
-                    true,
-                    false,
-                    Some(failure_code),
-                );
-            }
-            self.finish_runtime_logical_close(&close, "closed")?;
-        }
-        let remove = self.apply_runtime_intent(crate::RuntimeIntent::RemoveWindow {
-            operation_id: format!("{}:remove-window", event.event_id),
-            window_id: window.window_id,
-        })?;
-        if remove.status == crate::RuntimeCommitStatus::Superseded {
-            return self.appkit_superseded_receipt(
+        // Whole-window close owns one exact cohort. Per-tab stop would emit a
+        // phase-only ownership projection between native destruction receipts,
+        // while AppKit still retains the remaining native tab collection.
+        let request = crate::model::RuntimeWindowStopRequestRecord {
+            parent_operation_id: event.event_id.clone(),
+            window_id: window.window_id.clone(),
+            window_generation: primary.window_generation,
+            topology_revision: primary.topology_revision,
+            tab_ids: window.all_tab_ids(),
+            intent_origin: "appKitWindowClose".to_owned(),
+            admission_id: None,
+            closing_tabs: Vec::new(),
+        };
+        if let Err(error) = self.stop_embedded_window(&request, false) {
+            return self.appkit_receipt(
                 &event,
                 &primary,
-                Some("APPKIT_WINDOW_CLOSE_STALE"),
+                crate::model::SystemRuntimeOperationStatus::Indeterminate,
+                false,
+                false,
+                Some(error.code().to_owned()),
             );
         }
         self.appkit_receipt(

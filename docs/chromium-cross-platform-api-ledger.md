@@ -28,6 +28,136 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+## Windows workstation handoff — 2026-09-07
+
+The owner is moving execution to a Windows workstation because hosted CI is
+slow. Continue the entire 18-task ledger locally where Windows evidence is
+available; do not restart the research or treat this as a new smaller goal.
+The macOS agent stops editing after this handoff to avoid concurrent writers.
+
+### Repository and current implementation
+
+- Repository: `https://github.com/rion-tw/rion-studio-source`; branch:
+  `codex/electron-chromium-v23-cutover`. Fetch the latest branch, preserve any
+  Windows-local work, and verify `08dae0ce` and `7ec46086` are ancestors before
+  testing. The handoff itself is a later documentation-only commit.
+- No uncommitted implementation remains on the sending workstation. Closed
+  rows are CP-01, CP-05, CP-07 and CP-14 (4/18); the execution register below
+  remains authoritative for every other deliverable and gate.
+- `7ec46086`: hidden Chromium View admission accepts a background parent
+  without acquiring focus. Visible admission still requires real native focus.
+  Tests and the production View-owner native probe cover hidden key/middle
+  input under foreground/background parents. Main files:
+  `src/electron/main/chromiumViewFocusAdmission.ts`,
+  `scripts/probeChromiumInput.cjs`,
+  `tests/electron-chromium-view-owner.native-integration.ts`.
+- `46f831fc`: Windows ACL traversal tolerates descendants disappearing with
+  native errors 2/3, preserving all other errors, root protection and reparse
+  exclusion. The unchanged updater 256-round concurrent publication test must
+  pass; do not retry failed rounds toward success.
+- `2e139861`: Core projects a surviving Chromium window after Role/Workspace
+  tab close. Windows topology seed/restart passed after this repair.
+- `e85d2ea5`: stable recovery tests observe the committed Core window-definition
+  event from a pre-action cursor. Both stable full profiles passed at that SHA.
+- `efbff1c7`: migration restart test uses checked shutdown. This exposes an
+  earlier shutdown failure directly; it does not fix its underlying cause.
+
+### Evidence already obtained and active CI handles
+
+Latest runtime repair `7ec46086` passed local macOS typecheck, lint (23 existing
+warnings), full hygiene, 452 Vitest files / 3644 tests, Rust lint and 1650 Rust
+tests (4 ignored), Tauri build, Electron E2E build, production Electron build
+and production E2E isolation. No local desktop UI profile ran in that batch.
+CP-05 completion audit at `08dae0ce` additionally passed 44 font-related tests.
+The documentation-only handoff passes full hygiene, lint (23 existing warnings),
+452 Vitest files / 3644 tests (167.86 seconds) and `git diff --check`.
+
+| Exact candidate / run | Evidence or live handles at handoff |
+| --- | --- |
+| `7ec46086` / [34068441192](https://github.com/rion-tw/rion-studio-source/actions/runs/34068441192) | Windows Chromium job 101581254621 in shell E2E; Windows stable 101581254735 in full E2E; Windows native 101581357691 in Rust workspace tests. macOS Chromium 101581254826, stable 101581254848 and native 101581357690 queued. Re-read status before using it. |
+| `46f831fc` / [34067927527](https://github.com/rion-tw/rion-studio-source/actions/runs/34067927527) | Windows native 101579982133 in Rust workspace tests; Windows stable 101579879735 SUCCESS. Windows Chromium 101579879720 failed before the later hidden-admission repair. macOS jobs were still live. |
+| `e85d2ea5` / [34067494537](https://github.com/rion-tw/rion-studio-source/actions/runs/34067494537) | Stable macOS 101578732099 and Windows 101578732120 SUCCESS; both reports bind exact SHA, full tauri-v22 profile, 29 PASS + 3 EXPECTED_FORCE_TERMINATION phases. |
+| `2e139861` / [34067205038](https://github.com/rion-tw/rion-studio-source/actions/runs/34067205038) | Windows Chromium 101577953053: 32 PASS including topology seed/restart, then terminal-cleanup-seed failure. Core browser-action receipt rejects hidden admission with ELECTRON_VIEW_BACKGROUND_FOCUS_INVALID; fixed in `7ec46086`, native acceptance still pending. |
+| `1422ea67` / [34063144726](https://github.com/rion-tw/rion-studio-source/actions/runs/34063144726) | Earlier paired native input gates passed; macOS Chromium report has 52 PASS + 4 expected terminations. This is older evidence, not latest-candidate acceptance. |
+| `a20bddec` / [34061202087](https://github.com/rion-tw/rion-studio-source/actions/runs/34061202087) | macOS Chromium job 101561949187 SUCCESS including fixture package/update and packaged black-box. Production publication is not covered. |
+
+Existing `/tmp/rion-*` paths in historical entries belong to the Mac and are
+not transferred. Retrieve reports from GitHub Actions instead, e.g.
+`gh run download 34067494537 -n desktop-e2e-Windows-34067494537-1 -D <local-dir>`.
+Inspect `report.json` commit/profile/runtimeTarget and each phase; `always()`
+probe success after a failed E2E step does not make the job successful. Do not
+cancel/restart these live runs solely because they are slow, or merge receipts
+from different SHAs into a single-candidate acceptance claim.
+
+### Recommended Windows execution order
+
+1. Read root/scoped `AGENTS.md`, `.agents/context.md`, the task-router skill and
+   routed context. Use pinned Node/Rust versions and `pnpm install --frozen-lockfile`.
+   Read `docs/e2e-coverage.json` and adjacent harness setup before driving UI.
+2. Run `pnpm run lint:rust` then `pnpm run test:rust` on Windows; retain full
+   output. This directly checks the ACL repair and the 256-round updater test.
+   Run Cargo builds sequentially to avoid contention. Address the first actual
+   failure from its exact native evidence rather than rerunning until green.
+3. Run `pnpm run test:electron:native-integration`. Inspect the native View-owner
+   test specifically: all eight direct View key/middle samples, including four
+   hidden-admission receipts, must preserve foreground identity and trusted DOM
+   evidence. The raw Chromium API probe without the addon is not a substitute.
+4. Run `pnpm run test:e2e:desktop:chromium:windows` on an interactive unlocked
+   Windows desktop. Start with terminal-cleanup-seed/restart diagnosis if needed,
+   then complete the whole profile. A focused `--phase` run is not full-profile
+   acceptance; inspect its declared prerequisites before using it. Preserve
+   visible UI primary actions and exact Core/native/journal receipts.
+5. Close the outstanding Windows settings/font/removal, Macro, storage/import,
+   navigation/security/upload and recovery journeys from actual full results.
+   Run `pnpm run test:e2e:desktop:full` for retained Tauri compatibility after
+   shared/native changes. Use physical mixed-DPI/multi-display profiles only
+   when the required real displays are present; otherwise leave those gates open.
+6. After exact input parity, audit/remove the obsolete Windows HWND attachment
+   implementation under CP-08: `crates/rion-node/src/windows_chromium_input_attachment.rs`,
+   `windows_chromium_input_probe.rs`, associated lib exports,
+   `src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator.ts`,
+   `chromiumOwnedInputSubmission.ts` and legacy input-contract/adapter branches.
+   They are still compiled even though product bootstrap no longer uses them.
+   Preserve the current View input owner, required foreground reader/F11 and
+   AppKit adapter. Do not delete before the listed native and journey gates pass.
+7. Continue every remaining register row, including package/updater validation.
+   CP-17 legacy Tauri deletion still depends on the migration/release gates;
+   local Windows success alone cannot satisfy macOS or real updater transactions.
+   Record exact commits, commands, journey IDs, profile results and open gates.
+
+Manual Electron E2E build in PowerShell, only when needed separately from the
+profile runner: set `$env:RION_STUDIO_DESKTOP_E2E_BUILD = '1'`, run
+`pnpm run build:electron`, then remove the variable in a `finally` block.
+`pnpm run build:e2e:desktop` builds Tauri; adding `--driver=electron` does not
+select Electron. Before production isolation validation, remove that variable,
+run `pnpm run build:electron`, then `pnpm run check:desktop-e2e-isolation`.
+A Tauri E2E build can overwrite renderer output, so restore Electron production
+output before interpreting isolation results.
+
+### Unresolved failures and boundaries to preserve
+
+- Core import restart: Windows native job 101572210336 / run 34065004149 failed
+  `a_fully_verified_import_journal_allows_launch_without_new_role_evidence`:
+  state-worker shutdown timed out after 3 seconds, then APP_INSTANCE_LOCKED.
+  `database/state/section_01_schema_version.rs` checkpoints WAL and closes its
+  connection before acknowledging shutdown; AppCore retains the instance lock
+  while terminality is unproven. A 5-second SQLite busy timeout versus the
+  3-second drain is only a hypothesis. If reproduced, identify the exact phase;
+  do not enlarge deadlines, bypass the lock or retry reopen to hide it.
+- macOS intermittent local Web chrome load stall remains unexplained despite
+  later full passes (run 34059403980, job 101557109768). It is separate from
+  Windows admission. Retain event diagnostics and the AppKit host requirement.
+- macOS local UI execution was obstructed by UserNotificationCenter, which CUA
+  refused to access. No dialog content was read or bypassed. This is not a
+  Windows blocker; do not infer new macOS UI evidence from Windows execution.
+- Performance diagnostics and high-refresh settings were explicitly retired;
+  do not reintroduce either. General log/GPU/runtime diagnostics export stays.
+  Rust retains domain/data/topology/Macro authority; renderer uses typed bridge.
+- No production publication, merge, credential changes or release-gate waiver
+  is authorized by this handoff. Keep ad-hoc macOS / unsigned Windows installer
+  policy and mandatory updater signatures/hashes. Do not enable disabled
+  publisher/finalizer jobs or discard required AppKit/data adapters.
+
 ## Feature and capability inventory
 
 The feature names below cover all nine entries in `docs/e2e-coverage.json`.

@@ -73,7 +73,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | paired stable full passed at 192120ad; macOS Chromium 56 phases passed at 1422ea67; Windows topology seed/restart passed at 2e139861; full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | paired stable full passed at e85d2ea5; macOS Chromium 56 phases passed at 1422ea67; Windows topology seed/restart passed at 2e139861; full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at a20bddec; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS full profiles passed; external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -6043,3 +6043,20 @@ trusted input are outside this Windows child-host removal.
   No local desktop E2E profile or native input probe ran; the protected macOS
   dialog obstruction remains unresolved. Both native CI profiles and Windows
   terminal-cleanup seed/restart remain pending for this exact repair.
+
+### CP-15 e85d2ea5 paired stable recovery acceptance
+
+- CI 34067494537 stable jobs 101578732099 (macOS) and 101578732120
+  (Windows) complete SUCCESS. Both downloaded desktop-e2e artifacts bind
+  e85d2ea549fa93f96ddbe1813f10d6b5dc61eea1, runtime tauri-v22, profile full,
+  with 29 PASS and 3 EXPECTED_FORCE_TERMINATION phases per platform.
+  Force termination, crash restart/discard and final recovery complete as
+  declared. This verifies the recovery activation assertion against committed
+  Core definitions on both platforms (GAME-WINDOWS-TABS-001, APP-RECOVERY-001).
+- The same candidate's Windows Chromium job 101578732049 still fails at
+  terminal-cleanup-seed's Macro running assertion. It predates the hidden
+  admission repair; stable acceptance does not establish Chromium parity.
+- Hidden admission repair 7ec46086 is committed and pushed. Exact-source CI
+  34068441192 is dispatched and pending; do not combine the older platform
+  receipts into acceptance for that repair. The earlier ACL candidate CI
+  34067927527 remains live and is neither cancelled nor restarted.

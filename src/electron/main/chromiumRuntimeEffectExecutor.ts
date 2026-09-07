@@ -36,7 +36,11 @@ import { followChromiumRuntimeOwnership } from
 import { ChromiumRuntimeOwnershipTransitionCoordinator } from
   "./chromiumRuntimeOwnershipTransitionCoordinator";
 import { drainEmptyChromiumRuntimeHosts } from "./chromiumRuntimeHostDrain";
-import type { CoreEffectExecutionContext } from "./coreEffectContinuation";
+import {
+  coreEffectEventContinuation,
+  type CoreEffectEventContinuation,
+  type CoreEffectExecutionContext
+} from "./coreEffectContinuation";
 import {
   applyChromiumRuntimeWindowSurfaceVisibility,
   applyChromiumRuntimeWindowVisibilityEffect
@@ -111,6 +115,7 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #windows = new Map<string, RuntimeWindowRecord>();
   readonly #tabs = new Map<string, RuntimeTabRecord>();
   readonly #roles = new Map<string, RuntimeRoleRecord>();
+  readonly #openingRoles = new Map<string, RuntimeRoleRecord>();
   readonly #webSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
   readonly #rolePaths = new Map<string, RolePathsRecord>();
   readonly #lastGenerationByRole = new Map<string, number>();
@@ -703,7 +708,9 @@ export class ChromiumRuntimeEffectExecutor {
       zoomFactor: number;
     }>>,
     signal?: AbortSignal
-  ): Promise<void> {
+  ): Promise<CoreEffectEventContinuation<void>> {
+    const cancellation = new AbortController();
+    signal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal;
     requireIdentifier(tabId, "tab");
     if (signal?.aborted) {
       throw runtimeError(
@@ -733,6 +740,10 @@ export class ChromiumRuntimeEffectExecutor {
         );
       }
       seen.add(role.roleId);
+      if (this.#openingRoles.has(role.roleId)) {
+        throw runtimeError("ELECTRON_CHROMIUM_ROLE_LOAD_PENDING",
+          "The Role already has an exact pending native navigation.");
+      }
       if (!expectedEngineIsChromium(role.resolvedEngine)) {
         throw runtimeError(
           "ELECTRON_CHROMIUM_ENGINE_MISMATCH",
@@ -778,6 +789,9 @@ export class ChromiumRuntimeEffectExecutor {
       }
     }
 
+    const pathsByRole = new Map(await Promise.all(roles.map(async (role) =>
+      [role.roleId, await this.#pathsFor(role.roleId)] as const
+    )));
     const attempts = roles
       .filter((role) => !this.#roles.has(role.roleId))
       .map(async (role) => {
@@ -793,7 +807,7 @@ export class ChromiumRuntimeEffectExecutor {
           )!.owner!.generation,
           zoomFactor: role.zoomFactor
         };
-        const paths = await this.#pathsFor(role.roleId);
+        const paths = pathsByRole.get(role.roleId)!;
         if (signal?.aborted) {
           throw runtimeError(
             "ELECTRON_CHROMIUM_ROLE_LOAD_CANCELLED",
@@ -834,7 +848,16 @@ export class ChromiumRuntimeEffectExecutor {
           });
           signal?.addEventListener("abort", cancelOpeningSurface, { once: true });
           if (signal?.aborted) cancelOpeningSurface();
+          // Native ownership exists synchronously once create returns. Reserve it
+          // before yielding so projection and destruction can reach this surface.
+          this.#openingRoles.set(role.roleId, record);
           await creation;
+          if (this.#tabs.get(tabId) !== tab ||
+              this.#openingRoles.get(role.roleId) !== record ||
+              this.#windows.get(tab.windowId) !== windowRecord) {
+            throw runtimeError("ELECTRON_CHROMIUM_ROLE_LOAD_STALE",
+              "The loading Role lost its exact native topology before readiness.");
+          }
           if (signal?.aborted) {
             const closed = await closeOpeningSurface();
             if (!closed) {
@@ -852,7 +875,10 @@ export class ChromiumRuntimeEffectExecutor {
         } catch (error) {
           try {
             const closed = await closeOpeningSurface();
-            if (closed) this.#input.overlays?.retire(role.roleId, generation);
+            if (closed) {
+              this.#input.overlays?.retire(role.roleId, generation);
+              if (this.#roles.get(role.roleId) === record) this.#roles.delete(role.roleId);
+            }
           } catch {
             // Preserve the authoritative initial-load failure. The registry keeps
             // exact ownership when destruction or storage flush is still unknown.
@@ -860,20 +886,28 @@ export class ChromiumRuntimeEffectExecutor {
           throw error;
         } finally {
           signal?.removeEventListener("abort", cancelOpeningSurface);
+          if (this.#openingRoles.get(role.roleId) === record) this.#openingRoles.delete(role.roleId);
         }
       });
-    const results = await Promise.allSettled(attempts);
-    const failure = results.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected"
-    );
-    if (failure) throw failure.reason;
-    if (tab.webViews.size === 0) {
-      this.#revealLoadedWindow(windowRecord);
-      windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
-    } else {
-      this.#applyWindowVisibility(windowRecord);
-    }
-    await this.#reconcileRolePlaceholders();
+    const completion = Promise.allSettled(attempts).then(async (results) => {
+      const failure = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected"
+      );
+      if (failure) throw failure.reason;
+      if (this.#tabs.get(tabId) !== tab ||
+          this.#windows.get(tab.windowId) !== windowRecord) {
+        throw runtimeError("ELECTRON_CHROMIUM_ROLE_LOAD_STALE",
+          "The loading tab retired before native readiness.");
+      }
+      if (tab.webViews.size === 0) {
+        this.#revealLoadedWindow(windowRecord);
+        windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
+      } else {
+        this.#applyWindowVisibility(windowRecord);
+      }
+      await this.#reconcileRolePlaceholders();
+    });
+    return coreEffectEventContinuation(completion, () => cancellation.abort());
   }
 
   async #loadWebSurfaces(
@@ -1295,20 +1329,13 @@ export class ChromiumRuntimeEffectExecutor {
 
   async #destroyRole(roleId: string): Promise<boolean> {
     requireIdentifier(roleId, "role");
-    const role = this.#roles.get(roleId);
+    const role = this.#roles.get(roleId) ?? this.#openingRoles.get(roleId);
     if (!role) return false;
-    await this.#input.managedShortcutRetirement?.retireSurface(
-      roleId,
-      role.generation
-    );
-    await this.#input.trustedInput?.retireSurfaceForDestruction(
-      roleId,
-      role.generation
-    );
-    const closed = await this.#input.surfaces.closeRole(roleId, role.generation);
+    const closed = await this.#retireInputAndCloseRole(role);
     if (closed) {
       this.#input.overlays?.retire(roleId, role.generation);
       if (this.#roles.get(roleId) === role) this.#roles.delete(roleId);
+      if (this.#openingRoles.get(roleId) === role) this.#openingRoles.delete(roleId);
     }
     return closed;
   }
@@ -1326,7 +1353,7 @@ export class ChromiumRuntimeEffectExecutor {
         "A synthetic Web slot cannot enter managed role ownership."
       );
     }
-    if (this.#roles.has(role.role.id)) {
+    if (this.#roles.has(role.role.id) || this.#openingRoles.has(role.role.id)) {
       throw runtimeError(
         "ELECTRON_CHROMIUM_ROLE_OWNERSHIP_CONFLICT",
         "The claimed role still owns another Chromium surface."
@@ -1373,7 +1400,8 @@ export class ChromiumRuntimeEffectExecutor {
       );
     }
     windowRecord.host.discardAppKitSurfaceAttachment?.(tabId);
-    const ownedRoles = [...this.#roles.values()].filter((role) => role.tabId === tabId);
+    const ownedRoles = [...this.#roles.values(), ...this.#openingRoles.values()]
+      .filter((role) => role.tabId === tabId);
     const ownedWebSurfaces = [...this.#webSurfaces.values()]
       .filter((surface) => surface.tabId === tabId);
     const [roleCloses, webCloses] = await Promise.all([
@@ -1392,6 +1420,7 @@ export class ChromiumRuntimeEffectExecutor {
       if (result.status !== "fulfilled" || result.value !== true) continue;
       this.#input.overlays?.retire(role.roleId, role.generation);
       if (this.#roles.get(role.roleId) === role) this.#roles.delete(role.roleId);
+      if (this.#openingRoles.get(role.roleId) === role) this.#openingRoles.delete(role.roleId);
     }
     for (const [index, result] of webCloses.entries()) {
       const surface = ownedWebSurfaces[index]!;
@@ -1442,6 +1471,9 @@ export class ChromiumRuntimeEffectExecutor {
   }
 
   async #retireInputAndCloseRole(role: RuntimeRoleRecord): Promise<boolean> {
+    if (this.#openingRoles.get(role.roleId) === role) {
+      return this.#input.surfaces.closeRole(role.roleId, role.generation);
+    }
     await this.#input.managedShortcutRetirement?.retireSurface(
       role.roleId,
       role.generation

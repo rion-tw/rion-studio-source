@@ -28,6 +28,33 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Role load admission releases the projection lane — 2026-09-07
+
+At c8dfc9d1, artifact 2026-09-07T04-43-34-681Z-win32 retains the actual fence
+failure: Core window generation 3 / revision 6 versus native generation 3 /
+revision 5, with equal tab membership, display, bounds and target. Core-flow 142
+accepted browserWindowsRuntimeWindowPlacement while embeddedLoadRoles 138 held
+the application effect lane. Its revision-6 projection could execute only after
+load completion 763, which the E2E gate deliberately withheld. Earlier observer
+and ChromeDriver issues were real but did not resolve this product dependency.
+
+Managed Role loading now completes admission after paths/native creation are
+submitted, returns the existing Core event-continuation contract, and releases
+the mutation lane while the exact navigation remains pending. Opening owners
+stay separate from ready Role snapshots and input eligibility. Duplicate loads
+are rejected; close/destroy can reach the exact opening generation; a retired
+owner cannot be resurrected by late navigation completion. Core cancellation
+still closes the exact surface and no navigation deadline changes. The global
+Web loader is separately unchanged and must be audited against the same boundary.
+
+102 focused tests passed across executor, bootstrap, coordinator and paired
+Role load admission cases. The tests prove a revision-8 projection completes
+while navigation is pending, duplicate admission rejects, and late completion
+after native tab destruction rejects without resurrection. Existing cancellation
+assertions now await the continuation terminal. Paired TABS-VISIBLE-ACTIVATION-019
+and GAME-WINDOWS-TABS-020 remain the native acceptance journeys; pending until
+an exact-source native run completes.
+
 ### Gated loading diagnostic transport — 2026-09-07
 
 At a2ed80eb, focused tabs artifact 2026-09-07T04-38-43-221Z-win32 crossed

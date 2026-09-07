@@ -2304,7 +2304,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences."
+      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences."
     },
     {
       "id": "CHROMIUM-WINDOWS-GAME-WINDOWS-TABS-020",
@@ -2320,7 +2320,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple bundled-Chromium native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/native revision fences; Windows physical execution remains an independent CI verdict."
+      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple bundled-Chromium native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/native revision fences; Windows physical execution remains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-LAUNCH-DESTINATIONS-008",

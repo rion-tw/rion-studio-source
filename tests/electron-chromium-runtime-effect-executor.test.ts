@@ -875,7 +875,9 @@ describe("Electron Chromium runtime effect executor", () => {
 
     controller.abort("coreCancelled");
 
-    await expect(loading).rejects.toThrow("cancelled opening surface");
+    const admitted = await loading;
+    if (!isCoreEffectEventContinuation(admitted)) throw new Error("missing load continuation");
+    await expect(admitted.completion).rejects.toThrow("cancelled opening surface");
     expect(subject.closeRole).toHaveBeenCalledWith("role-1", 1);
     expect(subject.executor.snapshot().roles).toEqual([]);
   });

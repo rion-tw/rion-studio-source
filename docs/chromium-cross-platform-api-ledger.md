@@ -45,6 +45,29 @@ WebDriver click. Enabled and resulting route assertions remain intact; no DOM
 click or bridge mutation replaces the primary action. Both entity-persistence
 platform profiles require acceptance. Focused ESLint, source hygiene (2495),
 and coverage (P0 70/70, P1 75/75, paired cutover 41/41) pass.
+### 2f766d23 Windows publication failure and persistence acceptance
+
+Full Windows Chromium profile at 2f766d23 stops in chromium-extensions-seed:
+visible submit reaches roleCreate:107, but Core rejects it at flow 108:
+publish-role-tree / PermissionDenied / OS error 5. Artifact
+.desktop-e2e-artifacts/2026-09-07T08-18-28-657Z-win32; log
+windows-handoff-b0c3c184/2f766d23-chromium-full-x64.log.
+The 13 deterministic role preconditions succeeded; creating the future role
+after extension installation failed. No ACL cause or lock owner is established,
+and no retry, permission relaxation, or successful full profile is claimed.
+The failed application's exact final-flush phases completed and no Electron
+process remained when subsequently inspected.
+
+The independently targeted chromium-entity-persistence-restart at the same
+commit passes seed and restart, validating the visible submit correction.
+Artifact .desktop-e2e-artifacts/2026-09-07T08-21-25-288Z-win32; log
+windows-handoff-b0c3c184/2f766d23-entity-persistence-x64.log.
+CHROMIUM-WINDOWS-ROLE-PERSIST-003, WORKSPACE-PERSIST-004, MACRO-PERSIST-005
+are PASS. This does not replace the failed full profile or macOS acceptance.
+5266ff87 CI Windows Chromium 101668898969 confirms the same prior covered
+submit failure as macOS, while Windows stable 101668899496 fails native hover
+(root:macro). An isolated Windows encoded-PowerShell diagnostic confirms both
+C# execution and try/finally execution; no helper-no-op explanation is claimed.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

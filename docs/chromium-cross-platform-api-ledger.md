@@ -163,6 +163,25 @@ or absent-native-input explanation. Establish an explicit native pointer move
 outside the canvas before each tested enter, and retain relatedTarget in
 diagnostics. This is an enter-transition precondition; the hosted failure
 cause and acceptance remain pending, with all 30-frame assertions intact.
+### 8f4095c2 compact source-role progression
+
+Focused Windows macro-ui-restart at 8f4095c2 advances through entity seed/restart
+and the repaired native geometry path, then fails the visible Loop button:
+WebDriver element 4884 resolves to button=Loop and its center (756,15) is
+covered by app-content-window-drag-region. Artifact
+.desktop-e2e-artifacts/2026-09-07T08-51-19-246Z-win32; log
+windows-handoff-b0c3c184/after-57798548-macro-ui-x64.log.
+Scroll that exact control to center and require clickability before its
+unchanged click. Focused lint and coverage pass; native replay remains pending.
+The failed phase has a valid final flush but exceeds the existing 45-second
+native process-exit fence; its failure is preserved. Subsequent read-only
+process inventory finds no Electron process. No kill or extended wait is used.
+
+Both Chromium CI jobs at 57798548 (101678154768 Windows, 101678154780 macOS)
+reach the same source-role Browser.getWindowForTarget failure; both require
+the 8f4095c2 geometry repair and later compact-loop acceptance. Windows stable
+101678154604 retains the same observed trusted-input/absent-active-class
+failure as 575c26a4, before the explicit outside-to-inside precondition.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

@@ -20,7 +20,10 @@ export async function exerciseSourceRoleMacro(seed: Macro, roles: Role[]): Promi
   const name = "Source role execution E2E";
   await setEditorName(name);
   await $("button=Delay").click();
-  await $("button=Loop").click();
+  const loop = await $("button=Loop");
+  await loop.scrollIntoView({ block: "center", inline: "center" });
+  await loop.waitForClickable({ timeout: 10_000 });
+  await loop.click();
   await submitEditor("/macros");
   const macro = (await rendererCall("listMacros")).find((candidate) => candidate.name === name);
   if (!macro) throw new Error("Visible source-role macro was not saved");

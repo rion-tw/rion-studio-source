@@ -20,6 +20,7 @@ export function SearchField({ className, onChange, placeholder, value }: SearchF
       />
       <Input
         className="pl-8 text-xs"
+        aria-label={placeholder}
         placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}

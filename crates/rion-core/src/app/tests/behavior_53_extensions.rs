@@ -19,6 +19,7 @@ fn extension_configuration_is_durable_and_active_leases_are_frozen() {
                 sha256: "0".repeat(64),
                 directory: staging.path().to_string_lossy().into_owned(),
                 enabled_role_ids: vec![],
+                apply_to_all_roles: false,
                 removed: false,
             },
         };
@@ -86,5 +87,59 @@ fn extensions_are_unavailable_in_the_stable_shell() {
             .unwrap_err();
         assert!(error.to_string().contains("Chromium"));
         core.shutdown();
+    }
+}
+
+#[test]
+fn extension_all_roles_survives_restart_and_applies_to_future_leases() {
+    for platform in ["darwin", "win32"] {
+        let (directory, core) = core_for_platform_contract(platform, 23);
+        let role = create_role(&core, &first_game_id(&core), 1);
+        // Read a pre-feature catalogue to prove the additive field defaults to false.
+        let id = "b".repeat(32);
+        core.with_runtime(|r| r.state.replace_scalar("extensions".to_owned(), json!({
+            "revision": 1, "roles": [], "installed": [{ "id": id, "name": "Legacy", "version": "1",
+            "permissions": [], "sha256": "0".repeat(64), "directory": directory.path().join("extensions").join("fixture"),
+            "enabledRoleIds": [role], "removed": false }]
+        }))).unwrap();
+        let invoke = |input: Value| core.invoke(command(json!({"type":"extensions","command": input})));
+        assert_eq!(invoke(json!({"type":"snapshot"})).unwrap()["snapshot"]["installed"][0]["applyToAllRoles"], false);
+        let active = invoke(json!({"type":"acquire","roleId":role})).unwrap();
+        let all = invoke(json!({"type":"configure","id":id,"roleIds":["ignored"],"applyToAllRoles":true})).unwrap();
+        assert_eq!(all["snapshot"]["installed"][0]["enabledRoleIds"], json!([]));
+        assert_eq!(all["snapshot"]["installed"][0]["applyToAllRoles"], true);
+        assert!(invoke(json!({"type":"configure","id":id,"roleIds":["missing"],"applyToAllRoles":false})).is_err());
+        assert!(invoke(json!({"type":"configure","id":id,"roleIds":[role,role],"applyToAllRoles":false})).is_err());
+        assert_eq!(invoke(json!({"type":"snapshot"})).unwrap()["snapshot"]["installed"][0]["applyToAllRoles"], true);
+        let connection = rusqlite::Connection::open(&core.database_paths.state).unwrap();
+        connection.execute_batch("CREATE TRIGGER reject_extension_write BEFORE INSERT ON settings WHEN NEW.key='extensions' BEGIN SELECT RAISE(ABORT, 'fixture rejects extension persistence'); END;").unwrap();
+        assert!(invoke(json!({"type":"configure","id":id,"roleIds":[]})).is_err());
+        assert_eq!(invoke(json!({"type":"snapshot"})).unwrap()["snapshot"]["installed"][0]["applyToAllRoles"], true);
+        connection.execute_batch("DROP TRIGGER reject_extension_write").unwrap();
+        drop(connection);
+        assert_eq!(all["snapshot"]["roles"][0]["leaseId"], active["lease"]["leaseId"]);
+        core.shutdown();
+        let restored = AppCore::create(AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(), build_commit: None, packaged: false,
+            platform: platform.to_owned(), runtime_contract_version: Some(23),
+            user_data_dir: directory.path().to_string_lossy().into_owned(),
+        }).unwrap();
+        let future = create_role(&restored, &first_game_id(&restored), 2);
+        let invoke = |input: Value| restored.invoke(command(json!({"type":"extensions","command":input})));
+        let acquired = invoke(json!({"type":"acquire","roleId":future})).unwrap();
+        assert_eq!(acquired["lease"]["extensionIds"], json!([id]));
+        let selected = invoke(json!({"type":"configure","id":id,"roleIds":[role]})).unwrap();
+        assert_eq!(selected["snapshot"]["installed"][0]["applyToAllRoles"], false);
+        assert_eq!(selected["snapshot"]["roles"][0]["extensionIds"], json!([id]));
+        invoke(json!({"type":"release","roleId":future,"leaseId":acquired["lease"]["leaseId"]})).unwrap();
+        assert_eq!(invoke(json!({"type":"acquire","roleId":future})).unwrap()["lease"]["extensionIds"], json!([]));
+        invoke(json!({"type":"configure","id":id,"roleIds":[],"applyToAllRoles":true})).unwrap();
+        let held = invoke(json!({"type":"acquire","roleId":role})).unwrap();
+        let removed = invoke(json!({"type":"remove","id":id})).unwrap();
+        assert_eq!(removed["snapshot"]["installed"][0]["applyToAllRoles"], false);
+        assert_eq!(held["lease"]["extensionIds"], json!([id]));
+        let later = create_role(&restored, &first_game_id(&restored), 3);
+        assert_eq!(invoke(json!({"type":"acquire","roleId":later})).unwrap()["lease"]["extensionIds"], json!([]));
+        restored.shutdown();
     }
 }

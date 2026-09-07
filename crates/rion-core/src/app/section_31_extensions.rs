@@ -127,7 +127,9 @@ impl AppCore {
             Command::Install {
                 operation_id,
                 role_ids,
+                apply_to_all_roles,
             } => {
+                let role_ids = if apply_to_all_roles { vec![] } else { role_ids };
                 validate_roles(&role_ids)?;
                 let (prepared, directory) =
                     runtime.prepared.get(&operation_id).ok_or_else(|| {
@@ -156,6 +158,7 @@ impl AppCore {
                     .map_err(|e| CoreError::Internal(e.to_string()))?;
                 package.directory = target.to_string_lossy().into_owned();
                 package.enabled_role_ids = role_ids;
+                package.apply_to_all_roles = apply_to_all_roles;
                 snapshot.installed.push(package);
                 // The destination is recorded atomically before the staging ownership is released.
                 let mut durable = snapshot.clone();
@@ -174,7 +177,8 @@ impl AppCore {
                 persisted = true;
                 changed = true;
             }
-            Command::Configure { id, role_ids } => {
+            Command::Configure { id, role_ids, apply_to_all_roles } => {
+                let role_ids = if apply_to_all_roles { vec![] } else { role_ids };
                 validate_roles(&role_ids)?;
                 let package = snapshot
                     .installed
@@ -182,6 +186,7 @@ impl AppCore {
                     .find(|p| p.id == id && !p.removed)
                     .ok_or_else(|| CoreError::InvalidInput("Extension not installed".to_owned()))?;
                 package.enabled_role_ids = role_ids;
+                package.apply_to_all_roles = apply_to_all_roles;
                 changed = true;
             }
             Command::Remove { id } => {
@@ -192,6 +197,7 @@ impl AppCore {
                     .ok_or_else(|| CoreError::InvalidInput("Extension not installed".to_owned()))?;
                 package.removed = true;
                 package.enabled_role_ids.clear();
+                package.apply_to_all_roles = false;
                 changed = true;
             }
             Command::Acquire { role_id } => {
@@ -207,7 +213,7 @@ impl AppCore {
                     extension_ids: snapshot
                         .installed
                         .iter()
-                        .filter(|p| !p.removed && p.enabled_role_ids.contains(&role_id))
+                        .filter(|p| !p.removed && (p.apply_to_all_roles || p.enabled_role_ids.contains(&role_id)))
                         .map(|p| p.id.clone())
                         .collect(),
                     status: "loading".to_owned(),

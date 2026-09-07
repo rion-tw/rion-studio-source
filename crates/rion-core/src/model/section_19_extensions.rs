@@ -19,6 +19,8 @@ pub struct ExtensionPackageRecord {
     pub sha256: String,
     pub directory: String,
     pub enabled_role_ids: Vec<String>,
+    #[serde(default)]
+    pub apply_to_all_roles: bool,
     pub removed: bool,
 }
 
@@ -59,10 +61,14 @@ pub enum ExtensionCommand {
     Install {
         operation_id: String,
         role_ids: Vec<String>,
+        #[serde(default)]
+        apply_to_all_roles: bool,
     },
     Configure {
         id: String,
         role_ids: Vec<String>,
+        #[serde(default)]
+        apply_to_all_roles: bool,
     },
     Remove {
         id: String,

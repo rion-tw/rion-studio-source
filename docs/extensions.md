@@ -6,7 +6,10 @@ bridge after startup. This does not introduce a selectable browser engine.
 
 ## User behavior
 
-The Extensions route contains Installed and Chrome Web Store tabs. The store is
+The Extensions route manages installed packages with a header search and Add extension action.
+Add extension opens the Chrome Web Store with a separate Back to extensions action.
+Successful installation returns to the unfiltered catalogue; cancelling confirmation
+returns to the store. Empty and no-match states offer add and clear-search actions. The store is
 an isolated, unprivileged native WebContentsView. A Rion-owned install button
 uses the current main-frame store detail URL; store DOM and private Chrome APIs
 are not installation authorities. The store document, header, and main content use 100% of the embedded viewport width,
@@ -19,15 +22,21 @@ its markup. The native view is hidden during extension
 confirmation, Quick Access, and route departure.
 
 Installing first downloads and verifies a public CRX3 package, then displays
-its manifest permissions and asks the user to select roles. No role is selected
-by default. The first implementation accepts Manifest V3 packages with a
+its manifest permissions and asks the user to choose Selected roles or All roles.
+No role is selected by default. All roles includes current and future roles; it
+is a durable rule, not a one-time selection. Selected roles offers search, select
+all current roles (independent of search), and clear selection. Switching modes
+preserves the current draft; switching a saved All roles rule to Selected roles
+starts with all current roles selected. No-role installations remain supported.
+Dialogs keep their actions visible while the contents scroll. Removal has a
+separate confirmation step; cancellation restores the management draft. The first implementation accepts Manifest V3 packages with a
 matching RSA publisher proof. Background workers and content scripts depend on
 the bundled Chromium API subset. Loading a package does not prove every API it
 uses is compatible. Popups, extension settings pages, global-Web assignment,
 automatic updates, authenticated store purchases, and Chrome-profile import
 are outside this version.
 
-The catalogue is shared; enabled roles and each role's Chromium extension data
+The catalogue is shared; assignment policy, enabled roles and each role's Chromium extension data
 are separate. Configuration changes affect the next full role close/open, not
 the current document. Removal first records a tombstone, preserves files used
 by an active lease, and cleans them after the last native release. Extension
@@ -35,6 +44,12 @@ storage remains in the role profile. Failed filesystem cleanup retains the
 tombstone; it is never treated as proof that files were deleted.
 
 ## Authority and propagation
+
+The additive `applyToAllRoles` field defaults to false for old records and commands.
+Rust normalizes explicit role IDs to empty in All roles mode and evaluates the
+rule at lease acquisition. Future roles need no copied assignments; global-Web
+sessions remain outside role scope. Removal disables the rule before cleanup.
+Settings commits publish revisioned snapshots only after successful persistence.
 
 Rust owns the revisioned catalogue stored under the `extensions` settings key in
 the existing SQLite state worker, package preparation, bounded official-source
@@ -100,3 +115,28 @@ profile’s `chromium-extensions-seed` phase: the specific dialog exists but is
 not displayed, followed by the existing install/role-launch flow. The affected
 journeys are `CHROMIUM-MACOS-APPKIT-EXTENSIONS-001` and
 `CHROMIUM-WINDOWS-EXTENSIONS-001`; Windows remains pending CI.
+
+## Assignment and UI follow-up (2026-09-07)
+
+The catalogue now uses a shared header search and Add extension action. Install
+and management dialogs separate permissions, assignment scope, and removal,
+with fixed action footers and scrollable contents. All roles is persisted by
+Core and includes future roles; switching back to Selected roles restores the
+explicit draft without modifying active leases.
+
+The focused `chromium-macos-appkit-smoke` phases `chromium-extensions-seed` and
+`chromium-extensions-restart` passed with the updated journeys. They exercise
+live installation with All roles, visible creation and launch of a future role,
+restart persistence, switching to explicit assignments, and cancelled/confirmed
+removal. The launcher was resized to 960×640 through the test runner's Electron
+API; light installation and dark management screenshots cover many long role
+names and assert visible footers without horizontal dialog overflow. Geometry
+is a test precondition; domain mutations still use visible UI.
+
+Validation passed: 3,678 JavaScript/TypeScript tests, native Rust workspace tests,
+typecheck, lint (existing warnings only), Rust lint, build, source hygiene,
+documentation/context/dependency checks, E2E coverage, and production E2E
+isolation. Windows platform mocks and Core platform-table tests ran locally;
+Windows Rust and `chromium-windows-smoke` native execution remain pending CI.
+These focused Chromium phases do not claim a full smoke/full-profile run or
+Chromium cutover eligibility.

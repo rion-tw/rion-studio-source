@@ -68,6 +68,7 @@ pub(crate) fn prepare(
                 sha256,
                 directory: directory.path().to_string_lossy().into_owned(),
                 enabled_role_ids: Vec::new(),
+                apply_to_all_roles: false,
                 removed: false,
             },
         },

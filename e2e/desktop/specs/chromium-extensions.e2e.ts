@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { $, browser, expect } from "@wdio/globals";
+import { compactExtensionsWindow } from "../support/extensions-layout";
 import { rendererCall } from "../support/renderer-bridge";
-import { acceptLegalAndSkipFirstRun, ensureEnglishUi, waitForRoute } from "../support/ui";
+import { acceptLegalAndSkipFirstRun, ensureEnglishUi, setEditorName, setInputValue, submitEditor, waitForRoute } from "../support/ui";
 
 // [journey:CHROMIUM-MACOS-APPKIT-EXTENSIONS-001]
 // [journey:CHROMIUM-WINDOWS-EXTENSIONS-001]
@@ -12,14 +13,24 @@ describe("Extensions store and per-role configuration", () => {
     await ensureEnglishUi();
     await acceptLegalAndSkipFirstRun();
     const phase = process.env.RION_STUDIO_E2E_PHASE;
+    await compactExtensionsWindow();
+    await $(".app-main-sidebar").$("button*=Settings").click();
+    await waitForRoute("/settings");
+    await $(".settings-mode-sidebar").$("button=Preferences").click();
+    await $(phase === "chromium-extensions-seed" ? "button=Light" : "button=Dark").click();
+    await $("button=Back to app").click();
     const sidebar = await $(".app-main-sidebar");
     await sidebar.$("button*=Extensions").click();
     await waitForRoute("/extensions");
     if (phase === "chromium-extensions-seed") {
       // This role is a deterministic precondition; extension mutations below use visible UI.
       const games = await rendererCall("listGames");
-      const role = await rendererCall("createRole", { gameId: games[0].id, name: "Extensions journey role", launchUrl: `${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/role/extensions-role` });
-      await $("button=Chrome Web Store").click();
+      await rendererCall("createRole", { gameId: games[0].id, name: "Extensions journey role", launchUrl: `${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/role/extensions-role` });
+      // Many and long role names are layout preconditions, not the future-role action under test.
+      for (let index = 0; index < 12; index += 1) {
+        await rendererCall("createRole", { gameId: games[0].id, name: `Layout role ${index} — long role name for compact dialog layout`, launchUrl: `${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/role/layout-${index}` });
+      }
+      await $("button=Add extension").click();
       const main = await browser.getWindowHandle();
       let storeHandle: string | undefined;
       await browser.waitUntil(async () => {
@@ -49,41 +60,59 @@ describe("Extensions store and per-role configuration", () => {
       const confirm = await $("button=Confirm installation");
       // DeadlineBound test boundary: external store failure is a failed journey.
       await confirm.waitForDisplayed({ timeout: 75000 });
-      const roleLabel = await $("label*=Extensions journey role");
-      await roleLabel.$("[role=checkbox]").click();
+      await $('[role="dialog"]').$("button=All roles").click();
+      await expectDialogFits();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-confirm.png"));
       await confirm.click();
-      await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && p.enabledRoleIds.includes(role.id)), { timeout: 15000 });
-      await $("button=Installed").click();
+      await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && p.applyToAllRoles), { timeout: 15000 });
       await expect($("button=Manage")).toBeDisplayed();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-installed.png"));
       await sidebar.$("button*=Roles").click();
       await waitForRoute("/roles");
-      const card = await $(`[data-selection-id='${role.id}']`);
+      await $("button=New role").click();
+      await waitForRoute("/roles/new");
+      await setEditorName("Future extensions role");
+      await setInputValue("#role-launch-url", `${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/role/future-extensions`);
+      await submitEditor("/roles");
+      const future = (await rendererCall("listRoles")).find(candidate => candidate.name === "Future extensions role");
+      if (!future) throw new Error("The visible role creation did not persist");
+      const card = await $(`[data-selection-id='${future.id}']`);
       await card.moveTo();
       await card.$("button[aria-label='Open']").click();
-      await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.roles.some(r => r.roleId === role.id && r.status === "loaded" && r.extensionIds.includes(EXTENSION_ID)), { timeout: 30000 });
+      await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.roles.some(r => r.roleId === future.id && r.status === "loaded" && r.extensionIds.includes(EXTENSION_ID)), { timeout: 30000 });
       await browser.switchToWindow(main);
-      await browser.waitUntil(async () => (await rendererCall("listRoleStatuses")).some(r => r.roleId === role.id && r.state === "running"), { timeout: 30000 });
+      await browser.waitUntil(async () => (await rendererCall("listRoleStatuses")).some(r => r.roleId === future.id && r.state === "running"), { timeout: 30000 });
     } else if (phase === "chromium-extensions-restart") {
       const snapshot = (await rendererCall("extensions", { type: "snapshot" })).snapshot;
       const installed = snapshot.installed.find(p => p.id === EXTENSION_ID && !p.removed);
-      expect(installed?.enabledRoleIds).toHaveLength(1);
+      expect(installed?.applyToAllRoles).toBe(true);
+      expect(installed?.enabledRoleIds).toHaveLength(0);
       await $("button=Manage").click();
+      await $('[role="dialog"]').$("button=Selected roles").click();
       const checkbox = await $("label*=Extensions journey role").$("[role=checkbox]");
       await expect(checkbox).toHaveAttribute("data-state", "checked");
-      await checkbox.click();
+      await expectDialogFits();
+      await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-manage-dark.png"));
+      await $("button=Clear selection").click();
       await $("button=Save").click();
-      await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.find(p => p.id === EXTENSION_ID)?.enabledRoleIds.length === 0);
+      await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.find(p => p.id === EXTENSION_ID)?.applyToAllRoles === false);
       await $("button=Manage").click();
       await $("button=Remove").click();
-      await $("button=Cancel").click();
+      await $('[role="dialog"]').$("button=Cancel").click();
       expect((await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && !p.removed)).toBe(true);
-      await $("button=Manage").click();
-      await $("button=Remove").click();
+      await $('[role="dialog"]').$("button=Remove").click();
       await $("button=Confirm removal").click();
       await browser.waitUntil(async () => !(await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && !p.removed));
-      await expect($("p=No extensions installed yet.")).toBeDisplayed();
+      await expect($("h2=No extensions installed yet.")).toBeDisplayed();
     } else throw new Error(`Unexpected Extensions phase: ${phase}`);
   });
 });
+
+async function expectDialogFits(): Promise<void> {
+  expect(await browser.execute(() => {
+    const dialog = document.querySelector('[role="dialog"]');
+    const footer = dialog?.querySelector("footer")?.getBoundingClientRect();
+    return !!dialog && !!footer && footer.bottom <= innerHeight && footer.top >= 0
+      && dialog.scrollWidth <= dialog.clientWidth;
+  })).toBe(true);
+}

@@ -442,7 +442,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, install with visible permission confirmation, assign a role, verify after restart, disable and cancel/confirm removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension, install with visible permission confirmation and All roles scope, create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-EXTENSIONS-001",
@@ -465,7 +465,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, install with visible permission confirmation, assign a role, verify after restart, disable and cancel/confirm removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension, install with visible permission confirmation and All roles scope, create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "APP-LEGAL-001",

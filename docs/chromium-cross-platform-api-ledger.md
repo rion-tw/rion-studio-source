@@ -10,6 +10,84 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### AppKit Stop ownership and Windows NSIS corrections
+
+Implementation commits: e139c1f7 (Core projection owner and regression),
+09be3fdc (NSIS installer-only declaration and router coverage).
+Full hygiene passes: source 2498, docs/context, unused analysis, Cargo
+dependencies, P0 70/70 and P1 75/75, paired cutover parity 41/41 each.
+Full workspace Rust results remain pending at this documentation commit.
+
+The local Windows Core regression first exposes a test-helper gap:
+effect_result did not recognize embeddedFollowRoleOwnership failures.
+With that mapping repaired, the exact pre-fix AppKit Stop regression fails
+Applied versus Indeterminate, matching macOS flow 649. The Core fix selects
+an explicit internal close-projection owner. Only admitted AppKit Stop defers
+the intermediate ownership projection to finish_appkit_projection; ordinary
+Role/Workspace callers retain their survivor projection. The unused Role
+persist_closed_tab flag was always false at all callers and is removed;
+Workspace persistence policy is unchanged. Native host fences are unchanged.
+
+Windows focused cargo test -p rion-core appkit_ passes 22 tests, including
+Role Stop, surviving Workspace membership, explicit full-projection failure
+(Degraded / topology committed / nativeApplied=false), and whole-window
+cohort close. Windows pnpm run lint:rust passes (1m52s); the full workspace
+test is running, not yet accepted. The affected visible journey remains
+chromium-tabs-visible-seed under chromium-macos-smoke; its original assertion
+is retained and native macOS replay remains mandatory. No new journey is
+introduced; focused coverage is lower-layer-covered.
+
+Windows Chromium job 101694497018 ultimately fails in NSIS uninstaller
+compilation: warning 6001 for unused RionTauriV22InstallDirectory, with /WX
+still enabled. Later package/update/black-box steps are skipped. Scope the
+installer-only variable declaration with BUILD_UNINSTALLER, matching its
+existing preInit use. Actual Windows NSIS 3.0.4.1 compile fixtures reproduce
+before-uninstaller exit=1 / warning 6001, then after-uninstaller and
+after-installer both exit=0 with /WX. No fixture executable is launched.
+Evidence: windows-handoff-b0c3c184/nsis-hook-compile/*.log.
+Existing packaging suite passes 1 file / 13 tests. This compile-only evidence
+does not replace complete installer/updater acceptance. The router previously
+did not classify build/*.nsh; add that scoped pattern to build-ci and verify
+the explicit path now routes successfully. No credentials or publication.
+
+### 34a98f5b paired full-profile evidence and exact AppKit Stop failure
+
+CI 34107092799 Windows Chromium job 101694497018 completes
+chromium-windows-smoke: 59 phases, 55 PASS and 4 EXPECTED_FORCE_TERMINATION,
+zero FAIL. Artifact 10013490282 / 2026-09-07T09-39-16-918Z-win32 includes
+Macro, settings/fonts, Session isolation/reset, recovery, visible tabs and
+restart. Direct View ownership probe also passes; packaging/updater steps
+are still pending completion and are not inferred from this E2E result.
+
+macOS Chromium job 101694496918 / artifact 10013584709 /
+2026-09-07T09-38-40-316Z-darwin executes 57 phases: 52 PASS,
+4 EXPECTED_FORCE_TERMINATION, 1 FAIL (chromium-tabs-visible-seed).
+Macro input recovery now passes with unchanged AppKit coordinate geometry.
+The exact failing assertion at chromium-tabs-parity.e2e.ts requires no
+runtime shell errors; it reports ELECTRON_MACOS_APPKIT_PHASE_PROJECTION_STALE.
+Flow 621 admits Stop event 2555f0b4-f392-4baa-9084-82b664b82ef8;
+destroy 623 completes at 637, then generic ownership projection 643 fails
+at 644 because phase-only AppKit projection cannot change tab membership.
+Receipt 649 is indeterminate with topology committed but nativeApplied=false.
+A subsequent WindowState event's full projection succeeds at 655; that later
+event cannot retroactively make the failed Stop successful. Core must let the
+admitted AppKit Stop publish its exact full projection without an intermediate
+phase-only membership change. Native fences and the E2E assertion stay intact.
+
+At the same commit Windows native job 101694684990 passes Rust lint/test
+(1671 PASS, 4 ignored) and native integration (8 files / 16 tests).
+Its renderer step fails 3 tests: the stale scroll source guard fixed by
+0da77bd8, plus 10000ms boundaries in production-promotion-readiness and
+production-public-latest-recovery-cli; those two require separate diagnosis.
+451 renderer files / 3672 tests pass, 10 files / 48 tests skip.
+macOS native 101694685132 and paired stable full jobs
+101694496979 / 101694497053 PASS. Local full ESLint at 0da77bd8 passes
+with 0 errors and 23 existing react-refresh warnings.
+These are separate exact results; neither failed job is relabeled green.
+Local foreground UI remains gated by the recorded Parallels foreground
+obstruction. Physical devices, consented Chrome import, external production
+updates and CP-17 Tauri removal remain open.
+
 ### 34107092799 shared source guard correction
 
 At 34a98f5b, shared checks job 101694496827 passes portable Rust and typecheck
@@ -1425,13 +1503,13 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-06 | P1 / Fonts + bridge | verified v23 provider; paired native probes and settings acceptance at 718dc83a | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
-| CP-09 | P1 / Trusted input | implemented; Windows Macro cutover passed at 6ace94b2; latest macOS input-recovery native click pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
+| CP-09 | P1 / Trusted input | implemented; paired Macro cutover including input recovery passed at 34a98f5b; closure audit pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport and native Rust import restart passed at 6ace94b2; visible Session lifecycle and consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | paired stable full passed at 6ace94b2; latest Chromium Windows 39 phases and macOS 29 phases passed before failure; full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | paired stable full passed at 34a98f5b; Windows Chromium full 59 phases passed; macOS 52 PASS plus 4 expected terminations, visible-tab Stop failed; hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at a20bddec; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | paired native and stable full passed at 6ace94b2; current Chromium full and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |

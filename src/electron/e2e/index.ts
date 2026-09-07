@@ -405,6 +405,14 @@ function installElectronDesktopE2eRoleRuntimeObserver(): void {
     ChromiumRuntimeBootstrap,
     "desktopE2eStatusPresentation" | "inspectFullscreenToolbar" | "snapshot"
   >;
+  // Bind the actual owner at startup, before a gated first navigation can wait
+  // for an inspection whose snapshot was previously required to discover it.
+  const originalStart = ChromiumRuntimeBootstrap.start;
+  ChromiumRuntimeBootstrap.start = async (input) => {
+    const owner = await originalStart(input);
+    observedRuntime = owner;
+    return owner;
+  };
   const runtime = ChromiumRuntimeBootstrap.prototype as unknown as RuntimeSnapshotPort;
   const originalSnapshot = runtime.snapshot;
   const observeRuntimeOwner = (owner: RuntimeSnapshotPort): void => {

@@ -1430,9 +1430,12 @@ export class ChromiumRuntimeEffectExecutor {
     }
     this.#tabs.delete(tabId);
     if (index >= 0) windowRecord.tabIds.splice(index, 1);
-    windowRecord.activeTabId = nextActiveTabId ?? windowRecord.tabIds[
-      Math.min(Math.max(index, 0), windowRecord.tabIds.length - 1)
-    ];
+    // Closing a background tab must preserve the surviving Core-selected tab.
+    // An explicit successor remains authoritative for an active-tab close.
+    windowRecord.activeTabId = nextActiveTabId ?? (
+      windowRecord.activeTabId !== tabId ? windowRecord.activeTabId :
+        windowRecord.tabIds[Math.min(Math.max(index, 0), windowRecord.tabIds.length - 1)]
+    );
     if (this.#state === "open") this.#applyWindowVisibility(windowRecord);
     await this.#reconcileRolePlaceholders();
     return true;

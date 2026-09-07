@@ -28,6 +28,29 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Native tabs failure attribution after 718dc83a — 2026-09-07
+
+CI 34081543779 retained exact clean-SHA reports: Windows artifact 10004161262
+has 51 PASS / 4 EXPECTED_FORCE_TERMINATION / 1 FAIL; macOS artifact 10004119340
+has 50 PASS / 4 EXPECTED_FORCE_TERMINATION / 1 FAIL. Both failed tabs-visible-seed;
+these are partial profile results, not complete platform acceptance.
+
+Windows loading admission inspection reported no observed runtime owner. The
+E2E observer discovered its owner only through the first snapshot, while the
+first gated navigation needed that observer before release. Bind the actual
+bootstrap owner at successful startup; retain exact Core/native inspection.
+
+macOS Core flow 737 accepted closeWindow. DestroyTab 739/751 released background
+Alpha, but native selection changed from surviving Gamma to Beta. Core projection
+758 retained Gamma and correctly rejected the mismatch at 759; receipt 765 was
+indeterminate. Preserve a surviving active tab when no explicit Core successor
+is supplied. Both-platform regression tests failed before the repair; all 60
+close-selection/executor/AppKit-projection tests passed afterward. The native
+journey now explicitly proves the complete three-tab cohort and last-tab
+selection before whole-window close. Affected paired journeys: TABS-VISIBLE-
+ACTIVATION-019 and GAME-WINDOWS-TABS-020. Native validation remains pending for
+this repair and focus-arming commit ecd9f128. No fence or deadline was weakened.
+
 ### Windows user focus during Macro arming — 2026-09-07
 
 `718dc83a` passed focused topology seed/restart with its physical prerequisite

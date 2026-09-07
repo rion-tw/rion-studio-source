@@ -324,7 +324,7 @@ pub(crate) fn initialize(user_data_dir: &Path) -> Result<Arc<DesktopE2eControl>,
         .append(true)
         .open(&transcript_path)
         .map_err(|error| format!("Desktop E2E event transcript failed: {error}"))?;
-    let session_id = format!("{:x}", Sha256::digest(token.as_bytes()))[..16].to_owned();
+    let session_id = hex::encode(Sha256::digest(token.as_bytes()))[..16].to_owned();
     let control = Arc::new(DesktopE2eControl {
         accepted_close_labels: Mutex::new(HashSet::new()),
         changed: Condvar::new(),

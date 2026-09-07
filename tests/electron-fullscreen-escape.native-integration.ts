@@ -13,7 +13,7 @@ it("exits contained HTML fullscreen through the exact ChromeDriver key helper", 
   const driver = await remote({
     logLevel: "error", connectionRetryCount: 0, connectionRetryTimeout: 20_000,
     capabilities: {
-      browserName: "chrome", browserVersion: "150.0.7871.224",
+      browserName: "chrome", browserVersion: "150.0.7871.250",
       "wdio:enforceWebDriverClassic": true,
       "goog:chromeOptions": {
         binary: require("electron") as string,

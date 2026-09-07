@@ -158,7 +158,7 @@ fn strip_v2_envelope_prefix(envelope: &[u8]) -> Result<&[u8], PlatformError> {
 
 #[cfg(target_os = "macos")]
 fn mac_keychain_key() -> Result<[u8; 32], PlatformError> {
-    use aes_gcm::{Aes256Gcm, KeyInit, aead::OsRng};
+    use aes_gcm::{Aes256Gcm, Key, aead::Generate};
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     let existing = crate::background_command("/usr/bin/security")
         .args([
@@ -177,7 +177,7 @@ fn mac_keychain_key() -> Result<[u8; 32], PlatformError> {
             .trim()
             .to_owned()
     } else {
-        let key = Aes256Gcm::generate_key(&mut OsRng);
+        let key = Key::<Aes256Gcm>::generate();
         let encoded = STANDARD.encode(key);
         let added = crate::background_command("/usr/bin/security")
             .args([
@@ -211,13 +211,13 @@ fn mac_keychain_key() -> Result<[u8; 32], PlatformError> {
 fn protect_macos(plaintext: &[u8]) -> Result<Vec<u8>, PlatformError> {
     use aes_gcm::{
         Aes256Gcm, KeyInit,
-        aead::{Aead, AeadCore, OsRng},
+        aead::{Aead, Generate},
     };
 
     let key = mac_keychain_key()?;
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|error| PlatformError::Operation(error.to_string()))?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = aes_gcm::Nonce::generate();
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|_| PlatformError::Operation("Session-transfer encryption failed".to_owned()))?;
@@ -246,7 +246,10 @@ fn unprotect_macos(protected: &[u8]) -> Result<Vec<u8>, PlatformError> {
     let (nonce, ciphertext) = payload.split_at(12);
     Aes256Gcm::new_from_slice(&mac_keychain_key()?)
         .map_err(|error| PlatformError::Operation(error.to_string()))?
-        .decrypt(nonce.into(), ciphertext)
+        .decrypt(
+            nonce.try_into().expect("nonce split has fixed length"),
+            ciphertext,
+        )
         .map_err(|_| PlatformError::Operation("Session-transfer authentication failed".to_owned()))
 }
 
@@ -273,12 +276,12 @@ fn protect_aes_gcm_v2_with_key(
 ) -> Result<Vec<u8>, PlatformError> {
     use aes_gcm::{
         Aes256Gcm, KeyInit,
-        aead::{Aead, AeadCore, OsRng, Payload},
+        aead::{Aead, Generate, Payload},
     };
 
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|_| operation(V2_PROTECTION_FAILED_ERROR))?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = aes_gcm::Nonce::generate();
     let ciphertext = cipher
         .encrypt(
             &nonce,
@@ -315,7 +318,7 @@ fn unprotect_aes_gcm_v2_with_key(
     Aes256Gcm::new_from_slice(key)
         .map_err(|_| operation(V2_AUTHENTICATION_FAILED_ERROR))?
         .decrypt(
-            nonce.into(),
+            nonce.try_into().expect("nonce split has fixed length"),
             Payload {
                 msg: ciphertext,
                 aad: binding,

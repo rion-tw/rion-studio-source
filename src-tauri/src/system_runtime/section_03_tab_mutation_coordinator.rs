@@ -227,7 +227,7 @@ impl SystemRuntimeExecutor {
     pub(crate) async fn await_tab_mutation_turn(
         &self,
         mut operation: RuntimeTabMutationOperation,
-    ) -> Result<RuntimeTabMutationLease, SystemRuntimeOperationSummaryRecord> {
+    ) -> Result<RuntimeTabMutationLease, Box<SystemRuntimeOperationSummaryRecord>> {
         let remaining = operation
             .accepted_deadline
             .saturating_duration_since(Instant::now());
@@ -239,21 +239,21 @@ impl SystemRuntimeExecutor {
             let receipt =
                 self.wait_or_fallback_tab_mutation_receipt(&operation.request.operation_id);
             self.clear_terminal_tab_stop(&receipt);
-            return Err(receipt);
+            return Err(Box::new(receipt));
         };
         if let Some(receipt) = self.operations.terminal(&operation.request.operation_id) {
             let summary = receipt.summary();
             self.clear_terminal_tab_stop(&summary);
-            return Err(summary);
+            return Err(Box::new(summary));
         }
         if !self.tab_mutation_identity_is_current(&operation.request) {
-            return Err(self.complete_tab_mutation(
+            return Err(Box::new(self.complete_tab_mutation(
                 &operation.request.operation_id,
                 "tabMutationIdentitySuperseded",
                 RuntimeTabMutationTerminalStatus::Superseded,
                 None,
                 0,
-            ));
+            )));
         }
         if !self
             .operations
@@ -262,7 +262,7 @@ impl SystemRuntimeExecutor {
             let receipt =
                 self.wait_or_fallback_tab_mutation_receipt(&operation.request.operation_id);
             self.clear_terminal_tab_stop(&receipt);
-            return Err(receipt);
+            return Err(Box::new(receipt));
         }
         Ok(RuntimeTabMutationLease {
             _guard: guard,

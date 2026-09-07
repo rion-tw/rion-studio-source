@@ -47,7 +47,7 @@ const originalElectronVersion = Object.getOwnPropertyDescriptor(
 beforeAll(() => {
   Object.defineProperties(process.versions, {
     chrome: { configurable: true, value: "150.0.7339.12" },
-    electron: { configurable: true, value: "43.4.1" }
+    electron: { configurable: true, value: "43.6.0" }
   });
 });
 

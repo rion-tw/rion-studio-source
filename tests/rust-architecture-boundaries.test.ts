@@ -48,7 +48,7 @@ describe("desktop shell and Rust production architecture boundaries", () => {
       ]);
 
     expect(platformManifest).toContain('system-webview-probe = ["dep:webview2-com", "dep:windows-webview2"]');
-    expect(platformManifest).toContain('webview2-com = { version = "=0.38.2", optional = true }');
+    expect(platformManifest).toContain('webview2-com = { version = "=0.39.1", optional = true }');
     expect(coreManifest).toContain('system-webview-probe = ["rion-platform/system-webview-probe"]');
     expect(nodeManifest).toContain('rion-core = { path = "../rion-core", default-features = false }');
     expect(nodeManifest).not.toContain('features = ["system-webview-probe"]');

@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const approvedActions = new Map([
-  ["Swatinem/rust-cache", "e18b497796c12c097a38f9edb9d0641fb99eee32"],
+  ["Swatinem/rust-cache", "6323deb102c322ba6fcbdcafc7e3dddab59af2b6"],
   ["actions/attest-build-provenance", "4d101475d8b20a2381f78447822ac1eab6504dd8"],
   ["actions/checkout", "3d3c42e5aac5ba805825da76410c181273ba90b1"],
   ["actions/create-github-app-token", "bcd2ba49218906704ab6c1aa796996da409d3eb1"],
   ["actions/download-artifact", "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"],
-  ["actions/setup-node", "249970729cb0ef3589644e2896645e5dc5ba9c38"],
+  ["actions/setup-node", "820762786026740c76f36085b0efc47a31fe5020"],
   ["actions/upload-artifact", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"],
-  ["pnpm/action-setup", "0ebf47130e4866e96fce0953f49152a61190b271"]
+  ["pnpm/action-setup", "ea17c68df8912ef543352723c149a84f56e3d413"]
 ]);
 
 describe("GitHub Actions supply chain", () => {

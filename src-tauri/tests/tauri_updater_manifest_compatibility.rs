@@ -2,7 +2,7 @@ use tauri_plugin_updater::{RemoteRelease, RemoteReleaseInner};
 
 #[test]
 fn pinned_tauri_parser_ignores_additive_platform_sha256() {
-    assert!(include_str!("../Cargo.toml").contains("tauri-plugin-updater = \"=2.10.1\""));
+    assert!(include_str!("../Cargo.toml").contains("tauri-plugin-updater = \"=2.11.0\""));
 
     let release: RemoteRelease = serde_json::from_str(include_str!(
         "../../tests/fixtures/updater/latest-with-sha256.json"

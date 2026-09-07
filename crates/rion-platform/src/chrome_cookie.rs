@@ -198,7 +198,7 @@ pub fn decrypt_mac_cookie_payload(
     key: &[u8],
 ) -> Result<Vec<u8>, PlatformError> {
     use aes::Aes128;
-    use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
+    use cbc::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
 
     let ciphertext = encrypted_value
         .strip_prefix(b"v10")
@@ -209,7 +209,7 @@ pub fn decrypt_mac_cookie_payload(
     let decryptor = cbc::Decryptor::<Aes128>::new_from_slices(key, &[0x20; 16])
         .map_err(|error| PlatformError::Operation(error.to_string()))?;
     decryptor
-        .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
+        .decrypt_padded_vec::<Pkcs7>(ciphertext)
         .map_err(|_| PlatformError::Operation("Chrome cookie ciphertext is invalid".to_owned()))
 }
 
@@ -256,7 +256,10 @@ pub fn decrypt_windows_aes_gcm_payload(
     let (nonce, ciphertext) = payload.split_at(12);
     Aes256Gcm::new_from_slice(key)
         .map_err(|error| PlatformError::Operation(error.to_string()))?
-        .decrypt(nonce.into(), ciphertext)
+        .decrypt(
+            nonce.try_into().expect("nonce split has fixed length"),
+            ciphertext,
+        )
         .map_err(|_| PlatformError::Operation("Chrome cookie authentication failed".to_owned()))
 }
 
@@ -302,16 +305,36 @@ fn crypt_unprotect(value: &[u8]) -> Result<Vec<u8>, PlatformError> {
 #[cfg(test)]
 mod tests {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
-    use cbc::cipher::{BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
+    use cbc::cipher::{BlockModeEncrypt, KeyIvInit, block_padding::Pkcs7};
 
     use super::*;
+
+    #[test]
+    fn decrypts_independent_legacy_cookie_vectors() {
+        // Fixed AES-CBC/PKCS7 and AES-GCM vectors generated with Node crypto,
+        // independent of the RustCrypto version used by the decryptors.
+        let mac = hex::decode("763130937794f31cf904564d8c60d4ff8fc476").unwrap();
+        let windows = hex::decode(concat!(
+            "763130040404040404040404040404",
+            "84d6d71287d04659e72817574523fa96767c4efe09189c46c60c07a2"
+        ))
+        .unwrap();
+        assert_eq!(
+            decrypt_mac_cookie_payload(&mac, &[7; 16]).unwrap(),
+            b"cookie-value"
+        );
+        assert_eq!(
+            decrypt_windows_aes_gcm_payload(&windows, &[9; 32]).unwrap(),
+            b"cookie-value"
+        );
+    }
 
     #[test]
     fn decrypts_mac_cbc_payload() {
         let key = [7_u8; 16];
         let encryptor = cbc::Encryptor::<aes::Aes128>::new_from_slices(&key, &[0x20; 16]).unwrap();
         let mut encrypted = b"v10".to_vec();
-        encrypted.extend(encryptor.encrypt_padded_vec_mut::<Pkcs7>(b"cookie-value"));
+        encrypted.extend(encryptor.encrypt_padded_vec::<Pkcs7>(b"cookie-value"));
         assert_eq!(
             decrypt_mac_cookie_payload(&encrypted, &key).unwrap(),
             b"cookie-value"

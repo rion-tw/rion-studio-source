@@ -469,7 +469,7 @@ fn macos_window_content_metrics_now(window: &Window) -> Option<WindowContentMetr
 
 fn runtime_label(prefix: &str, id: &str) -> String {
     let digest = Sha256::digest(id.as_bytes());
-    let encoded = format!("{digest:x}");
+    let encoded = hex::encode(digest);
     format!("{prefix}-{}", &encoded[..24])
 }
 

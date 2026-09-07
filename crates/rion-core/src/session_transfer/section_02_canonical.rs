@@ -484,7 +484,7 @@ fn validate_canonical_envelope_length(length: usize) -> CoreResult<()> {
 }
 
 fn sha256_hex(bytes: impl AsRef<[u8]>) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex::encode(Sha256::digest(bytes))
 }
 
 fn count_u64(value: usize) -> CoreResult<u64> {

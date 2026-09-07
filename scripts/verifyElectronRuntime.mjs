@@ -10,11 +10,11 @@ const PROBE_PREFIX = "RION_ELECTRON_RUNTIME_PROBE=";
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
 export const EXPECTED_ELECTRON_RUNTIME = Object.freeze({
-  chrome: "150.0.7871.224",
-  electron: "43.4.1",
+  chrome: "150.0.7871.250",
+  electron: "43.6.0",
   modules: "148",
   napi: "10",
-  node: "24.18.1"
+  node: "24.20.0"
 });
 export const EXPECTED_APPKIT_RUNTIME_ABI = 6;
 

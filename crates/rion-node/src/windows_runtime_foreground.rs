@@ -175,7 +175,7 @@ fn windows_runtime_parent_identity(
     hasher.update(address.to_ne_bytes());
     hasher.update(process_id.to_ne_bytes());
     hasher.update(owner_thread_id.to_ne_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(any(windows, test))]

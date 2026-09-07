@@ -10,8 +10,9 @@ default = []
 system-webview-probe = ["rion-platform/system-webview-probe"]
 
 [dependencies]
+hex.workspace = true
 ring = "0.17.14"
-zip = { version = "4.6.1", default-features = false, features = ["deflate"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 base64.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
@@ -25,7 +26,7 @@ rusty-leveldb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tempfile = "3.24.0"
+tempfile = "3.27.0"
 thiserror.workspace = true
 tokio.workspace = true
 ts-rs.workspace = true

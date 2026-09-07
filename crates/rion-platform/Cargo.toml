@@ -10,6 +10,7 @@ default = []
 system-webview-probe = ["dep:webview2-com", "dep:windows-webview2"]
 
 [dependencies]
+hex.workspace = true
 aes.workspace = true
 aes-gcm.workspace = true
 base64.workspace = true
@@ -23,10 +24,10 @@ sysinfo.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3.24.0"
+tempfile = "3.27.0"
 
 [target.'cfg(windows)'.dependencies]
-webview2-com = { version = "=0.38.2", optional = true }
+webview2-com = { version = "=0.39.1", optional = true }
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
@@ -36,4 +37,4 @@ windows = { version = "0.62.2", features = [
   "Win32_Storage_FileSystem",
   "Win32_System_Threading",
 ] }
-windows-webview2 = { package = "windows", version = "=0.61.3", optional = true }
+windows-webview2 = { package = "windows", version = "=0.62.2", optional = true }

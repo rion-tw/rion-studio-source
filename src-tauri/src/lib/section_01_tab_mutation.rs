@@ -78,7 +78,7 @@ async fn execute_tab_stop(
     };
     let lease = match state.runtime.await_tab_mutation_turn(operation).await {
         Ok(lease) => lease,
-        Err(receipt) => return Ok(receipt),
+        Err(receipt) => return Ok(*receipt),
     };
     let operation_id = lease.request.operation_id.clone();
 

@@ -271,7 +271,7 @@ fn decode_chromium_code_units(value: &[u8]) -> CoreResult<Vec<u16>> {
     match encoding {
         1 => Ok(bytes.iter().map(|byte| u16::from(*byte)).collect()),
         0 if bytes.len() % 2 == 0 => Ok(bytes
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
             .collect()),
         _ => Err(webview2_source_layout_error()),

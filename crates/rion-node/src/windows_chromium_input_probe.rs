@@ -250,7 +250,7 @@ fn native_handle_token(domain: &[u8], address: usize, process_id: u32) -> String
     hasher.update(domain);
     hasher.update(address.to_ne_bytes());
     hasher.update(process_id.to_ne_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(test)]

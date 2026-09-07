@@ -122,10 +122,10 @@ jobs:
           ref: ${{ inputs.target_sha }}
 
       - name: Setup pnpm for candidate construction
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - name: Setup Node for candidate construction
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -151,7 +151,7 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Restore candidate build cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: "false"
           shared-key: tauri-v22-electron-updater-build-${{ runner.os }}-${{ runner.arch }}
@@ -253,7 +253,7 @@ jobs:
           ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
 
       - name: Setup pinned Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
 
@@ -371,10 +371,10 @@ jobs:
           ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
 
       - name: Setup pnpm for trusted signing control
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - name: Setup Node for trusted signing control
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -581,10 +581,10 @@ jobs:
           ref: ${{ needs.authorize-control-plane.outputs.control_plane_sha }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
       - name: Setup Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -669,7 +669,7 @@ jobs:
         run: rustup show active-toolchain
 
       - name: Restore updater build cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: "false"
           shared-key: tauri-v22-electron-updater-${{ runner.os }}-${{ runner.arch }}

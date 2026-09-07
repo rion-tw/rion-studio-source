@@ -486,10 +486,9 @@ pub(crate) fn insert_v23_role_initialization(
     evidence: &V23RoleInitializationEvidence,
 ) -> CoreResult<RoleSessionMigrationRecord> {
     validate_v23_role_initialization(evidence)?;
-    let request_sha256 = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(evidence).map_err(|_| invalid_input_error())?)
-    );
+    let request_sha256 = hex::encode(Sha256::digest(
+        serde_json::to_vec(evidence).map_err(|_| invalid_input_error())?,
+    ));
     let record = RoleSessionMigrationRecord {
         role_id: evidence.role_id.clone(),
         transfer_id: evidence.transfer_id.clone(),
@@ -591,10 +590,9 @@ pub(crate) fn insert_v23_chrome_profile_import_ready(
         reset_receipt_id: None,
     };
     validate_record(&record)?;
-    let request_sha256 = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(evidence).map_err(|_| invalid_input_error())?)
-    );
+    let request_sha256 = hex::encode(Sha256::digest(
+        serde_json::to_vec(evidence).map_err(|_| invalid_input_error())?,
+    ));
     transaction
         .execute(
             "INSERT INTO role_session_migrations(
@@ -1053,10 +1051,9 @@ fn validate_v23_explicit_reset(evidence: &V23RoleExplicitResetEvidence) -> CoreR
 }
 
 fn explicit_reset_request_sha256(evidence: &V23RoleExplicitResetEvidence) -> CoreResult<String> {
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(evidence).map_err(|_| invalid_input_error())?)
-    ))
+    Ok(hex::encode(Sha256::digest(
+        serde_json::to_vec(evidence).map_err(|_| invalid_input_error())?,
+    )))
 }
 
 fn validate_start_replay(
@@ -1398,7 +1395,7 @@ fn decode_stored(raw: RawRoleSessionMigration) -> CoreResult<StoredRoleSessionMi
 
 fn transition_request_sha256(input: &RoleSessionMigrationTransitionInput) -> CoreResult<String> {
     let bytes = serde_json::to_vec(input).map_err(|_| invalid_input_error())?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 
 fn validate_uuid(value: &str) -> CoreResult<()> {

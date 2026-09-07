@@ -44,7 +44,7 @@ pub(crate) fn windows_focus_identity(
     for address in [foreground, active, focus] {
         hasher.update((address as u64).to_le_bytes());
     }
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 pub(crate) fn probe_error(status: Status, message: impl Into<String>) -> Error {

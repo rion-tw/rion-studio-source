@@ -139,7 +139,7 @@ pub fn chrome_profile_source_fingerprint(
         digest.update(entry);
         digest.update([0]);
     }
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(hex::encode(digest.finalize()))
 }
 
 fn fingerprint_path(
@@ -186,11 +186,11 @@ fn fingerprint_path(
             content_digest.update(&buffer[..read]);
         }
         output.push(format!(
-            "{}:{}:{}:{:x}",
+            "{}:{}:{}:{}",
             relative.to_string_lossy(),
             metadata.len(),
             modified,
-            content_digest.finalize()
+            hex::encode(content_digest.finalize())
         ));
     }
     Ok(())

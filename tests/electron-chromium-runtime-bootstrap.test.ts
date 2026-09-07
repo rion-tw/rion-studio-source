@@ -403,8 +403,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     await expect(ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       startupSignal: startupAbort.signal,
       ...native,
@@ -429,8 +429,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()
@@ -454,8 +454,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     await expect(ChromiumRuntimeBootstrap.start({
       core: failedCore,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()
@@ -479,8 +479,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const start = ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onFatalEventStreamFailure,
@@ -511,8 +511,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onFatalEventStreamFailure,
@@ -539,8 +539,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onFatalEventStreamFailure,
@@ -564,8 +564,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()
@@ -597,8 +597,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       appKit: {
@@ -634,8 +634,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onFatalEventStreamFailure: vi.fn(),
@@ -659,8 +659,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...native,
       onError: vi.fn()
@@ -709,8 +709,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ipcMain: emptyIpcMain(),
       sessions: { fromPath },
@@ -766,7 +766,7 @@ describe("Electron Chromium runtime bootstrap", () => {
   });
 
   it("registers the exact conservative v23 capability fixtures", () => {
-    const versions = { electronVersion: "43.4.1", chromiumVersion: "150.0.7871.224" };
+    const versions = { electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250" };
     expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(23);
     expect(buildChromiumRuntimeRegistration({
       platform: "win32",
@@ -775,7 +775,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       contractVersion: 23,
       platform: "windows",
       engine: "chromium",
-      adapterVersion: "electron-43.4.1+chromium-150.0.7871.224",
+      adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
       available: true,
       capabilities: WINDOWS_CHROMIUM_BOOTSTRAP_CAPABILITIES
     });
@@ -803,7 +803,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       contractVersion: 23,
       platform: "macos",
       engine: "chromium",
-      adapterVersion: "electron-43.4.1+chromium-150.0.7871.224",
+      adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
       available: false,
       capabilities: UNAVAILABLE_CHROMIUM_CAPABILITIES,
       failureReason: "runtime-creation-failed"
@@ -856,8 +856,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()
@@ -904,8 +904,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     await expect(ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()
@@ -924,8 +924,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()
@@ -1013,8 +1013,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()
@@ -1040,8 +1040,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     const runtime = await ChromiumRuntimeBootstrap.start({
       core,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       appKit: {
         adapterVersion: "appkit-attach-layout-only",
@@ -1097,8 +1097,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     await expect(ChromiumRuntimeBootstrap.start({
       core: missingAttachmentsCore,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       appKit: {
         ...baseAdapter,
@@ -1115,8 +1115,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     await expect(ChromiumRuntimeBootstrap.start({
       core: missingTrustedCore,
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       appKit: {
         ...baseAdapter,
@@ -1230,8 +1230,8 @@ describe("Electron Chromium runtime bootstrap", () => {
       core,
       ipcMain: emptyIpcMain(),
       platform: "darwin",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "/Rion/out/preload/role.cjs",
       appKit: adapter,
       sessions: { fromPath },
@@ -1351,8 +1351,8 @@ describe("Electron Chromium runtime bootstrap", () => {
     await expect(ChromiumRuntimeBootstrap.start({
       core,
       platform: "win32",
-      electronVersion: "43.4.1",
-      chromiumVersion: "150.0.7871.224",
+      electronVersion: "43.6.0",
+      chromiumVersion: "150.0.7871.250",
       rolePreloadPath: "C:\\Rion\\out\\preload\\role.cjs",
       ...emptyNativePorts(),
       onError: vi.fn()

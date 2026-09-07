@@ -225,7 +225,7 @@ use super::*;
         let pack = pack_path(directory.path(), "inter");
         fs::create_dir_all(&pack).unwrap();
         let bytes = b"wOF2verified-test-font";
-        let sha256 = format!("{:x}", Sha256::digest(bytes));
+        let sha256 = hex::encode(Sha256::digest(bytes));
         let file = format!("{sha256}.woff2");
         fs::write(pack.join(&file), bytes).unwrap();
         let manifest = CachedManifest {
@@ -291,7 +291,7 @@ use super::*;
         let pack = pack_path(directory.path(), &catalog_id);
         fs::create_dir_all(&pack).unwrap();
         let bytes = b"wOF2verified-custom-font";
-        let sha256 = format!("{:x}", Sha256::digest(bytes));
+        let sha256 = hex::encode(Sha256::digest(bytes));
         let file = format!("{sha256}.woff2");
         fs::write(pack.join(&file), bytes).unwrap();
         let manifest = CachedManifest {

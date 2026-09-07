@@ -466,7 +466,7 @@ describe("direct Rust core build verification", () => {
     const packageJson = JSON.parse(packageJsonSource) as { scripts: Record<string, string> };
 
     expect(manifest).toContain('"crates/rion-node"');
-    expect(manifest).toContain('napi-build = "2.3.2"');
+    expect(manifest).toContain('napi-build = "2.4.1"');
     expect(shellManifest).toContain(
       'rion-core = { path = "../crates/rion-core", features = ["system-webview-probe"] }'
     );

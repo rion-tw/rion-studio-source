@@ -396,8 +396,8 @@ async function startRuntime(
   const runtime = await ChromiumRuntimeBootstrap.start({
     core,
     platform,
-    electronVersion: "43.4.1",
-    chromiumVersion: "150.0.7871.224",
+    electronVersion: "43.6.0",
+    chromiumVersion: "150.0.7871.250",
     rolePreloadPath: platform === "darwin"
       ? "/Rion/out/preload/role.cjs"
       : "C:\\Rion\\out\\preload\\role.cjs",

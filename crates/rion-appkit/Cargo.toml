@@ -8,7 +8,7 @@ build = "build.rs"
 links = "rion_appkit_native"
 
 [build-dependencies]
-cc = "=1.3.0"
+cc = "=1.4.5"
 
 [features]
 default = []

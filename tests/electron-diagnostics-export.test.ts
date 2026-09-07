@@ -77,7 +77,7 @@ function harness() {
   }));
   const captureRuntimeVersions = vi.fn(() => ({
     chromiumVersion: "150.0.7339.12",
-    electronVersion: "43.4.1"
+    electronVersion: "43.6.0"
   }));
   const captureDisplayTopology = vi.fn(displayTopology);
   const captureGpuFeatureStatus = vi.fn((): unknown => ({ webgl: "enabled" }));
@@ -140,7 +140,7 @@ describe("Electron diagnostics export", () => {
         engine: "chromium",
         engineVersion: "150.0.7339.12",
         shell: "electron",
-        shellVersion: "43.4.1",
+        shellVersion: "43.6.0",
         locale: "zh-TW",
         systemVersion: "macOS 15.6",
         displays: [{

@@ -85,7 +85,7 @@ describe("desktop shell migration gate", () => {
 
     expect(packageJson.main).toBe("./out/main/index.js");
     expect(packageJson.devDependencies).toMatchObject({
-      electron: "43.4.1",
+      electron: "43.6.0",
       "electron-builder": "26.15.3",
       "electron-vite": "5.0.0"
     });
@@ -98,7 +98,7 @@ describe("desktop shell migration gate", () => {
       .toBe("node scripts/verifyElectronRuntime.mjs");
 
     expect(cargo).toContain('"crates/rion-node"');
-    expect(cargo).toContain("napi = { version = \"=3.6.1\"");
+    expect(cargo).toContain("napi = { version = \"=3.12.2\"");
     expect(workspace).toContain("electron: true");
     expect(workspace).toContain("electron-winstaller: true");
     expect(electronConfig).toContain('"src/electron/main/index.ts"');
@@ -106,11 +106,11 @@ describe("desktop shell migration gate", () => {
     expect(electronConfig).toContain('entryFileNames: "[name].cjs"');
     expect(electronConfig.match(/external: \["electron"\]/gu)).toHaveLength(2);
     expect(tsconfig).toContain('"./tsconfig.electron.json"');
-    expect(runtimeVerifier).toContain('chrome: "150.0.7871.224"');
-    expect(runtimeVerifier).toContain('electron: "43.4.1"');
+    expect(runtimeVerifier).toContain('chrome: "150.0.7871.250"');
+    expect(runtimeVerifier).toContain('electron: "43.6.0"');
     expect(runtimeVerifier).toContain('modules: "148"');
     expect(runtimeVerifier).toContain('napi: "10"');
-    expect(runtimeVerifier).toContain('node: "24.18.1"');
+    expect(runtimeVerifier).toContain('node: "24.20.0"');
     expect(runtimeVerifier).toContain("mkdtemp");
   });
 

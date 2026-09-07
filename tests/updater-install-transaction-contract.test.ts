@@ -10,7 +10,7 @@ describe("updater install transaction contract", () => {
       readFile("src-tauri/src/update_transaction.rs", "utf8")
     ]);
 
-    expect(cargo).toContain('tauri-plugin-updater = "=2.10.1"');
+    expect(cargo).toContain('tauri-plugin-updater = "=2.11.0"');
     expect(manager).toContain(".on_before_exit(move ||");
     expect(manager).toContain("before_exit_app.cleanup_before_exit();");
     expect(transaction).toContain('Ok(("installerHandoff", "restart_pending"))');

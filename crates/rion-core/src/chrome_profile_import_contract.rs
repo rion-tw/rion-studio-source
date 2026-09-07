@@ -1350,7 +1350,7 @@ fn parse_sha256(value: &str) -> Option<[u8; 32]> {
         return None;
     }
     let mut result = [0_u8; 32];
-    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = hex_nibble(chunk[0])?;
         let low = hex_nibble(chunk[1])?;
         result[index] = (high << 4) | low;

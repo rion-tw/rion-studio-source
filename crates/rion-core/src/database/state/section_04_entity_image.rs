@@ -527,5 +527,5 @@ fn parse_payload(value: &str) -> CoreResult<Value> {
 
 fn snapshot_hash(snapshot: &Value) -> CoreResult<String> {
     let serialized = serialize_payload(snapshot)?;
-    Ok(format!("{:x}", Sha256::digest(serialized.as_bytes())))
+    Ok(hex::encode(Sha256::digest(serialized.as_bytes())))
 }

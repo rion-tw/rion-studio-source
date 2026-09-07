@@ -16,6 +16,7 @@ test = false
 bench = false
 
 [dependencies]
+hex.workspace = true
 napi.workspace = true
 napi-derive.workspace = true
 rion-appkit = { path = "../rion-appkit" }

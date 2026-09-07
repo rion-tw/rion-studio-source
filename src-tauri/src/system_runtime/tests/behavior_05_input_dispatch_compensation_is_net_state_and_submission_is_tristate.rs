@@ -442,7 +442,7 @@ fn coordinated_mouse_sequences_do_not_interleave_between_roles() {
 
     let events = events.lock().unwrap();
     assert_eq!(events.len(), 6);
-    for sequence in events.chunks_exact(2) {
+    for sequence in events.as_chunks::<2>().0.iter() {
         assert_eq!(sequence[0].0, sequence[1].0);
         assert!(sequence[0].1);
         assert!(!sequence[1].1);

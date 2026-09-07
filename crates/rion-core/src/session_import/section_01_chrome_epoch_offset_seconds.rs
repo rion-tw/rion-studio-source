@@ -459,7 +459,7 @@ fn decode_chromium_string(value: &[u8]) -> Option<String> {
         (1, bytes) => Some(bytes.iter().map(|byte| char::from(*byte)).collect()),
         (0, bytes) if bytes.len() % 2 == 0 => {
             let words = bytes
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]));
             String::from_utf16(&words.collect::<Vec<_>>()).ok()
         }

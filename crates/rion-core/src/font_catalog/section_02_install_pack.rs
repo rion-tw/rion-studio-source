@@ -58,7 +58,7 @@ fn install_pack(
                     "The selected font pack exceeds the size limit.",
                 ));
             }
-            let sha256 = format!("{:x}", Sha256::digest(&bytes));
+            let sha256 = hex::encode(Sha256::digest(&bytes));
             let file = format!("{sha256}.woff2");
             let path = staging.path().join(&file);
             let mut output = fs::File::create(&path).map_err(font_io)?;
@@ -281,7 +281,7 @@ pub(crate) fn custom_catalog_id(family: &str) -> Option<String> {
 }
 
 fn custom_catalog_id_from_normalized_family(family: &str) -> String {
-    let digest = format!("{:x}", Sha256::digest(family.to_lowercase().as_bytes()));
+    let digest = hex::encode(Sha256::digest(family.to_lowercase().as_bytes()));
     format!(
         "{CUSTOM_CATALOG_ID_PREFIX}{}",
         &digest[..CUSTOM_CATALOG_HASH_LENGTH]
@@ -371,7 +371,7 @@ fn read_validated_cached_assets(
         total_bytes = total_bytes.saturating_add(bytes.len() as u64);
         if total_bytes > MAX_PACK_BYTES as u64
             || !bytes.starts_with(b"wOF2")
-            || format!("{:x}", Sha256::digest(&bytes)) != asset.sha256
+            || hex::encode(Sha256::digest(&bytes)) != asset.sha256
         {
             return Err(font_cache_invalid(catalog_id));
         }

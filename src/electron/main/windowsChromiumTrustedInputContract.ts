@@ -6,8 +6,6 @@ import type {
   ChromiumNativeTrustedInputRequest
 } from "./chromiumTrustedInputCoordinator";
 
-export const WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 6;
-
 export type WindowsChromiumInputDeliveryMode = "foreground" | "background";
 
 export const WINDOWS_CHROMIUM_TRUSTED_KEY_CODES = Object.freeze([
@@ -25,82 +23,7 @@ export const WINDOWS_CHROMIUM_TRUSTED_KEY_CODES = Object.freeze([
   "F24"
 ] as const);
 
-export interface LegacyWindowsChromiumInputSurfaceIdentity {
-  readonly ownerKind?: "childHwnd";
-  readonly roleId: string;
-  readonly surfaceGeneration: number;
-  readonly nativeGeneration: number;
-  /** Monotonic owner-issued revision for one exact HWND attachment. */
-  readonly bindingRevision: string;
-  /** Opaque native tokens; never renderer-visible HWND values. */
-  readonly surfaceHandleToken: string;
-  readonly parentHandleToken: string;
-}
-
-/**
- * Read-only evidence for a dedicated per-surface Electron BaseWindow HWND.
- *
- * Electron 43 exposes a native handle for BaseWindow/BrowserWindow, but not
- * for WebContentsView. A Windows implementation therefore may produce this
- * receipt only for a separately owned child host containing exactly one role
- * WebContentsView. Enumerating or guessing Chromium child HWNDs is forbidden.
- */
-export interface LegacyWindowsChromiumInputSurfaceProbeReceipt
-  extends LegacyWindowsChromiumInputSurfaceIdentity {
-  readonly status: "verified";
-  readonly abiVersion: 6;
-  readonly deliveryMode: WindowsChromiumInputDeliveryMode;
-  readonly probeRevision: string;
-  readonly processId: number;
-  readonly uiThreadId: number;
-  readonly currentProcessOwned: true;
-  readonly exactParent: true;
-  readonly childWindowStyle: true;
-  readonly popupWindowStyleAbsent: true;
-  readonly noActivateStyle: true;
-  readonly parentWasForeground: true;
-  readonly parentVisible: true;
-  readonly surfaceVisible: boolean;
-  readonly targetWasForeground: boolean;
-  readonly targetHadThreadFocus: boolean;
-  readonly singleWebContentsSurface: true;
-  readonly clientWidth: number;
-  readonly clientHeight: number;
-  readonly dpi: number;
-}
-
-export interface LegacyWindowsNativeTrustedInputSubmissionBase
-  extends LegacyWindowsChromiumInputSurfaceIdentity {
-  readonly status: "submitted";
-  readonly submissionApi: "webContents.sendInputEvent";
-  readonly requestId: string;
-  readonly inputEpoch: string;
-  readonly deliveryMode: WindowsChromiumInputDeliveryMode;
-  readonly dispatchSequence: string;
-  readonly probeRevision: string;
-  readonly submittedAtMs: string;
-  readonly withinDeadline: true;
-  readonly currentProcessOwned: true;
-  readonly exactParent: true;
-  readonly childWindowStyle: true;
-  readonly popupWindowStyleAbsent: true;
-  readonly noActivateStyle: true;
-  readonly targetAttached: true;
-  readonly noActivationApiCalled: true;
-  readonly foregroundWindowPreserved: true;
-  readonly activeWindowPreserved: true;
-  readonly focusWindowPreserved: true;
-  readonly parentWasForeground: true;
-  readonly parentVisible: true;
-  readonly surfaceVisible: boolean;
-  readonly targetWasForeground: boolean;
-  readonly targetHadThreadFocus: boolean;
-  readonly clientWidth: number;
-  readonly clientHeight: number;
-  readonly dpi: number;
-}
-
-/** Explicit View receipts replace child-HWND claims during the scoped cutover. */
+/** Direct View receipts bind public Electron ownership and native parent evidence. */
 export interface ChromiumViewTrustedInputIdentity extends ChromiumViewInputIdentity {
   readonly ownerKind: "view";
 }
@@ -124,11 +47,11 @@ export interface ChromiumViewTrustedInputSubmissionBase extends ChromiumViewTrus
   readonly foregroundPreserved: true;
 }
 export type WindowsChromiumInputSurfaceIdentity =
-  LegacyWindowsChromiumInputSurfaceIdentity | ChromiumViewTrustedInputIdentity;
+  ChromiumViewTrustedInputIdentity;
 export type WindowsChromiumInputSurfaceProbeReceipt =
-  LegacyWindowsChromiumInputSurfaceProbeReceipt | ChromiumViewTrustedInputProbeReceipt;
+  ChromiumViewTrustedInputProbeReceipt;
 export type WindowsNativeTrustedInputSubmissionBase =
-  LegacyWindowsNativeTrustedInputSubmissionBase | ChromiumViewTrustedInputSubmissionBase;
+  ChromiumViewTrustedInputSubmissionBase;
 
 export interface WindowsNativeTrustedKeyRequest {
   readonly requestId: string;

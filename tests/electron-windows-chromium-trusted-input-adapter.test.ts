@@ -29,8 +29,6 @@ import type {
 } from "../src/electron/main/chromiumRoleSurfaceRegistry";
 
 const INPUT_SEQUENCE = "00000000-0000-4000-8000-000000000001";
-const SURFACE_TOKEN = "11111111111111111111111111111111";
-const PARENT_TOKEN = "22222222222222222222222222222222";
 
 function keyAction(
   phase: "tap" | "hold" | "release" = "tap",
@@ -82,7 +80,7 @@ function nativeRequest(
   };
 }
 
-function harness(ownerKind: "childHwnd" | "view" = "childHwnd") {
+function harness() {
   let nowMs = 1_100;
   let dispatchSequence = 0;
   let lifecycle: ((event: ChromiumRoleOverlayLifecycleEvent) => void) | null = null;
@@ -99,18 +97,10 @@ function harness(ownerKind: "childHwnd" | "view" = "childHwnd") {
     frameToken: frame.frameToken,
     documentInstanceId: "document-1"
   });
-  const legacyIdentity = Object.freeze({
-    roleId: "role-1",
-    surfaceGeneration: 3,
-    nativeGeneration: 5,
-    bindingRevision: "1",
-    surfaceHandleToken: SURFACE_TOKEN,
-    parentHandleToken: PARENT_TOKEN
+  const identity: WindowsChromiumInputSurfaceIdentity = Object.freeze({
+    ownerKind: "view", roleId: "role-1", surfaceGeneration: 3,
+    nativeGeneration: 5, bindingRevision: "1", parentIdentity: "a".repeat(64), webContentsId: 91
   });
-  const identity: WindowsChromiumInputSurfaceIdentity = ownerKind === "view"
-    ? Object.freeze({ ownerKind: "view", roleId: "role-1", surfaceGeneration: 3,
-      nativeGeneration: 5, bindingRevision: "1", parentIdentity: "a".repeat(64), webContentsId: 91 })
-    : legacyIdentity;
   const controls: Array<ChromiumRoleTrustedInputArmEnvelope | { readonly kind: "cancel" }> = [];
   const keyRequests: WindowsNativeTrustedKeyRequest[] = [];
   const mouseRequests: WindowsNativeTrustedMouseRequest[] = [];
@@ -131,73 +121,17 @@ function harness(ownerKind: "childHwnd" | "view" = "childHwnd") {
       focusedWebContentsId: deliveryMode === "foreground" ? 91 : 92,
       bounds: { x: 0, y: 0, width: 800, height: 560 }, zoomFactor: 1.25, ...viewFocus };
   };
-  const probe = (): WindowsChromiumInputSurfaceProbeReceipt => {
-    if (identity.ownerKind === "view") return { ...identity, status: "verified", deliveryMode, probeRevision, observation: observation() };
-    return ({
-    ...legacyIdentity,
-    status: "verified",
-    abiVersion: 6,
-    deliveryMode,
-    probeRevision,
-    processId: 100,
-    uiThreadId: 200,
-    currentProcessOwned: true,
-    exactParent: exactParent as true,
-    childWindowStyle: true,
-    popupWindowStyleAbsent: true,
-    noActivateStyle: true,
-    parentWasForeground: true,
-    parentVisible: true,
-    surfaceVisible: deliveryMode === "foreground",
-    targetWasForeground: false,
-    targetHadThreadFocus: false,
-    singleWebContentsSurface: true,
-    clientWidth: 1_600,
-    clientHeight: 1_120,
-    dpi: 192
+  const probe = (): WindowsChromiumInputSurfaceProbeReceipt => ({
+    ...identity, status: "verified", deliveryMode, probeRevision, observation: observation()
   });
-  };
 
-  const baseReceipt = (
-    requestId: string,
-    requestDeliveryMode: "foreground" | "background"
-  ) => {
-    if (identity.ownerKind === "view") return { ...identity, status: "submitted" as const,
-      submissionApi: "webContents.sendInputEvent" as const, requestId, inputEpoch: "7",
-      deliveryMode: requestDeliveryMode, dispatchSequence: String(dispatchSequence += 1),
-      probeRevision, submittedAtMs: String(nowMs), observation: observation(),
-      viewAttached: true as const, foregroundPreserved: preserveForeground as true };
-    return ({
-    ...legacyIdentity,
-    status: "submitted" as const,
-    submissionApi: "webContents.sendInputEvent" as const,
-    requestId,
-    inputEpoch: "7",
-    deliveryMode: requestDeliveryMode,
-    dispatchSequence: String(dispatchSequence += 1),
-    probeRevision,
-    submittedAtMs: String(nowMs),
-    withinDeadline: true as const,
-    currentProcessOwned: true as const,
-    exactParent: true as const,
-    childWindowStyle: true as const,
-    popupWindowStyleAbsent: true as const,
-    noActivateStyle: true as const,
-    targetAttached: true as const,
-    noActivationApiCalled: true as const,
-    foregroundWindowPreserved: preserveForeground as true,
-    activeWindowPreserved: true as const,
-    focusWindowPreserved: true as const,
-    parentWasForeground: true as const,
-    parentVisible: true as const,
-    surfaceVisible: requestDeliveryMode === "foreground",
-    targetWasForeground: false,
-    targetHadThreadFocus: false,
-    clientWidth: 1_600,
-    clientHeight: 1_120,
-    dpi: 192
+  const baseReceipt = (requestId: string, requestDeliveryMode: "foreground" | "background") => ({
+    ...identity, status: "submitted" as const,
+    submissionApi: "webContents.sendInputEvent" as const, requestId, inputEpoch: "7",
+    deliveryMode: requestDeliveryMode, dispatchSequence: String(dispatchSequence += 1),
+    probeRevision, submittedAtMs: String(nowMs), observation: observation(),
+    viewAttached: true as const, foregroundPreserved: preserveForeground as true
   });
-  };
 
   const native = {
     focusForeground: vi.fn(async (
@@ -414,7 +348,7 @@ describe("Windows Chromium trusted-input adapter", () => {
   it.each(["hold", "release"] as const)(
     "classifies non-shortcut Macro %s as Macro-owned before native delivery",
     async (phase) => {
-      const subject = harness("view");
+      const subject = harness();
       const action = { ...keyAction(phase, []), code: "Digit2", key: "2",
         suppressOverlayShortcut: false };
       const result = subject.adapter.dispatch(nativeRequest("ordinary-held-key", action));
@@ -486,7 +420,21 @@ describe("Windows Chromium trusted-input adapter", () => {
     await expect(result).resolves.toEqual(expect.objectContaining({ status: "applied" }));
   });
 
-  it("fails closed before arming when exact parent/style evidence is absent", async () => {
+  it.each([undefined, "childHwnd"])("rejects retired owner %s before preload arming", async (ownerKind) => {
+    const subject = harness();
+    const probe = subject.native.probeExactInputSurface.getMockImplementation()!();
+    subject.native.probeExactInputSurface.mockReturnValueOnce({
+      ...probe, ownerKind
+    } as unknown as WindowsChromiumInputSurfaceProbeReceipt);
+    await expect(subject.adapter.dispatch(nativeRequest("request-retired-owner", keyAction())))
+      .resolves.toEqual(expect.objectContaining({
+        status: "failed", errorCode: "SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID"
+      }));
+    expect(subject.controls).toEqual([]);
+    expect(subject.keyRequests).toEqual([]);
+  });
+
+  it("fails closed before arming when exact View attachment evidence is absent", async () => {
     const subject = harness();
     subject.setExactParent(false);
     await expect(subject.adapter.dispatch(
@@ -499,7 +447,7 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(subject.keyRequests).toEqual([]);
   });
 
-  it("supersedes a binding or probe revision change before native submission", async () => {
+  it("supersedes a missing binding or regressed probe revision before native submission", async () => {
     const missing = harness();
     const missingResult = missing.adapter.dispatch(
       nativeRequest("request-missing-host", keyAction())
@@ -513,10 +461,11 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(missing.keyRequests).toEqual([]);
 
     const revised = harness();
+    revised.setProbeRevision("2");
     const revisedResult = revised.adapter.dispatch(
       nativeRequest("request-revised-probe", keyAction())
     );
-    revised.setProbeRevision("2");
+    revised.setProbeRevision("1");
     revised.armed();
     await expect(revisedResult).resolves.toEqual(expect.objectContaining({
       status: "superseded",
@@ -634,7 +583,7 @@ describe("Windows Chromium trusted-input adapter", () => {
 
 describe("Windows adapter with exact View receipts", () => {
   it.each(["foreground", "background"] as const)("requires complete trusted DOM proof for %s View input", async mode => {
-    const subject = harness("view");
+    const subject = harness();
     subject.setDeliveryMode(mode);
     const result = subject.adapter.dispatch(nativeRequest("view-key", keyAction()));
     const completed = vi.fn();
@@ -648,7 +597,7 @@ describe("Windows adapter with exact View receipts", () => {
   });
 
   it("accepts exact View mouse coordinates without child-HWND claims", async () => {
-    const subject = harness("view");
+    const subject = harness();
     subject.setDeliveryMode("background");
     const result = subject.adapter.dispatch(nativeRequest("view-middle", clickAction("middle")));
     subject.armed();
@@ -659,7 +608,7 @@ describe("Windows adapter with exact View receipts", () => {
   });
 
   it.each(["foreground", "background"] as const)("preserves a new user focus selected during %s View arming", async mode => {
-    const subject = harness("view");
+    const subject = harness();
     subject.setDeliveryMode(mode);
     const result = subject.adapter.dispatch(nativeRequest("view-user-focus", keyAction()));
     subject.setViewFocus({ focusIdentity: "c".repeat(64), parentForeground: false,
@@ -670,7 +619,7 @@ describe("Windows adapter with exact View receipts", () => {
     await expect(result).resolves.toMatchObject({ status: "applied" });
   });
   it("rejects changed View geometry before sending even if the producer reuses its revision", async () => {
-    const subject = harness("view");
+    const subject = harness();
     const result = subject.adapter.dispatch(nativeRequest("view-stale", keyAction()));
     const probe = subject.native.probeExactInputSurface.getMockImplementation()!;
     subject.native.probeExactInputSurface.mockImplementation(() => {
@@ -685,7 +634,7 @@ describe("Windows adapter with exact View receipts", () => {
   });
 
   it.each(["focus", "identity"])("terminalizes a mismatched %s receipt after submission as indeterminate", async field => {
-    const subject = harness("view");
+    const subject = harness();
     const submit = subject.native.submitNativeBackgroundKey.getMockImplementation()!;
     subject.native.submitNativeBackgroundKey.mockImplementation((expected, request) => {
       const receipt = submit(expected, request);

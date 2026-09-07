@@ -106,7 +106,7 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     ] = await Promise.all([
       source("src/electron/main/chromiumRuntimeBootstrap.ts"),
       source("src/electron/main/windowsChromiumTrustedInputContract.ts"),
-      source("src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator.ts"),
+      source("src/electron/main/chromiumViewInputSubmission.ts"),
       source("tests/electron-windows-chromium-trusted-input-adapter.test.ts"),
       source("crates/rion-core/src/macro_runtime/tests/behavior_10_trusted_input_recovery_restarts_eligible_roots.rs"),
       source("scripts/electronWindowsChromiumTrustedInputProbe.cjs"),
@@ -119,10 +119,10 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     expect(bootstrap).toMatch(
       /trustedInput: "supported",\n\s+backgroundInput: "supported"/u
     );
-    expect(contract).toContain("WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION = 6");
-    expect(contract).toContain("readonly parentWasForeground: true");
-    expect(coordinator).toContain("native.parentWasForeground");
-    expect(coordinator).toContain("timer-driven success");
+    expect(contract).not.toContain("WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION");
+    expect(contract).toContain("readonly foregroundPreserved: true");
+    expect(coordinator).toContain("chromiumViewInputObservationKey(observation)");
+    expect(coordinator).toContain("validChromiumViewInputObservation");
     expect(adapterTest).toContain("accepts exact hidden delivery without changing");
     expect(coreTest).toContain(
       "foreground_required_is_an_ordinary_terminal_failure_without_input_recovery"

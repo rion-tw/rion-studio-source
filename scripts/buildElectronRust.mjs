@@ -60,6 +60,14 @@ console.log(
 function verifyDesktopE2eAddonSurface(addonPath, expected) {
   const require = createRequire(import.meta.url);
   const addon = require(addonPath);
+  for (const retired of [
+    "attachWindowsChromiumInputHwnd", "projectWindowsChromiumInputHwnd",
+    "probeWindowsChromiumInputHwnd", "windowsChromiumInputProbeAbiVersion"
+  ]) {
+    if (retired in addon) {
+      throw new Error("The Chromium addon exposes a retired child-HWND input API: " + retired);
+    }
+  }
   const corePrototype = addon.NativeAppCore?.prototype;
   if (!corePrototype) {
     throw new Error("The Rust addon does not export the native AppCore class.");

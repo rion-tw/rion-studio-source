@@ -24,7 +24,6 @@ import type {
   ChromiumRoleOverlayLifecycleEvent
 } from "./chromiumRoleSurfaceRegistry";
 import {
-  WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION,
   WINDOWS_CHROMIUM_TRUSTED_KEY_CODES,
   type WindowsChromiumInputDeliveryMode,
   type WindowsChromiumInputSurfaceIdentity,
@@ -40,7 +39,6 @@ import {
 
 const INPUT_SEQUENCE_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-const OPAQUE_HANDLE_PATTERN = /^[0-9a-f]{32,128}$/u;
 const TRUSTED_KEY_CODE_SET = new Set<string>(WINDOWS_CHROMIUM_TRUSTED_KEY_CODES);
 
 export interface WindowsChromiumTrustedInputIpcEventPort {
@@ -126,16 +124,8 @@ function sameIdentity(
   left: WindowsChromiumInputSurfaceIdentity,
   right: WindowsChromiumInputSurfaceIdentity
 ): boolean {
-  if (left.ownerKind === "view" || right.ownerKind === "view") {
-    return left.ownerKind === "view" && right.ownerKind === "view" &&
-      sameChromiumViewInputIdentity(left, right);
-  }
-  return left.roleId === right.roleId &&
-    left.surfaceGeneration === right.surfaceGeneration &&
-    left.nativeGeneration === right.nativeGeneration &&
-    left.bindingRevision === right.bindingRevision &&
-    left.surfaceHandleToken === right.surfaceHandleToken &&
-    left.parentHandleToken === right.parentHandleToken;
+  return left.ownerKind === "view" && right.ownerKind === "view" &&
+    sameChromiumViewInputIdentity(left, right);
 }
 
 function sameHost(
@@ -284,29 +274,11 @@ function canonicalU64(value: unknown, positive = false): bigint | null {
   }
 }
 
-function validHandleToken(value: unknown): value is string {
-  return typeof value === "string" && OPAQUE_HANDLE_PATTERN.test(value);
-}
-
 function validateIdentityFields(
   receipt: WindowsChromiumInputSurfaceIdentity,
   expected: WindowsChromiumInputSurfaceIdentity
 ): boolean {
-  if (receipt.ownerKind === "view" || expected.ownerKind === "view") {
-    return receipt.ownerKind === "view" && expected.ownerKind === "view" &&
-      sameChromiumViewInputIdentity(receipt, expected) && validChromiumViewInputIdentity(receipt);
-  }
-  return sameIdentity(receipt, expected) &&
-    typeof receipt.roleId === "string" && receipt.roleId.length > 0 &&
-    receipt.roleId.length <= 256 && receipt.roleId === receipt.roleId.trim() &&
-    !receipt.roleId.includes("/") && !receipt.roleId.includes("\\") &&
-    Number.isSafeInteger(receipt.surfaceGeneration) &&
-    receipt.surfaceGeneration >= 1 &&
-    Number.isSafeInteger(receipt.nativeGeneration) && receipt.nativeGeneration >= 1 &&
-    canonicalU64(receipt.bindingRevision, true) !== null &&
-    validHandleToken(receipt.surfaceHandleToken) &&
-    validHandleToken(receipt.parentHandleToken) &&
-    receipt.surfaceHandleToken !== receipt.parentHandleToken;
+  return sameIdentity(receipt, expected) && validChromiumViewInputIdentity(receipt);
 }
 
 function validateProbe(
@@ -315,52 +287,18 @@ function validateProbe(
   deliveryMode: WindowsChromiumInputDeliveryMode
 ): WindowsChromiumInputSurfaceProbeReceipt {
   if (!raw || typeof raw !== "object") {
-    fail(
-      "SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID",
-      "The Win32 surface probe returned no exact receipt."
-    );
+    fail("SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID", "The Chromium View probe returned no exact receipt.");
   }
   const receipt = raw as WindowsChromiumInputSurfaceProbeReceipt;
-  if (receipt.ownerKind === "view") {
-    if (expected.ownerKind !== "view" || receipt.status !== "verified" ||
-        receipt.deliveryMode !== deliveryMode || !validateIdentityFields(receipt, expected) ||
-        canonicalU64(receipt.probeRevision, true) === null ||
-        !validChromiumViewInputObservation(receipt.observation, expected, deliveryMode)) {
-      fail("SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID", "The exact Chromium View observation is invalid.");
-    }
-    return Object.freeze({ ...receipt, observation: Object.freeze({ ...receipt.observation,
-      identity: Object.freeze({ ...receipt.observation.identity }),
-      bounds: Object.freeze({ ...receipt.observation.bounds }) }) });
+  if (receipt.ownerKind !== "view" || expected.ownerKind !== "view" ||
+      receipt.status !== "verified" || receipt.deliveryMode !== deliveryMode ||
+      !validateIdentityFields(receipt, expected) || canonicalU64(receipt.probeRevision, true) === null ||
+      !validChromiumViewInputObservation(receipt.observation, expected, deliveryMode)) {
+    fail("SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID", "The exact Chromium View observation is invalid.");
   }
-
-  if (
-    receipt.status !== "verified" ||
-    receipt.abiVersion !== WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION ||
-    receipt.deliveryMode !== deliveryMode ||
-    !validateIdentityFields(receipt, expected) ||
-    canonicalU64(receipt.probeRevision, true) === null ||
-    !Number.isSafeInteger(receipt.processId) || receipt.processId < 1 ||
-    !Number.isSafeInteger(receipt.uiThreadId) || receipt.uiThreadId < 1 ||
-    receipt.currentProcessOwned !== true || receipt.exactParent !== true ||
-    receipt.childWindowStyle !== true || receipt.popupWindowStyleAbsent !== true ||
-    receipt.noActivateStyle !== true || receipt.parentWasForeground !== true ||
-    receipt.parentVisible !== true ||
-    receipt.surfaceVisible !== (deliveryMode === "foreground") ||
-    (deliveryMode === "background" &&
-      (receipt.targetWasForeground || receipt.targetHadThreadFocus)) ||
-    typeof receipt.targetWasForeground !== "boolean" ||
-    typeof receipt.targetHadThreadFocus !== "boolean" ||
-    receipt.singleWebContentsSurface !== true ||
-    !Number.isSafeInteger(receipt.clientWidth) || receipt.clientWidth < 1 ||
-    !Number.isSafeInteger(receipt.clientHeight) || receipt.clientHeight < 1 ||
-    !Number.isSafeInteger(receipt.dpi) || receipt.dpi < 48 || receipt.dpi > 768
-  ) {
-    fail(
-      "SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID",
-      "The Win32 surface probe did not prove one exact no-activate child host."
-    );
-  }
-  return Object.freeze({ ...receipt });
+  return Object.freeze({ ...receipt, observation: Object.freeze({ ...receipt.observation,
+    identity: Object.freeze({ ...receipt.observation.identity }),
+    bounds: Object.freeze({ ...receipt.observation.bounds }) }) });
 }
 
 function validateNativeBase(
@@ -373,62 +311,24 @@ function validateNativeBase(
   const submittedAt = canonicalU64(receipt.submittedAtMs, true);
   const scheduledAt = BigInt(pending.request.scheduledAtMs);
   const deadline = BigInt(pending.request.deadlineMs);
-  if (receipt.ownerKind === "view" || pending.host.identity.ownerKind === "view" || pending.probe.ownerKind === "view") {
-    if (receipt.ownerKind !== "view" || pending.host.identity.ownerKind !== "view" || pending.probe.ownerKind !== "view" ||
-        receipt.status !== "submitted" || receipt.submissionApi !== "webContents.sendInputEvent" ||
-        receipt.requestId !== nativeRequestId || !validateIdentityFields(receipt, pending.host.identity) ||
-        receipt.roleId !== pending.request.roleId || receipt.surfaceGeneration !== pending.request.surfaceGeneration ||
-        receipt.inputEpoch !== String(pending.request.inputEpoch) || receipt.deliveryMode !== pending.deliveryMode ||
-        receipt.probeRevision !== pending.probe.probeRevision ||
-        !dispatchSequence || dispatchSequence <= pending.lastNativeDispatchSequence ||
-        !submittedAt || submittedAt < scheduledAt || submittedAt >= deadline ||
-        receipt.viewAttached !== true || receipt.foregroundPreserved !== true || expectedEventCount < 1 ||
-        !validChromiumViewInputObservation(receipt.observation, pending.host.identity, pending.deliveryMode) ||
-        chromiumViewInputObservationKey(receipt.observation) !== chromiumViewInputObservationKey(pending.probe.observation)) {
-      fail("SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID", "The Chromium View submission does not match its exact admission.");
-    }
-    return dispatchSequence;
-  }
-
-  if (
-    receipt.status !== "submitted" || receipt.submissionApi !== "webContents.sendInputEvent" || receipt.requestId !== nativeRequestId ||
-    !validateIdentityFields(receipt, pending.host.identity) ||
-    receipt.roleId !== pending.request.roleId ||
-    receipt.surfaceGeneration !== pending.request.surfaceGeneration ||
-    receipt.inputEpoch !== String(pending.request.inputEpoch) ||
-    receipt.deliveryMode !== pending.deliveryMode ||
-    receipt.probeRevision !== pending.probe.probeRevision ||
-    !dispatchSequence || dispatchSequence <= pending.lastNativeDispatchSequence ||
-    !submittedAt || submittedAt < scheduledAt || submittedAt >= deadline ||
-    receipt.withinDeadline !== true ||
-    receipt.currentProcessOwned !== true || receipt.exactParent !== true ||
-    receipt.childWindowStyle !== true || receipt.popupWindowStyleAbsent !== true ||
-    receipt.noActivateStyle !== true || receipt.targetAttached !== true ||
-    receipt.noActivationApiCalled !== true ||
-    receipt.foregroundWindowPreserved !== true ||
-    receipt.activeWindowPreserved !== true || receipt.focusWindowPreserved !== true ||
-    receipt.parentWasForeground !== true ||
-    receipt.parentVisible !== true ||
-    receipt.surfaceVisible !== (pending.deliveryMode === "foreground") ||
-    (pending.deliveryMode === "background" &&
-      (receipt.targetWasForeground || receipt.targetHadThreadFocus)) ||
-    typeof receipt.targetWasForeground !== "boolean" ||
-    typeof receipt.targetHadThreadFocus !== "boolean" ||
-    receipt.clientWidth !== pending.probe.clientWidth ||
-    receipt.clientHeight !== pending.probe.clientHeight ||
-    receipt.dpi !== pending.probe.dpi ||
-    expectedEventCount < 1
-  ) {
-    fail(
-      "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-      "The Chromium owner returned a malformed or mismatched submission receipt."
-    );
+  if (receipt.ownerKind !== "view" || pending.host.identity.ownerKind !== "view" || pending.probe.ownerKind !== "view" ||
+      receipt.status !== "submitted" || receipt.submissionApi !== "webContents.sendInputEvent" ||
+      receipt.requestId !== nativeRequestId || !validateIdentityFields(receipt, pending.host.identity) ||
+      receipt.roleId !== pending.request.roleId || receipt.surfaceGeneration !== pending.request.surfaceGeneration ||
+      receipt.inputEpoch !== String(pending.request.inputEpoch) || receipt.deliveryMode !== pending.deliveryMode ||
+      receipt.probeRevision !== pending.probe.probeRevision ||
+      !dispatchSequence || dispatchSequence <= pending.lastNativeDispatchSequence ||
+      !submittedAt || submittedAt < scheduledAt || submittedAt >= deadline ||
+      receipt.viewAttached !== true || receipt.foregroundPreserved !== true || expectedEventCount < 1 ||
+      !validChromiumViewInputObservation(receipt.observation, pending.host.identity, pending.deliveryMode) ||
+      chromiumViewInputObservationKey(receipt.observation) !== chromiumViewInputObservationKey(pending.probe.observation)) {
+    fail("SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID", "The Chromium View submission does not match its exact admission.");
   }
   return dispatchSequence;
 }
 
 /**
- * Accepts Chromium submission only after an exact child-host or direct-View probe,
+ * Accepts Chromium submission only after an exact direct-View probe,
  * then correlates it with private main-frame `isTrusted` DOM observations.
  *
  * Bootstrap construction is capability-gated. Every effect is locked to the
@@ -747,10 +647,8 @@ implements ChromiumNativeTrustedInputPort {
         liveHost.identity,
         pending.deliveryMode
       );
-      const sameArmedSurface = liveProbe.ownerKind === "view" && pending.probe.ownerKind === "view"
-        ? BigInt(liveProbe.probeRevision) >= BigInt(pending.probe.probeRevision) &&
-          chromiumViewInputArmingKey(liveProbe.observation) === chromiumViewInputArmingKey(pending.probe.observation)
-        : liveProbe.probeRevision === pending.probe.probeRevision;
+      const sameArmedSurface = BigInt(liveProbe.probeRevision) >= BigInt(pending.probe.probeRevision) &&
+        chromiumViewInputArmingKey(liveProbe.observation) === chromiumViewInputArmingKey(pending.probe.observation);
       if (!sameArmedSurface) {
         fail(
           "BROWSER_ACTION_STALE",

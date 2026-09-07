@@ -198,7 +198,7 @@ describe("Chromium Macro background-tab exact replacement source", () => {
   it("locks hidden trusted input to visible native tab actions and exact receipts", async () => {
     const [spec, attachment, adapter, continuity, physical] = await Promise.all([
       source("e2e/desktop/specs/chromium-macro-background-tab.e2e.ts"),
-      source("src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator.ts"),
+      source("src/electron/main/chromiumViewFocusAdmission.ts"),
       source("src/electron/main/windowsChromiumTrustedInputAdapter.ts"),
       source("src/electron/main/windowsChromiumHeldKeyContinuityCoordinator.ts"),
       source("scripts/electronWindowsChromiumTrustedInputProbe.cjs")
@@ -235,10 +235,10 @@ describe("Chromium Macro background-tab exact replacement source", () => {
     expect(spec).not.toContain(
       "const hiddenStartPresentation = await activateAndObserveHidden({"
     );
-    expect(attachment).toContain('this.#probeRecord(record, expected, "background")');
-    expect(attachment).toContain("must not be selected or");
+    expect(attachment).toContain('validChromiumViewInputObservation(observation, target.identity, "background")');
+    expect(attachment).toContain("It does not acquire parent or content focus.");
     expect(adapter).toContain("currentInputDeliveryMode");
-    expect(adapter).toContain("deliveryMode === \"background\"");
+    expect(adapter).toContain('resolvedMode === "background"');
     expect(continuity).toContain("subscribePresentation");
     expect(continuity).not.toMatch(/setTimeout|setInterval/u);
     expect(physical).toContain("hiddenPresentationPreserved");

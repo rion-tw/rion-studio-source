@@ -19,8 +19,6 @@ mod appkit_runtime_host;
 mod chrome_profile_import_helper_launcher;
 mod macro_input_clock;
 mod updater;
-pub mod windows_chromium_input_attachment;
-pub mod windows_chromium_input_probe;
 mod windows_native_handle;
 pub mod windows_runtime_foreground;
 pub mod windows_runtime_shortcut_owner;

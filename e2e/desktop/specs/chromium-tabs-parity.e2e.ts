@@ -39,6 +39,7 @@ import {
   selectVisibleWindowsRuntimeTabMenuAction,
   visibleRuntimeTabPhase
 } from "../support/native-runtime-tabs";
+import { readWindowsRuntimeTabLoadingEvidence } from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
@@ -303,9 +304,10 @@ async function launchRoleIntoWindow(
   const fixtureId = ROLE_DEFINITIONS.find(
     (definition) => definition.name === role.name
   )!.fixtureId;
+  const processId = loading ? (await electronDesktopE2eProbe()).processId : undefined;
   if (loading) await fixtureRequest("/api/gate", { roleId: fixtureId });
   await savedWindow.click();
-  await captureLaunchDiagnostic("after-visible-destination-click", role, gameWindow);
+  if (!loading) await captureLaunchDiagnostic("after-visible-destination-click", role, gameWindow);
 
   let tabId: string | undefined;
   if (loading) {
@@ -334,12 +336,21 @@ async function launchRoleIntoWindow(
         { signal: AbortSignal.timeout(45_000) }
       );
       expect(waiter.ok).toBe(true);
-      expect(await visibleRuntimeTabPhase({
-        ...loading,
-        tabId: tabId!,
-        tabName: role.name,
-        windowId: gameWindow.id
-      })).toBe("loading");
+      if (loading.platform === "windows") {
+        // ChromeDriver target enumeration waits for the deliberately gated page.
+        // Read the visible loading control through the existing native UI owner.
+        const nativeLoading = await readWindowsRuntimeTabLoadingEvidence({
+          processId: processId!, tabName: role.name
+        });
+        expect(nativeLoading.controlName).toBe(`Stop and close ${role.name}`);
+      } else {
+        expect(await visibleRuntimeTabPhase({
+          ...loading,
+          tabId: tabId!,
+          tabName: role.name,
+          windowId: gameWindow.id
+        })).toBe("loading");
+      }
     } finally {
       await fixtureRequest("/api/release", { roleId: fixtureId });
     }

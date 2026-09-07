@@ -28,6 +28,17 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Gated loading diagnostic transport — 2026-09-07
+
+At a2ed80eb, focused tabs artifact 2026-09-07T04-38-43-221Z-win32 crossed
+initial Core/native admission. The after-click body.getText command at
+04:39:23.038 blocked ChromeDriver until native load retirement at 04:40:08.256;
+fixture transport cancellation followed at 04:40:08.280. The later fixture
+waiter timeout is a consequence, not a missing initial launch. During the gate,
+retain the exact Core/native tab inspection and read Windows loading controls
+with the existing native UI Automation helper. Defer body diagnostics until
+outside that gate. No native navigation deadline or loading assertion changes.
+
 ### Initial Core observer prerequisite — 2026-09-07
 
 Commit 1d9811c7 passed Windows Electron native integration: 8 files / 16 tests

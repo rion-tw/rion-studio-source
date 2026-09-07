@@ -225,8 +225,8 @@ describe("desktop shell migration workflows", () => {
     expect(packageJson.scripts["test:rust:portable"]).toBe(
       "cargo test -p rion-core -p rion-platform --all-targets"
     );
-    expect(workflow).toContain("os: macos-latest");
-    expect(workflow).toContain("os: windows-latest");
+    expect(workflow).toContain('"os":"macos-latest"');
+    expect(workflow).toContain('"os":"windows-latest"');
     expect(platformChecks).not.toContain("cargo check -p rion-tauri --all-targets");
     expect(platformChecks).toContain("cargo build -p rion-tauri");
     expect(platformChecks).toContain(

@@ -143,13 +143,28 @@ function installWindowTransitionObservation(): void {
         }))
       }
     });
-    const continuation = originalBegin.call(this, effect, lifecycleEpoch, windows);
+    const detach = windows.map(({ host }) => host.bindRuntimeWindowState?.((observation) => {
+      appendCoreFlowObservation({
+        boundary: "command", identity: observation.logicalWindowId,
+        status: "completed", type: "nativeTransitionStateEvent", details: observation
+      });
+    }));
+    const cleanup = () => { for (const unsubscribe of detach) unsubscribe?.(); };
+    let continuation: ReturnType<typeof originalBegin>;
+    try {
+      continuation = originalBegin.call(this, effect, lifecycleEpoch, windows);
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
     void continuation.completion.then((receipt) => {
+      cleanup();
       appendCoreFlowObservation({
         boundary: "effect", identity: effect.effectId, status: "completed",
         type: "nativeWindowTransition", details: receipt
       });
     }, (error: unknown) => {
+      cleanup();
       appendCoreFlowObservation({
         boundary: "effect", identity: effect.effectId, status: "rejected",
         type: "nativeWindowTransition", error: describeCoreFlowError(error)

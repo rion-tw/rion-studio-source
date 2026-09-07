@@ -45,8 +45,8 @@ describe("Windows Chromium physical input candidate gate", () => {
     expect(nativeJob).toContain("id: chromium_input_api_probe\n        continue-on-error: true");
     expect(nativeJob).toContain("steps.chromium_input_api_probe.outcome == 'failure'");
     expect(nativeJob).toContain("run: exit 1");
-    expect(nativeJob.slice(0, probe)).toContain("os: macos-latest");
-    expect(nativeJob.slice(0, probe)).toContain("os: windows-latest");
+    expect(nativeJob.slice(0, probe)).toContain('"os":"macos-latest"');
+    expect(nativeJob.slice(0, probe)).toContain('"os":"windows-latest"');
     expect(nativeJob.slice(probe, rust)).toContain("RION_CHROMIUM_INPUT_REPORT_DIR");
   });
 

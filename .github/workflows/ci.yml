@@ -15,6 +15,14 @@ on:
         description: Optional immutable branch, tag, or SHA to validate
         required: false
         type: string
+      platform_scope:
+        description: Desktop validation scope (manual diagnostics only; release CI remains paired)
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - macos
   workflow_call:
     inputs:
       ref:
@@ -26,7 +34,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  group: ci-${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.platform_scope || 'all' }}
   cancel-in-progress: true
 
 jobs:
@@ -166,11 +174,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: macOS arm64
-            os: macos-latest
-          - name: Windows x64
-            os: windows-latest
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -292,11 +296,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: macOS arm64
-            os: macos-latest
-          - name: Windows x64
-            os: windows-latest
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -534,11 +534,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: macOS arm64
-            os: macos-latest
-          - name: Windows x64
-            os: windows-latest
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform_scope == 'macos' && '[{"name":"macOS arm64","os":"macos-latest"}]' || '[{"name":"macOS arm64","os":"macos-latest"},{"name":"Windows x64","os":"windows-latest"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

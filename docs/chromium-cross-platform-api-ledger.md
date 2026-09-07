@@ -58,6 +58,40 @@ canonical Rust-issued role path through the inherited request before app ready.
 Windows startup behavior is unchanged and its native acceptance stays with the
 separate workstation. Ledger closure remains 9/18.
 
+### c72d688e committed macOS fixes and local focus interruption
+
+`c72d688e42b06eb0595a0f9282f8751692f7db36` commits and pushes the native AX,
+raw/logical detach projection, nullable import descriptor, and macOS helper
+sessionData fixes described above. The successful import report was produced
+from that runtime content before commit; its report HEAD is therefore 82db2663
+plus the recorded working-tree fixes, not a clean 82db2663 verdict.
+
+Full local chromium-macos-appkit-smoke at c72d688e stops in extensions-seed:
+report 2026-09-07T12-35-47-300Z-darwin, line 87 awaiting the future role's loaded
+extension state. Store installation and visible role creation succeeded; Core
+sequence 130 starts a native focus transition and no terminal focus arrives.
+A diagnostic-only event observer then reproduces this in report
+2026-09-07T12-40-38-789Z-darwin: nativeTransitionStateEvent shows visible=true,
+minimized=false, focused=false, foreground=false; no focus event follows.
+No deadline or assertion changed. Read-only native attribution identifies the
+foreground app as UserNotificationCenter (PID 10663), while the test window
+retains its exact AppKit AXIdentifier. The system prompt text is not yet known;
+Computer Use refuses access to that system app. Owner input is requested and
+local focus-dependent acceptance pauses pending identification of the prompt.
+This is not yet proof of a runtime focus defect or a passed extension journey.
+
+Failed-test Electron PIDs 75119 and 84663 were terminated only after exact
+artifact-run arguments verified their ownership; their failed/unknown shutdown
+verdicts remain failures. The unrelated pre-existing Electron process is retained.
+
+Manual CI adds platform_scope=macos for this takeover; all is the default,
+and push/PR/reusable release calls always retain both platform matrices.
+Scope-specific concurrency avoids cancelling paired runs. Existing release
+admission requires a push event, so manual diagnostic success cannot become
+production release evidence. The new run must bind the exact final SHA and
+contain no Windows jobs; package/updater evidence still uses CI fixture trust
+and cannot close the production cutover gate.
+
 ### 82db2663 import gate and exact navigation failure follow-up
 
 `82db26639f123b068aec1bc83e888f2b608fdc65` is pushed with the visible Chrome
@@ -1843,7 +1877,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows full input parity passed at 34a98f5b; child-HWND implementation removed; post-deletion native validation pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared transport/import restart passed; paired Session lifecycle passed at 34a98f5b; consented Chrome import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed with c72d688e fixes; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |

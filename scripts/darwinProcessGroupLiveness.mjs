@@ -21,7 +21,19 @@ export function isDarwinProcessGroupAlive(processGroupId, operations = {}) {
       if (fields.length !== 4 || !Number.isSafeInteger(pid) || pid <= 1 ||
           group !== processGroupId || !Number.isSafeInteger(uid) || uid < 0 ||
           !/^[A-Z][A-Za-z+<>-]*$/u.test(fields[3])) {
-        throw new Error("Darwin returned malformed process-group state.", { cause: error });
+        const failure = new Error("Darwin returned malformed process-group state.", {
+          cause: error
+        });
+        // Keep the failed observation, not a later reread that may hide an exit race.
+        // ps requests only numeric identities and state, never argv or environment.
+        failure.processGroupObservation = Object.freeze({
+          processGroupId,
+          row: row.slice(0, 256),
+          rowTruncated: row.length > 256,
+          fieldCount: fields.length,
+          rowCount: rows.length
+        });
+        throw failure;
       }
       // A live or unreadable member never turns a permission failure into success.
       if (!fields[3].startsWith("Z")) throw error;

@@ -31,6 +31,39 @@ describe("Darwin exact process-group liveness", () => {
     }
   );
 
+  it("retains the exact rejected observation and original EPERM without rereading", () => {
+    const readGroupSnapshot = vi.fn(() => "  12 12 501 ?sE\n13 12 501 Z");
+    let caught: unknown;
+    try {
+      isDarwinProcessGroupAlive(12, { kill: deny, readGroupSnapshot });
+    } catch (error) { caught = error; }
+    expect(caught).toMatchObject({
+      message: "Darwin returned malformed process-group state.",
+      cause: denied,
+      processGroupObservation: {
+        processGroupId: 12, row: "12 12 501 ?sE", rowTruncated: false,
+        fieldCount: 4, rowCount: 2
+      }
+    });
+    expect(readGroupSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds malformed observation diagnostics while retaining the rejection", () => {
+    let caught: unknown;
+    try {
+      isDarwinProcessGroupAlive(12, {
+        kill: deny, readGroupSnapshot: () => `12 12 501 ?${"x".repeat(1024)}`
+      });
+    } catch (error) { caught = error; }
+    expect(caught).toMatchObject({
+      cause: denied,
+      processGroupObservation: {
+        row: `12 12 501 ?${"x".repeat(1024)}`.slice(0, 256),
+        rowTruncated: true, rowCount: 1
+      }
+    });
+  });
+
   it("preserves read failure and does not inspect a normally live group", () => {
     const readGroupSnapshot = vi.fn(() => { throw new Error("inventory failed"); });
     expect(isDarwinProcessGroupAlive(12, { kill: () => true, readGroupSnapshot })).toBe(true);

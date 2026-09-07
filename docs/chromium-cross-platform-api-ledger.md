@@ -83,8 +83,10 @@ remain explicitly earlier-source evidence. New macOS-only CI **34143187025**
 validates the full 1f186739 SHA. Its native job now passes (1681 Rust PASS /
 five ignored; 14 Electron native PASS / two platform skips). Stable full now
 passes 31 ordinary phases + three expected force terminations / 40 journeys.
-Complete Chromium E2E and package/updater gates remain pending. No Windows
-acceptance is dispatched.
+Complete Chromium E2E now passes 56 ordinary phases + four expected force
+terminations / 52 journeys; package/updater remains pending. Earlier a8fab843
+package CI failed in exact Cargo-group cleanup after updater execution. No
+Windows acceptance is dispatched.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
@@ -92,7 +94,7 @@ acceptance is dispatched.
 | CP-10 consented import | Complete visible consent/import/restart PASS in clean 015dbaa2 hardware profile | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 015dbaa2 complete hardware profile and actual dual-display controls PASS; real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
 | CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; 1f186739 stable full 31 PASS + 3 expected force exits | Final-source full and hardware profiles pending |
-| CP-16 package/updater | 61f32424 CI fixture package/updater/black-box PASS is historical; a8fab843 package CI pending | Final-source package/update acceptance pending; production-key cutover remains separate |
+| CP-16 package/updater | 61f32424 fixture PASS is historical; a8fab843 updater cleanup FAIL; 1f186739 package pending | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
 ### Next Windows workstation: execution order and evidence to retain
@@ -2181,7 +2183,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-15 | P1 / Desktop E2E | 015dbaa2 macOS full hardware 57 PASS + 4 expected force exits; 1f186739 stable full 31 PASS + 3 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | 61f32424 macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
-| CP-18 | P1 / Validation | 015dbaa2 macOS native and full hardware passed; a8fab843 stable/native CI passed; latest package CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
+| CP-18 | P1 / Validation | 015dbaa2 macOS native and full hardware passed; 1f186739 stable/native/full Chromium CI passed; latest package CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
 Start CP-02 and CP-03 after the baseline. CP-04 and CP-09 through CP-13 are
 independent of native replacement approval, except for their listed data
@@ -8719,3 +8721,52 @@ fixture construction. Both existing watch processes are retained; no retry,
 new dispatch, deadline change or simulated physical evidence is introduced.
 API closure remains **9/18**. Windows, real sleep/wake and production cutover
 requirements remain separate and open.
+
+
+### Latest full Chromium completion and earlier updater cleanup failure — 2026-09-08
+
+CI **34143187025** artifact **10027197794**, report
+**2026-09-07T16-26-39-813Z-darwin**, verifies exact
+**1f186739135db07853e7c9e970f1db5ab8dabd00**, profile
+chromium-macos-appkit-smoke: **56 PASS + four expected force terminations /
+52 journey PASS**. Its worktreeDirty flag is true during ephemeral fixture
+preparation. The job advances through package construction to previous-version
+fixture construction; package/updater is not yet complete.
+
+Earlier-source CI **34140975454** is now terminal **FAILURE**. Job
+**101802662653** passes package build, prior-version fixtures, extension isolation,
+runtime/ABI, package structure and distribution payload verification, then fails
+**Verify packaged macOS Rust-owned updater transaction** at
+**2026-09-07T16:46:20Z**. Packaged AppKit Role black-box is skipped as a dependent
+step, not accepted. The original ci-a8fab843-package.log is retained locally.
+
+The error is "Darwin returned malformed process-group state", caused by
+kill EPERM. The stack is isDarwinProcessGroupAlive -> waitForProcessGroupExit ->
+terminateDetachedDarwinProcessGroup -> captureFailure, during exact detached
+Cargo-group cleanup. The existing diagnostic discards the rejected ps row,
+so it does not identify whether the invalid field was PID, PGID, UID or state.
+No missing field is guessed and no failed cleanup is relabelled active-zero.
+
+The diagnostic correction retains the original EPERM cause and adds a frozen,
+bounded processGroupObservation: exact requested group ID, the original rejected
+row (maximum 256 characters), truncation flag, field count and row count. The ps
+query still requests only pid/pgid/uid/stat, not command arguments or environment.
+It does not reread a newer snapshot after rejection. Every existing liveness,
+malformed/foreign-group rejection and deadline is unchanged; no permission error
+becomes absence and no unknown state becomes successful cleanup.
+
+Apple's [ps state formatter](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/print.c)
+and [Mach state table](https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c)
+show that its display state is not simply an uppercase state plus flags; an
+unknown Mach state can be displayed too. That is one reason to retain the actual
+row, not proof that this CI failure contained an unknown state. The old failure
+remains unclassified until equivalent native evidence identifies the field.
+
+Two diagnostic regression cases fail against the unmodified helper (12 PASS /
+two FAIL), then the corrected helper and adjacent cleanup suite pass **18 tests**,
+including the real macOS zombie-group case. Full JavaScript passes **472 files /
+3835 tests**, full hygiene passes, and lint has zero errors / 23 existing warnings.
+This is **internal-only** validation-tool observability, not a user-visible runtime
+change or repaired packaged transaction. No extra CI has been dispatched for it
+while the already-running 1f186739 package job remains live. AppKit/Rust authority,
+Windows deferral and every update/retirement gate remain intact; closure is 9/18.

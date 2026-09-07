@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import { electronDesktopE2eProbe } from "./electron-driver";
@@ -7,6 +8,7 @@ import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 import { captureNativeProcessAttribution } from "./native-process-attribution";
 
 const executeFile = promisify(execFile);
+const nativeFocusScript = fileURLToPath(new URL("./macos-native-focus.swift", import.meta.url));
 
 function validProcessId(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
@@ -61,7 +63,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set frontmost of targetProcess to true
     repeat
       set panels to my filePanels(targetProcess)
@@ -178,74 +180,9 @@ async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   }
   const expectedWindowIdentifier =
     `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
-  const script = String.raw`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set expectedWindowIdentifier to item 2 of argv
-  set runtimeTabName to item 3 of argv
-  set shouldActivate to item 4 of argv is "activate"
-  set expiry to (current date) + 10
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
-    repeat
-      set targetWindow to missing value
-      set targetCount to 0
-      repeat with appWindow in windows of targetProcess
-        try
-          if value of attribute "AXIdentifier" of appWindow is expectedWindowIdentifier then
-            set targetWindow to appWindow
-            set targetCount to targetCount + 1
-          end if
-        end try
-      end repeat
-      if targetCount is greater than 1 then error "ambiguous exact AppKit runtime window"
-      if targetCount is 1 then
-        if shouldActivate then
-          set frontmost of targetProcess to true
-          perform action "AXRaise" of targetWindow
-        end if
-        set focusedWindowIdentifier to ""
-        set mainWindowIdentifier to ""
-        try
-          set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
-          set mainWindow to value of attribute "AXMainWindow" of targetProcess
-          set focusedWindowIdentifier to value of attribute "AXIdentifier" of focusedWindow as text
-          set mainWindowIdentifier to value of attribute "AXIdentifier" of mainWindow as text
-        end try
-        if frontmost of targetProcess is true and focusedWindowIdentifier is expectedWindowIdentifier and mainWindowIdentifier is expectedWindowIdentifier then
-          set matchingTabCount to 0
-          if runtimeTabName is not "" then
-            set runtimeElements to get entire contents of targetWindow
-            repeat with candidateReference in runtimeElements
-              set candidate to contents of candidateReference
-              try
-                if value of attribute "AXRole" of candidate is "AXRadioButton" and value of attribute "AXDescription" of candidate is runtimeTabName then
-                  set matchingTabCount to matchingTabCount + 1
-                end if
-              end try
-            end repeat
-          else
-            set matchingTabCount to 1
-          end if
-          if matchingTabCount is 1 then return "focused"
-          if matchingTabCount is greater than 1 then error "ambiguous exact AppKit runtime tab"
-        end if
-      end if
-      if (current date) is greater than expiry then error "exact AppKit runtime focus did not settle"
-      delay 0.05
-    end repeat
-  end tell
-end run`;
-  await executeFile("/usr/bin/osascript", [
-    "-e",
-    script,
-    "--",
-    String(input.processId),
-    expectedWindowIdentifier,
-    input.runtimeTabName ?? "",
-    input.activate ? "activate" : "observe"
+  await executeFile("/usr/bin/xcrun", [
+    "swift", nativeFocusScript, String(input.processId), expectedWindowIdentifier,
+    input.runtimeTabName ?? "", input.activate ? "focus" : "observe", ""
   ], { encoding: "utf8", timeout: 15_000 });
 }
 
@@ -283,6 +220,13 @@ export async function pressVisibleMacosApplicationShortcut(input: Readonly<{
   ) {
     throw new Error("The focused macOS runtime shortcut requires one exact AppKit tab");
   }
+  if (input.targetMode === "focused-runtime") {
+    await executeFile("/usr/bin/xcrun", [
+      "swift", nativeFocusScript, String(input.processId), "",
+      input.runtimeTabName ?? "", "shortcut", input.command
+    ], { encoding: "utf8", timeout: 15_000 });
+    return;
+  }
   const script = String.raw`
 on run argv
   set targetPid to (item 1 of argv) as integer
@@ -293,7 +237,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     if targetMode is "launcher" then
       set frontmost of targetProcess to true
       -- Chromium can leave the process-level AXFocusedWindow and AXMainWindow
@@ -329,75 +273,14 @@ on run argv
       if value of attribute "AXMain" of launcherWindow is not true then error "exact Rion launcher AXWindow is not main"
       set fileMenuItems to menu bar items of menu bar 1 of targetProcess whose name is "File"
       if (count of fileMenuItems) is not 1 then error "exact Rion File NSMenu unavailable"
-      set newWindowItems to menu items of menu 1 of item 1 of fileMenuItems whose name is "New Game Window"
+      set fileMenu to a reference to (menu bar item "File" of menu bar 1 of targetProcess)
+      set newWindowItems to menu items of menu 1 of fileMenu whose name is "New Game Window"
       if (count of newWindowItems) is not 1 then
-        set menuItemNames to name of every menu item of menu 1 of item 1 of fileMenuItems
+        set menuItemNames to name of every menu item of menu 1 of fileMenu
         error "exact Rion New Game Window NSMenu item unavailable; items=" & menuItemNames
       end if
-      if enabled of item 1 of newWindowItems is not true then error "exact Rion New Game Window NSMenu item is disabled"
-    else if targetMode is "focused-runtime" then
-      if frontmost of targetProcess is not true then error "exact Rion runtime process is not frontmost"
-      set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
-      if focusedWindow is missing value then error "exact Rion focused runtime window unavailable"
-      if value of attribute "AXRole" of focusedWindow is not "AXWindow" then error "focused Rion runtime owner is not an AXWindow"
-      -- AXFocusedWindow is the authoritative window-level owner. Once the
-      -- Chromium child owns keyboard focus, AXFocused belongs to that child,
-      -- so requiring AXFocused=true on the AXWindow would reject valid focus.
-      if value of attribute "AXMain" of focusedWindow is not true then error "exact Rion runtime AXWindow is not main"
-      set mainWindow to value of attribute "AXMainWindow" of targetProcess
-      if mainWindow is missing value then error "exact Rion main AXWindow unavailable"
-      set focusedWindowIdentifier to value of attribute "AXIdentifier" of focusedWindow as text
-      set mainWindowIdentifier to value of attribute "AXIdentifier" of mainWindow as text
-      if focusedWindowIdentifier does not start with appKitWindowPrefix then error "focused Rion AXWindow is not an AppKit runtime"
-      if mainWindowIdentifier is not focusedWindowIdentifier then error "focused Rion runtime AXWindow is not the exact main AXWindow"
-      set focusedWindowFullscreen to false
-      try
-        set focusedWindowFullscreen to (value of attribute "AXFullScreen" of focusedWindow is true)
-      end try
-      set fullscreenRestoreOwner to false
-      if commandName is "toggleFullscreen" then
-        if focusedWindowFullscreen is true then set fullscreenRestoreOwner to true
-      end if
-      if fullscreenRestoreOwner is false then
-        set runtimeTab to missing value
-        set runtimeTabCount to 0
-        set runtimeRadioCount to 0
-        set runtimeRoleReadErrorCount to 0
-        -- The entire-contents expression is an AppleScript object specifier. Materialize it
-        -- before iteration or per-element AX attribute reads fail lazily and an
-        -- empty try block can make a populated process look like it has no tabs.
-        -- Scope the accessibility walk to the already-fenced focused window.
-        -- Enumerating the whole Electron process also walks every Chromium
-        -- document and can exceed the bounded native-action transaction.
-        set runtimeElements to get entire contents of focusedWindow
-        repeat with candidateReference in runtimeElements
-          set candidate to contents of candidateReference
-          try
-            if value of attribute "AXRole" of candidate is "AXRadioButton" then
-              set runtimeRadioCount to runtimeRadioCount + 1
-              if value of attribute "AXDescription" of candidate is runtimeTabName then
-                set runtimeTab to candidate
-                set runtimeTabCount to runtimeTabCount + 1
-              end if
-            end if
-          on error
-            set runtimeRoleReadErrorCount to runtimeRoleReadErrorCount + 1
-          end try
-        end repeat
-        if runtimeTabCount is not 1 then error "focused Rion AXWindow is not the exact AppKit runtime owner (markers " & runtimeTabCount & ", radios " & runtimeRadioCount & ", unreadable " & runtimeRoleReadErrorCount & ")"
-        set runtimeTabWindow to value of attribute "AXWindow" of runtimeTab
-        if runtimeTabWindow is missing value then error "exact AppKit runtime tab has no AXWindow owner"
-        if value of attribute "AXRole" of runtimeTabWindow is not "AXWindow" then error "exact AppKit runtime tab owner is not an AXWindow"
-        set runtimeTabWindowIdentifier to value of attribute "AXIdentifier" of runtimeTabWindow as text
-        if runtimeTabWindowIdentifier is not focusedWindowIdentifier then error "exact AppKit runtime tab does not belong to the focused AXWindow"
-      end if
-      if commandName is "toggleFullscreen" then
-        set viewMenuItems to menu bar items of menu bar 1 of targetProcess whose name is "View"
-        if (count of viewMenuItems) is not 1 then error "exact Rion View NSMenu unavailable"
-        set fullscreenItems to menu items of menu 1 of item 1 of viewMenuItems whose name is "Toggle Full Screen"
-        if (count of fullscreenItems) is not 1 then error "exact Rion Toggle Full Screen NSMenu item unavailable"
-        if enabled of item 1 of fullscreenItems is not true then error "exact Rion Toggle Full Screen NSMenu item is disabled"
-      end if
+      set newWindowItem to a reference to (menu item "New Game Window" of menu 1 of fileMenu)
+      if enabled of newWindowItem is not true then error "exact Rion New Game Window NSMenu item is disabled"
     else
       error "unsupported macOS application shortcut target mode"
     end if
@@ -699,7 +582,7 @@ export async function pressVisibleNativeApplicationQuit(): Promise<void> {
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set frontmost of targetProcess to true
     repeat
       set launcherWindow to missing value

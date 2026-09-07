@@ -81,7 +81,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindow to missing value
     set targetCount to 0
     repeat with appWindow in windows of targetProcess
@@ -171,7 +171,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set frontmost of targetProcess to true
     click at {clickX, clickY}
   end tell
@@ -204,7 +204,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindow to missing value
     set targetCount to 0
     repeat with appWindow in windows of targetProcess
@@ -273,7 +273,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindow to missing value
     set targetCount to 0
     repeat with appWindow in windows of targetProcess
@@ -370,7 +370,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set windowDiagnostics to ""
     set splitterDiagnostics to ""
     repeat with appWindow in windows of targetProcess
@@ -598,7 +598,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindowCount to 0
     repeat with appWindow in windows of targetProcess
       try
@@ -798,7 +798,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindow to missing value
     set targetWindowCount to 0
     repeat with appWindow in windows of targetProcess

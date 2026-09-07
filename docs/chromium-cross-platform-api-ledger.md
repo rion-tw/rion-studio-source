@@ -10,6 +10,95 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### Owner steering: macOS execution / Windows workstation acceptance
+
+The owner directs this takeover to focus on macOS. Record Windows issues here
+for a later GPT session on the separate Windows workstation; do not dispatch
+Windows CI for acceptance. Runs 34117447948 and 34118324130 were already started
+before this instruction. No later Windows result is required or claimed to close
+these workstation gates. Required paired-platform coverage remains in the
+repository; this execution decision does not remove or weaken CI definitions.
+
+| Windows follow-up | Exact evidence and next workstation acceptance |
+| --- | --- |
+| Post-cleanup native/full regression | Handoff 8dff7722 contains View-only cleanup. Preserve Rust lint/test with the unweakened 256-round updater test; run complete Windows native, production-build/isolation and chromium-windows-smoke acceptance on the final handed-off SHA. |
+| New-window detach | fa217490 attempted a post-Show snapshot fix; the raw/logical snapshot distinction is corrected in the macOS follow-up below. CI 34117447948 job 101727469254 still fails: artifact 10017317351 / 2026-09-07T11-37-19-749Z-win32 / chromium-tabs-visible-seed reaches the final shell-error assertion at chromium-tabs-parity.e2e.ts:1059 with ELECTRON_CHROMIUM_NEW_WINDOW_COMPENSATION_FAILED. The visual detach/reveal topology stages have completed. Original failure remains unresolved; inspect the exact primary/compensation cause before changing behavior. |
+| Stable primary navigation | Same CI job 101727469095 / artifact 10017111920 fails while screenshot shows the expected empty Role page. Current document-root locator repair has only DOM regression evidence (8 PASS); run stable smoke/full on Windows, preserving exact visible assertions. |
+| Chrome import | 82db2663 adds actual consent, cancellation, native folder selection, confirmation, filtered transfer and restart phases. Windows native chooser ID 1152 and the full journey still need workstation evidence. Fixtures are isolated; do not substitute debug import calls or real user-profile keys. |
+| Windows JavaScript suite | Historical workstation full suite is still not green (symlink EPERM and four original deadlines). Hosted 3e2d415a has 451 files / 3656 PASS, 48 skipped and the fixed document-reference failure. These are separate outcomes; focused tests never replace the workstation full verdict. |
+| Hardware/lifecycle/install/update | Preserve physical input/display/DPI/session-end profiles and signed updater transaction/hash verification. No production publication, merge or credential change is authorized. CP-17 remains gated. |
+
+### macOS native follow-up on 82db2663 working tree
+
+This entry supersedes the earlier AX-permission and fa217490 post-Show hypotheses;
+historical failures below remain failures. No Accessibility grant was changed.
+The screenshot already showed the controlling app granted access. Exact PID AX
+probes succeeded; System Events list-item coercion lost the process/window owner
+and produced misleading -1719/-1700 errors. Native helpers now retain typed
+AXUIElement ownership for focused AppKit windows and the attached NSOpenPanel
+(including its verified Apple system XPC service). Visible menu/keyboard/folder
+operations remain the primary user actions; no debug import command replaces them.
+
+| macOS evidence | Actual outcome / remaining gate |
+| --- | --- |
+| Chromium shell | Local report 2026-09-07T12-12-02-138Z-darwin, chromium-shell-smoke PASS; finalFlush=true and processExited=true. Typed AX focus/shortcut correction is exercised. Full profile remains pending on final source. |
+| Latest historical CI | 34114497057 / 3e2d415a macOS package job 101718052762 SUCCESS, including 54 PASS plus four expected force exits and package/updater. 34117447948 / fa217490 macOS package 101727469313 and 34118324130 / 82db2663 job 101730244136 FAIL tabs-visible-seed; their native and stable jobs succeeded. Neither failed run reached the appended import journey. |
+| Detach diagnosis | embeddedWindowsShow returns a raw browser-slot snapshot, not the logical window projection. fa217490 incorrectly assumed it did. Current fix awaits the exact Show effect then reads appSnapshot for unique logical owner/tab/active/visible validation, preserving native effect failure. Realistic raw-return fixture fails eight cases before the fix and all 16 pass after it. Full native tabs acceptance remains pending. |
+| Visible Chrome import | Reports 2026-09-07T12-17-55-553Z and 2026-09-07T12-25-23-493Z fail the import seed. Consent, cancel, exact native chooser, preview and confirmation execute. First failure: Rust serializes commitMarkerSha256=None as null; both TS descriptor parsers incorrectly rejected it. Matching null/absent/hash contract tests fail two cases before correction and 30 focused tests pass after correction. |
+| Fresh import readback | After the null fix, sequence 70–77 snapshot/apply succeeds; sequence 78–81 verify fails CHROMIUM_PROFILE_IMPORT_FRESH_READBACK_MISMATCH and rolls back. Isolated bundled-Electron apply/verify probe finds LocalStorage persisted but cookies empty. Setting sessionData to the exact role Chromium path before ready produces exact cookie and LocalStorage persistence without relaxing sandboxing or verification. Visible UI seed and fresh-app restart now both PASS in local report 2026-09-07T12-33-18-293Z-darwin: exact one cookie/one LocalStorage marker, source digest unchanged, no pending import journal, finalFlush=true and processExited=true in both phases. Affected journey: CHROMIUM-MACOS-APPKIT-CHROME-PROFILE-IMPORT-033; Windows counterpart remains pending. |
+| Native Rust | Current native lint PASS; complete Rust test PASS (1677 passed, 5 ignored across eight binaries), retaining the updater 256-round test. No Rust production source changed in this follow-up. |
+| JavaScript baseline | Latest import follow-up: full suite 463 files / 3729 PASS; lint 0 errors and 23 existing warnings; hygiene, typecheck and E2E coverage PASS. Malformed commit-marker values remain rejected. Full native Chromium profile is next. |
+| Physical displays | Two Studio Displays are physically present (IDs 2, 3), currently both scale 2. Read-only mode inventory exposes genuine scale-1 modes on the secondary display. No display mode has been changed yet; hardware-extended and lifecycle evidence remain pending. |
+
+The sandbox diagnosis is supported by Electron v43.6.0
+[GetNetworkContextsParentDirectory](https://github.com/electron/electron/blob/v43.6.0/shell/browser/electron_browser_client.cc#L1161),
+which returns DIR_SESSION_DATA. Isolated helper userData previously pointed to a
+new temporary directory outside the role store. The correction supplies only the
+canonical Rust-issued role path through the inherited request before app ready.
+Windows startup behavior is unchanged and its native acceptance stays with the
+separate workstation. Ledger closure remains 9/18.
+
+### 82db2663 import gate and exact navigation failure follow-up
+
+`82db26639f123b068aec1bc83e888f2b608fdc65` is pushed with the visible Chrome
+import seed/restart implementation. CI 34118324130 checks out that full immutable
+SHA. Native import is still pending; implementation and manifest coverage do not
+constitute executed acceptance.
+
+CI 34117447948 at `fa217490` has shared checks and macOS stable full SUCCESS.
+Windows stable full job 101727469095 fails `smoke-seed` in
+`assertSeedPrimaryPage('/roles')`. Artifact 10017111920 / report
+`2026-09-07T11-37-24-878Z-win32` shows the visible "No roles yet" heading and
+Create role control, while the WebDriver log repeatedly searches the same parent
+handle `8e20ecee-8045-4f3a-8891-5a071443b2d3` and returns no such element.
+The assertion retained a page handle across lazy route rendering. The follow-up
+resolves each assertion from the document, preserving page containment, exact
+heading/action text, visibility, and forbidden header/kicker checks. A DOM page
+replacement regression fails twice on the old implementation and all eight
+platform-table cases pass with the fix; wrong/missing/hidden content still fails.
+This establishes the harness correction, not the Windows native verdict.
+Affected journeys include DASHBOARD-NAV-001 and the paired Chromium
+GAME-CRUD-024 navigation assertions. Their visible actions and coverage remain.
+
+Local Tauri production build, Electron production build and desktop E2E isolation
+pass. The final output is the production renderer (38 sources / 3346159 bytes).
+The import commit's full Vitest is 462 files / 3715 PASS. The navigation follow-up
+passes its focused tests, typecheck, focused lint and full hygiene; native replay
+remains required.
+
+A minimal isolated Electron 43.6.0 BrowserWindow probe now returns one AXWindow
+through the same osascript caller, without changing any permission. Evidence:
+`.desktop-e2e-artifacts/macos-takeover-8dff7722/ax-target-probe.json`.
+This narrows the local access problem to the Rion E2E target/launch context and
+contradicts treating it as a blanket missing Electron or ChatGPT grant.
+
+Physical inventory on this Mac now contains two Studio Displays: screen 2 at
+(0,0), screen 3 at (2560,0), both logical 2560x1440 and scale factor 2.
+The hardware profile requires distinct scale factors; the current arrangement
+does not meet that gate. No simulated screen or system setting change is counted.
+Windows physical/session-end and production updater/cutover evidence remain open.
+Ledger count stays 9/18; Tauri retirement remains prohibited until its gates pass.
+
 ### fa217490 validation and consented-import E2E implementation
 
 `fa21749094640f3dd678d90af180ff9547bf02a5` is pushed. Full local JavaScript
@@ -42,7 +131,7 @@ AX reads succeed while the E2E Electron target rejects access. The precise
 target-specific cause remains unresolved; do not infer missing owner consent
 or change permissions, credentials, or native assertions to force a pass.
 
-Working-tree CP-10 adds paired CHROMIUM-MACOS-APPKIT / CHROMIUM-WINDOWS
+Commit `82db2663` CP-10 adds paired CHROMIUM-MACOS-APPKIT / CHROMIUM-WINDOWS
 CHROME-PROFILE-IMPORT-033 journeys in the two smoke profiles, with seed/restart
 phases and a dedicated shared namespace. The actual visible consent/confirmation
 and native chooser remain primary actions. A separate isolated Chromium fixture

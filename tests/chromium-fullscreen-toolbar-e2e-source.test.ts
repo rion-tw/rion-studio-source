@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 
 describe("Chromium fullscreen-toolbar exact replacement", () => {
   it("pairs the retained AppKit and Windows journeys around visible actions", async () => {
-    const [spec, roleSurface, appKitUi, nativeActions, coverage] = await Promise.all([
+    const [spec, roleSurface, appKitUi, nativeActions, nativeFocus, coverage] = await Promise.all([
       readFile("e2e/desktop/specs/chromium-fullscreen-toolbar.e2e.ts", "utf8"),
       readFile("e2e/desktop/support/electron-role-surface.ts", "utf8"),
       readFile("e2e/desktop/support/macos-appkit-ui.ts", "utf8"),
       readFile("e2e/desktop/support/native-application-actions.ts", "utf8"),
+      readFile("e2e/desktop/support/macos-native-focus.swift", "utf8"),
       readFile("docs/e2e-coverage.json", "utf8")
     ]);
 
@@ -39,7 +40,7 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(appKitUi).toContain('menu bar item "View"');
     expect(appKitUi).toContain("fullscreenControlScreenBounds");
     expect(appKitUi).toContain("click at {clickX, clickY}");
-    expect(nativeActions).toContain('whose name is "Toggle Full Screen"');
+    expect(nativeFocus).toContain('text($0, "AXTitle") == "Toggle Full Screen"');
     expect(nativeActions).toContain(
       "key code 3 using {control down, command down}"
     );

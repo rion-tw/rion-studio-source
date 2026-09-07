@@ -29,6 +29,7 @@ import {
   parseChromiumRoleBrowserDataClearFreshHelperRequest
 } from "./chromiumRoleBrowserDataClearFreshHelperContract";
 import type { ChromiumSessionFactoryPort } from "./chromiumRoleSessionRegistry";
+import { canonicalChromiumPath } from "./chromiumSessionPath";
 import { normalizeRionBridgeError } from "../ipc/errors";
 
 export interface ChromeProfileImportHelperProcessPort {
@@ -39,7 +40,7 @@ export interface ChromeProfileImportHelperProcessPort {
     ChromiumMigrationWebContentsViewFactoryPort;
   exit: (code: number) => void;
   readInheritedRequest: () => Buffer;
-  ready: () => Promise<void>;
+  ready: (chromiumUserDataDir: string) => Promise<void>;
   writeInheritedResponse: (bytes: Buffer) => Promise<void>;
 }
 
@@ -76,7 +77,12 @@ export async function runChromeProfileImportHelperProcess(
         : parseChromeProfileImportFreshHelperRequest(requestMetadata);
     requestMetadata.fill(0);
     requestMetadata = null;
-    await port.ready();
+    const rolePaths = "descriptor" in request ? request.descriptor.rolePaths : request.rolePaths;
+    const chromiumPath = canonicalChromiumPath(rolePaths.chromiumUserDataDir, port.platform);
+    if (chromiumPath === null) throw new Error("The helper requires a canonical Core-owned Chromium path.");
+    // The validated inherited descriptor supplies the native network sandbox root
+    // before ready; no argv/environment override may widen this exact role path.
+    await port.ready(chromiumPath);
     const result = roleBrowserDataClear
       ? await new ChromiumRoleBrowserDataClearFreshHelper({
         platform: port.platform,

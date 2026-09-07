@@ -168,7 +168,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetTab to missing value
     set targetWindow to missing value
     set targetCount to 0
@@ -222,7 +222,7 @@ on run argv
   set targetIdentifier to item 1 of argv
   set targetPid to (item 2 of argv) as integer
   tell application "System Events"
-    set targetProcess to item 1 of (application processes whose unix id is targetPid)
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindow to missing value
     set targetCount to 0
     repeat with appWindow in windows of targetProcess
@@ -351,7 +351,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindow to missing value
     set targetCount to 0
     repeat with appWindow in windows of targetProcess
@@ -399,7 +399,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set targetWindow to missing value
     set targetCount to 0
     repeat with appWindow in windows of targetProcess
@@ -778,7 +778,7 @@ export async function clickVisibleRuntimeWindowControl(input: Readonly<{
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set targetProcess to item 1 of (application processes whose unix id is targetPid)
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     repeat with appWindow in windows of targetProcess
       if (count of (entire contents of appWindow whose role is "AXRadioButton")) > 0 then
         set buttonsFound to buttons of appWindow whose subrole is "AXMinimizeButton"
@@ -796,7 +796,7 @@ end run`, processId);
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set targetProcess to item 1 of (application processes whose unix id is targetPid)
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set frontmost of targetProcess to true
     tell menu bar 1 of targetProcess
       click menu bar item "Window"
@@ -816,7 +816,7 @@ export async function runtimeWindowIsMinimized(
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set targetProcess to item 1 of (application processes whose unix id is targetPid)
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     repeat with appWindow in windows of targetProcess
       if (count of (entire contents of appWindow whose role is "AXRadioButton")) > 0 then
         return (value of attribute "AXMinimized" of appWindow) as text
@@ -871,7 +871,7 @@ export async function dragVisibleRuntimeWindow(input: Readonly<{
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set targetProcess to item 1 of (application processes whose unix id is targetPid)
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     repeat with appWindow in windows of targetProcess
       if (count of (entire contents of appWindow whose role is "AXRadioButton")) > 0 then
         set p to position of appWindow
@@ -1010,7 +1010,7 @@ $rect = New-Object RionVisibleResize+RECT
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
-    set targetProcess to item 1 of (application processes whose unix id is targetPid)
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     repeat with appWindow in windows of targetProcess
       set hasRuntimeTab to false
       repeat with candidate in entire contents of appWindow

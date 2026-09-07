@@ -858,7 +858,7 @@ describe("Electron Core addon client", () => {
     ).rejects.toThrow("vault envelope bytes are invalid");
   });
 
-  it("keeps Chrome-import transaction secrets bounded, binary, fenced, and consumed", async () => {
+  it.each([null, undefined, "c".repeat(64)])("keeps Chrome-import secrets fenced with commit marker %s", async (commitMarkerSha256) => {
     const roleId = "11111111-1111-4111-8111-111111111111";
     const transactionId = "22222222-2222-4222-8222-222222222222";
     const leaseId = "33333333-3333-4333-8333-333333333333";
@@ -893,7 +893,8 @@ describe("Electron Core addon client", () => {
         decryptFailureCount: 4,
         storageReadFailureCount: 5
       },
-      warnings: ["COOKIE_PARTITIONED_UNSUPPORTED"]
+      warnings: ["COOKIE_PARTITIONED_UNSUPPORTED"],
+      commitMarkerSha256
     };
     const evidence = {
       transactionId,

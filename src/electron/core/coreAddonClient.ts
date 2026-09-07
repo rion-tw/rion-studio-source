@@ -166,7 +166,7 @@ export interface ChromeProfileImportTransactionDescriptorInternal {
     storageReadFailureCount: number;
   };
   warnings: string[];
-  commitMarkerSha256?: string;
+  commitMarkerSha256?: string | null;
 }
 
 export interface ChromeProfileImportFreshVerificationReceiptInternal {
@@ -1091,7 +1091,7 @@ function parseChromeProfileImportTransactionDescriptor(
     || value.warnings.some((warning) => typeof warning !== "string")) {
     throw chromeImportContractError("descriptor");
   }
-  if (value.commitMarkerSha256 !== undefined
+  if (value.commitMarkerSha256 !== undefined && value.commitMarkerSha256 !== null
     && (typeof value.commitMarkerSha256 !== "string"
       || !LOWERCASE_SHA256.test(value.commitMarkerSha256))) {
     throw chromeImportContractError("descriptor");

@@ -58,7 +58,8 @@ function descriptor(
       decryptFailureCount: 0,
       storageReadFailureCount: 0
     },
-    warnings: []
+    warnings: [],
+    commitMarkerSha256: null
   };
 }
 
@@ -166,6 +167,14 @@ describe("fresh-process Chrome profile import helper", () => {
     expect(parseChromeProfileImportFreshHelperRequest(
       encodeChromeProfileImportFreshHelperRequest(input)
     )).toEqual(input);
+  });
+
+  it.each([0, "", "A".repeat(64), "f".repeat(63)])("rejects malformed commit markers: %s", (marker) => {
+    const input = request("apply", "applying", 3, payload.byteLength);
+    const wire = JSON.parse(encodeChromeProfileImportFreshHelperRequest(input).toString());
+    wire.descriptor.commitMarkerSha256 = marker;
+    expect(() => parseChromeProfileImportFreshHelperRequest(Buffer.from(JSON.stringify(wire))))
+      .toThrowError(expect.objectContaining({ code: "CHROMIUM_PROFILE_IMPORT_HELPER_METADATA_INVALID" }));
   });
 
   it("rejects descriptor extensions and cross-origin authentication probes", () => {

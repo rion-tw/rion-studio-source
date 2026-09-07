@@ -264,7 +264,7 @@ on run argv
     repeat 300 times
       set matchingProcesses to application processes whose unix id is targetPid
       if (count of matchingProcesses) is 1 then
-        set targetProcess to item 1 of matchingProcesses
+        set targetProcess to a reference to (first application process whose unix id is targetPid)
         repeat with appWindow in windows of targetProcess
           set frontmost of targetProcess to true
           perform action "AXRaise" of appWindow
@@ -370,7 +370,7 @@ on run argv
     repeat 300 times
       set matchingProcesses to application processes whose unix id is targetPid
       if (count of matchingProcesses) is 1 then
-        set targetProcess to item 1 of matchingProcesses
+        set targetProcess to a reference to (first application process whose unix id is targetPid)
         set matchingWindow to missing value
         set matchingButton to missing value
         set matchCount to 0
@@ -466,7 +466,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set frontmost of targetProcess to true
     key code 12 using command down
   end tell
@@ -487,7 +487,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set matchingWindow to missing value
     set matchCount to 0
     repeat with appWindow in windows of targetProcess

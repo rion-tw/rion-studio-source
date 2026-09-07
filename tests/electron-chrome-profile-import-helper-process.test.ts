@@ -110,7 +110,7 @@ describe.each(["darwin", "win32"] as const)("fresh Chromium maintenance helper p
     } as unknown as ChromiumRoleSessionPort;
     const fromPath = vi.fn(() => session);
     let response = Buffer.alloc(0);
-    const ready = vi.fn(async () => undefined);
+    const ready = vi.fn(async () => { order.push("ready"); });
     const exit = vi.fn();
 
     await runChromeProfileImportHelperProcess({
@@ -129,11 +129,11 @@ describe.each(["darwin", "win32"] as const)("fresh Chromium maintenance helper p
       exit
     });
 
-    expect(ready).toHaveBeenCalledOnce();
+    expect(ready).toHaveBeenCalledExactlyOnceWith(chromiumPath);
     expect(exit).toHaveBeenCalledWith(0);
     expect(fromPath).toHaveBeenCalledWith(chromiumPath, { cache: true });
     expect(clearStorageData.mock.calls).toEqual([[]]);
-    expect(order).toEqual(["clear", "flush", "readback", "drain", "flush"]);
+    expect(order).toEqual(["ready", "clear", "flush", "readback", "drain", "flush"]);
     expect(response[8]).toBe(0);
     const metadataLength = response.readUInt32BE(12);
     expect(JSON.parse(response.subarray(20, 20 + metadataLength).toString("utf8")))

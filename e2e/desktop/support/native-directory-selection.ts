@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
@@ -49,52 +50,10 @@ do {
 `, input, { timeoutMilliseconds: 15_000 });
     return;
   }
-  const script = String.raw`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set fixturePath to item 2 of argv
-  set expiry to (current date) + 10
-  tell application "System Events"
-    set matches to application processes whose unix id is targetPid
-    if (count of matches) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matches
-    set frontmost of targetProcess to true
-    tell targetProcess
-      repeat
-        set panels to {}
-        repeat with appWindow in windows
-          if subrole of appWindow is "AXDialog" then set end of panels to appWindow
-          repeat with appSheet in sheets of appWindow
-            set end of panels to appSheet
-          end repeat
-        end repeat
-        if (count of panels) is 1 then exit repeat
-        if (count of panels) > 1 then error "multiple exact-owner folder panels"
-        if (current date) > expiry then error "exact folder panel unavailable"
-        delay 0.05
-      end repeat
-      set panel to item 1 of panels
-      keystroke "g" using {command down, shift down}
-      repeat until (count of sheets of panel) is 1
-        if (current date) > expiry then error "Go to Folder sheet unavailable"
-        delay 0.05
-      end repeat
-      set pathSheet to sheet 1 of panel
-      set fields to text fields of pathSheet
-      if (count of fields) is not 1 then error "exact folder path field unavailable"
-      set value of item 1 of fields to fixturePath
-      key code 36
-      repeat while (count of sheets of panel) is not 0
-        if (current date) > expiry then error "Go to Folder did not complete"
-        delay 0.05
-      end repeat
-      set openButtons to buttons of panel whose name is "Open"
-      if (count of openButtons) is not 1 then error "exact folder Open button unavailable"
-      click item 1 of openButtons
-    end tell
-  end tell
-end run`;
-  await execute("/usr/bin/osascript", ["-e", script, "--", String(input.processId), input.path], {
+  await execute("/usr/bin/xcrun", [
+    "swift", fileURLToPath(new URL("./macos-native-directory.swift", import.meta.url)),
+    String(input.processId), input.path
+  ], {
     timeout: 15_000,
     encoding: "utf8"
   }).catch(async (error: unknown) => {

@@ -222,7 +222,7 @@ function validateDescriptor(value: unknown): ChromeProfileImportTransactionDescr
   if (Object.values(unsupported).some((count) => !safeInteger(count, 0)) ||
     !Array.isArray(descriptor.warnings) ||
     descriptor.warnings.some((warning) => typeof warning !== "string") ||
-    (descriptor.commitMarkerSha256 !== undefined &&
+    (descriptor.commitMarkerSha256 !== undefined && descriptor.commitMarkerSha256 !== null &&
       (typeof descriptor.commitMarkerSha256 !== "string" ||
         !LOWERCASE_SHA256.test(descriptor.commitMarkerSha256)))) {
     throw helperError(

@@ -147,7 +147,7 @@ on run argv
   tell application "System Events"
     set matchingProcesses to application processes whose unix id is targetPid
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to item 1 of matchingProcesses
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
     set frontmost of targetProcess to true
 
     repeat

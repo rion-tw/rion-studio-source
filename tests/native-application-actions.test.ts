@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it } from "vitest";
 
 let source = "";
+let nativeFocus = "";
 let windowsNativeDialogDeclarations = "";
 
 beforeAll(async () => {
@@ -10,6 +11,7 @@ beforeAll(async () => {
     "e2e/desktop/support/native-application-actions.ts",
     "utf8"
   );
+  nativeFocus = await readFile("e2e/desktop/support/macos-native-focus.swift", "utf8");
   windowsNativeDialogDeclarations = await readFile(
     "e2e/desktop/support/windows-native-dialog.ts", "utf8"
   );
@@ -58,7 +60,7 @@ describe("native application shortcut target modes", () => {
   it("fences macOS launcher input to its exact main AXWindow and NSMenu item", () => {
     const launcherBranch = sourceBetween(
       'if targetMode is "launcher" then',
-      'else if targetMode is "focused-runtime" then'
+      'else\n      error "unsupported macOS application shortcut target mode"'
     );
     expect(launcherBranch).toContain("appKitWindowPrefix");
     expect(launcherBranch).toContain(
@@ -73,74 +75,37 @@ describe("native application shortcut target modes", () => {
       'menu bar items of menu bar 1 of targetProcess whose name is "File"'
     );
     expect(launcherBranch).toContain(
-      'menu items of menu 1 of item 1 of fileMenuItems whose name is "New Game Window"'
+      'menu items of menu 1 of fileMenu whose name is "New Game Window"'
     );
-    expect(launcherBranch).toContain("enabled of item 1 of newWindowItems");
+    expect(launcherBranch).toContain("enabled of newWindowItem");
     expect(source).toContain("key code 45 using command down");
     expect(source).not.toContain('keystroke "n" using command down');
   });
 
   it("validates the exact frontmost macOS AX window without activating another window", () => {
-    const focusedBranch = sourceBetween(
-      'else if targetMode is "focused-runtime" then',
-      'else\n      error "unsupported macOS application shortcut target mode"'
-    );
-    expect(focusedBranch).toContain('attribute "AXFocusedWindow"');
-    expect(focusedBranch).not.toContain('attribute "AXFocused" of focusedWindow');
-    expect(focusedBranch).toContain('attribute "AXMain"');
-    expect(focusedBranch).toContain('attribute "AXMainWindow"');
-    expect(focusedBranch).toContain(
-      "mainWindowIdentifier is not focusedWindowIdentifier"
-    );
-    expect(focusedBranch).toContain('attribute "AXFullScreen" of focusedWindow');
-    expect(focusedBranch).toContain("fullscreenRestoreOwner is false");
-    expect(focusedBranch).toContain(
-      "set runtimeElements to get entire contents of focusedWindow"
-    );
-    expect(focusedBranch).not.toContain("entire contents of targetProcess");
-    expect(focusedBranch).toContain(
-      "set candidate to contents of candidateReference"
-    );
-    expect(focusedBranch).toContain("runtimeRoleReadErrorCount");
-    expect(focusedBranch).toContain(
-      'attribute "AXRole" of candidate is "AXRadioButton"'
-    );
-    expect(focusedBranch).toContain(
-      'attribute "AXDescription" of candidate is runtimeTabName'
-    );
-    expect(focusedBranch).toContain("runtimeTabCount is not 1");
-    expect(focusedBranch).toContain('attribute "AXWindow" of runtimeTab');
-    expect(focusedBranch).toContain(
-      "runtimeTabWindowIdentifier is not focusedWindowIdentifier"
-    );
-    expect(focusedBranch).toContain(
-      'menu bar items of menu bar 1 of targetProcess whose name is "View"'
-    );
-    expect(focusedBranch).toContain(
-      'menu items of menu 1 of item 1 of viewMenuItems whose name is "Toggle Full Screen"'
-    );
-    expect(focusedBranch).toContain("enabled of item 1 of fullscreenItems");
-    expect(focusedBranch).not.toContain("set frontmost of targetProcess");
-    expect(source).toContain(
-      "key code 3 using {control down, command down}"
-    );
-    expect(source).not.toContain("set currentWindows to windows of targetProcess");
-    expect(source).not.toContain("set transitionExpiry to (current date) + 10");
-    expect(source).toContain("PresentationOnly:");
-    expect(source).toContain("the caller separately requires revision-fenced Core");
-    expect(source).toContain("delay 2");
-    expect(source).toContain("key code 40 using command down");
-    expect(source).toContain(
-      "NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid"
-    );
-    expect(source).toContain("down.post(tap: .cghidEventTap)");
-    expect(source).toContain("up.post(tap: .cghidEventTap)");
-    expect(source).not.toContain(
-      'if commandName is "escape" then\n      key code 53'
-    );
-    expect(source).not.toContain(
-      'keystroke "f" using {control down, command down}'
-    );
+    expect(nativeFocus).toContain('object(application, "AXFocusedWindow")');
+    expect(nativeFocus).toContain('object(application, "AXMainWindow")');
+    expect(nativeFocus).toContain('boolean(focusedWindow, "AXMain")');
+    expect(nativeFocus).toContain("mainWindowIdentifier == focusedWindowIdentifier");
+    expect(nativeFocus).toContain('text(owner, "AXIdentifier") == focusedWindowIdentifier');
+    expect(nativeFocus).toContain('text($0, "AXRole") == "AXRadioButton"');
+    expect(nativeFocus).toContain('text($0, "AXDescription") == runtimeTabName');
+    expect(nativeFocus).toContain('tabs.count <= 1');
+    expect(nativeFocus).toContain('if let tab = tabs.first, let owner = object(tab, "AXWindow")');
+    expect(nativeFocus).toContain('mode == "focus", let target');
+    expect(nativeFocus).toContain('mode == "shortcut" ? 0 : 10');
+    expect(nativeFocus).toContain('text($0, "AXTitle") == "Toggle Full Screen"');
+    expect(nativeFocus).toContain('items.count == 1, boolean(items[0], "AXEnabled")');
+    expect(nativeFocus).toContain('case "toggleFullscreen": key = 3; flags = [.maskCommand, .maskControl]');
+    expect(nativeFocus).toContain('case "quickAccess": key = 40; flags = [.maskCommand]');
+    expect(nativeFocus).toContain('NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid');
+    expect(nativeFocus).toContain('AXUIElementGetPid(element, &ownerPid) == .success, ownerPid == targetPid');
+    expect(nativeFocus).toContain('AXIsProcessTrusted()');
+    expect(nativeFocus).toContain('down.post(tap: .cghidEventTap)');
+    expect(nativeFocus).toContain('up.post(tap: .cghidEventTap)');
+    expect(nativeFocus).toContain('PresentationOnly:');
+    expect(nativeFocus).toContain('exact Core/AppKit terminal presentation event');
+    expect(nativeFocus).toContain('usleep(2_000_000)');
   });
 
   it("uses the existing exact foreground HWND on Windows without enumeration or activation", () => {

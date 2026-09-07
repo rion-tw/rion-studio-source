@@ -9,6 +9,7 @@ let e2eMain = "";
 let manifest = "";
 let macroSupport = "";
 let nativeApplicationActions = "";
+let nativeFocus = "";
 let nativeWindowControlObserver = "";
 let productionMain = "";
 let productionPreload = "";
@@ -17,6 +18,7 @@ let shellSpec = "";
 let wdioConfig = "";
 
 beforeAll(async () => {
+  nativeFocus = await readFile("e2e/desktop/support/macos-native-focus.swift", "utf8");
   [bridge, cleanExitDiagnostics, coreFlowDiagnostics, e2eMain, manifest, macroSupport,
     nativeApplicationActions, nativeWindowControlObserver, productionMain,
     productionPreload, roleSurfaceLifecycleObserver, shellSpec, wdioConfig] =
@@ -60,11 +62,11 @@ describe("Chromium application-shortcut E2E journey", () => {
     );
     expect(shellSpec).toContain('targetMode: "focused-runtime"');
     expect(shellSpec).toContain("focusVisibleMacosAppKitRuntime");
-    expect(nativeApplicationActions).toContain(
-      "focusedWindowIdentifier is expectedWindowIdentifier"
+    expect(nativeFocus).toContain(
+      "focusedWindowIdentifier == expectedWindowIdentifier"
     );
-    expect(nativeApplicationActions).toContain(
-      "mainWindowIdentifier is expectedWindowIdentifier"
+    expect(nativeFocus).toContain(
+      "mainWindowIdentifier == focusedWindowIdentifier"
     );
     expect(nativeApplicationActions).not.toContain(
       "focusedWindow is targetWindow"
@@ -72,11 +74,11 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(nativeApplicationActions).toContain(
       "launcherWindowCount is greater than 1"
     );
-    expect(nativeApplicationActions).toContain(
-      "mainWindowIdentifier is not focusedWindowIdentifier"
+    expect(nativeFocus).toContain(
+      "mainWindowIdentifier == focusedWindowIdentifier"
     );
-    expect(nativeApplicationActions).toContain(
-      "runtimeTabWindowIdentifier is not focusedWindowIdentifier"
+    expect(nativeFocus).toContain(
+      'text(owner, "AXIdentifier") == focusedWindowIdentifier'
     );
     expect(nativeApplicationActions).not.toContain(
       "mainWindow is not focusedWindow"

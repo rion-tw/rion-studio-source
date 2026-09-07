@@ -1642,7 +1642,15 @@ async function runInternalChromeProfileImportHelper(): Promise<void> {
         new WebContentsView(options)
     } as unknown as ChromeProfileImportHelperProcessPort["views"],
     readInheritedRequest: () => readFileSync(0),
-    ready: () => app.whenReady(),
+    ready: (chromiumUserDataDir) => {
+      if (process.platform === "darwin") {
+        if (app.isReady()) throw new Error("The helper storage root must be selected before ready.");
+        // Electron grants its macOS network service access under sessionData.
+        // The helper's temporary userData is outside the Rust-owned role store.
+        app.setPath("sessionData", chromiumUserDataDir);
+      }
+      return app.whenReady();
+    },
     writeInheritedResponse: async (bytes) => {
       let offset = 0;
       while (offset < bytes.byteLength) {

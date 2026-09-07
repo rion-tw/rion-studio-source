@@ -7,7 +7,7 @@ import type {
   RuntimeWindowProvisionTargetRecord,
   SystemRuntimeOperationSummaryRecord
 } from "../../shared/generated";
-import { RionBridgeError } from "../ipc/errors";
+import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import type { ChromiumNewWindowMovePort } from "./chromiumRuntimeActionBackend";
 import type { ChromiumRuntimeExecutorSnapshot } from
   "./chromiumRuntimeEffectExecutor";
@@ -255,7 +255,9 @@ implements ChromiumNewWindowMovePort {
         );
         throw moveError(
           "ELECTRON_CHROMIUM_NEW_WINDOW_COMPENSATION_FAILED",
-          "The new-window move could not restore exact ownership after persistence failed."
+          "The new-window move could not restore exact ownership after persistence failed. " +
+          `Primary: ${normalizeRionBridgeError(error).code}; ` +
+          `compensation: ${normalizeRionBridgeError(compensationError).code}.`
         );
       }
       throw error;
@@ -566,22 +568,21 @@ implements ChromiumNewWindowMovePort {
   }
 
   async #presentTarget(windowId: string, tabId: string): Promise<void> {
-    const shown = await this.#input.core.invoke({
+    await this.#input.core.invoke({
       type: "embeddedWindowsShow",
       windowId
     });
-    // Core returns this captured topology only after its exact reveal/focus
-    // effect has terminalized from native evidence. A subsequent placement can
-    // already be admitted while its projection is still in flight; comparing
-    // two new snapshots then would revoke an acknowledged presentation and
-    // incorrectly start destructive compensation for a successful detach.
-    const windows = shown.windows.filter(window => window.windowId === windowId);
-    const owners = shown.windows.filter(window => window.tabIds.includes(tabId));
-    const tabs = shown.tabs.filter(tab => tab.id === tabId);
+    // Show resolves only after the exact native reveal/focus effect completes.
+    // Its return is the raw browser-slot snapshot, not Kernel window topology.
+    // Read the authoritative logical owner without comparing a fresh native
+    // revision: a later placement projection may legitimately still be in flight.
+    const shown = await this.#input.core.invoke({ type: "appSnapshot" });
+    const windows = shown.logicalWindows.filter(window => window.windowId === windowId);
+    const owners = shown.logicalWindows.filter(window => window.tabs.some(tab => tab.id === tabId));
+    const tabs = windows[0]?.tabs ?? [];
     if (
       windows.length !== 1 || owners.length !== 1 || tabs.length !== 1 ||
-      owners[0]!.windowId !== windowId || tabs[0]!.windowId !== windowId ||
-      !exactIds(windows[0]!.tabIds, [tabId]) ||
+      owners[0]!.windowId !== windowId || tabs[0]!.id !== tabId ||
       windows[0]!.activeTabId !== tabId || tabs[0]!.hidden
     ) {
       throw moveError(

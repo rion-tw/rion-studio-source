@@ -305,22 +305,12 @@ class MoveHarness {
         if (this.failShow) throw new Error("native show failed");
         const native = this.native(command.windowId!);
         Object.assign(native, { visible: true, focused: true });
-        const snapshot = {
-          ...structuredClone(this.coreSnapshot.browserRuntime),
-          windows: this.coreSnapshot.logicalWindows.map((window) => ({
-            windowId: window.windowId,
-            activeTabId: window.activeTabId,
-            tabIds: window.tabs.map((item) => item.id)
-          })),
-          tabs: this.coreSnapshot.logicalWindows.flatMap((window) =>
-            window.tabs.map((item) => ({
-              ...structuredClone(item),
-              windowId: this.invalidShowOwner ? SOURCE_WINDOW_ID : window.windowId,
-              slots: [],
-              webSurfaces: []
-            }))
-          )
-        };
+        // The command returns browser-slot state; Kernel logical windows are
+        // projected only by appSnapshot and need not exist in this raw result.
+        const snapshot = structuredClone(this.coreSnapshot.browserRuntime);
+        if (this.invalidShowOwner) {
+          this.logical(TARGET_WINDOW_ID).activeTabId = "different-tab";
+        }
         if (this.pendingPlacementAtShowCompletion) {
           this.logical(TARGET_WINDOW_ID).revision += 1;
         }
@@ -669,7 +659,7 @@ describe("Chromium Core-owned move to new window", () => {
       .toEqual([TAB_ID]);
   });
   it.each(["win32", "darwin"] as const)(
-    "uses the terminal show receipt when placement starts before its continuation on %s", async (platform) => {
+    "retains acknowledged presentation when placement starts before its continuation on %s", async (platform) => {
       const harness = new MoveHarness(platform, [tab(TAB_ID), tab(SECOND_TAB_ID)]);
       harness.pendingPlacementAtShowCompletion = true;
       const result = await harness.controller().moveTabToNewWindow("move-show-placement", TAB_ID);
@@ -682,7 +672,7 @@ describe("Chromium Core-owned move to new window", () => {
     }
   );
   it.each(["win32", "darwin"] as const)(
-    "rejects a mismatched terminal show owner on %s", async (platform) => {
+    "rejects a mismatched logical owner after terminal show on %s", async (platform) => {
       const harness = new MoveHarness(platform, [tab(TAB_ID), tab(SECOND_TAB_ID)]);
       harness.invalidShowOwner = true;
       await expect(harness.controller().moveTabToNewWindow("move-show-wrong-owner", TAB_ID))

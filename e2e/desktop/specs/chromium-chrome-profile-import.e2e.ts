@@ -91,11 +91,11 @@ async function seedImport(probe: Awaited<ReturnType<typeof electronDesktopE2ePro
   await dialog.$("button=Apply import").click();
   const afterSequence = await rendererEventCursor();
   await $("dialog[open]").$("button=Apply import").click();
-  await waitForCollectionProjection({ afterSequence, collection: "roles", names: [CHROME_IMPORT_ROLE] });
   await dialog.$("button=Close").waitForDisplayed({ timeout: 45_000 });
   await expect(dialog).toHaveText(expect.stringContaining("Imported"));
   await expect(dialog).toHaveText(expect.stringContaining("1 cookies · 1 LocalStorage entries"));
   await expect(dialog).not.toHaveText(expect.stringContaining("Failed"));
+  await waitForCollectionProjection({ afterSequence, collection: "roles", names: [CHROME_IMPORT_ROLE] });
   expectNoPendingImport();
   expect(await chromeImportSourceDigest(source.root)).toBe(source.digest);
   await dialog.$("button=Close").click();

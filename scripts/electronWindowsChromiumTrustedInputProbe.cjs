@@ -111,7 +111,14 @@ void (async () => {
       const receipt = await binding.native.focusForeground(binding.identity, { roleId, surfaceGeneration: 1,
         requestId: `focus-${roleId}`, inputEpoch: 0, scheduledAtMs: now, deadlineMs: now + 5000,
         intent: "normal", action: { type: "focus" }, expectedInputNeutralityBefore: true, expectedInputNeutralityAfter: true });
-      if (receipt.status !== "applied") throw new Error(`View focus admission failed: ${JSON.stringify(receipt)}`);
+      if (receipt.status !== "applied") {
+        const attachment = attachments.resolve(roleId, 1);
+        let observation;
+        try { observation = attachment?.observe() ?? null; } catch (error) {
+          observation = { error: error instanceof Error ? error.message : String(error) };
+        }
+        throw new Error(`View focus admission failed: ${JSON.stringify({ receipt, observation })}`);
+      }
       return receipt;
     };
 
@@ -235,6 +242,15 @@ void (async () => {
       inputWaiters.delete(inputSequence);
     };
 
+    // This standalone process is launched by WDIO, not by the foreground app.
+    // Establish initial visible user activation once, before all input samples.
+    // Hidden/background samples below must still preserve focus without repair.
+    parent.showInactive();
+    parent.moveTop();
+    const { clickWindowsProbeCaption } = await import("./electronWindowsProbeInitialClick.mjs");
+    const initialActivation = await clickWindowsProbeCaption({ processId: process.pid,
+      nativeWindowHandle: parent.getNativeWindowHandle().readBigUInt64LE().toString() });
+    console.log(`RION_WINDOWS_PROBE_INITIAL_ACTIVATION=${JSON.stringify(initialActivation)}`);
     const focusReceipt = await admitFocus("probe-role");
     const activeElement = await view.webContents.executeJavaScript(
       "document.querySelector('#probe').focus(); document.activeElement?.id", true);

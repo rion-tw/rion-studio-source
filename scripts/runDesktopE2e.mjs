@@ -23,6 +23,7 @@ import {
   validateChromiumJourneySqliteEvidence
 } from "./desktopE2eChromiumJourneyEvidence.mjs";
 import { validateChromiumQuickAccessSqliteEvidence } from "./desktopE2eChromiumQuickAccessEvidence.mjs";
+import { withChromiumMacroCutoverNativePrerequisites } from "./desktopE2eChromiumMacroCutoverEvidence.mjs";
 import { resolveDesktopE2eRuntimeTarget } from "./desktopE2eRuntimeTarget.mjs";
 import { verifyDesktopE2eBuild } from "./verifyDesktopE2eBuild.mjs";
 
@@ -151,9 +152,12 @@ const focusedPhaseDependencies = new Map([
     ["seed", "restart", "force-terminate", "crash-restart", "crash-discard"]
   ]
 ]);
-const phases = phaseArgument
-  ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
-  : configuredPhases;
+const phases = withChromiumMacroCutoverNativePrerequisites({
+  platform: process.platform,
+  selectedPhases: phaseArgument
+    ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
+    : configuredPhases
+});
 const phaseNamespaces = new Map([
   ["chromium-app-crud-mutations", "chromium-entity-persistence-lifecycle"],
   ["chromium-app-crud-cleanup", "chromium-entity-persistence-lifecycle"],

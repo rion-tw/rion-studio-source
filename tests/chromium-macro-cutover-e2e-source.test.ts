@@ -7,6 +7,7 @@ import {
   chromiumMacroCutoverPhaseDependencies,
   chromiumMacroCutoverPhaseNamespaces,
   chromiumMacroCutoverReplacementPlan,
+  withChromiumMacroCutoverNativePrerequisites,
   validateChromiumMacroCutoverSqliteEvidence
 } from "../scripts/desktopE2eChromiumMacroCutoverEvidence.mjs";
 
@@ -185,6 +186,27 @@ describe("Chromium Macro paired cutover E2E source", () => {
       ["chromium-macro-cutover-topology-seed", "chromium-macro-cutover-topology"],
       ["chromium-macro-cutover-topology-restart", "chromium-macro-cutover-topology"]
     ]));
+  });
+
+  it.each(["win32", "darwin"])("includes the %s native evidence prerequisite before focused topology seed/restart", platform => {
+    const selectedPhases = [
+      "chromium-macro-cutover-topology-seed",
+      "chromium-macro-cutover-topology-restart"
+    ];
+    expect(withChromiumMacroCutoverNativePrerequisites({ platform, selectedPhases }))
+      .toEqual(platform === "win32"
+        ? ["chromium-windows-trusted-input-physical", ...selectedPhases]
+        : selectedPhases);
+    expect(selectedPhases).toHaveLength(2);
+  });
+
+  it("keeps a Windows full profile's existing physical prerequisite exactly once", () => {
+    const selectedPhases = ["chromium-windows-trusted-input-physical",
+      "chromium-macro-cutover-terminal-cleanup-seed"];
+    expect(withChromiumMacroCutoverNativePrerequisites({ platform: "win32", selectedPhases }))
+      .toEqual(selectedPhases);
+    expect(withChromiumMacroCutoverNativePrerequisites({ platform: "win32",
+      selectedPhases: ["chromium-shell-smoke"] })).toEqual(["chromium-shell-smoke"]);
   });
 
   it("wires every phase without replacing the Workspace cutover aggregation", async () => {

@@ -8241,3 +8241,31 @@ journeys CHROMIUM-MACOS-APPKIT-TABS-VISIBLE-ACTIVATION-019 and
 CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020. Paired Windows journeys remain in
 the manifest and are deferred to the Windows workstation; no Windows CI runs
 are requested by this session.
+
+### Exact 61f32424 regression and native divider follow-up
+
+Commit **61f3242491d16a119acbd349b048278208f00098** is pushed and contains the
+fullscreen-exit/native-control corrections, atop the independently committed
+f99684f2 address-display/search feature. The clean isolated checkout passes
+468 JavaScript files / 3803 tests. Mac-only CI **34133998284** targets that exact
+SHA (manual platform_scope=macos); no Windows jobs are present. This is a new
+regression for the concrete native fullscreen fix, not a retry of unchanged code.
+
+The complete local inherited hardware profile report
+**2026-09-07T14-37-48-363Z-darwin**, clean 61f32424, stops after 7 PASS and one FAIL:
+chromium-workspace-web-slot-seed cannot discover the native AXSplitter through
+System Events' list-based traversal (PENDING windows=Chromium Workspace Web
+Window:95;:113; splitters empty). No divider drag is submitted by that failed
+attempt. A typed exact-PID/AppKit-window AX traversal now finds the unique native
+splitter without crossing AXWebArea; it checks Accessibility trust, object owner,
+positive finite geometry and exact native-window focus. The existing OS hit-test,
+real CGEvent drag and Core geometry/session/restart assertions remain intact.
+
+With that E2E-only correction, focused report
+**2026-09-07T14-43-04-481Z-darwin** passes all four prerequisites/target phases: entity-persistence seed/restart
+and workspace-web-slot seed/restart, each with finalFlush=true and
+processExited=true.
+Typecheck, Swift typecheck and three focused source-boundary tests pass. This
+focused result is not relabelled as a complete hardware-profile PASS. Affected
+journeys are CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016 and its retained
+native divider behavior; Windows companion acceptance remains deferred.

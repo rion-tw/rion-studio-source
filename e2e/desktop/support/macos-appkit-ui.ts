@@ -366,63 +366,14 @@ export async function dragMacosVisibleWorkspaceDivider(
   deltaScreenPixels = 72
 ): Promise<void> {
   const processId = String((await electronDesktopE2eProbe()).processId);
-  const dividerGeometryScript = `
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set windowDiagnostics to ""
-    set splitterDiagnostics to ""
-    repeat with appWindow in windows of targetProcess
-      set allElements to entire contents of appWindow
-      set windowDiagnostics to windowDiagnostics & (name of appWindow as text) & ":" & ¬
-        (count of allElements as text) & ";"
-      repeat with candidate in allElements
-        try
-          set candidateRole to role of candidate
-          set candidateName to ""
-          try
-            set candidateName to name of candidate as text
-          end try
-          if candidateRole is "AXSplitter" then
-            set candidateDescription to ""
-            try
-              set candidateDescription to description of candidate as text
-            end try
-            set splitterDiagnostics to splitterDiagnostics & candidateRole & ":" & ¬
-              candidateName & ":" & candidateDescription & ";"
-          end if
-          if candidateRole is "AXSplitter" and ¬
-              (candidateName is "Resize workspace columns" or ¬
-               candidateDescription is "Resize workspace columns") then
-            set frontmost of targetProcess to true
-            repeat 40 times
-              if frontmost of targetProcess then exit repeat
-              delay 0.05
-            end repeat
-            if not frontmost of targetProcess then error "exact Rion process did not become frontmost"
-            perform action "AXRaise" of appWindow
-            set dividerPosition to position of candidate
-            set dividerSize to size of candidate
-            return (item 1 of dividerPosition as text) & "," & ¬
-              (item 2 of dividerPosition as text) & "," & ¬
-              (item 1 of dividerSize as text) & "," & ¬
-              (item 2 of dividerSize as text)
-          end if
-        end try
-      end repeat
-    end repeat
-    return "PENDING|windows=" & windowDiagnostics & ¬
-      " splitters=" & splitterDiagnostics
-  end tell
-end run`;
   let geometry = "";
   let pendingDiagnostic = "";
   try {
     await browser.waitUntil(async () => {
-      const candidate = await readSystemEvents(dividerGeometryScript, processId);
+      const result = await executeFile("/usr/bin/xcrun", [
+        "swift", resolve(import.meta.dirname, "macos-native-divider-geometry.swift"), processId
+      ], { encoding: "utf8", timeout: 10_000 });
+      const candidate = result.stdout.trim();
       if (candidate.startsWith("PENDING|")) {
         pendingDiagnostic = candidate;
         return false;
@@ -441,7 +392,11 @@ end run`;
       { cause: error }
     );
   }
-  const values = geometry.split(",").map((value) => Number(value.trim()));
+  const divider = JSON.parse(geometry) as {
+    windowId: string; x: number; y: number; width: number; height: number;
+  };
+  await focusVisibleMacosAppKitRuntime({ processId: Number(processId), windowId: divider.windowId });
+  const values = [divider.x, divider.y, divider.width, divider.height];
   if (values.length !== 4 || values.some((value) => !Number.isFinite(value)) ||
       values[2]! <= 0 || values[3]! <= 0) {
     throw new Error("The AppKit workspace-divider accessibility geometry is invalid");

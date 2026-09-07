@@ -44,14 +44,22 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(windowsPointer).toContain('browser.action("pointer"');
     expect(windowsPointer).toContain('.down("left")');
     expect(windowsPointer).toContain('.up("left")');
-    expect(appKitPointer).toContain('candidateRole is "AXSplitter"');
-    expect(appKitPointer).toContain(
-      'candidateDescription is "Resize workspace columns"'
+    const dividerGeometry = await readFile(
+      "e2e/desktop/support/macos-native-divider-geometry.swift", "utf8"
     );
-    expect(appKitPointer).toContain('return "PENDING|windows="');
+    expect(dividerGeometry).toContain('text(candidate, "AXRole") == "AXSplitter"');
+    expect(dividerGeometry).toContain("owner == targetPid");
+    expect(dividerGeometry).toContain("AXIsProcessTrusted()");
+    expect(dividerGeometry).toContain('identifier.hasPrefix(prefix)');
+    expect(appKitPointer).toContain("windowId: divider.windowId");
+    expect(dividerGeometry).toContain(
+      'text(candidate, "AXDescription") == "Resize workspace columns"'
+    );
+    expect(dividerGeometry).toContain('print("PENDING|no exact native splitter")');
     expect(appKitPointer).toContain('candidate.startsWith("PENDING|")');
     expect(appKitPointer).toContain("await browser.waitUntil(async () =>");
-    expect(appKitPointer).toContain('perform action "AXRaise" of appWindow');
+    expect(await readFile("e2e/desktop/support/macos-native-focus.swift", "utf8"))
+      .toContain("AXUIElementPerformAction(target, kAXRaiseAction as CFString)");
     expect(appKitPointer).toContain("AXUIElementCopyElementAtPosition(");
     expect(appKitPointer).toContain('hitProcessId !== processId');
     expect(appKitPointer).toContain("CGEvent(mouseEventSource: source");

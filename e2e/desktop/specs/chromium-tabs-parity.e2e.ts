@@ -812,7 +812,7 @@ async function closeAndReopenSavedWindow(input: Readonly<{
 }>): Promise<void> {
   const before = await electronDesktopE2eGameWindowRuntime(input.gameWindow.id);
   const generation = before.currentRuntime!.windowGeneration;
-  await closeVisibleRuntimeWindow(input);
+  await closeVisibleRuntimeWindow({ ...input, windowId: input.gameWindow.id });
   await waitForDormantWindow(input.gameWindow.id);
   const saved = await findWindow();
   expect(saved.tabs.map((tab) => tab.id)).toEqual(input.orderedTabIds);

@@ -2497,7 +2497,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create a single Web App Workspace through visible controls, prove event-bound Loading then Ready with no synthetic Role slots/statuses, and compare the persistent global-Web content session with the dedicated memory-only Rion chrome shell inside the retained AppKit host. Repeated launch deduplicates, visible chrome navigation produces an authoritative degraded failure, native AppKit tab close/reopen recovers only by user action, and the exact saved Web tab plus session survive process restart."
+      "description": "Create a single Web App Workspace through visible controls, prove event-bound Loading then Ready with no synthetic Role slots/statuses, and compare the persistent global-Web content session with the dedicated memory-only Rion chrome shell inside the retained AppKit host. Repeated launch deduplicates, visible chrome navigation produces an authoritative degraded failure, native AppKit tab close/reopen recovers only by user action, and the exact saved Web tab plus session survive process restart. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024",
@@ -2516,7 +2516,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Run the same visible Web-only Workspace lifecycle in the bundled Windows Chromium host: event-bound Loading and Ready, empty Role topology, persistent global-Web content isolated from the memory-only Rion chrome shell, deduplicated launch, authoritative degraded navigation failure, visible native tab close/reopen, and exact restart persistence. Windows execution retains an independent CI verdict."
+      "description": "Run the same visible Web-only Workspace lifecycle in the bundled Windows Chromium host: event-bound Loading and Ready, empty Role topology, persistent global-Web content isolated from the memory-only Rion chrome shell, deduplicated launch, authoritative degraded navigation failure, visible native tab close/reopen, and exact restart persistence. Windows execution retains an independent CI verdict. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025",

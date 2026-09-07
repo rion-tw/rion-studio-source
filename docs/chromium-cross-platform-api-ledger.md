@@ -158,6 +158,102 @@ output before interpreting isolation results.
   policy and mandatory updater signatures/hashes. Do not enable disabled
   publisher/finalizer jobs or discard required AppKit/data adapters.
 
+## Windows workstation execution — 2026-09-07 (in progress)
+
+The receiving checkout was clean on `main`; fetched and created the tracking
+branch `codex/electron-chromium-v23-cutover` at
+`b0c3c184fb1d2d30d66175c67780a6108dde7184`. Confirmed `08dae0ce`, `7ec46086`
+and the handoff commit are ancestors. No local changes were discarded.
+This workstation is Windows **ARM64**, distinct from hosted Windows x64.
+Local tools: SHA-256-verified Node 24.18.0 ARM64, pnpm 11.13.0, Rust
+1.97.0-aarch64-pc-windows-msvc; frozen-lockfile installation passed.
+
+| Candidate / check | Observed result |
+| --- | --- |
+| Local `b0c3c184`, `pnpm run lint:rust` | PASS, Windows ARM64; 1m31s. Full log: `.desktop-e2e-artifacts/windows-handoff-b0c3c184/lint-rust.log`. |
+| Local `b0c3c184`, `pnpm run test:rust` | PASS, Windows ARM64: 1,642 tests, three existing ignored; Core 952 tests in 240.04s. The unchanged 256-round `terminal_receipt_create_new_commit_has_exactly_one_concurrent_winner` and `a_fully_verified_import_journal_allows_launch_without_new_role_evidence` passed without retries. Full log: `.desktop-e2e-artifacts/windows-handoff-b0c3c184/test-rust.log`. |
+| Local `b0c3c184`, focused Vitest | PASS: projection/coordinator 43 tests, View focus admission 20 tests. Native Electron integration is running next. |
+| Local `b0c3c184` + runtime-read repair, native integration | PASS: eight files / 15 tests, 111.23s, Windows ARM64 Electron 43.4.1 / Chromium 150.0.7871.224. Production View-owner probe includes all eight trusted key/middle samples, four applied hidden admissions, and preserved foreground identity. Log and native reports are under `.desktop-e2e-artifacts/windows-handoff-b0c3c184/`. |
+| Run 34067927527, job 101579982133 | Final API verdict SUCCESS, including Rust workspace, native Electron integration, renderer tests and Tauri build. macOS native 101579982173 and both stable desktop jobs also SUCCESS; both older Chromium package jobs FAILED. |
+| Run 34068441192, job 101581254621 | FAILED at `chromium-workspace-web-only-seed`, before Macro terminal cleanup. Downloaded artifact 9999811663; `report.json` binds `7ec46086`, `chromium-windows-smoke`, `chromium-v23-windows`. |
+
+The latest Chromium failure is `execute/async` script timeout in
+`chromium-workspace-web-only.e2e.ts:344`, reading `getEmbeddedRuntimeState`
+after visible tab close. Core flow records successful `embeddedTabStop` and
+empty browser/logical windows at revisions 27/28; native topology records an
+empty final snapshot. Local Web chrome reached `did-finish-load`, then exact
+destruction. This is not evidence of the earlier local chrome load stall or
+hidden View admission failure. Investigate the snapshot/projection read fence
+against local reproduction; do not lengthen the deadline or weaken equality.
+The post-failure direct View probe has eight received samples and four applied
+hidden-admission receipts, but does not close the full journey. The profile has
+10 PASS phases before its failure. Windows stable job 101581254735 subsequently
+completed successfully; Windows native job 101581357691 passed Rust tests and
+entered native Electron integration on the next read.
+Neither cited CI run was restarted. macOS, x64, hardware and real updater gates
+remain separately required; CP-08 deletion and CP-17 removal remain gated.
+
+The runtime-read repair adds `browserStatuses` to the coordinator's ordered
+projection progress fence. `browser_runtime_snapshot_without_persistence`
+publishes this authoritative event after the final tab isolation/removal, even
+when neither another SQLite `stateChanged` nor another native effect follows.
+The former reader ignored this event. Two platform-table regressions failed on
+the original implementation and passed after the repair; all 65 focused
+projection/focus tests passed. The reader still validates exact Core/native
+identity and topology; no polling, deadline extension or equality relaxation was
+added. Both WORKSPACE-WEB-ONLY-024 journeys now additionally require the empty
+renderer topology from a pre-close event cursor, alongside the existing runtime
+read and restart assertions. Typecheck and coverage passed (P0/P1 100%); the full
+Windows Chromium profile is running against the qualified working tree.
+
+The first ARM64 full-profile attempt
+`.desktop-e2e-artifacts/2026-09-07T00-30-34-572Z-win32/report.json` failed at
+shell startup, before any UI journey: ChromeDriver's log records
+`UPDATE_PLATFORM_BUILD_MISMATCH`. `crates/rion-node/src/updater.rs` deliberately
+accepts Windows x86_64 builds only. Preserve that product architecture check;
+prepare pinned x64 Node/Rust/Electron on this ARM64 Windows host instead of
+claiming ARM64 product support. This is a toolchain correction, not a retry of
+the CI Web-only failure or a native acceptance pass. x64 execution under Windows
+ARM64 emulation must be distinguished from hosted x64 and physical hardware.
+
+Full hygiene initially found `/bin/ps` unresolved on Windows. It is the existing
+absolute macOS OS executable in `darwinProcessGroupLiveness.mjs`, not a missing
+JavaScript dependency. Added that exact path to Knip `ignoreUnresolved`; full
+hygiene then passed, retaining existing export/type warnings and all other
+dependency checks. No runtime implementation or assertion was suppressed.
+
+Final run 34068441192 status: macOS native 101581357690, Windows native
+101581357691 and both stable desktop jobs 101581254848/101581254735 SUCCESS.
+macOS Chromium 101581254826 FAILED at `chromium-tabs-visible-seed`:
+`closeAndReopenSavedWindow` did not observe the exact window become dormant.
+Artifact 10000177203 was downloaded locally. Unlike the Windows snapshot wait,
+the macOS inspection keeps returning a live two-tab native host; Core records
+no close command before test cleanup. The helper caller omitted its already
+known `gameWindow.id`, causing the macOS helper to discover a target through
+whole-window Accessibility traversal. Pass that exact ID on both platforms;
+this removes an ambiguous targeting path but is not yet proof of the macOS
+failure's root cause or a successful close. Keep the native dormant assertion
+unchanged and require a new macOS verdict for TABS-VISIBLE-ACTIVATION-019 /
+GAME-WINDOWS-TABS-020. No AppKit product adapter was replaced.
+
+Pinned x64 Node 24.18.0 and Rust 1.97.0 are now installed for the supported
+Windows product build. Preserved the ARM64 dependency tree under ignored
+`.desktop-e2e-artifacts/toolchain-backup/node_modules-arm64`; a clean x64
+`pnpm install --frozen-lockfile` passed without lockfile changes. Merely running
+install over the ARM64 tree did not supply x64 optional native bindings.
+Windows x64 `pnpm run lint:rust` passed in 15m29s under ARM64 emulation
+(`lint-rust-x64.log`); x64 Rust workspace tests are running sequentially next.
+
+The x64 full Vitest batch with two workers was interrupted after repeated
+failures while competing with the cold Rust compilation on this four-core host.
+It is **incomplete**, not a passing suite. Its log is
+`vitest-x64-after-install.log`; several failures cluster at the existing 10-second
+test boundary, while file-symlink fixtures fail immediately. An independent
+Node file-symlink probe returned `EPERM` on this workstation, which lacks
+`SeCreateSymbolicLinkPrivilege`. Preserve those security assertions and the
+existing deadlines. Native/E2E validation will run without competing full-suite
+work; symlink-dependent checks still require a capable Windows environment.
+
 ## Feature and capability inventory
 
 The feature names below cover all nine entries in `docs/e2e-coverage.json`.

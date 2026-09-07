@@ -21,6 +21,11 @@ import {
 } from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
+  installRendererEventJournal,
+  rendererEventCursor,
+  waitForRuntimeProjection
+} from "../support/renderer-events";
+import {
   acceptLegalAndSkipFirstRun,
   clickWorkspaceCreateAction,
   ensureEnglishUi,
@@ -72,6 +77,7 @@ async function prepare(): Promise<Readonly<{
   expect(probe.runtimeTarget).toBe(required("RION_STUDIO_E2E_RUNTIME_TARGET"));
   await ensureEnglishUi();
   await acceptLegalAndSkipFirstRun();
+  await installRendererEventJournal();
   return Object.freeze({
     mainWindowHandle: await browser.getWindowHandle(),
     platform: probe.platform,
@@ -334,6 +340,7 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
   );
   const degraded = await waitInspectionPhase(tab.windowId, "degraded");
   expectExactWebOnly(degraded, input.platform);
+  const closeCursor = await rendererEventCursor();
   await closeVisibleRuntimeTab({
     mainWindowHandle: input.mainWindowHandle,
     platform: input.platform,
@@ -346,6 +353,14 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
   )).tabs.some((candidate) => candidate.id === tab.id), {
     timeout: 30_000,
     timeoutMsg: "The visible native close did not retire the Web-only tab"
+  });
+  // The last-tab runtime-only commit must also wake the renderer's subscribed
+  // snapshot lane, without requiring a later user action or SQLite mutation.
+  await waitForRuntimeProjection({
+    afterSequence: closeCursor,
+    absent: true,
+    tabId: tab.id,
+    exactWindowIds: []
   });
 
   await browser.waitUntil(async () => {

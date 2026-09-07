@@ -445,6 +445,14 @@ export class CoreEffectCoordinator {
 
   readonly #onCoreEvent = (event: CoreEvent): void => {
     if (this.#state !== "open") return;
+    // Runtime-only close commits publish BrowserStatuses after isolation even
+    // when no persisted collection changed and no native effect remains.
+    // The ordered Core stream advances the reader fence; the reader must still
+    // validate the exact Core/native snapshot before returning any state.
+    if (event.type === "browserStatuses") {
+      this.#advanceProjectionSequence();
+      return;
+    }
     // Core can commit final topology after acknowledging the last native
     // effect, without admitting another effect (for example an empty window
     // retirement). Snapshot readers must observe that authoritative progress.

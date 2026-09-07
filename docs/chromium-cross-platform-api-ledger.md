@@ -74,12 +74,43 @@ Earlier handoff tables below describe their historical checkpoint.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
-| CP-04 / CP-08 native and topology | 015dbaa2 local Rust 1681 PASS / 5 ignored and complete Chromium hardware profile PASS; a8fab843 CI pending; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
+| CP-04 / CP-08 native and topology | 015dbaa2 local Rust 1681 PASS / 5 ignored and complete Chromium hardware profile PASS; a8fab843 native CI PASS; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
 | CP-10 consented import | Complete visible consent/import/restart PASS in clean 015dbaa2 hardware profile | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 015dbaa2 complete hardware profile and actual dual-display controls PASS; real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
-| CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; latest stable CI pending (61f32424 historical stable 29 PASS + 3 expected force exits) | Final-source full and hardware profiles pending |
+| CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; a8fab843 stable full 31 PASS + 3 expected force exits | Final-source full and hardware profiles pending |
 | CP-16 package/updater | 61f32424 CI fixture package/updater/black-box PASS is historical; a8fab843 package CI pending | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
+
+### Next Windows workstation: execution order and evidence to retain
+
+This is a handoff checklist, not a request to run Windows CI from the Mac. The
+current tested product baseline is 015dbaa2; a8fab843 adds source tests and
+99d31c0f records evidence. Preserve any Windows working-tree changes, fetch the
+shared branch safely, and record the actual complete HEAD SHA before building.
+Confirm 8dff7722462f51d5407cf520bc7d37629829ede9 and b0c3c184 remain ancestors.
+Later owner Workspace/asset changes must be distinguished from this acceptance
+baseline; do not silently label an older binary as the newer source.
+
+| Order / gate | Windows action and required evidence |
+| --- | --- |
+| 1. Native and shared regression, CP-04/08/18 | Run pnpm run lint:rust and pnpm run test:rust on Windows, retaining the updater 256-round winner test. Run the complete pnpm run test and record every failure/skip; do not expect or copy the Mac totals. Build both shells and verify production E2E isolation. Retired child-HWND exports must remain absent from the actual addon. |
+| 2. Exact known failures, CP-04/08 | Inspect mixed-recovery-force's stale WebElement-origin correction and the new-window detach/compensation failure described in the Windows follow-up table below. Preserve exact logical/native window identity, real pointer hit, survivor topology, primary error and compensation error. A later successful projection cannot repair a failed terminal receipt. |
+| 3. Complete profiles, CP-11/15 | Run chromium-windows-smoke and stable full, or their hardware/extended supersets when ordinary physical displays are available. Read the manifest/report instead of assuming Mac phase counts. Verify the document-root navigation locator on the real Windows UI. A focused repair must be followed by the applicable complete profile. |
+| 4. Consented import, CP-10 | Execute visible consent, cancel, native directory picker, profile/game choice, final confirmation and fresh-process restart. Verify exactly scoped launch-origin cookie/LocalStorage data and unchanged source bytes. Native picker control ID 1152 still needs Windows evidence. Never replace consent with debug import or use a real user profile as the live runtime. |
+| 5. Hardware/lifecycle, CP-12 | Retain real foreground/hidden trusted input, ordinary secondary-display controls and session-end/close-drain acceptance. Same-scale displays are allowed. Physical mixed-DPI is removed by owner decision; actual power/session-end evidence is separate from injected lifecycle signals. |
+| 6. Package/install/update, CP-16 | Follow the existing Windows package workflow/runbook for the NSIS installed payload, Rust-owned updater transaction, signature/hash checks and packaged native black-box. Record exact source/version/package identities. Do not invent signing inputs, modify credentials or infer production-key transactions from fixture tests. |
+| 7. Final ledger decision, CP-17/18 | Record complete SHA, OS/runtime, commands, artifact/run IDs, profile/phase/journey verdicts, normal flush/exit and expected-force outcomes. Keep real update, promotion and release-delta gates separate. Do not remove protected Tauri/System WebView code based only on Mac success or a subset of these Windows checks. |
+
+The original Windows workstation JavaScript result remains **16 FAIL / 3641
+PASS / 48 skipped**: 11 file-symlink EPERM failures, four original 10000 ms
+failures (Vite React preamble, physical Macro modifiers, long-flow mind-map
+growth, WebApp preset selection), and one later fixed document-reference failure.
+The symlink probe found absent SeCreateSymbolicLinkPrivilege and Developer Mode;
+record the new workstation's actual capability rather than skipping security
+assertions. Original logs are under
+.desktop-e2e-artifacts/windows-handoff-b0c3c184/view-only-full-js.log on the Windows
+workstation. A focused documentation PASS or a separate hosted PASS is not the
+missing complete workstation verdict. Keep the original security assertions and deadlines.
 
 CI **34125930709** is now completed **SUCCESS**, exact checkout
 806ddb0a76867e1027f924052f5d636a85441279, manual platform_scope=macos and no Windows
@@ -2129,14 +2160,14 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-08 | P1 / Trusted input | Windows full input parity passed at 34a98f5b; child-HWND implementation removed; post-deletion native validation pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed in clean 015dbaa2 full hardware profile; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
-| CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
+| CP-11 | P1 / Browser capability owners | macOS complete hardware/capability profile passed at 015dbaa2; historical Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; final Windows full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency and 61f32424 corrects native fullscreen exit; 015dbaa2 native/full hardware and physical display/control passed; real sleep/wake and Windows workstation profile pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | 015dbaa2 macOS full hardware 57 PASS + 4 expected force exits; latest a8fab843 stable CI pending; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | 015dbaa2 macOS full hardware 57 PASS + 4 expected force exits; a8fab843 stable full 31 PASS + 3 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | 61f32424 macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
-| CP-18 | P1 / Validation | 015dbaa2 macOS native and full hardware passed; latest a8fab843 stable/package CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
+| CP-18 | P1 / Validation | 015dbaa2 macOS native and full hardware passed; a8fab843 stable/native CI passed; latest package CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
 Start CP-02 and CP-03 after the baseline. CP-04 and CP-09 through CP-13 are
 independent of native replacement approval, except for their listed data
@@ -8495,3 +8526,40 @@ Workspace asset work are preserved. No production runtime changes follow
 availability question has no answer, and simulated standby is not substituted.
 The full API objective remains incomplete at 9/18; no protected Tauri code,
 release gate, credential or published state is removed or changed.
+
+
+### Font-picker failure attribution audit — 2026-09-08
+
+All six picker attempts in complete report 2026-09-07T15-51-31-568Z-darwin have
+hasFocus=true and hitMatches=true before the WebDriver click, then
+aria-expanded=true and one visible menu. Their subsequent click receipts target
+HTML rather than the trigger. The installed @radix-ui/react-dropdown-menu
+**2.1.24** source opens the menu from its trigger's onPointerDown; click is later
+in that gesture. Thus a click-target mismatch is insufficient to diagnose a
+missed dropdown activation. It is not the authoritative event that opens this
+control. No production code is changed on that inference.
+
+The failed 2026-09-07T15-15-21-611Z run has no equivalent pointerdown/focus receipt,
+so the audit cannot retrospectively prove a specific input or focus cause.
+The closed-menu screenshot and original 10000 ms failure remain preserved.
+Any future recurrence should capture pointerdown, focus and open-state evidence
+before deciding a correction; do not repeat unchanged runs to relabel this
+failure or weaken its font/menu/domain assertions.
+
+
+### a8fab843 native and stable CI completion — 2026-09-08
+
+CI **34140975454** native job **101802824934** completes successfully: Rust lint,
+**1681 Rust PASS / 5 ignored**, native Electron **14 PASS / two platform skips**,
+and the native Tauri build pass. The unchanged updater concurrency gate remains
+part of the complete Rust result. Shared checks, renderer and sanitizer/soak also
+pass; no Windows job exists.
+
+Stable desktop job **101802662673** succeeds. Artifact **10026325981**, report
+**2026-09-07T15-59-07-542Z-darwin**, is exact clean
+**a8fab843815739b98fb3d7d7fb6def6b82bc58cf**, tauri-v22 full profile:
+**31 PASS + three expected force terminations / 40 journey PASS**. The two extra
+ordinary phases cover the Website entrance extension to the stable profile;
+the historical 29-PASS count must not be copied to this source. Chromium/package
+job 101802662653 remains in progress at this checkpoint; package/updater success
+at 61f32424 is still historical for the newer product source.

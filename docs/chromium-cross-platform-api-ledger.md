@@ -8770,3 +8770,26 @@ This is **internal-only** validation-tool observability, not a user-visible runt
 change or repaired packaged transaction. No extra CI has been dispatched for it
 while the already-running 1f186739 package job remains live. AppKit/Rust authority,
 Windows deferral and every update/retirement gate remain intact; closure is 9/18.
+
+
+### Bounded Cargo-group reproduction and diagnostic-source CI — 2026-09-08
+
+A standalone physical-Mac reproduction uses **32 exact owned detached groups**,
+eight orphan workers each, with the group leader reaped before SIGTERM and at
+most 16 liveness observations per trial. Every trial ends with an absent group;
+no EPERM or malformed snapshot is observed. The fixed trial count is not repeated
+until a desired outcome. Source, executable and every observation are retained
+in .desktop-e2e-artifacts/macos-takeover-8dff7722/group-exit-reproduction/.
+This negative result does not reproduce or fix the CI cleanup failure, and it
+does not establish packaged updater success.
+
+After confirming no existing run for the diagnostic source, macOS-only CI
+**34145679440** is dispatched at exact
+**90614cef1864de09b75a39b36a15de56b1a4d4f9**. Its purpose is to retain the original
+rejected ps row if the native packaged failure recurs, using the already-tested
+bounded observation field. The original 1f186739 run **34143187025** continues
+in previous-version fixture construction and is not cancelled or restarted.
+No Windows acceptance job is dispatched. This is a changed-observability run,
+not a retry used to claim a repaired transaction; a green result alone cannot
+close the unexplained a8fab843 failure. Liveness conditions, deadlines, primary
+errors and cleanup gates remain unchanged. The task remains open at 9/18.

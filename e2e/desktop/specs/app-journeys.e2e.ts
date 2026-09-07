@@ -1,3 +1,4 @@
+import { exerciseMacroMindMapHover } from "../support/macro-mind-map";
 import { $, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
@@ -307,6 +308,7 @@ async function createContainedFullscreenWorkspace(role: Role): Promise<LaunchWor
 }
 
 async function exerciseMacroMindMapFocus(): Promise<void> {
+  await exerciseMacroMindMapHover();
   const rootSelector = ".react-flow__node:has([data-macro-mind-map-node-kind='macroRoot'])";
   const stepSelector = ".react-flow__node:has([data-macro-mind-map-node-kind='macroStep'])";
   const settingsSelector = ".react-flow__node:has([data-macro-mind-map-node-kind='macroSettings'])";

@@ -58,8 +58,12 @@ const macroMindMapNodeTypes = {
   macroWarning: MacroWarningNode
 };
 
-interface NodeHeightMeasurement {
+interface NodeSize {
   height: number;
+  width: number;
+}
+
+interface NodeMeasurement extends NodeSize {
   id: string;
 }
 
@@ -75,7 +79,10 @@ export function MacroMindMapPanel({
   const [expandedOccurrenceIds, setExpandedOccurrenceIds] = useState<Set<string>>(() => new Set());
   const [fitRevision, setFitRevision] = useState(0);
   const [hoveredNodeId, setHoveredNodeId] = useState<string>();
-  const [nodeHeights, setNodeHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [nodeMeasurements, setNodeMeasurements] = useState<ReadonlyMap<string, NodeSize>>(() => new Map());
+  const nodeHeights = useMemo(() => new Map(
+    [...nodeMeasurements].map(([id, size]) => [id, Math.ceil(size.height)])
+  ), [nodeMeasurements]);
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const model = useMemo(() => buildMacroMindMap({
     expandedOccurrenceIds,
@@ -123,14 +130,15 @@ export function MacroMindMapPanel({
     setHoveredNodeId((current) => current === nodeId ? undefined : current);
   }, []);
 
-  const recordNodeHeights = useCallback((measurements: readonly NodeHeightMeasurement[]): void => {
-    setNodeHeights((current) => {
+  const recordNodeMeasurements = useCallback((measurements: readonly NodeMeasurement[]): void => {
+    setNodeMeasurements((current) => {
       const next = new Map(current);
       let changed = false;
       for (const measurement of measurements) {
-        const height = Math.ceil(measurement.height);
-        if (height > 0 && next.get(measurement.id) !== height) {
-          next.set(measurement.id, height);
+        const { height, id, width } = measurement;
+        const previous = next.get(id);
+        if (height > 0 && width > 0 && (previous?.height !== height || previous.width !== width)) {
+          next.set(id, { height, width });
           changed = true;
         }
       }
@@ -143,13 +151,14 @@ export function MacroMindMapPanel({
       fitRevision={fitRevision}
       activeNodeId={activeNodeId}
       model={model}
+      nodeMeasurements={nodeMeasurements}
       selectedNodeId={selectedNodeId}
       selectedStepId={selectedStepId}
       t={t}
       onCollapseAll={collapseAll}
       onEnterNode={enterNode}
       onLeaveNode={leaveNode}
-      onNodeHeightsChange={recordNodeHeights}
+      onNodeMeasurementsChange={recordNodeMeasurements}
       onPaneClick={() => {
         setHoveredNodeId(undefined);
         setSelectedNodeId(undefined);
@@ -167,10 +176,11 @@ interface MindMapFrameProps {
   activeNodeId?: string;
   fitRevision: number;
   model: MacroMindMapModel;
+  nodeMeasurements: ReadonlyMap<string, NodeSize>;
   onCollapseAll: () => void;
   onEnterNode: (nodeId: string) => void;
   onLeaveNode: (nodeId: string) => void;
-  onNodeHeightsChange: (measurements: readonly NodeHeightMeasurement[]) => void;
+  onNodeMeasurementsChange: (measurements: readonly NodeMeasurement[]) => void;
   onPaneClick: () => void;
   onResetView: () => void;
   onSelectNode: (nodeId: string | undefined) => void;
@@ -185,10 +195,11 @@ function MindMapFrame({
   activeNodeId,
   fitRevision,
   model,
+  nodeMeasurements,
   onCollapseAll,
   onEnterNode,
   onLeaveNode,
-  onNodeHeightsChange,
+  onNodeMeasurementsChange,
   onPaneClick,
   onResetView,
   onSelectNode,
@@ -268,13 +279,14 @@ function MindMapFrame({
           fitRevision={fitRevision}
           instance={instance}
           model={model}
+          nodeMeasurements={nodeMeasurements}
           selectedNodeId={selectedNodeId}
           selectedStepId={selectedStepId}
           t={t}
           onEnterNode={onEnterNode}
           onInit={setInstance}
           onLeaveNode={onLeaveNode}
-          onNodeHeightsChange={onNodeHeightsChange}
+          onNodeMeasurementsChange={onNodeMeasurementsChange}
           onPaneClick={onPaneClick}
           onSelectNode={onSelectNode}
           onSelectStep={onSelectStep}
@@ -290,10 +302,11 @@ function MindMapCanvas({
   fitRevision,
   instance,
   model,
+  nodeMeasurements,
   onEnterNode,
   onInit,
   onLeaveNode,
-  onNodeHeightsChange,
+  onNodeMeasurementsChange,
   onPaneClick,
   onSelectNode,
   onSelectStep,
@@ -306,10 +319,11 @@ function MindMapCanvas({
   fitRevision: number;
   instance: ReactFlowInstance<MacroMindMapCanvasNode, BuiltInEdge> | null;
   model: MacroMindMapModel;
+  nodeMeasurements: ReadonlyMap<string, NodeSize>;
   onEnterNode: (nodeId: string) => void;
   onInit: (instance: ReactFlowInstance<MacroMindMapCanvasNode, BuiltInEdge>) => void;
   onLeaveNode: (nodeId: string) => void;
-  onNodeHeightsChange: (measurements: readonly NodeHeightMeasurement[]) => void;
+  onNodeMeasurementsChange: (measurements: readonly NodeMeasurement[]) => void;
   onPaneClick: () => void;
   onSelectNode: (nodeId: string | undefined) => void;
   onSelectStep: (stepId: string) => void;
@@ -359,6 +373,9 @@ function MindMapCanvas({
       focus && !focus.nodeIds.has(node.id) && "macro-mind-map-node-dimmed",
       node.id === activeNodeId && "macro-mind-map-node-active"
     ),
+    // Controlled projections must retain measured dimensions: otherwise React Flow
+    // hides every rebuilt node and re-observes it during hover/selection updates.
+    measured: nodeMeasurements.get(node.id),
     position: node.position,
     selected: node.id === selectedNodeId || (
       node.data.kind === "macroStep" &&
@@ -371,7 +388,7 @@ function MindMapCanvas({
     targetPosition: Position.Top,
     type: node.type,
     width: node.width
-  })), [activeNodeId, focus, model.nodes, onToggleOccurrence, selectedNodeId, selectedStepId, t]);
+  })), [activeNodeId, focus, model.nodes, nodeMeasurements, onToggleOccurrence, selectedNodeId, selectedStepId, t]);
   const edges = useMemo<BuiltInEdge[]>(
     () => model.edges.map((edge) => toCanvasEdge(edge, focus)),
     [focus, model.edges]
@@ -379,11 +396,11 @@ function MindMapCanvas({
   const handleNodesChange = useCallback((changes: NodeChange<MacroMindMapCanvasNode>[]): void => {
     const measurements = changes.flatMap((change) => (
       change.type === "dimensions" && change.dimensions?.height
-        ? [{ height: change.dimensions.height, id: change.id }]
+        ? [{ ...change.dimensions, id: change.id }]
         : []
     ));
-    if (measurements.length > 0) onNodeHeightsChange(measurements);
-  }, [onNodeHeightsChange]);
+    if (measurements.length > 0) onNodeMeasurementsChange(measurements);
+  }, [onNodeMeasurementsChange]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

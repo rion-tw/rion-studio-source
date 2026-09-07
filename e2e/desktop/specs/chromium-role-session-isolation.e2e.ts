@@ -1,3 +1,4 @@
+import { focusWindowsRuntimeNativeWindow } from "../support/windows-runtime-foreground";
 import { clickWorkspaceSlot } from "../support/ui";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
@@ -307,6 +308,23 @@ async function waitForRunningRoles(
   });
 }
 
+
+/** Establishes the native foreground precondition for a visible launcher action. */
+async function focusWindowsLauncherForVisibleLaunch(): Promise<void> {
+  if (process.platform !== "win32") return;
+  const launcherUrl = await browser.getUrl();
+  const nativeWindowHandle = await browser.electron.execute((electron, expectedUrl) => {
+    const windows = electron.BrowserWindow.getAllWindows().filter((window) =>
+      window.webContents.getURL() === expectedUrl
+    );
+    if (windows.length !== 1) throw new Error("Exact session launcher unavailable");
+    const handle = windows[0].getNativeWindowHandle();
+    return handle.length === 8 ? handle.readBigUInt64LE().toString()
+      : String(handle.readUInt32LE());
+  }, launcherUrl);
+  const { processId } = await electronDesktopE2eProbe();
+  await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
+}
 async function launchWorkspaceInGameWindow(
   workspace: LaunchWorkspace,
   gameWindow: GameWindow,
@@ -318,6 +336,7 @@ async function launchWorkspaceInGameWindow(
   storedB: string | null
 ): Promise<void> {
   const afterSequence = await fixtureCursor();
+  await focusWindowsLauncherForVisibleLaunch();
   await openSection("Workspaces", "/workspaces");
   const card = await $(`[data-selection-id='${workspace.id}']`);
   await card.waitForDisplayed({ timeout: 10_000 });
@@ -360,6 +379,7 @@ async function restoreGameWindowThroughVisibleUi(
   storedB: string | null
 ): Promise<void> {
   const afterSequence = await fixtureCursor();
+  await focusWindowsLauncherForVisibleLaunch();
   await openSection("Windows", "/game-windows");
   const row = await $(`[data-selection-id='${gameWindow.id}']`);
   await row.waitForDisplayed({ timeout: 10_000 });

@@ -10,6 +10,29 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### c93f6867 exact Windows Session launch focus diagnosis
+
+Diagnostic-only observer 0c6cd8e4 reproduced the standalone isolation seed
+failure at c93f6867, artifact 2026-09-07T09-28-52-380Z-win32; log
+windows-handoff-b0c3c184/0c6cd8e4-session-transition-diagnostic-x64.log.
+Native show sequence 2 is visible; native focus sequence 3 is visible but
+focused=false/foreground=false. Both have windowGeneration 4 and topology
+revision 6 matching the submitted transition. Thus this observation does not
+support a stale-fence explanation: Windows did not grant native foreground.
+The original Core refusal to acknowledge focus success is preserved.
+
+The standalone isolation driver now establishes exact launcher PID/HWND
+foreground through the existing native helper before visible launch/restore.
+WebDriver still performs the visible menu/Show actions; no Core launch or
+session mutation substitutes for user actions. Focused lint/typecheck pass;
+native seed/restart acceptance is pending. macOS is unchanged by this Windows
+test precondition. Core/native runtime source and Rust remain unchanged.
+
+c93f6867 also requires DOM center hit evidence before native Role control
+input and waits for trusted fixture navigation-requested before the original
+Macro terminal assertion. This distinguishes native miss from domain failure;
+macOS input-recovery acceptance remains pending.
+
 ### 009c4eb4 Windows font acceptance and 6ace94b2 paired CI
 
 Windows local chromium-system-settings passes at

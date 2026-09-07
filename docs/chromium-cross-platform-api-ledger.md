@@ -193,6 +193,27 @@ log windows-handoff-b0c3c184/4b7d1a06-macro-ui-x64.log.
 Both geometry and Loop control corrections now have local native evidence.
 macOS Macro UI, hosted Windows hover precondition, remaining CRUD/native-effect
 chain and full-profile acceptance remain pending.
+### 6ace94b2 Windows eighteen-phase app-CRUD chain accepted
+
+The focused chromium-app-crud-final-restart dependency chain passes 18/18
+phases at 6ace94b206bc349aa9239d0d065d50781ade890c, all with final flush and
+electronProcessExited=true. Artifact
+.desktop-e2e-artifacts/2026-09-07T08-58-48-545Z-win32; log
+windows-handoff-b0c3c184/6ace94b2-app-crud-chain-x64.log.
+This is a focused chain within chromium-windows-smoke, not its complete profile
+and not 18 closed ledger items.
+
+The report marks 16 journeys PASS: Windows POPUP-012, ROLE-PERSIST-003,
+WORKSPACE-PERSIST-004, MACRO-PERSIST-005, MACROS-UI-017, MACRO-NATIVE-EFFECT-018,
+SETTINGS-PERSIST-006, FULL-CRUD-010, CRUD-REORDER-011, QUICK-ACCESS-015,
+WORKSPACE-WEB-SLOT-016, WORKSPACE-WEB-FULLSCREEN-017,
+WORKSPACE-WEB-SECURITY-POLICY-027, WORKSPACE-WEB-FILE-UPLOAD-028,
+FULLSCREEN-TOOLBAR-012 and MACRO-SOURCE-ROLE-014 (CHROMIUM-WINDOWS- prefix).
+Thus visible native upload/security, trusted key/three-button effects,
+source-role execution, CRUD cleanup and fresh-process persistence are accepted
+for this source on the local Windows host. Original publication OS error 5,
+hosted hover, complete profile, macOS parity, physical devices and production
+updates retain their outstanding gates. Fresh CI 34103441049 targets 6ace94b2.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

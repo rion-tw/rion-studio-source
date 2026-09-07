@@ -81,15 +81,17 @@ pass, and both affected Chromium Web slot/Web-only seed/restart chains pass on
 the physical Mac. The complete hardware and a8fab843 CI receipts in this table
 remain explicitly earlier-source evidence. New macOS-only CI **34143187025**
 validates the full 1f186739 SHA. Its native job now passes (1681 Rust PASS /
-five ignored; 14 Electron native PASS / two platform skips); complete desktop
-E2E and package/updater gates remain pending. No Windows acceptance is dispatched.
+five ignored; 14 Electron native PASS / two platform skips). Stable full now
+passes 31 ordinary phases + three expected force terminations / 40 journeys.
+Complete Chromium E2E and package/updater gates remain pending. No Windows
+acceptance is dispatched.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
 | CP-04 / CP-08 native and topology | 015dbaa2 local Rust 1681 PASS / 5 ignored and complete Chromium hardware profile PASS; 1f186739 native CI PASS; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
 | CP-10 consented import | Complete visible consent/import/restart PASS in clean 015dbaa2 hardware profile | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 015dbaa2 complete hardware profile and actual dual-display controls PASS; real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
-| CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; a8fab843 stable full 31 PASS + 3 expected force exits | Final-source full and hardware profiles pending |
+| CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; 1f186739 stable full 31 PASS + 3 expected force exits | Final-source full and hardware profiles pending |
 | CP-16 package/updater | 61f32424 CI fixture package/updater/black-box PASS is historical; a8fab843 package CI pending | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
@@ -2176,7 +2178,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency and 61f32424 corrects native fullscreen exit; 015dbaa2 native/full hardware and physical display/control passed; real sleep/wake and Windows workstation profile pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | 015dbaa2 macOS full hardware 57 PASS + 4 expected force exits; a8fab843 stable full 31 PASS + 3 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | 015dbaa2 macOS full hardware 57 PASS + 4 expected force exits; 1f186739 stable full 31 PASS + 3 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | 61f32424 macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | 015dbaa2 macOS native and full hardware passed; a8fab843 stable/native CI passed; latest package CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -8688,3 +8690,32 @@ still live. Earlier a8fab843 CI 34140975454 is also live, building previous-vers
 updater fixtures. Observation intervals do not imply failure or completion;
 neither run is restarted. Runtime and E2E source after 1f186739 are unchanged by
 the intervening documentation commits. API closure remains 9/18.
+
+
+### 1f186739 stable full and font-provider acceptance — 2026-09-08
+
+CI **34143187025** stable desktop job **101809468337** completes successfully.
+Artifact **10027155344**, desktop-e2e-macOS-34143187025-1, contains report
+**2026-09-07T16-26-19-087Z-darwin**: exact clean
+**1f186739135db07853e7c9e970f1db5ab8dabd00**, profile full / tauri-v22,
+started 16:26:20.261Z and finished 16:43:33.731Z on 2026-09-07 UTC.
+It records **31 PASS + three expected force terminations / 40 journey PASS**.
+The expected-force phases remain p1-cross-domain-topology-force,
+force-terminate and crash-restart. This verifies the retained stable shell on
+the latest grouped-Website source; it does not retire that shell.
+
+The downloaded current-source font artifact **10026947083** records 180
+production font families, an identical family set after reload, empty data for
+other-owner/subframe/denied requests, and rejection of the retired-document
+request after navigation. Raw enumeration records 528 faces on admitted main
+frames and zero for rejected boundaries. This supports CP-05/06 provider parity;
+it is not evidence that the earlier intermittent closed font-picker menu has
+been repaired. Provider permission/data ownership and visible-menu activation
+are distinct behaviors.
+
+Chromium/package job **101809468475** remains live in its complete AppKit E2E
+step. Earlier-source package job **101802662653** remains live in previous-version
+fixture construction. Both existing watch processes are retained; no retry,
+new dispatch, deadline change or simulated physical evidence is introduced.
+API closure remains **9/18**. Windows, real sleep/wake and production cutover
+requirements remain separate and open.

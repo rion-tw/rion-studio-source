@@ -440,6 +440,28 @@ on run argv
 end run`, tabName ?? "", processId, windowIdentifier);
 }
 
+async function readVisibleWindowsRuntimeTabPoint(tabId: string, expectedWindowId?: string) {
+  return browser.execute((id, expected) => {
+    const candidates = document.querySelectorAll<HTMLButtonElement>(
+      `[data-runtime-tab-activate][data-tab-id="${CSS.escape(id)}"]`
+    );
+    const windowId = document.documentElement.dataset.runtimeWindowId;
+    if (candidates.length !== 1 || !windowId || (expected && windowId !== expected)) {
+      throw new Error("The visible tab no longer belongs to the exact runtime host.");
+    }
+    const target = candidates[0]!;
+    const bounds = target.getBoundingClientRect();
+    const x = Math.floor(bounds.x + bounds.width / 2);
+    const y = Math.floor(bounds.y + bounds.height / 2);
+    const hit = document.elementFromPoint(x, y);
+    if (!target.isConnected || target.disabled || bounds.width <= 0 || bounds.height <= 0 ||
+        !hit || (hit !== target && !target.contains(hit))) {
+      throw new Error("The exact runtime tab is not the visible pointer target.");
+    }
+    return { x, y, windowId };
+  }, tabId, expectedWindowId ?? null);
+}
+
 /** Activates one exact visible native tab without debug/runtime action APIs. */
 export async function clickVisibleRuntimeTab(input: Readonly<{
   mainWindowHandle: string;
@@ -459,12 +481,12 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
     await activate.waitForClickable({ timeout: 10_000 });
     // Hover must not release the held keyboard source used by Macro continuity.
     // WebdriverIO moveTo() calls releaseActions() after its pointer movement.
+    // Chrome replaces tab nodes when Core publishes a new projection. Bind a
+    // fresh, hit-tested viewport point instead of retaining a WebElement origin.
+    const hover = await readVisibleWindowsRuntimeTabPoint(input.tabId);
     await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-      .move({ origin: activate }).perform(true);
-    const windowId = await browser.execute(() =>
-      document.documentElement.dataset.runtimeWindowId
-    );
-    if (!windowId) throw new Error("The exact visible tab omitted its logical window");
+      .move({ origin: "viewport", x: hover.x, y: hover.y }).perform(true);
+    const windowId = hover.windowId;
     const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
     await close.waitForDisplayed({ timeout: 10_000 });
     const controlName = await close.getAttribute("aria-label");
@@ -475,7 +497,10 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
     await focusWindowsRuntimeNativeWindow({
       processId, nativeWindowHandle: evidence.nativeHandle
     });
-    await activate.click();
+    const point = await readVisibleWindowsRuntimeTabPoint(input.tabId, windowId);
+    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
+      .move({ origin: "viewport", x: point.x, y: point.y })
+      .down({ button: 0 }).up({ button: 0 }).perform(true);
   });
 }
 

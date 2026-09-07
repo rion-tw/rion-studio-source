@@ -8915,7 +8915,12 @@ Diagnostic-source CI 34145679440 supplies two exact-source reports:
 | 10028091987 / 2026-09-07T17-00-31-100Z-darwin | 90614cef1864de09b75a39b36a15de56b1a4d4f9; chromium-macos-appkit-smoke; worktreeDirty=true during fixture preparation | 56 PASS + four EXPECTED_FORCE_TERMINATION; 52 journey PASS; every ordinary phase has final flush and process exit |
 | 10027918461 / 2026-09-07T17-00-01-325Z-darwin | Same exact source; stable full / tauri-v22; worktreeDirty=false | 31 PASS + three EXPECTED_FORCE_TERMINATION; 40 journey PASS |
 
-Native job 101817239355 is SUCCESS. Package job 101817105602 is still building
+Native job 101817239355 is SUCCESS. Its complete downloaded job log confirms
+**1681 Rust PASS / five ignored** and **14 Electron native PASS / two platform
+skips** (six passing native files / two skipped files), with Rust lint and the
+target-platform Tauri build successful. The source log is retained as
+.desktop-e2e-artifacts/macos-takeover-8dff7722/ci-90614cef-native.log.
+Package job 101817105602 is still building
 previous-version updater fixtures at observation time, so package/updater is
 not accepted for this run yet. These reports contain the prior WDIO hook;
 they cannot establish native-driver setup for the local correction. Windows

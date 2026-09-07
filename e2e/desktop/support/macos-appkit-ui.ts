@@ -120,6 +120,10 @@ end run`, String(processId), windowIdentifier), "runtime-role-window");
       clickY < windowGeometry[1]! || clickY > windowBottom) {
     throw new Error("The exact AppKit Role click point escaped its native window");
   }
+  console.info("AppKit native Role control geometry", JSON.stringify({
+    windowId, roleId, point, surfaceBounds: surface.bounds,
+    windowGeometry, nativeFrameInsetY, clickX, clickY
+  }));
   const script = `
 import CoreGraphics
 import Foundation
@@ -227,6 +231,10 @@ end run`, processId, expectedIdentifier), "runtime-window-content");
   }
   const pointX = geometry[0]! + Math.round(geometry[2]! * 0.5);
   const pointY = geometry[1]! + Math.round(geometry[3]! * 0.65);
+  console.info("AppKit native Role control geometry", JSON.stringify({
+    windowId, roleId, point, surfaceBounds: surface.bounds,
+    windowGeometry, nativeFrameInsetY, clickX, clickY
+  }));
   const script = `
 import CoreGraphics
 import Foundation
@@ -312,6 +320,10 @@ end run`, processId, expectedIdentifier), "fullscreen-window");
   const x = bounds.x + Math.round(bounds.width * 0.25);
   const startY = bounds.y + 96;
   const edgeY = bounds.y;
+  console.info("AppKit native Role control geometry", JSON.stringify({
+    windowId, roleId, point, surfaceBounds: surface.bounds,
+    windowGeometry, nativeFrameInsetY, clickX, clickY
+  }));
   const script = `
 import CoreGraphics
 import Foundation
@@ -510,6 +522,10 @@ print(
       `hitGrandparent=${hitGrandparent ?? ""})`
     );
   }
+  console.info("AppKit native Role control geometry", JSON.stringify({
+    windowId, roleId, point, surfaceBounds: surface.bounds,
+    windowGeometry, nativeFrameInsetY, clickX, clickY
+  }));
   const script = `
 import CoreGraphics
 import Foundation
@@ -660,6 +676,10 @@ end run`, windowIdentifier, processId);
     ? targetLeft + targetInset
     : targetRight - targetInset;
   const endY = tabScreenCenterY;
+  console.info("AppKit native Role control geometry", JSON.stringify({
+    windowId, roleId, point, surfaceBounds: surface.bounds,
+    windowGeometry, nativeFrameInsetY, clickX, clickY
+  }));
   const script = `
 import CoreGraphics
 import Foundation

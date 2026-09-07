@@ -10,6 +10,24 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### 2fc3b729 host foreground gate and production isolation
+
+The exact launcher foreground precondition rejects before workspace launch:
+artifact 2026-09-07T09-33-12-406Z-win32, log
+windows-handoff-b0c3c184/session-launch-foreground-acceptance-x64.log.
+Report remains FAIL but final flush and electronProcessExited=true now complete.
+A subsequent read-only foreground inspection reports HWND 131140, PID 8380,
+process prl_cc (Parallels), with an empty title. No runtime retry or forced
+success was added. Local foreground-dependent acceptance awaits an interactive
+Windows desktop; user was asked asynchronously to foreground the VM.
+Do not classify this host obstruction as successful session isolation.
+
+Focused Macro driver source tests (1 file / 3 tests), source hygiene (2498),
+documentation and AI context checks pass. A fresh production Electron build
+passes check:desktop-e2e-isolation; E2E instrumentation is absent in production.
+These internal-only diagnostics require no new journey. Existing paired
+Macro input-recovery and Role Session isolation journeys remain required.
+
 ### c93f6867 exact Windows Session launch focus diagnosis
 
 Diagnostic-only observer 0c6cd8e4 reproduced the standalone isolation seed

@@ -28,6 +28,24 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Reopen topology assertions consume accepted evidence — 2026-09-07
+
+At 393affb8, artifact 2026-09-07T05-41-01-163Z-win32 accepted the reopened
+three-tab cohort, then a redundant fullscreen inspector read failed at Core 56 /
+native 55, generation 39, identical membership/presentation/preferences. Run the
+unchanged exact native topology/display assertions against the owner/inspection
+already captured inside the existing showSavedWindow admission. Preserve its
+55-second deadline and generation-increase assertion; no added wait or weakening.
+Typecheck, focused lint and source hygiene pass; native tabs replay remains pending.
+
+CI 34087008739 at cbdcbeac has independent earlier failures: Windows Chromium
+job 101632871695 times out its native shortcut helper in chromium-shell-smoke;
+macOS Chromium job 101632871762 completes controlled Reload actions but its
+shell-error journal contains MACOS_APPKIT_CHROMIUM_PROJECTION_SUPERSEDED.
+Artifacts 10005647362 and 10005718589 are downloaded under the handoff evidence
+directory for exact diagnosis. These jobs were not rerun. Neither accepts later
+local tab changes or permits legacy runtime deletion.
+
 ### Exact hover and post-move completion races — 2026-09-07
 
 At cbdcbeac, artifact 2026-09-07T05-35-12-072Z-win32 completed all visible seed

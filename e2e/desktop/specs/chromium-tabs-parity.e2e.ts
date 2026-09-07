@@ -219,10 +219,16 @@ function sameOrderedIds(left: readonly string[], right: readonly string[]): bool
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
+interface NativeTopologyEvidence {
+  inspection: Awaited<ReturnType<typeof electronDesktopE2eFullscreenToolbarRuntime>>;
+  owner: Awaited<ReturnType<typeof electronDesktopE2eGameWindowRuntime>>;
+}
+
 async function showSavedWindow(input: Readonly<{
   activeTabId: string;
   gameWindow: GameWindow;
   orderedTabIds: readonly string[];
+  validate?: (evidence: NativeTopologyEvidence) => Promise<void>;
 }>): Promise<number> {
   let observedGeneration = 0;
   await openSection("Windows", "/game-windows");
@@ -257,7 +263,10 @@ async function showSavedWindow(input: Readonly<{
           logical?.activeTabId === input.activeTabId &&
           sameOrderedIds(inspection.tabIds, input.orderedTabIds) &&
           sameOrderedIds(visibleSurfaceTabIds, [input.activeTabId]);
-        if (matches) observedGeneration = current.windowGeneration;
+        if (matches) {
+          await input.validate?.({ inspection, owner });
+          observedGeneration = current.windowGeneration;
+        }
         return matches;
       } catch {
         return false;
@@ -717,11 +726,11 @@ async function expectExactNativeTopology(input: Readonly<{
   gameWindow: GameWindow;
   orderedTabIds: readonly string[];
   platform: Platform;
-}>): Promise<void> {
-  const inspection = await electronDesktopE2eFullscreenToolbarRuntime(
+}>, evidence?: NativeTopologyEvidence): Promise<void> {
+  const inspection = evidence?.inspection ?? await electronDesktopE2eFullscreenToolbarRuntime(
     input.gameWindow.id
   );
-  const windowOwner = await electronDesktopE2eGameWindowRuntime(input.gameWindow.id);
+  const windowOwner = evidence?.owner ?? await electronDesktopE2eGameWindowRuntime(input.gameWindow.id);
   const topology = await rendererCall("getDisplayTopology");
   const nativeDisplay = windowOwner.currentRuntime?.nativeDisplay;
   const display = topology.displays.find(
@@ -846,15 +855,15 @@ async function closeAndReopenSavedWindow(input: Readonly<{
   const reopenedGeneration = await showSavedWindow({
     activeTabId: input.orderedTabIds.at(-1)!,
     gameWindow: saved,
-    orderedTabIds: input.orderedTabIds
+    orderedTabIds: input.orderedTabIds,
+    validate: (evidence) => expectExactNativeTopology({
+      activeTabId: input.orderedTabIds.at(-1)!,
+      gameWindow: saved,
+      orderedTabIds: input.orderedTabIds,
+      platform: input.platform
+    }, evidence)
   });
   expect(reopenedGeneration).toBeGreaterThan(generation);
-  await expectExactNativeTopology({
-    activeTabId: input.orderedTabIds.at(-1)!,
-    gameWindow: saved,
-    orderedTabIds: input.orderedTabIds,
-    platform: input.platform
-  });
   await activateAndFocusEveryTab({ ...input, gameWindow: saved });
 }
 

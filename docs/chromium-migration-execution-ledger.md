@@ -33,6 +33,16 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Windows takeover is now active. The clean local branch safely fast-forwarded to
+4e5ec764315af1594b41fb693e65bc2abc4b2b1e with the specified ancestors verified.
+Windows ARM64 VM Rust lint passes; the remaining local checks are in progress.
+CI/tooling-only f63755f005c21b7c46c875c371bfdde5cc55c9fb adds manual Windows-only
+diagnostics and is being validated by CI 34170886520. This does not rerun the
+completed macOS gates or change the runtime candidate. The local file-symlink
+probe still fails EPERM, and only one VM display is available. Detailed command
+receipts, full-profile results and remaining limitations belong to the latest
+Windows checkpoint in the API ledger. No gate is closed by this progress entry.
+
 This checkpoint supersedes the earlier dated foreground holds and candidate
 status snapshots below; those sections remain historical evidence. The current
 runtime/test candidate is **85f662f4860c9af1623580510f35997256108b66** on

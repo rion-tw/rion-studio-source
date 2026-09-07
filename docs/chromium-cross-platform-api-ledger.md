@@ -10,7 +10,55 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
-### Owner steering: macOS execution / Windows workstation acceptance
+### Windows workstation takeover — 2026-09-08 (in progress)
+
+This checkpoint follows the owner's Windows execution instruction and supersedes
+the earlier Mac-only scheduling restriction. The original tracked working tree
+was clean. A fetch and fast-forward preserved the ignored local evidence and moved
+8dff7722462f51d5407cf520bc7d37629829ede9 to
+4e5ec764315af1594b41fb693e65bc2abc4b2b1e. The runtime/test candidate
+85f662f4860c9af1623580510f35997256108b66, the prior Windows handoff and b0c3c184
+were verified as ancestors. The difference from 85f662f4 to 4e5ec764 is confined
+to the two ledgers; binaries are not relabeled as a new runtime correction.
+
+The workstation is Windows 11 Pro 10.0.26200, ARM64, a Parallels ARM VM with four
+logical processors and 16 GiB RAM. Native Rust is
+aarch64-pc-windows-msvc 1.98.1. System Node 24.19.0 is below the repository
+requirement; validation uses locally acquired Node 24.20.0 with a process-local
+PATH and pnpm 12.3.4. Electron is pinned to 43.6.0. This ARM64 VM evidence does
+not claim a physical Windows x64 workstation or physical monitor acceptance.
+
+An actual file-symlink creation probe returns EPERM. The current token lacks
+SeCreateSymbolicLinkPrivilege and Developer Mode is absent. No privilege,
+credential, display-mode, test assertion or deadline was changed. Screen inventory
+contains only DISPLAY1, 5120x2880 (work area 5120x2784); ordinary two-display
+extended acceptance is blocked by missing hardware. Physical mixed-DPI remains
+removed by owner decision. Actual OS sleep/wake remains unverified.
+
+| Ordered gate | Current Windows evidence |
+| --- | --- |
+| 1. Native/shared/build | pnpm run lint:rust PASS at clean 4e5ec764 (4m58s); full Rust test is running. Full JS, both builds and production isolation are pending. The updater 256-round test is unchanged. |
+| 2. Known recovery/detach failures | Existing viewport/hit-test and terminal Show/raw-logical snapshot corrections inspected; exact native replay pending. Historical failures remain failures. |
+| 3. Full profiles | Manifest resolves chromium-windows-smoke to 61 phases, hardware superset to 62, stable full to 34 and stable extended to 35. No fresh profile PASS yet. |
+| 4. Visible import | Native chooser 1152 and the consent/cancel/import/restart chain remain pending Windows execution. |
+| 5. Hardware/lifecycle | Real foreground/hidden input, strengthened standby and close-drain pending; second physical display unavailable. |
+| 6. Install/update | Existing NSIS/updater/black-box profile isolation is explicitly restricted to an elevated GitHub-hosted runner; local code does not impersonate that environment. Windows-only CI 34170886520 is in progress, not PASS. |
+| 7. Closure | API remains 9/18; five migration work packages/nine deliverables overlap this count. Production transactions, promotion, configuration delta and protected runtime retirement remain open. |
+
+CI/tooling-only commit f63755f005c21b7c46c875c371bfdde5cc55c9fb adds the missing
+manual windows diagnostic scope while preserving paired push, PR and reusable
+release matrices. Two focused test files/21 tests and focused ESLint pass.
+E2E omission for this CI-only change is internal-only. The read-only Actions audit
+found no Windows result for the latest runtime candidate: 34164313951 remains
+the completed macOS-only run. Exactly one fresh existing-CI dispatch, run
+[34170886520](https://github.com/rion-tw/rion-studio-source/actions/runs/34170886520),
+binds f63755f005c21b7c46c875c371bfdde5cc55c9fb and platform_scope=windows.
+No completed macOS acceptance is rerun. All new local logs and command receipts
+are under .desktop-e2e-artifacts/windows-takeover-4e5ec764; fixture secrets must
+never enter the handoff. Further results below must distinguish runtime changes
+from CI/test and documentation commits.
+
+### Previous owner steering: macOS execution / Windows workstation acceptance
 
 The owner directs this takeover to focus on macOS. Record Windows issues here
 for a later GPT session on the separate Windows workstation; do not dispatch

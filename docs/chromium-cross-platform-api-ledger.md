@@ -8630,3 +8630,29 @@ These log files are retained under
 .desktop-e2e-artifacts/macos-takeover-8dff7722/macos-1f186739-*.log.
 No real sleep/wake, Windows execution, credential change, publication, promotion
 or protected runtime deletion is performed. API closure remains **9/18**.
+
+
+### Release-context consistency correction — 2026-09-08
+
+The final release audit found stale wording in the updater transaction contract
+and its AI release context: they described the hard-disabled draft's private
+store, separate Apps and environments as unconditional infrastructure needs.
+This contradicted the owner's 2026-09-06 v22 reuse/final-delta decision already
+recorded in the migration execution ledger. The contract now distinguishes
+current draft prerequisites from approved product requirements; the context
+links that policy instead of imposing duplicate configuration rules.
+
+This does not enable the draft, modify credentials/settings, authorize public
+mutation, or waive verified authority, independent recovery drill, real updater
+transactions or terminal promotion. Existing v22 authority must actually satisfy
+the invariants before any equivalent configuration can be accepted. CP-16/17
+remain open. E2E omission: **internal-only**, documentation consistency only;
+no product, executable workflow, manifest or journey behavior changes.
+
+The documentation correction passes complete hygiene, documentation/context
+checks, all **472 JavaScript files / 3833 tests**, and full lint with zero errors
+/ 23 existing warnings. Runtime source remains identical to CI input 1f186739.
+At the follow-up observation CI 34140975454 is live in previous-version updater
+fixture construction; CI 34143187025 has renderer and sanitizer/soak success,
+with native Rust, shared checks, stable full and Chromium/package jobs still
+live. Neither run has been restarted or treated as terminal on observation delay.

@@ -93,11 +93,13 @@ to the marker creator, reconciles resumed markers with zero public writes, and
 records rollback, held-lease release, no-op, rejected, or indeterminate outcomes.
 An applied outcome is fresh-read by a separate private reader, and only an exact
 terminal outcome can pass the detached final gate. All recovery jobs remain
-literal `if: ${{ false }}`. Owner-approved private-store coordinates, narrow
-GitHub Apps, protected environments, variables and secrets, and an independent
-recovery drill remain required before any guard can be removed. Owner-approved
-execution of all four external updater transactions and of the
-terminal-promotion finalizer also remain required.
+literal `if: ${{ false }}`. The draft's extra store, Apps and environment inputs
+are provisional implementation assumptions. Follow the final v22 configuration
+reuse/delta policy in `docs/updater-transaction-contract.md`; do not infer a
+requirement to create new infrastructure. Explicit owner approval, verified
+configuration and an independent recovery drill remain necessary before enabling
+a resulting workflow. All four real updater transactions and terminal promotion
+remain separate execution gates.
 
 A separate hard-disabled abandoned-lease cleanup draft is only a near-term,
 non-durable escape hatch for a lease whose provisional latest-mutation job can

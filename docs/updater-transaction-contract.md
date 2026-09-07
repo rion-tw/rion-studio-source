@@ -256,12 +256,24 @@ terminal outcomes write the attempt and fixed terminal path as one atomic pair.
 A distinct private reader then fresh-reads the applied commit and complete chain,
 and the detached gate succeeds only for an exact terminal outcome.
 
-Every job in that recovery workflow remains literal `if: ${{ false }}`. Enabling
-either transition workflow still requires owner-approved private-store
-coordinates, narrow reader and writer GitHub Apps, protected environments,
-matching variables and secrets, and an independent recovery drill. None of this
-authority may be inferred from a local artifact, lease receipt, or repository
-default.
+Every job in that recovery workflow remains literal `if: ${{ false }}`. The
+current draft models private-store coordinates, narrow reader and writer GitHub
+Apps, protected environments, and matching variables and secrets. Those are
+prerequisites of that draft as implemented, not approved requirements to create
+additional release infrastructure. Under the owner's 2026-09-06 decision, the
+final configuration audit must start from the complete existing v22 release
+setup and reuse its authority, secrets, permissions and endpoints wherever they
+satisfy this contract. Simplify or replace provisional draft assumptions when
+that audit proves equivalent authority already exists; do not enable an
+incompatible draft unchanged or waive its security and recovery invariants.
+
+Enabling a resulting transition workflow still requires explicit owner approval,
+verified configuration for that implementation, and an independent recovery
+drill. No publication or credential change is authorized by the audit. Neither
+a local artifact, lease receipt nor repository default establishes authority.
+The [migration execution ledger](chromium-migration-execution-ledger.md#remaining-work-packages)
+tracks the final delta audit separately from real updater transactions and
+terminal promotion.
 
 The hard-disabled abandoned-lease cleanup draft is deliberately narrower than
 durable recovery. It may release only the current held provisional-publication

@@ -1,14 +1,17 @@
 import { readFile } from "node:fs/promises";
 
 import { beforeAll, describe, expect, it } from "vitest";
-import { windowsNativeDialogDeclarations } from "../e2e/desktop/support/windows-native-dialog";
 
 let source = "";
+let windowsNativeDialogDeclarations = "";
 
 beforeAll(async () => {
   source = await readFile(
     "e2e/desktop/support/native-application-actions.ts",
     "utf8"
+  );
+  windowsNativeDialogDeclarations = await readFile(
+    "e2e/desktop/support/windows-native-dialog.ts", "utf8"
   );
 });
 

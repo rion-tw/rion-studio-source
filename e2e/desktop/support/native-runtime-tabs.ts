@@ -1,3 +1,4 @@
+import { macosNativeWindowControl } from "./macos-native-window-controls";
 import { MACOS_NATIVE_CHROME_ELEMENTS } from "./macos-native-chrome";
 import { readMacosVisibleRuntimeTabPoint } from "./macos-appkit-ui";
 import { focusVisibleMacosAppKitRuntime, waitForFocusedMacosAppKitRuntime } from
@@ -656,6 +657,7 @@ export async function clickVisibleRuntimeWindowControl(input: Readonly<{
   mainWindowHandle: string;
   platform: "macos" | "windows";
   tabId?: string;
+  windowId?: string;
 }>): Promise<void> {
   if (input.platform === "windows") {
     await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
@@ -670,22 +672,7 @@ export async function clickVisibleRuntimeWindowControl(input: Readonly<{
   }
   const processId = String((await electronDesktopE2eProbe()).processId);
   if (input.command === "minimize") {
-    await runAppKitAction(`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  tell application "System Events"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    repeat with appWindow in windows of targetProcess
-      if (count of (entire contents of appWindow whose role is "AXRadioButton")) > 0 then
-        set buttonsFound to buttons of appWindow whose subrole is "AXMinimizeButton"
-        if (count of buttonsFound) is not 1 then error "AppKit minimize control unavailable"
-        perform action "AXPress" of item 1 of buttonsFound
-        return
-      end if
-    end repeat
-    error "exact AppKit runtime window unavailable"
-  end tell
-end run`, processId);
+    await macosNativeWindowControl("minimize", input.windowId);
     return;
   }
   await runAppKitAction(`
@@ -704,23 +691,12 @@ end run`, processId);
 
 /** Reads the OS-native minimized state after the visible minimize action. */
 export async function runtimeWindowIsMinimized(
-  platform: "macos" | "windows"
+  platform: "macos" | "windows",
+  windowId?: string
 ): Promise<boolean> {
   const processId = String((await electronDesktopE2eProbe()).processId);
   if (platform === "macos") {
-    return (await readAppKitAction(`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  tell application "System Events"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    repeat with appWindow in windows of targetProcess
-      if (count of (entire contents of appWindow whose role is "AXRadioButton")) > 0 then
-        return (value of attribute "AXMinimized" of appWindow) as text
-      end if
-    end repeat
-    error "exact AppKit runtime window unavailable"
-  end tell
-end run`, processId)) === "true";
+    return await macosNativeWindowControl("minimized", windowId) === "true";
   }
   const script = `
 Add-Type @'
@@ -749,6 +725,7 @@ export async function dragVisibleRuntimeWindow(input: Readonly<{
   mainWindowHandle: string;
   platform: "macos" | "windows";
   tabId?: string;
+  windowId?: string;
 }>): Promise<void> {
   if (input.platform === "windows") {
     await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
@@ -762,36 +739,7 @@ export async function dragVisibleRuntimeWindow(input: Readonly<{
     });
     return;
   }
-  const processId = String((await electronDesktopE2eProbe()).processId);
-  const geometry = await readAppKitAction(`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  tell application "System Events"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    repeat with appWindow in windows of targetProcess
-      if (count of (entire contents of appWindow whose role is "AXRadioButton")) > 0 then
-        set p to position of appWindow
-        set s to size of appWindow
-        return (item 1 of p as text) & "," & (item 2 of p as text) & "," & (item 1 of s as text)
-      end if
-    end repeat
-  end tell
-end run`, processId);
-  const [x, y, width] = geometry.split(",").map(Number);
-  const swift = `
-import CoreGraphics
-import Foundation
-let source = CGEventSource(stateID: .hidSystemState)
-let start = CGPoint(x: ${x! + width! / 2}, y: ${y! + 16})
-let end = CGPoint(x: start.x + 64, y: start.y + 38)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
-`;
-  await executeFile("/usr/bin/xcrun", ["swift", "-e", swift], {
-    encoding: "utf8",
-    timeout: 30_000
-  });
+  await macosNativeWindowControl("drag", input.windowId);
 }
 
 /** Resizes one exact Windows runtime host through its real OS resize border. */
@@ -865,7 +813,8 @@ $deltaHeight = [int]([int]$payload.deltaHeight * $scale)
 
 /** Resizes the visible native window by dragging its OS-native lower-right edge. */
 export async function resizeVisibleRuntimeWindow(
-  platform: "macos" | "windows"
+  platform: "macos" | "windows",
+  windowId?: string
 ): Promise<void> {
   const processId = String((await electronDesktopE2eProbe()).processId);
   if (platform === "windows") {
@@ -902,39 +851,5 @@ $rect = New-Object RionVisibleResize+RECT
     });
     return;
   }
-  const geometry = await readAppKitAction(`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  tell application "System Events"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    repeat with appWindow in windows of targetProcess
-      set hasRuntimeTab to false
-      repeat with candidate in entire contents of appWindow
-        try
-          if role of candidate is "AXRadioButton" then set hasRuntimeTab to true
-        end try
-      end repeat
-      if hasRuntimeTab then
-        set p to position of appWindow
-        set s to size of appWindow
-        return (item 1 of p as text) & "," & (item 2 of p as text) & "," & (item 1 of s as text) & "," & (item 2 of s as text)
-      end if
-    end repeat
-    error "exact AppKit runtime window unavailable"
-  end tell
-end run`, processId);
-  const [x, y, width, height] = geometry.split(",").map(Number);
-  const swift = `
-import CoreGraphics
-let source = CGEventSource(stateID: .hidSystemState)
-let start = CGPoint(x: ${x! + width! - 2}, y: ${y! + height! - 2})
-let end = CGPoint(x: start.x + 72, y: start.y + 48)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
-`;
-  await executeFile("/usr/bin/xcrun", ["swift", "-e", swift], {
-    encoding: "utf8",
-    timeout: 30_000
-  });
+  await macosNativeWindowControl("resize", windowId);
 }

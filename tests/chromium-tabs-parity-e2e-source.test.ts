@@ -273,7 +273,15 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).toContain("resizeVisibleRuntimeWindow");
     expect(spec).toContain("pressVisibleMacosApplicationShortcut");
     expect(spec).not.toContain("controlWindow(");
-    expect(helper).toContain("AXMinimizeButton");
+    const nativeControls = await source("e2e/desktop/support/macos-native-window-controls.swift");
+    expect(helper).toContain('macosNativeWindowControl("minimize", input.windowId)');
+    expect(nativeControls).toContain('object(window, "AXMinimizeButton")');
+    expect(nativeControls).toContain("AXIsProcessTrusted()");
+    expect(nativeControls).toContain("ownerPid == targetPid");
+    expect(nativeControls).toContain("CFEqual(owner, window)");
+    expect(nativeControls).toContain("AXUIElementPerformAction(button, kAXPressAction");
+    expect(nativeControls).toContain(".leftMouseDragged");
+    expect(nativeControls).toContain('attribute(window, "AXMinimized")');
     expect(phases).toContain('"chromium-native-window-display-extended"');
     expect(evidence).toContain('"chromium-native-window-display-extended"');
   });

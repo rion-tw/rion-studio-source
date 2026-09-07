@@ -63,6 +63,61 @@ The policy/test change is committed and pushed as
 warnings; full hygiene also passes. Production runtime content is unchanged from
 806ddb0a by the intervening documentation and mixed-DPI acceptance-policy commits.
 
+### Current acceptance checkpoint — 2026-09-07 (macOS only)
+
+API closure remains **9/18**. The nine open items are CP-04, CP-08, CP-10,
+CP-11, CP-12, CP-15, CP-16, CP-17 and CP-18; these are ledger items, not nine
+individual test invocations. CP-17 is the gated production Tauri/System WebView
+retirement; CP-18 records final validation. Physical mixed-DPI is removed by the
+owner, while ordinary multi-display and real power/lifecycle evidence remain.
+Earlier handoff tables below describe their historical checkpoint.
+
+| Gate | macOS current evidence | Windows next workstation |
+| --- | --- | --- |
+| CP-04 / CP-08 native and topology | 806ddb0a native Rust and full Chromium CI pass; retained AppKit input remains required | Final-source View-only native/full replay, including detach/compensation failure |
+| CP-10 consented import | Visible consent/cancel/chooser/confirmation and fresh-process cookie/LocalStorage restart PASS at 806ddb0a | Native chooser and complete consent/import/restart acceptance pending |
+| CP-11 / CP-12 hardware/lifecycle | 806ddb0a full CI passed; focused physical display/control PASS after fullscreen fix; latest full and real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
+| CP-15 complete profiles | Stable 29 PASS + 3 expected force exits; Chromium 56 PASS + 4 expected force exits at 806ddb0a | Final-source full and hardware profiles pending |
+| CP-16 package/updater | CI fixture package, signed update transaction and packaged native Role black-box PASS at 806ddb0a | Final-source package/update acceptance pending; production-key cutover remains separate |
+| CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
+
+CI **34125930709** is now completed **SUCCESS**, exact checkout
+806ddb0a76867e1027f924052f5d636a85441279, manual platform_scope=macos and no Windows
+jobs. Package job **101754476949** completes package:electron:mac, previous-version
+fixture construction, extension/runtime/package verification,
+test:electron-updater:packaged and test:e2e:desktop:electron:packaged. The log
+records "Verified darwin packaged updater transaction for 8.5.0." These use the
+existing ephemeral CI updater fixture, not production signing keys or release
+publication. The runtime verification identifies Electron 43.6.0 / Chromium
+150.0.7871.250 / Node 24.20.0 / Node-API 10 / Rust Core 8.5.0 (darwin-arm64).
+
+Artifact **10021756473**, packaged-chromium-role-black-box-macOS-34125930709-1,
+contains packaged-smoke-report.json under
+2026-09-07T13-56-11-918Z-9a59b2bc-e0df-40d9-8407-aaf416c810cd-darwin-packaged-black-box:
+verdict=passed, exitCode=0, fixtureInteraction=visible-os-accessibility-click,
+nativeHostKind=appkit-chromium, remoteDebugging=false, appVersion=8.5.0.
+app.asar SHA-256 is 2230c59d1d5577359beb1ba9d50261d6a132f5cc62ce1ec545985799420dceea;
+packaged executable SHA-256 is
+82762f2fea802e4de80a9fc02879a34aa326be32fafc0e67e0e536f5c4072095.
+This is packaged CI fixture acceptance, not the final production migration gate.
+
+Local E2E now runs in an isolated detached worktree so the owner's independent
+root electron-vite process can continue. Shared dependency/target-cache symlinks
+are untracked inputs and must not be counted as a clean worktree. Node is
+explicitly pinned to /Users/aron/.nvm/versions/node/v24.20.0/bin for subsequent
+native runs. Production runtime content remains unchanged from 806ddb0a.
+
+| Local follow-up report | Exact result and correction |
+| --- | --- |
+| 2026-09-07T13-52-57-443Z-darwin, f30f6c03, isolated Node 24.15.0 | Typed native tab click and window close advance successfully; tab drag still uses System Events AXFocusedWindow coercion and fails -1728. Commit 040aaedc shares the existing typed AppKit focus helper for drag and tab menus; real CGEvent drag and native menu actions remain unchanged. |
+| 2026-09-07T13-57-05-717Z-darwin, 040aaedc, Node 24.20.0 | Tabs-visible seed and restart PASS. Hardware phase fails visible target-display persistence: WebDriver elementClick returns success, but SQLite retains the original display and Core has no update command. This is not a native display-move failure or a JSON property-order mismatch. |
+| 2026-09-07T14-02-41-898Z-darwin, 040aaedc plus passive click diagnostic | Tabs seed/restart pass. Captured trusted left-click has expectedTarget=false and targets the page background, proving the display option was not clicked. No domain command is injected. A viewport-pointer diagnostic follows; acceptance remains pending at this checkpoint. |
+| 2026-09-07T14-07-48-191Z-darwin, viewport-pointer diagnostic | Exact target hit exists before movement, but the submenu element becomes stale after real pointer movement; no click or domain update is claimed. This hardware journey now uses the supported visible submenu keyboard navigation, checks exact radio-item focus and records a trusted Enter key receipt. The pointer failure remains recorded, not labelled repaired. |
+| 2026-09-07T14-10-31-124Z-darwin, visible keyboard selection | Trusted Enter reaches the exact secondary-display item with no modifiers. Target display and saved work area persist; the shown three-tab native host matches display ID, scale and work area. Next failure is the titlebar driver's old System Events AXRadioButton window traversal (-1728). Typed exact-PID/window helpers replace that same obsolete lookup in drag, resize, minimize and minimized readback; actual CGEvent/AXPress and native domain assertions remain required. |
+| 2026-09-07T14-14-30-295Z-darwin, typed native controls | Seed/restart, display selection/show, physical titlebar drag, edge resize and Window-menu zoom/restore advance. Fullscreen inspection catches native normal at revision 24 while Core still reports maximized; recorded topology subsequently advances to revision 25 normal. The hardware wait now requires both the native predicate and exact Core window presentation before continuing, with the existing deadline unchanged. |
+
+
+
 ### 806ddb0a macOS native and stable completion
 
 CI 34125930709 native job 101754644198 succeeds: Rust lint and complete workspace
@@ -2060,19 +2115,19 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
 | CP-02 | P0 / Diagnostics | verified; paired settings/removal acceptance at 718dc83a | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | verified shared path boundaries; paired native Rust and restart acceptance at 718dc83a | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
-| CP-04 | P1 / Runtime projection | implemented; c72d688e corrects raw/logical detach ownership, latest macOS native replay and Windows workstation acceptance pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
+| CP-04 | P1 / Runtime projection | implemented; c72d688e corrects raw/logical detach ownership, 806ddb0a macOS native/full replay passed; Windows workstation acceptance pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | verified adopt; production provider acceptance remains CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | verified v23 provider; paired native probes and settings acceptance at 718dc83a | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows full input parity passed at 34a98f5b; child-HWND implementation removed; post-deletion native validation pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed with c72d688e fixes; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed in 806ddb0a full CI; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
-| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency; latest native, real sleep/wake and multi-display evidence pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
+| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency; 806ddb0a native/full CI passed; real sleep/wake and multi-display evidence pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | 01916dd5 macOS stable full passed; Chromium full stopped after 26 PASS at Macro background Show; 806ddb0a macOS CI in progress; Windows workstation and hardware profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | 3e2d415a macOS CI-fixture package/updater passed; 01916dd5 stopped before packaging; latest candidate, Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-15 | P1 / Desktop E2E | 806ddb0a macOS stable full 29 PASS + 3 expected force exits and Chromium 56 PASS + 4 expected force exits; Windows workstation and hardware profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-16 | P2 / Release tooling | 806ddb0a macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | paired native and stable full passed at 6ace94b2; current Chromium full and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -8077,3 +8132,112 @@ trusted input are outside this Windows child-host removal.
   CP-17's removal of the retained v22 provider. Those requirements and their
   original gates remain unchanged. No new UI behavior is introduced by this
   internal-only evidence reconciliation.
+
+### Native hardware follow-up validation isolation — 2026-09-07
+
+A root-worktree full JavaScript run during concurrent owner edits reports
+465 passing files / 3771 passing tests, two failed files / three failures.
+One failure is the old controlled-Role-reload source guard expecting an inlined
+expectedWindowIdentifier in macos-appkit-ui.ts after 040aaedc moved focus to the
+shared typed helper. The guard now follows that helper and retains the exact
+native focused-window identity assertion. The other two failures are in
+runtime-web-chrome.test.ts while an independent task changes the address
+normalizer and displayed URL. Those unrelated source/test changes are preserved;
+this session does not patch them or claim that root full run passed. Further full
+validation uses the isolated worktree with this session's explicit file set.
+
+The initial isolated full suite reports 465 passing files / 3772 passing tests
+and two failures: the above source guard used the wrong spelling for the shared
+focus call, and updater signer containment correctly rejects node_modules linked
+outside the isolated checkout. The corrected guard follows the actual exact-PID
+call. Independent in-checkout dependencies are required before repeating the
+full suite; the signer containment assertion is not weakened.
+
+The first native/Core-coherence edit used runtimeWindows instead of the typed
+EmbeddedRuntimeState.windows member. Typecheck rejects that spelling. A hardware
+run had already been launched concurrently before the failed typecheck result
+was inspected; it is invalid validation and must not be treated as acceptance.
+The field is corrected to windows and subsequent native dispatch must follow a
+successful typecheck, not run concurrently with it.
+
+Independent isolated installation now succeeds with pnpm install --offline
+--frozen-lockfile (pnpm 12.3.4, Node 24.20.0). Typecheck and the 18 focused native
+source/updater-signing cases pass. The subsequent complete isolated JavaScript
+suite passes **467 files / 3774 tests**; no test is skipped or deadline extended
+to resolve the earlier failures. Root-worktree concurrent changes remain outside
+this test verdict. Swift native-controls typecheck and full source/docs/context/
+Cargo-dependency/E2E-coverage hygiene pass; P0 70/70, P1 77/77 and both cutover
+parity sets 41/41 remain unchanged.
+
+Report 2026-09-07T14-21-13-714Z-darwin still catches logical maximized/native
+normal at revision 25 after the renderer runtime-summary check. That summary
+follows browser native slots, not the Kernel placement used by appSnapshot's
+logicalWindows. The hardware completion predicate now uses the existing full
+fullscreen-toolbar inspection to require Kernel/native presentation, generation,
+revision and exact tab ownership together. It retains the original 45-second
+bound and writes native-window-control-stages.json after each successful exact
+state. This is an E2E completion correction, not a production polling mechanism
+or a relaxation of the failing inspection. Acceptance remains pending.
+
+### Physical fullscreen exit deadlock — 2026-09-07
+
+Report 2026-09-07T14-26-06-731Z-darwin passes exact Kernel/native stages at
+revisions 20 (secondary-display show), 22 (drag), 23 (resize), 24 (maximize),
+25 (normal restore) and 27 (fullscreen). It then hangs while exiting fullscreen;
+WebDriver readback/screenshot fail and the runner terminates the failed process.
+This is not an expected-force-termination PASS.
+
+A three-second sample of the exact isolated Electron PID 35768 is retained at
+macos-takeover-8dff7722/macos-fullscreen-exit-hang.sample.txt. The main-thread stack
+is NSWindow DidExitFullScreen -> Electron leave-full-screen ->
+NativeAppKitRuntimeHost.prepare_fullscreen -> with_live_controller (mutex held)
+-> prepareForFullscreenTransition:NO -> setStyleMask -> synchronous resize ->
+Rust content-layout readback acquiring the same mutex. No permission prompt is
+the cause.
+
+AppKit's retained DidExitFullScreen observer already restores the windowed
+chrome and publishes placement. The Electron leave-full-screen observer must
+only read the resulting layout; its redundant prepareFullscreen(false) was a
+second native mutation from inside the same OS notification. The fix removes
+that redundant preparation, preserving AppKit ownership, native callbacks,
+Rust projection authority and the separate failed-entry compensation path.
+A focused behavioral regression models resize reentry while native preparation
+is held: it fails before the correction; afterward 47 host/presentation tests
+pass. The existing presentation test is updated to reject duplicate native
+preparation after the exit event. Full native verification is pending; no
+Windows CI is dispatched.
+
+### Physical macOS display/control acceptance after fullscreen fix
+
+Local report **2026-09-07T14-33-20-828Z-darwin**, Node 24.20.0,
+chromium-v23-macos-appkit / chromium-macos-appkit-hardware-extended focused to
+chromium-native-window-display-extended, passes **all three required phases**:
+tabs-visible-seed, tabs-visible-restart and native-window-display-extended.
+Every phase has exitCode=0, electronFinalFlush=true and electronProcessExited=true.
+The report records HEAD 040aaedc plus this session's explicit working-tree fixes;
+it is not a clean exact-SHA or complete inherited hardware-profile verdict.
+
+Two real Studio Displays remain at scale 2: primary ID 2, secondary ID 3 with
+bounds {x:2560,y:0,width:2560,height:1440} and work area
+{x:2560,y:30,width:2560,height:1410}. No display mode is changed. Exact native
+and Kernel control-stage evidence reaches revisions 20 (show), 22 (drag),
+23 (resize), 24 (maximize), 25 (restore), 27 (fullscreen) and 29 (fullscreen exit).
+The visible minimize action and exact native AXMinimized readback then pass.
+No terminal-quit shortcut fixture replaces fullscreen exit or minimize.
+
+The isolated complete JavaScript suite now passes **467 files / 3775 tests**.
+The Electron E2E build/typecheck and complete hygiene pass. Native Rust lint
+passes; full Rust test passes 1677 tests / 5 ignored across eight binaries,
+retaining the updater concurrency gate. Latest-source full macOS regression
+remains pending at this checkpoint. Prior 806ddb0a CI/package evidence remains historical after
+this production fullscreen-exit fix. The focused hardware pass closes this
+specific macOS physical display/control task, not real sleep/wake, all inherited
+hardware phases, Windows acceptance or CP-17 production retirement.
+
+Affected journeys: CHROMIUM-MACOS-APPKIT-NATIVE-DISPLAY-001,
+CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-NATIVE-001,
+CHROMIUM-MACOS-APPKIT-FULLSCREEN-TOOLBAR-012, plus retained native tab driver
+journeys CHROMIUM-MACOS-APPKIT-TABS-VISIBLE-ACTIVATION-019 and
+CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020. Paired Windows journeys remain in
+the manifest and are deferred to the Windows workstation; no Windows CI runs
+are requested by this session.

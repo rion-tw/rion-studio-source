@@ -592,7 +592,38 @@ describe("macOS AppKit Chromium runtime host", () => {
     fixture.windows[0]!.emit("enter-full-screen");
     await expect(creation).resolves.toMatchObject({ logicalWindowId: "window-1" });
     fixture.windows[0]!.emit("leave-full-screen");
-    expect(fixture.order).toContain("controller-prepare-fullscreen-false");
+    expect(fixture.order).not.toContain("controller-prepare-fullscreen-false");
+  });
+
+  it("reads layout after native fullscreen exit without re-entering native preparation", async () => {
+    const fixture = new Fixture();
+    const launchTarget = target();
+    const host = await fixture.factory.create(launchTarget, tab(launchTarget));
+    host.releaseAppKitSurfaceAttachment?.("tab-1");
+    const controller = fixture.addon.controllers[0]!;
+    const native = fixture.windows[0]!;
+    const readLayout = controller.snapshotContentLayout.bind(controller);
+    let preparing = false;
+    const prepare = vi.spyOn(controller, "prepareFullscreen").mockImplementation(() => {
+      preparing = true;
+      native.emit("resize");
+      preparing = false;
+    });
+    vi.spyOn(controller, "snapshotContentLayout").mockImplementation((identity) => {
+      if (preparing) throw new Error("native resize re-entered the held controller lock");
+      return readLayout(identity);
+    });
+    fixture.onLayout.mockClear();
+
+    native.emit("leave-full-screen");
+
+    expect(prepare).not.toHaveBeenCalled();
+    expect(fixture.onError).not.toHaveBeenCalled();
+    expect(controller.destroyed).toBe(false);
+    expect(fixture.onLayout).toHaveBeenCalledOnce();
+    expect(fixture.onLayout).toHaveBeenCalledWith(expect.objectContaining({
+      identity: expect.objectContaining({ logicalWindowId: "window-1" })
+    }));
   });
 
   it("projects Core preferences transactionally and captures only exact AppKit owners", async () => {

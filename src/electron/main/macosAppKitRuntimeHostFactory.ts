@@ -760,7 +760,10 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
           current.state !== "closing" && this.#isExactOwner(current)
         ) {
           try {
-            current.controller.prepareFullscreen(current.identity, false);
+            // AppKit owns DidExitFullScreen and restores its windowed chrome.
+            // Re-preparing here mutates the style mask inside Electron's native
+            // notification and synchronously re-enters Rust layout readback
+            // while prepareFullscreen still holds the controller mutex.
             this.#refreshLayout(current);
           } catch (error) {
             this.#poison(current, error);

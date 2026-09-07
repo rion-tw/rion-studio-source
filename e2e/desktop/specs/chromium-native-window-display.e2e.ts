@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import type { GameWindow } from "../../../src/shared/types";
 import {
   electronDesktopE2eGameWindowRuntime,
+  electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eProbe
 } from "../support/electron-driver";
 import { submitElectronRolePageFullscreenShortcut } from
@@ -31,6 +32,7 @@ import {
 // [journey:CHROMIUM-WINDOWS-NATIVE-DISPLAY-001]
 
 const WINDOW_NAME = "Chromium Tabs Window";
+const nativeStages: unknown[] = [];
 
 function required(name: string): string {
   const value = process.env[name];
@@ -67,8 +69,16 @@ async function waitNative(
   let current: Awaited<ReturnType<typeof inspection>> = null;
   await browser.waitUntil(async () => {
     current = await inspection(windowId);
-    return current !== null && predicate(current);
+    if (current === null || !predicate(current)) return false;
+    // The renderer runtime summary follows native slots; only this inspection
+    // also checks the Rust Kernel placement and matching projection revisions.
+    const coherent = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+    if (coherent.presentation !== current.nativeDisplay.presentation) return false;
+    nativeStages.push({ criterion: message, native: current, coherent });
+    return true;
   }, { interval: 100, timeout: 45_000, timeoutMsg: message });
+  await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"), "native-window-control-stages.json"),
+    `${JSON.stringify(nativeStages, null, 2)}\n`);
   return current!;
 }
 
@@ -95,13 +105,53 @@ describe("Chromium native Game Window and real display parity", () => {
     await actions.waitForClickable({ timeout: 10_000 });
     await actions.click();
     const menu = await $("[role='menu']");
-    const displayMenu = await menu.$(".//*[normalize-space(.)='Target display']");
+    const displayMenu = await menu.$(
+      ".//*[@role='menuitem' and normalize-space(.)='Target display']"
+    );
     await displayMenu.moveTo();
+    await browser.keys("ArrowRight");
     const targetItem = await $(
       `.//*[@role='menuitemradio' and starts-with(normalize-space(.), '${target.label}')]`
     );
-    await targetItem.waitForClickable({ timeout: 10_000 });
-    await targetItem.click();
+    await targetItem.waitForDisplayed({ timeout: 10_000 });
+    expect(await targetItem.getAttribute("aria-checked")).toBe("false");
+    const itemCount = await browser.execute(() =>
+      document.querySelectorAll("[role='menuitemradio']").length
+    );
+    let targetFocused = false;
+    for (let index = 0; index < itemCount; index += 1) {
+      targetFocused = await browser.execute((target: HTMLElement) =>
+        document.activeElement === target, targetItem as unknown as HTMLElement
+      );
+      if (targetFocused) break;
+      await browser.keys("ArrowDown");
+    }
+    expect(targetFocused).toBe(true);
+    await browser.execute((expectedTarget: HTMLElement) => {
+      document.documentElement.removeAttribute("data-rion-e2e-display-key");
+      document.addEventListener("keydown", (event) => {
+        document.documentElement.setAttribute("data-rion-e2e-display-key", JSON.stringify({
+          expectedTarget: event.composedPath().includes(expectedTarget),
+          targetLabel: (event.target as HTMLElement | null)?.textContent,
+          trusted: event.isTrusted,
+          key: event.key,
+          altKey: event.altKey, ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey, shiftKey: event.shiftKey
+        }));
+      }, { capture: true, once: true });
+    }, targetItem as unknown as HTMLElement);
+    await browser.keys("Enter");
+    const keyReceipt = await browser.execute(() => {
+      const value = document.documentElement.getAttribute("data-rion-e2e-display-key");
+      document.documentElement.removeAttribute("data-rion-e2e-display-key");
+      return value === null ? null : JSON.parse(value);
+    });
+    await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"), "display-selection-key.json"),
+      `${JSON.stringify({ target, topology, keyReceipt }, null, 2)}\n`);
+    expect(keyReceipt).toEqual(expect.objectContaining({
+      expectedTarget: true, trusted: true, key: "Enter",
+      altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
+    }));
     await browser.waitUntil(async () => {
       gameWindow = await exactWindow();
       return gameWindow.targetDisplay.id === target.id &&
@@ -122,23 +172,23 @@ describe("Chromium native Game Window and real display parity", () => {
     }));
 
     const initialBounds = native.nativeDisplay.bounds;
-    await dragVisibleRuntimeWindow({ mainWindowHandle, platform });
+    await dragVisibleRuntimeWindow({ mainWindowHandle, platform, windowId: gameWindow.id });
     native = await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.bounds.x !== initialBounds.x ||
       runtime.nativeDisplay.bounds.y !== initialBounds.y,
     "Native titlebar drag did not commit new bounds");
     const draggedBounds = native.nativeDisplay.bounds;
-    await resizeVisibleRuntimeWindow(platform);
+    await resizeVisibleRuntimeWindow(platform, gameWindow.id);
     native = await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.bounds.width !== draggedBounds.width ||
       runtime.nativeDisplay.bounds.height !== draggedBounds.height,
     "Native edge resize did not commit new bounds");
     expect(native.nativeDisplay.displayId).toBe(target.id);
 
-    await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle, platform });
+    await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle, platform, windowId: gameWindow.id });
     await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.presentation === "maximized", "Native maximize did not commit");
-    await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle, platform });
+    await clickVisibleRuntimeWindowControl({ command: "maximize", mainWindowHandle, platform, windowId: gameWindow.id });
     native = await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.presentation === "normal", "Native maximize restore did not commit");
 
@@ -169,8 +219,8 @@ describe("Chromium native Game Window and real display parity", () => {
     await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.presentation === "normal", "Native fullscreen exit did not commit");
 
-    await clickVisibleRuntimeWindowControl({ command: "minimize", mainWindowHandle, platform });
-    await browser.waitUntil(() => runtimeWindowIsMinimized(platform), {
+    await clickVisibleRuntimeWindowControl({ command: "minimize", mainWindowHandle, platform, windowId: gameWindow.id });
+    await browser.waitUntil(() => runtimeWindowIsMinimized(platform, gameWindow.id), {
       timeout: 15_000,
       timeoutMsg: "Visible native minimize control did not reach OS minimized state"
     });

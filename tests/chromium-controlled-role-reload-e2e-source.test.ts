@@ -60,7 +60,10 @@ describe("Chromium controlled Role Reload source contract", () => {
     expect(spec).toContain("toBeGreaterThanOrEqual(");
     expect(spec).not.toContain('rendererCall("browserRuntimeTabReload"');
     expect(await source("e2e/desktop/support/macos-appkit-ui.ts")).toContain(
-      "expectedWindowIdentifier"
+      "focusVisibleMacosAppKitRuntime({ processId: Number(processId), windowId: input.windowId })"
+    );
+    expect(await source("e2e/desktop/support/macos-native-focus.swift")).toContain(
+      "focusedWindowIdentifier == expectedWindowIdentifier"
     );
     expect(fixture).toContain('qaTarget.classList.add("contained-fullscreen-layout")');
     expect(fixture).toContain(

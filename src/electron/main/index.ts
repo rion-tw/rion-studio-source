@@ -1,3 +1,4 @@
+import { coreRendererPublishers } from "./coreRendererPublishers";
 import "./startScheme";
 import { sharedUserDataDirectory } from "./electronUserDataDirectory";
 import { createGraphicsHost, type GraphicsHost } from "./graphicsHost";
@@ -1538,20 +1539,7 @@ async function bootstrapReadyPhase(
   coreRendererEvents = new CoreRendererEventBridge({
     core,
     readAppSnapshot,
-    publishExtensions: (snapshot) => {
-      if (mainIdentity) ipcBridge?.publish(mainIdentity, "onExtensionsChanged", snapshot);
-    },
-    publishAppSnapshot: (snapshot) => {
-      if (mainIdentity) ipcBridge?.publish(mainIdentity, "onAppSnapshotChanged", snapshot);
-    },
-    publishLogEntry: (entry) => {
-      if (mainIdentity) ipcBridge?.publish(mainIdentity, "onLogEntryAdded", entry);
-    },
-    publishChromeProfileImportProgress: (progress) => {
-      if (mainIdentity) {
-        ipcBridge?.publish(mainIdentity, "onChromeProfileImportProgress", progress);
-      }
-    },
+    ...coreRendererPublishers(() => ipcBridge, () => mainIdentity),
     refreshRoleOverlays: (roleIds) => {
       if (!chromiumRuntime) {
         return Promise.reject(new RionBridgeError({

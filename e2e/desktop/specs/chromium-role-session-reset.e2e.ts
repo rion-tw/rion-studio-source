@@ -262,15 +262,6 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     roleId: role.id
   });
 
-  await clickVisibleOpen(role.id);
-  const launchError = await $("[role='alert']");
-  await launchError.waitForDisplayed({ timeout: 15_000 });
-  expect(await launchError.getText()).toContain(
-    "The bundled Chromium runtime cannot satisfy this launch because SessionMigrationRequired."
-  );
-  expect((await rendererCall("getAppSnapshot")).embeddedRuntimeState.windows).toEqual([]);
-  expect(await electronDesktopE2eRoleSessionMigration(role.id)).toEqual(before);
-
   await clickVisibleRoleAction(role.id, "Clear saved data");
   await clickDialogButton("Clear data");
   const completion = await $("[role='status']");
@@ -319,7 +310,7 @@ async function restartPhase(platform: "macos" | "windows"): Promise<void> {
 }
 
 describe("Chromium retained-v22 Role explicit reset", () => {
-  it("blocks launch, clears through visible UI, and preserves v23Ready across restart", async () => {
+  it("clears retained data through visible UI and preserves v23Ready across restart", async () => {
     const probe = await electronDesktopE2eProbe();
     expect(probe.runtimeTarget).toBe(required("RION_STUDIO_E2E_RUNTIME_TARGET"));
     await ensureEnglishUi();

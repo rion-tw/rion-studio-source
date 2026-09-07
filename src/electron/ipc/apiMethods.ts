@@ -31,6 +31,7 @@ export type RionApiEventPayload<Method extends RionApiEventMethod> =
     : never;
 
 export const RION_API_INVOKE_METHODS = {
+  sessionMigrationRecovery: true,
   extensions: true,
   extensionStore: true,
   notifyRendererReady: true,
@@ -177,6 +178,7 @@ export const RION_API_EVENT_METHODS = {
   onUpdateStatusChanged: true,
   onShellError: true,
   onLogEntryAdded: true,
+  onSessionMigrationRecovery: true,
   onChromeProfileImportProgress: true,
 } as const satisfies Record<RionApiEventMethod, true>;
 

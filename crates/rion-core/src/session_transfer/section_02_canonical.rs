@@ -143,7 +143,18 @@ fn validate_metadata(metadata: &RoleSessionTransferMetadataRecord) -> CoreResult
 fn validate_webview2_source_evidence(
     evidence: &RoleSessionTransferSourceEvidenceRecord,
 ) -> CoreResult<()> {
-    if evidence.runtime_version.is_empty()
+    let capability_matches_kind = matches!(
+        (evidence.kind, evidence.partition_capability),
+        (
+            RoleSessionTransferSourceEvidenceKind::Webview2StorageGetCookies,
+            RoleSessionTransferCookiePartitionCapability::NetworkCookiePartitionKeyAndOpaque
+        ) | (
+            RoleSessionTransferSourceEvidenceKind::Webview2ProfileSnapshot,
+            RoleSessionTransferCookiePartitionCapability::ProfileDatabaseBestEffort
+        )
+    );
+    if !capability_matches_kind
+        || evidence.runtime_version.is_empty()
         || evidence.runtime_version.len() > 64
         || !evidence
             .runtime_version

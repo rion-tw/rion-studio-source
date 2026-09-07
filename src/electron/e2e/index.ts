@@ -1,3 +1,4 @@
+import { seedRetainedV22Role } from "./retainedRoleSeed";
 import { installGraphicsSettingsViewport } from "./graphicsSettingsViewport";
 import { installElectronDesktopE2eViewInputObservationObserver } from "./viewInputObservationObserver";
 import { installElectronDesktopE2eTrustedInputDiagnostics } from "./trustedInputDiagnosticsObserver";
@@ -5,7 +6,6 @@ import { app, BrowserWindow, ipcMain, powerMonitor } from "electron";
 import { emitObservedApplicationPowerSignal } from "./applicationPowerSignal";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -17,8 +17,7 @@ import type {
   RuntimeTabActivationPhaseRecord
 } from "../../shared/generated";
 import {
-  CoreAddonClient,
-  type RawNodeApiCoreFactory
+  CoreAddonClient
 } from "../core/coreAddonClient";
 import {
   ElectronApplicationLifecycleController,
@@ -62,7 +61,6 @@ import {
   type ElectronDesktopE2eApplicationLifecycleSignalReceipt,
   type ElectronDesktopE2eFullscreenToolbarInspection,
   type ElectronDesktopE2eGameWindowRuntimeInspection,
-  type ElectronDesktopE2eRetainedV22Precondition,
   type ElectronDesktopE2eRoleBrowserDataClearReceipt,
   type ElectronDesktopE2eRolePlaceholderInspection,
   type ElectronDesktopE2eRoleSessionRuntimeInspection,
@@ -121,27 +119,8 @@ authorizeDesktopE2eChromiumCommandLine();
 installGraphicsSettingsViewport(app, process.env.RION_STUDIO_E2E_PHASE);
 app.commandLine.appendSwitch("force-renderer-accessibility");
 
-interface NativeAppCoreOptions {
-  appVersion: string;
-  packaged: boolean;
-  platform: "darwin" | "win32";
-  runtimeContractVersion: number;
-  startupBackupLabel: string;
-  userDataDir: string;
-}
-
-interface DesktopE2eNativeCoreFactory {
-  createAppCoreForDesktopE2e:
-    RawNodeApiCoreFactory<NativeAppCoreOptions>["createAppCore"];
-}
-
-const RETAINED_V22_PHASE = "chromium-role-session-reset-seed";
-const RETAINED_V22_GAME_NAME = "Chromium Retained v22 Game";
-const RETAINED_V22_ROLE_NAME = "Chromium Retained v22 Role";
-const SESSION_TOKEN_PATTERN = /^[a-f0-9]{64}$/u;
 const ROLE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
-const requireNativeModule = createRequire(import.meta.url);
 const artifactDirectory = process.env.RION_STUDIO_E2E_ARTIFACT_DIR;
 const phase = process.env.RION_STUDIO_E2E_PHASE;
 const userDataDirectory = process.env.RION_STUDIO_USER_DATA_DIR;
@@ -692,100 +671,6 @@ function e2ePlatform(): {
     };
   }
   throw new Error(`Electron desktop E2E does not support ${process.platform}.`);
-}
-
-function requireE2eEnvironment(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required by the Electron desktop E2E entry`);
-  return value;
-}
-
-function fixtureLaunchUrl(): string {
-  const origin = new URL(requireE2eEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN"));
-  if (
-    origin.protocol !== "http:"
-    || origin.hostname !== "127.0.0.1"
-    || origin.username !== ""
-    || origin.password !== ""
-  ) {
-    throw new Error("The Electron desktop E2E fixture origin is not loopback HTTP.");
-  }
-  const launchUrl = new URL("/role/chromium-explicit-reset", origin);
-  launchUrl.searchParams.set("marker", "chromium-explicit-reset");
-  launchUrl.searchParams.set("mode", "observe");
-  return launchUrl.href;
-}
-
-async function seedRetainedV22Role(): Promise<
-  ElectronDesktopE2eRetainedV22Precondition | null
-> {
-  if (phase !== RETAINED_V22_PHASE) return null;
-  const token = requireE2eEnvironment("RION_STUDIO_E2E_SESSION_TOKEN");
-  if (!SESSION_TOKEN_PATTERN.test(token)) {
-    throw new Error("The Electron desktop E2E session token is invalid.");
-  }
-  const platform = e2ePlatform();
-  if (requireE2eEnvironment("RION_STUDIO_E2E_RUNTIME_TARGET") !== platform.runtimeTarget) {
-    throw new Error("The retained-v22 pre-seed target does not match the host platform.");
-  }
-  if (!userDataDirectory || !isAbsolute(userDataDirectory)) {
-    throw new Error("The retained-v22 pre-seed requires an absolute user-data directory.");
-  }
-  const addonPath = join(
-    import.meta.dirname,
-    `../../build/native/${process.platform}-${process.arch}/rion-core.node`
-  );
-  const addon = requireNativeModule(addonPath) as DesktopE2eNativeCoreFactory;
-  const core = await CoreAddonClient.create({
-    createAppCore: (options) => addon.createAppCoreForDesktopE2e(options)
-  }, {
-    appVersion: app.getVersion(),
-    packaged: false,
-    platform: platform.platform,
-    runtimeContractVersion: 22,
-    startupBackupLabel: "electron-desktop-e2e-retained-v22",
-    userDataDir: userDataDirectory
-  });
-  try {
-    const launchUrl = fixtureLaunchUrl();
-    const game = await core.invoke({
-      type: "gameCreate",
-      input: {
-        defaultLaunchUrl: launchUrl,
-        name: RETAINED_V22_GAME_NAME
-      }
-    });
-    const role = await core.invoke({
-      type: "roleCreate",
-      input: {
-        gameId: game.id,
-        launchUrl,
-        name: RETAINED_V22_ROLE_NAME,
-        notes: "Created only by the Chromium desktop E2E v22 pre-seed."
-      }
-    });
-    await core.invoke({ type: "roleBrowserDirectoryEnsure", id: role.id });
-    const precondition = Object.freeze({
-      contractVersion: 1,
-      gameId: game.id,
-      gameName: game.name,
-      launchUrl,
-      platform: platform.productPlatform,
-      roleId: role.id,
-      roleName: role.name,
-      runtimeContractVersion: 22,
-      sourceEngine: platform.sourceEngine
-    } satisfies ElectronDesktopE2eRetainedV22Precondition);
-    if (artifactDirectory && isAbsolute(artifactDirectory)) {
-      writeFileSync(
-        join(artifactDirectory, "retained-v22-precondition.json"),
-        `${JSON.stringify(precondition, null, 2)}\n`
-      );
-    }
-    return precondition;
-  } finally {
-    await core.shutdown();
-  }
 }
 
 function exactClearReceipt(
@@ -1617,7 +1502,7 @@ function readRoleSessionRuntime(
   });
 }
 
-const retainedV22Precondition = await seedRetainedV22Role();
+const retainedV22Precondition = await seedRetainedV22Role(e2ePlatform());
 installElectronDesktopE2eReceiptObserver();
 installElectronDesktopE2eCleanExitDiagnosticsObserver();
 installElectronDesktopE2eGuardedQuitObserver(writeFinalFlushMarker);

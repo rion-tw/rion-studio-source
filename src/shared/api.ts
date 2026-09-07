@@ -78,6 +78,8 @@ import type {
 } from "./generated";
 
 export interface RionStudioApi {
+  sessionMigrationRecovery: (command: import("./generated").RoleSessionRecoveryCommand) => Promise<import("./generated").RoleSessionRecoveryRecord>;
+  onSessionMigrationRecovery: (callback: (record: import("./generated").RoleSessionRecoveryRecord) => void) => () => void;
   extensions: (command: ExtensionUserCommand) => Promise<ExtensionResultRecord>;
   extensionStore: (request: ExtensionStoreRequest) => Promise<ExtensionStoreState>;
   onExtensionsChanged: (callback: (snapshot: ExtensionSnapshotRecord) => void) => () => void;

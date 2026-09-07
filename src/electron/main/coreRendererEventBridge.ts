@@ -21,6 +21,7 @@ export interface ElectronCoreEventSource {
 
 export interface CoreRendererEventBridgeInput {
   core: ElectronCoreEventSource;
+  publishSessionMigrationRecovery?: (record: import("../../shared/generated").RoleSessionRecoveryRecord) => void;
   publishExtensions?: (snapshot: import("../../shared/generated").ExtensionSnapshotRecord) => void;
   readAppSnapshot: () => Promise<AppSnapshot>;
   publishAppSnapshot: (snapshot: AppSnapshot) => void;
@@ -66,6 +67,9 @@ export class CoreRendererEventBridge {
   readonly #onCoreEvent = (event: CoreEvent): void => {
     if (this.#disposed) return;
     switch (event.type) {
+      case "roleSessionRecoveryChanged":
+        this.#input.publishSessionMigrationRecovery?.(event.record);
+        break;
       case "extensionsChanged":
         this.#input.publishExtensions?.(event.snapshot);
         break;

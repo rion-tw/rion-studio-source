@@ -119,6 +119,7 @@ function fixture(value: string) {
   const request: ChromiumSessionMigrationFreshHelperRequest = {
     version: 1, family: "roleSessionMigration", kind: "apply", platform: nativePlatform,
     roleId, transferId, expectedJournalRevision: 4, targetRevision: 9, sourceRevision: 12, phase: "importing",
+    cookiePolicy: "exact",
     rolePaths: { browserUserDataDir: browser, systemBrowserDataDir: join(browser, "system-webview"),
       webview2UserDataDir: join(browser, "system-webview", "webview2"), chromiumUserDataDir: join(browser, "chromium"),
       webkitDataStoreKey: `role:${roleId}:wkwebview`, webkitDataStoreIdentifier: roleId },

@@ -1,3 +1,4 @@
+import { ChromiumSessionRecoveryExecutor } from "./chromiumSessionRecoveryExecutor";
 import type {
   BrowserRuntimeRegistrationRecord,
   CoreCommand,
@@ -280,6 +281,7 @@ export interface ChromiumRuntimeCorePort extends ElectronCoreEffectPort,
   transitionRoleSessionMigrationTargetInternal: (
     input: RoleSessionMigrationTargetTransitionInputInternal
   ) => Promise<RoleSessionMigrationRecord>;
+  readRoleSessionRecoveryInternal: (roleId: string, attemptId: string, transferId: string) => Promise<Buffer>;
   recoverPendingChromeProfileImportsInternal: (
   ) => Promise<ChromeProfileImportRecoveryResultInternal>;
   restoreWindowsChromiumHeldKeysInternal?: (
@@ -1024,6 +1026,7 @@ export class ChromiumRuntimeBootstrap {
       const createdExecutor = new ChromiumRuntimeEffectExecutor({
         browserDataClear,
         chromeProfileImport: new ChromeProfileImportCoordinator(input.core),
+        sessionRecovery: new ChromiumSessionRecoveryExecutor(input.core),
         globalWebBrowserDataClear,
         hosts,
         layout: new ChromiumRuntimeLayoutResolver(input.core),

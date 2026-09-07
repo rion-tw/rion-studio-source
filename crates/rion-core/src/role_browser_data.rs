@@ -43,13 +43,54 @@ pub fn paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord>
             .join("webview2")
             .to_string_lossy()
             .into_owned(),
-        chromium_user_data_dir: browser_user_data_dir
-            .join("chromium")
-            .to_string_lossy()
-            .into_owned(),
+        chromium_user_data_dir: crate::chromium_path::engine_path(&chromium_directory(
+            user_data_dir,
+            role_id,
+        )?)
+        .ok_or_else(|| {
+            CoreError::InvalidInput("The role browser path is not valid UTF-8.".to_owned())
+        })?,
         webkit_data_store_key: format!("role:{role_id}:wkwebview"),
         webkit_data_store_identifier: webkit_data_store_identifier(role_id),
     })
+}
+
+/// Rust-owned continuation chooses a session within the existing role tree.
+/// A missing choice retains the historical path; malformed choices never fall back.
+pub(crate) fn chromium_directory(data: &Path, role: &str) -> CoreResult<PathBuf> {
+    validate_role_id(role)?;
+    let browser = browser_directory(data, role);
+    let marker = browser.join(".rion-session-choice");
+    match fs::symlink_metadata(&marker) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(browser.join("chromium"));
+        }
+        Err(_) => {
+            return Err(crate::session_recovery::error(
+                "RECOVERY_FRESH_EVIDENCE_INVALID",
+            ));
+        }
+        Ok(metadata) if !metadata.is_file() || metadata.len() != 36 => {
+            return Err(crate::session_recovery::error(
+                "RECOVERY_FRESH_EVIDENCE_INVALID",
+            ));
+        }
+        Ok(_) => {}
+    }
+    let mut file = crate::session_source::snapshot::open_file(&marker)
+        .map_err(crate::session_recovery::error)?;
+    let mut bytes = Vec::new();
+    use std::io::Read;
+    (&mut file)
+        .take(37)
+        .read_to_end(&mut bytes)
+        .map_err(|_| crate::session_recovery::error("RECOVERY_FRESH_EVIDENCE_INVALID"))?;
+    rion_platform::verify_open_file_identity(&marker, &file)
+        .map_err(|_| crate::session_recovery::error("RECOVERY_FRESH_EVIDENCE_INVALID"))?;
+    let attempt = std::str::from_utf8(&bytes)
+        .map_err(|_| crate::session_recovery::error("RECOVERY_FRESH_EVIDENCE_INVALID"))?;
+    crate::session_recovery::uuid(attempt)?;
+    Ok(browser.join("sessions").join(attempt).join("chromium"))
 }
 
 fn webkit_data_store_identifier(role_id: &str) -> String {

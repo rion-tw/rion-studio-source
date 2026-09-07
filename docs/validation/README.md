@@ -6,6 +6,8 @@ be treated as current evidence.
 
 ## Active runbooks
 
+- [Preserve-session Recovery](session-recovery.md): single-role source admission, isolated proof, recovery UI and native support list.
+- [Session Migration Diagnostics](session-migration-diagnostics.md): isolated v8 → v9 source assessment, synthetic persistence proof and native evidence gaps.
 - [Web App DRM](runbooks/web-app-drm.md): permission evidence, key-system
   classification and real iq.com playback acceptance.
 - [Windows Game Window Placement](runbooks/windows-game-window-placement.md):

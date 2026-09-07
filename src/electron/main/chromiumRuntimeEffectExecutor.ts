@@ -413,6 +413,11 @@ export class ChromiumRuntimeEffectExecutor {
   ): Promise<unknown> {
     const action = effect.action;
     switch (action.type) {
+      case "roleSessionRecoveryImport":
+        if (!this.#input.sessionRecovery || this.#roles.has(action.roleId)) {
+          throw runtimeError("RECOVERY_RUNTIME_CONFLICT", "The recovery target is unavailable or in use.");
+        }
+        return this.#input.sessionRecovery.execute(effect, context?.signal);
       case "globalWebProfileClear":
         return executeChromiumRuntimeGlobalWebBrowserDataClear(
           this.#input,

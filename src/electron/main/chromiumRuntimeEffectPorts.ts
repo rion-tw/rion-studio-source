@@ -177,6 +177,7 @@ export interface ChromiumRuntimeRolePlaceholderPort {
 }
 
 export interface ChromiumRuntimeEffectExecutorInput {
+  readonly sessionRecovery?: { execute: (effect: CoreEffectRequest, signal?: AbortSignal) => Promise<unknown> };
   readonly browserDataClear: ChromiumRuntimeBrowserDataClearPort;
   readonly chromeProfileImport: ChromiumRuntimeChromeProfileImportPort;
   readonly globalWebBrowserDataClear: ChromiumRuntimeGlobalWebBrowserDataClearPort;

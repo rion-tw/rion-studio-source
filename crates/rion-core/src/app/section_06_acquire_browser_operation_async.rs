@@ -937,6 +937,7 @@ impl AppCore {
         zoom_factor: f64,
         restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
     ) -> CoreResult<crate::model::BrowserLaunchAdmissionRecord> {
+        self.ensure_initial_role_session_upgrade(&role_id).await?;
         let admission_operation_id = uuid::Uuid::new_v4().to_string();
         let admission_attempt_id = uuid::Uuid::new_v4().to_string();
         let admission_requested_tab_id = launch_tab_id.clone();

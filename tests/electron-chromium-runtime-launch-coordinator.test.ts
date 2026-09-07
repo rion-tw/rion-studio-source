@@ -1297,7 +1297,7 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(launchCommands).toHaveLength(0);
   });
 
-  it("accepts a synchronously completed exact saved-tab hydration", async () => {
+  it.each(["current", "legacy", "no-fingerprint"])("accepts a synchronously completed exact saved-tab hydration (%s)", async (metadata) => {
     const activateRestoredTab = vi.fn(async () => undefined);
     const beginRestore = vi.fn();
     const finishRestore = vi.fn();
@@ -1308,6 +1308,11 @@ describe("Electron Chromium runtime launch coordinator", () => {
       finishSavedWindowRestore: finishRestore
     });
     const saved = nonemptySavedWindow();
+    if (metadata !== "current") {
+      saved.targetDisplay.id = 3220048483667338;
+      if (metadata === "legacy") saved.targetDisplay.fingerprint!.label = "Monitor #44602";
+      else delete saved.targetDisplay.fingerprint;
+    }
     state.coreSnapshot.state.gameWindows.push(saved);
 
     await expect(coordinator.restoreSavedGameWindow(saved)).resolves.toBeUndefined();
@@ -1497,9 +1502,14 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(launchCommands).toHaveLength(0);
   });
 
-  it("registers an empty saved Game Window through one exact Core/native projection", async () => {
+  it.each(["current", "legacy", "no-fingerprint"])("registers an empty saved Game Window through one exact Core/native projection (%s)", async (metadata) => {
     const { coordinator, coreInvoke, launchCommands, state } = launchHarness();
     const saved = emptySavedWindow();
+    if (metadata !== "current") {
+      saved.targetDisplay.id = 3220048483667338;
+      if (metadata === "legacy") saved.targetDisplay.fingerprint!.label = "Monitor #44602";
+      else delete saved.targetDisplay.fingerprint;
+    }
     state.coreSnapshot.state.gameWindows.push(saved);
 
     await expect(coordinator.openEmptySavedGameWindow(saved)).resolves.toBeUndefined();
@@ -1731,8 +1741,12 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(launchCommands).toHaveLength(0);
   });
 
-  it("compensates a saved empty registration after its display fence changes", async () => {
+  it.each(["current", "legacy"])("compensates %s saved empty registration after its display fence changes", async (metadata) => {
     const saved = emptySavedWindow();
+    if (metadata === "legacy") {
+      saved.targetDisplay.id = 3220048483667338;
+      saved.targetDisplay.fingerprint!.label = "Monitor #44602";
+    }
     const { coordinator, coreInvoke, state } = launchHarness({
       onRegister: (_command, harness) => {
         harness.topology = topology(2, {

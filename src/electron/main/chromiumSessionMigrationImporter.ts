@@ -551,7 +551,7 @@ export class ChromiumSessionMigrationImporter {
           this.#startupSignal
         );
       } else {
-        receiptId = await coordinator.applyAndVerify(
+        receiptId = (await coordinator.applyAndVerify(
           descriptor,
           envelopeBytes,
           async () => {
@@ -565,7 +565,7 @@ export class ChromiumSessionMigrationImporter {
             }
           },
           this.#startupSignal
-        );
+        )).cleanFlushReceiptId;
       }
       try {
         await this.#readCurrentJournal(input, platform);

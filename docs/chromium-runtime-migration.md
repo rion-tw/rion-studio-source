@@ -305,13 +305,18 @@ None of these local surfaces replaces AppKit Game Window or tab chrome.
 
 ## Complete session migration
 
-Cutover is blocked until every retained role reaches `v23-ready` or the user
-explicitly authorizes a reset for that role. Elapsed time, application restart,
-or an unreadable source never counts as successful migration.
+Complete migration still requires exact record verification. On 2026-09-10 the
+owner authorized partial or empty continuation under the existing role ID after
+the first upgrade attempt. Session usability is separate from migration success;
+see [first-upgrade continuation](validation/session-recovery.md). Elapsed time,
+application restart, or an unreadable source never counts as transferred data.
 
 Schema creation is not migration evidence. Upgrading the state database creates
-no role journal rows, so a retained v22 role with a missing or non-`v23-ready`
-journal remains blocked by Core launch preflight. A role genuinely created under
+no role journal rows. A retained role with a missing or failed journal runs the
+one-time upgrade before normal launch. Rust records each data category and binds
+a new session within the same role tree; legacy stores and the original journal
+remain preserved. Preflight requires either this independent usability evidence
+or the complete-migration evidence. A role genuinely created under
 the v23 contract is the narrow exception: Core first creates its exact empty,
 identity-fenced managed store and then commits the role plus an explicit-reset
 `v23-ready` receipt in one SQLite transaction. Portable or profile-imported role
@@ -319,6 +324,26 @@ records do not use that initialization path and cannot inherit its receipt.
 Portable snapshot replacement preserves the destination-owned migration row
 only for a Role already retained by the destination state; a newly introduced
 Role receives no migration evidence, and removing a Role removes its journal.
+
+For ordinary first launch, a committed authenticated RSP2 vault remains the
+highest-priority source. If it is absent, the production fallback is deterministic:
+macOS reads only `com.rionstudio.launcher/WebsiteDataStore/<role-store-uuid>`
+from the v8.4.2 application identity, while Windows reads only that role's legacy
+WebView2 directory. Historical `.launcher.dev`, `rion-tauri`, unrelated stores
+and modification times are never automatic authority. The fallback takes a
+protected, read-only snapshot of only the Cookie and LocalStorage files,
+including SQLite WAL companions, and rechecks the held source identity and
+digest after parsing.
+
+Fallback LocalStorage is all-or-explicitly-partial per recognizable origin and
+preserves UTF-16 code units. It becomes transferred only after an independent
+fresh Chromium process reads back every item. Raw Cookies are always reported
+partial: Rust parses/decrypts records independently, skips expired, duplicate,
+corrupt, partitioned, app-bound or semantically unknown rows with stable reason
+codes, and Electron binds the exact Chromium-accepted normalized subset for the
+fresh-process persistence check. A complete Cookie failure may retry once in a
+new clean target with the verified LocalStorage-only inventory. IndexedDB,
+Service Worker and caches are not migrated.
 
 The last stable Tauri release is the source-authoritative bridge release. After
 it registers the exact v22 System WebView adapter, Core opens one immediate
@@ -348,8 +373,10 @@ The migration state machine is Rust-owned and revision-fenced:
 3. `importing`: Electron applies records only to the target role session.
 4. `verifying`: the target is read back and compared with the canonical journal.
 5. `v23-ready`: all required records match and the committed receipt is durable.
-6. `failed` or `indeterminate`: the role remains on v22; retry and explicit reset
-   are offered without deleting either source or journal.
+6. `failed` or `indeterminate`: full migration remains unverified and the source
+   and journal remain intact. The one-time continuation may admit Chromium with
+   independently verified data or an empty session; it does not rewrite this
+   historical migration outcome or reintroduce the retired v22 runtime.
 
 Electron main is part of the trusted native evidence-producing boundary for
 Chromium operations, because only it can own a `Session`, launch the fixed-mode
@@ -737,6 +764,14 @@ consumed v22 data compatibility. Retaining the existing Tauri updater signer is
 a build-tool choice, not a live desktop engine. Do not reinstate physical
 multi-monitor, actual sleep/sign-out, four production transactions, or terminal
 promotion as blockers. Removed requirements and old failures are never PASS.
+
+## Preserve-session recovery
+
+Single-role preserve-session recovery is defined in the
+[recovery runbook](validation/session-recovery.md). Strict complete-data recovery
+uses a separate Rust source-admission authority after isolated exact
+verification. Only the explicitly supported source/native-platform combinations
+are enabled; failed or missing legacy records are never automatically reset.
 
 ## Extensions
 

@@ -240,6 +240,11 @@ jobs:
         id: target_rust_tests
         run: pnpm run test:rust
 
+      - name: Check isolated session migration diagnostic fixtures
+        run: |
+          cargo clippy --locked -p rion-core --features session-migration-diagnostics --all-targets --no-deps -- -D warnings
+          pnpm run test:session-migration-diagnostics
+
       - name: Lint and test native Electron startup and compatibility probes
         run: |
           pnpm run lint:electron:native-integration-fixture

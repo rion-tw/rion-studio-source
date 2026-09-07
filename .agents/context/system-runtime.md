@@ -16,7 +16,8 @@ only the contract part it identifies for the current runtime task.
 - Do not expose remote debugging or fall back to another browser runtime.
 - Treat the per-role Chromium session as
   the only ordinary LocalStorage writer. Enumeration or replay is allowed only
-  inside the authenticated, revision-fenced v22-to-v23 migration or the
+  inside the Rust-owned one-time legacy upgrade, authenticated revision-fenced
+  v22-to-v23 migration, or the
   user-consented Chrome Profile import; ordinary Runtime must not checkpoint,
   forward, clear, or synchronize page LocalStorage.
 - Never hold the runtime-state mutex while creating, closing, or calling native

@@ -6,6 +6,7 @@
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreCommand {
+    RoleSessionRecovery { command: crate::RoleSessionRecoveryCommand },
     Health,
     Extensions { command: ExtensionCommand },
     SystemWebViewProbe,
@@ -745,7 +746,8 @@ impl CoreCommand {
     pub fn requires_async_dispatch(&self) -> bool {
         matches!(
             self,
-            Self::GameDelete { .. }
+            Self::RoleSessionRecovery { .. }
+            | Self::GameDelete { .. }
                 | Self::GamesDelete { .. }
                 | Self::RoleCreate { .. }
                 | Self::RoleUpdate { .. }

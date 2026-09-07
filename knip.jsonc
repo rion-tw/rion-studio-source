@@ -11,12 +11,14 @@
     "src/shared/browser-overlay/*.js",
     "e2e/desktop/specs/*.e2e.ts",
     "scripts/*.mjs",
+    "scripts/migrationDiagnostics/helperEntry.ts",
     "tests/**/*.{ts,tsx}"
   ],
   "project": [
     "src/**/*.{ts,tsx,js}",
     "e2e/**/*.ts",
     "scripts/*.{mjs,mts}",
+    "scripts/migrationDiagnostics/*.{mjs,ts}",
     "tests/**/*.{ts,tsx}",
     "*.{ts,mjs}"
   ],

@@ -16,6 +16,8 @@ export type ChromiumSessionMigrationFreshHelperKind =
   | "rollback"
   | "rollbackVerify";
 
+export type ChromiumSessionMigrationCookiePolicy = "exact" | "bestEffort";
+
 export interface ChromiumSessionMigrationFreshHelperRequest {
   readonly version: 1;
   readonly family: typeof SESSION_MIGRATION_FRESH_HELPER_FAMILY;
@@ -31,11 +33,15 @@ export interface ChromiumSessionMigrationFreshHelperRequest {
   readonly envelopeSha256: string;
   readonly inventorySha256: string;
   readonly cookieCount: number;
+  readonly cookiePolicy: ChromiumSessionMigrationCookiePolicy;
   readonly localStorageOriginCount: number;
   readonly localStorageEntryCount: number;
   readonly envelopeBytes: number;
   readonly parentExitEvidenceSha256?: string;
   readonly committedReceiptId?: string;
+  readonly expectedCookieInventorySha256?: string;
+  readonly expectedCookieCount?: number;
+  readonly expectedCookieSkippedCount?: number;
 }
 
 const UUID =
@@ -148,10 +154,17 @@ export function parseChromiumSessionMigrationFreshHelperRequest(
     "envelopeSha256",
     "inventorySha256",
     "cookieCount",
+    "cookiePolicy",
     "localStorageOriginCount",
     "localStorageEntryCount",
     "envelopeBytes"
-  ], ["parentExitEvidenceSha256", "committedReceiptId"]);
+  ], [
+    "parentExitEvidenceSha256",
+    "committedReceiptId",
+    "expectedCookieInventorySha256",
+    "expectedCookieCount",
+    "expectedCookieSkippedCount"
+  ]);
 
   const kind = request.kind as ChromiumSessionMigrationFreshHelperKind;
   const supportedKinds = new Set<ChromiumSessionMigrationFreshHelperKind>([
@@ -179,6 +192,7 @@ export function parseChromiumSessionMigrationFreshHelperRequest(
     typeof request.inventorySha256 !== "string" ||
     !SHA256.test(request.inventorySha256) ||
     counts.some((count) => !safeInteger(count, 0)) ||
+    !new Set(["exact", "bestEffort"]).has(request.cookiePolicy as string) ||
     !safeInteger(request.envelopeBytes, 1) ||
     request.envelopeBytes > SESSION_MIGRATION_FRESH_HELPER_MAX_ENVELOPE_BYTES
   ) {
@@ -187,14 +201,34 @@ export function parseChromiumSessionMigrationFreshHelperRequest(
 
   const parentEvidence = request.parentExitEvidenceSha256;
   const committedReceipt = request.committedReceiptId;
+  const sourceCookieCount = request.cookieCount as number;
   const needsParentEvidence = kind === "verify" || kind === "rollbackVerify";
   const needsCommittedReceipt = kind === "resumeVerify";
+  const needsCookieEvidence = request.cookiePolicy === "bestEffort" &&
+    new Set(["verify", "resumeVerify"]).has(kind);
+  const cookieEvidence = [
+    request.expectedCookieInventorySha256,
+    request.expectedCookieCount,
+    request.expectedCookieSkippedCount
+  ];
   if (
     (needsParentEvidence !== (typeof parentEvidence === "string")) ||
     (parentEvidence !== undefined && !SHA256.test(parentEvidence as string)) ||
     (needsCommittedReceipt !== (typeof committedReceipt === "string")) ||
     (committedReceipt !== undefined &&
       !COMMITTED_RECEIPT.test(committedReceipt as string)) ||
+    (needsCookieEvidence !== cookieEvidence.every((value) => value !== undefined)) ||
+    (!needsCookieEvidence && cookieEvidence.some((value) => value !== undefined)) ||
+    (request.expectedCookieInventorySha256 !== undefined &&
+      (typeof request.expectedCookieInventorySha256 !== "string" ||
+        !SHA256.test(request.expectedCookieInventorySha256))) ||
+    (request.expectedCookieCount !== undefined &&
+      (!safeInteger(request.expectedCookieCount, 0) ||
+        request.expectedCookieCount > sourceCookieCount)) ||
+    (request.expectedCookieSkippedCount !== undefined &&
+      (!safeInteger(request.expectedCookieSkippedCount, 0) ||
+        request.expectedCookieSkippedCount !==
+          sourceCookieCount - (request.expectedCookieCount ?? 0))) ||
     (kind === "apply" &&
       !new Set(["importing", "indeterminate"]).has(request.phase as string)) ||
     (kind === "verify" &&

@@ -1048,10 +1048,15 @@ fn canonical_role_paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RoleP
         fs::canonicalize(user_data_dir).map_err(|error| CoreError::Platform(error.to_string()))?;
     // Validate physical paths before serializing the Chromium wire path. On
     // Windows canonical roots retain a verbatim prefix that Chromium omits.
-    let physical_target =
-        crate::role_browser_data::browser_directory(&canonical_root, role_id).join("chromium");
+    let physical_target = crate::role_browser_data::chromium_directory(&canonical_root, role_id)
+        .map_err(|_| path_identity_error())?;
     validate_path_components(&canonical_root, &physical_target)?;
     let paths = crate::role_browser_data::paths(&canonical_root, role_id)?;
+    if crate::chromium_path::engine_path(&physical_target).as_deref()
+        != Some(paths.chromium_user_data_dir.as_str())
+    {
+        return Err(path_identity_error());
+    }
     Ok(paths)
 }
 

@@ -1,0 +1,34 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { build } from "vite";
+import { buildHelper, requestFor, invoke } from "./chromium.mjs";
+import { runProcess } from "./process.mjs";
+const root = await mkdtemp(join(realpathSync(tmpdir()), "rion-missing-repair-"));
+try {
+  const rust = async request => JSON.parse((await runProcess(resolve("target/debug/rion-session-migration-diagnostics"), [], { input: JSON.stringify(request) })).stdout);
+  const a = await rust({ mode: "synthetic", output_dir: join(root,"a") });
+  const b = await rust({ mode: "synthetic", output_dir: join(root,"b"), second_role: true });
+  const entry = await buildHelper(root);
+  const ar = requestFor(a); const br = requestFor(b);
+  const appliedA = await invoke(root,entry,ar.request,ar.envelope);
+  const appliedB = await invoke(root,entry,br.request,br.envelope);
+  if (appliedA.outcome || appliedB.outcome) throw new Error("SEED_FAILED");
+  await build({ configFile:false,logLevel:"silent",build:{ssr:true,outDir:join(root,"inspect"),rollupOptions:{input:resolve("scripts/migrationDiagnostics/inspectLocalStorage.ts"),external:["electron",/^node:/u],output:{format:"es",entryFileNames:"index.mjs"}}}});
+  const env={...process.env,RION_MIGRATION_DIAGNOSTICS:"1",RION_MIGRATION_DIAGNOSTIC_ROOT:root};delete env.ELECTRON_RUN_AS_NODE;
+  const run=async input=>runProcess(createRequire(import.meta.url)("electron"),[join(root,"inspect/index.mjs")],{env,input:JSON.stringify({profile:a.rolePaths.chromiumUserDataDir,...input})});
+  const before = a.envelope.inventory.localStorage;
+  const retained = structuredClone(b.envelope.inventory.localStorage);
+  const extra = { key: {encoding:"base64",data:Buffer.from("missing\0key","utf16le").toString("base64")},value:{encoding:"base64",data:Buffer.from("角色\ud800","utf16le").toString("base64")} };
+  retained[0].entries.push(extra);
+  const apply = await run({mode:"applyMissing",origins:retained}); const first=JSON.parse(apply.stdout);
+  if(first.origins[0].conflicting!==1||first.origins[0].missing!==1)throw new Error("MERGE_PRECONDITION_WRONG");
+  const expected=structuredClone(before);expected[0].entries.push(extra);
+  const verify=await run({mode:"verify",expected:first.digest,origins:expected});const evidence=JSON.parse(verify.stdout);
+  if(verify.pid===apply.pid||evidence.origins[0].identical!==2||evidence.origins[0].missing!==0||evidence.origins[0].conflicting!==0)throw new Error("REPAIR_CHANGED_CURRENT_VALUE");
+  const stillB=await invoke(root,entry,{...br.request,kind:"verify",parentExitEvidenceSha256:appliedB.exitEvidence},br.envelope);
+  if(stillB.outcome)throw new Error("OTHER_ROLE_CHANGED");
+  console.log(JSON.stringify({platform:process.platform,missingKeyRepair:"passed",freshProcessPersistence:true,currentConflictValuePreserved:true,unicode:true,otherRoleUnchanged:true,externalNetwork:"blocked"}));
+}finally{await rm(root,{recursive:true,force:true});}

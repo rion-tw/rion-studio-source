@@ -1,3 +1,4 @@
+import { isRoleSessionRecoveryRecord } from "./sessionRecoveryValidation";
 import type { CoreEvent } from "../../shared/generated";
 import {
   closedValidation as check,
@@ -6,6 +7,7 @@ import {
 } from "./coreEffectActionValidation";
 
 const EVENT_TYPES = new Set<CoreEvent["type"]>([
+  "roleSessionRecoveryChanged",
   "extensionsChanged",
   "graphicsSettingsChanged",
   "ready",
@@ -110,6 +112,8 @@ const chromeProfileImportProgress = (value: unknown): boolean => check.closed(va
 
 function isClosedCriticalEvent(event: Record<string, unknown>): boolean {
   switch (event.type) {
+    case "roleSessionRecoveryChanged":
+      return check.closed(event, { type: check.oneOf("roleSessionRecoveryChanged"), record: isRoleSessionRecoveryRecord });
     case "graphicsSettingsChanged":
       return check.closed(event, { type: check.oneOf("graphicsSettingsChanged"), snapshot: (value) => check.closed(value, {
         revision: check.nonnegativeInteger,

@@ -299,13 +299,17 @@ function roleChromiumPath(
     paths.basename(browserRoot) === "browser" &&
     paths.basename(roleDirectory) === roleId &&
     paths.basename(rolesDirectory) === "roles";
+  const continuation = paths.relative(browserRoot, chromiumPath).split(paths.sep);
+  const ownsContinuation = continuation.length === 3 && continuation[0] === "sessions" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(continuation[1]) &&
+    continuation[2] === "chromium";
   if (
     !ownsExpectedRoleDirectory ||
-    paths.join(browserRoot, "chromium") !== chromiumPath
+    (paths.join(browserRoot, "chromium") !== chromiumPath && !ownsContinuation)
   ) {
     registryError(
       "ELECTRON_ROLE_SESSION_PATH_MISMATCH",
-      "The Chromium session path is not the Rust-owned browser/chromium directory."
+      "The Chromium session path is not a Rust-owned store within this role."
     );
   }
   return chromiumPath;

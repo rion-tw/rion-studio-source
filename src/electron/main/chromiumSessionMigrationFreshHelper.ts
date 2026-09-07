@@ -157,6 +157,25 @@ function exactCookies(
     JSON.stringify(sortCookies(expected));
 }
 
+interface CookieEvidence {
+  readonly inventorySha256: string;
+  readonly count: number;
+  readonly skipped: number;
+}
+
+function cookieEvidence(
+  cookies: readonly ChromiumSessionMigrationCookie[],
+  skipped: number
+): CookieEvidence {
+  return Object.freeze({
+    inventorySha256: createHash("sha256")
+      .update(JSON.stringify(sortCookies(cookies)), "utf8")
+      .digest("hex"),
+    count: cookies.length,
+    skipped
+  });
+}
+
 function sortEntries(
   entries: readonly ChromiumSessionMigrationLocalStorageEntry[]
 ): ChromiumSessionMigrationLocalStorageEntry[] {
@@ -214,7 +233,8 @@ function parseInventory(
   }
   return parseChromiumSessionMigrationEnvelope(envelopeBytes, {
     journal: expectationJournal(request),
-    platform: request.platform
+    platform: request.platform,
+    allowBestEffortWindowsProfileSnapshot: request.cookiePolicy === "bestEffort"
   });
 }
 
@@ -229,8 +249,10 @@ async function replaceState(
   session: ChromiumRoleSessionPort,
   localStorage: ChromiumSessionMigrationLocalStorageCodec,
   inventory: ParsedChromiumSessionMigrationInventory,
-  imported: boolean
-): Promise<void> {
+  imported: boolean,
+  request: ChromiumSessionMigrationFreshHelperRequest
+): Promise<CookieEvidence> {
+  let cookies = cookieEvidence([], 0);
   await session.clearStorageData({ storages: ["cookies", "localstorage"] });
   await session.cookies.flushStore();
   if ((await readCookies(session)).length !== 0) {
@@ -241,15 +263,39 @@ async function replaceState(
   }
   if (imported) {
     for (const cookie of inventory.cookies) {
-      await session.cookies.set(cookieSetDetails(cookie));
+      if (request.cookiePolicy === "exact") {
+        await session.cookies.set(cookieSetDetails(cookie));
+      } else {
+        try {
+          await session.cookies.set(cookieSetDetails(cookie));
+        } catch {
+          // A raw legacy record is independently best-effort. The exact
+          // Chromium-accepted subset is bound below and verified by a fresh
+          // process; cookie values never leave the helper.
+        }
+      }
     }
     await session.cookies.flushStore();
-    if (!exactCookies(await readCookies(session), inventory.cookies)) {
+    const actualCookies = await readCookies(session);
+    if (request.cookiePolicy === "exact" &&
+      !exactCookies(actualCookies, inventory.cookies)) {
       throw helperError(
         "CHROMIUM_SESSION_MIGRATION_FRESH_COOKIE_READBACK_MISMATCH",
         "The helper did not read back the exact imported cookie inventory."
       );
     }
+    if (actualCookies.length > inventory.cookies.length) {
+      throw helperError(
+        "CHROMIUM_SESSION_MIGRATION_FRESH_COOKIE_READBACK_INVALID",
+        "The helper returned more cookies than the bounded source inventory."
+      );
+    }
+    cookies = cookieEvidence(
+      actualCookies,
+      request.cookiePolicy === "bestEffort"
+        ? inventory.cookies.length - actualCookies.length
+        : 0
+    );
   }
   for (const origin of inventory.localStorage) {
     const expected = imported ? origin.entries : [];
@@ -264,19 +310,39 @@ async function replaceState(
     }
   }
   session.flushStorageData();
+  return cookies;
 }
 
 async function verifyState(
   session: ChromiumRoleSessionPort,
   localStorage: ChromiumSessionMigrationLocalStorageCodec,
   inventory: ParsedChromiumSessionMigrationInventory,
-  imported: boolean
-): Promise<void> {
+  imported: boolean,
+  request: ChromiumSessionMigrationFreshHelperRequest
+): Promise<CookieEvidence> {
   const expectedCookies = imported ? inventory.cookies : [];
-  if (!exactCookies(await readCookies(session), expectedCookies)) {
+  const actualCookies = await readCookies(session);
+  if (request.cookiePolicy === "exact" &&
+    !exactCookies(actualCookies, expectedCookies)) {
     throw helperError(
       "CHROMIUM_SESSION_MIGRATION_FRESH_COOKIE_READBACK_MISMATCH",
       "The fresh verifier did not return the exact cookie inventory."
+    );
+  }
+  const cookies = cookieEvidence(
+    actualCookies,
+    imported && request.cookiePolicy === "bestEffort"
+      ? inventory.cookies.length - actualCookies.length
+      : 0
+  );
+  if (request.cookiePolicy === "bestEffort" && imported && (
+    cookies.count !== request.expectedCookieCount ||
+    cookies.skipped !== request.expectedCookieSkippedCount ||
+    cookies.inventorySha256 !== request.expectedCookieInventorySha256
+  )) {
+    throw helperError(
+      "CHROMIUM_SESSION_MIGRATION_FRESH_COOKIE_READBACK_MISMATCH",
+      "The fresh verifier did not return the exact accepted cookie subset."
     );
   }
   for (const origin of inventory.localStorage) {
@@ -289,11 +355,13 @@ async function verifyState(
       );
     }
   }
+  return cookies;
 }
 
 function surfaceDrainDigest(
   request: ChromiumSessionMigrationFreshHelperRequest,
-  imported: boolean
+  imported: boolean,
+  cookies: CookieEvidence
 ): string {
   return createHash("sha256").update([
     "rion-session-migration-helper-drain-v1",
@@ -303,6 +371,9 @@ function surfaceDrainDigest(
     request.expectedJournalRevision,
     request.targetRevision,
     request.inventorySha256,
+    cookies.inventorySha256,
+    cookies.count,
+    cookies.skipped,
     imported ? "imported" : "empty",
     process.pid
   ].join("\0"), "utf8").digest("hex");
@@ -368,11 +439,24 @@ export class ChromiumSessionMigrationFreshHelper {
         this.#input.views
       );
       const imported = wantsImportedState(request);
+      let cookies: CookieEvidence;
       if (request.kind === "apply" || request.kind === "rollback") {
         mutationStarted = true;
-        await replaceState(lease.session, localStorage, inventory, imported);
+        cookies = await replaceState(
+          lease.session,
+          localStorage,
+          inventory,
+          imported,
+          request
+        );
       } else {
-        await verifyState(lease.session, localStorage, inventory, imported);
+        cookies = await verifyState(
+          lease.session,
+          localStorage,
+          inventory,
+          imported,
+          request
+        );
       }
       const released = await registry.releaseMigrationSession(lease);
       if (!released) {
@@ -394,10 +478,13 @@ export class ChromiumSessionMigrationFreshHelper {
         metadataBytes: chromiumSessionMigrationFreshHelperResponseMetadata(
           request,
           {
-            readbackCookieCount: imported ? inventory.cookies.length : 0,
+            readbackCookieCount: cookies.count,
+            cookieSkippedCount: cookies.skipped,
+            acceptedCookieInventorySha256: cookies.inventorySha256,
             checkedLocalStorageOriginCount: inventory.localStorage.length,
             readbackLocalStorageEntryCount: readbackEntryCount,
-            surfaceDrainEvidenceSha256: surfaceDrainDigest(request, imported),
+            surfaceDrainEvidenceSha256:
+              surfaceDrainDigest(request, imported, cookies),
             ...(
               request.kind === "verify" ||
               request.kind === "resumeVerify" ||

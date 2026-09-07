@@ -21,6 +21,8 @@ mod legal;
 mod log_capture;
 mod macro_graph;
 mod macro_runtime;
+#[cfg(feature = "session-migration-diagnostics")]
+pub mod migration_diagnostics;
 mod model;
 pub mod operation_actor;
 mod overlay;
@@ -228,3 +230,7 @@ pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
 mod contract_generation;
+
+mod session_recovery;
+mod session_source;
+pub use session_recovery::types::*;

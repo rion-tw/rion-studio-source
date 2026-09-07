@@ -682,6 +682,22 @@ describe("Electron Chromium role-session registry", () => {
     ).every((spy) => !spy.mock.calls.length)).toBe(true);
   });
 
+  it.each(["darwin", "win32"] as const)("accepts only an exact Rust-owned continuation for the same role on %s", platform => {
+    const native = createSession();
+    const { factory, fromPath } = createFactory(native.session);
+    const registry = new ChromiumRoleSessionRegistry(factory, platform);
+    const paths = rolePaths(platform, "role-1");
+    const pathApi = platform === "win32" ? win32 : posix;
+    const attempt = "11111111-1111-4111-8111-111111111111";
+    const fresh = { ...paths, chromiumUserDataDir: pathApi.join(paths.browserUserDataDir, "sessions", attempt, "chromium") };
+    registry.ensure("role-1", fresh);
+    expect(fromPath).toHaveBeenCalledWith(fresh.chromiumUserDataDir, expect.anything());
+    const other = new ChromiumRoleSessionRegistry(factory, platform);
+    expect(() => other.ensure("role-2", fresh)).toThrowError(expect.objectContaining({ code: "ELECTRON_ROLE_SESSION_PATH_MISMATCH" }));
+    expect(() => other.ensure("role-1", { ...fresh, chromiumUserDataDir: pathApi.join(paths.browserUserDataDir, "sessions", "not-an-identity", "chromium") })).toThrowError(expect.objectContaining({ code: "ELECTRON_ROLE_SESSION_PATH_MISMATCH" }));
+    expect(() => other.ensure("role-1", { ...fresh, chromiumUserDataDir: pathApi.join(fresh.chromiumUserDataDir, "nested") })).toThrowError(expect.objectContaining({ code: "ELECTRON_ROLE_SESSION_PATH_MISMATCH" }));
+  });
+
   it("rejects non-canonical or non-Rust-owned profile paths before fromPath", () => {
     const native = createSession();
     const { factory, fromPath } = createFactory(native.session);

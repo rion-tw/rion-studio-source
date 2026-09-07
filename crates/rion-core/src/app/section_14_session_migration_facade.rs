@@ -25,6 +25,7 @@ impl AppCore {
     }
 
     fn role_session_launch_evidence_ready(&self, role_id: &str) -> CoreResult<bool> {
+        if self.fresh_session_evidence(role_id)?.is_some() { return Ok(true); }
         let migration = self.role_session_migration(role_id.to_owned())?;
         let expected_platform = self.expected_role_session_migration_platform();
         Ok(migration.as_ref().is_some_and(|journal| {
@@ -52,6 +53,7 @@ impl AppCore {
         &self,
     ) -> CoreResult<Vec<crate::RoleSessionMigrationRecord>> {
         let platform = self.require_exact_v22_source_runtime()?;
+        if self.with_runtime(|runtime|runtime.state.operation_journals())?.iter().any(|journal|journal.kind == crate::session_recovery::fresh::KIND) { return Err(crate::session_recovery::error("ROLE_SESSION_UPGRADE_DOWNGRADE_UNSAFE")); }
         self.with_runtime(|runtime| runtime.state.prepare_v22_role_session_migrations(platform))
     }
 
@@ -172,6 +174,7 @@ impl AppCore {
         let expected_platform = self.expected_role_session_migration_platform();
         if self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             for role_id in role_ids {
+                if self.fresh_session_evidence(role_id)?.is_some() { continue; }
                 let current = self
                     .role_session_migration(role_id.clone())?
                     .ok_or_else(role_session_launch_fence_not_ready)?;
@@ -188,6 +191,7 @@ impl AppCore {
         }
         let occurred_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         for role_id in role_ids {
+            if self.mark_fresh_session_launch_admitted(role_id)? { continue; }
             let current = self
                 .role_session_migration(role_id.clone())?
                 .ok_or_else(role_session_launch_fence_not_ready)?;

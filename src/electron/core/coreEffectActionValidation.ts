@@ -302,6 +302,7 @@ const chromeOptional = {
 } satisfies Shape;
 
 const actionTypes = new Set<ActionType>([
+  "roleSessionRecoveryImport",
   "globalWebProfileClear",
   "roleBrowserDataClearSession",
   "chromeProfileImportSnapshot",
@@ -343,6 +344,11 @@ function isClosedCoreEffectAction(value: unknown): boolean {
 
 function isClosedKnownCoreEffectAction(value: unknown, type: ActionType): boolean {
   switch (type) {
+    case "roleSessionRecoveryImport":
+      return closed(value, {
+        type: oneOf(type), roleId: identity, attemptId: identity,
+        transferId: identity, bestEffortCookies: bool
+      });
     case "globalWebProfileClear":
       return closed(value, { type: oneOf(type), profile: globalWebProfile });
     case "roleBrowserDataClearSession":

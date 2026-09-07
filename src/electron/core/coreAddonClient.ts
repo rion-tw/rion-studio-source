@@ -21,6 +21,7 @@ const CHROME_PROFILE_IMPORT_MAX_PLAINTEXT_BYTES = 64 * 1024 * 1024;
 const CHROME_PROFILE_IMPORT_MAX_PROTECTED_BYTES = 65 * 1024 * 1024;
 
 export interface RawNodeApiCoreBinding {
+  readRoleSessionRecoveryInternal?: (roleId: string, attemptId: string, transferId: string) => Promise<Buffer>;
   invoke: (commandJson: string) => Promise<string>;
   subscribeCoreEvents: (
     listener: (eventsJson: string) => void,
@@ -369,6 +370,16 @@ export class CoreAddonClient {
     }
     return restore.call(this.#binding, JSON.stringify(input))
       .then((value) => parseWindowsHeldKeyContinuityReceipt(value, input));
+  }
+
+  readRoleSessionRecoveryInternal(roleId: string, attemptId: string, transferId: string): Promise<Buffer> {
+    if (this.#shutdownPromise) return Promise.reject(stoppedError());
+    const read = this.#binding.readRoleSessionRecoveryInternal;
+    if (!read) return Promise.reject(sessionTransferVaultEnvelopeError());
+    return read.call(this.#binding, roleId, attemptId, transferId).then((bytes) => {
+      if (!isBoundedSessionTransferEnvelope(bytes)) throw sessionTransferVaultEnvelopeError();
+      return bytes;
+    });
   }
 
   readRoleSessionTransferVaultInternal(

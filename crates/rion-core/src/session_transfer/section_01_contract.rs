@@ -97,12 +97,16 @@ pub struct RoleSessionTransferMetadataRecord {
 pub enum RoleSessionTransferSourceEvidenceKind {
     #[serde(rename = "webview2StorageGetCookies")]
     Webview2StorageGetCookies,
+    #[serde(rename = "webview2ProfileSnapshot")]
+    Webview2ProfileSnapshot,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RoleSessionTransferCookiePartitionCapability {
     #[serde(rename = "networkCookiePartitionKeyAndOpaque")]
     NetworkCookiePartitionKeyAndOpaque,
+    #[serde(rename = "profileDatabaseBestEffort")]
+    ProfileDatabaseBestEffort,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]

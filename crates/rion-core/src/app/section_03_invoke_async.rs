@@ -1,6 +1,7 @@
 impl AppCore {
     pub async fn invoke_async(self: &Arc<Self>, command: CoreCommand) -> CoreResult<Value> {
         match command {
+            CoreCommand::RoleSessionRecovery { command } => self.session_recovery_command(command).await,
             CoreCommand::Extensions { command } => {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || core.extensions_command(command)).await
@@ -838,6 +839,7 @@ impl AppCore {
                 .iter()
                 .filter_map(|slot| slot.role_id.clone())
                 .collect::<Vec<_>>();
+            for role in &expected_role_ids { self.ensure_initial_role_session_upgrade(role).await?; }
             let core = Arc::clone(self);
             let workspace_id = workspace_id.clone();
             let start_workspace_id = workspace_id.clone();

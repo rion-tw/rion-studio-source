@@ -75,6 +75,7 @@ export type CoreJsonValue = null | boolean | number | string | CoreJsonValue[] |
 type DefaultCoreCommandResultMap = { [K in CoreCommand["type"]]: CoreJsonValue };
 
 type TypedCoreCommandResultMap = {
+  roleSessionRecovery: import("./RoleSessionRecoveryRecord").RoleSessionRecoveryRecord;
   extensions: ExtensionResultRecord;
   systemWebViewProbe: SystemWebViewProbeRecord;
   systemWebViewRuntimeRegister: SystemWebViewRuntimeRegistrationRecord;

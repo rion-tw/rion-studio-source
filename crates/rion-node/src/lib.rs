@@ -1,3 +1,5 @@
+#[cfg(feature = "desktop-e2e")]
+mod session_recovery_fixture;
 use std::{
     sync::{
         Arc,
@@ -416,6 +418,23 @@ impl NativeAppCore {
 
     /// Privileged Electron-main-only vault read. Core returns plaintext only
     /// after the encrypted envelope and durable journal evidence match exactly.
+    #[napi(js_name = "readRoleSessionRecoveryInternal")]
+    pub async fn read_role_session_recovery_internal(
+        &self,
+        role_id: String,
+        attempt_id: String,
+        transfer_id: String,
+    ) -> Result<Buffer> {
+        let core = Arc::clone(&self.inner);
+        let bytes = napi::tokio::task::spawn_blocking(move || {
+            core.read_role_session_recovery_internal(role_id, attempt_id, transfer_id)
+        })
+        .await
+        .map_err(join_error)?
+        .map_err(to_napi_error)?;
+        Ok(bytes.into())
+    }
+
     #[napi(js_name = "readRoleSessionTransferVaultInternal")]
     pub async fn read_role_session_transfer_vault_internal(
         &self,
@@ -825,6 +844,25 @@ impl NativeAppCore {
 #[napi(js_name = "createAppCore")]
 pub async fn create_app_core(options: AppCoreOptions) -> Result<NativeAppCore> {
     create_attested_app_core(options, CHROMIUM_RUNTIME_CONTRACT_VERSION).await
+}
+
+#[cfg(feature = "desktop-e2e")]
+#[napi]
+impl NativeAppCore {
+    #[napi(js_name = "seedRoleSessionRecoveryForDesktopE2e")]
+    pub async fn seed_role_session_recovery_for_desktop_e2e(
+        &self,
+        role_id: String,
+        partial: bool,
+    ) -> Result<String> {
+        let core = Arc::clone(&self.inner);
+        napi::tokio::task::spawn_blocking(move || {
+            session_recovery_fixture::prepare(&core, role_id, partial)
+        })
+        .await
+        .map_err(join_error)?
+        .map_err(to_napi_error)
+    }
 }
 
 /// Desktop-E2E-only source fixture for retained v22 role coverage. Production

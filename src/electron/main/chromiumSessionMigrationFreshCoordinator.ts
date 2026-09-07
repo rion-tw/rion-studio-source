@@ -10,6 +10,7 @@ import { RionBridgeError } from "../ipc/errors";
 import {
   encodeChromiumSessionMigrationFreshHelperRequest,
   SESSION_MIGRATION_FRESH_HELPER_FAMILY,
+  type ChromiumSessionMigrationCookiePolicy,
   type ChromiumSessionMigrationFreshHelperKind,
   type ChromiumSessionMigrationFreshHelperRequest
 } from "./chromiumSessionMigrationFreshHelperContract";
@@ -36,12 +37,22 @@ export interface ChromiumSessionMigrationFreshDescriptor {
   readonly cookieCount: number;
   readonly localStorageOriginCount: number;
   readonly localStorageEntryCount: number;
+  readonly cookiePolicy?: ChromiumSessionMigrationCookiePolicy;
 }
 
 export interface ChromiumSessionMigrationFreshProcessReceipt {
   readonly exitEvidenceSha256: string;
   readonly surfaceDrainEvidenceSha256: string;
   readonly verifierInstanceId?: string;
+  readonly acceptedCookieInventorySha256: string;
+  readonly cookieCount: number;
+  readonly cookieSkippedCount: number;
+}
+
+export interface ChromiumSessionMigrationFreshReceipt {
+  readonly cleanFlushReceiptId: string;
+  readonly cookieCount: number;
+  readonly cookieSkippedCount: number;
 }
 
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -88,19 +99,32 @@ function baseRequest(
   descriptor: ChromiumSessionMigrationFreshDescriptor,
   kind: ChromiumSessionMigrationFreshHelperKind,
   envelopeBytes: number,
-  evidence?: string
+  evidence?: string,
+  cookieEvidence?: Pick<
+    ChromiumSessionMigrationFreshProcessReceipt,
+    "acceptedCookieInventorySha256" | "cookieCount" | "cookieSkippedCount"
+  >
 ): ChromiumSessionMigrationFreshHelperRequest {
   return Object.freeze({
     version: 1,
     family: SESSION_MIGRATION_FRESH_HELPER_FAMILY,
     kind,
     ...descriptor,
+    cookiePolicy: descriptor.cookiePolicy ?? "exact",
     envelopeBytes,
     ...(kind === "resumeVerify"
       ? { committedReceiptId: evidence }
       : kind === "verify" || kind === "rollbackVerify"
         ? { parentExitEvidenceSha256: evidence }
-        : {})
+        : {}),
+    ...(cookieEvidence
+      ? {
+        expectedCookieInventorySha256:
+          cookieEvidence.acceptedCookieInventorySha256,
+        expectedCookieCount: cookieEvidence.cookieCount,
+        expectedCookieSkippedCount: cookieEvidence.cookieSkippedCount
+      }
+      : {})
   });
 }
 
@@ -125,7 +149,8 @@ function successKeys(
   const keys = [
     "version", "family", "kind", "platform", "roleId", "transferId",
     "expectedJournalRevision", "targetRevision", "inventorySha256",
-    "readbackCookieCount", "checkedLocalStorageOriginCount",
+    "readbackCookieCount", "cookieSkippedCount",
+    "acceptedCookieInventorySha256", "checkedLocalStorageOriginCount",
     "readbackLocalStorageEntryCount", "surfaceDrainEvidenceSha256"
   ];
   if (new Set(["verify", "resumeVerify", "rollbackVerify"]).has(request.kind)) {
@@ -154,9 +179,30 @@ function parseSuccess(
   const expectedCookieCount = imported ? request.cookieCount : 0;
   const expectedEntryCount = imported ? request.localStorageEntryCount : 0;
   const verifier = response.verifierInstanceId;
+  const readbackCookieCount = response.readbackCookieCount;
+  const cookieSkippedCount = response.cookieSkippedCount;
+  const cookieDigest = response.acceptedCookieInventorySha256;
+  const countsAreValid = Number.isSafeInteger(readbackCookieCount) &&
+    Number.isSafeInteger(cookieSkippedCount) &&
+    (readbackCookieCount as number) >= 0 &&
+    (cookieSkippedCount as number) >= 0;
+  const cookieEvidenceMatches = request.cookiePolicy === "exact"
+    ? readbackCookieCount === expectedCookieCount && cookieSkippedCount === 0
+    : imported
+      ? (readbackCookieCount as number) + (cookieSkippedCount as number) ===
+          request.cookieCount &&
+        (request.expectedCookieInventorySha256 === undefined ||
+          request.expectedCookieInventorySha256 === cookieDigest) &&
+        (request.expectedCookieCount === undefined ||
+          request.expectedCookieCount === readbackCookieCount) &&
+        (request.expectedCookieSkippedCount === undefined ||
+          request.expectedCookieSkippedCount === cookieSkippedCount)
+      : readbackCookieCount === 0 && cookieSkippedCount === 0;
   if (
     !commonResponseMatches(response, request) ||
-    response.readbackCookieCount !== expectedCookieCount ||
+    !countsAreValid ||
+    !cookieEvidenceMatches ||
+    typeof cookieDigest !== "string" || !SHA256.test(cookieDigest) ||
     response.checkedLocalStorageOriginCount !==
       request.localStorageOriginCount ||
     response.readbackLocalStorageEntryCount !== expectedEntryCount ||
@@ -173,6 +219,9 @@ function parseSuccess(
   return Object.freeze({
     exitEvidenceSha256: result.exitEvidenceSha256,
     surfaceDrainEvidenceSha256: response.surfaceDrainEvidenceSha256,
+    acceptedCookieInventorySha256: cookieDigest,
+    cookieCount: readbackCookieCount as number,
+    cookieSkippedCount: cookieSkippedCount as number,
     ...(typeof verifier === "string" ? { verifierInstanceId: verifier } : {})
   });
 }
@@ -213,7 +262,11 @@ function throwHelperFailure(
 function cleanReceiptId(
   descriptor: ChromiumSessionMigrationFreshDescriptor,
   applyExitEvidenceSha256: string,
-  verifyExitEvidenceSha256: string
+  verifyExitEvidenceSha256: string,
+  cookies: Pick<
+    ChromiumSessionMigrationFreshProcessReceipt,
+    "acceptedCookieInventorySha256" | "cookieCount" | "cookieSkippedCount"
+  >
 ): string {
   const digest = createHash("sha256").update([
     "rion-session-migration-fresh-receipt-v1",
@@ -222,6 +275,9 @@ function cleanReceiptId(
     descriptor.expectedJournalRevision,
     descriptor.targetRevision,
     descriptor.inventorySha256,
+    cookies.acceptedCookieInventorySha256,
+    cookies.cookieCount,
+    cookies.cookieSkippedCount,
     applyExitEvidenceSha256,
     verifyExitEvidenceSha256
   ].join("\0"), "utf8").digest("hex");
@@ -240,6 +296,10 @@ export class ChromiumSessionMigrationFreshCoordinator {
     kind: ChromiumSessionMigrationFreshHelperKind,
     envelopeBytes: Buffer,
     evidence?: string,
+    cookieEvidence?: Pick<
+      ChromiumSessionMigrationFreshProcessReceipt,
+      "acceptedCookieInventorySha256" | "cookieCount" | "cookieSkippedCount"
+    >,
     signal?: AbortSignal
   ): Promise<ChromiumSessionMigrationFreshProcessReceipt> {
     if (signal?.aborted) {
@@ -252,7 +312,8 @@ export class ChromiumSessionMigrationFreshCoordinator {
       descriptor,
       kind,
       envelopeBytes.byteLength,
-      evidence
+      evidence,
+      cookieEvidence
     );
     const metadataBytes = encodeChromiumSessionMigrationFreshHelperRequest(
       request
@@ -292,11 +353,12 @@ export class ChromiumSessionMigrationFreshCoordinator {
     envelopeBytes: Buffer,
     assertCurrent: () => Promise<void>,
     signal?: AbortSignal
-  ): Promise<string> {
+  ): Promise<ChromiumSessionMigrationFreshReceipt> {
     const applied = await this.run(
       descriptor,
       "apply",
       envelopeBytes,
+      undefined,
       undefined,
       signal
     );
@@ -306,16 +368,22 @@ export class ChromiumSessionMigrationFreshCoordinator {
       "verify",
       envelopeBytes,
       applied.exitEvidenceSha256,
+      descriptor.cookiePolicy === "bestEffort" ? applied : undefined,
       signal
     );
     if (applied.exitEvidenceSha256 === verified.exitEvidenceSha256) {
       throw invalidReceipt();
     }
-    return cleanReceiptId(
-      descriptor,
-      applied.exitEvidenceSha256,
-      verified.exitEvidenceSha256
-    );
+    return Object.freeze({
+      cleanFlushReceiptId: cleanReceiptId(
+        descriptor,
+        applied.exitEvidenceSha256,
+        verified.exitEvidenceSha256,
+        applied
+      ),
+      cookieCount: applied.cookieCount,
+      cookieSkippedCount: applied.cookieSkippedCount
+    });
   }
 
   async verifyCommitted(
@@ -329,6 +397,7 @@ export class ChromiumSessionMigrationFreshCoordinator {
       "resumeVerify",
       envelopeBytes,
       committedReceiptId,
+      undefined,
       signal
     );
   }
@@ -341,13 +410,14 @@ export class ChromiumSessionMigrationFreshCoordinator {
     try {
       const rolledBack = await this.run(
         descriptor,
-        "rollback", envelopeBytes, undefined, signal
+        "rollback", envelopeBytes, undefined, undefined, signal
       );
       const verified = await this.run(
         descriptor,
         "rollbackVerify",
         envelopeBytes,
         rolledBack.exitEvidenceSha256,
+        undefined,
         signal
       );
       return rolledBack.exitEvidenceSha256 !== verified.exitEvidenceSha256;

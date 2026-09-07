@@ -114,7 +114,7 @@ pub(crate) fn expand_target_transition(
     })
 }
 
-pub(super) fn validate_record_clean_flush_receipt(
+pub(crate) fn validate_record_clean_flush_receipt(
     record: &RoleSessionMigrationRecord,
 ) -> CoreResult<()> {
     let Some(receipt) = record.clean_flush_receipt_id.as_deref() else {

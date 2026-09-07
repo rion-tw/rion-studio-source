@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isPersistentRuntimeError, toMessage } from "../src/renderer/src/app/errorUtils";
+import { isPersistentRuntimeError, isSessionMigrationRequired, toMessage } from "../src/renderer/src/app/errorUtils";
 import {
   languages,
   loadTranslations,
@@ -9,6 +9,20 @@ import {
 } from "../src/renderer/src/i18n";
 
 describe("renderer error localization", () => {
+  it("explains migration blockers from shell, workspace and wrapped bridge errors in every locale", async () => {
+    const message = "[BROWSER_RUNTIME_CAPABILITY_UNAVAILABLE] The bundled Chromium runtime cannot satisfy this launch because SessionMigrationRequired.";
+    const copiedError = Object.defineProperty({}, "message", { value: message });
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      for (const error of [message, new Error(message), copiedError, { code: "BROWSER_RUNTIME_CAPABILITY_UNAVAILABLE", message }]) {
+        expect(isSessionMigrationRequired(error)).toBe(true);
+        expect(toMessage(error, language, key => translations[key])).toBe(translations["recovery.launchBlocked"]);
+      }
+    }
+    for (const error of [null, {}, { code: "BROWSER_RUNTIME_CAPABILITY_UNAVAILABLE" }, "SESSION_MIGRATION_TRANSFER_INVALID", "SessionMigrationRequiredButDifferent", message.replace("SessionMigrationRequired", "TrustedInputUnavailable")]) {
+      expect(isSessionMigrationRequired(error)).toBe(false);
+    }
+  });
   it("separates stopping roles from temporary input fences in every language", async () => {
     const keys = {
       MACRO_ROLE_STOPPING: "error.macroRoleStopping",

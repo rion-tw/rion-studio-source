@@ -1,6 +1,7 @@
 import { localizeErrorMessage, type Language, type Translator } from "../i18n";
 
 export function toMessage(error: unknown, language: Language, t: Translator): string {
+  if (isSessionMigrationRequired(error)) return t("recovery.launchBlocked");
   if (isErrorLike(error)) {
     const errorKey = localizedErrorKey(error.code);
     if (errorKey) return t(errorKey);
@@ -12,6 +13,13 @@ export function toMessage(error: unknown, language: Language, t: Translator): st
   }
 
   return t("error.unexpected");
+}
+
+export function isSessionMigrationRequired(error: unknown): boolean {
+  // contextBridge may copy Error across realms without enumerable properties.
+  // Read the message structurally; instanceof/JSON.stringify can lose it.
+  const message = typeof error === "string" ? error : isErrorLike(error) ? error.message : "";
+  return /\b(?:SessionMigrationRequired|sessionMigrationRequired|session-migration-required)\b/u.test(message);
 }
 
 export function isPersistentRuntimeError(error: unknown): boolean {

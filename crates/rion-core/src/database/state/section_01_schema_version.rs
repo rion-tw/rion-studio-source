@@ -100,6 +100,7 @@ enum Request {
         RoleSessionMigrationStartInput,
         Sender<CoreResult<RoleSessionMigrationRecord>>,
     ),
+    RoleSessionRecoveryAdmit(Box<crate::session_recovery::commit::Admission>, Sender<CoreResult<RoleSessionMigrationRecord>>),
     RoleSessionMigrationImportBegin(
         crate::RoleSessionMigrationPlatform,
         u32,
@@ -425,6 +426,10 @@ impl StateDatabaseWorker {
         })
     }
 
+    pub(crate) fn admit_role_session_recovery(&self, input: crate::session_recovery::commit::Admission) -> CoreResult<RoleSessionMigrationRecord> {
+        request(&self.sender, |response| Request::RoleSessionRecoveryAdmit(Box::new(input), response))
+    }
+
     pub(crate) fn begin_role_session_migration_import(
         &self,
         expected_platform: crate::RoleSessionMigrationPlatform,
@@ -635,6 +640,9 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             }
             Request::RoleSessionMigrationStart(input, response) => {
                 let _ = response.send(crate::session_migration::start(&mut connection, input));
+            }
+            Request::RoleSessionRecoveryAdmit(input,response) => {
+                let _ = response.send(crate::session_recovery::commit::admit(&mut connection,*input));
             }
             Request::RoleSessionMigrationImportBegin(
                 expected_platform,

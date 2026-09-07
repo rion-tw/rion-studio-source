@@ -8,6 +8,16 @@ fn windows_source_evidence() -> RoleSessionTransferSourceEvidenceRecord {
     }
 }
 
+fn windows_profile_source_evidence() -> RoleSessionTransferSourceEvidenceRecord {
+    RoleSessionTransferSourceEvidenceRecord {
+        kind: RoleSessionTransferSourceEvidenceKind::Webview2ProfileSnapshot,
+        runtime_version: "legacy-webview2-profile".to_owned(),
+        protocol_version: "1.0".to_owned(),
+        partition_capability:
+            RoleSessionTransferCookiePartitionCapability::ProfileDatabaseBestEffort,
+    }
+}
+
 fn windows_test_envelope() -> RoleSessionTransferEnvelopeRecord {
     let mut envelope = test_envelope();
     envelope.metadata.platform = RoleSessionMigrationPlatform::Windows;
@@ -122,6 +132,24 @@ fn source_evidence_rejects_future_fields_and_missing_partition_capability() {
     expect_error(
         RoleSessionTransferEnvelopeRecord::from_json(&serde_json::to_vec(&missing).unwrap()),
         "ROLE_SESSION_TRANSFER_ENVELOPE_INVALID",
+    );
+}
+
+#[test]
+fn best_effort_profile_snapshot_evidence_is_distinct_from_native_cookie_evidence() {
+    let mut raw = windows_test_envelope();
+    raw.metadata.source_evidence = Some(windows_profile_source_evidence());
+    raw.validate().unwrap();
+
+    raw.metadata
+        .source_evidence
+        .as_mut()
+        .unwrap()
+        .partition_capability =
+        RoleSessionTransferCookiePartitionCapability::NetworkCookiePartitionKeyAndOpaque;
+    expect_error(
+        raw.validate(),
+        "ROLE_SESSION_TRANSFER_SOURCE_EVIDENCE_INVALID",
     );
 }
 

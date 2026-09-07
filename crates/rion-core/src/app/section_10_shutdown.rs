@@ -791,6 +791,10 @@ fn recover_operation_journals(
     user_data_dir: &std::path::Path,
 ) -> CoreResult<()> {
     for journal in state.operation_journals()? {
+        if journal.kind == "role_session_recovery_v1" || journal.kind == crate::session_recovery::fresh::KIND {
+            // Retain attempt history. Restart is never source or target success.
+            continue;
+        }
         if journal.kind == "native_effect_compensation_v1" {
             if journal.phase != "restart-required" {
                 return Err(CoreError::Migration(format!(

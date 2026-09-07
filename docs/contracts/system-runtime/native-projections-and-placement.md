@@ -119,6 +119,16 @@ that owner-priority sequence is never observable as tab-strip insertion order.
 Each later create replaces the matching reserved presentation item in place;
 there is no final corrective reorder after the window becomes visible.
 
+Consumed legacy display metadata is resolved against the frozen Electron screen
+snapshot before launch admission. A legacy `Monitor #<number>` fingerprint may
+match a different Electron ID/name only when logical bounds, physical resolution
+(DIP bounds times scale), scale, primary status and internal status identify one
+display. Pre-fingerprint records require one exact saved-work-area match. Missing
+or ambiguous matches fail without choosing an arbitrary primary display. Modern
+fingerprints retain exact matching. Launch and empty-window registration retain
+their topology revision fences; an unchanged legacy saved record may acknowledge
+registration before a native placement event persists the current display data.
+
 Legacy saved Workspace tabs that predate complete Workspace-slot snapshots merge
 their saved Role geometry onto the current source Workspace by slot ID, then
 Role ID. Existing Web and empty slots are retained; a missing source Workspace

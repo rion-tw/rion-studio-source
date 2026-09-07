@@ -35,7 +35,7 @@ export interface ChromiumSessionMigrationLocalStorageOrigin {
   readonly entries: readonly ChromiumSessionMigrationLocalStorageEntry[];
 }
 
-export interface ChromiumSessionMigrationWindowsSourceEvidence {
+interface ChromiumSessionMigrationWindowsNativeSourceEvidence {
   /**
    * Canonical v1 source policy also rejects partitioned cookies and anything
    * outside Medium priority, a secure-matched scheme, and effective port 80/443.
@@ -46,6 +46,17 @@ export interface ChromiumSessionMigrationWindowsSourceEvidence {
   readonly protocolVersion: string;
   readonly partitionCapability: "networkCookiePartitionKeyAndOpaque";
 }
+
+interface ChromiumSessionMigrationWindowsProfileSourceEvidence {
+  readonly kind: "webview2ProfileSnapshot";
+  readonly runtimeVersion: string;
+  readonly protocolVersion: string;
+  readonly partitionCapability: "profileDatabaseBestEffort";
+}
+
+export type ChromiumSessionMigrationWindowsSourceEvidence =
+  ChromiumSessionMigrationWindowsNativeSourceEvidence |
+  ChromiumSessionMigrationWindowsProfileSourceEvidence;
 
 export interface ParsedChromiumSessionMigrationInventory {
   readonly roleId: string;
@@ -62,6 +73,7 @@ export interface ParsedChromiumSessionMigrationInventory {
 export interface ChromiumSessionMigrationEnvelopeExpectation {
   readonly journal: RoleSessionMigrationRecord;
   readonly platform: RoleSessionMigrationPlatform;
+  readonly allowBestEffortWindowsProfileSnapshot?: boolean;
 }
 
 function migrationError(code: string, message: string): RionBridgeError {
@@ -176,7 +188,8 @@ function utf16LocalStorageValue(value: unknown): string {
 
 function parseSourceEvidence(
   value: unknown,
-  platform: RoleSessionMigrationPlatform
+  platform: RoleSessionMigrationPlatform,
+  allowBestEffortWindowsProfileSnapshot: boolean
 ): ChromiumSessionMigrationWindowsSourceEvidence | null {
   if (platform === "macos") {
     if (value !== undefined) throw invalidSourceEvidence();
@@ -200,20 +213,21 @@ function parseSourceEvidence(
     /^[\x21-\x7e]+$/u.test(evidence.runtimeVersion);
   const protocolVersionIsExact = typeof evidence.protocolVersion === "string" &&
     /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(evidence.protocolVersion);
-  if (
-    evidence.kind !== "webview2StorageGetCookies" ||
-    evidence.partitionCapability !== "networkCookiePartitionKeyAndOpaque" ||
-    !runtimeVersionIsExact ||
-    !protocolVersionIsExact
-  ) {
+  const nativeEvidence = evidence.kind === "webview2StorageGetCookies" &&
+    evidence.partitionCapability === "networkCookiePartitionKeyAndOpaque";
+  const profileEvidence = allowBestEffortWindowsProfileSnapshot &&
+    evidence.kind === "webview2ProfileSnapshot" &&
+    evidence.partitionCapability === "profileDatabaseBestEffort";
+  if ((!nativeEvidence && !profileEvidence) ||
+    !runtimeVersionIsExact || !protocolVersionIsExact) {
     throw invalidSourceEvidence();
   }
   return Object.freeze({
-    kind: "webview2StorageGetCookies",
+    kind: evidence.kind,
     runtimeVersion: evidence.runtimeVersion as string,
     protocolVersion: evidence.protocolVersion as string,
-    partitionCapability: "networkCookiePartitionKeyAndOpaque"
-  });
+    partitionCapability: evidence.partitionCapability
+  }) as ChromiumSessionMigrationWindowsSourceEvidence;
 }
 
 function parseCookie(value: unknown): ChromiumSessionMigrationCookie {
@@ -424,7 +438,8 @@ export function parseChromiumSessionMigrationEnvelope(
   }
   const sourceEvidence = parseSourceEvidence(
     metadata.sourceEvidence,
-    expectation.platform
+    expectation.platform,
+    expectation.allowBestEffortWindowsProfileSnapshot === true
   );
 
   const inventory = record(envelope.inventory);

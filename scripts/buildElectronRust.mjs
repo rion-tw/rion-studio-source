@@ -89,6 +89,12 @@ function verifyDesktopE2eAddonSurface(addonPath, expected) {
       ? "The desktop-E2E Rust addon is missing its retained-v22 Core factory."
       : "The production Rust addon exposes a forbidden desktop-E2E Core factory.");
   }
+  const recoveryFixturePresent = typeof corePrototype.seedRoleSessionRecoveryForDesktopE2e === "function";
+  if (expected !== recoveryFixturePresent) {
+    throw new Error(expected
+      ? "The desktop-E2E Rust addon is missing its synthetic session-recovery seed."
+      : "The production Rust addon exposes a forbidden session-recovery seed.");
+  }
   const prototype = addon.NativeAppKitRuntimeHost?.prototype;
   if (!prototype) {
     throw new Error("The Rust addon does not export the AppKit runtime-host class.");

@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { formatUpgradeResult } from "../features/roles/upgradeResult";
 import { createCopyName } from "../app/copyName";
 import { formatBulkDeleteResult } from "../app/bulkDelete";
+import { isSessionMigrationRequired } from "../app/errorUtils";
 import type { RoleFormState, SidebarFilter } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
@@ -26,6 +28,7 @@ export function useRoleWorkflow({
   t
 }: UseRoleWorkflowOptions) {
   const confirm = useConfirmation();
+  const [recoveryRoleId, setRecoveryRoleId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<SidebarFilter>("all");
   const [query, setQuery] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -34,6 +37,16 @@ export function useRoleWorkflow({
   const isReorderingRolesRef = useRef(false);
   const isSavingRef = useRef(false);
   const listScrollTopRef = useRef(0);
+
+  useEffect(() => window.rionStudio.onSessionMigrationRecovery?.((record) => {
+    const role = roles.find(item => item.id === record.roleId);
+    if (!role) return;
+    if (record.phase === "freshReady" && record.upgradeResult) {
+      setNotice?.(formatUpgradeResult(role.name, record.upgradeResult, t));
+    } else if (record.phase === "reading" || record.phase === "isolatedImport") {
+      setNotice?.(t("recovery.upgradeProgress").replace("{name}", role.name));
+    }
+  }), [roles, setNotice, t]);
 
   const filteredRoles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -121,7 +134,9 @@ export function useRoleWorkflow({
       }
       return status;
     } catch (launchError) {
-      reportError(launchError);
+      if (isSessionMigrationRequired(launchError)) {
+        setRecoveryRoleId(roleId);
+      } else { reportError(launchError); }
       return undefined;
     } finally {
       finishBusy();
@@ -261,6 +276,8 @@ export function useRoleWorkflow({
   }
 
   return {
+    recoveryRoleId,
+    setRecoveryRoleId,
     activeFilter,
     busyRoleIds,
     filteredRoles,

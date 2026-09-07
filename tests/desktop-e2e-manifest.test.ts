@@ -85,19 +85,19 @@ describe("desktop E2E manifest resolution", () => {
     ) as DesktopE2eManifest;
     {
       const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended");
-      expect(extended.phases).toHaveLength(63);
+      expect(extended.phases).toHaveLength(66);
       expect(extended.phases).toEqual(expect.arrayContaining([
         "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
       ]));
-      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended")).toHaveLength(55);
+      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended")).toHaveLength(57);
     }
     {
       const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended");
-      expect(extended.phases).toHaveLength(65);
+      expect(extended.phases).toHaveLength(68);
       expect(extended.phases).toEqual(expect.arrayContaining([
         "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
       ]));
-      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended")).toHaveLength(57);
+      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended")).toHaveLength(59);
     }
 
     for (const profileName of [

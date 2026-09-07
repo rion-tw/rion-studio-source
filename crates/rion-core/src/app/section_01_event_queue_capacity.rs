@@ -324,6 +324,7 @@ impl Drop for BrowserOperationGuard<'_> {
 }
 
 pub struct AppCore {
+    session_recovery: Mutex<crate::session_recovery::Runtime>,
     extensions: Mutex<crate::extensions::ExtensionRuntime>,
     app_version: String,
     app_snapshot_sequence: AtomicU64,
@@ -527,6 +528,7 @@ impl AppCore {
                 crate::chrome_profile_import_contract::ChromeProfileImportContractRuntime::default(
                 ),
             ),
+            session_recovery: Mutex::new(crate::session_recovery::Runtime::default()),
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
             browser_runtime_issues: RwLock::new(std::collections::HashMap::new()),

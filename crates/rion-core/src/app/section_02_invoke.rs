@@ -1,6 +1,7 @@
 impl AppCore {
     pub fn invoke(&self, command: CoreCommand) -> CoreResult<Value> {
         match command {
+            CoreCommand::RoleSessionRecovery { command } => self.session_recovery_read_command(command),
             CoreCommand::Extensions { command } => self.extensions_command(command),
             CoreCommand::Health => self.with_runtime(|runtime| {
                 Ok(json!({

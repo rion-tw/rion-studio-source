@@ -106,6 +106,8 @@ async function invokeCoreBackedMethod<Method extends RionApiDispatchMethod>(
     });
   }
   switch (method) {
+    case "sessionMigrationRecovery":
+      return core.invoke({ type: "roleSessionRecovery", command: args[0] as RionApiArgs<"sessionMigrationRecovery">[0] });
     case "getLegalAcceptanceStatus":
       return core.invoke({ type: "legalAcceptanceStatus" });
     case "acceptLegalDocuments": {

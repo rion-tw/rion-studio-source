@@ -163,6 +163,12 @@ pub struct GlobalWebProfileClearReceiptRecord {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreEffectAction {
+    RoleSessionRecoveryImport {
+        role_id: String,
+        attempt_id: String,
+        transfer_id: String,
+        best_effort_cookies: bool,
+    },
     GlobalWebProfileClear {
         profile: GlobalWebProfilePathsRecord,
     },
@@ -435,7 +441,8 @@ pub enum CoreEffectAction {
 impl CoreEffectAction {
     pub const fn completion_policy(&self) -> OperationCompletionPolicy {
         match self {
-            Self::ChromeProfileImportSnapshot {
+            Self::RoleSessionRecoveryImport { .. }
+            | Self::ChromeProfileImportSnapshot {
                 chromium_user_data_dir: Some(_),
                 ..
             }

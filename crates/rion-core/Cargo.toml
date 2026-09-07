@@ -7,6 +7,12 @@ license.workspace = true
 
 [features]
 default = []
+session-migration-diagnostics = []
+
+[[bin]]
+name = "rion-session-migration-diagnostics"
+path = "src/bin/session_migration_diagnostics.rs"
+required-features = ["session-migration-diagnostics"]
 
 [dependencies]
 hex.workspace = true

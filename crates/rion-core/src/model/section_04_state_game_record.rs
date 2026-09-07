@@ -473,6 +473,7 @@ pub struct CoreStateSnapshotRecord {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreEvent {
+    RoleSessionRecoveryChanged { record: crate::RoleSessionRecoveryRecord },
     ExtensionsChanged { snapshot: ExtensionSnapshotRecord },
     Ready {
         #[serde(rename = "schemaVersion")]

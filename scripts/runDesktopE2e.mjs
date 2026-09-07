@@ -119,6 +119,7 @@ const focusedPhaseDependencies = new Map([
   ["chromium-quit-guard-restart", ["chromium-quit-guard-seed"]],
   ["chromium-role-session-isolation-restart", ["chromium-role-session-isolation-seed"]],
   ["chromium-role-session-reset-restart", ["chromium-role-session-reset-seed"]],
+  ["chromium-role-session-upgrade-restart", ["chromium-role-session-upgrade-seed"]],
   ["chromium-chrome-profile-import-restart", ["chromium-chrome-profile-import-seed"]]
 ]);
 focusedPhaseDependencies.set("chromium-extensions-restart", ["chromium-extensions-seed"]);
@@ -149,6 +150,8 @@ const phaseNamespaces = new Map([
   ["chromium-quit-guard-restart", "chromium-quit-guard-lifecycle"],
   ["chromium-role-session-isolation-seed", "chromium-role-session-isolation-lifecycle"],
   ["chromium-role-session-isolation-restart", "chromium-role-session-isolation-lifecycle"],
+  ["chromium-role-session-upgrade-seed", "chromium-role-session-upgrade-lifecycle"],
+  ["chromium-role-session-upgrade-restart", "chromium-role-session-upgrade-lifecycle"],
   ["chromium-role-session-reset-seed", "chromium-role-session-reset-lifecycle"],
   ["chromium-role-session-reset-restart", "chromium-role-session-reset-lifecycle"],
   ["chromium-chrome-profile-import-seed", "chromium-chrome-profile-import-lifecycle"],

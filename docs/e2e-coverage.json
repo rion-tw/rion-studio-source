@@ -102,7 +102,10 @@
         "chromium-tabs-visible-seed",
         "chromium-tabs-visible-restart",
         "chromium-chrome-profile-import-seed",
-        "chromium-chrome-profile-import-restart"
+        "chromium-chrome-profile-import-restart",
+        "chromium-role-session-recovery",
+        "chromium-role-session-upgrade-seed",
+        "chromium-role-session-upgrade-restart"
       ],
       "specs": [
         "e2e/desktop/specs/chromium-extensions.e2e.ts",
@@ -134,7 +137,9 @@
         "e2e/desktop/specs/chromium-mixed-recovery.e2e.ts",
         "e2e/desktop/specs/chromium-window-recovery-ui.e2e.ts",
         "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
-        "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts"
+        "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
+        "e2e/desktop/specs/chromium-role-session-recovery.e2e.ts",
+        "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts"
       ]
     },
     "chromium-windows-smoke": {
@@ -204,7 +209,10 @@
         "chromium-tabs-visible-seed",
         "chromium-tabs-visible-restart",
         "chromium-chrome-profile-import-seed",
-        "chromium-chrome-profile-import-restart"
+        "chromium-chrome-profile-import-restart",
+        "chromium-role-session-recovery",
+        "chromium-role-session-upgrade-seed",
+        "chromium-role-session-upgrade-restart"
       ],
       "specs": [
         "e2e/desktop/specs/chromium-extensions.e2e.ts",
@@ -238,7 +246,9 @@
         "e2e/desktop/specs/chromium-window-recovery-ui.e2e.ts",
         "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
         "e2e/desktop/specs/chromium-windows-trusted-input-physical.e2e.ts",
-        "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts"
+        "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
+        "e2e/desktop/specs/chromium-role-session-recovery.e2e.ts",
+        "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts"
       ]
     },
     "chromium-macos-appkit-hardware-extended": {
@@ -2530,7 +2540,7 @@
         "failure",
         "restart"
       ],
-      "description": "Pre-seed a real retained-v22 Role through the desktop-E2E-only native entry, prove Core blocks its visible launch without a v23Ready journal, visibly choose Clear saved data and confirm the exact Chromium clear receipt plus atomic explicitReset journal, then launch in the retained AppKit Chromium host and launch again after restart."
+      "description": "Pre-seed a real retained-v22 Role through the desktop-E2E-only native entry, observe its missing journal, visibly choose Clear saved data and confirm the exact Chromium clear receipt plus atomic explicitReset journal, then launch in the retained AppKit Chromium host and launch again after restart."
     },
     {
       "id": "CHROMIUM-WINDOWS-ROLE-EXPLICIT-RESET-007",
@@ -2554,7 +2564,7 @@
         "failure",
         "restart"
       ],
-      "description": "Pre-seed a real retained-v22 Role through the desktop-E2E-only native entry, prove Core blocks its visible launch without a v23Ready journal, visibly choose Clear saved data and confirm the exact Chromium clear receipt plus atomic explicitReset journal, then launch in the Windows Chromium host and launch again after restart."
+      "description": "Pre-seed a real retained-v22 Role through the desktop-E2E-only native entry, observe its missing journal, visibly choose Clear saved data and confirm the exact Chromium clear receipt plus atomic explicitReset journal, then launch in the Windows Chromium host and launch again after restart."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-TABS-VISIBLE-ACTIVATION-019",
@@ -3315,6 +3325,96 @@
         "restart"
       ],
       "description": "Select GPU rasterization and video decoding through the dedicated Graphics settings page in the General sidebar group, verify Preferences contains no graphics controls, disable hardware acceleration, read the always-visible GPU diagnostics in their own group, then verify the saved subordinate choices and actual disabled acceleration in a fresh process using the same SQLite namespace."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-ROLE-SESSION-RECOVERY-033",
+      "coverageGroup": "chromium-role-session-source-recovery",
+      "feature": "roles",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-role-session-recovery"
+      ],
+      "spec": "e2e/desktop/specs/chromium-role-session-recovery.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Use visible role-menu recovery on a known-answer authenticated v8 export. Supported sources require isolated and formal fresh-process receipts; unsupported source recovery leaves the original journal unchanged. Ordinary first-launch continuation and deterministic raw fallback are covered by ROLE-SESSION-UPGRADE-034 and focused Core tests."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-ROLE-SESSION-RECOVERY-033",
+      "coverageGroup": "chromium-role-session-source-recovery",
+      "feature": "roles",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-role-session-recovery"
+      ],
+      "spec": "e2e/desktop/specs/chromium-role-session-recovery.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Use visible role-menu recovery on a known-answer authenticated v8 export. Supported sources require isolated and formal fresh-process receipts; unsupported source recovery leaves the original journal unchanged. Ordinary first-launch continuation and deterministic raw fallback are covered by ROLE-SESSION-UPGRADE-034 and focused Core tests."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-ROLE-SESSION-UPGRADE-034",
+      "coverageGroup": "chromium-role-session-partial-upgrade",
+      "feature": "roles",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-role-session-upgrade-seed",
+        "chromium-role-session-upgrade-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Visible Open automatically finishes the first legacy upgrade without changing role identity or the old migration journal. A known Cookie readback failure preserves two independently verified LocalStorage origins. A fresh application process opens the same role and session without another import, and the result remains available from the role menu."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-ROLE-SESSION-UPGRADE-034",
+      "coverageGroup": "chromium-role-session-partial-upgrade",
+      "feature": "roles",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-role-session-upgrade-seed",
+        "chromium-role-session-upgrade-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Visible Open automatically finishes the first legacy upgrade without changing role identity or the old migration journal. A known Cookie readback failure preserves two independently verified LocalStorage origins. A fresh application process opens the same role and session without another import, and the result remains available from the role menu."
     }
   ],
   "retiredCompatibility": {

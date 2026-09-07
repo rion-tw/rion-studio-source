@@ -5,6 +5,8 @@
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
+    "diagnose:session-migration": "node scripts/migrationDiagnostics/run.mjs",
+    "test:session-migration-diagnostics": "cargo test --locked -p rion-core --features session-migration-diagnostics migration_diagnostics",
     "dev": "pnpm run dev:electron",
     "dev:electron": "pnpm run build:electron:rust && electron-vite dev --config electron.vite.config.ts",
     "build": "pnpm run build:electron",

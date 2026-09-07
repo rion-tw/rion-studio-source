@@ -538,6 +538,8 @@ describe("Chromium session migration importer", () => {
           request,
           {
             readbackCookieCount: 0,
+            cookieSkippedCount: 0,
+            acceptedCookieInventorySha256: sha256(Buffer.from("[]")),
             checkedLocalStorageOriginCount: 1,
             readbackLocalStorageEntryCount: 1,
             surfaceDrainEvidenceSha256: "c".repeat(64),
@@ -683,6 +685,8 @@ describe("Chromium session migration importer", () => {
           request,
           {
             readbackCookieCount: 0,
+            cookieSkippedCount: 0,
+            acceptedCookieInventorySha256: sha256(Buffer.from("[]")),
             checkedLocalStorageOriginCount: 1,
             readbackLocalStorageEntryCount: 1,
             surfaceDrainEvidenceSha256: "e".repeat(64),
@@ -752,6 +756,8 @@ describe("Chromium session migration importer", () => {
           request,
           {
             readbackCookieCount: 0,
+            cookieSkippedCount: 0,
+            acceptedCookieInventorySha256: sha256(Buffer.from("[]")),
             checkedLocalStorageOriginCount: 1,
             readbackLocalStorageEntryCount: imported ? 1 : 0,
             surfaceDrainEvidenceSha256: "5".repeat(64),

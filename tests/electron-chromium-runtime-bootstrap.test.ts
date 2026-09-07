@@ -90,6 +90,7 @@ function exportedMigrationJournal(): RoleSessionMigrationRecord {
 }
 
 class FakeCore implements ChromiumRuntimeCorePort {
+  readRoleSessionRecoveryInternal = async (): Promise<Buffer> => { throw new Error("no active recovery"); };
   readonly commands: CoreCommand[] = [];
   readonly dispatches: CoreEffectResult[][] = [];
   readonly order: string[];

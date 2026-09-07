@@ -1538,3 +1538,5 @@ fn database_corruption_error() -> CoreError {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) use target_transition::validate_record_clean_flush_receipt as validate_recovery_clean_receipt;

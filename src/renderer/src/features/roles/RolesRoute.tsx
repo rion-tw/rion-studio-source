@@ -104,6 +104,7 @@ interface RolesViewProps {
   t: Translator;
   onError: (error: unknown) => void;
   onClearQuery: () => void;
+  onRecoverSession?: (role: Role) => void;
   onClearBrowserData: (role: Role) => void;
   onCopy: (role: Role) => void;
   onDelete: (role: Role) => void;
@@ -131,6 +132,7 @@ function RolesView({
   statusByRole,
   t,
   onClearQuery,
+  onRecoverSession,
   onClearBrowserData,
   onCopy,
   onDelete,
@@ -306,6 +308,7 @@ function RolesView({
                 selectionRef={selection.registerItem(role.id)}
                 t={t}
                 onCopy={() => onCopy(role)}
+                onRecoverSession={() => onRecoverSession?.(role)}
                 onClearBrowserData={() => onClearBrowserData(role)}
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
@@ -361,6 +364,7 @@ interface RoleCardProps {
   isDropTarget: boolean;
   isSelected: boolean;
   onCopy: () => void;
+  onRecoverSession?: () => void;
   onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -383,6 +387,7 @@ function RoleCard({
   isDropTarget,
   isSelected,
   onCopy,
+  onRecoverSession,
   onClearBrowserData,
   onDelete,
   onEdit,
@@ -453,6 +458,7 @@ function RoleCard({
           source={{ id: role.id, type: "role" }}
           t={t}
           onCopy={onCopy}
+          onRecoverSession={onRecoverSession}
           onClearBrowserData={onClearBrowserData}
           onDelete={onDelete}
           onEdit={onEdit}
@@ -535,7 +541,8 @@ function RoleCard({
         source={{ id: role.id, type: "role" }}
         t={t}
         onCopy={onCopy}
-        onClearBrowserData={onClearBrowserData}
+        onRecoverSession={onRecoverSession}
+          onClearBrowserData={onClearBrowserData}
         onDelete={onDelete}
         onEdit={onEdit}
         onLaunchDestination={onLaunch}
@@ -551,6 +558,7 @@ interface RoleActionMenuProps {
   isDragging: boolean;
   isOnCover?: boolean;
   onCopy: () => void;
+  onRecoverSession?: () => void;
   onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -568,6 +576,7 @@ function RoleActionMenu({
   isDragging,
   isOnCover = false,
   onCopy,
+  onRecoverSession,
   onClearBrowserData,
   onDelete,
   onEdit,
@@ -623,6 +632,7 @@ function RoleActionMenu({
             onSelect={onLaunchDestination}
           />
           <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={isBusy} onSelect={onRecoverSession}>{t("recovery.title")}</DropdownMenuItem>
           <DropdownMenuItem
             className="gap-1.5 text-destructive"
             disabled={isBusy}
@@ -651,6 +661,7 @@ function RoleContextMenuContent({
   source,
   t,
   onCopy,
+  onRecoverSession,
   onClearBrowserData,
   onDelete,
   onEdit,
@@ -675,6 +686,7 @@ function RoleContextMenuContent({
         onSelect={onLaunchDestination}
       />
       <ContextMenuSeparator />
+      <ContextMenuItem disabled={isBusy} onSelect={onRecoverSession}>{t("recovery.title")}</ContextMenuItem>
       <ContextMenuItem className="gap-1.5 text-destructive" disabled={isBusy} onSelect={onClearBrowserData}>
         <Eraser size={14} />
         <span>{t("role.clearSavedData")}</span>

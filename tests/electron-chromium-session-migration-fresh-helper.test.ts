@@ -92,6 +92,7 @@ function fixture() {
     envelopeSha256: sha256(envelope),
     inventorySha256: sha256(Buffer.from(JSON.stringify(inventory))),
     cookieCount: 1,
+    cookiePolicy: "exact",
     localStorageOriginCount: 1,
     localStorageEntryCount: 1,
     envelopeBytes: envelope.byteLength
@@ -125,7 +126,10 @@ function localStorageFor(
   } as Storage;
 }
 
-function nativePorts(persistent: PersistentStorage): {
+function nativePorts(
+  persistent: PersistentStorage,
+  rejectedCookieName?: string
+): {
   sessions: ChromiumSessionFactoryPort;
   views: ChromiumMigrationWebContentsViewFactoryPort;
   fromPath: ReturnType<typeof vi.fn>;
@@ -139,6 +143,9 @@ function nativePorts(persistent: PersistentStorage): {
         flushStore: vi.fn(async () => undefined),
         get: vi.fn(async () => persistent.cookies.map((cookie) => ({ ...cookie }))),
         set: vi.fn(async (details: CookiesSetDetails) => {
+          if (details.name === rejectedCookieName) {
+            throw new Error("synthetic cookie rejection");
+          }
           const url = new URL(details.url);
           const cookie: Cookie = {
             name: details.name ?? "",
@@ -154,7 +161,15 @@ function nativePorts(persistent: PersistentStorage): {
               : { expirationDate: details.expirationDate }),
             sameSite: details.sameSite ?? "lax"
           };
-          persistent.cookies = [cookie];
+          persistent.cookies = [
+            ...persistent.cookies.filter((existing) => !(
+              existing.name === cookie.name &&
+              (existing.domain ?? "").replace(/^\./u, "") ===
+                (cookie.domain ?? "").replace(/^\./u, "") &&
+              existing.path === cookie.path
+            )),
+            cookie
+          ];
         })
       },
       clearStorageData: vi.fn(async () => {
@@ -226,6 +241,61 @@ function nativePorts(persistent: PersistentStorage): {
 }
 
 describe("Chromium session migration fresh helper", () => {
+  it("admits Windows profile-snapshot evidence only for best-effort cookie import", async () => {
+    const initial = fixture();
+    const document = JSON.parse(initial.envelope.toString("utf8")) as {
+      metadata: Record<string, unknown>;
+    };
+    document.metadata.platform = "windows";
+    document.metadata.sourceEngine = "webview2";
+    document.metadata.sourceEvidence = {
+      kind: "webview2ProfileSnapshot",
+      runtimeVersion: "legacy-webview2-profile",
+      protocolVersion: "1.0",
+      partitionCapability: "profileDatabaseBestEffort"
+    };
+    const envelope = Buffer.from(JSON.stringify(document));
+    const request: ChromiumSessionMigrationFreshHelperRequest = {
+      ...initial.request,
+      platform: "windows",
+      cookiePolicy: "bestEffort",
+      envelopeSha256: sha256(envelope),
+      envelopeBytes: envelope.byteLength,
+      rolePaths: {
+        browserUserDataDir: `C:\\RionData\\roles\\${ROLE_ID}\\browser`,
+        systemBrowserDataDir: `C:\\RionData\\roles\\${ROLE_ID}\\browser\\system`,
+        webview2UserDataDir: `C:\\RionData\\roles\\${ROLE_ID}\\browser\\webview2`,
+        chromiumUserDataDir: `C:\\RionData\\roles\\${ROLE_ID}\\browser\\chromium`,
+        webkitDataStoreKey: `role:${ROLE_ID}:wkwebview`,
+        webkitDataStoreIdentifier: ROLE_ID
+      }
+    };
+    const persistent: PersistentStorage = {
+      cookies: [],
+      localStorage: new Map()
+    };
+    const ports = nativePorts(persistent);
+    const result = await new ChromiumSessionMigrationFreshHelper({
+      platform: "win32",
+      sessions: ports.sessions,
+      views: ports.views
+    }).run(request, Buffer.from(envelope));
+
+    expect({
+      outcome: result.outcome,
+      metadata: JSON.parse(result.metadataBytes.toString("utf8"))
+    }).toMatchObject({ outcome: "applied" });
+    const exact = await new ChromiumSessionMigrationFreshHelper({
+      platform: "win32",
+      sessions: ports.sessions,
+      views: ports.views
+    }).run({ ...request, cookiePolicy: "exact" }, Buffer.from(envelope));
+    expect(exact.outcome).toBe("failed");
+    expect(JSON.parse(exact.metadataBytes.toString("utf8"))).toMatchObject({
+      stableErrorCode: "CHROMIUM_SESSION_MIGRATION_SOURCE_EVIDENCE_INVALID"
+    });
+  });
+
   it("persists in one helper and verifies from a distinct fresh native Session", async () => {
     const { envelope, request } = fixture();
     const persistent: PersistentStorage = {
@@ -313,5 +383,63 @@ describe("Chromium session migration fresh helper", () => {
     expect(persistent.cookies).toEqual([]);
     expect(persistent.localStorage.get("https://game.example.com")?.size ?? 0)
       .toBe(0);
+  });
+
+  it("binds and freshly verifies the Chromium-accepted best-effort cookie subset", async () => {
+    const initial = fixture();
+    const document = JSON.parse(initial.envelope.toString("utf8")) as {
+      inventory: { cookies: Array<Record<string, unknown>> };
+    };
+    document.inventory.cookies.push({
+      ...document.inventory.cookies[0],
+      name: encoded("rejected"),
+      value: encoded("not-imported")
+    });
+    const envelope = Buffer.from(JSON.stringify(document));
+    const request: ChromiumSessionMigrationFreshHelperRequest = {
+      ...initial.request,
+      cookieCount: 2,
+      cookiePolicy: "bestEffort",
+      envelopeBytes: envelope.byteLength,
+      envelopeSha256: sha256(envelope),
+      inventorySha256: sha256(
+        Buffer.from(JSON.stringify(document.inventory))
+      )
+    };
+    const persistent: PersistentStorage = {
+      cookies: [],
+      localStorage: new Map()
+    };
+    const ports = nativePorts(persistent, "rejected");
+    const apply = await new ChromiumSessionMigrationFreshHelper({
+      platform: "darwin",
+      sessions: ports.sessions,
+      views: ports.views
+    }).run(request, Buffer.from(envelope));
+    expect(apply.outcome).toBe("applied");
+    const evidence = JSON.parse(apply.metadataBytes.toString("utf8")) as {
+      acceptedCookieInventorySha256: string;
+      readbackCookieCount: number;
+      cookieSkippedCount: number;
+    };
+    expect(evidence).toMatchObject({
+      readbackCookieCount: 1,
+      cookieSkippedCount: 1,
+      acceptedCookieInventorySha256: expect.stringMatching(/^[a-f0-9]{64}$/u)
+    });
+    const verify = await new ChromiumSessionMigrationFreshHelper({
+      platform: "darwin",
+      sessions: ports.sessions,
+      views: ports.views
+    }).run({
+      ...request,
+      kind: "verify",
+      parentExitEvidenceSha256: "c".repeat(64),
+      expectedCookieInventorySha256:
+        evidence.acceptedCookieInventorySha256,
+      expectedCookieCount: evidence.readbackCookieCount,
+      expectedCookieSkippedCount: evidence.cookieSkippedCount
+    }, Buffer.from(envelope));
+    expect(verify.outcome).toBe("applied");
   });
 });

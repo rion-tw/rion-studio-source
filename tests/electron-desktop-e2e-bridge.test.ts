@@ -1642,7 +1642,7 @@ describe("Electron desktop E2E-only bridge", () => {
       readFile("electron.vite.config.ts", "utf8")
       ]);
 
-    expect(e2eMain).toContain("runtimeContractVersion: 22");
+    expect(await readFile("src/electron/e2e/retainedRoleSeed.ts", "utf8")).toContain("runtimeContractVersion: 22");
     expect(e2eMain).toContain("seedRetainedV22Role");
     expect(e2eMain).toContain('await import("../main/index")');
     expect(productionMain).not.toContain("retainedV22Precondition");

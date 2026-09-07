@@ -1,5 +1,5 @@
 import { AlertCircle } from "lucide-react";
-import { Suspense, type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { AppSidebar } from "./components/AppSidebar";
 import { UpdateReadyBanner } from "./components/UpdateReadyBanner";
@@ -38,6 +38,8 @@ import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, QuickAccessItemRef, QuickAccessPreferences, RuntimeLaunchDestination, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
 import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppScreens";
 import { ExtensionsRoute, DashboardRoute, GameEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
+
+const RoleSessionRecoveryDialog = lazy(() => import("./features/roles/RoleSessionRecoveryDialog"));
 
 const TOAST_DISMISS_MS = 4000;
 const EMPTY_QUICK_ACCESS_PREFERENCES: QuickAccessPreferences = {
@@ -622,6 +624,10 @@ export function App(): JSX.Element {
   return (
     <div className="liquid-app-shell flex h-screen overflow-hidden text-foreground">
       {macroWorkflow.sourcePickerDialog}
+      {roleWorkflow.recoveryRoleId ? <Suspense fallback={null}>
+        <RoleSessionRecoveryDialog key={roleWorkflow.recoveryRoleId} roleId={roleWorkflow.recoveryRoleId}
+          t={preferences.t} onClose={() => roleWorkflow.setRecoveryRoleId(null)} />
+      </Suspense> : null}
       {location.pathname === "/settings" ? (
         <SettingsSidebar
           shortcutLabel={quickAccessShortcutLabel}
@@ -757,6 +763,7 @@ export function App(): JSX.Element {
                     query={roleWorkflow.query}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
+                    onRecoverSession={(role) => roleWorkflow.setRecoveryRoleId(role.id)}
                     onClearBrowserData={(role) => void roleWorkflow.handleClearBrowserData(role)}
                     onClearQuery={() => roleWorkflow.setQuery("")}
                     onCopy={(role) => void roleWorkflow.handleCopy(role)}

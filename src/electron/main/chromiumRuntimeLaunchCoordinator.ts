@@ -26,6 +26,8 @@ import {
   validBounds
 } from "./chromiumRuntimeLaunchGeometry";
 
+import { displayFingerprintMatches, resolveSavedWindowDisplay } from "./chromiumSavedWindowDisplay";
+
 type MaybePromise<Value> = Value | Promise<Value>;
 type LaunchSourceType = "role" | "workspace";
 
@@ -306,12 +308,15 @@ function sameEmptySavedWindowIdentity(
   target: EmbeddedLaunchTargetRecord,
   topology: DisplayTopologySnapshotRecord
 ): boolean {
-  const display = displayById(topology, current.targetDisplay.id);
-  const fingerprint = current.targetDisplay.fingerprint;
   const initialUpdatedAt = Date.parse(initial.updatedAt);
   const currentUpdatedAt = Date.parse(current.updatedAt);
-  if (!display || !fingerprint || !Number.isFinite(initialUpdatedAt) ||
-      !Number.isFinite(currentUpdatedAt)) return false;
+  if (!Number.isFinite(initialUpdatedAt) || !Number.isFinite(currentUpdatedAt)) return false;
+  // Registration may precede the native placement event that upgrades legacy metadata.
+  if (JSON.stringify(initial) === JSON.stringify(current) &&
+      resolveSavedWindowDisplay(current, topology)?.id === target.displayId) return true;
+  const display = displayById(topology, current.targetDisplay.id);
+  const fingerprint = current.targetDisplay.fingerprint;
+  if (!display || !fingerprint) return false;
   const persistedTarget: EmbeddedLaunchTargetRecord = {
     windowId: current.id,
     persistedName: current.name,
@@ -470,19 +475,6 @@ function targetMatchesDisplay(
     target.bounds.y >= target.workArea.y &&
     target.bounds.x + target.bounds.width <= target.workArea.x + target.workArea.width &&
     target.bounds.y + target.bounds.height <= target.workArea.y + target.workArea.height;
-}
-
-function displayFingerprintMatches(
-  saved: NonNullable<StateGameWindowRecord["targetDisplay"]["fingerprint"]>,
-  display: DisplayInfoRecord
-): boolean {
-  return saved.label === display.label &&
-    sameBounds(saved.bounds, display.bounds) &&
-    saved.resolution.width === display.resolution.width &&
-    saved.resolution.height === display.resolution.height &&
-    saved.scaleFactor === display.scaleFactor &&
-    saved.isPrimary === display.isPrimary &&
-    saved.isInternal === display.isInternal;
 }
 
 function clampBounds(
@@ -1484,9 +1476,8 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     topology: DisplayTopologySnapshotRecord
   ): EmbeddedLaunchTargetRecord {
     requireCanonicalId(saved.id, "saved Game Window");
-    const display = displayById(topology, saved.targetDisplay.id);
-    const fingerprint = saved.targetDisplay.fingerprint;
-    if (!display || !fingerprint || !displayFingerprintMatches(fingerprint, display)) {
+    const display = resolveSavedWindowDisplay(saved, topology);
+    if (!display) {
       throw launchError(
         "ELECTRON_CHROMIUM_SAVED_WINDOW_DISPLAY_UNAVAILABLE",
         "The saved Game Window display identity is unavailable or changed."

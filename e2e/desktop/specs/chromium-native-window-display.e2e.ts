@@ -73,7 +73,7 @@ async function waitNative(
 }
 
 describe("Chromium native Game Window and real display parity", () => {
-  it("uses visible native controls and a mixed-scale secondary display", async () => {
+  it("uses visible native controls and a real secondary display", async () => {
     expect(required("RION_STUDIO_E2E_PHASE"))
       .toBe("chromium-native-window-display-extended");
     const probe = await electronDesktopE2eProbe();
@@ -84,9 +84,6 @@ describe("Chromium native Game Window and real display parity", () => {
     const topology = await rendererCall("getDisplayTopology");
     if (topology.displays.length < 2) {
       throw new Error("BLOCKED: Chromium native display profile requires two real displays");
-    }
-    if (new Set(topology.displays.map((display) => display.scaleFactor)).size < 2) {
-      throw new Error("BLOCKED: Chromium native display profile requires mixed scale factors");
     }
     const target = topology.displays.find((display) => !display.isPrimary);
     if (!target) throw new Error("BLOCKED: a real secondary display is unavailable");

@@ -19,6 +19,45 @@ before this instruction. No later Windows result is required or claimed to close
 these workstation gates. Required paired-platform coverage remains in the
 repository; this execution decision does not remove or weaken CI definitions.
 
+### Owner decision: remove physical mixed-DPI acceptance — 2026-09-07
+
+The owner explicitly removes the requirement to obtain displays with different
+DPI/scale factors, because neither the available workstations nor CI can supply
+that test hardware. This supersedes every earlier pending mixed-DPI gate in this
+ledger. The task is **removed by owner decision**, not passed by simulation.
+Do not change display modes or purchase hardware to satisfy the removed gate.
+
+Both stable and Chromium extended profiles now accept two real displays at the
+same scale. They retain native placement, work area, display identity, scale
+readback, drag/resize, maximize, fullscreen and minimize assertions. The stable
+Windows journey requires WM_DPICHANGED only when the actual move changes DPI;
+same-DPI placement still requires its exact native scale readback. No Windows
+profile is executed by this macOS session. The physical multi-display and real
+sleep/wake gates remain open.
+
+`tests/electron-display-scale-data.test.ts` adds 22 deterministic cases with
+explicit macOS/Windows fixture data: 1x/1.25x/1.5x/1.75x/2x/3x scale factors,
+negative display origins and platform work-area insets, unchanged logical window
+placement without double scaling, rejection of stale native-scale fences,
+scale-change round trips without coordinate drift, and invalid-scale rejection
+without replacing the last valid topology. The four focused display/topology/
+placement suites pass 50 tests. These results cover data transformations and
+revision fences, not native DPI callbacks, physical input targeting or OS chrome.
+
+Complete JavaScript validation passes 465 files / 3760 tests. The first full run
+had 3759 PASS and one failure in chromium-tabs-parity-e2e-source.test.ts, whose
+source guard still required the removed mixed-scale precondition. The guard now
+enforces its absence and retains the native scale-readback assertion; the final
+complete suite passes. Typecheck, source hygiene, documentation/context and E2E
+coverage checks pass; P0 70/70, P1 77/77 and both cutover parity sets 41/41 remain
+unchanged. The modified physical profiles have not run on either workstation.
+
+Affected journeys: NATIVE-DISPLAY-001 and paired
+CHROMIUM-MACOS-APPKIT-NATIVE-DISPLAY-001 / CHROMIUM-WINDOWS-NATIVE-DISPLAY-001.
+This is an owner-approved acceptance-policy change with internal-only test and
+documentation changes; runtime DPI support remains intact. CP-11/12/15 retain
+other open requirements, so the API-ledger closure count remains 9/18.
+
 | Windows follow-up | Exact evidence and next workstation acceptance |
 | --- | --- |
 | Post-cleanup native/full regression | Handoff 8dff7722 contains View-only cleanup. Preserve Rust lint/test with the unweakened 256-round updater test; run complete Windows native, production-build/isolation and chromium-windows-smoke acceptance on the final handed-off SHA. |
@@ -1971,7 +2010,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed with c72d688e fixes; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
-| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency; latest native, real sleep/wake and mixed-DPI evidence pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
+| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency; latest native, real sleep/wake and multi-display evidence pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | 01916dd5 macOS stable full passed; Chromium full stopped after 26 PASS at Macro background Show; 806ddb0a macOS CI in progress; Windows workstation and hardware profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |

@@ -263,7 +263,9 @@ describe("Chromium native tab exact replacements", () => {
     expect(manifest.profiles["chromium-windows-hardware-extended"]?.gate)
       .toBe("nightly");
     expect(spec).toContain("BLOCKED: Chromium native display profile requires two real displays");
-    expect(spec).toContain("new Set(topology.displays.map((display) => display.scaleFactor))");
+    // Owner removed the mixed-DPI hardware requirement on 2026-09-07.
+    expect(spec).not.toContain("new Set(topology.displays.map((display) => display.scaleFactor))");
+    expect(spec).toContain("scaleFactor: target.scaleFactor");
     expect(spec).toContain("clickVisibleRuntimeWindowControl");
     expect(spec).toContain("dragVisibleRuntimeWindow");
     expect(spec).toContain("resizeVisibleRuntimeWindow");

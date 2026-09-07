@@ -30,7 +30,7 @@ make an incomplete migration look cutover-ready.
 | --- | --- | --- |
 | `smoke` | Pull requests on hosted macOS and Windows | Legal/first run, primary navigation, Game/Role/Workspace/Macro creation and launch admission, Game Window lifecycle, and Settings persistence. |
 | `full` | Required hosted macOS and Windows gate on `main` and release/rebuild validation; advisory on non-release branch pushes | All smoke journeys, edit/reorder/bulk-delete persistence, Workspace partial failure/cancellation, the unsaved-change quit guard, native Game Window/tab persistence and recovery, and system Settings boundaries. |
-| `extended` | Scheduled or manually dispatched hardware runners | The complete full profile plus mixed-DPI, multi-display, fullscreen Spaces, and other native fixtures. |
+| `extended` | Scheduled or manually dispatched hardware runners | The complete full profile plus multi-display, fullscreen Spaces, and other native fixtures. |
 | `chromium-macos-appkit-smoke` | Pull requests on hosted macOS | Chromium main-shell/preload/Core readiness, Electron native non-client drag regions, real Command+N/fullscreen/zoom application shortcuts through the retained NSMenu, visible Game/entity persistence, retained AppKit fullscreen-toolbar auto-hide/reveal/pin/restart parity, real CoreGraphics tab reorder plus retained NSMenu move/detach/hide/reveal/reload and restart persistence, cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access interception, visible Settings persistence, visible Macro authoring/list/scheduler plus foreground and hidden native-effect parity through the retained AppKit trusted-input adapter, exact-Session permission/download deny parity and OS-native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and a retained-v22 Role whose blocked launch, visible explicit reset, AppKit-hosted Chromium launch, and restart continuity are verified. |
 | `chromium-windows-smoke` | Pull requests on hosted Windows | Chromium shell/preload/Core readiness bound to the Windows Electron target, real Ctrl+N/F11/zoom application shortcuts, visible Game/entity persistence, local-shell fullscreen-toolbar auto-hide/reveal/pin/restart parity, visible context-menu controlled Role reload, paired cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access and F11 interception, visible Settings persistence, visible Macro authoring/list/scheduler parity, exact foreground and hidden native trusted-input effects plus the exact direct-View physical input gate, exact-Session permission/download deny parity and exact-PID native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and the retained-v22 Role explicit-reset and restart journey. |
 
@@ -59,7 +59,10 @@ viewport, then minimizes and visibly restores without a resize event. Debug
 bridges only read these receipts and never perform a tab mutation.
 
 The paired `chromium-*-hardware-extended` profiles require a real secondary
-display with a different scale factor. Their native-window phase reuses the
+display; equal scale factors are supported. On 2026-09-07 the owner removed the
+physical mixed-DPI acceptance requirement because suitable hardware is unavailable.
+Deterministic scale/geometry tests cover that data boundary; they do not establish
+physical mixed-DPI behavior. Their native-window phase reuses the
 persisted three-tab Chromium namespace, selects that display through visible
 UI, and drives retained AppKit controls on macOS or bundled Chromium controls
 on Windows for drag, resize, maximize, fullscreen, and minimize. Missing
@@ -422,7 +425,7 @@ its E2E in the same change. If E2E is genuinely inapplicable, use exactly one of
 lower-layer evidence. A platform that was not executed locally must be called out
 as pending its required CI gate.
 
-Windows native and mixed-DPI procedures are indexed in
+Windows native and multi-display procedures are indexed in
 `docs/validation/README.md`. Full and extended evidence must bind to the same
 exact SHA, and `BLOCKED` never establishes cross-platform completion.
 

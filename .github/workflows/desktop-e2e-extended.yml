@@ -18,8 +18,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows-mixed-dpi:
-    name: Windows mixed-DPI multi-monitor
+  windows-multi-monitor:
+    name: Windows multi-monitor
     runs-on: [self-hosted, Windows, X64, rion-desktop-e2e]
     timeout-minutes: 240
     steps:

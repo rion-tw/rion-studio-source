@@ -96,14 +96,6 @@ describe("extended native Game Window placement", () => {
     if (topology.displays.length < 2) {
       throw new Error("BLOCKED: extended desktop E2E requires two real displays");
     }
-    if (process.platform === "win32"
-      && new Set(topology.displays.map((display) => display.scaleFactor)).size < 2) {
-      throw new Error("BLOCKED: Windows extended desktop E2E requires mixed DPI displays");
-    }
-    if (process.platform === "darwin"
-      && new Set(topology.displays.map((display) => display.scaleFactor)).size < 2) {
-      throw new Error("BLOCKED: macOS extended desktop E2E requires displays with different scale factors");
-    }
     const target = topology.displays.find((display) => !display.isPrimary
       && (process.platform !== "win32" || display.workArea.x < 0 || display.workArea.y < 0));
     if (!target) {
@@ -138,6 +130,7 @@ describe("extended native Game Window placement", () => {
       snapshot = await windowSnapshot(WINDOW_A);
     }
     snapshot = await waitForSelectedTabReady(snapshot);
+    const originalDpi = Math.round(snapshot.native.scaleFactor * 96);
     const submitted = await submitWindowControl(snapshot, {
       action: "moveResize",
       scaleFactor: target.scaleFactor,
@@ -151,7 +144,9 @@ describe("extended native Game Window placement", () => {
       windowId: WINDOW_A
     });
     snapshot = await windowSnapshot(WINDOW_A);
-    if (process.platform === "win32") {
+    expect(snapshot.native.scaleFactor).toBe(target.scaleFactor);
+    if (process.platform === "win32"
+      && originalDpi !== Math.round(target.scaleFactor * 96)) {
       const dpiEvent = await waitEvent({
         afterSequence: submitted.requestedAfterSequence,
         kind: "windows-wm-dpi-changed",

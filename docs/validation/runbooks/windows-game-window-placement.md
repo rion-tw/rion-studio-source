@@ -17,7 +17,7 @@ portable tests, and hosted CI cannot replace physical Win32 evidence.
 - A timeout is failure or incomplete evidence; it is never operation success.
 
 Use `pnpm run test:e2e:desktop:full` for W1-W9. Use
-`pnpm run test:e2e:desktop:extended` for W10-W11 only when two physical displays
+`pnpm run test:e2e:desktop:extended` for W10 only when two physical displays
 with the required topology are available. Bind every artifact to the exact SHA.
 
 ## Acceptance matrix
@@ -34,7 +34,7 @@ with the required topology are available. Bind every artifact to the exact SHA.
 | W8 | A permanent three-tab window survives close-during-launch without ownership leaks; order, active tab, hidden/audio state, dormant hydration, name, and placement remain correct. |
 | W9 | Clean exit restores only the windows that were live at exit; a previously closed permanent window remains stored and can be shown manually. |
 | W10 | Moving across same-scale displays persists the target display and visible work-area placement through close/reopen, restart, maximize, and full screen. |
-| W11 | Mixed-scale `WM_DPICHANGED` transitions preserve logical content size, work area, scale, and `normalBounds` without cumulative drift. |
+| W11 | Physical mixed-DPI acceptance removed by owner decision on 2026-09-07. Deterministic scale/geometry tests provide lower-layer evidence only; do not report a physical PASS. If an actual DPI change occurs during W10, retain exact `WM_DPICHANGED` DPI/handle assertions. |
 
 Geometry round trips allow at most ±1 logical pixel and may not accumulate over
 three cycles. Placement truth requires agreement between Win32 readback,
@@ -44,7 +44,7 @@ flush or destroyed terminal event.
 ## Result policy
 
 - Report each case as `PASS`, `FAILED`, or `BLOCKED` with evidence paths.
-- Missing mixed-display hardware makes W10/W11 `BLOCKED`, never `PASS`.
+- Missing a second physical display makes W10 `BLOCKED`, never `PASS`. Equal scale factors are accepted; W11 is removed from the required physical acceptance matrix.
 - Do not rerun a product failure into green. One retry is allowed only after an
   evidenced infrastructure classification, and both attempts remain recorded.
 - Final `PASS` requires all available mandatory cases and gates on the same SHA;

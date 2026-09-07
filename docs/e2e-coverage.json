@@ -1006,7 +1006,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Cross real mixed-scale displays and preserve logical placement plus selected WebView2 controller visibility, parent-host attachment, and non-zero bounds through fullscreen and maximized transitions. Observe placement and DPI events from the pre-control cursor, retaining exact geometry and native handle assertions."
+      "description": "Cross real displays (equal scale factors are supported) and preserve logical placement plus selected WebView2 controller visibility, parent-host attachment, and non-zero bounds through fullscreen and maximized transitions. Observe placement events from the pre-control cursor and DPI events when the move actually changes DPI, retaining exact geometry and native handle assertions. Mixed-DPI physical acceptance was removed by the owner on 2026-09-07; scale variations are covered separately by deterministic data tests."
     },
     {
       "id": "APP-CRUD-REORDER-002",
@@ -2672,7 +2672,7 @@
       "spec": "e2e/desktop/specs/chromium-native-window-display.e2e.ts",
       "platforms": ["macos"], "kind": "native", "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Select a real mixed-scale secondary display through visible UI and compare retained AppKit native displayId, bounds, scale, presentation, and work area with the same Rust display topology revision; absent hardware is BLOCKED, never pass."
+      "description": "Select a real secondary display (equal scale factors are supported) through visible UI and compare retained AppKit native displayId, bounds, scale, presentation, and work area with the same Rust display topology revision; absent hardware is BLOCKED, never pass."
     },
     {
       "id": "CHROMIUM-WINDOWS-NATIVE-DISPLAY-001",
@@ -2683,7 +2683,7 @@
       "spec": "e2e/desktop/specs/chromium-native-window-display.e2e.ts",
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Select a real mixed-scale secondary display through visible UI and compare Chromium native displayId, bounds, scale, presentation, and work area with the same Rust display topology revision; absent hardware is BLOCKED, never pass."
+      "description": "Select a real secondary display (equal scale factors are supported) through visible UI and compare Chromium native displayId, bounds, scale, presentation, and work area with the same Rust display topology revision; absent hardware is BLOCKED, never pass."
     },
     {
       "id": "MACRO-SOURCE-ROLE-014",

@@ -6001,3 +6001,45 @@ trusted input are outside this Windows child-host removal.
   concurrent publication gate remain pending the new candidate's CI. No
   local macOS or Windows desktop E2E profile ran for this lower-layer-covered
   adapter repair.
+
+
+### CP-08/CP-09/CP-15 hidden Macro admission must preserve a background parent
+
+- Inspecting 2e139861 terminal-cleanup flow distinguishes this failure from
+  the earlier close-projection stall: macroStart 339 fails because browser
+  action 2 is rejected with ELECTRON_VIEW_BACKGROUND_FOCUS_INVALID (341/343).
+  No successful Macro admission exists, so waiting for running cannot succeed.
+- The parent Role is in an inactive hidden View after a second Role launches
+  into the same window. Starting from the main UI leaves that runtime parent
+  in the background. Hidden admission never activates its parent/View, but
+  still required parentForeground even after the underlying shared background
+  input validator had gained verified background-parent support. This guard
+  prevented a legitimate hidden Macro start before input delivery.
+- Remove only the hidden admission's extra foreground-parent condition. Keep
+  the exact identity, parent visibility/non-minimized state, attached View,
+  hidden/nonfocused contents and focus-consistency validation. Visible View
+  admission still requires exact parent and WebContents focus events; no
+  parent activation, synthetic focus, retry or timeout change is added for
+  hidden input. Existing input submission validates/preserves the foreground
+  identity for every edge.
+- The explicit macos/windows unit matrix first fails both background-parent
+  cases, then passes after repair. It checks no parent/content focus call and
+  rejects a hidden View claiming content focus. Related focus/runtime/probe
+  tests pass 27 assertions. Extend the Windows native View-owner probe to run
+  the production hidden admission before both key and middle-button samples
+  under foreground and background parents, with a parent activation callback
+  that throws if invoked. Native assertions require the admission receipt and
+  the existing unchanged foreground/trusted DOM evidence.
+- Affected existing journeys: CHROMIUM-MACOS-APPKIT-MACRO-TERMINAL-CLEANUP-006
+  and CHROMIUM-WINDOWS-MACRO-TERMINAL-CLEANUP-006, both replacing the retained
+  MACRO-TERMINAL-CLEANUP-006. Native terminal-cleanup seed/restart and full
+  Windows acceptance remain pending the new candidate.
+
+- Final local validation: 452 Vitest files / 3644 tests pass, including the
+  focused 27-assertion focus/runtime/probe set. macOS Rust lint and workspace
+  tests pass (1650 passed, 4 ignored). Typecheck, ESLint (23 existing warnings),
+  full hygiene and coverage-manifest checks pass. Tauri build, Electron E2E
+  build, restored production Electron build and production E2E isolation pass.
+  No local desktop E2E profile or native input probe ran; the protected macOS
+  dialog obstruction remains unresolved. Both native CI profiles and Windows
+  terminal-cleanup seed/restart remain pending for this exact repair.

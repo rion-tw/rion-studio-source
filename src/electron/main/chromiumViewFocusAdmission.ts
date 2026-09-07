@@ -37,8 +37,9 @@ export class ChromiumViewFocusAdmission {
     try {
       if (!target.view.getVisible()) {
         const observation = target.observe();
-        return Promise.resolve(observation.parentForeground &&
-          validChromiumViewInputObservation(observation, target.identity, "background")
+        // Hidden admission preserves the current foreground, including another
+        // application's window. It does not acquire parent or content focus.
+        return Promise.resolve(validChromiumViewInputObservation(observation, target.identity, "background")
           ? receipt("applied", null) : receipt("failed", "ELECTRON_VIEW_BACKGROUND_FOCUS_INVALID"));
       }
     } catch { return Promise.resolve(receipt("superseded", "ELECTRON_VIEW_FOCUS_SUPERSEDED")); }

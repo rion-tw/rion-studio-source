@@ -101,13 +101,20 @@ describe.each(["macos", "windows"] as const)("%s View focus admission", platform
     expect(order).toEqual(["parent-start", "parent-return", "view-focus"]);
   });
 
-  it("admits a hidden View without selecting or activating it", async () => {
+  it.each([true, false])("admits hidden input with parentForeground=%s without acquiring focus", async foreground => {
     const f = await fixture(platform, false);
+    f.setForeground(foreground);
     expect(await f.focus.focus(f.request)).toMatchObject({ status: "applied" });
     expect(f.activateParent).not.toHaveBeenCalled();
     expect(f.contents.focus).not.toHaveBeenCalled();
-    f.setForeground(false);
-    expect(await f.focus.focus(f.request)).toMatchObject({ status: "failed" });
+    expect(f.view.getVisible()).toBe(false);
+    // A hidden View claiming content focus is inconsistent, regardless of parent focus.
+    f.setFocused(true);
+    expect(await f.focus.focus(f.request)).toMatchObject({
+      status: "failed", errorCode: "ELECTRON_VIEW_BACKGROUND_FOCUS_INVALID"
+    });
+    expect(f.activateParent).not.toHaveBeenCalled();
+    expect(f.contents.focus).not.toHaveBeenCalled();
   });
   it("fails at the Core deadline without treating elapsed time as focus", async () => {
     const f = await fixture(platform);

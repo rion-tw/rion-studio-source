@@ -35,6 +35,12 @@ it.runIf(process.platform === "win32")("submits hidden and visible sibling View 
         targetAttached: true, siblingAttached: true, targetVisible: visible,
         siblingFocusedBefore: !background, siblingFocusedAfter: !background,
         viewportAcknowledgement: { status: "applied", width: 240, height: 160 } });
+      if (!visible) {
+        expect(sample.directHost.focusAdmissionReceipt).toMatchObject({
+          status: "applied", roleId: "direct-view-role", surfaceGeneration: 1,
+          inputEpoch: 1, confirmedInputNeutrality: true, errorCode: null
+        });
+      }
       expect(sample.before.contentsFocused).toBe(false);
       expect(sample.after.contentsFocused).toBe(false);
       expect(sample.before.hostFocused).toBe(!background);

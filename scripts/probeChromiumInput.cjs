@@ -2,7 +2,7 @@
 const { app, BrowserWindow, WebContentsView, webContents } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
-const { sendChromiumKey, sendChromiumClick, ChromiumViewAttachmentCoordinator, ChromiumViewTrustedInputHost } = require("./electronLoadChromiumInputOwner.cjs");
+const { sendChromiumKey, sendChromiumClick, ChromiumViewAttachmentCoordinator, ChromiumViewTrustedInputHost, ChromiumViewFocusAdmission } = require("./electronLoadChromiumInputOwner.cjs");
 
 const [reportPath, userData, addonPath] = process.argv.slice(2);
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
@@ -165,6 +165,7 @@ async function probe() {
     let attachments = null;
     let attachmentFailure = null;
     let viewOwner = null;
+    let focusAdmission = null;
     if (nativeParent) {
       const binding = { parent: host, nativeGeneration: 1, revision: "1",
         children: () => host.contentView.children,
@@ -197,11 +198,15 @@ async function probe() {
         isCancelled: () => false, attach: () => host.contentView.addChildView(view),
         attachTo: parent => parent.contentView.addChildView(view),
         detach: () => host.contentView.removeChildView(view) });
+      focusAdmission = new ChromiumViewFocusAdmission({ attachments, nowMs: Date.now,
+        deadlines: { schedule: (callback, delay) => setTimeout(callback, delay), cancel: clearTimeout },
+        activateParent: () => { throw new Error("Hidden admission must not activate its parent."); } });
       const trustedHosts = new ChromiumViewTrustedInputHost({ attachments,
-        focus: () => Promise.reject(new Error("The isolated probe has no Core focus-admission lane.")) });
+        focus: request => focusAdmission.focus(request) });
       const bindingOwner = trustedHosts.resolve(roleId, 1);
       if (!bindingOwner) throw new Error("The direct View attachment did not establish input ownership.");
       viewOwner = {
+        focus: request => bindingOwner.native.focusForeground(bindingOwner.identity, request),
         key: request => bindingOwner.native.submitNativeBackgroundKey(bindingOwner.identity, request),
         click: request => bindingOwner.native.submitNativeBackgroundMouse(bindingOwner.identity, request)
       };
@@ -242,9 +247,22 @@ async function probe() {
         const foregroundContentsBefore = webContents.getFocusedWebContents()?.id ?? null;
         let sampleName = directVisible ? name.replace("hidden", "visible") : name;
         if (backgroundParent) sampleName = sampleName.replace("direct-", "direct-background-");
+        let focusAdmissionReceipt = null;
+        if (viewOwner && !directVisible) {
+          const now = Date.now();
+          focusAdmissionReceipt = await viewOwner.focus({
+            roleId, surfaceGeneration: 1, requestId: `${sampleName}-admission`,
+            inputEpoch: 1, intent: "normal", scheduledAtMs: now, deadlineMs: now + 3000,
+            action: { type: "focus" }, expectedInputNeutralityBefore: true,
+            expectedInputNeutralityAfter: true
+          });
+          if (focusAdmissionReceipt.status !== "applied") {
+            throw new Error(`Hidden admission failed: ${JSON.stringify(focusAdmissionReceipt)}`);
+          }
+        }
         const outcome = await sample(view, host, sampleName, [], types, submit);
         outcomes.push({ ...outcome, directHost: {
-          nativeParentOwner: viewOwner !== null, backgroundParent,
+          nativeParentOwner: viewOwner !== null, backgroundParent, focusAdmissionReceipt,
           foregroundContentsBefore,
           foregroundContentsAfter: webContents.getFocusedWebContents()?.id ?? null,
           otherContentsId: other.webContents.id,
@@ -259,6 +277,7 @@ async function probe() {
       }
     }
     if (attachmentFailure) throw attachmentFailure;
+    focusAdmission?.dispose();
     if (attachments) {
       await attachments.retire(roleId, 1, host);
       if (attachments.resolve(roleId, 1) !== null) throw new Error("Retired View retained input ownership.");

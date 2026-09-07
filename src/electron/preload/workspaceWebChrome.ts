@@ -1,11 +1,11 @@
 /// <reference lib="dom" />
 
 import { ipcRenderer } from "electron";
+import { installWorkspaceWebAddress } from "../../shared/workspaceWebAddress";
 
 import {
   WORKSPACE_WEB_CHROME_ACTION_CHANNEL,
   WORKSPACE_WEB_CHROME_STATE_CHANNEL,
-  canonicalWorkspaceWebUrl,
   parseWorkspaceWebChromeAction,
   parseWorkspaceWebChromeState
 } from "../../shared/workspaceWebChrome";
@@ -20,6 +20,7 @@ import {
 
 let identity: Readonly<{ surfaceId: string; generation: number }> | null = null;
 let committedUrl = "";
+let applyAddress: ((url: string) => void) | undefined;
 
 function elements() {
   return {
@@ -42,10 +43,6 @@ function send(type: string, url?: string): void {
   if (action) ipcRenderer.send(WORKSPACE_WEB_CHROME_ACTION_CHANNEL, action);
 }
 
-function normalizedUrl(value: string): string | null {
-  return canonicalWorkspaceWebUrl(value);
-}
-
 ipcRenderer.on(
   WORKSPACE_WEB_CHROME_STATE_CHANNEL,
   (_event, value: unknown) => {
@@ -60,9 +57,7 @@ ipcRenderer.on(
     });
     committedUrl = state.url;
     const controls = elements();
-    if (document.activeElement !== controls.location && controls.location) {
-      controls.location.value = state.url;
-    }
+    applyAddress?.(state.url);
     controls.location?.removeAttribute("aria-invalid");
     if (controls.back) controls.back.disabled = !state.canGoBack;
     if (controls.forward) controls.forward.disabled = !state.canGoForward;
@@ -79,26 +74,11 @@ window.addEventListener("DOMContentLoaded", () => {
   controls.forward?.addEventListener("click", () => send("forward"));
   controls.reload?.addEventListener("click", () => send("reload"));
   controls.home?.addEventListener("click", () => send("home"));
-  controls.form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const destination = normalizedUrl(controls.location?.value ?? "");
-    if (!destination) {
-      controls.location?.setAttribute("aria-invalid", "true");
-      return;
-    }
-    controls.location?.removeAttribute("aria-invalid");
-    send("navigate", destination);
-  });
-  controls.location?.addEventListener("input", () => {
-    controls.location?.removeAttribute("aria-invalid");
-  });
-  controls.location?.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    controls.location!.value = committedUrl;
-    controls.location!.removeAttribute("aria-invalid");
-    controls.location!.blur();
-    event.preventDefault();
-  });
+  if (controls.location && controls.form) {
+    applyAddress = installWorkspaceWebAddress(controls.location, controls.form,
+      (url) => send("navigate", url));
+    applyAddress(committedUrl);
+  }
 });
 
 function installRuntimeRolePlaceholder(): void {

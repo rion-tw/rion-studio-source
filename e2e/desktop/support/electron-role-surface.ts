@@ -92,7 +92,7 @@ async function rolePageTargetHandle(
   return targetHandle;
 }
 
-async function withRolePageTarget<Value>(
+export async function withRolePageTarget<Value>(
   expectedUrl: string,
   mainWindowHandle: string,
   action: () => Promise<Value>,
@@ -326,7 +326,9 @@ export async function navigateVisibleElectronWorkspaceWebChrome(
     const location = await $("#location");
     await location.waitForDisplayed({ timeout: 10_000 });
     await location.waitForEnabled({ timeout: 10_000 });
-    await location.setValue(destination);
+    await location.click();
+    await browser.keys([Key.Ctrl, "a"]);
+    await browser.keys(destination);
     await browser.action("key").down(Key.Enter).up(Key.Enter).perform();
   });
 }

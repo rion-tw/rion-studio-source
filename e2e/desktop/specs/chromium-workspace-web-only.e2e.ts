@@ -1,3 +1,4 @@
+import { verifyVisibleWorkspaceWebAddress } from "../support/workspace-web-address";
 import { $, browser, expect } from "@wdio/globals";
 
 import type { EmbeddedRuntimeTabSummary, GameWindow, LaunchWorkspace } from
@@ -333,6 +334,11 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
   );
   expect(duplicateTabs).toEqual([expect.objectContaining({ id: tab.id })]);
 
+  await verifyVisibleWorkspaceWebAddress({
+    chromeShellUrl: ready.web.chromeShellUrl,
+    contentUrl: ready.web.contentUrl,
+    mainWindowHandle: input.mainWindowHandle
+  });
   await navigateVisibleElectronWorkspaceWebChrome(
     ready.web.chromeShellUrl,
     input.mainWindowHandle,

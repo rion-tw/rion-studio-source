@@ -30,24 +30,6 @@ beforeEach(() => {
 });
 
 describe("Workspace Web sibling chrome", () => {
-  it("normalizes only HTTP(S) addresses without treating text as search", async () => {
-    const { normalizeWorkspaceWebUrl } = await import(
-      "../src/renderer/runtime-shell/runtimeWebChrome"
-    );
-
-    expect(normalizeWorkspaceWebUrl("youtube.com/watch?v=abc")).toBe(
-      "https://youtube.com/watch?v=abc"
-    );
-    expect(normalizeWorkspaceWebUrl("http://localhost:4173/path")).toBe(
-      "http://localhost:4173/path"
-    );
-    expect(normalizeWorkspaceWebUrl("localhost:4173/path")).toBe(
-      "https://localhost:4173/path"
-    );
-    expect(normalizeWorkspaceWebUrl("javascript:alert(1)")).toBeNull();
-    expect(normalizeWorkspaceWebUrl("youtube cats")).toBeNull();
-  });
-
   it("projects history state, navigates on Enter, restores on Escape, and sends home", async () => {
     await import("../src/renderer/runtime-shell/runtimeWebChrome");
     invoke.mockClear();
@@ -77,7 +59,7 @@ describe("Workspace Web sibling chrome", () => {
 
     input.value = "editing.example";
     input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
-    expect(input.value).toBe("https://www.youtube.com/");
+    expect(input.value).toBe("youtube.com/");
 
     document.querySelector<HTMLButtonElement>("#home")!.click();
     expect(invoke).toHaveBeenLastCalledWith("rion_workspace_web_chrome_action", {

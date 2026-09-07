@@ -159,6 +159,42 @@ async function pressVisibleControl(
     throw new Error("The visible Chromium Macro control has no accessible label");
   }
   await electronDesktopE2eFocusMainWindow();
+  // Complete native activation before setting exact control focus. Activating
+  // all windows afterward can promote the runtime and dismiss the dropdown.
+  const probe = await electronDesktopE2eProbe();
+  await executeFile("/usr/bin/osascript", [
+    "-e",
+    `on run argv
+  set targetPid to (item 1 of argv) as integer
+  set appKitWindowPrefix to "com.rionstudio.runtime.appkit-window.v1:"
+  tell application "System Events"
+    set matchingProcesses to application processes whose unix id is targetPid
+    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
+    set frontmost of targetProcess to true
+    set launcherWindow to missing value
+    set launcherWindowCount to 0
+    repeat with appWindow in windows of targetProcess
+      set appWindowIdentifier to ""
+      try
+        set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
+      end try
+      if appWindowIdentifier does not start with appKitWindowPrefix then
+        if value of attribute "AXRole" of appWindow is "AXWindow" then
+          set launcherWindow to appWindow
+          set launcherWindowCount to launcherWindowCount + 1
+        end if
+      end if
+    end repeat
+    if launcherWindowCount is not 1 then error "exact Rion launcher AXWindow unavailable"
+    perform action "AXRaise" of launcherWindow
+    if frontmost of targetProcess is not true then error "exact Rion process rejected foreground"
+    if value of attribute "AXMain" of launcherWindow is not true then error "exact Rion launcher is not main"
+  end tell
+end run`,
+    "--",
+    String(probe.processId)
+  ], { encoding: "utf8", timeout: 10_000 });
   const focused = await browser.execute((target) => {
     target.focus({ preventScroll: true });
     return document.activeElement === target;
@@ -184,37 +220,6 @@ async function pressVisibleControl(
       }, { capture: true, once: true });
     }, control, clickReceiptKey);
   }
-  const probe = await electronDesktopE2eProbe();
-  await executeFile("/usr/bin/osascript", [
-    "-e",
-    `on run argv
-  set targetPid to (item 1 of argv) as integer
-  set appKitWindowPrefix to "com.rionstudio.runtime.appkit-window.v1:"
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set launcherWindow to missing value
-    set launcherWindowCount to 0
-    repeat with appWindow in windows of targetProcess
-      set appWindowIdentifier to ""
-      try
-        set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
-      end try
-      if appWindowIdentifier does not start with appKitWindowPrefix then
-        if value of attribute "AXRole" of appWindow is "AXWindow" then
-          set launcherWindow to appWindow
-          set launcherWindowCount to launcherWindowCount + 1
-        end if
-      end if
-    end repeat
-    if launcherWindowCount is not 1 then error "exact Rion launcher AXWindow unavailable"
-    perform action "AXRaise" of launcherWindow
-  end tell
-end run`,
-    "--",
-    String(probe.processId)
-  ], { encoding: "utf8", timeout: 10_000 });
   const script = `
 import ApplicationServices
 import AppKit
@@ -232,11 +237,8 @@ let application = AXUIElementCreateApplication(targetPid)
 guard let targetApplication = NSRunningApplication(processIdentifier: targetPid) else {
   fail("exact Rion application is unavailable")
 }
-if useAccessibilityAction {
-  guard targetApplication.activate(options: [.activateAllWindows]) else {
-    fail("exact Rion application rejected foreground activation")
-  }
-  RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+guard targetApplication.isActive else {
+  fail("exact Rion application lost foreground before visible control input")
 }
 
 func normalizedLabel(_ value: String) -> String {
@@ -300,9 +302,18 @@ func sizeAttribute(_ element: AXUIElement, _ attribute: CFString) -> CGSize? {
   return size
 }
 
-let roots = elementArrayAttribute(application, kAXWindowsAttribute as CFString)
-guard !roots.isEmpty else {
-  fail("exact Rion launcher AXWindow unavailable")
+var rootValues: CFTypeRef?
+let rootsResult = AXUIElementCopyAttributeValue(
+  application, kAXWindowsAttribute as CFString, &rootValues
+)
+let roots = rootValues as? [AXUIElement] ?? []
+guard rootsResult == .success, !roots.isEmpty else {
+  fail("exact Rion launcher AXWindow unavailable; pid=" + String(targetPid)
+    + "; AXError=" + String(rootsResult.rawValue)
+    + "; trusted=" + String(AXIsProcessTrusted())
+    + "; active=" + String(targetApplication.isActive)
+    + "; terminated=" + String(targetApplication.isTerminated)
+    + "; rootCount=" + String(roots.count))
 }
 let launcherRoots = roots.filter { element in
   stringAttribute(element, kAXRoleAttribute as CFString) == (kAXWindowRole as String)

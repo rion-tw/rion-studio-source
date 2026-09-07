@@ -74,10 +74,10 @@ Earlier handoff tables below describe their historical checkpoint.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
-| CP-04 / CP-08 native and topology | 806ddb0a native Rust and full Chromium CI pass; retained AppKit input remains required | Final-source View-only native/full replay, including detach/compensation failure |
-| CP-10 consented import | Visible consent/cancel/chooser/confirmation and fresh-process cookie/LocalStorage restart PASS at 806ddb0a | Native chooser and complete consent/import/restart acceptance pending |
-| CP-11 / CP-12 hardware/lifecycle | 806ddb0a full CI passed; focused physical display/control PASS after fullscreen fix; latest full and real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
-| CP-15 complete profiles | Stable 29 PASS + 3 expected force exits; Chromium 56 PASS + 4 expected force exits at 806ddb0a | Final-source full and hardware profiles pending |
+| CP-04 / CP-08 native and topology | 61f32424 native validation and full Chromium CI pass; retained AppKit input remains required | Final-source View-only native/full replay, including detach/compensation failure |
+| CP-10 consented import | Visible consent/cancel/chooser/confirmation and fresh-process cookie/LocalStorage restart PASS in 61f32424 full CI | Native chooser and complete consent/import/restart acceptance pending |
+| CP-11 / CP-12 hardware/lifecycle | 61f32424 full CI passed; focused physical display/control PASS after fullscreen fix; complete local hardware and real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
+| CP-15 complete profiles | Stable 29 PASS + 3 expected force exits; Chromium 56 PASS + 4 expected force exits at 61f32424 | Final-source full and hardware profiles pending |
 | CP-16 package/updater | CI fixture package, signed update transaction and packaged native Role black-box PASS at 806ddb0a | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
@@ -8291,3 +8291,45 @@ persisted preference, native-toolbar geometry and terminal native-quit evidence.
 This does not replace the separate physical display profile's successful normal
 fullscreen exit/minimize. No permission grant, timeout or domain assertion is
 changed; the production runtime remains identical to 61f32424.
+
+
+### 61f32424 native/full CI completion and launcher focus ordering
+
+Mac-only CI **34133998284**, exact checkout
+**61f3242491d16a119acbd349b048278208f00098**, has successful native validation
+101780741827, stable full 101780553465, shared checks, renderer build and sanitizer
+jobs. Stable artifact **10023742160**, report **2026-09-07T14-38-40-942Z-darwin**,
+has **29 PASS + three expected force terminations / 40 journey PASS** and
+worktreeDirty=false. Chromium artifact **10023841493**, report
+**2026-09-07T14-38-53-221Z-darwin**, has **56 PASS + four expected force terminations
+/ 52 journey PASS**. Its worktreeDirty=true is the existing CI ephemeral updater
+fixture preparation, not a clean production-key candidate. Package job
+101780553083 has advanced to artifact construction; package/updater completion
+is not yet claimed. No Windows job was dispatched.
+
+Clean **a810af49** local complete hardware report
+**2026-09-07T14-54-13-031Z-darwin** stops after two PASS at shell-smoke: the Swift
+control helper reports no launcher AXWindows while opening the visible Open in
+menu. Its native sample shows the main thread normally waiting in the AppKit
+event loop, not the earlier fullscreen mutex deadlock. Diagnostic report
+**2026-09-07T15-00-05-301Z-darwin** adds exact AX error/trust/PID output; it advances
+past AXPress but the destination menu never becomes clickable within the original
+10000 ms. Neither failure is labelled a permission problem or a passed profile.
+
+The driver previously set DOM control focus, raised the launcher and then
+activated all application windows before AXPress. Native activation now occurs
+first, fenced to the exact PID and unique non-AppKit launcher AXWindow with
+AXMain=true; only then does it set exact control focus. The redundant
+activateAllWindows call is removed. Existing AXPress, physical CGEvent destination
+click, trusted click receipts and all domain assertions remain. The root AX read
+now preserves its exact error code and trust/process state instead of collapsing
+all failures to an empty array; no retry or larger deadline is added.
+
+Focused report **2026-09-07T15-02-46-550Z-darwin** passes shell-smoke after this
+E2E-only correction, based on a810af49 plus the recorded helper edit. Typecheck,
+source hygiene and focused Macro/application-shortcut boundary tests pass.
+Production runtime content remains identical to 61f32424. This focused PASS does
+not clear the failed complete hardware profile. Affected journeys include
+CHROMIUM-MACOS-APPKIT-SHELL-001 and
+CHROMIUM-MACOS-APPKIT-APPLICATION-SHORTCUTS-030; Windows behavior is unchanged and
+its native acceptance remains with the separate workstation.

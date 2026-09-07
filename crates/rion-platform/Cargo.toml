@@ -7,7 +7,7 @@ license.workspace = true
 
 [features]
 default = []
-system-webview-probe = ["dep:webview2-com", "dep:windows-webview2"]
+system-webview-probe = ["dep:webview2-com"]
 
 [dependencies]
 hex.workspace = true
@@ -37,4 +37,3 @@ windows = { version = "0.62.2", features = [
   "Win32_Storage_FileSystem",
   "Win32_System_Threading",
 ] }
-windows-webview2 = { package = "windows", version = "=0.62.2", optional = true }

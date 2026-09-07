@@ -25,7 +25,7 @@ import {
 } from "electron";
 
 import type { CoreAppSnapshotRecord } from "../../shared/generated";
-import type { RendererLogEvent } from "../../shared/types";
+import { rendererLogCommand } from "./rendererLogCommand";
 import { CoreAddonClient } from "../core/coreAddonClient";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import { createElectronBaselineDispatcher } from "./baselineDispatcher";
@@ -482,27 +482,6 @@ function activeOverlayShellEffects(): ElectronOverlayShellEffects {
     code: "ELECTRON_OVERLAY_SHELL_EFFECTS_UNAVAILABLE",
     message: "The Electron overlay shell-effects adapter is unavailable."
   });
-}
-
-function rendererLogCommand(event: RendererLogEvent) {
-  return {
-    type: "logsCapture" as const,
-    entries: [{
-      level: "error" as const,
-      source: "renderer" as const,
-      event: event.event,
-      message: event.message,
-      ...(event.stack
-        ? {
-            error: {
-              message: event.message,
-              name: event.event,
-              stack: event.stack
-            }
-          }
-        : {})
-    }]
-  };
 }
 
 function revealShellError(error: ReturnType<typeof normalizeRionBridgeError>): void {

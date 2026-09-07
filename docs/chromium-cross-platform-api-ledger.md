@@ -28,6 +28,42 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Concurrent remote feature/toolchain baseline preserved — 2026-09-07
+
+Before pushing the validated local fixes, fetch discovered remote 44cef4f3 with
+Extensions, Macro source-role mode, UI changes and stable dependency upgrades.
+The safety ancestry check stopped the push. Rebase preserved all remote work
+and replayed only the three unpublished local fixes without conflicts:
+05558a1c -> 4b324460 (held modifiers), a02fe4ff -> c6a23df8 (AppKit close cohort),
+b49e2c39 -> d86b1081 (stable viewport acknowledgement). Earlier artifacts remain
+at their original source revisions; they are not acceptance of this merged
+feature/toolchain baseline. No PR merge, release publication or credential edit
+was performed by this handoff work.
+
+New required runtime: Node 24.20.0 x64 (official archive SHA-256 verified), pnpm
+12.3.4, Rust 1.98.1 x86_64-pc-windows-msvc, Electron 43.6.0 (PE machine 0x8664).
+Use the isolated RionValidation/corepack-x64 cache and Node tool-directory pnpm
+shim: the system ARM64 Corepack cache otherwise selects ARM64 optional packages.
+Frozen dependency rebuild preserves pnpm-lock.yaml. Typecheck and three focused
+files / 13 tests pass under the new toolchain. The first Windows Rust gate
+failed before compilation because rion-platform aliased windows 0.62.2 twice
+as windows and windows-webview2 after the upstream upgrade aligned versions.
+Use its one existing windows dependency for the optional WebView2 probe; retain
+system-webview-probe and its target cfgs, with no Tauri removal. Compile-only
+correction; updated native gates and exact pinned-Electron input probes remain
+required. Logs: remote-44cef4f3-* under windows-handoff-b0c3c184.
+
+New-baseline validation progress: TypeScript and focused ESLint pass; the three
+runtime-focused files (13 tests) and architecture boundary file (5 tests) pass.
+Source hygiene passes 2,492 tracked files after extracting the unchanged
+rendererLogCommand helper from main/index.ts, which upstream Extensions changes
+had grown to 65,550 bytes (over the 65,536-byte limit). This extraction changes no
+runtime behavior. E2E coverage passes P0 70/70 and P1 75/75; both Chromium cutover
+profiles retain 41/41 parity. Coverage counts are automation declarations, not
+native journey acceptance. CI 34089874671 at 121ec958 is complete: both native
+Rust jobs pass (macOS 101641170380, Windows 101641170382); macOS stable passes,
+while macOS Chromium and both Windows E2E jobs retain the failures documented
+below. The current 43.6 baseline native/full gates remain pending.
 ### Stable Windows ownership claim waits for document viewport — 2026-09-07
 
 CI 34089874671 stable Windows job 101641016111 / artifact 10006740224 fails

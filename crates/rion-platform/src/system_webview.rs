@@ -165,7 +165,7 @@ fn probe_windows() -> RawSystemWebViewProbe {
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::GetAvailableCoreWebView2BrowserVersionString, take_pwstr,
     };
-    use windows_webview2::core::{PCWSTR, PWSTR};
+    use windows::core::{PCWSTR, PWSTR};
 
     let mut version = PWSTR::null();
     // SAFETY: A null browser folder requests the installed Evergreen runtime. The

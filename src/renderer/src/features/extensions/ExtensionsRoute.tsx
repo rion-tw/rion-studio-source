@@ -2,7 +2,7 @@ import { ArrowLeft, ArrowRight, Plus, Puzzle, Search, RefreshCw } from "lucide-r
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExtensionPackageRecord, ExtensionSnapshotRecord } from "../../../../shared/generated";
 import type { ExtensionStoreState, ExtensionUserCommand } from "../../../../shared/extensions";
-import type { Role } from "../../../../shared/types";
+import type { AppLanguage, Role } from "../../../../shared/types";
 import type { Translator } from "../../i18n";
 import { Button } from "../../components/ui/button";
 import { SearchField } from "../../components/SearchField";
@@ -13,7 +13,7 @@ import { PageFrame, PageHeader, StatusCallout, Surface } from "../../components/
 
 const emptyStore: ExtensionStoreState = { url: "", extensionId: null, canGoBack: false, canGoForward: false, loading: false, failed: false };
 
-export default function ExtensionsRoute({ roles, t, covered = false }: { roles: Role[]; t: Translator; covered?: boolean }) {
+export default function ExtensionsRoute({ roles, t, language, covered = false }: { roles: Role[]; t: Translator; language: AppLanguage; covered?: boolean }) {
   const [snapshot, setSnapshot] = useState<ExtensionSnapshotRecord>({ revision: -1, installed: [], roles: [] });
   const [store, setStore] = useState(emptyStore);
   const [tab, setTab] = useState<"installed" | "store">("installed");
@@ -67,7 +67,7 @@ export default function ExtensionsRoute({ roles, t, covered = false }: { roles: 
     const update = () => {
       const rect = element.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
-      void window.rionStudio.extensionStore({ action: "show", bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } })
+      void window.rionStudio.extensionStore({ action: "show", language, bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } })
         .then(setStore, () => setError(t("extensions.failed")));
     };
     const observer = new ResizeObserver(update);
@@ -76,7 +76,7 @@ export default function ExtensionsRoute({ roles, t, covered = false }: { roles: 
     window.addEventListener("scroll", update, true);
     update();
     return () => { observer.disconnect(); window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); void window.rionStudio.extensionStore({ action: "hide" }).catch(() => undefined); };
-  }, [tab, selection, covered, t]);
+  }, [tab, selection, covered, t, language]);
 
   const command = async (input: ExtensionUserCommand) => {
     if (commandBusy.current) return null;

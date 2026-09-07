@@ -7,7 +7,13 @@ bridge after startup. This does not introduce a selectable browser engine.
 ## User behavior
 
 The Extensions route manages installed packages with a header search and Add extension action.
-Add extension opens the Chrome Web Store with a separate Back to extensions action.
+Add extension opens `https://chromewebstore.google.com/category/extensions` with
+`hl` synchronized to the app language (`en`, `zh-TW`, `zh-CN` → `zh`, `ja`)
+and a separate Back to extensions action. A language change updates the current
+store URL while retaining its path and other search parameters; resizing or
+reopening in the same language does not reset navigation.
+The sidebar displays the catalogue count, including zero and pending-removal
+entries until cleanup, and follows revision-fenced Core events on every route.
 Successful installation returns to the unfiltered catalogue; cancelling confirmation
 returns to the store. Empty and no-match states offer add and clear-search actions. The store is
 an isolated, unprivileged native WebContentsView. A Rion-owned install button
@@ -140,3 +146,17 @@ isolation. Windows platform mocks and Core platform-table tests ran locally;
 Windows Rust and `chromium-windows-smoke` native execution remain pending CI.
 These focused Chromium phases do not claim a full smoke/full-profile run or
 Chromium cutover eligibility.
+
+The store-entry locale follow-up passed 3,685 JavaScript/TypeScript tests,
+including all four language mappings, preserving other URL parameters, and
+avoiding repeated navigation on same-language show requests. The macOS
+`chromium-macos-appkit-smoke` / `chromium-extensions-seed` phase passed with an
+explicit `/category/extensions?hl=en` assertion followed by installation and
+future-role loading. Both existing Extensions journey entries were updated;
+Windows native execution remains pending CI.
+
+The sidebar-count follow-up passed 3,688 JavaScript/TypeScript tests, typecheck,
+lint, source hygiene, and coverage checks. The `chromium-macos-appkit-smoke`
+seed/restart phases verified counts 0 → 1 → 1 after restart → 0 after removal
+for `CHROMIUM-MACOS-APPKIT-EXTENSIONS-001`; the matching
+`CHROMIUM-WINDOWS-EXTENSIONS-001` assertions are updated and await Windows CI.

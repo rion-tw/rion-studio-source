@@ -12,6 +12,7 @@ import { WindowDragHandle } from "./WindowDragHandle";
 interface AppSidebarProps {
   hasUpdateBadge: boolean;
   extensionsAvailable?: boolean;
+  extensionCount?: number;
   gameCount: number;
   gameWindowCount: number;
   macroCount: number;
@@ -22,7 +23,7 @@ interface AppSidebarProps {
   onOpenQuickAccess?: () => void;
 }
 
-export function AppSidebar({ extensionsAvailable = false, gameCount, gameWindowCount, hasUpdateBadge, macroCount, roleCount, shortcutLabel = "Ctrl+K", t, workspaceCount, onOpenQuickAccess = () => undefined }: AppSidebarProps): JSX.Element {
+export function AppSidebar({ extensionsAvailable = false, extensionCount = 0, gameCount, gameWindowCount, hasUpdateBadge, macroCount, roleCount, shortcutLabel = "Ctrl+K", t, workspaceCount, onOpenQuickAccess = () => undefined }: AppSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -92,7 +93,7 @@ export function AppSidebar({ extensionsAvailable = false, gameCount, gameWindowC
           noDrag
           onClick={() => navigate("/macros")}
         />
-        {extensionsAvailable && <NavItem active={location.pathname.startsWith("/extensions")} icon={Puzzle} label={t("extensions.title")} noDrag onClick={() => navigate("/extensions")} />}
+        {extensionsAvailable && <NavItem active={location.pathname.startsWith("/extensions")} count={extensionCount} icon={Puzzle} label={t("extensions.title")} noDrag onClick={() => navigate("/extensions")} />}
       </nav>
 
       <div className="sidebar-settings mt-auto">

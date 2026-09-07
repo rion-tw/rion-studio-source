@@ -1,5 +1,5 @@
 import { WebContentsView, session, type BrowserWindow } from "electron";
-import { chromeStoreExtensionId, type ExtensionStoreRequest, type ExtensionStoreState } from "../../shared/extensions";
+import { chromeStoreExtensionId, chromeStoreUrl, type ExtensionStoreRequest, type ExtensionStoreState } from "../../shared/extensions";
 import { installChromiumSessionSecurityPolicy } from "./chromiumSecurityPolicy";
 
 // The store imposes a 1280px minimum on its document and header. Let the
@@ -23,6 +23,7 @@ export class ExtensionStoreHost {
   #view: WebContentsView | null = null;
   #window: BrowserWindow | null = null;
   #failed = false;
+  #language: NonNullable<ExtensionStoreRequest["language"]> = "en";
   constructor(private readonly owner: () => BrowserWindow, private readonly publish: (state: ExtensionStoreState) => void) {}
 
   snapshot(): ExtensionStoreState {
@@ -39,7 +40,12 @@ export class ExtensionStoreHost {
 
   request(request: ExtensionStoreRequest): ExtensionStoreState {
     if (request.action === "hide") { this.#view?.setVisible(false); return this.snapshot(); }
+    const language = request.language ?? this.#language;
+    if (!["en", "zh-TW", "zh-CN", "ja"].includes(language)) throw new Error("EXTENSIONS_STORE_LANGUAGE_INVALID");
+    const languageChanged = language !== this.#language;
+    this.#language = language;
     const window = this.owner();
+    let created = false;
     if (!this.#view || this.#view.webContents.isDestroyed() || this.#window !== window) {
       this.dispose();
       const storeSession = session.fromPartition("rion-extension-store", { cache: false });
@@ -49,6 +55,7 @@ export class ExtensionStoreHost {
         devTools: false, safeDialogs: true
       } });
       this.#view = view;
+      created = true;
       this.#window = window;
       view.setVisible(false);
       window.contentView.addChildView(view);
@@ -75,9 +82,13 @@ export class ExtensionStoreHost {
       view.webContents.on("render-process-gone", () => { this.#failed = true; notify(); });
       window.once("closed", () => { if (this.#window === window) this.dispose(); });
       // EventBound: navigation lifecycle events establish the store state.
-      void view.webContents.loadURL("https://chromewebstore.google.com/").catch(() => undefined);
+      void view.webContents.loadURL(chromeStoreUrl(this.#language)).catch(() => undefined);
     }
     const view = this.#view;
+    if (!created && languageChanged) {
+      // EventBound: an app-language change navigates the existing store document once.
+      void view.webContents.loadURL(chromeStoreUrl(this.#language, view.webContents.getURL())).catch(() => undefined);
+    }
     if (request.action === "show") {
       const bounds = request.bounds;
       const [width, height] = window.getContentSize();

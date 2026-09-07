@@ -20,7 +20,7 @@ it("distinguishes pending configuration from the live lease and ignores stale sn
   const invoke = vi.fn(async () => ({ snapshot: original, lease: null, prepared: null }));
   window.rionStudio = { extensions: invoke, extensionStore: vi.fn(async () => ({})), onExtensionsChanged: (listener: typeof publish) => { publish = listener; return () => undefined; }, onExtensionStoreChanged: () => () => undefined } as unknown as RionStudioApi;
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[role]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
   await screen.findByText("Fixture");
   await act(async () => publish({ ...original, revision: 2, installed: [] }));
   expect(screen.getByText("Fixture")).toBeTruthy();
@@ -37,7 +37,7 @@ it("retains an actionable removal tombstone instead of offering a duplicate inst
   const invoke = vi.fn(async () => ({ snapshot, lease: null, prepared: null }));
   window.rionStudio = { extensions: invoke, extensionStore: vi.fn(async () => ({})), onExtensionsChanged: () => () => undefined, onExtensionStoreChanged: () => () => undefined } as unknown as RionStudioApi;
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[role]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
   await screen.findByText("Removal pending");
   await user.click(screen.getByRole("button", { name: "Retry removal" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
@@ -62,7 +62,7 @@ afterEach(() => vi.unstubAllGlobals());
 it("searches normalized names and IDs and distinguishes no matches from an empty catalogue", async () => {
   fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[role]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
   await screen.findByText("Fixture");
   const search = screen.getByRole("textbox", { name: "Search extensions" });
   await user.type(search, "  FIXTURE  ");
@@ -77,7 +77,7 @@ it("searches normalized names and IDs and distinguishes no matches from an empty
 it("preserves selected-role drafts across scope changes and applies select-all beyond the search filter", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[role, { ...role, id: "other", name: "Other" }]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[role, { ...role, id: "other", name: "Other" }]} t={t} />);
   await user.click(await screen.findByRole("button", { name: "Manage" }));
   const dialog = within(screen.getByRole("dialog"));
   await user.click(dialog.getByRole("button", { name: "All roles" }));
@@ -93,7 +93,7 @@ it("preserves selected-role drafts across scope changes and applies select-all b
 it("restores all current roles when a saved all-role rule switches to selected roles", async () => {
   const f = fixture({ ...original, installed: [{ ...original.installed[0], applyToAllRoles: true, enabledRoleIds: [] }] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[role]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
   await user.click(await screen.findByRole("button", { name: "Manage" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Selected roles" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
@@ -103,7 +103,7 @@ it("restores all current roles when a saved all-role rule switches to selected r
 it("preserves the draft after cancelled removal or failed save and returns focus on close", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[role]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
   const manage = await screen.findByRole("button", { name: "Manage" });
   await user.click(manage);
   await user.click(screen.getByRole("checkbox", { name: "Role A" }));
@@ -121,7 +121,7 @@ it("preserves the draft after cancelled removal or failed save and returns focus
 it("installs an all-role rule without existing roles and returns to an unfiltered list", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
   await screen.findByText("Fixture");
   await user.type(screen.getByRole("textbox", { name: "Search extensions" }), "absent");
   await user.click(screen.getByRole("button", { name: "Add extension" }));
@@ -142,7 +142,7 @@ it("shows loading and initial failure without a false empty state", async () => 
   const f = fixture();
   let reject!: (reason: Error) => void;
   f.invoke.mockImplementationOnce(() => new Promise((_resolve, failure) => { reject = failure; }));
-  render(<ExtensionsRoute roles={[]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
   expect(screen.getByRole("status").textContent).toBe("Loading…");
   expect(screen.queryByText("No extensions installed yet.")).toBeNull();
   await act(async () => reject(new Error("offline")));
@@ -153,7 +153,7 @@ it("shows loading and initial failure without a false empty state", async () => 
 it("cancels preparation and ignores its late result while preserving the list search", async () => {
   const f = fixture({ revision: 3, installed: [], roles: [] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
   await screen.findByText("No extensions installed yet.");
   await user.type(screen.getByRole("textbox", { name: "Search extensions" }), "remember");
   await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
@@ -172,7 +172,7 @@ it("cancels preparation and ignores its late result while preserving the list se
 it("keeps navigation blocked after cancellation failure until Core acknowledges retry", async () => {
   const f = fixture({ revision: 3, installed: [], roles: [] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
   await screen.findByText("No extensions installed yet.");
   await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
   await act(async () => f.showStore());
@@ -190,7 +190,7 @@ it("keeps navigation blocked after cancellation failure until Core acknowledges 
 it("keeps keyboard focus inside the dialog and submits a save only once while pending", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute roles={[role]} t={t} />);
+  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
   await user.click(await screen.findByRole("button", { name: "Manage" }));
   const dialog = screen.getByRole("dialog");
   const save = within(dialog).getByRole("button", { name: "Save" });
@@ -206,4 +206,17 @@ it("keeps keyboard focus inside the dialog and submits a save only once while pe
   expect(screen.getByRole("dialog")).toBeTruthy();
   await act(async () => finish({ snapshot: original, lease: null, prepared: null }));
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("passes the current app language when opening and updating the store", async () => {
+  const f = fixture();
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, width: 600, height: 400 } as DOMRect);
+  try {
+    const user = userEvent.setup();
+    const view = render(<ExtensionsRoute language="zh-TW" roles={[]} t={t} />);
+    await user.click(screen.getByRole("button", { name: "Add extension" }));
+    expect(f.extensionStore).toHaveBeenCalledWith(expect.objectContaining({ action: "show", language: "zh-TW" }));
+    view.rerender(<ExtensionsRoute language="ja" roles={[]} t={t} />);
+    expect(f.extensionStore).toHaveBeenLastCalledWith(expect.objectContaining({ action: "show", language: "ja" }));
+  } finally { rect.mockRestore(); }
 });

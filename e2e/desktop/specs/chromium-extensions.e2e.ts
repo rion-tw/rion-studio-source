@@ -23,6 +23,7 @@ describe("Extensions store and per-role configuration", () => {
     await sidebar.$("button*=Extensions").click();
     await waitForRoute("/extensions");
     if (phase === "chromium-extensions-seed") {
+      await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*0$/);
       // This role is a deterministic precondition; extension mutations below use visible UI.
       const games = await rendererCall("listGames");
       await rendererCall("createRole", { gameId: games[0].id, name: "Extensions journey role", launchUrl: `${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/role/extensions-role` });
@@ -42,6 +43,9 @@ describe("Extensions store and per-role configuration", () => {
         return false;
       }, { timeout: 30000, timeoutMsg: "The isolated Chrome Web Store view did not become available" });
       if (!storeHandle) throw new Error("Store view missing");
+      const entry = new URL(await browser.getUrl());
+      expect(entry.pathname).toBe("/category/extensions");
+      expect(entry.searchParams.get("hl")).toBe("en");
       await browser.waitUntil(async () => browser.execute(() =>
         document.documentElement.scrollWidth <= document.documentElement.clientWidth
         && document.body.getBoundingClientRect().width <= innerWidth
@@ -66,6 +70,7 @@ describe("Extensions store and per-role configuration", () => {
       await confirm.click();
       await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && p.applyToAllRoles), { timeout: 15000 });
       await expect($("button=Manage")).toBeDisplayed();
+      await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*1$/);
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-installed.png"));
       await sidebar.$("button*=Roles").click();
       await waitForRoute("/roles");
@@ -83,6 +88,7 @@ describe("Extensions store and per-role configuration", () => {
       await browser.switchToWindow(main);
       await browser.waitUntil(async () => (await rendererCall("listRoleStatuses")).some(r => r.roleId === future.id && r.state === "running"), { timeout: 30000 });
     } else if (phase === "chromium-extensions-restart") {
+      await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*1$/);
       const snapshot = (await rendererCall("extensions", { type: "snapshot" })).snapshot;
       const installed = snapshot.installed.find(p => p.id === EXTENSION_ID && !p.removed);
       expect(installed?.applyToAllRoles).toBe(true);
@@ -104,6 +110,7 @@ describe("Extensions store and per-role configuration", () => {
       await $("button=Confirm removal").click();
       await browser.waitUntil(async () => !(await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && !p.removed));
       await expect($("h2=No extensions installed yet.")).toBeDisplayed();
+      await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*0$/);
     } else throw new Error(`Unexpected Extensions phase: ${phase}`);
   });
 });

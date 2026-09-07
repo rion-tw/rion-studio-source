@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { chromeStoreExtensionId } from "../src/shared/extensions";
+import { chromeStoreExtensionId, chromeStoreUrl } from "../src/shared/extensions";
 import { ChromiumExtensionSessions } from "../src/electron/main/chromiumExtensionSessions";
 import { createExtensionApiDispatcher } from "../src/electron/main/extensionApiDispatcher";
 import type { ChromiumRoleSessionHandle } from "../src/electron/main/chromiumRoleSessionRegistry";
@@ -76,4 +76,10 @@ it("keeps native lease commands out of the renderer bridge and fences store sele
   await expect(dispatcher.invoke({} as never, "extensions", [{ type: "acquire", roleId: "role" } as never])).rejects.toThrow("EXTENSIONS_COMMAND_FORBIDDEN");
   await expect(dispatcher.invoke({} as never, "extensions", [{ type: "prepare", id: "b".repeat(32), operationId: "operation" }])).rejects.toThrow("EXTENSIONS_STORE_SELECTION_CHANGED");
   expect(invoke).not.toHaveBeenCalled();
+});
+
+it.each([ ["zh-TW", "zh-TW"], ["zh-CN", "zh"], ["ja", "ja"], ["en", "en"] ] as const)("uses the extension category and app locale %s", (language, hl) => {
+  expect(chromeStoreUrl(language)).toBe(`https://chromewebstore.google.com/category/extensions?hl=${hl}`);
+  expect(chromeStoreUrl(language, `https://chromewebstore.google.com/detail/${id}?hl=old&source=app#details`))
+    .toBe(`https://chromewebstore.google.com/detail/${id}?hl=${hl}&source=app#details`);
 });

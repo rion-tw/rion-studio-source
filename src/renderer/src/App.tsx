@@ -19,6 +19,7 @@ import { createEditEditorPath, createNewEditorPath, normalizeAppReturnTo } from 
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
+import { useExtensionSummary } from "./hooks/useExtensionSummary";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
 import { useApplicationLifecycle } from "./hooks/useApplicationLifecycle";
@@ -52,16 +53,7 @@ export function App(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const data = useAppData();
-  const [extensionsAvailable, setExtensionsAvailable] = useState(false);
-  useEffect(() => {
-    if (data.initialLoadState !== "ready") return;
-    let active = true;
-    void window.rionStudio?.extensions?.({ type: "snapshot" }).then(
-      () => { if (active) setExtensionsAvailable(true); },
-      () => { if (active) setExtensionsAvailable(false); }
-    );
-    return () => { active = false; };
-  }, [data.initialLoadState]);
+  const { available: extensionsAvailable, count: extensionCount } = useExtensionSummary(data.initialLoadState === "ready");
   const applicationLifecycle = useApplicationLifecycle({
     enabled: Boolean(window.rionStudio),
     onError: data.setError
@@ -644,6 +636,7 @@ export function App(): JSX.Element {
       ) : (
         <AppSidebar
           extensionsAvailable={extensionsAvailable}
+          extensionCount={extensionCount}
           gameCount={data.games.length}
           gameWindowCount={data.gameWindows.length}
           hasUpdateBadge={shouldShowUpdateBadge(updates.status)}
@@ -686,7 +679,7 @@ export function App(): JSX.Element {
 
         <Suspense fallback={<RouteFallback t={preferences.t} />}>
           <Routes>
-            {extensionsAvailable && <Route path="/extensions" element={<ExtensionsRoute roles={data.roles} t={preferences.t} covered={isQuickAccessOpen} />} />}
+            {extensionsAvailable && <Route path="/extensions" element={<ExtensionsRoute language={preferences.language} roles={data.roles} t={preferences.t} covered={isQuickAccessOpen} />} />}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route
               path="/games"

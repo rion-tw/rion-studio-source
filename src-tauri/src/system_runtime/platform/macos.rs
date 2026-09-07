@@ -1028,6 +1028,10 @@ where
                 *const std::ffi::c_char,
             ) -> bool,
         ) -> u64;
+        fn rion_wk_observe_workspace_history(
+            webview: *mut std::ffi::c_void,
+            restored: unsafe extern "C" fn(*mut std::ffi::c_void, *const std::ffi::c_char),
+        ) -> bool;
         fn rion_wk_bind_contained_fullscreen_failure_callback(
             webview: *mut std::ffi::c_void,
             context: *mut std::ffi::c_void,
@@ -1036,6 +1040,7 @@ where
     }
 
     let tracker = Arc::new(SurfaceLifecycleTracker::default());
+    let observe_history = webview.label().starts_with("workspace-web-");
     let role_id = match &target {
         SurfaceFailureTarget::Role { role_id, .. }
         | SurfaceFailureTarget::Popup { role_id, .. } => role_id.clone(),
@@ -1073,6 +1078,13 @@ where
                 );
             }
             tracker.native_token.store(token, Ordering::Release);
+            if observe_history && !unsafe {
+                rion_wk_observe_workspace_history(native, macos_workspace_history_restored)
+            } {
+                completion(Err(RuntimeError::new("WORKSPACE_WEB_HISTORY_UNAVAILABLE",
+                    "WKWebView could not observe website history restoration.")));
+                return;
+            }
             completion(Ok(tracker));
         } else {
             drop(unsafe { Box::from_raw(context as *mut MacosRoleSurfaceContext) });
@@ -1229,6 +1241,30 @@ unsafe extern "C" fn macos_role_surface_released(context: *mut std::ffi::c_void)
             unsafe { &*(context.cast::<MacosRoleSurfaceContext>()) }
                 .tracker
                 .mark_native_surface_released();
+        }
+    }));
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_workspace_history_restored(
+    context: *mut std::ffi::c_void,
+    url: *const std::ffi::c_char,
+) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() || url.is_null() {
+            return;
+        }
+        let context = unsafe { &*(context.cast::<MacosRoleSurfaceContext>()) };
+        let Ok(value) = unsafe { std::ffi::CStr::from_ptr(url) }.to_str() else {
+            return;
+        };
+        let Ok(url) = Url::parse(value) else {
+            return;
+        };
+        if let Some(state) = context.app.try_state::<crate::CoreState>() {
+            state
+                .runtime
+                .workspace_web_history_restored(&context.webview_label, &url);
         }
     }));
 }

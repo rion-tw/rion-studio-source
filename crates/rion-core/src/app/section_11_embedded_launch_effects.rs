@@ -183,9 +183,9 @@ fn embedded_web_surface_load_plan(
             || !surface_ids.insert(slot.role.id.as_str())
             || view.web.as_ref() != Some(web)
             || view.role.name != web.name
-            || view.role.launch_url != web.start_url
+            || view.role.launch_url != web.launch_url()
             || slot.role.name != web.name
-            || slot.role.launch_url != web.start_url
+            || slot.role.launch_url != web.launch_url()
             || view.rect != slot.rect
             || view.zoom_factor != slot.zoom_factor
             || view.zoom_mode != slot.zoom_mode
@@ -200,7 +200,7 @@ fn embedded_web_surface_load_plan(
         surfaces.push(crate::model::EmbeddedWebSurfaceLoadEffectRecord {
             surface_id: slot.role.id.clone(),
             slot_id: slot.slot_id.clone(),
-            url: web.start_url.clone(),
+            url: web.launch_url().to_owned(),
             zoom_factor: slot.zoom_factor,
             resolved_engine: view.resolved_engine,
         });
@@ -243,7 +243,7 @@ fn workspace_web_surface_role(
         id: workspace_web_surface_id(tab_id, slot_index),
         game_id: "workspace-web".to_owned(),
         name: web.name.clone(),
-        launch_url: web.start_url.clone(),
+        launch_url: web.launch_url().to_owned(),
         notes: String::new(),
         cover_image_data_url: None,
         cover_image_dominant_color: None,

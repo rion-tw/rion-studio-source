@@ -35,7 +35,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 20;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 21;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -455,12 +455,16 @@ fn normalize_slot(
         if name.chars().count() > 80 {
             return Err(invalid("portable workspace web slot name is too long"));
         }
-        let start_url = required_string(web, "startUrl", "workspace web slot")?;
-        let parsed = Url::parse(&start_url)
-            .ok()
-            .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
-            .ok_or_else(|| invalid("portable workspace web slot URL is invalid"))?;
-        Ok(json!({ "name": name, "startUrl": parsed.to_string() }))
+        let start_url = web.get("startUrl").and_then(Value::as_str)
+            .ok_or_else(|| invalid("portable workspace web slot URL must be a string"))?.trim();
+        let start_url = if start_url.is_empty() {
+            String::new()
+        } else {
+            Url::parse(start_url).ok()
+                .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+                .ok_or_else(|| invalid("portable workspace web slot URL is invalid"))?.to_string()
+        };
+        Ok(json!({ "name": name, "startUrl": start_url }))
     }).transpose()?;
     if role_id.is_some() && web.is_some() {
         return Err(invalid(

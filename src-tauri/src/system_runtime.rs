@@ -147,6 +147,8 @@ include!("system_runtime/section_31_desktop_e2e_pointer.rs");
 include!("system_runtime/section_31_desktop_e2e_viewport.rs");
 #[cfg(feature = "desktop-e2e")]
 include!("system_runtime/section_31_desktop_e2e_ui.rs");
+#[cfg(feature = "desktop-e2e")]
+include!("system_runtime/desktop_e2e_website.rs");
 include!("system_runtime/platform/shared.rs");
 
 // @source "./system_runtime/platform/windows.rs"
@@ -177,3 +179,5 @@ pub(crate) fn install_windows_main_application_shortcut_handler(
 
 #[cfg(test)]
 mod tests;
+
+include!("system_runtime/workspace_start_appearance.rs");

@@ -164,6 +164,7 @@ class FakeParent implements ChromiumRoleSurfaceParentPort {
 function fakeSession(storagePath: string | null): ChromiumRoleSessionPort {
   return {
     storagePath,
+    protocol: { handle: vi.fn() },
     on: vi.fn(),
     cookies: { flushStore: vi.fn(async () => undefined) },
     flushStorageData: vi.fn(),
@@ -329,6 +330,21 @@ describe("Chromium paired Workspace Web presentation", () => {
     expect(shell.windowOpenHandler?.({ url: "https://popup.test" }))
       .toEqual({ action: "deny" });
     expect(subject.parent.children).toEqual(subject.views);
+  });
+
+  it.each(["darwin", "win32"] as const)("projects website-link navigation into chrome on %s", async platform => {
+    const subject = harness(null, platform);
+    const { shell, content } = await finishCreate(subject);
+    content.finish("https://fixture.test/card-destination");
+    expect(shell.sent.at(-1)).toEqual({
+      channel: WORKSPACE_WEB_CHROME_STATE_CHANNEL,
+      value: expect.objectContaining({ url: "https://fixture.test/card-destination", canGoBack: true })
+    });
+    content.finish("rion-start://home/");
+    expect(shell.sent.at(-1)).toEqual({
+      channel: WORKSPACE_WEB_CHROME_STATE_CHANNEL,
+      value: expect.objectContaining({ url: "rion-start://home/" })
+    });
   });
 
   it("rejects a forged local-shell identity backed by persistent native storage", () => {

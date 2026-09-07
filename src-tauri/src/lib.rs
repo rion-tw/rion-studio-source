@@ -18,6 +18,7 @@ mod runtime_tabs_macos;
 mod system_runtime;
 mod update_manager;
 mod update_transaction;
+mod workspace_start;
 
 include!("lib/section_01_activation.rs");
 include!("lib/section_01_runtime_tab_activation_e2e.rs");

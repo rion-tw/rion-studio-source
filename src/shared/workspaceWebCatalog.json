@@ -1,0 +1,113 @@
+[
+  {
+    "id": "youtube",
+    "name": "YouTube",
+    "startUrl": "https://www.youtube.com/",
+    "hostnames": [
+      "youtube.com",
+      "youtu.be"
+    ],
+    "brandAsset": "youtube.svg"
+  },
+  {
+    "id": "netflix",
+    "name": "Netflix",
+    "startUrl": "https://www.netflix.com/",
+    "hostnames": [
+      "netflix.com"
+    ],
+    "brandAsset": "netflix.svg"
+  },
+  {
+    "id": "twitch",
+    "name": "Twitch",
+    "startUrl": "https://www.twitch.tv/",
+    "hostnames": [
+      "twitch.tv"
+    ],
+    "brandAsset": "twitch.svg"
+  },
+  {
+    "id": "disney-plus",
+    "name": "Disney+",
+    "startUrl": "https://www.disneyplus.com/",
+    "hostnames": [
+      "disneyplus.com"
+    ],
+    "brandAsset": "disney-plus.jpg",
+    "brandImagePresentation": "cover"
+  },
+  {
+    "id": "prime-video",
+    "name": "Prime Video",
+    "startUrl": "https://www.primevideo.com/",
+    "hostnames": [
+      "primevideo.com"
+    ],
+    "brandAsset": "prime-video.png"
+  },
+  {
+    "id": "spotify",
+    "name": "Spotify",
+    "startUrl": "https://open.spotify.com/",
+    "hostnames": [
+      "spotify.com"
+    ],
+    "brandAsset": "spotify.svg"
+  },
+  {
+    "id": "crunchyroll",
+    "name": "Crunchyroll",
+    "startUrl": "https://www.crunchyroll.com/",
+    "hostnames": [
+      "crunchyroll.com"
+    ],
+    "brandAsset": "crunchyroll.svg"
+  },
+  {
+    "id": "kick",
+    "name": "Kick",
+    "startUrl": "https://kick.com/",
+    "hostnames": [
+      "kick.com"
+    ],
+    "brandAsset": "kick.svg"
+  },
+  {
+    "id": "tiktok",
+    "name": "TikTok",
+    "startUrl": "https://www.tiktok.com/",
+    "hostnames": [
+      "tiktok.com"
+    ],
+    "brandAsset": "tiktok.svg"
+  },
+  {
+    "id": "instagram",
+    "name": "Instagram",
+    "startUrl": "https://www.instagram.com/",
+    "hostnames": [
+      "instagram.com"
+    ],
+    "brandAsset": "instagram.svg"
+  },
+  {
+    "id": "reddit",
+    "name": "Reddit",
+    "startUrl": "https://www.reddit.com/",
+    "hostnames": [
+      "reddit.com"
+    ],
+    "brandAsset": "reddit.svg"
+  },
+  {
+    "id": "x",
+    "name": "X",
+    "startUrl": "https://x.com/",
+    "hostnames": [
+      "x.com",
+      "twitter.com"
+    ],
+    "brandAsset": "x.svg"
+  }
+]

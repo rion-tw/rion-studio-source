@@ -74,7 +74,7 @@ describe("Dashboard workspace state", () => {
       workspace
     });
 
-    expect(screen.getByText("1 Web App")).toBeTruthy();
+    expect(screen.getByText("1 Website")).toBeTruthy();
     expect(screen.getAllByText("Ready to open")).toHaveLength(2);
     const openButton = screen.getByRole("button", { name: "Open: Web Workspace" });
     expect(openButton.hasAttribute("disabled")).toBe(false);

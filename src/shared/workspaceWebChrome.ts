@@ -1,3 +1,4 @@
+import { isWorkspaceStartUrl } from "./workspaceStartPage";
 export const WORKSPACE_WEB_CHROME_ACTION_CHANNEL =
   "rion:workspace-web-chrome:action";
 export const WORKSPACE_WEB_CHROME_STATE_CHANNEL =
@@ -103,7 +104,7 @@ export function parseWorkspaceWebChromeState(
     !validIdentifier(value.surfaceId) ||
     !Number.isSafeInteger(value.generation) ||
     (value.generation as number) < 1 ||
-    !canonicalUrlInput(value.url) ||
+    !(canonicalUrlInput(value.url) || (typeof value.url === "string" && isWorkspaceStartUrl(value.url))) ||
     typeof value.canGoBack !== "boolean" ||
     typeof value.canGoForward !== "boolean"
   ) return null;

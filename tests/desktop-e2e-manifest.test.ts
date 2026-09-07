@@ -84,9 +84,11 @@ describe("desktop E2E manifest resolution", () => {
       await readFile("docs/e2e-coverage.json", "utf8")
     ) as DesktopE2eManifest;
     const extended = resolveDesktopE2eProfile(repositoryManifest, "extended");
-    expect(extended.phases).toHaveLength(33);
+    expect(extended.phases).toHaveLength(35);
     expect(extended.phases).toEqual(expect.arrayContaining([
       "p1-macro-standby-recovery",
+      "website-entrance-seed",
+      "website-entrance-restart",
       "extended-native"
     ]));
     expect(journeysForDesktopE2eProfile(repositoryManifest, "extended")).toHaveLength(41);

@@ -1,3 +1,4 @@
+import "./startScheme";
 import { ExtensionStoreHost } from "./extensionStoreHost";
 import { createExtensionApiDispatcher } from "./extensionApiDispatcher";
 import { ChromiumExtensionSessions } from "./chromiumExtensionSessions";

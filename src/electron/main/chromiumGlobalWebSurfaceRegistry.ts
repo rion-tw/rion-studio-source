@@ -1,3 +1,5 @@
+import { observeWorkspaceStartPage } from "./workspaceStartPage";
+import { isWorkspaceStartUrl } from "../../shared/workspaceStartPage";
 import type { GlobalWebProfilePathsRecord } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
 import type {
@@ -77,6 +79,7 @@ export interface CreateChromiumGlobalWebSurfaceInput {
   readonly audioMuted: boolean;
   /** Exact Chromium HTML-fullscreen event projected by the paired host owner. */
   readonly onContainedFullscreenChange?: (fullscreen: boolean) => void;
+  readonly onNavigationChange?: (evidence: ChromiumGlobalWebSurfaceRuntimeEvidence) => void;
 }
 
 export interface ChromiumGlobalWebActiveMainFrameFailure {
@@ -269,6 +272,7 @@ function validateZoomFactor(zoomFactor: number): void {
 }
 
 function canonicalWebUrl(value: unknown): string {
+  if (typeof value === "string" && isWorkspaceStartUrl(value)) return value;
   if (
     typeof value !== "string" || value.length === 0 || value !== value.trim() ||
     [...value].some((character) => {
@@ -886,7 +890,13 @@ export class ChromiumGlobalWebSurfaceRegistry {
           record.activeFailureReported = false;
         }
       },
-      didFinishLoad: () => this.#finishInitialLoad(record),
+      didFinishLoad: () => {
+        this.#finishInitialLoad(record);
+        if (record.state === "active" && !record.activeFailureReported &&
+            this.#records.get(record.surfaceId) === record && input.onNavigationChange) {
+          input.onNavigationChange(this.runtimeEvidence(record.surfaceId, record.generation));
+        }
+      },
       didFailLoad: (
         _event,
         _errorCode,
@@ -934,6 +944,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
       return { action: "deny" };
     });
     contents.on("will-attach-webview", record.listeners.willAttachWebview);
+    observeWorkspaceStartPage(contents);
     contents.on("will-navigate", record.listeners.willNavigate);
     contents.on("will-redirect", record.listeners.willRedirect);
     contents.on("did-start-navigation", record.listeners.didStartNavigation);

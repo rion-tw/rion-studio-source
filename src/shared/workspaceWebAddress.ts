@@ -1,7 +1,9 @@
+import { isWorkspaceStartUrl } from "./workspaceStartPage";
 import { canonicalWorkspaceWebUrl } from "./workspaceWebChrome";
 
 /** Presentation only: never use the shortened value as authoritative state. */
 export function displayWorkspaceWebUrl(url: string): string {
+  if (isWorkspaceStartUrl(url)) return "";
   return url.replace(/^https:\/\/(?:www\.)?/u, "");
 }
 
@@ -39,7 +41,7 @@ export function installWorkspaceWebAddress(
     input.value = displayWorkspaceWebUrl(committedUrl);
     clearError();
   };
-  input.addEventListener("focus", () => { input.value = committedUrl; });
+  input.addEventListener("focus", () => { input.value = isWorkspaceStartUrl(committedUrl) ? "" : committedUrl; });
   input.addEventListener("blur", restore);
   input.addEventListener("input", clearError);
   input.addEventListener("compositionstart", () => { composing = true; });

@@ -11,7 +11,7 @@ import type { LaunchWorkspaceSlot } from "../src/shared/types";
 const t: Translator = (key) => en[key];
 
 describe("workspace content projection", () => {
-  it("projects role and Web App content with searchable names", () => {
+  it("projects role and Website content with searchable names", () => {
     const slots: LaunchWorkspaceSlot[] = [
       { id: "role-slot", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       {
@@ -32,7 +32,7 @@ describe("workspace content projection", () => {
       roleCount: 1,
       webCount: 1
     });
-    expect(formatWorkspaceContentSummary(content, t)).toBe("1 role · 1 Web App");
+    expect(formatWorkspaceContentSummary(content, t)).toBe("1 role · 1 Website");
   });
 
   it("keeps an empty workspace non-launchable while giving it a localized summary", () => {

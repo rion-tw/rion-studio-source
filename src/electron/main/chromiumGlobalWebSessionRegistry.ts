@@ -1,3 +1,4 @@
+import { installWorkspaceStartProtocol } from "./workspaceStartPage";
 import {
   chromiumPathApi as pathApi,
   chromiumPathKey as ownershipKey,
@@ -375,6 +376,7 @@ export class ChromiumGlobalWebSessionRegistry {
     installChromiumSessionSecurityPolicy(session, {
       allowMainFrameHtmlFullscreen: true
     });
+    installWorkspaceStartProtocol(session);
     const handle = Object.freeze({
       profileKey: GLOBAL_WEB_PROFILE_KEY,
       chromiumUserDataDir: chromiumPath,

@@ -1,3 +1,4 @@
+import { exerciseNativeWebsiteEntrance } from "./app-website-entrance.helpers";
 import { clickWorkspaceSlot } from "../support/ui";
 import { assertSeedPrimaryPage } from "../support/primary-navigation";
 import { exerciseMacroMindMapHover } from "../support/macro-mind-map";
@@ -251,9 +252,11 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await waitForRoute("/workspaces/new");
   await setEditorName(WORKSPACE_NAME);
   await $("#workspace-slot-content").click();
-  const webOption = await $("[role='option']=Web app");
+  const webOption = await $("[role='option']=Website");
   await webOption.waitForExist({ timeout: 10_000 });
   await webOption.click();
+  await expect($("#workspace-web-name")).toHaveValue("Website");
+  await expect($("#workspace-web-url")).toHaveValue("");
   const webPresetSelect = await $("[data-workspace-web-preset-select]");
   await webPresetSelect.click();
   const youtubePreset = await $("[role='option'][data-workspace-web-preset='youtube']");
@@ -298,7 +301,7 @@ async function createContainedFullscreenWorkspace(role: Role): Promise<LaunchWor
   await waitForRoute("/workspaces/new");
   await setEditorName(FULLSCREEN_WORKSPACE_NAME);
   await $("#workspace-slot-content").click();
-  await $("[role='option']=Web app").click();
+  await $("[role='option']=Website").click();
   await $("#workspace-web-name").setValue("Fullscreen fixture");
   await $("#workspace-web-url").setValue(
     `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}`
@@ -1313,6 +1316,12 @@ describe("application UI smoke journeys", () => {
     else if (phase === "fullscreen-toolbar") await fullscreenToolbarPhase();
     else if (phase === "fullscreen-toolbar-restart") await fullscreenToolbarRestartPhase();
     else if (phase === "workspace-contained-fullscreen") await containedFullscreenPhase();
+    else if (phase === "website-entrance-seed" || phase === "website-entrance-restart") {
+      await ensureEnglishUi();
+      await acceptLegalAndSkipFirstRun();
+      await exerciseNativeWebsiteEntrance(phase === "website-entrance-restart");
+      await shutdownAndWaitForFlush();
+    }
     else throw new Error(`Unknown application journey phase: ${phase}`);
   });
 });

@@ -97,7 +97,7 @@ impl NavigationTracker {
     }
 
     fn page_event(&self, event: PageLoadEvent, url: &Url) {
-        if !matches!(url.scheme(), "http" | "https") {
+        if !matches!(url.scheme(), "http" | "https") && !crate::workspace_start::is_start_url(url.as_str()) {
             return;
         }
         let mut terminal = false;

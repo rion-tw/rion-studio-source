@@ -558,3 +558,21 @@
             );
         };
     }
+
+#[test]
+fn workspace_start_page_is_normalized_and_never_changes_existing_urls() {
+    for input_url in ["", "  ", " https://example.test/ "] {
+        let mut workspaces = Vec::new();
+        let workspace = create_workspace(&mut workspaces, workspace_input(json!({
+            "name": "Websites", "template": "single",
+            "slots": [{"web": {"name": "Website", "startUrl": input_url}}]
+        }))).unwrap();
+        let web = workspace.slots[0].web.as_ref().unwrap();
+        assert_eq!(web.start_url, input_url.trim());
+        assert_eq!(web.launch_url(), if input_url.trim().is_empty() { "rion-start://home/" } else { "https://example.test/" });
+    }
+    let mut workspaces = Vec::new();
+    assert!(create_workspace(&mut workspaces, workspace_input(json!({
+        "name": "Invalid", "slots": [{"web": {"name": "Website", "startUrl": "rion-start://home/"}}]
+    }))).is_err());
+}

@@ -30,6 +30,22 @@ beforeEach(() => {
 });
 
 describe("Workspace Web sibling chrome", () => {
+  it("keeps the entrance and current history when an older navigation reply arrives", async () => {
+    await import("../src/renderer/runtime-shell/runtimeWebChrome");
+    window.__rionApplyWorkspaceWebChromeState?.({
+      canGoBack: true, canGoForward: false, documentEpoch: 5, url: "rion-start://home/"
+    });
+    window.__rionApplyWorkspaceWebChromeState?.({
+      canGoBack: false, canGoForward: true, documentEpoch: 4, url: "https://example.test/"
+    });
+    expect(document.querySelector<HTMLInputElement>("#location")!.value).toBe("");
+    expect(document.querySelector<HTMLButtonElement>("#back")!.disabled).toBe(false);
+    document.querySelector<HTMLButtonElement>("#back")!.click();
+    expect(invoke).toHaveBeenLastCalledWith("rion_workspace_web_chrome_action", {
+      action: { capabilityToken: "token", documentEpoch: 5, generation: 9, type: "back" }
+    });
+  });
+
   it("projects history state, navigates on Enter, restores on Escape, and sends home", async () => {
     await import("../src/renderer/runtime-shell/runtimeWebChrome");
     invoke.mockClear();

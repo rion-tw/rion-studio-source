@@ -82,9 +82,11 @@ export async function createWebOnlyWorkspace(): Promise<LaunchWorkspace> {
   await singleLayout.waitForDisplayed({ timeout: 10_000 });
   await singleLayout.click();
   await $("#workspace-slot-content").click();
-  const webOption = await $("[role='option']=Web app");
+  const webOption = await $("[role='option']=Website");
   await webOption.waitForDisplayed({ timeout: 10_000 });
   await webOption.click();
+  await expect($("#workspace-web-name")).toHaveValue("Website");
+  await expect($("#workspace-web-url")).toHaveValue("");
   await $("#workspace-web-name").setValue("E2E Web Only App");
   await $("#workspace-web-url").setValue(webOnlyUrl());
   await submitEditor("/workspaces");
@@ -111,7 +113,7 @@ export function expectWebOnlyWorkspaceDefinition(workspace: LaunchWorkspace): vo
   });
 }
 
-async function waitForWebOnlyRuntimeTab(
+export async function waitForWebOnlyRuntimeTab(
   workspace: LaunchWorkspace
 ): Promise<EmbeddedRuntimeTabSummary> {
   let matching: EmbeddedRuntimeTabSummary | undefined;
@@ -206,7 +208,7 @@ async function expectWebOnlyWorkspaceRuntime(
   return snapshot;
 }
 
-async function closeRuntimeTabThroughVisibleControl(
+export async function closeRuntimeTabThroughVisibleControl(
   tab: Pick<EmbeddedRuntimeTabSummary, "id" | "windowId">
 ): Promise<void> {
   let snapshot = await windowSnapshot(tab.windowId);

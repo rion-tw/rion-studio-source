@@ -128,15 +128,14 @@ fn checked_workspace_chrome_url(value: &str) -> RuntimeResult<Url> {
 
 fn workspace_web_chrome_state(surface: &RoleSurface) -> Option<WorkspaceWebChromeState> {
     let workspace = surface.workspace_web.as_ref()?;
+    let url = surface.current_url.as_ref().unwrap_or(&workspace.home_url);
     Some(WorkspaceWebChromeState {
         can_go_back: workspace.can_go_back,
         can_go_forward: workspace.can_go_forward,
         document_epoch: workspace.document_epoch,
-        url: surface
-            .current_url
-            .as_ref()
-            .unwrap_or(&workspace.home_url)
-            .to_string(),
+        url: if crate::workspace_start::is_start_url(url.as_str()) {
+            crate::workspace_start::URL.to_owned()
+        } else { url.to_string() },
     })
 }
 
@@ -335,7 +334,13 @@ impl SystemRuntimeExecutor {
             workspace.can_go_forward = can_go_forward;
         }
         if publish {
+            self.publish_workspace_start_appearance();
             self.publish_workspace_web_chrome_state(content_label);
+            #[cfg(feature = "desktop-e2e")]
+            crate::desktop_e2e::record_event(
+                &format!("website-navigation-finished:{content_label}"),
+                None, None, None, json!({ "url": url.as_str() }),
+            );
         }
     }
 

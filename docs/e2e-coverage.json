@@ -47,6 +47,8 @@
         "fullscreen-toolbar",
         "fullscreen-toolbar-restart",
         "workspace-contained-fullscreen",
+        "website-entrance-seed",
+        "website-entrance-restart",
         "smoke-seed",
         "smoke-restart"
       ],
@@ -563,13 +565,13 @@
       "priority": "P0",
       "status": "automated",
       "profile": "smoke",
-      "phases": ["smoke-seed", "smoke-restart"],
+      "phases": ["smoke-seed", "smoke-restart", "website-entrance-seed", "website-entrance-restart"],
       "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
       "platforms": ["macos", "windows"],
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, choose a popular-site menu option, override its editable details with the fixture URL, launch its paired content and external Rion-owned chrome System WebViews, drag the visible native divider with a real platform pointer, and verify the authoritative mixed layout plus configured HTTP(S) start URL and Rion-managed Web session persist across restart; contained fullscreen behavior is covered by WORKSPACE-WEB-FULLSCREEN-005."
+      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, choose a popular-site menu option, override its editable details with the fixture URL, launch its paired content and external Rion-owned chrome System WebViews, drag the visible native divider with a real platform pointer, and verify the authoritative mixed layout plus configured HTTP(S) start URL and Rion-managed Web session persist across restart; contained fullscreen behavior is covered by WORKSPACE-WEB-FULLSCREEN-005. Website selection defaults to a localized display name and an optional blank start URL. The Web-only journey creates an entrance without entering a URL, launches the packaged native page through visible Quick Open, verifies exact native readiness and empty persisted start URL, activates the visible card and Home/Back/Forward/Reload controls with real platform Enter input against a local fixture, and repeats after restart."
     },
     {
       "id": "WORKSPACE-WEB-FULLSCREEN-005",
@@ -591,13 +593,13 @@
       "priority": "P0",
       "status": "automated",
       "profile": "smoke",
-      "phases": ["smoke-seed", "smoke-restart"],
+      "phases": ["smoke-seed", "smoke-restart", "website-entrance-seed", "website-entrance-restart"],
       "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
       "platforms": ["macos", "windows"],
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create a single Web App Workspace through visible controls, gate navigation to prove Loading then Ready with empty Role IDs and Role slots, complete persisted Web workspace slots, native content plus Rion-owned chrome, shared Web session continuity, no synthetic Role status, and repeated-launch deduplication; then inject a navigation failure, close and reopen the degraded tab through visible native controls, and restore the saved Web-only tab after process restart on macOS and Windows."
+      "description": "Create a single Web App Workspace through visible controls, gate navigation to prove Loading then Ready with empty Role IDs and Role slots, complete persisted Web workspace slots, native content plus Rion-owned chrome, shared Web session continuity, no synthetic Role status, and repeated-launch deduplication; then inject a navigation failure, close and reopen the degraded tab through visible native controls, and restore the saved Web-only tab after process restart on macOS and Windows. Website selection defaults to a localized display name and an optional blank start URL. The Web-only journey creates an entrance without entering a URL, launches the packaged native page through visible Quick Open, verifies exact native readiness and empty persisted start URL, activates the visible card and Home/Back/Forward/Reload controls with real platform Enter input against a local fixture, and repeats after restart."
     },
     {
       "id": "GAME-WINDOWS-UI-001",
@@ -2556,7 +2558,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create a single Web App Workspace through visible controls, prove event-bound Loading then Ready with no synthetic Role slots/statuses, and compare the persistent global-Web content session with the dedicated memory-only Rion chrome shell inside the retained AppKit host. Repeated launch deduplicates, visible chrome navigation produces an authoritative degraded failure, native AppKit tab close/reopen recovers only by user action, and the exact saved Web tab plus session survive process restart. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation. Visible address editing restores the full URL on focus, Escape discards the draft, and keyword submission emits the exact encoded Google main-frame navigation without depending on search-result content."
+      "description": "Create a single Web App Workspace through visible controls, prove event-bound Loading then Ready with no synthetic Role slots/statuses, and compare the persistent global-Web content session with the dedicated memory-only Rion chrome shell inside the retained AppKit host. Repeated launch deduplicates, visible chrome navigation produces an authoritative degraded failure, native AppKit tab close/reopen recovers only by user action, and the exact saved Web tab plus session survive process restart. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation. Visible address editing restores the full URL on focus, Escape discards the draft, and keyword submission emits the exact encoded Google main-frame navigation without depending on search-result content. Create and persist an entrance Website without entering a URL, open its offline 12-card page, click the visible YouTube card through a fixture-bound request, return through Home with a blank address bar, and repeat after restart without changing the saved start URL."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024",
@@ -2575,7 +2577,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Run the same visible Web-only Workspace lifecycle in the bundled Windows Chromium host: event-bound Loading and Ready, empty Role topology, persistent global-Web content isolated from the memory-only Rion chrome shell, deduplicated launch, authoritative degraded navigation failure, visible native tab close/reopen, and exact restart persistence. Windows execution retains an independent CI verdict. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation. Visible address editing restores the full URL on focus, Escape discards the draft, and keyword submission emits the exact encoded Google main-frame navigation without depending on search-result content."
+      "description": "Run the same visible Web-only Workspace lifecycle in the bundled Windows Chromium host: event-bound Loading and Ready, empty Role topology, persistent global-Web content isolated from the memory-only Rion chrome shell, deduplicated launch, authoritative degraded navigation failure, visible native tab close/reopen, and exact restart persistence. Windows execution retains an independent CI verdict. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation. Visible address editing restores the full URL on focus, Escape discards the draft, and keyword submission emits the exact encoded Google main-frame navigation without depending on search-result content. Create and persist an entrance Website without entering a URL, open its offline 12-card page, click the visible YouTube card through a fixture-bound request, return through Home with a blank address bar, and repeat after restart without changing the saved start URL."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025",

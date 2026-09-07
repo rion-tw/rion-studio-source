@@ -46,7 +46,7 @@ function trackWindow(handle: string): void {
   if (electron) electron.windowHandle = handle;
 }
 
-async function switchTrackedWindow(handle: string): Promise<void> {
+export async function switchTrackedWindow(handle: string): Promise<void> {
   await browser.switchToWindow(handle);
   // @wdio/electron-service keeps its own active-page fence. Updating it after
   // the explicit switch prevents a later element command from selecting the

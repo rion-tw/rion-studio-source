@@ -157,7 +157,7 @@ fn validate_workspace_slots(
             || !slot_ids.insert(slot.id.as_str())
             || role_id.is_some_and(str::is_empty)
             || (role_id.is_some() && web.is_some())
-            || web.is_some_and(|web| web.name.trim().is_empty() || web.start_url.trim().is_empty())
+            || web.is_some_and(|web| web.name.trim().is_empty())
             || [rect.x, rect.y, rect.width, rect.height]
                 .iter()
                 .any(|value| !value.is_finite())

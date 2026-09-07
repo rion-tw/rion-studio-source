@@ -51,6 +51,8 @@ function invokeAction(type: "ready" | "back" | "forward" | "reload" | "home" | "
 }
 
 window.__rionApplyWorkspaceWebChromeState = (state) => {
+  // A navigation's reply can arrive after the next document's page event.
+  if (state.documentEpoch < documentEpoch) return;
   applyAddress?.(state.url);
   documentEpoch = state.documentEpoch;
   locationInput!.removeAttribute("aria-invalid");

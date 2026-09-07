@@ -63,6 +63,7 @@
     "lint:electron:native-integration-fixture": "cargo clippy --locked -p rion-node --features native-integration-fixture --bin rion-node-native-integration-fixture --no-deps -- -D warnings",
     "lint:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets --no-deps -- -D warnings",
     "lint:rust:portable": "cargo fmt --all -- --check && cargo clippy -p rion-core -p rion-platform --all-targets --no-deps -- -D warnings",
+    "generate:workspace-start": "node scripts/generateWorkspaceStartPage.mjs",
     "generate:rust-types": "cargo test -p rion-core export_bindings",
     "performance:measure": "node scripts/benchmarkProcessTree.mjs",
     "performance:aggregate": "node scripts/aggregatePerformanceRuns.mjs",

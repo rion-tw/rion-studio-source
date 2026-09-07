@@ -58,6 +58,7 @@ function nativeSession(
   });
   const session = {
     storagePath,
+    protocol: { handle: vi.fn() },
     clearStorageData,
     flushStorageData: vi.fn(),
     cookies: { flushStore, get }

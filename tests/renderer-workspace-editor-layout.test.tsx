@@ -58,7 +58,7 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
-  it("selects a Web App preset, keeps its fields editable, and clears the role assignment", async () => {
+  it("selects a Website preset, keeps its fields editable, and clears the role assignment", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const router = createMemoryRouter(
@@ -85,7 +85,7 @@ describe("workspace editor role picker layout", () => {
     );
 
     await user.click(screen.getByRole("combobox", { name: "Content type" }));
-    await user.click(screen.getByRole("option", { name: "Web app" }));
+    await user.click(screen.getByRole("option", { name: "Website" }));
     const presetSelect = screen.getByRole("combobox", { name: "Popular sites" });
     expect(presetSelect.textContent).toContain("Select a popular site");
     await user.click(presetSelect);
@@ -125,6 +125,35 @@ describe("workspace editor role picker layout", () => {
     expect(onSave.mock.calls[0][0].slots[0]).not.toHaveProperty("roleId");
   });
 
+  it("saves the default entrance and allows clearing a previously selected URL", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const router = createMemoryRouter([{ path: "/workspaces/:id/edit", element: (
+      <WorkspaceEditorRoute games={[game()]} isSaving={false} roles={[role(1), role(2)]}
+        statusByRole={new Map()} t={t} workspaces={[workspace()]} onSave={onSave} />
+    ) }], { initialEntries: ["/workspaces/workspace-1/edit"] });
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    await user.click(screen.getByRole("combobox", { name: "Content type" }));
+    await user.click(screen.getByRole("option", { name: "Website" }));
+    const name = screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement;
+    const url = screen.getByRole("textbox", { name: "Start URL" }) as HTMLInputElement;
+    const save = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+    expect(name.value).toBe("Website");
+    expect(url.value).toBe("");
+    expect(url.required).toBe(false);
+    expect(save.disabled).toBe(false);
+    await user.click(screen.getByRole("combobox", { name: "Popular sites" }));
+    await user.click(screen.getByRole("option", { name: "YouTube" }));
+    await user.clear(url);
+    await user.type(url, "https://");
+    expect(save.disabled).toBe(true);
+    await user.clear(url);
+    expect(save.disabled).toBe(false);
+    await user.click(save);
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].slots[0].web).toEqual({ name: "YouTube", startUrl: "" });
+  });
+
   it("restores a known brand image while editing and keeps custom sites generic", async () => {
     const user = userEvent.setup();
     const selectedWorkspace = workspace();
@@ -158,7 +187,7 @@ describe("workspace editor role picker layout", () => {
 
     const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
     const presetSelect = screen.getByRole("combobox", { name: "Popular sites" });
-    if (!firstSlot) throw new Error("Expected the known Web App preset state.");
+    if (!firstSlot) throw new Error("Expected the known Website preset state.");
     expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("youtube");
     expect(presetSelect.textContent).toContain("YouTube");
 
@@ -318,7 +347,7 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[0].textContent).toContain("A role can appear only once");
     expect(workspaceHelps[0].textContent).toContain("content outside the new layout is not kept");
     expect(workspaceHelps[1].textContent).toContain("Opening the workspace");
-    expect(workspaceHelps[1].textContent).toContain("at least one role or Web App before opening");
+    expect(workspaceHelps[1].textContent).toContain("at least one role or Website before opening");
     expect(workspaceHelps[1].textContent).toContain("most recently focused game window");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(workspaceHelps[2].textContent).toContain("Each viewport adapts independently");
@@ -554,7 +583,7 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps).toHaveLength(3);
     expect(workspaceHelps[0].textContent).toContain("Editing content and layout");
     expect(workspaceHelps[1].textContent).toContain("Opening the workspace");
-    expect(workspaceHelps[1].textContent).toContain("at least one role or Web App");
+    expect(workspaceHelps[1].textContent).toContain("at least one role or Website");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();

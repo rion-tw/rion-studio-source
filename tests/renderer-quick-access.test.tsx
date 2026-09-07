@@ -147,7 +147,7 @@ describe("quick access model", () => {
     const webItem = catalog.find((item) => item.key === `workspace:${webWorkspace.id}`);
     const emptyItem = catalog.find((item) => item.key === `workspace:${emptyWorkspace.id}`);
 
-    expect(webItem).toMatchObject({ disabled: false, subtitle: "1 Web App" });
+    expect(webItem).toMatchObject({ disabled: false, subtitle: "1 Website" });
     expect(emptyItem).toMatchObject({ disabled: true, subtitle: "Not configured" });
     expect(
       filterQuickAccessItems(catalog, "Video room").some((item) => item.key === webItem?.key)

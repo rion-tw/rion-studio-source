@@ -5,6 +5,7 @@ impl SystemRuntimeExecutor {
                 *current = language.to_owned();
             }
             self.publish_projection();
+            self.publish_workspace_start_appearance();
         }
     }
 
@@ -13,6 +14,7 @@ impl SystemRuntimeExecutor {
             if let Ok(mut current) = self.resolved_theme.lock() {
                 *current = theme.to_owned();
             }
+            self.publish_workspace_start_appearance();
             #[cfg(windows)]
             self.publish_projection();
         }

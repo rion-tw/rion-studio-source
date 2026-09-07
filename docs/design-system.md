@@ -99,6 +99,13 @@ cannot be expressed consistently across screens.
 
 ## Theme and runtime
 
+Workspace Website slots with an empty start URL open the packaged website
+entrance. Its script-free document uses the shared tokens, four-locale copy,
+and `src/shared/workspaceWebCatalog.json`; run `pnpm run generate:workspace-start`
+after changing the catalog, brand assets, translations, tokens, or entrance CSS.
+The generated HTML is shared by both desktop shells and performs no network
+requests until a card is activated. The slot's URL remains empty after browsing.
+
 - The renderer preserves the `light | dark | system` preference and existing
   localStorage/portable behavior.
 - `ResolvedTheme = "light" | "dark"` is a shared contract. The renderer calls

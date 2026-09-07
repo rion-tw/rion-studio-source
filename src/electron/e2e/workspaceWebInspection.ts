@@ -170,7 +170,7 @@ function coreSlot(value: unknown): value is ElectronDesktopE2eWorkspaceWebInspec
   const validWeb = value.web === null || (
     record(value.web) && exact(value.web, ["name", "startUrl"]) &&
     typeof value.web.name === "string" && value.web.name.length > 0 &&
-    canonicalUrl(value.web.startUrl, ["http:", "https:"])
+    (value.web.startUrl === "" || canonicalUrl(value.web.startUrl, ["http:", "https:"]))
   );
   return validWeb && (value.roleId === null) !== (value.web === null);
 }
@@ -247,7 +247,7 @@ function workspaceWeb(
       !globalWebPath(value.contentProfilePath) ||
       value.contentSession !== "global-web-persistent" ||
       value.contentSessionStoragePath !== value.contentProfilePath ||
-      !canonicalUrl(value.contentUrl, ["http:", "https:"]) ||
+      !(canonicalUrl(value.contentUrl, ["http:", "https:"]) || value.contentUrl === "rion-start://home/") ||
       typeof value.containedFullscreen !== "boolean" ||
       !Number.isSafeInteger(value.containedFullscreenRevision) ||
       Number(value.containedFullscreenRevision) < 0 ||

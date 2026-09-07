@@ -368,7 +368,7 @@ async function createAndEditWorkspace(role: Role): Promise<LaunchWorkspace> {
   await setEditorName(WORKSPACE_NAME);
 
   await $("#workspace-slot-content").click();
-  await $("[role='option']=Web app").click();
+  await $("[role='option']=Website").click();
   await setInputValue("#workspace-web-name", "Chromium fixture");
   await setInputValue("#workspace-web-url",
     `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/chromium-workspace-web`

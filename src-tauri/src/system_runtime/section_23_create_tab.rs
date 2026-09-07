@@ -570,7 +570,8 @@ impl SystemRuntimeExecutor {
                         workspace_capability_token
                             .clone()
                             .expect("Workspace Web capability token exists"),
-                        checked_workspace_chrome_url(&web.start_url)?,
+                        Url::parse(crate::workspace_start::native_url(web.launch_url()))
+                            .map_err(|_| RuntimeError::new("WORKSPACE_WEB_URL_INVALID", "Invalid website start URL"))?,
                         bounds,
                     )?)
                 } else {
@@ -635,7 +636,12 @@ impl SystemRuntimeExecutor {
                 webview
                     .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
                     .map_err(RuntimeError::tauri)?;
-                let url = checked_web_url(&role.role.launch_url)?;
+                let url = if is_workspace_web && role.role.launch_url == crate::workspace_start::URL {
+                    Url::parse(crate::workspace_start::native_url(&role.role.launch_url))
+                        .map_err(|_| RuntimeError::new("WORKSPACE_WEB_URL_INVALID", "Invalid website start URL"))?
+                } else {
+                    checked_web_url(&role.role.launch_url)?
+                };
                 let navigation_allowed = {
                     let state = self.state()?;
                     !state.close_coordinator.closing_roles.contains(&role_id)

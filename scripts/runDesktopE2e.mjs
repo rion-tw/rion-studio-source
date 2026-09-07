@@ -77,6 +77,7 @@ const chromiumAppCrudFocusedDependencies = [
   "chromium-macro-native-effect"
 ];
 const focusedPhaseDependencies = new Map([
+  ["website-entrance-restart", ["website-entrance-seed"]],
   [
     "chromium-app-crud-mutations",
     chromiumAppCrudFocusedDependencies
@@ -165,6 +166,8 @@ const phases = withChromiumMacroCutoverNativePrerequisites({
     : configuredPhases
 });
 const phaseNamespaces = new Map([
+  ["website-entrance-seed", "website-entrance-lifecycle"],
+  ["website-entrance-restart", "website-entrance-lifecycle"],
   ["chromium-app-crud-mutations", "chromium-entity-persistence-lifecycle"],
   ["chromium-app-crud-cleanup", "chromium-entity-persistence-lifecycle"],
   ["chromium-app-crud-final-restart", "chromium-entity-persistence-lifecycle"],
@@ -1249,6 +1252,12 @@ async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
         entityCounts: Object.fromEntries(Object.entries(entities).map(([key, values]) => [key, values.length])),
         validationSkipped: "phase-failed"
       };
+    }
+    if (phase.startsWith("website-entrance-")) {
+      const slot = entities.workspaces.find((entry) => entry.name === "Native Website entrance")?.payload.slots[0];
+      requireEvidence(slot?.web?.name === "Website" && slot.web.startUrl === "" && !slot.roleId,
+        `${phase}: the persisted entrance definition changed during navigation`);
+      return { websiteEntrancePersisted: true };
     }
     if (phase === "smoke-seed" || phase === "smoke-restart") {
       return validateSmokeSqliteEvidence(phase, entities, settings);

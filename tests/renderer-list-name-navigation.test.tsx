@@ -436,7 +436,7 @@ describe("list editor navigation", () => {
     const customPreview = container.querySelector<HTMLElement>(
       "[data-workspace-reorder-id='workspace-2'] [data-workspace-preview-web-preset-id]"
     );
-    if (!knownPreview || !customPreview) throw new Error("Expected workspace Web App previews.");
+    if (!knownPreview || !customPreview) throw new Error("Expected workspace Website previews.");
 
     const brandImage = knownPreview.querySelector<HTMLImageElement>("[data-workspace-web-brand-image]");
     expect(knownPreview.getAttribute("data-workspace-preview-web-preset-id")).toBe("youtube");
@@ -506,7 +506,7 @@ describe("list editor navigation", () => {
       />
     );
 
-    expect(screen.getByText("1 role · 1 Web App")).toBeTruthy();
+    expect(screen.getByText("1 role · 1 Website")).toBeTruthy();
     expect(screen.getByText("Not configured")).toBeTruthy();
   });
 

@@ -1,3 +1,4 @@
+import { verifyWorkspaceStartPage } from "../support/workspace-start-page";
 import { verifyVisibleWorkspaceWebAddress } from "../support/workspace-web-address";
 import { $, browser, expect } from "@wdio/globals";
 
@@ -105,7 +106,7 @@ async function createWorkspace(): Promise<LaunchWorkspace> {
   await $("#workspace-layout").click();
   await $("[data-workspace-layout-option='single']").click();
   await $("#workspace-slot-content").click();
-  await $("[role='option']=Web app").click();
+  await $("[role='option']=Website").click();
   await setInputValue("#workspace-web-name", WEB_NAME);
   await setInputValue("#workspace-web-url", webUrl());
   await submitEditor("/workspaces");
@@ -448,5 +449,6 @@ describe("Chromium Web-only Workspace exact replacement", () => {
     if (phase === "chromium-workspace-web-only-seed") await seed(input);
     else if (phase === "chromium-workspace-web-only-restart") await restart(input);
     else throw new Error(`Unexpected Web-only phase ${phase}`);
+    await verifyWorkspaceStartPage({ ...input, restart: phase.endsWith("-restart"), fixtureUrl: `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/website-entrance` });
   });
 });

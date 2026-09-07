@@ -775,3 +775,19 @@ fn source_role_macro_portable_round_trip_without_a_shortcut() {
     let normalized_again = normalize(&serde_json::to_string(&data).unwrap()).unwrap();
     assert_eq!(normalized["macros"], normalized_again["macros"]);
 }
+
+#[test]
+fn workspace_start_page_portable_roundtrip_and_legacy_import() {
+    for version in [20, 21] {
+        let mut source = fixture_value(version);
+        source["launchWorkspaces"][0]["slots"][0].as_object_mut().unwrap().remove("roleId");
+        source["launchWorkspaces"][0]["slots"][0]["web"] = json!({"name": "Website", "startUrl": "  "});
+        let normalized = normalize(&source.to_string()).unwrap();
+        assert_eq!(normalized["schemaVersion"], 21);
+        assert_eq!(normalized["launchWorkspaces"][0]["slots"][0]["web"]["startUrl"], "");
+        assert_eq!(normalize(&normalized.to_string()).unwrap(), normalized);
+        source["launchWorkspaces"][0]["slots"][0]["web"]["startUrl"] = json!("rion-start://home/");
+        assert!(normalize(&source.to_string()).is_err());
+    }
+    assert!(normalize(&fixture(22)).is_err());
+}

@@ -134,12 +134,14 @@ impl SystemRuntimeExecutor {
             .on_navigation(move |url| {
                 #[cfg(target_os = "macos")]
                 {
-                    matches!(url.scheme(), "about" | "http" | "https")
+                    (matches!(url.scheme(), "about" | "http" | "https")
+                        || (!install_role_features && crate::workspace_start::is_start_url(url.as_str())))
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
                 let Some(role_id) = navigation_role_id.as_deref() else {
-                    return matches!(url.scheme(), "about" | "http" | "https");
+                    return (matches!(url.scheme(), "about" | "http" | "https")
+                        || (!install_role_features && crate::workspace_start::is_start_url(url.as_str())));
                 };
                 navigation_app
                     .try_state::<crate::CoreState>()

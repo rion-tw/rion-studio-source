@@ -695,7 +695,7 @@ function WorkspaceLayoutPreviewSlot({
                 {webPreset ? null : <Globe2 className="size-3.5 shrink-0" aria-hidden="true" />}
                 {web.name}
               </span>
-              <span className="workspace-role-game-label min-w-0 truncate">{web.startUrl}</span>
+              <span className="workspace-role-game-label min-w-0 truncate">{web.startUrl || t("workspaces.webStartPage")}</span>
             </span>
           ) : (
             t("workspaces.emptySlot")

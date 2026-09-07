@@ -50,6 +50,22 @@ shutdown result.
 
 ## Shared subsystem semantics
 
+Workspace Website entrance: an empty persisted `web.startUrl` resolves in Core
+to the exact internal target `rion-start://home/`. Windows System WebView uses
+the corresponding `http://rion-start.home/` custom-protocol transport. Only
+workspace website surfaces may launch this target; address submission and Role
+URL validation remain HTTP(S)-only. The handler serves one packaged,
+script-free document with embedded images and no application bridge. Page
+readiness, failure, cancellation, and history use the same exact native events
+as external website navigation, including native completion on WebView2.
+Theme and language updates are presentation-only followers of accepted settings.
+WKWebView cache restoration follows a trusted persisted `pageshow` event in an
+isolated content world. The native observer requires the current main-frame URL
+and live surface lease, then feeds the existing generation-bound page events;
+page scripts cannot call this observer or obtain application permissions.
+Portable schema 21 adds the empty start-URL representation while preserving
+imports of supported older schemas and existing explicit URLs.
+
 | Subsystem | Shared guarantee | Native mechanism |
 | --- | --- | --- |
 | Surface lifecycle | Generation-fenced register, isolate, release, retire, or quarantine | WKWebView lifecycle callbacks / WebView2 controller callbacks |

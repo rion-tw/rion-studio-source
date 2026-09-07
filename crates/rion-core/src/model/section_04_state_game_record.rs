@@ -347,6 +347,12 @@ pub struct WorkspaceWebContentRecord {
     pub start_url: String,
 }
 
+impl WorkspaceWebContentRecord {
+    pub fn launch_url(&self) -> &str {
+        if self.start_url.is_empty() { "rion-start://home/" } else { &self.start_url }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]

@@ -135,7 +135,7 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await waitForRoute("/workspaces/new");
   await setEditorName(WORKSPACE_NAME);
   await $("#workspace-slot-content").click();
-  await $("[role='option']=Web app").click();
+  await $("[role='option']=Website").click();
   await setInputValue("#workspace-web-name", WEB_NAME);
   await setInputValue("#workspace-web-url", fixtureUrl(WEB_FIXTURE, MARKERS.web));
   await clickWorkspaceSlot(1);

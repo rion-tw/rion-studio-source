@@ -150,7 +150,7 @@ export function WorkspaceSlotDropZone({
                     try {
                       return new URL(web.startUrl).origin;
                     } catch {
-                      return web.startUrl;
+                      return web.startUrl || t("workspaces.webStartPage");
                     }
                   })()}
                 </span>

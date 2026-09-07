@@ -585,10 +585,14 @@ async fn rion_workspace_web_chrome_action(
     state: State<'_, CoreState>,
     action: system_runtime::WorkspaceWebChromeAction,
 ) -> Result<system_runtime::WorkspaceWebChromeState, CoreErrorPayload> {
-    state
+    let result = state
         .runtime
-        .workspace_web_chrome_action(webview.label(), action)
-        .map_err(|error| shell_error(error.code, error.message))
+        .workspace_web_chrome_action(webview.label(), action);
+    #[cfg(feature = "desktop-e2e")]
+    desktop_e2e::record_event("website-chrome-action", None, None, None,
+        json!({ "state": result.as_ref().ok(),
+            "error": result.as_ref().err().map(|error| &error.message) }));
+    result.map_err(|error| shell_error(error.code, error.message))
 }
 
 #[tauri::command]

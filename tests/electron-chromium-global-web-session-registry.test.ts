@@ -55,7 +55,7 @@ function createNativeSession(
     cookies: { flushStore: cookieFlush },
     clearStorageData: vi.fn(async () => undefined),
     flushStorageData: vi.fn(),
-    protocol: {},
+    protocol: { handle: vi.fn() },
     setPermissionCheckHandler: vi.fn((handler) => {
       handlers.permissionCheck = handler;
     }),

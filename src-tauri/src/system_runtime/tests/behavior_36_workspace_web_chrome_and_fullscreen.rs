@@ -69,3 +69,19 @@ fn workspace_chrome_is_a_shared_process_surface_released_after_page_surfaces() {
             < managed_surface_close_priority(ManagedSurfaceKind::WorkspaceChrome)
     );
 }
+
+#[test]
+fn workspace_start_page_completes_only_from_authoritative_page_events() {
+    for platform in ["macos", "windows"] {
+        let tracker = NavigationTracker::new_for_platform(platform);
+        let url = Url::parse(crate::workspace_start::URL).unwrap();
+        tracker.page_event(PageLoadEvent::Started, &url);
+        assert!(!tracker.state.lock().unwrap().finished);
+        tracker.page_event(PageLoadEvent::Finished, &url);
+        let state = tracker.state.lock().unwrap();
+        assert!(state.page_finished);
+        assert_eq!(state.finished, platform == "macos");
+    }
+    assert!(checked_workspace_chrome_url(crate::workspace_start::URL).is_err());
+    assert!(checked_web_url(crate::workspace_start::URL).is_err());
+}

@@ -5,6 +5,19 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         url: &Url,
     ) -> bool {
+        // Website surfaces have no macro role/input owner. The AppKit delegate
+        // still applies their bounded navigation policy without a role fence.
+        let website = self.state.lock().is_ok_and(|state| {
+            state.native_resources.tabs.values().any(|tab| {
+                tab.roles.get(role_id).is_some_and(|surface| {
+                    surface.webview.label() == webview_label && surface.workspace_web.is_some()
+                })
+            })
+        });
+        if website {
+            return matches!(url.scheme(), "about" | "http" | "https")
+                || crate::workspace_start::is_start_url(url.as_str());
+        }
         if !matches!(url.scheme(), "about" | "http" | "https") {
             return false;
         }

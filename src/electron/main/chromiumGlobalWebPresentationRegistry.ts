@@ -1,3 +1,4 @@
+import { isWorkspaceStartUrl } from "../../shared/workspaceStartPage";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -148,7 +149,8 @@ function validIdentifier(value: unknown): value is string {
 }
 
 function canonicalWebUrl(value: unknown): string {
-  const canonical = canonicalWorkspaceWebUrl(value);
+  const canonical = typeof value === "string" && isWorkspaceStartUrl(value)
+    ? value : canonicalWorkspaceWebUrl(value);
   if (!canonical) {
     fail(
       "ELECTRON_WORKSPACE_WEB_CHROME_URL_INVALID",
@@ -324,6 +326,11 @@ export class ChromiumGlobalWebPresentationRegistry {
         this.#content.create({
           ...input,
           bounds: bounds.content,
+          onNavigationChange: (evidence) => {
+            if (record.state === "active" && this.#records.get(record.surfaceId) === record) {
+              this.#publishState(record, evidence);
+            }
+          },
           onContainedFullscreenChange: (fullscreen) => {
             try {
               this.#applyContainedFullscreen(record, fullscreen);

@@ -1,5 +1,16 @@
 pub fn run() {
     let builder = tauri::Builder::default()
+        .register_uri_scheme_protocol("rion-start", |context, request| {
+            let valid = crate::workspace_start::can_serve(
+                context.webview_label(), request.method().as_str(), &request.uri().to_string(),
+            );
+            tauri::http::Response::builder()
+                .status(if valid { 200 } else { 404 })
+                .header("Content-Type", "text/html; charset=utf-8")
+                .header("Cache-Control", "no-store")
+                .body(if valid { crate::workspace_start::HTML.as_bytes().to_vec() } else { Vec::new() })
+                .expect("static workspace start response")
+        })
         .plugin(tauri_plugin_dialog::init())
         .manage(StartupWindowState::default())
         .on_page_load(|webview, payload| {

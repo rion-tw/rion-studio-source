@@ -152,9 +152,10 @@ void rion_wk_unbind_contained_fullscreen_failure_callback(
 }
 @end
 
-@interface RionWKNavigationDelegateProxy : NSObject <WKNavigationDelegate>
+@interface RionWKNavigationDelegateProxy : NSObject <WKNavigationDelegate, WKScriptMessageHandler>
 @property(nonatomic, weak) RionWKSurfaceLease *lease;
 @property(nonatomic, strong) id<WKNavigationDelegate> downstream;
+@property(nonatomic, assign) void (*historyRestored)(void *, const char *);
 @end
 
 static BOOL RionWKShouldFenceNavigation(BOOL hasTargetFrame,
@@ -184,6 +185,19 @@ static BOOL RionWKShouldFenceNavigation(BOOL hasTargetFrame,
 }
 
 @implementation RionWKNavigationDelegateProxy
+- (void)userContentController:(WKUserContentController *)controller
+     didReceiveScriptMessage:(WKScriptMessage *)message {
+  (void)controller;
+  RionWKSurfaceLease *lease = self.lease;
+  WKWebView *webView = lease.webView;
+  if (!self.historyRestored || !lease.context || lease.quiesceRequested ||
+      message.webView != webView || !message.frameInfo.isMainFrame ||
+      ![message.body isEqual:@"restored"] ||
+      ![message.frameInfo.request.URL isEqual:webView.URL]) return;
+  const char *url = webView.URL.absoluteString.UTF8String;
+  if (url) self.historyRestored(lease.context, url);
+}
+
 - (BOOL)respondsToSelector:(SEL)selector {
   return [super respondsToSelector:selector] ||
       [_downstream respondsToSelector:selector];
@@ -308,6 +322,12 @@ static void RionWKFinishSurfaceLease(RionWKSurfaceLease *lease) {
         (__bridge void *)webView);
     RionWKNavigationDelegateProxy *proxy =
         objc_getAssociatedObject(webView, &RionWKNavigationDelegateProxyKey);
+    if (proxy.historyRestored) {
+      [webView.configuration.userContentController
+          removeScriptMessageHandlerForName:@"restored"
+          contentWorld:[WKContentWorld worldWithName:@"rion-workspace-history"]];
+      proxy.historyRestored = NULL;
+    }
     if (proxy && [webView respondsToSelector:@selector(navigationDelegate)] &&
         webView.navigationDelegate == proxy) {
       webView.navigationDelegate = proxy.downstream;
@@ -319,6 +339,28 @@ static void RionWKFinishSurfaceLease(RionWKSurfaceLease *lease) {
   }
   [RionWKSurfaceLeases() removeObjectForKey:@(token)];
   [lease finishContextAcknowledgingRelease:YES];
+}
+
+bool rion_wk_observe_workspace_history(void *rawWebView,
+    void (*restored)(void *, const char *)) {
+  if (!rawWebView || !restored || ![NSThread isMainThread]) return false;
+  WKWebView *webView = (__bridge WKWebView *)rawWebView;
+  RionWKNavigationDelegateProxy *proxy =
+      objc_getAssociatedObject(webView, &RionWKNavigationDelegateProxyKey);
+  if (!proxy || proxy.historyRestored) return false;
+  proxy.historyRestored = restored;
+  WKContentWorld *world = [WKContentWorld worldWithName:@"rion-workspace-history"];
+  WKUserContentController *controller = webView.configuration.userContentController;
+  [controller addScriptMessageHandler:proxy contentWorld:world name:@"restored"];
+  // EventBound: BFCache restoration may omit WKNavigation delegate load events.
+  // The isolated world observes only genuine persisted pageshow events; page
+  // scripts cannot access this handler or manufacture a trusted event.
+  WKUserScript *script = [[WKUserScript alloc] initWithSource:
+      @"addEventListener('pageshow', event => { if (event.isTrusted && event.persisted) webkit.messageHandlers.restored.postMessage('restored'); });"
+      injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+      forMainFrameOnly:YES inContentWorld:world];
+  [controller addUserScript:script];
+  return true;
 }
 
 static uint64_t RionWKTrackSurface(

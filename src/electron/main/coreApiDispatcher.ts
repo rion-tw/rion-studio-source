@@ -1,3 +1,4 @@
+import { updateWorkspaceStartAppearance } from "./workspaceStartPage";
 import {
   toGameCreateInput,
   toGameUpdateInput,
@@ -447,11 +448,13 @@ async function invokeCoreBackedMethod<Method extends RionApiDispatchMethod>(
     case "setOverlayLanguage": {
       const [language] = typedArgs<"setOverlayLanguage">(args);
       await core.invoke({ type: "overlayLanguageSet", language });
+      updateWorkspaceStartAppearance({ language });
       return undefined;
     }
     case "setRuntimeTheme": {
       const [theme] = typedArgs<"setRuntimeTheme">(args);
       await core.invoke({ type: "runtimeThemeSet", theme });
+      updateWorkspaceStartAppearance({ theme });
       return undefined;
     }
     default:

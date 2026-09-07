@@ -238,6 +238,7 @@ function fakeSession(path = profile().chromiumUserDataDir) {
   const session = {
     on: vi.fn(),
     storagePath: path,
+    protocol: { handle: vi.fn() },
     cookies: { flushStore },
     flushStorageData,
     setPermissionCheckHandler: vi.fn(),

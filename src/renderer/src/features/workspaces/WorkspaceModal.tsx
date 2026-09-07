@@ -104,9 +104,9 @@ function WorkspaceEditor({
       return true;
     }
     try {
-      const url = new URL(slot.web.startUrl);
+      const url = slot.web.startUrl.trim() ? new URL(slot.web.startUrl.trim()) : null;
       const nameLength = slot.web.name.trim().length;
-      return nameLength > 0 && nameLength <= 80 && ["http:", "https:"].includes(url.protocol);
+      return nameLength > 0 && nameLength <= 80 && (!url || ["http:", "https:"].includes(url.protocol));
     } catch {
       return false;
     }
@@ -292,7 +292,7 @@ function WorkspaceLayoutFormEditor({
       updateSlots(assignWebToWorkspaceSlot(
         slots,
         selectedSlotIndex,
-        selectedSlot?.web ?? { name: "", startUrl: "https://" }
+        selectedSlot?.web ?? { name: t("workspaces.content.web"), startUrl: "" }
       ));
     } else {
       updateSlots(assignRoleToWorkspaceSlot(
@@ -304,7 +304,7 @@ function WorkspaceLayoutFormEditor({
   }
 
   function updateSelectedWeb(patch: Partial<NonNullable<LaunchWorkspaceSlot["web"]>>): void {
-    const current = selectedSlot?.web ?? { name: "", startUrl: "https://" };
+    const current = selectedSlot?.web ?? { name: t("workspaces.content.web"), startUrl: "" };
     updateSlots(assignWebToWorkspaceSlot(slots, selectedSlotIndex, { ...current, ...patch }));
   }
 
@@ -647,7 +647,6 @@ function WorkspaceLayoutFormEditor({
                       id="workspace-web-url"
                       type="url"
                       pattern="https?://.*"
-                      required
                       disabled={isSaving}
                       placeholder="https://www.youtube.com/"
                       value={selectedSlot.web.startUrl}

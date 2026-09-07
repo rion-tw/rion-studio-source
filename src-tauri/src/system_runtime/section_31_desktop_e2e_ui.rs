@@ -33,6 +33,12 @@ pub(crate) enum DesktopE2eRuntimeUiActionRequest {
         tab_id: String,
         window_generation: u64,
     },
+    FocusWebsiteControl {
+        control: String,
+        role_id: String,
+        tab_id: String,
+        window_generation: u64,
+    },
     ClickRoleContent {
         #[serde(default)]
         button: Option<String>,
@@ -136,6 +142,12 @@ impl SystemRuntimeExecutor {
         }
 
         match &request {
+            DesktopE2eRuntimeUiActionRequest::FocusWebsiteControl {
+                control, role_id, tab_id, ..
+            } => {
+                desktop_e2e_require_selected_tab(&projection, tab_id, "website control")?;
+                self.desktop_e2e_focus_website_control(window_id, tab_id, role_id, control)?;
+            }
             DesktopE2eRuntimeUiActionRequest::ClickRoleContent {
                 button, role_id, tab_id, ..
             } => {
@@ -805,6 +817,10 @@ fn desktop_e2e_runtime_ui_generation(request: &DesktopE2eRuntimeUiActionRequest)
             window_generation,
             ..
         }
+        | DesktopE2eRuntimeUiActionRequest::FocusWebsiteControl {
+            window_generation,
+            ..
+        }
         | DesktopE2eRuntimeUiActionRequest::ClickRoleContent {
             window_generation,
             ..
@@ -832,6 +848,7 @@ fn desktop_e2e_runtime_ui_action_name(request: &DesktopE2eRuntimeUiActionRequest
         DesktopE2eRuntimeUiActionRequest::DragDivider { .. } => "dragDivider",
         DesktopE2eRuntimeUiActionRequest::ClickRoleContent { .. } => "clickRoleContent",
         DesktopE2eRuntimeUiActionRequest::FocusRole { .. } => "focusRole",
+        DesktopE2eRuntimeUiActionRequest::FocusWebsiteControl { .. } => "focusWebsiteControl",
         DesktopE2eRuntimeUiActionRequest::PressRoleSlot { .. } => "pressRoleSlot",
         DesktopE2eRuntimeUiActionRequest::OpenTabMenu { .. } => "openTabMenu",
         DesktopE2eRuntimeUiActionRequest::SelectTabMenuItem { .. } => "selectTabMenuItem",
@@ -867,6 +884,7 @@ fn desktop_e2e_runtime_ui_tab_id(
         | DesktopE2eRuntimeUiActionRequest::DragTab { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::DragDivider { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::FocusRole { tab_id, .. }
+        | DesktopE2eRuntimeUiActionRequest::FocusWebsiteControl { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::ClickRoleContent { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::PressRoleSlot { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::OpenTabMenu { tab_id, .. }

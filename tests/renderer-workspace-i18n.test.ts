@@ -55,9 +55,9 @@ describe("workspace help translations", () => {
 
   it("describes Web Apps as launchable workspace content in every language", () => {
     for (const dictionary of Object.values(dictionaries)) {
-      expect(dictionary["workspaces.description"]).toContain("Web App");
-      expect(dictionary["workspaces.help.launchRequirements"]).toContain("Web App");
-      expect(dictionary["error.workspaceEmpty"]).toContain("Web App");
+      expect(dictionary["workspaces.description"]).toContain(dictionary["workspaces.content.web"]);
+      expect(dictionary["workspaces.help.launchRequirements"]).toContain(dictionary["workspaces.content.web"]);
+      expect(dictionary["error.workspaceEmpty"]).toContain(dictionary["workspaces.content.web"]);
     }
   });
 

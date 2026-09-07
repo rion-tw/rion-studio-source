@@ -121,7 +121,11 @@ fn normalize_workspace_web(
             "WORKSPACE_WEB_NAME_REQUIRED",
             "WORKSPACE_WEB_NAME_TOO_LONG",
         )?,
-        start_url: normalize_http_url(&web.start_url, "WORKSPACE_WEB_URL_INVALID")?,
+        start_url: if web.start_url.trim().is_empty() {
+            String::new()
+        } else {
+            normalize_http_url(&web.start_url, "WORKSPACE_WEB_URL_INVALID")?
+        },
     })
 }
 

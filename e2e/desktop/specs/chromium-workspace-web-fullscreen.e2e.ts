@@ -141,7 +141,7 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await setEditorName(WORKSPACE_NAME);
 
   await $("#workspace-slot-content").click();
-  await $("[role='option']=Web app").click();
+  await $("[role='option']=Website").click();
   const preset = await $("[data-workspace-web-preset-select]");
   await preset.waitForClickable({ timeout: 10_000 });
   await preset.click();

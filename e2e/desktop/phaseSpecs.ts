@@ -1,4 +1,6 @@
 export const desktopE2eSpecByPhase: Readonly<Record<string, string>> = {
+  "website-entrance-seed": "e2e/desktop/specs/app-journeys.e2e.ts",
+  "website-entrance-restart": "e2e/desktop/specs/app-journeys.e2e.ts",
   "chromium-chrome-profile-import-seed": "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
   "chromium-chrome-profile-import-restart": "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
   "chromium-extensions-seed": "e2e/desktop/specs/chromium-extensions.e2e.ts",

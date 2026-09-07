@@ -75,36 +75,44 @@ owner. Ordinary multi-display is now verified on the latest local candidate;
 automated lifecycle coverage and unobserved physical power behavior remain distinct.
 Earlier handoff tables below describe their historical checkpoint.
 
-The current validation candidate is
-**b8bae38bb10acb1e6d295c027c100d7267803815**, including the owner's Website changes
-at **486e0842be6b14c132e9d4a33ece1c5a5fd16983** and the **8d68be93** WDIO
-service-order correction. macOS-only CI **34149031009** passes shared checks
-(3828 JavaScript PASS / nine platform skips), native validation (1681 Rust PASS /
-five ignored; 14 Electron native PASS / two platform skips), stable full
-(31 PASS + three expected force terminations / 40 journeys), and complete
-Chromium E2E (56 PASS + four expected force terminations / 52 journeys).
-All 60 Chromium phases prepare the native sampler once, with no original
-undefined-windowHandle setup error. This run is now completely SUCCESS, including
-fixture package/updater and packaged AppKit black-box. Earlier CI **34145679440** at 90614cef is completely SUCCESS,
-including fixture package/updater and packaged AppKit black-box; the earlier
-a8fab843 cleanup failure remains unexplained rather than overwritten.
+The current correction candidate is
+**85f662f4860c9af1623580510f35997256108b66**. It fences stale failed power
+transitions and changes the isolated standby E2E to exercise the real
+powerMonitor listener. Complete local JavaScript (3857 PASS), Rust (1681 PASS /
+five ignored), lint/typecheck/hygiene and the focused native standby journey pass.
+The complete local hardware profile passes 57 normal phases plus four expected
+force terminations / 54 journeys. macOS-only CI **34164313951** is in progress; no Windows jobs are requested. This source includes the owner's
+Website changes at **486e0842be6b14c132e9d4a33ece1c5a5fd16983** and the
+**8d68be93** WDIO service-order correction.
+
+The latest completely successful CI remains **34149031009**, source
+**b8bae38bb10acb1e6d295c027c100d7267803815**: shared checks (3828 JavaScript PASS /
+nine platform skips), native validation (1681 Rust PASS / five ignored;
+14 Electron native PASS / two platform skips), stable full (31 PASS + three
+expected force terminations / 40 journeys), complete Chromium E2E (56 PASS + four
+expected force terminations / 52 journeys), fixture package/updater and packaged
+AppKit black-box. All 60 Chromium phases prepare the native sampler once without
+the former undefined-windowHandle setup error. Earlier CI **34145679440** at
+90614cef is also completely SUCCESS. The a8fab843 cleanup failure remains
+unexplained rather than overwritten. These earlier runs do not validate the
+newer 85f662f4 production correction.
 
 The latest complete local hardware receipt is
-**598eed6e05cab9de0923a9be43db8563d235d0d4**, with 57 PASS + four expected force
+**85f662f4860c9af1623580510f35997256108b66**, with 57 PASS + four expected force
 terminations / 54 journeys and ordinary dual-display acceptance. Before this
 single replay, foreground had changed from UserNotificationCenter to Codex.
 The extension phase then proves the exact Electron PID active before and after
 its visible action. The earlier foreground failures remain historical evidence;
 manual foreground intervention is no longer a pending prerequisite. No Windows
-acceptance is dispatched. This source contains only documentation differences
-from b8bae38b; the subsequent power-event correction below is a newer candidate.
+acceptance is dispatched. This receipt includes the production power-event fence and E2E ingress
+correction; earlier complete reports remain historical baselines.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
-| CP-04 / CP-08 native and topology | 598eed6e complete Chromium hardware profile PASS; b8bae38b native CI 1681 Rust PASS / 5 ignored; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
-| CP-10 consented import | Visible consent/import/restart PASS in 598eed6e physical hardware profile and b8bae38b full Chromium CI | Native chooser and complete consent/import/restart acceptance pending |
-| CP-11 / CP-12 hardware/lifecycle | Clean 598eed6e complete hardware profile and actual dual-display controls PASS; power-event coverage strengthened below, actual sleep unobserved | Physical display/input/session-end gates pending; mixed-DPI removed |
-| CP-15 complete profiles | 598eed6e physical hardware 57 PASS + 4 expected force exits; b8bae38b Chromium 56 + 4 and stable 31 + 3 | Final-source full and hardware profiles pending |
+| CP-04 / CP-08 native and topology | 85f662f4 complete Chromium hardware profile PASS; b8bae38b native CI 1681 Rust PASS / 5 ignored; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
+| CP-10 consented import | Visible consent/import/restart PASS in 85f662f4 physical hardware profile and b8bae38b full Chromium CI | Native chooser and complete consent/import/restart acceptance pending |
+| CP-11 / CP-12 hardware/lifecycle | Clean 85f662f4 complete hardware profile and actual dual-display controls PASS; power-event coverage strengthened below, actual sleep unobserved | Physical display/input/session-end gates pending; mixed-DPI removed |
+| CP-15 complete profiles | 85f662f4 physical hardware 57 PASS + 4 expected force exits; b8bae38b Chromium 56 + 4 and stable 31 + 3 | Final-source full and hardware profiles pending |
 | CP-16 package/updater | b8bae38b fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
@@ -135,6 +143,7 @@ E2E isolation passes after this run.
 The owner requests maximum automated behavior coverage rather than depending on
 manual sleep/wake participation. A read-only, noninteractive authorization check
 for unattended pmset wake scheduling returns `sudo: a password is required`.
+The installed macOS pmset manual also requires root to modify its settings.
 No sleep command, wake schedule, credential change or power-setting mutation is
 performed. Actual machine sleep/wake remains unobserved, but is not assigned to
 the owner as a manual prerequisite. Synthetic signals cannot certify hardware,
@@ -158,8 +167,9 @@ assertions remain unchanged. Repeated/duplicate notifications, pending cleanup
 before wake, stale failed acknowledgements, rejected-wake recovery and teardown
 during successful/failed cleanup are automated with explicit platform fixtures.
 Affected journeys are the paired CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023
-and CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023. Native macOS validation of this
-new correction is in progress. Full local JavaScript passes 475 files / 3857
+and CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023. The focused native macOS standby phase passes for this
+new correction; the complete hardware profile also passes. CI verification remains
+in progress. Full local JavaScript passes 475 files / 3857
 tests, Rust lint/test passes (1681 PASS / five ignored), and typecheck plus full
 hygiene/coverage pass. Windows native validation remains assigned to the
 later workstation. Existing b8bae38b CI and 598eed6e hardware results do not claim
@@ -168,10 +178,11 @@ to validate the newer production correction.
 ### Next Windows workstation: execution order and evidence to retain
 
 This is a handoff checklist, not a request to run Windows CI from the Mac. The
-current complete macOS CI candidate is
-b8bae38bb10acb1e6d295c027c100d7267803815 (Electron 43.6.0), including the later
-Website changes and the WDIO initialization correction. The latest complete
-physical Mac hardware receipt is 598eed6e. Power-event changes below require
+current correction candidate is 85f662f4860c9af1623580510f35997256108b66
+(Electron 43.6.0), including the Website changes, WDIO initialization correction
+and the power-event fence/ingress correction. Latest complete CI remains
+b8bae38b until run 34164313951 terminalizes. The latest complete
+physical Mac hardware receipt is 85f662f4. Power-event changes below require
 Windows-native replay on the later workstation. Preserve any Windows
 working-tree changes, fetch the
 shared branch safely, and record the actual complete HEAD SHA before building.
@@ -185,7 +196,7 @@ baseline; do not silently label an older binary as the newer source.
 | 2. Exact known failures, CP-04/08 | Inspect mixed-recovery-force's stale WebElement-origin correction and the new-window detach/compensation failure described in the Windows follow-up table below. Preserve exact logical/native window identity, real pointer hit, survivor topology, primary error and compensation error. A later successful projection cannot repair a failed terminal receipt. |
 | 3. Complete profiles, CP-11/15 | Run chromium-windows-smoke and stable full, or their hardware/extended supersets when ordinary physical displays are available. Read the manifest/report instead of assuming Mac phase counts. Verify the document-root navigation locator on the real Windows UI. A focused repair must be followed by the applicable complete profile. |
 | 4. Consented import, CP-10 | Execute visible consent, cancel, native directory picker, profile/game choice, final confirmation and fresh-process restart. Verify exactly scoped launch-origin cookie/LocalStorage data and unchanged source bytes. Native picker control ID 1152 still needs Windows evidence. Never replace consent with debug import or use a real user profile as the live runtime. |
-| 5. Hardware/lifecycle, CP-12 | Retain real foreground/hidden trusted input, ordinary secondary-display controls and session-end/close-drain acceptance. Same-scale displays are allowed. Physical mixed-DPI is removed by owner decision; actual power/session-end evidence is separate from injected lifecycle signals. |
+| 5. Hardware/lifecycle, CP-12 | Retain real foreground/hidden trusted input, ordinary secondary-display controls and session-end/close-drain acceptance. Same-scale displays are allowed. Physical mixed-DPI is removed by owner decision; retain the actual-power limitation separately from synthetic power-event ingress. Do not require manual sleep/wake assistance; run the strengthened standby journey and paired deterministic cases, then record any unavailable unattended hardware/OS behavior honestly. |
 | 6. Package/install/update, CP-16 | Follow the existing Windows package workflow/runbook for the NSIS installed payload, Rust-owned updater transaction, signature/hash checks and packaged native black-box. Record exact source/version/package identities. Do not invent signing inputs, modify credentials or infer production-key transactions from fixture tests. |
 | 7. Final ledger decision, CP-17/18 | Record complete SHA, OS/runtime, commands, artifact/run IDs, profile/phase/journey verdicts, normal flush/exit and expected-force outcomes. Keep real update, promotion and release-delta gates separate. Do not remove protected Tauri/System WebView code based only on Mac success or a subset of these Windows checks. |
 
@@ -2241,21 +2252,21 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
 | CP-02 | P0 / Diagnostics | verified; paired settings/removal acceptance at 718dc83a | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | verified shared path boundaries; paired native Rust and restart acceptance at 718dc83a | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
-| CP-04 | P1 / Runtime projection | implemented; c72d688e corrects raw/logical detach ownership, 015dbaa2 macOS native/full hardware replay passed; Windows workstation acceptance pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
+| CP-04 | P1 / Runtime projection | implemented; c72d688e corrects raw/logical detach ownership, 85f662f4 macOS native/full hardware replay passed; Windows workstation acceptance pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | verified adopt; production provider acceptance remains CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | verified v23 provider; paired native probes and settings acceptance at 718dc83a | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows full input parity passed at 34a98f5b; child-HWND implementation removed; post-deletion native validation pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed in clean 015dbaa2 full hardware profile; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
-| CP-11 | P1 / Browser capability owners | macOS complete hardware/capability profile passed at 015dbaa2; historical Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; final Windows full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
-| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency and 61f32424 corrects native fullscreen exit; 015dbaa2 native/full hardware and physical display/control passed; real sleep/wake and Windows workstation profile pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
+| CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed in clean 85f662f4 full hardware profile; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-11 | P1 / Browser capability owners | macOS complete hardware/capability profile passed at 85f662f4; historical Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; final Windows full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
+| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency and 61f32424 corrects native fullscreen exit; 85f662f4 native/full hardware and physical display/control passed; 85f662f4 power-event fence/ingress correction focused and full hardware PASS; actual sleep unobserved without manual-assistance requirement; Windows workstation profile pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | 015dbaa2 macOS full hardware 57 PASS + 4 expected force exits; b8bae38b stable full 31 PASS + 3 expected force exits and Chromium 56 PASS + 4 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | 85f662f4 macOS full hardware 57 PASS + 4 expected force exits; b8bae38b stable full 31 PASS + 3 expected force exits and Chromium 56 PASS + 4 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | b8bae38b macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
-| CP-18 | P1 / Validation | 015dbaa2 macOS native and full hardware passed; b8bae38b complete macOS CI passed, including package/updater; current physical replay, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
+| CP-18 | P1 / Validation | 85f662f4 macOS native and full hardware passed; b8bae38b complete macOS CI passed, including package/updater; 85f662f4 CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
 Start CP-02 and CP-03 after the baseline. CP-04 and CP-09 through CP-13 are
 independent of native replacement approval, except for their listed data
@@ -9153,3 +9164,79 @@ The branch changes after b8bae38b affect only this evidence ledger, so they do
 not invalidate the fixed runtime/test candidate or justify new CI. AppKit and
 Rust data/topology/Macro authority remain intact. API closure remains **9/18**;
 no completion or Tauri retirement is inferred from the fully green macOS run.
+
+
+### 85f662f4 automated power-event acceptance — 2026-09-08
+
+This update supersedes the earlier manual foreground and coordinated sleep/wake
+prerequisites. The owner requires maximum automated behavior coverage without
+manual test participation. The read-only unattended-wake authorization check is
+unavailable; no actual OS sleep or wake is performed or claimed.
+
+| Boundary | Automated evidence and limit |
+| --- | --- |
+| Electron event ingress | Eight new explicit darwin/win32 cases exercise the installed listener through EventEmitter, require its exact terminal receipt, reject missing/duplicate ingress and restore the E2E observer after emitter failure. The live Electron E2E uses powerMonitor.emit; it cannot bypass a missing listener with controller.signal. |
+| Lifecycle races | Twelve new explicit darwin/win32 cases cover repeated/duplicate events, pending cleanup before wake, stale failed acknowledgements, rejected wake followed by acknowledged recovery, and successful/failed cleanup during disposal. The stale-failure regression fails on both platforms before the correction. |
+| Rust authority | Full native Rust execution includes browser_runtime_suspend_is_an_idempotent_core_lifecycle_transaction and all three behavior_11_application_lifecycle_suspend cases: blocked new starts and no automatic replay, stale-role wake fencing, and incomplete cleanup retaining restart-required roles. JavaScript success cannot replace those Core receipts. |
+| Native AppKit/trusted input | Clean report 2026-09-07T21-45-26-007Z-darwin binds 85f662f4860c9af1623580510f35997256108b66 to the focused chromium-macro-standby-recovery phase. PASS, normal final flush, process exit and schema-v2 clean journal are verified. Other journeys in this focused report remain NOT_RUN. |
+| Actual OS/hardware sleep | Unobserved. Synthetic powerMonitor ingress does not prove OS notification delivery after actual sleep, driver/device reinitialization or network restoration. It is not reported as physical PASS or assigned to the owner as a manual prerequisite. |
+
+The native receipt retains AppKit window ae5d57e5-ef76-4804-a82b-02b3941c0de9,
+launch generation 1a4ef00b-9745-4e9f-a8f4-a2e20f0fff11 and native generation 1.
+Suspend advances lifecycle epoch 1 to 2 / revision 1 to 3; resume advances to
+epoch 3 / revision 5. Hidden Role input starts at epoch 1; suspend cleanup
+confirms neutrality at epoch 2. Visible restart uses a distinct Macro invocation
+and input request at epoch 2, and visible Stop confirms neutrality again. All
+original native/DOM/visible-UI assertions are retained.
+
+Validation: full JavaScript 475 files / 3857 PASS; Rust 1681 PASS / five ignored;
+Rust lint, typecheck and full hygiene PASS; lint zero errors / 23 existing
+warnings. P0 70/70, P1 77/77 and both cutover parity sets 41/41 are unchanged.
+No E2E omission is claimed for this runtime correction. The existing paired
+standby journey is strengthened; Windows native replay remains pending on the
+owner's separate workstation. Production Tauri is unaffected by the Electron
+controller correction and remains protected by CP-17.
+
+The first focused native phase completes at 2026-09-07T21:45:38.062Z. The complete
+chromium-macos-appkit-hardware-extended replay and macOS-only CI 34164313951 then
+start for the same immutable source. Earlier CI is inspected before dispatch;
+this is a new corrected source, not an unchanged rerun for green. Package/updater
+acceptance in the new CI remains pending until its own terminal result. The
+prior a8fab843 process-group cleanup failure remains recorded and unexplained.
+
+
+The complete clean 85f662f4 hardware report is
+`.desktop-e2e-artifacts/2026-09-07T21-46-01-681Z-darwin/report.json`, started
+2026-09-07T21:46:01.718Z and finished 21:55:53.063Z. It records **57 PASS + four
+EXPECTED_FORCE_TERMINATION / 54 journey PASS**, with final flush and process exit
+verified for every ordinary phase. The full-run standby receipt retains AppKit
+window 20968453-fe1f-436a-a103-d8fd7fd59019, launch generation
+713aa6e6-323d-47d2-a822-27983116572e, native generation 1 and lifecycle epoch 3;
+input epochs progress from 1 to cleanup/restart epoch 2. Visible Chrome Profile
+consent/import/restart, native background input, lifecycle/recovery and ordinary
+dual-display controls all pass in the same complete profile.
+
+The display phase retains AppKit window aa19ade2-f80f-4be5-a44c-073b2e4c0149,
+launch generation ef3495b8-7f25-480a-8c67-8b91bb9e954c and native generation 1,
+three exact native/Core tabs and secondary display 3 at scale 2. Final normal
+bounds are x2880/y209/2120x1191 within work area x2560/y30/2560x1410. The Core
+maximize stage is revision 24 while its native snapshot still reports topology
+revision 23; both report maximized presentation, as required by the existing
+native/Core presentation fence. Restore and fullscreen transitions also pass.
+This is actual ordinary dual-display acceptance, not the removed mixed-DPI gate.
+
+The API closure count remains 9/18. The macOS physical replay and automated
+power-event work are now complete for 85f662f4; actual OS sleep remains
+unobserved without assigning manual work to the owner. The CI package/updater,
+Windows workstation and real production cutover gates remain distinct. The
+watcher for new CI 34164313951 is retained; no second run is dispatched.
+
+
+After the complete hardware run, production `pnpm run build` and
+`pnpm run build:electron` both pass in the isolated checkout, followed by
+`pnpm run check:desktop-e2e-isolation`. The isolate is clean. The owner's root
+development outputs remain untouched. At this checkpoint CI renderer assets,
+shared checks and Linux sanitizer/concurrency jobs are SUCCESS; macOS native,
+stable desktop E2E and Chromium package/updater jobs remain in progress. No
+Windows job is scheduled. The CI source remains exactly 85f662f4 regardless of
+subsequent evidence-only commits.

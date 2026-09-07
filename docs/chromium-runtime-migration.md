@@ -610,9 +610,14 @@ is necessary but not sufficient: the read-only native parent probe must also
 prove that the exact runtime parent is the live foreground owner.
 
 Visible focus admission subscribes before activation and completes only from the
-exact parent/View observation. Hidden admission never selects, shows or focuses
-the target; it requires an already-foreground parent and a different focused
-WebContents. Before each input event and after submission, the owner revalidates
+exact foreground parent and focused View observation. Input delivery mode follows
+View visibility; it does not grant focus. A visible unfocused sibling or a hidden
+View may receive Macro input while its visible, non-minimized parent is in the
+background, provided the target remains unfocused and its focused-WebContents
+identity is internally consistent. Hidden admission never selects, shows or
+focuses the target or parent. Each submission preserves the exact foreground
+identity, including when another application owns foreground. Before each input
+event and after submission, the owner revalidates
 parent identity, membership, visibility, focus, bounds and zoom. The consumer
 requires the same admission observation and an ordered submission receipt plus
 its private trusted DOM acknowledgement. Changed pre-submission ownership is

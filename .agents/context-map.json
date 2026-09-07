@@ -189,7 +189,7 @@
     {
       "id": "build-ci",
       "intentAliases": ["build", "ci", "tooling"],
-      "pathGlobs": [".github/**", "scripts/**", "tests/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "electron.vite.config.ts", "electron-builder.config.mjs", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
+      "pathGlobs": [".github/**", "scripts/**", "tests/**", "build/*.nsh", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "electron.vite.config.ts", "electron-builder.config.mjs", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
       "contextFiles": [".agents/context/testing.md", ".agents/context/release.md"],
       "canonicalDocs": ["docs/e2e-strategy.md"],
       "risks": ["ci-reachability", "tooling-drift"],

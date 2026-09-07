@@ -9,7 +9,9 @@
 !define INSTALL_REGISTRY_KEY "${RION_TAURI_V22_INSTALL_REGISTRY_KEY}"
 !define UNINSTALL_REGISTRY_KEY_2 "${RION_TAURI_V22_UNINSTALL_REGISTRY_KEY}"
 
-Var RionTauriV22InstallDirectory
+!ifndef BUILD_UNINSTALLER
+  Var RionTauriV22InstallDirectory
+!endif
 
 !macro preInit
   !ifndef BUILD_UNINSTALLER

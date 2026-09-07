@@ -93,6 +93,25 @@ Focused shutdown/user-data policy tests pass (2 files / 11 tests), typecheck,
 focused ESLint and source hygiene (2498 files) pass. This is internal-only
 test-harness work; native success/failure path observation remains required.
 Exact-PID containment after an exit-boundary failure remains pending.
+### 575c26a4 local native hover and publication-lock differential
+
+Windows Tauri E2E build passes (6m14s), then focused smoke-seed passes at
+575c26a44e0585db885a0b4b9ac21b89470020a2: 53.8s test, all native hover/30-frame
+node and edge stability assertions retained. Artifact
+.desktop-e2e-artifacts/2026-09-07T08-34-09-633Z-win32.
+Logs windows-handoff-b0c3c184/5d829a1b-tauri-hover-diagnostic-build.log and
+575c26a4-tauri-hover-diagnostic.log. This local pass does not explain the prior
+hosted hover failure or establish full stable Windows acceptance.
+Fresh CI 34101150931 targets 575c26a4; no old workflow was rerun.
+
+An isolated Windows directory-rename differential reproduces OS error 5 when
+a child marker file remains open, both without and with FILE_SHARE_DELETE.
+The closed-handle control succeeds. Each case runs once in its own retained
+ignored fixture; no retry or product permission changes. This shows the
+original publication error is not sufficient evidence of an ACL defect.
+The original lock owner is still unknown; current process is not elevated.
+Reference: Microsoft Learn Moving Directories / Win32 file security and
+access rights. The original full-profile failure remains open.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

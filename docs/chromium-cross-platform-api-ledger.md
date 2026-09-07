@@ -58,6 +58,24 @@ This is an owner-approved acceptance-policy change with internal-only test and
 documentation changes; runtime DPI support remains intact. CP-11/12/15 retain
 other open requirements, so the API-ledger closure count remains 9/18.
 
+The policy/test change is committed and pushed as
+`a925e6373adf501eb8dafe12d3ba9f67e887faa7`. Full lint has 0 errors and 23 existing
+warnings; full hygiene also passes. Production runtime content is unchanged from
+806ddb0a by the intervening documentation and mixed-DPI acceptance-policy commits.
+
+### 806ddb0a macOS native and stable completion
+
+CI 34125930709 native job 101754644198 succeeds: Rust lint and complete workspace
+tests pass (1677 passed / 5 ignored), retaining the updater 256-round test;
+native Electron startup/compatibility tests have 14 PASS and two platform skips.
+The native Tauri build also succeeds. Stable full job 101754477221 succeeds,
+artifact 10020644743 / report 2026-09-07T13-11-46-652Z-darwin: exact clean source
+806ddb0a, tauri-v22 full profile, 29 PASS plus three expected force terminations,
+40 journey verdicts PASS. Shared checks, renderer assets and sanitizer/soak jobs
+also succeed. Chromium/package job 101754476949 is still running at this
+checkpoint; neither its full-profile result nor package/updater result is yet
+claimed. No Windows job exists in this manually scoped run.
+
 | Windows follow-up | Exact evidence and next workstation acceptance |
 | --- | --- |
 | Post-cleanup native/full regression | Handoff 8dff7722 contains View-only cleanup. Preserve Rust lint/test with the unweakened 256-round updater test; run complete Windows native, production-build/isolation and chromium-windows-smoke acceptance on the final handed-off SHA. |

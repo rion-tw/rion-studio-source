@@ -617,12 +617,14 @@ async function exerciseWindowsGeometry(input: Readonly<{
     tabId: input.targetTabId
   });
   await resizeVisibleWindowsRuntimeWindow({
+    windowId: input.sourceWindow.id,
     deltaHeight: 52,
     deltaWidth: 84,
     mainWindowHandle: input.mainWindowHandle,
     tabId: input.sourceTabId
   });
   await resizeVisibleWindowsRuntimeWindow({
+    windowId: input.targetWindow.id,
     deltaHeight: 76,
     deltaWidth: -48,
     mainWindowHandle: input.mainWindowHandle,

@@ -28,6 +28,18 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows native resize driver — 2026-09-07
+
+At c592bcc7, artifact 2026-09-07T04-58-41-423Z-win32 advanced through the repaired
+cross-window move, then failed in the resize driver before any resize gesture:
+ChromeDriver window/rect invoked unsupported Browser.getWindowForTarget.
+Use the exact visible tab close control to resolve its owning HWND, verify PID
+and foreground, read GetWindowRect in per-monitor DPI awareness, and drag its
+real OS border with DIP deltas converted by GetDpiForWindow. The visible action
+and subsequent exact layout/resize-event assertions remain unchanged; no debug
+resize command replaces the user action. This E2E-only repair still awaits native
+acceptance in the paired tabs 019/020 journey (Windows geometry subsection).
+
 ### Windows moved-tab layout target — 2026-09-07
 
 Focused tabs at 7f0d2314, artifact 2026-09-07T04-54-15-191Z-win32, passed initial

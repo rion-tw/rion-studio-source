@@ -4,6 +4,7 @@ import { createWriteStream } from "node:fs";
 import { access, copyFile, mkdir, readFile, watch, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { observeElectronPhaseShutdown } from "./desktopE2eElectronShutdown.mjs";
 
 import {
   aggregateDesktopE2eJourneyVerdicts,
@@ -1499,17 +1500,14 @@ try {
     const cleanShutdown = result.code !== 0 && !forcedTermination
       ? await acceptedCleanShutdown(phaseDir)
       : undefined;
-    const electronFinalFlush = executionPlan.driver === "electron"
-      && result.code === 0
-      && !forcedTermination
-      ? await acceptedElectronFinalFlush(phaseDir, phase)
-      : undefined;
-    if (electronFinalFlush) {
-      // DeadlineBound external-liveness fence: final flush is authoritative for
-      // persisted state, while the exact native process is authoritative for
-      // releasing Chromium's same-profile singleton before the next phase.
-      await awaitElectronProcessExit(electronFinalFlush, phase);
-    }
+    const shutdown = await observeElectronPhaseShutdown({
+      driver: executionPlan.driver,
+      forcedTermination: Boolean(forcedTermination),
+      exitCode: result.code,
+      readFinalFlush: () => acceptedElectronFinalFlush(phaseDir, phase),
+      waitForProcessExit: (electronFinalFlush) => awaitElectronProcessExit(electronFinalFlush, phase)
+    });
+    const electronFinalFlush = shutdown.finalFlush;
     const nativeRuntimeEvidence = executionPlan.driver === "electron"
       && (result.code === 0 || Boolean(forcedTermination))
       ? await validateChromiumJourneyRuntimeEvidence({
@@ -1536,6 +1534,8 @@ try {
       exitCode: result.code,
       expectedForcedTermination: forcedTermination ? true : undefined,
       electronFinalFlush: electronFinalFlush ? true : undefined,
+      electronProcessExited: shutdown.processExited,
+      electronShutdownError: shutdown.shutdownError,
       nativeRuntimeEvidence,
       phase,
       sqliteEvidence,

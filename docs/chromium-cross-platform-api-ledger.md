@@ -68,6 +68,31 @@ are PASS. This does not replace the failed full profile or macOS acceptance.
 submit failure as macOS, while Windows stable 101668899496 fails native hover
 (root:macro). An isolated Windows encoded-PowerShell diagnostic confirms both
 C# execution and try/finally execution; no helper-no-op explanation is claimed.
+### 5d829a1b topology acceptance and failed-phase process fence
+
+Windows chromium-macro-cutover-topology-restart passes physical prerequisite,
+topology seed and restart at 5d829a1b7082c9b541e3e46ca159726026e62447.
+Artifact .desktop-e2e-artifacts/2026-09-07T08-24-37-304Z-win32; log
+windows-handoff-b0c3c184/after-2f766d23-macro-topology-x64.log.
+macOS CI 34099004388 at 5266ff87: native job 101669048668 and stable full
+desktop E2E 101668899092 pass. Windows native 101669048730 has passed Rust
+and is still running its later native/build steps.
+
+03c26581 adds bounded diagnostic capture to the Windows Tauri hover driver:
+exact native acknowledgement, target CSS geometry/DPR, recent real mouse events,
+and hovered elements on failure. Typecheck and focused lint pass. Native
+diagnostic acceptance is pending; no hover parity is claimed.
+
+The runner now observes final flush and existing native-process exit boundaries
+for failed Electron phases too. Previously result.code === 0 bypassed that
+fence despite the documented failed-fixture process leak and subsequent EBUSY.
+A failed journey remains FAIL; shutdownError and processExited are separate
+report fields, so cleanup failure cannot erase the primary journey failure.
+No deadline extension, retry, forced kill or product lifecycle change is added.
+Focused shutdown/user-data policy tests pass (2 files / 11 tests), typecheck,
+focused ESLint and source hygiene (2498 files) pass. This is internal-only
+test-harness work; native success/failure path observation remains required.
+Exact-PID containment after an exit-boundary failure remains pending.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

@@ -117,6 +117,7 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #roles = new Map<string, RuntimeRoleRecord>();
   readonly #openingRoles = new Map<string, RuntimeRoleRecord>();
   readonly #webSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
+  readonly #openingWebSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
   readonly #rolePaths = new Map<string, RolePathsRecord>();
   readonly #lastGenerationByRole = new Map<string, number>();
   readonly #lastGenerationByWebSurface = new Map<string, number>();
@@ -917,7 +918,9 @@ export class ChromiumRuntimeEffectExecutor {
       { type: "embeddedLoadWebSurfaces" }
     >,
     signal?: AbortSignal
-  ): Promise<void> {
+  ): Promise<CoreEffectEventContinuation<void>> {
+    const cancellation = new AbortController();
+    signal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal;
     const tabId = requireIdentifier(action.tabId, "global Web tab");
     requireIdentifier(action.attemptGeneration, "global Web attempt generation");
     if (signal?.aborted) {
@@ -973,11 +976,15 @@ export class ChromiumRuntimeEffectExecutor {
           "Core did not resolve bounds for every global Web surface."
         );
       }
-      if (this.#roles.has(descriptor.surfaceId)) {
+      if (this.#roles.has(descriptor.surfaceId) || this.#openingRoles.has(descriptor.surfaceId)) {
         throw runtimeError(
           "ELECTRON_GLOBAL_WEB_MANAGED_ROLE_ALIAS",
           "A global Web surface identity aliases a managed role."
         );
+      }
+      if (this.#openingWebSurfaces.has(descriptor.surfaceId)) {
+        throw runtimeError("ELECTRON_GLOBAL_WEB_LOAD_PENDING",
+          "The Web surface already has an exact pending native navigation.");
       }
       const existing = this.#webSurfaces.get(descriptor.surfaceId);
       if (!existing) continue;
@@ -1063,7 +1070,14 @@ export class ChromiumRuntimeEffectExecutor {
           });
           signal?.addEventListener("abort", cancelOpeningSurface, { once: true });
           if (signal?.aborted) cancelOpeningSurface();
+          this.#openingWebSurfaces.set(descriptor.surfaceId, record);
           await creation;
+          if (this.#tabs.get(tabId) !== tab ||
+              this.#openingWebSurfaces.get(descriptor.surfaceId) !== record ||
+              this.#windows.get(tab.windowId) !== windowRecord) {
+            throw runtimeError("ELECTRON_GLOBAL_WEB_LOAD_STALE",
+              "The loading Web surface lost its exact topology before readiness.");
+          }
           if (signal?.aborted) {
             const closed = await closeOpeningSurface();
             if (!closed) {
@@ -1088,15 +1102,25 @@ export class ChromiumRuntimeEffectExecutor {
           throw error;
         } finally {
           signal?.removeEventListener("abort", cancelOpeningSurface);
+          if (this.#openingWebSurfaces.get(descriptor.surfaceId) === record) {
+            this.#openingWebSurfaces.delete(descriptor.surfaceId);
+          }
         }
       });
-    const results = await Promise.allSettled(attempts);
-    const failure = results.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected"
-    );
-    if (failure) throw failure.reason;
-    this.#revealLoadedWindow(windowRecord);
-    windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
+    const completion = Promise.allSettled(attempts).then((results) => {
+      const failure = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected"
+      );
+      if (failure) throw failure.reason;
+      if (this.#tabs.get(tabId) !== tab ||
+          this.#windows.get(tab.windowId) !== windowRecord) {
+        throw runtimeError("ELECTRON_GLOBAL_WEB_LOAD_STALE",
+          "The loading Web tab retired before native readiness.");
+      }
+      this.#revealLoadedWindow(windowRecord);
+      windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
+    });
+    return coreEffectEventContinuation(completion, () => cancellation.abort());
   }
 
   #validateWebSurfaceDescriptor(
@@ -1402,7 +1426,7 @@ export class ChromiumRuntimeEffectExecutor {
     windowRecord.host.discardAppKitSurfaceAttachment?.(tabId);
     const ownedRoles = [...this.#roles.values(), ...this.#openingRoles.values()]
       .filter((role) => role.tabId === tabId);
-    const ownedWebSurfaces = [...this.#webSurfaces.values()]
+    const ownedWebSurfaces = [...this.#webSurfaces.values(), ...this.#openingWebSurfaces.values()]
       .filter((surface) => surface.tabId === tabId);
     const [roleCloses, webCloses] = await Promise.all([
       Promise.allSettled(ownedRoles.map((role) =>
@@ -1427,6 +1451,9 @@ export class ChromiumRuntimeEffectExecutor {
       if (result.status !== "fulfilled" || result.value !== true) continue;
       if (this.#webSurfaces.get(surface.surfaceId) === surface) {
         this.#webSurfaces.delete(surface.surfaceId);
+      }
+      if (this.#openingWebSurfaces.get(surface.surfaceId) === surface) {
+        this.#openingWebSurfaces.delete(surface.surfaceId);
       }
     }
     const closeFailure = [...roleCloses, ...webCloses].find(

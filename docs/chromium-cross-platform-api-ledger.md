@@ -28,6 +28,22 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Global Web navigation releases the Core mutation lane — 2026-09-07
+
+The CP-04 audit found embeddedLoadWebSurfaces still awaited native navigation in
+the shared effect admission lane after the equivalent Role path was corrected.
+Return an event-bound continuation, reserve exact opening Web identities, reject
+duplicate pending creation and managed Role aliases, and include opening surfaces
+in exact tab retirement. Readiness must retain the original tab and host records;
+late completion cannot resurrect a retired surface. Cancellation retains exact
+native close acknowledgement and the original failure. Four focused tests cover
+both platforms with pending navigation, newer ownership admission, duplicate
+rejection and close-before-readiness. The adjacent executor/Role tests passed
+82 cases; typecheck, focused lint and source hygiene pass. Lower-layer-covered
+admission race; existing paired WORKSPACE-WEB-SLOT-016 and WEB-ONLY-024 remain the
+native acceptance routes, including gated loading and restart. No new deadline,
+polling, native owner replacement or Tauri removal. Fresh native profiles remain
+required; CP-04 is not closed by these unit tests.
 ### Passive AppKit window-state supersession and Windows tabs acceptance — 2026-09-07
 
 At 0c0a285d, Windows chromium-windows-smoke tabs visible seed/restart passed

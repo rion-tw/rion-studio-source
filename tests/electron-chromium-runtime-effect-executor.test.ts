@@ -922,7 +922,9 @@ describe("Electron Chromium runtime effect executor", () => {
 
     controller.abort("coreCancelled");
 
-    await expect(loading).rejects.toThrow("cancelled opening Web surface");
+    const admitted = await loading;
+    if (!isCoreEffectEventContinuation(admitted)) throw new Error("missing Web load continuation");
+    await expect(admitted.completion).rejects.toThrow("cancelled opening Web surface");
     expect(subject.closeWebSurface).toHaveBeenCalledWith("web-surface-1", 1);
     expect(subject.executor.snapshot().webSurfaces).toEqual([]);
   });

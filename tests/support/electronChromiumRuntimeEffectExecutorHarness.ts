@@ -390,7 +390,7 @@ export async function loadWebSurfaces(
   subject: Harness,
   specification = webTab()
 ): Promise<void> {
-  await subject.executor.execute(effect(
+  const execution = await subject.executor.execute(effect(
     specification.tabId,
     {
       type: "embeddedLoadWebSurfaces",
@@ -410,6 +410,7 @@ export async function loadWebSurfaces(
         }))
     }
   ));
+  if (isCoreEffectEventContinuation(execution)) await execution.completion;
 }
 
 function roleBounds(specification: EmbeddedTabEffectRecord) {

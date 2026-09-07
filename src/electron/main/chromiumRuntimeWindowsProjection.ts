@@ -260,7 +260,12 @@ export async function applyChromiumRuntimeWindowsProjection(
     const workspaceProjection = (projection.workspaceTabs ?? []).find(
       (candidate) => candidate.tabId === tabId
     );
-    const specification = projectWorkspaceSpecification(tab, workspaceProjection);
+    const specification = {
+      ...projectWorkspaceSpecification(tab, workspaceProjection),
+      // Layout and the committed tab must follow the same exact destination
+      // host selected by Core's cross-window projection.
+      target: input.windows.get(windowId)!.hostTarget
+    };
     if (!input.ports.layout.resolveWorkspaceLayout) {
       throw projectionError(
         "ELECTRON_CHROMIUM_WINDOWS_WORKSPACE_LAYOUT_UNAVAILABLE",

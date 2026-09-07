@@ -28,6 +28,19 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows moved-tab layout target — 2026-09-07
+
+Focused tabs at 7f0d2314, artifact 2026-09-07T04-54-15-191Z-win32, passed initial
+loading admission, all three Role launches, whole-window close/reopen, selection
+and reorder. It then failed moving Beta into the existing target window.
+Core-flow 1843 rejected the ownership projection because the tab layout still
+carried the source target while resolving against the destination native host.
+Project the tab specification with the already-fenced destination hostTarget
+before layout, and commit that same specification only after native projection.
+The strengthened move regression failed with window-1 versus window-2 before
+repair; 56 projection/layout/executor tests passed afterward. Paired tabs journeys
+019/020 remain pending overall; this is partial progress, not a profile pass.
+
 ### Role load admission releases the projection lane — 2026-09-07
 
 At c8dfc9d1, artifact 2026-09-07T04-43-34-681Z-win32 retains the actual fence

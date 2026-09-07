@@ -34,6 +34,19 @@ make an incomplete migration look cutover-ready.
 | `chromium-macos-appkit-smoke` | Pull requests on hosted macOS | Chromium main-shell/preload/Core readiness, Electron native non-client drag regions, real Command+N/fullscreen/zoom application shortcuts through the retained NSMenu, visible Game/entity persistence, retained AppKit fullscreen-toolbar auto-hide/reveal/pin/restart parity, real CoreGraphics tab reorder plus retained NSMenu move/detach/hide/reveal/reload and restart persistence, cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access interception, visible Settings persistence, visible Macro authoring/list/scheduler plus foreground and hidden native-effect parity through the retained AppKit trusted-input adapter, exact-Session permission/download deny parity and OS-native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and a retained-v22 Role whose blocked launch, visible explicit reset, AppKit-hosted Chromium launch, and restart continuity are verified. |
 | `chromium-windows-smoke` | Pull requests on hosted Windows | Chromium shell/preload/Core readiness bound to the Windows Electron target, real Ctrl+N/F11/zoom application shortcuts, visible Game/entity persistence, local-shell fullscreen-toolbar auto-hide/reveal/pin/restart parity, visible context-menu controlled Role reload, paired cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access and F11 interception, visible Settings persistence, visible Macro authoring/list/scheduler parity, exact foreground and hidden native trusted-input effects plus the exact direct-View physical input gate, exact-Session permission/download deny parity and exact-PID native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and the retained-v22 Role explicit-reset and restart journey. |
 
+The paired `chromium-chrome-profile-import-seed` / `restart` phases exercise
+visible consent, cancellation, the native Chrome-folder picker, game/profile
+selection and final confirmation. A separate bundled-Chromium fixture process
+creates isolated origin-keyed LocalStorage; test-owned Chrome-schema SQLite
+rows contain one matching cookie and one excluded domain. The source includes
+an excluded LocalStorage origin too. Product Rust discovery/filtering and both
+clean import/verification helpers remain in the actual path. UI counts must be
+exactly one cookie and one LocalStorage entry, no pending import journal may
+remain, and visible Role launch before/after restart must observe the same
+markers under the required native host. Source bytes must remain unchanged.
+These are fixture-data consent-flow tests; they do not claim real Chrome
+DPAPI/Keychain, app-bound decryption, hardware, or production updater evidence.
+
 The paired Chromium tab-topology phases use only visible native primary actions.
 macOS reads the exact retained AppKit tab anchors, sends a real CoreGraphics drag
 or right-click, and presses the real NSMenu item through Accessibility. It never

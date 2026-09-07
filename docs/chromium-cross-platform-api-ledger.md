@@ -10,6 +10,60 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### fa217490 validation and consented-import E2E implementation
+
+`fa21749094640f3dd678d90af180ff9547bf02a5` is pushed. Full local JavaScript
+validation passes 462 files / 3715 tests; full lint passes with the existing
+23 warnings; hygiene and typecheck pass. Its native Rust sources are identical
+to the 1677 PASS / five ignored macOS run recorded below.
+CI 34116948212 never checks out source: the dispatch incorrectly supplied the
+short SHA as a ref name. No product test ran. Corrected immutable 40-character
+input starts CI 34117447948; this is not an unchanged failed-test retry.
+
+CI 34114497057 Windows native job 101718227707 finishes with Rust lint and
+1669 Rust PASS / four ignored, plus native integration 8 files / 16 PASS.
+Renderer validation has exactly one failure, the two deleted-path references
+already corrected in `8dff7722`: 451 files / 3656 tests PASS, ten files /
+48 tests skipped. None of the prior four timeout failures or symlink EPERM
+failures occurs in this hosted execution. This separate run does not relabel
+the failed Windows workstation suite or the failed CI job. Build after that
+failed step is skipped. CP-08 latest native input evidence is obtained; full
+post-deletion Windows profile acceptance still requires the detach repair.
+
+Local `chromium-macos-appkit-smoke` at fa217490 builds successfully and passes
+both extension phases, then fails `chromium-shell-smoke` at the visible native
+shortcut: osascript Accessibility rejection -25211. Artifact
+`2026-09-07T11-26-56-059Z-darwin`. A focused permission check in
+`2026-09-07T11-34-45-011Z-darwin` confirms the same failure. The owner supplied
+the Accessibility settings screenshot: ChatGPT and Codex Computer Use are
+enabled. The actual parent is ChatGPT.app (bundle id com.openai.codex), and TCC
+records Allowed for that responsible process; direct ChatGPT/System Settings
+AX reads succeed while the E2E Electron target rejects access. The precise
+target-specific cause remains unresolved; do not infer missing owner consent
+or change permissions, credentials, or native assertions to force a pass.
+
+Working-tree CP-10 adds paired CHROMIUM-MACOS-APPKIT / CHROMIUM-WINDOWS
+CHROME-PROFILE-IMPORT-033 journeys in the two smoke profiles, with seed/restart
+phases and a dedicated shared namespace. The actual visible consent/confirmation
+and native chooser remain primary actions. A separate isolated Chromium fixture
+generates origin-keyed LevelDB and test-owned Chrome SQLite cookies; real user
+Chrome data and OS decryption keys are never touched. Assertions cover cancelled
+consent/confirmation without Role creation, exact filtered counts, unchanged
+source bytes, no pending journal, native host identity and cookie/LocalStorage
+markers after visible Role launch and fresh application restart.
+
+Local source fixture creation succeeds. The new focused profile reaches the
+visible consent checkbox and native folder chooser, then encounters the same
+Accessibility denial, before import or restart:
+`2026-09-07T11-37-28-779Z-darwin`. The failed chooser also prevents the normal
+final-flush acknowledgement: the report separately records
+electronProcessExited=false and electronShutdownError. The process subsequently
+exits; this is not retroactive clean-shutdown evidence. Bounded, argument-free
+process ancestry diagnostics are now saved on native action failure.
+Focused desktop harness / tab guards / import renderer tests pass ten files /
+69 tests. Coverage is P0 70/70, P1 77/77, paired replacement parity 41/41.
+Both actual import verdicts remain pending. Count remains 9/18.
+
 ### macOS takeover execution — 2026-09-07
 
 Safely fetched and checked out `8dff7722462f51d5407cf520bc7d37629829ede9`;

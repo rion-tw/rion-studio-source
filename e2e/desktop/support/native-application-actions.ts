@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import { electronDesktopE2eProbe } from "./electron-driver";
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
+import { captureNativeProcessAttribution } from "./native-process-attribution";
 
 const executeFile = promisify(execFile);
 
@@ -439,7 +440,10 @@ end run`;
     input.command,
     input.targetMode ?? "launcher",
     input.runtimeTabName ?? ""
-  ], { encoding: "utf8", timeout: 15_000 });
+  ], { encoding: "utf8", timeout: 15_000 }).catch(async (error: unknown) => {
+    await captureNativeProcessAttribution();
+    throw error;
+  });
   if (input.command === "escape") {
     const swift = `
 import CoreGraphics

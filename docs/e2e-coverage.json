@@ -170,7 +170,9 @@
         "chromium-window-recovery-discard",
         "chromium-window-recovery-final-show",
         "chromium-tabs-visible-seed",
-        "chromium-tabs-visible-restart"
+        "chromium-tabs-visible-restart",
+        "chromium-chrome-profile-import-seed",
+        "chromium-chrome-profile-import-restart"
       ],
       "specs": [
         "e2e/desktop/specs/chromium-extensions.e2e.ts",
@@ -200,7 +202,8 @@
         "e2e/desktop/specs/chromium-app-recovery.e2e.ts",
         "e2e/desktop/specs/chromium-mixed-recovery.e2e.ts",
         "e2e/desktop/specs/chromium-window-recovery-ui.e2e.ts",
-        "e2e/desktop/specs/chromium-tabs-parity.e2e.ts"
+        "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
+        "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts"
       ]
     },
     "chromium-windows-smoke": {
@@ -265,7 +268,9 @@
         "chromium-window-recovery-discard",
         "chromium-window-recovery-final-show",
         "chromium-tabs-visible-seed",
-        "chromium-tabs-visible-restart"
+        "chromium-tabs-visible-restart",
+        "chromium-chrome-profile-import-seed",
+        "chromium-chrome-profile-import-restart"
       ],
       "specs": [
         "e2e/desktop/specs/chromium-extensions.e2e.ts",
@@ -296,7 +301,8 @@
         "e2e/desktop/specs/chromium-mixed-recovery.e2e.ts",
         "e2e/desktop/specs/chromium-window-recovery-ui.e2e.ts",
         "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
-        "e2e/desktop/specs/chromium-windows-trusted-input-physical.e2e.ts"
+        "e2e/desktop/specs/chromium-windows-trusted-input-physical.e2e.ts",
+        "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts"
       ]
     },
     "chromium-macos-appkit-hardware-extended": {
@@ -2752,6 +2758,54 @@
       "replaces": [
         "MACRO-SOURCE-ROLE-014"
       ]
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-CHROME-PROFILE-IMPORT-033",
+      "coverageGroup": "chromium-v23-chrome-profile-import",
+      "feature": "settings",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-chrome-profile-import-seed",
+        "chromium-chrome-profile-import-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "cancel",
+        "restart"
+      ],
+      "description": "Use an isolated Chrome-format fixture, cancel visible consent and final confirmation without a Role mutation, select the source through the native folder chooser, confirm import and exact origin-filtered counts, then visibly launch the imported Role before and after restart with the same cookie and LocalStorage markers and unchanged source bytes. macOS retains the AppKit host; Windows has its own verdict."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-CHROME-PROFILE-IMPORT-033",
+      "coverageGroup": "chromium-v23-chrome-profile-import",
+      "feature": "settings",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-chrome-profile-import-seed",
+        "chromium-chrome-profile-import-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "cancel",
+        "restart"
+      ],
+      "description": "Use an isolated Chrome-format fixture, cancel visible consent and final confirmation without a Role mutation, select the source through the native folder chooser, confirm import and exact origin-filtered counts, then visibly launch the imported Role before and after restart with the same cookie and LocalStorage markers and unchanged source bytes. macOS retains the AppKit host; Windows has its own verdict."
     }
   ]
 }

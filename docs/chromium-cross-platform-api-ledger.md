@@ -182,6 +182,17 @@ reach the same source-role Browser.getWindowForTarget failure; both require
 the 8f4095c2 geometry repair and later compact-loop acceptance. Windows stable
 101678154604 retains the same observed trusted-input/absent-active-class
 failure as 575c26a4, before the explicit outside-to-inside precondition.
+### 4b7d1a06 Windows Macro UI accepted
+
+Focused chromium-macro-ui-restart passes all four required phases at
+4b7d1a06: entity persistence seed/restart and Macro UI seed/restart.
+Macro UI seed takes 18.6s and restart 11.5s, with compact source-role authoring,
+role selection, Start/Stop, persistence and unchanged cleanup assertions.
+Artifact .desktop-e2e-artifacts/2026-09-07T08-55-42-228Z-win32;
+log windows-handoff-b0c3c184/4b7d1a06-macro-ui-x64.log.
+Both geometry and Loop control corrections now have local native evidence.
+macOS Macro UI, hosted Windows hover precondition, remaining CRUD/native-effect
+chain and full-profile acceptance remain pending.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

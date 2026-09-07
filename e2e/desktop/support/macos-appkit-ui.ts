@@ -182,14 +182,21 @@ end run`, processId, String(x), String(y));
 
 /** Clicks the real standard View-menu preference owned by Rust/Core. */
 export async function clickMacosFullscreenToolbarViewMenuItem(): Promise<void> {
+  const processId = (await electronDesktopE2eProbe()).processId;
   await runSystemEvents(`
-tell application "System Events"
-  set frontProcess to first application process whose frontmost is true
-  tell menu bar 1 of frontProcess
-    click menu bar item "View"
-    click menu item "Always Show Toolbar in Full Screen" of menu 1 of menu bar item "View"
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  tell application "System Events"
+    set matchingProcesses to application processes whose unix id is targetPid
+    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
+    set frontmost of targetProcess to true
+    tell menu bar 1 of targetProcess
+      click menu bar item "View"
+      click menu item "Always Show Toolbar in Full Screen" of menu 1 of menu bar item "View"
+    end tell
   end tell
-end tell`);
+end run`, String(processId));
 }
 
 /** Moves the real system pointer away from native chrome into exact AppKit content. */

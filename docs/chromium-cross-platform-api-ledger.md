@@ -8269,3 +8269,25 @@ Typecheck, Swift typecheck and three focused source-boundary tests pass. This
 focused result is not relabelled as a complete hardware-profile PASS. Affected
 journeys are CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016 and its retained
 native divider behavior; Windows companion acceptance remains deferred.
+
+### Full-profile View-menu ownership follow-up
+
+Commit **e627422e** is pushed with typed native divider discovery. Typecheck,
+complete hygiene and lint pass (0 errors / 23 existing warnings); the complete
+isolated JavaScript suite passes 468 files / 3803 tests.
+
+Clean e627422e complete hardware report **2026-09-07T14-46-20-667Z-darwin** passes
+15 phases, then fails chromium-fullscreen-toolbar-seed. Its View-menu helper
+selects the first frontmost application without a Rion PID fence and errors
+-1719 at the menu-bar operation. The helper now selects the exact probed Rion PID
+through a retained process reference and activates only that process before
+clicking the real View menu and existing preference item. The preference's Rust
+persistence assertions are unchanged. Focused toolbar seed/restart acceptance is
+pending; this complete profile remains a failure.
+
+Focused report **2026-09-07T14-51-37-769Z-darwin** now passes toolbar seed and
+restart with the exact-PID View-menu correction. Both phases retain their
+persisted preference, native-toolbar geometry and terminal native-quit evidence.
+This does not replace the separate physical display profile's successful normal
+fullscreen exit/minimize. No permission grant, timeout or domain assertion is
+changed; the production runtime remains identical to 61f32424.

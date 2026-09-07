@@ -1577,7 +1577,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease or page key left behind and the ABI-v3 physical gate required."
+      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease or page key left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",

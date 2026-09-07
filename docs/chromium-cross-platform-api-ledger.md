@@ -28,6 +28,27 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Exact held-key cancellation in the Windows tab hover driver — 2026-09-07
+
+At 121ec958, native Windows Electron integration passes all eight files / 16
+cases (75.97s); log web-admission-native-integration-x64.log. Complete local
+chromium-windows-smoke artifact 2026-09-07T06-15-41-026Z-win32 records a clean
+worktree, 29 passed phases, then chromium-macro-cutover-keyboard fails at its
+unchanged trusted Digit4 / shift=true assertion (received shift=false, sequence
+609). Fresh CI 34089874671 Windows Chromium job 101641015956 independently fails
+the same assertion at sequence 597 after passing the earlier shortcut boundary.
+Neither is a full-profile pass. WebdriverIO 9.30.1 moveTo() invokes perform()
+without skipRelease; its default releases all action sources. The Windows tab
+hover added in 0c0a285d therefore releases the held Shift before returning to the
+Role. Local WebDriver evidence contains these releaseActions at 06:30:45.393Z
+and 06:30:49.078Z between continuity key-down and Digit4. Use the explicit visible
+pointer move with perform(true), preserving the existing key source. Keep native
+foreground/identity checks, visible activation and all Macro assertions intact.
+Journey: CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008, adjacent keyboard/blur
+journeys and Windows tabs activation. Focused native replay remains pending.
+CI stable Windows separately fails p1-cross-domain-topology-force at its exact
+Role document viewport check; native macOS validation and shared checks pass.
+The stable failure and macOS Chromium verdict remain independent obligations.
 ### Global Web navigation releases the Core mutation lane — 2026-09-07
 
 The CP-04 audit found embeddedLoadWebSurfaces still awaited native navigation in

@@ -457,7 +457,10 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
       `[data-runtime-tab-activate][data-tab-id='${input.tabId}']`
     );
     await activate.waitForClickable({ timeout: 10_000 });
-    await activate.moveTo();
+    // Hover must not release the held keyboard source used by Macro continuity.
+    // WebdriverIO moveTo() calls releaseActions() after its pointer movement.
+    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
+      .move({ origin: activate }).perform(true);
     const windowId = await browser.execute(() =>
       document.documentElement.dataset.runtimeWindowId
     );

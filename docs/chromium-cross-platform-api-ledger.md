@@ -110,7 +110,9 @@ workspace path. The shared target build cache is excluded locally as a build
 input; no source is hidden. Node is explicitly pinned to
 /Users/aron/.nvm/versions/node/v24.20.0/bin. Clean reports starting at 61f32424 refer
 to this isolated checkout, not the owner's dirty root workspace. Production
-runtime content is 61f32424; subsequent commits change E2E drivers and this ledger.
+runtime content advanced to 015dbaa2 after the independent 52cc4bb9 Website
+entrance commit. The 61f32424 CI results below are historical for that new product
+source; current-source native/full/package acceptance is tracked separately.
 
 | Local follow-up report | Exact result and correction |
 | --- | --- |
@@ -8401,3 +8403,47 @@ CHROMIUM-MACOS-APPKIT-CHROME-PROFILE-IMPORT-033. Changes are internal-only nativ
 E2E driver/evidence work; product behavior, Windows implementation, deadlines,
 coverage targets and domain assertions remain unchanged. Complete hardware
 revalidation and real sleep/wake remain pending. API closure remains 9/18.
+
+
+### 015dbaa2 product-source advance and exact lifecycle source boundaries
+
+Independent owner commit **52cc4bb9e3ea4924848fed3371a739b2066c5bdd** adds Website
+entrance and localized naming to both shells. It landed before this session's
+**015dbaa22afa1ed148a1bf145ec6267f96594d35** native-file-panel commit. All owner
+changes are preserved. The isolated checkout was advanced and rebuilt before
+new native E2E; the old 61f32424 binary was not used to validate these product
+changes. Other uncommitted owner assets in the root checkout remain untouched.
+
+At 015dbaa2, Electron E2E build/typecheck, native Rust lint and the complete Rust
+workspace suite pass: **1681 PASS / 5 ignored**, including the unchanged updater
+concurrency gate. Complete hygiene passes. Initial complete JavaScript has
+**3812 PASS / two FAIL** in tauri-system-runtime-source.part-2.test.ts.
+Both failures are the blanket webView.URL token ban: the new BFCache event
+callback reads that value to reject a mismatched main-frame message URL.
+
+The callback and all product code remain unchanged. The source boundary now
+requires one exact BFCache callback, its live lease/context, quiesce rejection,
+exact WebView owner, main frame, restored message and event/current URL equality,
+plus isolated-world trusted persisted pageshow registration. It forbids isolation
+or release terminalization inside that callback and still forbids webView.URL
+throughout the remaining source, including every close/quiesce path. Existing
+loading/observer bans and event-bound terminal assertions remain. This separates
+an event security fence from forbidden URL-based completion inference; it does
+not admit polling or optimistic native completion.
+
+The complete lifecycle test is moved to tauri-native-lifecycle-source.test.ts and
+its shared assertion to tests/helpers/assertMacosLifecycleSource.ts to retain
+the original 65536-byte source limit. No test case is removed. Fourteen focused
+tests, source hygiene, targeted lint and the complete JavaScript suite now pass:
+**471 files / 3814 PASS**. Full pre-extraction lint had 0 errors / 23 existing
+warnings. This is internal-only source-boundary validation; no runtime behavior
+or E2E journey is changed by the assertion correction.
+
+Manual CI **34140329397** fails before checkout/build because this session passed
+short input ref 015dbaa2: actions/checkout searched branch/tag names instead of
+treating it as the full commit SHA. Native validation is dependency-skipped and
+no Windows job exists. This is a dispatch-input error, not native product
+failure or evidence. The corrected dispatch must use the complete 40-character
+SHA after committing the source-boundary correction; do not rerun this failed
+short-ref request. Complete local hardware acceptance remains in progress at
+015dbaa2; source assertion edits do not change its runtime or E2E drivers.

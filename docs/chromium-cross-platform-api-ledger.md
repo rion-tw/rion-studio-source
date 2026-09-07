@@ -32,8 +32,9 @@ same scale. They retain native placement, work area, display identity, scale
 readback, drag/resize, maximize, fullscreen and minimize assertions. The stable
 Windows journey requires WM_DPICHANGED only when the actual move changes DPI;
 same-DPI placement still requires its exact native scale readback. No Windows
-profile is executed by this macOS session. The physical multi-display and real
-sleep/wake gates remain open.
+profile is executed by this macOS session. At this policy checkpoint physical multi-display and real sleep/wake were open;
+the later 015dbaa2 report below completes macOS ordinary dual-display acceptance.
+Real sleep/wake remains pending.
 
 `tests/electron-display-scale-data.test.ts` adds 22 deterministic cases with
 explicit macOS/Windows fixture data: 1x/1.25x/1.5x/1.75x/2x/3x scale factors,
@@ -63,7 +64,7 @@ The policy/test change is committed and pushed as
 warnings; full hygiene also passes. Production runtime content is unchanged from
 806ddb0a by the intervening documentation and mixed-DPI acceptance-policy commits.
 
-### Current acceptance checkpoint — 2026-09-07 (macOS only)
+### Current acceptance checkpoint — 2026-09-08 (macOS only)
 
 API closure remains **9/18**. The nine open items are CP-04, CP-08, CP-10,
 CP-11, CP-12, CP-15, CP-16, CP-17 and CP-18; these are ledger items, not nine
@@ -71,6 +72,16 @@ individual test invocations. CP-17 is the gated production Tauri/System WebView
 retirement; CP-18 records final validation. Physical mixed-DPI is removed by the
 owner, while ordinary multi-display and real power/lifecycle evidence remain.
 Earlier handoff tables below describe their historical checkpoint.
+
+The owner subsequently committed **486e0842be6b14c132e9d4a33ece1c5a5fd16983**
+(grouped Website presets, streaming destinations and bundled brand assets).
+Latest validation source is **1f186739135db07853e7c9e970f1db5ab8dabd00**. Its full
+JavaScript suite passes **472 files / 3833 tests**, complete hygiene and Rust lint
+pass, and both affected Chromium Web slot/Web-only seed/restart chains pass on
+the physical Mac. The complete hardware and a8fab843 CI receipts in this table
+remain explicitly earlier-source evidence. New macOS-only CI **34143187025**
+validates the full 1f186739 SHA; its complete native/full/package gates are
+pending. No Windows acceptance is dispatched.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
@@ -8563,3 +8574,59 @@ ordinary phases cover the Website entrance extension to the stable profile;
 the historical 29-PASS count must not be copied to this source. Chromium/package
 job 101802662653 remains in progress at this checkpoint; package/updater success
 at 61f32424 is still historical for the newer product source.
+
+
+### Latest grouped-Website source acceptance — 2026-09-08
+
+The independent owner commit 486e0842 was preserved before the documentation
+commit 1f186739. It changes the shared Website catalog/categories, renderer
+picker and bundled start page; the only Rust change extends the stable Website
+E2E fixture. Neither old binaries nor the a8fab843 CI are relabelled as this new
+source. All following local checks use an isolated clean checkout of exact
+**1f186739135db07853e7c9e970f1db5ab8dabd00**, pinned Node 24.20.0.
+
+- Full JavaScript: **472 files / 3833 PASS**; complete hygiene and Rust lint PASS.
+- Electron E2E build PASS, followed by actual visible/native focused replay.
+- Report **2026-09-07T16-23-30-795Z-darwin**: entity persistence seed/restart and
+  Workspace Web slot seed/restart, **four PASS**. Journeys:
+  CHROMIUM-MACOS-APPKIT-ROLE-PERSIST-003,
+  CHROMIUM-MACOS-APPKIT-WORKSPACE-PERSIST-004,
+  CHROMIUM-MACOS-APPKIT-MACRO-PERSIST-005 and
+  CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016.
+- Report **2026-09-07T16-24-21-899Z-darwin**: Web-only seed/restart,
+  **two PASS**. These preserve empty Role topology, grouped start-page content,
+  visible failure recovery and restart persistence. Journey CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-ONLY-024 passes;
+  native/Core receipts remain in report.json.
+- These are focused affected-source results, not a replacement for the latest
+  complete profile. No deadline, assertion or selected phase dependency changes.
+
+Earlier-source CI 34140975454 artifact **10026513038** now confirms report
+**2026-09-07T15-59-40-012Z-darwin**, a8fab843, chromium-macos-appkit-smoke:
+**56 PASS + four expected force terminations / 52 journey PASS**. Its dirty flag
+is true during ephemeral updater-fixture preparation, as in the previous CI
+run; this is recorded rather than described as a clean local build. The job
+advances to macOS release artifact construction. Its package/updater result is
+still pending at this checkpoint.
+
+After checking existing runs and finding no latest-source run, macOS-only CI
+**34143187025** was dispatched with immutable full ref
+1f186739135db07853e7c9e970f1db5ab8dabd00. This covers newly changed product source;
+it is not an unchanged failure rerun. It neither dispatches Windows acceptance
+nor cancels the different-source a8fab843 run. Production output restoration and
+latest Rust test results are recorded below when completed.
+
+
+Latest-source Rust tests complete **1681 PASS / five ignored**, with all eight
+workspace test binaries successful and the updater 256-round concurrency test
+unchanged. All six focused native phases have exitCode=0,
+electronFinalFlush=true and electronProcessExited=true; no forced termination
+or missing terminal receipt is hidden in those PASS results. Both Tauri/renderer
+production build and Electron production build pass for 1f186739 in the isolated
+worktree. The root development process/output remain untouched.
+
+Production E2E isolation also passes after both builds. Full lint completes with
+zero errors / 23 existing warnings; documentation and AI-context validation pass.
+These log files are retained under
+.desktop-e2e-artifacts/macos-takeover-8dff7722/macos-1f186739-*.log.
+No real sleep/wake, Windows execution, credential change, publication, promotion
+or protected runtime deletion is performed. API closure remains **9/18**.

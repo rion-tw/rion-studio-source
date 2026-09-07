@@ -10,6 +10,24 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### CP-10 current native import restart evidence
+
+Windows native job 101683102355 at 6ace94b2 passes
+a_fully_verified_import_journal_allows_launch_without_new_role_evidence
+(2026-09-07T09:11:53Z). Source inspection confirms this exact test retains
+shutdown_checked()==Completed before reopening the v22 directory with v23;
+it is the stronger boundary that previously exposed the Windows failure.
+This current native result does not explain the historical timing failure or
+replace visible consented Chrome import and full Session lifecycle E2E.
+CP-10 remains open for those gates and the separately recorded local
+foreground obstruction.
+
+The background-parent contract cross-check at 53839b21 runs
+chromium-view-focus-admission.test.ts and chromium-view-input-submission.test.ts:
+2 files / 78 tests PASS. The source audit finds marker and directory iterator
+handles leave scope before v23 role-tree publication, but identifies no
+original OS error 5 lock owner; atomic publication and ACL policy are unchanged.
+
 ### 34a98f5b fresh CI and completed Windows native gate
 
 Fresh CI 34107092799 targets 34a98f5b34c04895ffd5867bc8234f3942fd162b.
@@ -1395,7 +1413,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; Windows Macro cutover passed at 6ace94b2; latest macOS input-recovery native click pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; Windows shutdown/import restart failure and consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-10 | P1 / Session maintenance | shared transport and native Rust import restart passed at 6ace94b2; visible Session lifecycle and consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |

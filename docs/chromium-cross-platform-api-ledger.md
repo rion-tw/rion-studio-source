@@ -28,6 +28,30 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows first native topology receipt — 2026-09-07
+
+`6af00a91` passed focused Macro UI seed/restart (4 phases including entity
+prerequisites, artifact `2026-09-07T03-33-27-712Z-win32`) and topology seed/restart
+with physical input prerequisite (3 phases, `2026-09-07T03-35-56-759Z-win32`).
+The complete `chromium-windows-smoke` run at that clean SHA reached topology
+restart and failed restoring window `c8e00000-0000-4000-8000-000000000023`
+(`2026-09-07T03-37-31-156Z-win32`). This is a distinct launch-cache failure.
+The first Workspace completed at Core-flow sequence 205; restore rejected at
+216 with `ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE`.
+Native observation 2 had the newly created host with generation/revision 0/0;
+subsequent observations bound the same host to generation 4, revisions 6 and 9.
+The launch cache permanently discarded the exact pending admission on that
+initial 0/0 observation, before its first authoritative topology receipt.
+
+A focused regression reproduced the rejection after the exact native receipt
+arrived. The repair retains only the initial 0/0 pending admission, validates all
+other source/attempt/display/Web identities, and still refuses reuse until an
+exact positive Core/native generation and revision agree. It adds no retry,
+polling, deadline, or inferred success. All 47 launch-coordinator tests passed.
+Affected paired journeys are `CHROMIUM-*-MACRO-OWNERSHIP-TRANSFER-010` and
+`CHROMIUM-*-MACRO-MULTIROLE-005`; the existing adjacent topology restart performs
+the visible Show and exact restored-cohort assertion. Native E2E remains pending
+for this follow-up. Legacy Windows input and Tauri deletion remain gated.
 ### Windows Core clock validation — 2026-09-07
 
 The follow-up to `6f1468f1` uses the same exported Rust Core scheduler clock for

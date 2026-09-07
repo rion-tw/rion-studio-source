@@ -1732,12 +1732,18 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
       const currentWebSurfaces = tab
         ? canonicalWebSurfaceIdentities(tab, cached.sourceType)
         : null;
+      // A newly created host has no authoritative topology receipt yet. Keep
+      // its exact admission pending; only a later event-fenced read can promote it.
+      const awaitsFirstNativeTopology = nativeWindow?.windowGeneration === 0 &&
+        nativeWindow.topologyRevision === 0;
       const pendingIdentityMatches =
         logical.revision >= cached.topologyRevision &&
         runtimeWindow !== undefined &&
         nativeWindow !== undefined &&
-        nativeWindow.windowGeneration === logical.windowGeneration &&
-        nativeWindow.topologyRevision === logical.revision &&
+        (awaitsFirstNativeTopology || (
+          nativeWindow.windowGeneration === logical.windowGeneration &&
+          nativeWindow.topologyRevision === logical.revision
+        )) &&
         sameOrderedIds(runtimeWindow.tabIds, logicalTabIds) &&
         sameOrderedIds(nativeWindow.tabIds, logicalTabIds) &&
         tab !== undefined &&
@@ -1768,7 +1774,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         this.#targets.delete(windowId);
         continue;
       }
-      if (webSurfaceReconciliation === "pending") continue;
+      if (awaitsFirstNativeTopology || webSurfaceReconciliation === "pending") continue;
       this.#targets.set(windowId, {
         ...(cached.admissionTarget.persistedName === undefined
           ? {}

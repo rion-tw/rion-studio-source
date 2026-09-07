@@ -6,7 +6,7 @@ requirements remain in [Chromium Runtime Migration](chromium-runtime-migration.m
 and [Updater Install Transaction](updater-transaction-contract.md); this file is
 only an execution view and must never be used to waive a gate.
 
-Last reconciled: 2026-09-06.
+Last reconciled: 2026-09-08.
 
 The separate [Chromium Cross-Platform API Ledger](chromium-cross-platform-api-ledger.md)
 tracks shared API adoption and justified native boundaries. Its maintenance
@@ -30,6 +30,34 @@ tasks do not waive or replace the release-cutover gates in this ledger.
   package is exact-candidate native and physical-platform evidence.
 - A passing portable or macOS-only test run does not reduce the Windows evidence
   count. Historical evidence does not count for the current source SHA.
+
+## 2026-09-08 workstation acceptance checkpoint
+
+This checkpoint supersedes the earlier dated foreground holds and candidate
+status snapshots below; those sections remain historical evidence. The current
+runtime/test candidate is **85f662f4860c9af1623580510f35997256108b66** on
+codex/electron-chromium-v23-cutover. Later ledger-only commits do not relabel
+older binaries or require another CI run. The detailed commands, identities,
+reports and ordered Windows checklist live in the
+[Cross-Platform API Ledger](chromium-cross-platform-api-ledger.md).
+
+| Scope | Exact current evidence or remaining gate |
+| --- | --- |
+| macOS physical Chromium | Clean 85f662f4 hardware-extended report 2026-09-07T21-46-01-681Z-darwin: 57 PASS + four expected force terminations / 54 journey PASS, with every ordinary final flush and process exit verified. This includes visible consent/import/restart and two physical same-scale displays. |
+| macOS native and stable CI | Run 34164313951 at 85f662f4: native Rust 1681 PASS / five ignored, Electron native integration 14 PASS / two platform skips, and stable full 31 PASS + three expected force terminations / 40 journey PASS. |
+| Chromium package/updater CI | The same run's job 101872214608 is still in progress at this checkpoint. Historical fixture package/updater success at b8bae38b is not a result for the newer runtime correction or a production-key transaction. |
+| Windows execution | The owner directs all remaining Windows acceptance to the other Windows workstation. Do not dispatch Windows CI from this Mac; keep paired CI definitions intact. Final-source full JS, native, profiles, visible import, physical input/display/session-end and install/update evidence remain open. |
+| Power and display limits | Physical mixed-DPI acceptance is removed by owner decision, not passed. Ordinary dual-display controls remain required and pass on the Mac. The owner does not require manual sleep/wake assistance: production power-monitor ingress, event ordering/failure/disposal, Core input fences and native held-input recovery are automated. Actual OS sleep/wake is unobserved because unattended wake scheduling requires unavailable authority; it is not inferred from synthetic events. |
+| Production retirement | Four real production updater transactions, terminal promotion, final v22 configuration delta and paired exact-candidate native release evidence still gate sole-entry cleanup. No publication, merge, credential change or protected Tauri/System WebView removal is authorized by the successful Mac tests. |
+
+The API ledger remains **9/18 closed**. Its nine open API items are not the same
+count as this ledger's **five migration work packages / nine deliverables**;
+the scopes overlap and must not be added together as independent tasks. Neither
+count shrinks because the Mac passes while Windows or production release evidence
+is absent. The fixed updater-evidence and terminal-promotion workflows remain
+hard-disabled, and the provisional publication/recovery paths remain disabled.
+No new infrastructure is assumed: the existing v22 release setup remains the
+baseline for the final read-only configuration comparison.
 
 ## Local pre-cutover validation snapshot
 

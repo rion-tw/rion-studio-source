@@ -321,7 +321,7 @@ function createMacosAppKitAdapter(
             resolve: (request, frame) =>
               surfaces.resolveTrustedInputClick(request, frame)
           },
-          nowMs: Date.now
+          nowMs: addon.macroInputEpochMillis
         });
         try {
           native.register(ipcMain);
@@ -332,7 +332,7 @@ function createMacosAppKitAdapter(
         const coordinator = new ChromiumTrustedInputCoordinator({
           native,
           surfaces,
-          nowMs: Date.now,
+          nowMs: addon.macroInputEpochMillis,
           preflightAutomaticInputContext,
           onRecoveryProof
         });
@@ -973,6 +973,7 @@ async function bootstrapReadyPhase(
               return request(tabId, action);
             },
             trustedInput: {
+              nowMs: nativeAddon.macroInputEpochMillis,
               addon: nativeAddon,
               focusedWebContentsId: () => webContents.getFocusedWebContents()?.id ?? null,
               deadlines: {

@@ -51,7 +51,9 @@ pub use chrome_profile_import_contract::{
 };
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
-pub use macro_runtime::{MacroInputRecoveryCompletion, MacroInputRecoveryTicket};
+pub use macro_runtime::{
+    MacroInputRecoveryCompletion, MacroInputRecoveryTicket, macro_input_epoch_millis,
+};
 pub use model::{
     AppCoreOptions, AppKitRuntimeEventActionRecord, AppKitRuntimeEventReceiptRecord,
     AppKitRuntimeEventRecord, AppKitRuntimeHostIdentityRecord, AppKitRuntimeHostObservationRecord,

@@ -40,6 +40,7 @@ interface NativeAppCoreOptions {
 }
 
 interface NativeAddon {
+  macroInputEpochMillis: () => number;
   createAppCore: (
     options: NativeAppCoreOptions
   ) => Promise<RawNodeApiCoreBinding>;
@@ -337,6 +338,7 @@ function createNativePorts() {
 
 function windowsTrustedInput(): WindowsChromiumTrustedInputRuntimeConfiguration {
   return {
+    nowMs: nativeAddon().macroInputEpochMillis,
     addon: {
       readWindowsRuntimeForeground: () => { throw new Error("No native parent in this fixture."); }
     },
@@ -443,6 +445,20 @@ async function expectCoreError(
 }
 
 describe("real native Core startup integration", () => {
+  it("samples the native Core Macro clock independently of JavaScript Date.now", () => {
+    const javascriptClock = vi.spyOn(Date, "now").mockReturnValue(1);
+    try {
+      const clock = nativeAddon().macroInputEpochMillis;
+      const before = clock();
+      const after = clock();
+      expect(Number.isSafeInteger(before)).toBe(true);
+      expect(before).toBeGreaterThan(1);
+      expect(after).toBeGreaterThanOrEqual(before);
+      expect(javascriptClock).not.toHaveBeenCalled();
+    } finally {
+      javascriptClock.mockRestore();
+    }
+  });
   it("dispatches a retired tab close through the real asynchronous Node-API boundary", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rion-native-tab-stop-"));
     activeDirectories.add(directory);

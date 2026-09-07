@@ -31,6 +31,7 @@ export interface WindowsChromiumTrustedInputRuntimeSurfacePort
 }
 
 export interface WindowsChromiumTrustedInputRuntimeConfiguration {
+  readonly nowMs: () => number;
   readonly addon: WindowsRuntimeForegroundProbePort;
   readonly focusedWebContentsId: () => number | null;
   readonly deadlines: WindowsChromiumTrustedInputDeadlinePort;
@@ -61,7 +62,6 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
     "trustedInput" | "backgroundInput"
   >;
   configuration?: WindowsChromiumTrustedInputRuntimeConfiguration;
-  nowMs: () => number;
   onError: (error: RionBridgeError) => void;
   parents: WindowsChromiumInputRuntimeParentResolverPort;
 }>): WindowsChromiumTrustedInputRuntimeAdapter | null {
@@ -88,11 +88,11 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
       return binding ? windowsChromiumViewParentBinding(binding, configuration.addon,
         configuration.focusedWebContentsId) : null;
     },
-    nowMs: input.nowMs,
+    nowMs: configuration.nowMs,
     onError: error => input.onError(error instanceof RionBridgeError ? error : runtimeError(
       "ELECTRON_WINDOWS_VIEW_ATTACHMENT_FAILED", error instanceof Error ? error.message : String(error)))
   });
-  const focus = new ChromiumViewFocusAdmission({ attachments, nowMs: input.nowMs,
+  const focus = new ChromiumViewFocusAdmission({ attachments, nowMs: configuration.nowMs,
     deadlines: configuration.deadlines, activateParent: target => {
       const current = input.parents.resolve(target.logicalParent);
       if (!current || current.window !== target.binding.parent ||
@@ -134,7 +134,7 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
           resolve: (request, frame) =>
             surfaces.resolveTrustedInputClick(request, frame)
         },
-        nowMs: input.nowMs,
+        nowMs: configuration.nowMs,
         deadlines: configuration.deadlines,
         backgroundSupported
       });
@@ -147,7 +147,7 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
       const coordinator = new ChromiumTrustedInputCoordinator({
         native,
         surfaces,
-        nowMs: input.nowMs,
+        nowMs: configuration.nowMs,
         preflightAutomaticInputContext,
         ...(onRecoveryProof ? { onRecoveryProof } : {})
       });

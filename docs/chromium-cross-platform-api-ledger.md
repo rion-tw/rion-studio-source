@@ -28,6 +28,24 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows Core clock validation — 2026-09-07
+
+The follow-up to `6f1468f1` uses the same exported Rust Core scheduler clock for
+Electron trusted-input admission, native submission, and receipt observation on
+both platforms. AppKit retains its native input authority and calls that same
+Core clock. No timestamp clamping, deadline extension, or receipt-order assertion
+was introduced. JavaScript diagnostic observation timestamps are explicitly
+labelled as a separate clock.
+
+Windows x64 on this ARM64 Parallels workstation passed Rust lint (40.36 seconds),
+all 1645 Rust tests (3 ignored), including the unchanged 256-round updater
+publication race, and native integration (8 files / 16 tests, 82.27 seconds).
+Focused coordinator/runtime tests passed (2 files / 24 tests). Full hygiene passed
+with P0/P1 70/70 each and both Chromium parity profiles 40/40. Logs are under
+`.desktop-e2e-artifacts/windows-handoff-b0c3c184/macro-clock-*`.
+The paired `CHROMIUM-*-MACROS-UI-017` journeys now name the exact clock boundary.
+Native macOS and complete Windows profile acceptance remain pending; these
+checks do not close physical-host, update, or migration-removal gates.
 ## Windows workstation handoff — 2026-09-07
 
 The owner is moving execution to a Windows workstation because hosted CI is
@@ -379,6 +397,38 @@ tests passed; all prior upload hit-test assertions remain, now reading the
 shared source. Coverage remains P0/P1 100% and paired 40/40. Native settings
 and upload acceptance for this harness correction are pending.
 
+Dialog harness commits: `be57da38` plus `6f1468f1` (source-test project-boundary
+correction). The first intervening build stopped at TS6307 before UI execution;
+the fixture source is now read rather than directly imported into the node test
+project. `6f1468f1` then passed **chromium-system-settings** on Windows x64,
+run `.desktop-e2e-artifacts/2026-09-07T03-01-32-360Z-win32` (19.3s UI).
+This exercises CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013,
+CHROMIUM-WINDOWS-FONT-APPLICATION-033 and
+CHROMIUM-WINDOWS-DIAGNOSTICS-EXPORT-029: actual font application, absent retired
+controls, visible native diagnostics Cancel with exactly one cancelled journal
+entry and zero Core export invocation, and subsequent legal-dialog cancellation.
+CP-02/CP-06/CP-13 Windows settings acceptance is now satisfied; current-candidate
+macOS and other migration/hardware/update gates remain separate.
+
+The complete Windows profile at `6f1468f1` stopped after **22 PASS / 1 FAIL**
+at Macro UI seed, run `.desktop-e2e-artifacts/2026-09-07T03-02-59-012Z-win32`.
+Workspace Web fullscreen seed/restart, including native upload, passed with the
+shared dialog driver. The Macro failure now has exact raw receipt evidence:
+`browser-action-2` (focus) scheduled at **1788750894672** by Rust, while its
+applied JS receipt completed at **1788750894671**; JS dispatch began at
+1788750894668. Core flow 133 correctly rejects the out-of-order receipt and
+138 rejects Macro start. This is a demonstrated clock-domain mismatch, not a
+missed running-state sample. The working correction exposes the exact Core
+Macro epoch clock through Node-API and supplies it to both platform adapters,
+Windows View admission/submission, and receipt validation. AppKit native
+submission also reads the same Rust helper. No timestamps are clamped, deadline
+extended, or ordering assertion relaxed. Two platform-explicit regressions keep
+the one-millisecond early receipt rejection; 25 focused TypeScript tests and
+the native Rust clock unit test passed. New native integration checks that the
+clock remains native even when JavaScript Date.now is replaced. Full native
+validation is pending; the earlier topology failure is not independently
+attributed until its recorded sequence or new exact verification supports it.
+
 The completed uncontended x64 Vitest batch (`vitest-x64-uncontended.log`)
 reported 452 files: 430 passed, 12 failed, ten skipped; 3,582 tests passed,
 15 failed, 48 skipped, 742.31s. Eleven failures are exact `symlink` `EPERM`
@@ -431,18 +481,18 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | ID | Priority / owner | State | Dependency | Deliverable and completion evidence |
 | --- | --- | --- | --- | --- |
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
-| CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
+| CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed; Windows Chromium settings passed at 6f1468f1; current-candidate macOS pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | implemented; both native Rust gates and paired Chromium persistence smoke passed | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; surviving-window close projection repaired, paired native replay pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | verified adopt; production provider acceptance remains CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
-| CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
+| CP-06 | P1 / Fonts + bridge | implemented; both native font probes and earlier macOS settings passed; Windows settings passed at 6f1468f1; current-candidate macOS pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | implemented; macOS Macro journeys passed, Windows pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | shared transport and paired fresh-process storage passed; Windows shutdown/import restart failure and consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; macOS smoke passed, Windows/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
-| CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed, Chromium Windows pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
+| CP-13 | P1 / Diagnostics + settings | implemented; both Tauri platforms passed; Windows Chromium settings passed at 6f1468f1; current-candidate macOS pending | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | paired stable full passed at e85d2ea5; macOS Chromium 56 phases passed at 1422ea67; Windows topology seed/restart passed at 2e139861; full/hardware pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | macOS CI-fixture package/updater verified at a20bddec; Windows/production release pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |

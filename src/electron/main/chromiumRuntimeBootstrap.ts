@@ -688,7 +688,6 @@ export class ChromiumRuntimeBootstrap {
       ? createWindowsChromiumTrustedInputRuntime({
           capabilities: registration.capabilities,
           configuration: input.windows?.trustedInput,
-          nowMs: Date.now,
           onError: (error) => input.onError(error),
           parents: {
             resolve: (parent) => hosts.resolveWindowsInputParent(parent)

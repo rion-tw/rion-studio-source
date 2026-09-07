@@ -23,6 +23,7 @@ function capabilities(
 
 function configuration(): WindowsChromiumTrustedInputRuntimeConfiguration {
   return {
+    nowMs: () => 1,
     addon: {
       readWindowsRuntimeForeground: () => { throw new Error("No native parent in this fixture."); }
     },
@@ -86,7 +87,6 @@ function runtimeInput(
     value: {
       capabilities: inputCapabilities,
       ...(configurationWithIpc ? { configuration: configurationWithIpc } : {}),
-      nowMs: () => 1,
       onError: vi.fn(),
       parents: { resolve: () => null }
     }

@@ -14,7 +14,7 @@ export function installElectronDesktopE2eTrustedInputDiagnostics(
   const flush = (): void => writeFileSync(output, `${JSON.stringify(records, null, 2)}\n`);
   let sequence = 0;
   const record = (value: Readonly<Record<string, unknown>>): void => {
-    records.push(Object.freeze({ ...value, sequence: ++sequence }));
+    records.push(Object.freeze({ ...value, observationClock: "javascript-date-now", sequence: ++sequence }));
     if (records.length > 512) records.shift();
     const receipt = value.receipt;
     if (String(value.kind).endsWith("-rejected") ||

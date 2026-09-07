@@ -639,25 +639,14 @@ fn validate_native_background_mouse_request(
 }
 
 fn unix_epoch_ms() -> Result<u64> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    u64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| {
-                adapter_error(
-                    Status::GenericFailure,
-                    "The AppKit Chromium input clock is unavailable.",
-                )
-            })?
-            .as_millis(),
-    )
-    .map_err(|_| {
-        adapter_error(
+    let now = rion_core::macro_input_epoch_millis();
+    if now == 0 || now == u64::MAX {
+        return Err(adapter_error(
             Status::GenericFailure,
-            "The AppKit Chromium input clock exceeded its supported range.",
-        )
-    })
+            "The Core Macro input clock is unavailable or outside its supported range.",
+        ));
+    }
+    Ok(now)
 }
 
 fn admit_request_ledger(

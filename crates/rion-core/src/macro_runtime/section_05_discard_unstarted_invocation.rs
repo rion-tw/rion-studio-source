@@ -636,7 +636,9 @@ fn trim_early_releases(releases: &mut HashMap<String, String>) {
     }
 }
 
-fn epoch_millis() -> u64 {
+/// Shared with native shell receipts; JavaScript Date.now may use a different
+/// Windows wall-clock sample and can precede an already-issued Core request.
+pub fn macro_input_epoch_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

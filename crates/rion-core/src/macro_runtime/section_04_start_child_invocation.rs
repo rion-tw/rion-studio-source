@@ -384,8 +384,8 @@ fn perform_actions_with_control(
                     origin: "macro".to_owned(),
                     input_epoch,
                     intent: intent.to_owned(),
-                    scheduled_at_ms: epoch_millis(),
-                    deadline_ms: epoch_millis()
+                    scheduled_at_ms: macro_input_epoch_millis(),
+                    deadline_ms: macro_input_epoch_millis()
                         .saturating_add(shared.action_timeout.as_millis() as u64),
                     surface_generation: exact_surface
                         .filter(|surface| surface.role_id == role_id)

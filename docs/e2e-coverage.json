@@ -1329,7 +1329,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "From the visible macOS Chromium Macro UI, create a Role-assigned delay-only Macro, reject Command+K with the dedicated reserved-shortcut message, prove stable mind-map focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart. Read-only runtime evidence binds the Role to retained AppKit Chromium without replacing native chrome; the dedicated Chromium native-effect journey owns input delivery."
+      "description": "From the visible macOS Chromium Macro UI, create a Role-assigned delay-only Macro, reject Command+K with the dedicated reserved-shortcut message, prove stable mind-map focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart, with startup focus receipts validated against the same Rust Core clock as their scheduling deadline. Read-only runtime evidence binds the Role to retained AppKit Chromium without replacing native chrome; the dedicated Chromium native-effect journey owns input delivery."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACROS-UI-017",
@@ -1345,7 +1345,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "From the visible Windows Chromium Macro UI, create a Role-assigned delay-only Macro, reject Ctrl+K with the dedicated reserved-shortcut message, prove stable mind-map focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart. This proves scheduler/UI availability in the bundled-Chromium host; the dedicated Chromium native-effect journey owns foreground input delivery."
+      "description": "From the visible Windows Chromium Macro UI, create a Role-assigned delay-only Macro, reject Ctrl+K with the dedicated reserved-shortcut message, prove stable mind-map focus with no node or focused-edge filters, exercise grouped and flat tables plus selection, then start and stop through visible controls before and after restart, with startup focus receipts validated against the same Rust Core clock as their scheduling deadline. This proves scheduler/UI availability in the bundled-Chromium host; the dedicated Chromium native-effect journey owns foreground input delivery."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-NATIVE-EFFECT-018",

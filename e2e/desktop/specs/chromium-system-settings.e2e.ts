@@ -10,6 +10,7 @@ import { cancelVisibleNativeDiagnosticsSaveDialog } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
 import {
+  scrollLayoutControlIntoView,
   waitForRoute
 } from "../support/ui";
 
@@ -40,7 +41,7 @@ async function openSettingsSection(
   const sidebar = await $(".settings-mode-sidebar");
   await sidebar.waitForDisplayed({ timeout: 10_000 });
   const button = await sidebar.$(`button=${label}`);
-  await button.scrollIntoView({ block: "center" });
+  await scrollLayoutControlIntoView(button);
   await button.click();
   await waitForRoute(`/settings?section=${section}`);
 }
@@ -145,7 +146,7 @@ async function verifyLegalCancelBoundary(): Promise<void> {
   await openSettingsSection("About & Legal", "about-legal");
   const openDocument = await $("button=Open");
   await openDocument.waitForExist({ timeout: 10_000 });
-  await openDocument.scrollIntoView({ block: "center" });
+  await scrollLayoutControlIntoView(openDocument);
   await openDocument.waitForClickable({ timeout: 10_000 });
   await openDocument.click();
 

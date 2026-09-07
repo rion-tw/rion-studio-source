@@ -2,6 +2,7 @@ import { $, $$, browser, expect } from "@wdio/globals";
 
 import { moveMacosMindMapPointer } from "./macos-mind-map-pointer";
 import { moveWindowsMindMapPointer } from "./windows-mind-map-pointer";
+import { scrollLayoutControlIntoView } from "./ui";
 
 interface MindMapFrame {
   activeIds: string[];
@@ -27,7 +28,7 @@ export async function exerciseMacroMindMapHover(): Promise<void> {
   for (const node of nodes) {
     const id = await node.getAttribute("data-id");
     if (!id) throw new Error("Mind map node has no identity");
-    await node.scrollIntoView({ block: "center", inline: "center" });
+    await scrollLayoutControlIntoView(node);
     if (process.platform === "darwin" && browser.tauri) await moveMacosMindMapPointer(id);
     else if (process.platform === "win32" && browser.tauri) {
       // Start outside the canvas so this action exercises an actual native enter transition.

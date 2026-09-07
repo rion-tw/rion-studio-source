@@ -3,6 +3,7 @@ import { $, browser, expect } from "@wdio/globals";
 import { readElectronRoleFontState } from "../support/electron-role-surface";
 import { electronDesktopE2eFocusMainWindow } from "../support/electron-driver";
 import { rendererCall } from "../support/renderer-bridge";
+import { scrollLayoutControlIntoView } from "../support/ui";
 import {
   bootstrapChromiumMacroCutover, createChromiumMacroWindow,
   launchChromiumRoleVisible, macroFixtureUrl
@@ -32,7 +33,8 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
   expect(before.wideGlyphWidth).not.toBe(before.narrowGlyphWidth);
   const pick = async (family: string, slot = "English & Latin") => {
     const picker = await $(`button[aria-label='${slot}']`);
-    await picker.scrollIntoView({ block: "center" });
+    await scrollLayoutControlIntoView(picker);
+    await picker.waitForClickable({ timeout: 10_000 });
     await picker.click();
     const option = await $(`[role='menuitemradio']*=${family} · System`);
     await option.waitForDisplayed({ timeout: 10_000 });
@@ -40,7 +42,7 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
   };
   const press = async (label: string) => {
     const button = await $(`button=${label}`);
-    await button.scrollIntoView({ block: "center" });
+    await scrollLayoutControlIntoView(button);
     await button.waitForClickable({ timeout: 10_000 });
     await button.click();
   };

@@ -214,6 +214,27 @@ source-role execution, CRUD cleanup and fresh-process persistence are accepted
 for this source on the local Windows host. Original publication OS error 5,
 hosted hover, complete profile, macOS parity, physical devices and production
 updates retain their outstanding gates. Fresh CI 34103441049 targets 6ace94b2.
+### f6f8b8e5 font-picker failure identifies ineffective desktop scroll precondition
+
+Focused Windows system-settings fails in artifact
+.desktop-e2e-artifacts/2026-09-07T09-07-55-497Z-win32: English & Latin picker
+at (1162,15) is covered by the fixed drag overlay despite the existing
+scrollIntoView({block:"center"}) call. Report retains FAIL and confirms exit.
+The captured WebDriver log and installed webdriverio 9.31.6 source show desktop
+scrollIntoView sends a wheel action at viewport (0,0), computes deltas against
+window.scrollX/Y, and waits for those window offsets only. Rion scrolls nested
+content containers. The logged call succeeds without bringing this control
+clear of the overlay.
+
+Add an explicit layout-precondition helper using standard DOM scrollIntoView
+with instant center alignment for the actual element and its scroll ancestors.
+Use it for font picker/action controls, settings navigation, the repaired
+workspace-slot/submit/Loop controls and mind-map layout precondition. All primary
+clicks, native hover inputs and product assertions remain real WebDriver/native
+input. This is not a scroll-gesture implementation or a runtime state mutation.
+Typecheck, focused lint, migration boundary, source hygiene and coverage pass;
+native font/settings and related layout acceptance remain pending for the fix.
+No scroll completion is inferred from a window-offset polling loop.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

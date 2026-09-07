@@ -2,7 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 import type { Macro, Role } from "../../../src/shared/types";
 import { rendererCall } from "./renderer-bridge";
 import { resizeElectronLauncherWindow } from "./extensions-layout";
-import { setEditorName, submitEditor } from "./ui";
+import { scrollLayoutControlIntoView, setEditorName, submitEditor } from "./ui";
 
 /** Visible authoring and launch actions; bridge reads are authoritative evidence. */
 export async function exerciseSourceRoleMacro(seed: Macro, roles: Role[]): Promise<void> {
@@ -21,7 +21,7 @@ export async function exerciseSourceRoleMacro(seed: Macro, roles: Role[]): Promi
   await setEditorName(name);
   await $("button=Delay").click();
   const loop = await $("button=Loop");
-  await loop.scrollIntoView({ block: "center", inline: "center" });
+  await scrollLayoutControlIntoView(loop);
   await loop.waitForClickable({ timeout: 10_000 });
   await loop.click();
   await submitEditor("/macros");

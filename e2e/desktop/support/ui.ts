@@ -128,11 +128,20 @@ export async function acceptLegalAndSkipFirstRun(): Promise<void> {
   await sidebar.waitForExist({ timeout: 20_000 });
 }
 
+/** Layout precondition in nested desktop scroll containers; the tested action remains native input. */
+export async function scrollLayoutControlIntoView(
+  control: ChainablePromiseElement | WebdriverIO.Element
+): Promise<void> {
+  await browser.execute((element: HTMLElement) => {
+    element.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+  }, await control as unknown as HTMLElement);
+}
+
 /** Keep the selected slot clear of the fixed native titlebar drag overlay. */
 export async function clickWorkspaceSlot(index: number): Promise<void> {
   if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid workspace slot index");
   const slot = await $(`[data-workspace-slot-index='${index}']`);
-  await slot.scrollIntoView({ block: "center", inline: "center" });
+  await scrollLayoutControlIntoView(slot);
   await slot.waitForClickable({ timeout: 10_000 });
   await slot.click();
 }
@@ -215,7 +224,7 @@ export async function setNumericInputValue(input: ChainablePromiseElement, value
 
 export async function submitEditor(expectedRoute: string): Promise<void> {
   const submit = await $("#app-editor-form button[type='submit']");
-  await submit.scrollIntoView({ block: "center", inline: "center" });
+  await scrollLayoutControlIntoView(submit);
   await expect(submit).toBeEnabled();
   await submit.waitForClickable({ timeout: 10_000 });
   await submit.click();

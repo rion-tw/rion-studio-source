@@ -620,6 +620,7 @@ describe("Windows runtime-host chrome controller", () => {
 
     expect(subject.requestTabControl.mock.calls).toEqual([
       [secondTabId, { beforeTabId: tabId, type: "reorderTab" }],
+      [secondTabId, { type: "activateTab" }],
       [secondTabId, { type: "hideTab" }],
       [tabId, { targetWindowId, type: "moveTab" }],
       [tabId, { type: "moveTabToNewWindow" }]
@@ -1104,5 +1105,20 @@ describe("Windows runtime-host chrome controller", () => {
     subject.native.isFullScreen = () => { throw new Error("Object has been destroyed"); };
     subject.controller.close();
     await expect(pending).resolves.toBeUndefined();
+  });
+  it("does not select a dragged tab after its native window retires", async () => {
+    const subject = harness();
+    const initial = projection();
+    await subject.controller.applyCoreProjection({ ...initial, tabs: [
+      ...initial.tabs, { ...initial.tabs[0]!, active: false, tabId: secondTabId }
+    ] });
+    subject.controller.documentLoaded(documentUrl);
+    subject.requestTabControl.mockImplementationOnce(async () => { subject.state.destroyed = true; });
+    await expect(subject.controller.handleCommand(documentUrl, {
+      type: "reorderTab", tabId: secondTabId, beforeTabId: tabId, gestureId,
+      orderedVisibleTabIds: [secondTabId, tabId], windowId,
+      projectionRevision: subject.controller.readObservation().projectionRevision
+    })).rejects.toMatchObject({ code: "ELECTRON_WINDOWS_RUNTIME_TAB_REORDER_SUPERSEDED" });
+    expect(subject.requestTabControl).toHaveBeenCalledOnce();
   });
 });

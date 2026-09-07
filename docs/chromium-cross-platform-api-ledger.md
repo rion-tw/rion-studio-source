@@ -28,6 +28,21 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows tabs seed accepted; inactive drag selection corrected — 2026-09-07
+
+At 64dcfdc5, artifact 2026-09-07T05-45-15-608Z-win32 passed tabs visible seed
+(64.9 seconds), empty shell-error journal, final flush and exact process exit.
+Restart restored/distributed/moved its tabs, then failed the unchanged post-drag
+selection assertion. Core embeddedTabReorder 1069 completed at 1097; persisted
+order was Gamma/Alpha/Beta but activeTabId remained Beta. No activation command
+followed the Windows drag. Route selection of the dragged tab through the
+existing Core action only after successful reorder, retaining native generation
+and visible membership checks before selection; a closed window cannot be
+activated. The focused expected-call regression failed before repair; 24 adjacent
+chrome/renderer tests pass, including retirement during reorder. Typecheck, lint
+and source hygiene pass. AppKit selection remains native-owned. Update Windows
+GAME-WINDOWS-TABS-020; restart and full profile remain pending.
+
 ### Reopen topology assertions consume accepted evidence — 2026-09-07
 
 At 393affb8, artifact 2026-09-07T05-41-01-163Z-win32 accepted the reopened

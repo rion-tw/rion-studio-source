@@ -703,12 +703,23 @@ export class WindowsRuntimeHostChromeController {
           "The Windows tab drag did not match its complete visible-order preview."
         );
       }
+      const generation = this.#windowGeneration;
       await this.#requestTabControl(command.tabId, {
         ...(command.beforeTabId === undefined
           ? {}
           : { beforeTabId: command.beforeTabId }),
         type: "reorderTab"
       });
+      if (this.#native.isDestroyed() || this.#windowGeneration !== generation ||
+          !this.#tabs.some((candidate) => candidate.tabId === command.tabId && !candidate.hidden)) {
+        throw chromeError(
+          "ELECTRON_WINDOWS_RUNTIME_TAB_REORDER_SUPERSEDED",
+          "The dragged tab lost its exact window before Core selection."
+        );
+      }
+      if (this.#activeTabId !== command.tabId) {
+        await this.#requestTabControl(command.tabId, { type: "activateTab" });
+      }
       return;
     }
     if (command.type === "setTabMuted") {

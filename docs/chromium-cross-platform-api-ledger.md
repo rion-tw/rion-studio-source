@@ -112,6 +112,30 @@ original publication error is not sufficient evidence of an ACL defect.
 The original lock owner is still unknown; current process is not elevated.
 Reference: Microsoft Learn Moving Directories / Win32 file security and
 access rights. The original full-profile failure remains open.
+### e3383d17 build-output mismatch and boundary integration repair
+
+The subsequent Windows app-CRUD dependency chain fails at the initial screen
+in artifact .desktop-e2e-artifacts/2026-09-07T08-36-02-500Z-win32.
+The immediately preceding Tauri build overwrote shared out/renderer with its
+compatibility renderer (vite.tauri.config.ts / tauri.conf.json), while the
+Electron main/preload remained intact. The old skip-build verifier checked only
+those two bundles. The verifier now invokes the existing complete Electron
+renderer purity/document gate before fixture startup. A focused regression
+rejects a valid E2E main/preload paired with the Tauri renderer.
+Rebuilding with RION_STUDIO_DESKTOP_E2E_BUILD=1 restores the pure Electron
+bundle (38 sources, 3341534 bytes); log
+windows-handoff-b0c3c184/after-e3383d17-restore-electron-bundle.log.
+The failed report retains FAIL with electronFinalFlush=true and
+electronProcessExited=true, providing the new failed-phase fence's native
+observation. No process leak or product startup acceptance is inferred.
+
+CI 34101150931 stops at the boundary gate because the new
+desktopE2eElectronShutdown.mjs path was not registered. Add only that exact
+migration-harness path to the existing token allowlist. verify:system-only
+now passes; build-verifier/boundary tests pass (2 files / 14 tests), focused
+ESLint, typecheck, source hygiene and coverage pass. Neither boundary policy
+nor runtime/product assertions are weakened. These are internal-only harness
+repairs; both full native profiles remain pending.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

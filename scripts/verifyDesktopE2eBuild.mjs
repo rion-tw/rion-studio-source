@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
+import { verifyElectronRendererBundle } from "./verifyElectronRendererBundle.mjs";
 
 const ELECTRON_E2E_BUNDLE_SIGNATURES = Object.freeze([
   Object.freeze({
@@ -63,4 +64,5 @@ export async function verifyDesktopE2eBuild({ driver, repositoryRoot }) {
       );
     }
   }
+  await verifyElectronRendererBundle(resolve(repositoryRoot, "out", "renderer"));
 }

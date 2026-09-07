@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { verifyDesktopE2eBuild } from "../scripts/verifyDesktopE2eBuild.mjs";
+import { ELECTRON_RENDERER_DOCUMENTS } from "../scripts/verifyElectronRendererBundle.mjs";
 
 const temporaryRoots: string[] = [];
 
@@ -15,6 +16,10 @@ async function temporaryRoot(): Promise<string> {
     mkdir(resolve(root, "out/main"), { recursive: true }),
     mkdir(resolve(root, "out/preload"), { recursive: true })
   ]);
+  await mkdir(resolve(root, "out/renderer"), { recursive: true });
+  await Promise.all(ELECTRON_RENDERER_DOCUMENTS.map(document =>
+    writeFile(resolve(root, "out/renderer", document), "<html>Electron</html>")
+  ));
   return root;
 }
 
@@ -52,6 +57,16 @@ describe("desktop E2E build verifier", () => {
       driver: "electron",
       repositoryRoot: root
     })).resolves.toBeUndefined();
+  });
+
+  it("rejects a renderer overwritten by the Tauri build before WebDriver starts", async () => {
+    const root = await temporaryRoot();
+    await writeFile(resolve(root, "out/main/index.js"), "rion:e2e:invoke retainedV22Precondition");
+    await writePreloads(root, "rionStudioDesktopE2e retainedV22Precondition");
+    await writeFile(resolve(root, "out/renderer/runtime-tabs.html"), "<html>Tauri</html>");
+    await expect(verifyDesktopE2eBuild({
+      driver: "electron", repositoryRoot: root
+    })).rejects.toThrow("Tauri compatibility document");
   });
 
   it("rejects a production Electron bundle before WebDriver starts", async () => {

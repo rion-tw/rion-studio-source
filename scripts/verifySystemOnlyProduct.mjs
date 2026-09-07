@@ -116,6 +116,7 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs"
   ])],
   ["electron", new Set([
+    "scripts/desktopE2eElectronShutdown.mjs",
     "scripts/probeChromiumInput.cjs",
     "scripts/probeChromiumViewport.cjs",
     "scripts/probeChromiumShortcuts.cjs",

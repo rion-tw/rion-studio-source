@@ -70,14 +70,15 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(validPopupParentRevisionSequence(8, undefined, 9)).toBe(false);
   });
   it("shares visible main and popup actions across exact platform journeys", async () => {
-    const [spec, pageSurface, fixture, nativeUpload] = await Promise.all([
+    const [spec, pageSurface, fixture, nativeUpload, layout] = await Promise.all([
       source("e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts"),
       source("e2e/desktop/support/electron-role-surface.ts"),
       source("scripts/runtimeAuthorityFixtureServer.mjs"),
       Promise.all([
         source("e2e/desktop/support/native-file-upload.ts"),
         source("e2e/desktop/support/windows-native-dialog.ts")
-      ]).then(parts => parts.join("\n"))
+      ]).then(parts => parts.join("\n")),
+      source("e2e/desktop/support/ui.ts")
     ]);
 
     for (const marker of [
@@ -130,9 +131,9 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("keyboardInput(");
     expect(pageSurface).toContain('await element.click()');
-    expect(pageSurface).toContain(
-      'scrollIntoView({ block: "center", inline: "center" })'
-    );
+    expect(pageSurface).toContain("await scrollLayoutControlIntoView(element)");
+    expect(layout).toContain('element.scrollIntoView({ behavior: "instant", block: "center", inline: "center" })');
+    expect(pageSurface).toContain("document.elementFromPoint(");
     expect(pageSurface).toContain('.down("left")');
     expect(pageSurface).toContain('.up("left")');
     expect(pageSurface).toContain("selector,\n    false\n  );");

@@ -10,6 +10,19 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### 34107092799 shared source guard correction
+
+At 34a98f5b, shared checks job 101694496827 passes portable Rust and typecheck
+but fails one of 3718 executed JS tests: the contained-fullscreen source guard
+still requires the retired WebdriverIO scrollIntoView string. Other results:
+461 test files / 3717 tests PASS; 2 files / 9 tests skipped.
+The guard now follows scrollLayoutControlIntoView and requires the actual DOM
+instant center scroll plus center hit-testing; original visible click, pointer
+down/up, native upload, trusted input and exact popup assertions remain.
+Focused suite passes 1 file / 7 tests, ESLint and typecheck pass.
+Paired native/E2E jobs from this run continue independently; do not relabel
+the failed shared job as green or restart it unchanged.
+
 ### CP-10 current native import restart evidence
 
 Windows native job 101683102355 at 6ace94b2 passes

@@ -151,6 +151,7 @@ const focusedPhaseDependencies = new Map([
     ["seed", "restart", "force-terminate", "crash-restart", "crash-discard"]
   ]
 ]);
+focusedPhaseDependencies.set("chromium-extensions-restart", ["chromium-extensions-seed"]);
 const phases = phaseArgument
   ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
   : configuredPhases;
@@ -195,6 +196,9 @@ const phaseNamespaces = new Map([
   ["recovery-final-restart", "window-recovery-lifecycle"],
   ["extended-native", "window-recovery-lifecycle"]
 ]);
+phaseNamespaces.set("chromium-extensions-seed", "chromium-extensions");
+phaseNamespaces.set("chromium-extensions-restart", "chromium-extensions");
+
 function userDataDirForPhase(phase) {
   const namespace = phaseNamespaces.get(phase) ?? phase;
   return resolve(artifactRoot, "user-data", namespace);

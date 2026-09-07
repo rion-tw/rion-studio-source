@@ -322,6 +322,7 @@ impl Drop for BrowserOperationGuard<'_> {
 }
 
 pub struct AppCore {
+    extensions: Mutex<crate::extensions::ExtensionRuntime>,
     app_version: String,
     app_snapshot_sequence: AtomicU64,
     appkit_event_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
@@ -567,6 +568,7 @@ impl AppCore {
                 log_level,
                 log_session_metadata,
             )),
+            extensions: Mutex::new(crate::extensions::ExtensionRuntime::default()),
             launch_completion,
             macro_runtime,
             operation_actor,

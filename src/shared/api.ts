@@ -1,3 +1,5 @@
+import type { ExtensionResultRecord, ExtensionSnapshotRecord } from "./generated";
+import type { ExtensionUserCommand, ExtensionStoreRequest, ExtensionStoreState } from "./extensions";
 import type {
   AcceptLegalDocumentsInput,
   ApplicationShortcutCommand,
@@ -76,6 +78,10 @@ import type {
 } from "./generated";
 
 export interface RionStudioApi {
+  extensions: (command: ExtensionUserCommand) => Promise<ExtensionResultRecord>;
+  extensionStore: (request: ExtensionStoreRequest) => Promise<ExtensionStoreState>;
+  onExtensionsChanged: (callback: (snapshot: ExtensionSnapshotRecord) => void) => () => void;
+  onExtensionStoreChanged: (callback: (state: ExtensionStoreState) => void) => () => void;
   notifyRendererReady: () => Promise<void>;
   getAppSnapshot: () => Promise<AppSnapshot>;
   getCurrentWindowState: () => Promise<AppWindowState>;

@@ -1,6 +1,7 @@
 impl AppCore {
     pub fn invoke(&self, command: CoreCommand) -> CoreResult<Value> {
         match command {
+            CoreCommand::Extensions { command } => self.extensions_command(command),
             CoreCommand::Health => self.with_runtime(|runtime| {
                 Ok(json!({
                   "coreVersion": env!("CARGO_PKG_VERSION"),

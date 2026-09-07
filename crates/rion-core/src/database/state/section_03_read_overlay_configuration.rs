@@ -480,6 +480,7 @@ fn read_scalar(connection: &Connection, key: &str) -> CoreResult<Option<Value>> 
     } else if matches!(
         key,
         "gameBrowserSettings"
+            | "extensions"
             | "macroSettings"
             | "runtimeWindowPreferences"
             | "quickAccessPreferences"
@@ -592,6 +593,7 @@ fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreR
     if !matches!(
         key,
         "gameBrowserSettings"
+            | "extensions"
             | "macroSettings"
             | "runtimeWindowPreferences"
             | "quickAccessPreferences"

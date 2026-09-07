@@ -12,6 +12,7 @@ mod domain;
 mod embedded_input;
 mod engine_resolution;
 mod error;
+mod extensions;
 mod font_catalog;
 mod global_web_profile;
 mod layout;

@@ -77,3 +77,5 @@ include!("behavior_38_system_fonts.rs");
 include!("behavior_38_runtime_window_visibility_receipt.rs");
 include!("behavior_39_role_browser_data_clear_timeout.rs");
 include!("behavior_40_appkit_runtime_persistence.rs");
+
+include!("behavior_53_extensions.rs");

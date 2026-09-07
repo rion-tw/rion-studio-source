@@ -368,6 +368,9 @@ jobs:
       - name: Build previous-version updater fixtures
         run: pnpm run build:electron-updater:previous-fixtures
 
+      - name: Verify Chromium extension isolation and fresh-process persistence
+        run: pnpm run verify:electron-extensions
+
       - name: Verify exact Electron, Chromium, Rust Core, and AppKit ABI runtime
         run: pnpm run verify:electron-runtime
 

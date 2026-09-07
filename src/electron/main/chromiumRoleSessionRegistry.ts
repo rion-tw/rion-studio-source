@@ -40,6 +40,8 @@ export type ChromiumRoleSessionPort = Pick<
 >;
 
 export interface ChromiumSessionFactoryPort {
+  prepareExtensions?: (handle: ChromiumRoleSessionHandle) => Promise<void>;
+  releaseExtensions?: (handle: ChromiumRoleSessionHandle) => Promise<void>;
   fromPath: (
     path: string,
     options: FromPathOptions
@@ -347,6 +349,10 @@ export class ChromiumRoleSessionRegistry {
     this.#factory = factory;
     this.#platform = platform;
     this.#ownership = ownership;
+  }
+
+  prepareExtensions(handle: ChromiumRoleSessionHandle): Promise<void> {
+    return this.#factory.prepareExtensions?.(handle) ?? Promise.resolve();
   }
 
   get activeCount(): number {
@@ -1054,6 +1060,7 @@ export class ChromiumRoleSessionRegistry {
     }
     // EventBound: ownership ends only after Chromium confirms its cookie-store flush.
     record.releasePromise = cookieFlush
+      .then(() => this.#factory.releaseExtensions?.(record.handle))
       .then(() => {
         if (!this.#ownership.release(record.ownershipLease)) {
           registryError(

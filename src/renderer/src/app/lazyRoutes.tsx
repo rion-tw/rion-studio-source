@@ -22,3 +22,5 @@ export const MacrosRoute = lazy(() => import("../features/macros/MacrosRoute"));
 export const MacroEditorRoute = lazy(() => import("../features/macros/MacroModal"));
 
 export const SettingsRoute = lazy(() => import("../features/settings/SettingsRoute"));
+
+export const ExtensionsRoute = lazy(() => import("../features/extensions/ExtensionsRoute"));

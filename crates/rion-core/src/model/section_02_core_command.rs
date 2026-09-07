@@ -7,6 +7,7 @@
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreCommand {
     Health,
+    Extensions { command: ExtensionCommand },
     SystemWebViewProbe,
     SystemWebViewRuntimeRegister {
         registration: SystemWebViewRuntimeRegistrationRecord,

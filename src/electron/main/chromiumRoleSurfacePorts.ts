@@ -136,6 +136,7 @@ export interface ChromiumWebContentsViewFactoryPort {
 }
 
 export interface ChromiumRoleSessionOwnerPort {
+  prepareExtensions?: (handle: ChromiumRoleSessionHandle) => Promise<void>;
   ensure: (
     roleId: string,
     rolePaths: RolePathsRecord

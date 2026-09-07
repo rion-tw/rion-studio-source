@@ -464,6 +464,7 @@ pub struct CoreStateSnapshotRecord {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreEvent {
+    ExtensionsChanged { snapshot: ExtensionSnapshotRecord },
     Ready {
         #[serde(rename = "schemaVersion")]
         #[ts(rename = "schemaVersion")]

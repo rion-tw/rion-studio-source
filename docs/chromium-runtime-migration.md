@@ -759,3 +759,9 @@ System WebView native adapters, and transitional dual-shell entry points are
 removed in one audited cleanup. The engine-neutral `rion-appkit` controller
 remains part of the macOS product. Contract v22 remains documented as migration
 history, while v23 becomes the only active runtime contract.
+
+## Extensions
+
+The additive [Extensions capability](extensions.md) keeps package and role
+configuration authority in Rust and loads approved packages into role Sessions.
+Its paired native and desktop journey gates are required before production use.

@@ -1,3 +1,6 @@
+import { ExtensionStoreHost } from "./extensionStoreHost";
+import { createExtensionApiDispatcher } from "./extensionApiDispatcher";
+import { ChromiumExtensionSessions } from "./chromiumExtensionSessions";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -839,6 +842,7 @@ async function bootstrapReadyPhase(
     terminate: () => fatalTerminationCoordinator().forceTerminate(),
     onError: revealShellError
   });
+  const extensionSessions = new ChromiumExtensionSessions(core);
   chromiumRuntime = await ChromiumRuntimeBootstrap.start({
     core,
     ipcMain,
@@ -898,6 +902,8 @@ async function bootstrapReadyPhase(
     },
     shellEffects: overlayShellEffects,
     sessions: {
+      prepareExtensions: extensionSessions.prepare,
+      releaseExtensions: extensionSessions.release,
       fromPath: (path, options) => {
         const chromiumSession = session.fromPath(path, options);
         installChromiumSessionSecurityPolicy(chromiumSession);
@@ -1530,9 +1536,12 @@ async function bootstrapReadyPhase(
       }
     }
   );
+  const extensionStore = new ExtensionStoreHost(activeMainWindow, (state) => {
+    if (mainIdentity) ipcBridge?.publish(mainIdentity, "onExtensionStoreChanged", state);
+  });
   const dispatcher = createElectronUpdaterDispatcher(
     chromiumUpdater,
-    fontAwareDispatcher
+    createExtensionApiDispatcher(activeCore(), extensionStore, fontAwareDispatcher)
   );
   ipcBridge = registerRionIpcBridge({
     ipcMain,
@@ -1562,6 +1571,9 @@ async function bootstrapReadyPhase(
   coreRendererEvents = new CoreRendererEventBridge({
     core,
     readAppSnapshot,
+    publishExtensions: (snapshot) => {
+      if (mainIdentity) ipcBridge?.publish(mainIdentity, "onExtensionsChanged", snapshot);
+    },
     publishAppSnapshot: (snapshot) => {
       if (mainIdentity) ipcBridge?.publish(mainIdentity, "onAppSnapshotChanged", snapshot);
     },

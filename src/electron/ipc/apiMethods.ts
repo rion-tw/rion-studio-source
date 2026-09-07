@@ -31,6 +31,8 @@ export type RionApiEventPayload<Method extends RionApiEventMethod> =
     : never;
 
 export const RION_API_INVOKE_METHODS = {
+  extensions: true,
+  extensionStore: true,
   notifyRendererReady: true,
   getAppSnapshot: true,
   getCurrentWindowState: true,
@@ -146,6 +148,8 @@ export const RION_API_NOTIFY_METHODS = {
 } as const satisfies Record<RionApiNotifyMethod, true>;
 
 export const RION_API_EVENT_METHODS = {
+  onExtensionsChanged: true,
+  onExtensionStoreChanged: true,
   onRoleStatusChanged: true,
   onAppSnapshotChanged: true,
   onApplicationQuitRequested: true,

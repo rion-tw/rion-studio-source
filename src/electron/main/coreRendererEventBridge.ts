@@ -21,6 +21,7 @@ export interface ElectronCoreEventSource {
 
 export interface CoreRendererEventBridgeInput {
   core: ElectronCoreEventSource;
+  publishExtensions?: (snapshot: import("../../shared/generated").ExtensionSnapshotRecord) => void;
   readAppSnapshot: () => Promise<AppSnapshot>;
   publishAppSnapshot: (snapshot: AppSnapshot) => void;
   publishLogEntry: (entry: LogEntry) => void;
@@ -65,6 +66,9 @@ export class CoreRendererEventBridge {
   readonly #onCoreEvent = (event: CoreEvent): void => {
     if (this.#disposed) return;
     switch (event.type) {
+      case "extensionsChanged":
+        this.#input.publishExtensions?.(event.snapshot);
+        break;
       case "stateChanged":
       case "browserStatuses":
       case "macroStatuses":

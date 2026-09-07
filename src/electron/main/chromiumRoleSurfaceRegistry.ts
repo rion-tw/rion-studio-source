@@ -1226,7 +1226,10 @@ export class ChromiumRoleSurfaceRegistry {
       return;
     }
     try {
-      const load = record.contents.loadURL(url);
+      const load = (this.#sessions.prepareExtensions?.(record.sessionHandle) ?? Promise.resolve()).then(() => {
+        if (record.state !== "opening" || record.destroyed) return;
+        return record.contents.loadURL(url);
+      }, () => { this.#failInitialLoad(record); });
       // EventBound: did-finish-load/did-fail-load, never this Promise, settles load.
       void load.catch(() => undefined);
     } catch {

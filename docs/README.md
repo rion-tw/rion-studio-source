@@ -37,6 +37,8 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [macOS WKWebView Game Mode A/B](validation/runbooks/macos-wkwebview-game-mode.md) | Active runbook | Isolated fullscreen Game Mode eligibility and Flyff performance gates |
 | [macOS Flyff Brave/Rion Same-Scene A/B](validation/runbooks/macos-flyff-brave-rion-same-scene.md) | Active runbook | Matched Brave/Rion Flyff scene, Effects-on gap, and stability measurement |
 
+| [Chromium Extensions](extensions.md) | Active, additive capability | Extension packages, role leases, store presentation, and native validation |
+
 ## Machine-owned registries
 
 | Registry | Authority |

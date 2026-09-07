@@ -22,5 +22,7 @@ include!("section_16_runtime_window_zoom.rs");
 include!("section_17_runtime_tab_reload.rs");
 include!("section_18_runtime_window_visibility.rs");
 
+include!("section_19_extensions.rs");
+
 #[cfg(test)]
 mod retired_performance_tests;

@@ -428,6 +428,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
   }, { once: true });
 
   const api: RionStudioApi = {
+    extensions: async () => { throw new Error("EXTENSIONS_UNSUPPORTED"); },
+    extensionStore: async () => { throw new Error("EXTENSIONS_UNSUPPORTED"); },
+    onExtensionsChanged: () => () => undefined,
+    onExtensionStoreChanged: () => () => undefined,
     notifyRendererReady: async () => {
       await invokeShell("rendererReady");
       void maybeAutoRestoreSavedWindows()

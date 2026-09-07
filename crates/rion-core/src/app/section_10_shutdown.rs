@@ -92,6 +92,10 @@ impl AppCore {
                 })
             };
         }
+        if let Ok(mut extensions) = self.extensions.lock() {
+            for cancellation in extensions.downloads.values() { cancellation.store(true, Ordering::Release); }
+            extensions.prepared.clear();
+        }
         self.launch_completion.shutdown();
         self.quiesce_automatic_input_for_shutdown();
         self.browser_action_effects.shutdown();

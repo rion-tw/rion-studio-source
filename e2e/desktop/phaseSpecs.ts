@@ -1,4 +1,6 @@
 export const desktopE2eSpecByPhase: Readonly<Record<string, string>> = {
+  "chromium-extensions-seed": "e2e/desktop/specs/chromium-extensions.e2e.ts",
+  "chromium-extensions-restart": "e2e/desktop/specs/chromium-extensions.e2e.ts",
   "chromium-app-crud-cleanup": "e2e/desktop/specs/chromium-app-crud.e2e.ts",
   "chromium-app-crud-final-restart": "e2e/desktop/specs/chromium-app-crud.e2e.ts",
   "chromium-app-crud-mutations": "e2e/desktop/specs/chromium-app-crud.e2e.ts",

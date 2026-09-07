@@ -6,6 +6,7 @@ import {
 } from "./coreEffectActionValidation";
 
 const EVENT_TYPES = new Set<CoreEvent["type"]>([
+  "extensionsChanged",
   "ready",
   "stateChanged",
   "logsChanged",
@@ -108,6 +109,8 @@ const chromeProfileImportProgress = (value: unknown): boolean => check.closed(va
 
 function isClosedCriticalEvent(event: Record<string, unknown>): boolean {
   switch (event.type) {
+    case "extensionsChanged":
+      return check.closed(event, { type: check.oneOf("extensionsChanged"), snapshot: extensionSnapshot });
     case "ready":
       return check.closed(event, {
         type: check.oneOf("ready"), schemaVersion: check.nonnegativeInteger
@@ -204,3 +207,14 @@ export function parseCoreEvents(eventsJson: string): CoreEvent[] {
   }
   return value as CoreEvent[];
 }
+
+const extensionPackage = (value: unknown): boolean => check.closed(value, {
+  id: check.identity, name: check.text, version: check.text, permissions: check.arrayOf(check.text),
+  sha256: check.text, directory: check.text, enabledRoleIds: check.arrayOf(check.identity), removed: (v: unknown) => typeof v === "boolean"
+});
+const extensionRole = (value: unknown): boolean => check.closed(value, {
+  roleId: check.identity, leaseId: check.identity, extensionIds: check.arrayOf(check.identity), status: check.oneOf("loading", "loaded", "failed")
+});
+const extensionSnapshot = (value: unknown): boolean => check.closed(value, {
+  revision: check.nonnegativeInteger, installed: check.arrayOf(extensionPackage), roles: check.arrayOf(extensionRole)
+});

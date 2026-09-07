@@ -22,6 +22,7 @@
     "verify:tauri-v22-updater-input": "node scripts/verifyTauriV22UpdaterInput.mjs",
     "build:electron-updater:previous-fixtures": "node scripts/buildElectronUpdaterPreviousFixtures.mjs",
     "test:electron-updater:packaged": "node scripts/runElectronUpdaterTransactionProbe.mjs",
+    "verify:electron-extensions": "node scripts/verifyElectronExtensions.mjs",
     "verify:electron-runtime": "node scripts/verifyElectronRuntime.mjs",
     "verify:electron-renderer": "node scripts/verifyElectronRendererBundle.mjs",
     "verify:electron-package": "node scripts/verifyElectronPackage.mjs",

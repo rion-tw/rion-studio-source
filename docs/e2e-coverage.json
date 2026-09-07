@@ -36,7 +36,8 @@
     "game-windows",
     "macros",
     "quick-access",
-    "settings"
+    "settings",
+    "extensions"
   ],
   "profiles": {
     "smoke": {
@@ -112,6 +113,8 @@
       "gate": "pull-request",
       "runtimeTarget": "chromium-v23-macos-appkit",
       "phases": [
+        "chromium-extensions-seed",
+        "chromium-extensions-restart",
         "chromium-shell-smoke",
         "chromium-game-crud-seed",
         "chromium-game-crud-restart",
@@ -170,6 +173,7 @@
         "chromium-tabs-visible-restart"
       ],
       "specs": [
+        "e2e/desktop/specs/chromium-extensions.e2e.ts",
         "e2e/desktop/specs/chromium-shell.e2e.ts",
         "e2e/desktop/specs/chromium-game-crud.e2e.ts",
         "e2e/desktop/specs/chromium-entity-persistence.e2e.ts",
@@ -203,6 +207,8 @@
       "gate": "pull-request",
       "runtimeTarget": "chromium-v23-windows",
       "phases": [
+        "chromium-extensions-seed",
+        "chromium-extensions-restart",
         "chromium-shell-smoke",
         "chromium-windows-trusted-input-physical",
         "chromium-game-crud-seed",
@@ -262,6 +268,7 @@
         "chromium-tabs-visible-restart"
       ],
       "specs": [
+        "e2e/desktop/specs/chromium-extensions.e2e.ts",
         "e2e/desktop/specs/chromium-shell.e2e.ts",
         "e2e/desktop/specs/chromium-game-crud.e2e.ts",
         "e2e/desktop/specs/chromium-entity-persistence.e2e.ts",
@@ -414,6 +421,52 @@
     }
   ],
   "journeys": [
+    {
+      "id": "CHROMIUM-WINDOWS-EXTENSIONS-001",
+      "coverageGroup": "chromium-v23-extensions",
+      "feature": "extensions",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-extensions-seed",
+        "chromium-extensions-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-extensions.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "cancel"
+      ],
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, install with visible permission confirmation, assign a role, verify after restart, disable and cancel/confirm removal. External store download is a bounded liveness dependency."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-EXTENSIONS-001",
+      "coverageGroup": "chromium-v23-extensions",
+      "feature": "extensions",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-extensions-seed",
+        "chromium-extensions-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-extensions.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "cancel"
+      ],
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, install with visible permission confirmation, assign a role, verify after restart, disable and cancel/confirm removal. External store download is a bounded liveness dependency."
+    },
     {
       "id": "APP-LEGAL-001",
       "feature": "app-shell",

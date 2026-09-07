@@ -37,7 +37,7 @@ import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
 import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, QuickAccessItemRef, QuickAccessPreferences, RuntimeLaunchDestination, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
 import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppScreens";
-import { DashboardRoute, GameEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
+import { ExtensionsRoute, DashboardRoute, GameEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
 
 const TOAST_DISMISS_MS = 4000;
 const DESKTOP_SHELL = typeof __RION_DESKTOP_SHELL__ === "undefined"
@@ -52,6 +52,16 @@ export function App(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const data = useAppData();
+  const [extensionsAvailable, setExtensionsAvailable] = useState(false);
+  useEffect(() => {
+    if (data.initialLoadState !== "ready") return;
+    let active = true;
+    void window.rionStudio?.extensions?.({ type: "snapshot" }).then(
+      () => { if (active) setExtensionsAvailable(true); },
+      () => { if (active) setExtensionsAvailable(false); }
+    );
+    return () => { active = false; };
+  }, [data.initialLoadState]);
   const applicationLifecycle = useApplicationLifecycle({
     enabled: Boolean(window.rionStudio),
     onError: data.setError
@@ -630,6 +640,7 @@ export function App(): JSX.Element {
         />
       ) : (
         <AppSidebar
+          extensionsAvailable={extensionsAvailable}
           gameCount={data.games.length}
           gameWindowCount={data.gameWindows.length}
           hasUpdateBadge={shouldShowUpdateBadge(updates.status)}
@@ -672,6 +683,7 @@ export function App(): JSX.Element {
 
         <Suspense fallback={<RouteFallback t={preferences.t} />}>
           <Routes>
+            {extensionsAvailable && <Route path="/extensions" element={<ExtensionsRoute roles={data.roles} t={preferences.t} covered={isQuickAccessOpen} />} />}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route
               path="/games"

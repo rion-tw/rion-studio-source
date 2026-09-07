@@ -1,6 +1,11 @@
 impl AppCore {
     pub async fn invoke_async(self: &Arc<Self>, command: CoreCommand) -> CoreResult<Value> {
         match command {
+            CoreCommand::Extensions { command } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || core.extensions_command(command)).await
+                    .map_err(|e| CoreError::Internal(e.to_string()))?
+            },
             CoreCommand::RoleCreate { input } => {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || core.invoke(CoreCommand::RoleCreate { input }))

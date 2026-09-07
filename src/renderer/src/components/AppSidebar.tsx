@@ -1,4 +1,4 @@
-import { Gamepad2, House, Keyboard, LayoutDashboard, PanelsTopLeft, Settings, Users } from "lucide-react";
+import { Gamepad2, House, Keyboard, LayoutDashboard, PanelsTopLeft, Puzzle, Settings, Users } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -11,6 +11,7 @@ import { WindowDragHandle } from "./WindowDragHandle";
 
 interface AppSidebarProps {
   hasUpdateBadge: boolean;
+  extensionsAvailable?: boolean;
   gameCount: number;
   gameWindowCount: number;
   macroCount: number;
@@ -21,7 +22,7 @@ interface AppSidebarProps {
   onOpenQuickAccess?: () => void;
 }
 
-export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCount, roleCount, shortcutLabel = "Ctrl+K", t, workspaceCount, onOpenQuickAccess = () => undefined }: AppSidebarProps): JSX.Element {
+export function AppSidebar({ extensionsAvailable = false, gameCount, gameWindowCount, hasUpdateBadge, macroCount, roleCount, shortcutLabel = "Ctrl+K", t, workspaceCount, onOpenQuickAccess = () => undefined }: AppSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -95,6 +96,7 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
             noDrag
             onClick={() => navigate("/macros")}
           />
+          {extensionsAvailable && <NavItem active={location.pathname.startsWith("/extensions")} icon={Puzzle} label={t("extensions.title")} noDrag onClick={() => navigate("/extensions")} />}
         </div>
       </nav>
 

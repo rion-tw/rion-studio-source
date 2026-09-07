@@ -44,5 +44,7 @@ include!("app/section_28_browser_runtime_tab_reload.rs");
 include!("app/section_29_runtime_window_visibility_receipt.rs");
 include!("app/section_30_runtime_window_visibility_lifecycle.rs");
 
+include!("app/section_31_extensions.rs");
+
 #[cfg(test)]
 mod tests;

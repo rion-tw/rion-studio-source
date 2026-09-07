@@ -868,8 +868,8 @@ export async function resizeVisibleWindowsRuntimeWindow(input: Readonly<{
       Math.abs(input.deltaWidth) > 400 || Math.abs(input.deltaHeight) > 400) {
     throw new Error("The exact Windows runtime resize delta is invalid");
   }
+  const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
-    const processId = (await electronDesktopE2eProbe()).processId;
     const controlName = await $(`.runtime-tab[data-tab-id='${input.tabId}'] .runtime-tab-close`)
       .getAttribute("aria-label");
     if (!controlName) throw new Error("The exact resize tab control has no accessible name");

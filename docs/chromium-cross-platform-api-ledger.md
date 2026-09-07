@@ -28,6 +28,14 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Resize probe document prerequisite — 2026-09-07
+
+At 791c65b4, artifact 2026-09-07T05-01-55-033Z-win32 reached resize but the new
+helper read the desktop E2E PID bridge after switching into the sandboxed runtime
+chrome document, which intentionally has no such bridge. Capture PID in the
+launcher before switching, then use only the runtime close control in native
+chrome. Preserve that preload isolation; do not expose the debug bridge there.
+
 ### Windows native resize driver — 2026-09-07
 
 At c592bcc7, artifact 2026-09-07T04-58-41-423Z-win32 advanced through the repaired

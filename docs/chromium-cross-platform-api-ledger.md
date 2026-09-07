@@ -28,6 +28,19 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Stable Windows ownership claim waits for document viewport — 2026-09-07
+
+CI 34089874671 stable Windows job 101641016111 / artifact 10006740224 fails
+p1-cross-domain-topology-force at cross-domain-runtime.e2e.ts:999: the reclaimed
+Role document viewport is absent. The driver waits for running ownership and a
+fixture session event, then immediately asserts DOM/controller dimensions. Those
+receipts do not acknowledge viewport application. Capture the native event cursor
+before the visible Role-slot claim and consume the existing exact-label
+windows-role-viewport-observed helper before reading the assertion snapshot.
+Retain every bounds/parent/visibility/zoom assertion and the existing event wait
+policy. Typecheck and focused lint pass; stable Windows full native replay is
+pending. Journey RUNTIME-TAB-TOPOLOGY-009, adjacent MACRO-OWNERSHIP-TRANSFER-010.
+This E2E correction does not remove or change the gated Tauri runtime.
 ### AppKit whole-window retirement uses the Core cohort barrier — 2026-09-07
 
 At 05558a1c, Windows physical input and keyboard cutover pass (6.1s / 43.9s),

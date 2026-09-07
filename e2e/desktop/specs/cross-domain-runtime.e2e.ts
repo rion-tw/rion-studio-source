@@ -973,6 +973,7 @@ async function topologyForcePhase(): Promise<void> {
     });
     const claimProjectionCursor = await rendererEventCursor();
     const claimFixtureCursor = await fixtureCursor();
+    const claimViewportCursor = (await probe()).latestSequence;
     await runtimeUiAction(WINDOW_A, {
       action: "pressRoleSlot",
       roleId: detachedRoleId,
@@ -995,6 +996,12 @@ async function topologyForcePhase(): Promise<void> {
         roleId: detachedRoleFixtureId
       })
     ]);
+    // Session readiness precedes the exact document viewport acknowledgement.
+    await waitForWindowsRoleSurfaceViewportFitsController({
+      afterSequence: claimViewportCursor,
+      roleId: detachedRoleId,
+      windowId: WINDOW_A
+    });
     liveA = await windowSnapshot(WINDOW_A);
     expectSingleRoleSurfaceFitsClient(liveA, detachedRoleId);
   }

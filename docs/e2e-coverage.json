@@ -2288,7 +2288,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart."
+      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020",
@@ -2304,7 +2304,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences."
+      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple retained AppKit native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/AppKit revision fences; retain the accepted move completion across subsequent placement without shell errors."
     },
     {
       "id": "CHROMIUM-WINDOWS-GAME-WINDOWS-TABS-020",
@@ -2320,7 +2320,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple bundled-Chromium native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/native revision fences; Windows physical execution remains an independent CI verdict."
+      "description": "Require exact Core/native loading admission while Windows placement can advance independently of navigation; require the last tab active before whole-window close, preserve that selection while background tabs retire, and preserve the exact active, dormant, and ordered three-tab topology across multiple bundled-Chromium native window generations and a clean process restart, then visibly admit every dormant Chromium surface one tab at a time with exact Core/native revision fences; retain accepted new-window move completion across subsequent placement and require an empty shell-error journal; Windows physical execution remains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-LAUNCH-DESTINATIONS-008",

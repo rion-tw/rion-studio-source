@@ -1092,4 +1092,17 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.relayout).toHaveBeenCalledTimes(2);
     expect(placement).toHaveBeenCalledOnce();
   });
+  it("cancels queued hover presentation when its exact native window closes", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    const revision = subject.controller.readObservation().projectionRevision;
+    const pending = subject.controller.handleCommand(documentUrl, {
+      type: "hideToolbar", windowId, projectionRevision: revision
+    });
+    subject.state.destroyed = true;
+    subject.native.isFullScreen = () => { throw new Error("Object has been destroyed"); };
+    subject.controller.close();
+    await expect(pending).resolves.toBeUndefined();
+  });
 });

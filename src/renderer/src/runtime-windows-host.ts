@@ -63,6 +63,9 @@ document.body.append(tabMenu);
 
 function submit(type: WindowsRuntimeHostToolbarCommand["type"]): void {
   if (!current) return;
+  if ((type === "hideToolbar" || type === "revealToolbar") &&
+      (!current.fullscreen || current.alwaysShowToolbarInFullScreen ||
+       current.toolbarVisible === (type === "revealToolbar"))) return;
   bridge!.submit({
     projectionRevision: current.projectionRevision,
     type,

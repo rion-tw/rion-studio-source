@@ -28,6 +28,39 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Exact hover and post-move completion races — 2026-09-07
+
+At cbdcbeac, artifact 2026-09-07T05-35-12-072Z-win32 completed all visible seed
+actions and retained three shell errors: hideToolbar submitted projection 12
+against 13; queued hideToolbar read a destroyed BrowserWindow; a redundant
+post-presentation exactTabOwner read observed the detached target at Core 74 /
+native 73 (generation 72, identical membership). The native close stream repair
+is confirmed by absence of its two earlier errors. Fullscreen hover is now
+submitted only when that presentation can change; exact native close cancels
+queued hover presentation. Move completion validates unique tab ownership and
+visibility in the existing post-show observation, without a second inconsistent
+post-terminal observation. Four regressions failed before repair and all 33
+adjacent tests pass afterward, including both platforms for post-move placement.
+No stale user-action fence, ownership assertion or empty shell-error journal is
+removed. Paired TABS-VISIBLE-ACTIVATION-019 / GAME-WINDOWS-TABS-020 still need
+native replay; manifest descriptions retain those obligations.
+
+Windows Rust checks at cbdcbeac passed: formatting/Clippy; workspace tests 1,645
+passed / three existing ignored, Core 954 in 211.94s, updater 41 with its unchanged
+256-round concurrency test. Logs: role-publish-diagnostics-{lint,test}-rust-x64.log
+under windows-handoff-b0c3c184. Fresh CI 34087008739 targets cbdcbeac; both native
+jobs and Chromium package profiles were still running when dispatched.
+
+Artifact 2026-09-07T05-32-10-877Z-win32 failed before E2E in addon copy with EBUSY.
+The prior failed fixture PID 15504 was still alive despite final flush; its exact
+command line and creation time matched 2026-09-07T05-21-36-270Z-win32. Only that
+fixture and its repository Electron children were terminated. The next build
+copied the addon successfully. The failed-E2E cleanup path does not wait for
+native process exit (the runner currently fences successful phases only); this
+remains a separate cleanup task, not a successful clean-exit acceptance.
+The original publish-role-tree failure did not recur during this diagnosed
+replay, so its OS cause remains unproven; no rename retry or ACL relaxation exists.
+
 ### Paired component acceptance and first-role publication diagnostic — 2026-09-07
 
 CI 34081543779 at 718dc83abef08da489620d3bd268fe8d1bf350dc has now completed:

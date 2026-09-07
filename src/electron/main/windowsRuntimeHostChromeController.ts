@@ -619,6 +619,8 @@ export class WindowsRuntimeHostChromeController {
       await this.#requestWindowControl(command.type);
       return;
     }
+    // The exact native close cancels queued, non-authoritative hover presentation.
+    if (this.#native.isDestroyed()) return;
     if (!this.#native.isFullScreen() || this.#alwaysShow) return;
     const revealed = command.type === "revealToolbar";
     if (this.#revealed === revealed) return;

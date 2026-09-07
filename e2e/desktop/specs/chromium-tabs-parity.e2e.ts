@@ -1046,6 +1046,7 @@ async function seedPhase(input: Readonly<{
     roles,
     stage: "revealed"
   });
+  // Includes hover events during tab retirement and placement after a completed detach.
   expect(await runtimeTabShellErrors()).toEqual([]);
 
   for (const close of [
@@ -1172,6 +1173,7 @@ async function restartPhase(input: Readonly<{
     roles,
     stage: "restart-consolidated"
   });
+  // Includes hover events during tab retirement and placement after a completed detach.
   expect(await runtimeTabShellErrors()).toEqual([]);
   await closeVisibleRuntimeWindow({
     ...input,

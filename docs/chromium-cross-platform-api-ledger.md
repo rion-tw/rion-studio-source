@@ -136,6 +136,33 @@ now passes; build-verifier/boundary tests pass (2 files / 14 tests), focused
 ESLint, typecheck, source hygiene and coverage pass. Neither boundary policy
 nor runtime/product assertions are weakened. These are internal-only harness
 repairs; both full native profiles remain pending.
+### 57798548 Windows twelve-phase acceptance and source-role driver repair
+
+Artifact .desktop-e2e-artifacts/2026-09-07T08-41-49-203Z-win32 binds
+57798548e64ef0a9b5a8ab998ef0d5653f3d947b. The app-CRUD dependency chain passes
+entity persistence, Workspace Web slot, contained Web fullscreen, fullscreen
+toolbar, Quick Access and settings persistence, each seed plus restart
+(12 phases). All 12 report electronProcessExited=true.
+Macro UI seed then fails in macro-source-role.ts:9 because Electron Chromium
+does not provide Browser.getWindowForTarget for WebDriver getWindowSize.
+The failed phase also records native process exit without converting FAIL.
+Log windows-handoff-b0c3c184/57798548-app-crud-chain-x64.log.
+Source-role layout now uses the already established exact-URL BrowserWindow
+geometry path for compact 960x640 and restoration, retaining visible actions,
+layout assertions and source-role execution/cleanup evidence.
+Focused lint, typecheck, boundary gate and source hygiene pass. Macro UI,
+native effects and subsequent CRUD phases remain pending.
+
+CI 34101943696 targets 57798548 and passes the repaired boundary gate.
+Earlier 5266ff87 Windows native job 101669048730 is fully SUCCESS, pairing
+the already successful macOS native gate. At 575c26a4, Windows stable CI
+101675671018 retains a hover failure. Its diagnostic proves trusted
+mouseover/mousemove at (637,416) on root:macro with matching requested geometry
+and DOM hover; active class remains absent. This excludes a simple wrong-point
+or absent-native-input explanation. Establish an explicit native pointer move
+outside the canvas before each tested enter, and retain relatedTarget in
+diagnostics. This is an enter-transition precondition; the hosted failure
+cause and acceptance remain pending, with all 30-frame assertions intact.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

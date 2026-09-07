@@ -29,7 +29,11 @@ export async function exerciseMacroMindMapHover(): Promise<void> {
     if (!id) throw new Error("Mind map node has no identity");
     await node.scrollIntoView({ block: "center", inline: "center" });
     if (process.platform === "darwin" && browser.tauri) await moveMacosMindMapPointer(id);
-    else if (process.platform === "win32" && browser.tauri) await moveWindowsMindMapPointer(id);
+    else if (process.platform === "win32" && browser.tauri) {
+      // Start outside the canvas so this action exercises an actual native enter transition.
+      await moveWindowsMindMapPointer();
+      await moveWindowsMindMapPointer(id);
+    }
     else await node.moveTo();
     await browser.waitUntil(async () => (await node.getAttribute("class") ?? "")
       .split(" ").includes("macro-mind-map-node-active"), {

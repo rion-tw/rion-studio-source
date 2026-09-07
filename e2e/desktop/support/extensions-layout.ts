@@ -1,17 +1,27 @@
-import { browser, expect } from "@wdio/globals";
+import { browser } from "@wdio/globals";
 import type {} from "@wdio/electron-service";
 
 /** Only establishes launcher geometry; all extension actions remain visible UI actions. */
 export async function compactExtensionsWindow(): Promise<void> {
+  await resizeElectronLauncherWindow(960, 640);
+}
+
+/** Exact Electron launcher geometry; Chromium does not expose Browser.getWindowForTarget. */
+export async function resizeElectronLauncherWindow(
+  width: number,
+  height: number
+): Promise<{ width: number; height: number }> {
   const url = await browser.getUrl();
-  const resized = await browser.electron.execute((electron, launcherUrl) => {
+  const original = await browser.electron.execute((electron, launcherUrl, size) => {
     const windows = electron.BrowserWindow.getAllWindows().filter(window => window.webContents.getURL() === launcherUrl);
     if (windows.length !== 1) throw new Error("Exact launcher window unavailable");
-    windows[0].setSize(960, 640);
-    return true;
-  }, url);
-  expect(resized).toBe(true);
-  await browser.waitUntil(async () => browser.execute(() => innerWidth === 960 && innerHeight <= 640), {
-    timeout: 10000, timeoutMsg: "Launcher did not reach its compact layout"
+    const [priorWidth, priorHeight] = windows[0].getSize();
+    windows[0].setSize(size.width, size.height);
+    return { width: priorWidth, height: priorHeight };
+  }, url, { width, height });
+  await browser.waitUntil(async () => browser.execute((expected) =>
+    innerWidth === expected.width && innerHeight <= expected.height, { width, height }), {
+    timeout: 10000, timeoutMsg: "Launcher did not reach its requested layout"
   });
+  return original;
 }

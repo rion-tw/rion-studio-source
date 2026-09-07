@@ -1,13 +1,14 @@
 import { $, browser, expect } from "@wdio/globals";
 import type { Macro, Role } from "../../../src/shared/types";
 import { rendererCall } from "./renderer-bridge";
+import { resizeElectronLauncherWindow } from "./extensions-layout";
 import { setEditorName, submitEditor } from "./ui";
 
 /** Visible authoring and launch actions; bridge reads are authoritative evidence. */
 export async function exerciseSourceRoleMacro(seed: Macro, roles: Role[]): Promise<void> {
   const compactLayout = process.env.RION_STUDIO_E2E_RUNTIME_TARGET?.startsWith("chromium-");
-  const originalSize = compactLayout ? await browser.getWindowSize() : undefined;
-  if (compactLayout) await browser.setWindowSize(960, 640);
+  const originalSize = compactLayout ? await resizeElectronLauncherWindow(960, 640) : undefined;
+
   const group = await $(`[data-macro-group]:has([data-selection-id='${seed.id}'])`);
   await group.$("button[aria-label='New macro']").click();
   await $("h1=New Macro").waitForDisplayed({ timeout: 10_000 });
@@ -53,6 +54,6 @@ export async function exerciseSourceRoleMacro(seed: Macro, roles: Role[]): Promi
     // Cleanup only; it is not the user action under test.
     await rendererCall("stopMacro", macro.id);
     await rendererCall("deleteMacro", macro.id);
-    if (originalSize) await browser.setWindowSize(originalSize.width, originalSize.height);
+    if (originalSize) await resizeElectronLauncherWindow(originalSize.width, originalSize.height);
   }
 }

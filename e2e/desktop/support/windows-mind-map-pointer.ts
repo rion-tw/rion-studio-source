@@ -25,7 +25,10 @@ export async function moveWindowsMindMapPointer(nodeId?: string): Promise<void> 
       const listener = (event: MouseEvent): void => {
         const journal = page.__rionMindMapPointerEvents as unknown[];
         journal.push({ type: event.type, x: event.clientX, y: event.clientY,
-          trusted: event.isTrusted, target: (event.target as Element | null)?.closest("[data-id]")?.getAttribute("data-id") });
+          trusted: event.isTrusted,
+          relatedTarget: event.relatedTarget instanceof Element
+            ? event.relatedTarget.closest("[data-id]")?.getAttribute("data-id") : null,
+          target: (event.target as Element | null)?.closest("[data-id]")?.getAttribute("data-id") });
         if (journal.length > 32) journal.shift();
       };
       for (const type of ["mousemove", "mouseover", "mouseout"]) {

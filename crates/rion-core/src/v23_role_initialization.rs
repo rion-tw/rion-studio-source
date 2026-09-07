@@ -87,8 +87,14 @@ pub(crate) fn prepare_empty_store(
             .map_err(|_| initialization_stage_error("protect-stage"))?;
         verify_tree(&stage, evidence, true)
             .map_err(|_| initialization_stage_error("verify-stage"))?;
-        fs::rename(&stage, &destination)
-            .map_err(|_| initialization_stage_error("publish-role-tree"))?;
+        fs::rename(&stage, &destination).map_err(|error| CoreError::Domain {
+            code: "V23_ROLE_INITIALIZATION_EVIDENCE_INVALID",
+            message: format!(
+                "The v23 role tree could not be published (stage: publish-role-tree; kind: {:?}; OS error: {:?}).",
+                error.kind(),
+                error.raw_os_error()
+            ),
+        })?;
         sync_directory(&roles).map_err(|_| initialization_stage_error("sync-roles-root"))?;
         verify_tree(&destination, evidence, true)
             .map_err(|_| initialization_stage_error("verify-published-tree"))

@@ -63,7 +63,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-02 | P0 / Diagnostics | implemented; both Tauri platforms passed, Chromium Windows pending | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | implemented; both native Rust gates and paired Chromium persistence smoke passed | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
 | CP-04 | P1 / Runtime projection | implemented; surviving-window close projection repaired, paired native replay pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
-| CP-05 | P1 / Fonts | adopt canonical Chromium families; provider implementation is CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
+| CP-05 | P1 / Fonts | verified adopt; production provider acceptance remains CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | implemented; both native font probes and macOS settings passed, Windows settings pending | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
@@ -6060,3 +6060,22 @@ trusted input are outside this Windows child-host removal.
   34068441192 is dispatched and pending; do not combine the older platform
   receipts into acceptance for that repair. The earlier ACL candidate CI
   34067927527 remains live and is neither cancelled nor restarted.
+
+### CP-05 completion audit: Chromium font API adoption
+
+- Re-inspected both original 8f474391 native reports, rather than inferring
+  compatibility from source or aggregate CI success. Both bind Electron 43.4.1
+  / Chromium 150.0.7871.224. macOS reports 528 faces / 180 families; Windows
+  reports 260 faces / 89 families. Automatic enumeration succeeds without
+  transient user activation, shown/reload results agree, and subframe, denied,
+  navigated and other-owner queries each return zero families. The previously
+  recorded native-name/CJK comparison and canonical-family decision stand.
+- Re-ran current renderer font settings, shared browser-font helpers and
+  Chromium provider tests: 3 files / 44 tests pass. Explicit darwin/AquaKana
+  and win32/Fixedsys cases preserve saved selections absent from enumeration;
+  generic/fallback handling and the authenticated provider remain covered.
+- CP-05's adopt/retain experiment and decision are verified. This closes the
+  assessment deliverable, not CP-06's production Windows Settings journey or
+  CP-17's removal of the retained v22 provider. Those requirements and their
+  original gates remain unchanged. No new UI behavior is introduced by this
+  internal-only evidence reconciliation.

@@ -8,7 +8,11 @@ import {
   closeVisibleRuntimeWindow
 } from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
-import { waitForMacroProjection } from "../support/renderer-events";
+import {
+  rendererEventCursor,
+  waitForMacroProjection,
+  waitForRuntimeProjection
+} from "../support/renderer-events";
 import {
   bootstrapChromiumMacroCutover,
   createChromiumMacroWindow,
@@ -201,12 +205,18 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     roleId: FIXTURES.tab
   });
   await expectExactCleanup(tabRole, tabObservations.at(-1)?.sequence ?? 0);
+  const windowCloseCursor = await rendererEventCursor();
   await closeVisibleRuntimeWindow({
     mainWindowHandle: context.mainWindowHandle,
     platform: context.platform,
     windowId: WINDOW_A
   });
-  const afterWindowClose = await rendererCall("getEmbeddedRuntimeState");
+  // A native close click admits teardown; the Core projection confirms its terminal outcome.
+  const afterWindowClose = await waitForRuntimeProjection({
+    absent: true,
+    afterSequence: windowCloseCursor,
+    windowId: WINDOW_A
+  });
   expect(afterWindowClose.windows.some((window) => window.windowId === WINDOW_A)).toBe(false);
   expect(afterWindowClose.tabs.some((tab) => tab.windowId === WINDOW_A)).toBe(false);
 
@@ -225,6 +235,7 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     roleId: FIXTURES.window
   });
   const windowObservations = await electronDesktopE2eTrustedInputRuntime(windowRole.id);
+  const heldWindowCloseCursor = await rendererEventCursor();
   await closeVisibleRuntimeWindow({
     mainWindowHandle: context.mainWindowHandle,
     platform: context.platform,
@@ -236,6 +247,11 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     roleId: FIXTURES.window
   });
   await expectExactCleanup(windowRole, windowObservations.at(-1)?.sequence ?? 0);
+  await waitForRuntimeProjection({
+    absent: true,
+    afterSequence: heldWindowCloseCursor,
+    windowId: WINDOW_B
+  });
 
   const tabShutdown = await launchBound(
     context,

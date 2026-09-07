@@ -10,6 +10,21 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### 5266ff87 Windows Macro close terminal ordering
+
+Windows focused profile chromium-macro-cutover-terminal-cleanup-restart at
+5266ff87 passes its physical-input prerequisite, then fails terminal-cleanup
+seed at chromium-macro-cutover-cleanup.ts:210. Artifact:
+.desktop-e2e-artifacts/2026-09-07T08-08-44-913Z-win32.
+The immediate state read (Core flow 538/542) precedes browserWindowStop
+completion (563); topology event 15 subsequently contains no windows or tabs.
+The visible close click admits teardown but does not acknowledge its terminal
+outcome. Capture the existing renderer journal cursor before closing each
+window and await the absent-window Core projection; retain the exact window,
+tab, trusted release, and neutrality assertions. No polling/deadline changes.
+Typecheck, focused ESLint, and renderer-events.test.ts (1 test) pass.
+Native seed/restart acceptance remains pending for this correction. Journey:
+existing Macro terminal-cleanup; both platform profiles remain required.
 ## Status and ownership
 
 `open` means implementation or audit remains; `probe` requires a bounded

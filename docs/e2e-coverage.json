@@ -1572,7 +1572,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Keep a macro attached to shared Role identity through successful bundled-Chromium ownership transfer while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart, with the ABI-v3 physical gate required."
+      "description": "Keep a macro attached to shared Role identity through successful bundled-Chromium ownership transfer and user focus changes during arming while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart, with the ABI-v3 physical gate required."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-SHORTCUT-REENTRY-007",

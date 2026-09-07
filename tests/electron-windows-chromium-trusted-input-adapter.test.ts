@@ -1,3 +1,4 @@
+import type { ChromiumViewInputObservation } from "../src/electron/main/chromiumViewInputSubmission";
 import type { BrowserAction } from "../src/shared/generated";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
@@ -119,6 +120,8 @@ function harness(ownerKind: "childHwnd" | "view" = "childHwnd") {
   let probeRevision = "1";
   let preserveForeground = true;
   let exactParent = true;
+  let viewFocus: Partial<Pick<ChromiumViewInputObservation,
+    "focusIdentity" | "parentForeground" | "contentsFocused" | "focusedWebContentsId">> = {};
 
   const observation = () => {
     if (identity.ownerKind !== "view") throw new Error("View observation requires View identity.");
@@ -126,7 +129,7 @@ function harness(ownerKind: "childHwnd" | "view" = "childHwnd") {
       parentMinimized: false, viewAttached: exactParent, viewVisible: deliveryMode === "foreground",
       contentsDestroyed: false, contentsFocused: deliveryMode === "foreground",
       focusedWebContentsId: deliveryMode === "foreground" ? 91 : 92,
-      bounds: { x: 0, y: 0, width: 800, height: 560 }, zoomFactor: 1.25 };
+      bounds: { x: 0, y: 0, width: 800, height: 560 }, zoomFactor: 1.25, ...viewFocus };
   };
   const probe = (): WindowsChromiumInputSurfaceProbeReceipt => {
     if (identity.ownerKind === "view") return { ...identity, status: "verified", deliveryMode, probeRevision, observation: observation() };
@@ -343,6 +346,9 @@ function harness(ownerKind: "childHwnd" | "view" = "childHwnd") {
     setNow: (value: number) => { nowMs = value; },
     setPreserveForeground: (value: boolean) => { preserveForeground = value; },
     setProbeRevision: (value: string) => { probeRevision = value; },
+    setViewFocus: (value: typeof viewFocus) => {
+      viewFocus = value; probeRevision = String(BigInt(probeRevision) + 1n);
+    },
     retire: (reason: ChromiumRoleOverlayLifecycleEvent["reason"]) => lifecycle?.({
       roleId: "role-1",
       generation: 3,
@@ -652,6 +658,17 @@ describe("Windows adapter with exact View receipts", () => {
     await expect(result).resolves.toMatchObject({ status: "applied" });
   });
 
+  it.each(["foreground", "background"] as const)("preserves a new user focus selected during %s View arming", async mode => {
+    const subject = harness("view");
+    subject.setDeliveryMode(mode);
+    const result = subject.adapter.dispatch(nativeRequest("view-user-focus", keyAction()));
+    subject.setViewFocus({ focusIdentity: "c".repeat(64), parentForeground: false,
+      contentsFocused: false, focusedWebContentsId: 1 });
+    subject.armed();
+    expect(subject.keyRequests).toHaveLength(2);
+    for (const [index, expected] of subject.arm().expectedEvents.entries()) subject.dom(expected, index);
+    await expect(result).resolves.toMatchObject({ status: "applied" });
+  });
   it("rejects changed View geometry before sending even if the producer reuses its revision", async () => {
     const subject = harness("view");
     const result = subject.adapter.dispatch(nativeRequest("view-stale", keyAction()));

@@ -47,3 +47,12 @@ export function chromiumViewInputObservationKey(value: ChromiumViewInputObservat
     value.focusedWebContentsId, value.bounds.x, value.bounds.y, value.bounds.width, value.bounds.height,
     value.zoomFactor]);
 }
+/** Arming sends no input. User focus may change while owner and coordinates stay exact. */
+export function chromiumViewInputArmingKey(value: ChromiumViewInputObservation): string {
+  const identity = value.identity;
+  return JSON.stringify([identity.roleId, identity.surfaceGeneration, identity.nativeGeneration,
+    identity.bindingRevision, identity.parentIdentity, identity.webContentsId,
+    value.parentVisible, value.parentMinimized, value.viewAttached, value.viewVisible,
+    value.contentsDestroyed, value.bounds.x, value.bounds.y, value.bounds.width, value.bounds.height,
+    value.zoomFactor]);
+}

@@ -28,6 +28,36 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows user focus during Macro arming — 2026-09-07
+
+`718dc83a` passed focused topology seed/restart with its physical prerequisite
+(artifact `2026-09-07T03-57-25-179Z-win32`). Its local complete profile then
+recorded 30 PASS / 1 FAIL at topology seed, before visible Stop became enabled
+(`2026-09-07T04-00-42-048Z-win32`). Raw View observations 217/218 and 219/220
+retain role `8890f463-5f65-4bee-a9ee-715ebb3a6df0`, generation 1, binding 1,
+parent, geometry and zoom; only user focus moved from Role View 4 to launcher 1.
+Browser action 40 was superseded during arming at Core-flow 466; cleanup 41
+applied with input neutrality. This is an arming/admission race, not a Stop UI
+selector failure or the earlier clock mismatch.
+
+The follow-up validates the same owner/frame/visibility/geometry across arming,
+accepts only non-regressing exact View probe revisions, then binds submission
+to the newly validated user focus. Complete pre/post native focus observation
+and trusted DOM receipts remain mandatory. Legacy HWND validation is unchanged.
+Both foreground and hidden arming regressions failed before the repair;
+95 adapter/host/submission tests passed afterward, including changed geometry
+and forged post-submission focus rejection. No deadline or E2E assertion changed.
+
+Fresh CI [34081543779](https://github.com/rion-tw/rion-studio-source/actions/runs/34081543779)
+was dispatched once for pushed `718dc83abef08da489620d3bd268fe8d1bf350dc`.
+Both stable full desktop jobs (101617629343 Windows, 101617629362 macOS), portable
+checks, and macOS native 101617756979 passed. Windows native 101617756987 passed
+Rust and native Electron steps and was in renderer validation at observation.
+Chromium jobs failed at `chromium-tabs-visible-seed`: Windows 101617629229 did
+not observe loading Role admission; macOS 101617629271 did not reach dormant
+after close. Downloaded artifacts 10004161262 and 10004119340 are retained under
+`.desktop-e2e-artifacts/windows-handoff-b0c3c184/ci-718-*` for exact diagnosis.
+The original two handoff CI runs were not restarted. No release workflow ran.
 ### Windows first native topology receipt — 2026-09-07
 
 `6af00a91` passed focused Macro UI seed/restart (4 phases including entity

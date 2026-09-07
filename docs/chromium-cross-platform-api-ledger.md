@@ -81,7 +81,8 @@ transitions and changes the isolated standby E2E to exercise the real
 powerMonitor listener. Complete local JavaScript (3857 PASS), Rust (1681 PASS /
 five ignored), lint/typecheck/hygiene and the focused native standby journey pass.
 The complete local hardware profile passes 57 normal phases plus four expected
-force terminations / 54 journeys. macOS-only CI **34164313951** is in progress; no Windows jobs are requested. This source includes the owner's
+force terminations / 54 journeys. macOS-only CI **34164313951** passes shared
+checks, native validation and stable full; its Chromium/package job is in progress; no Windows jobs are requested. This source includes the owner's
 Website changes at **486e0842be6b14c132e9d4a33ece1c5a5fd16983** and the
 **8d68be93** WDIO service-order correction.
 
@@ -109,10 +110,10 @@ correction; earlier complete reports remain historical baselines.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
-| CP-04 / CP-08 native and topology | 85f662f4 complete Chromium hardware profile PASS; b8bae38b native CI 1681 Rust PASS / 5 ignored; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
+| CP-04 / CP-08 native and topology | 85f662f4 complete Chromium hardware profile PASS; 85f662f4 native CI 1681 Rust PASS / 5 ignored; AppKit input retained | Final-source View-only native/full replay, including detach/compensation failure |
 | CP-10 consented import | Visible consent/import/restart PASS in 85f662f4 physical hardware profile and b8bae38b full Chromium CI | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 85f662f4 complete hardware profile and actual dual-display controls PASS; power-event coverage strengthened below, actual sleep unobserved | Physical display/input/session-end gates pending; mixed-DPI removed |
-| CP-15 complete profiles | 85f662f4 physical hardware 57 PASS + 4 expected force exits; b8bae38b Chromium 56 + 4 and stable 31 + 3 | Final-source full and hardware profiles pending |
+| CP-15 complete profiles | 85f662f4 physical hardware 57 PASS + 4 expected force exits; 85f662f4 stable 31 + 3; prior b8bae38b hosted Chromium 56 + 4 | Final-source full and hardware profiles pending |
 | CP-16 package/updater | b8bae38b fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
@@ -2263,7 +2264,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency and 61f32424 corrects native fullscreen exit; 85f662f4 native/full hardware and physical display/control passed; 85f662f4 power-event fence/ingress correction focused and full hardware PASS; actual sleep unobserved without manual-assistance requirement; Windows workstation profile pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | 85f662f4 macOS full hardware 57 PASS + 4 expected force exits; b8bae38b stable full 31 PASS + 3 expected force exits and Chromium 56 PASS + 4 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-15 | P1 / Desktop E2E | 85f662f4 macOS full hardware 57 PASS + 4 expected force exits and stable full 31 PASS + 3 expected force exits; historical b8bae38b Chromium 56 PASS + 4 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
 | CP-16 | P2 / Release tooling | b8bae38b macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | 85f662f4 macOS native and full hardware passed; b8bae38b complete macOS CI passed, including package/updater; 85f662f4 CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
@@ -9240,3 +9241,36 @@ shared checks and Linux sanitizer/concurrency jobs are SUCCESS; macOS native,
 stable desktop E2E and Chromium package/updater jobs remain in progress. No
 Windows job is scheduled. The CI source remains exactly 85f662f4 regardless of
 subsequent evidence-only commits.
+
+
+### 85f662f4 CI native and stable completion — 2026-09-08
+
+Run **34164313951**, immutable source
+85f662f4860c9af1623580510f35997256108b66, now completes macOS native job
+**101872325297** and stable desktop job **101872214652** successfully. Native
+logs verify **1681 Rust PASS / five ignored**, Rust lint and Tauri build, and
+**14 Electron native integration PASS / two platform skips** in six passing and
+two skipped files. The independent direct-input probe also passes. Source code
+and assertions are unchanged after the already-passing physical hardware run.
+
+Stable artifact **10033858337**, desktop-e2e-macOS-34164313951-1, contains clean
+report **2026-09-07T21-46-45-406Z-darwin/report.json**. It binds full / tauri-v22
+to 85f662f4, started 2026-09-07T21:46:46.212Z and finished 21:58:31.346Z, with
+**31 PASS + three EXPECTED_FORCE_TERMINATION / 40 journey PASS**. The expected
+forced phases are p1-cross-domain-topology-force, force-terminate and
+crash-restart; their classification is retained rather than counted as ordinary
+exit success.
+
+Shared job **101872214791** verifies **473 JavaScript files PASS / two skipped;
+3848 tests PASS / nine platform skips**. The new twelve power-event ordering
+cases and eight E2E ingress cases all pass. This is portable CI evidence, not
+Windows native execution. The local Mac total remains 475 files / 3857 PASS.
+Renderer assets and Linux sanitizer/concurrency are also SUCCESS.
+
+Logs and the stable artifact are retained under
+`.desktop-e2e-artifacts/macos-takeover-8dff7722/ci-85f662f4-*`. Completed job logs
+are obtained from the GitHub job-log API while the parent run is still active;
+the general run-log CLI correctly declines until the whole run completes.
+The same watcher remains live. Chromium/package job **101872214608** is still in
+progress; neither its full Chromium result nor package/updater result is claimed
+at this checkpoint. No duplicate CI or Windows acceptance is dispatched.

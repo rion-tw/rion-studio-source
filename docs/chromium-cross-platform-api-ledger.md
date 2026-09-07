@@ -28,6 +28,19 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Minimized native viewport preservation — 2026-09-07
+
+At 4c572d72, artifact 2026-09-07T05-06-16-754Z-win32 passed physical resize and
+exact layout comparisons, then failed show-after-minimize. Core-flow 2019
+rejected native content bounds before restore could be submitted. A minimized
+Windows host may report an empty native content rectangle; that is not a new
+viewport. Retain the exact last unminimized native content bounds per host and
+skip minimize-only layout/placement publication. Restore/resize replaces it with
+fresh native bounds; invalid bounds outside minimize still reject. The new
+regression failed before repair; 60 host/chrome tests passed afterward. No generic
+invalid-geometry fallback, polling, or deadline change was added. The native
+geometry subsection and paired tabs journeys remain pending.
+
 ### Reopened generation belongs to the accepted snapshot — 2026-09-07
 
 At 8c0fe409, artifact 2026-09-07T05-03-50-998Z-win32 passed the exact reopen

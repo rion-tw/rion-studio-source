@@ -229,6 +229,7 @@ interface WindowsHostRecord {
   windowState: WindowsRuntimeWindowStateStream;
   shortcutOwnerInstalled: boolean;
   lastNativeLayoutSignature: string | null;
+  lastUnminimizedContentBounds: ChromiumRoleSurfaceBounds | null;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -893,7 +894,8 @@ implements ChromiumRuntimeHostFactoryPort {
       chrome: undefined as unknown as WindowsRuntimeHostChromeController,
       windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
       shortcutOwnerInstalled: false,
-      lastNativeLayoutSignature: null
+      lastNativeLayoutSignature: null,
+      lastUnminimizedContentBounds: null
     };
     record.chrome = new WindowsRuntimeHostChromeController({
       documentUrl: record.documentUrl,
@@ -1496,8 +1498,16 @@ implements ChromiumRuntimeHostFactoryPort {
 
   #contentBounds(record: WindowsHostRecord): ChromiumRoleSurfaceBounds {
     return this.#withCurrent(record, () => {
-      const bounds = record.native.getContentBounds();
+      // Minimize has no new content viewport. Preserve the exact last observed
+      // native size until restore/resize supplies a usable viewport again.
+      const minimized = record.native.isMinimized();
+      const bounds = minimized ? record.lastUnminimizedContentBounds : record.native.getContentBounds();
+      if (!bounds) {
+        fail("ELECTRON_RUNTIME_HOST_CONTENT_BOUNDS_UNOBSERVED",
+          "The minimized Windows host has no previously observed content bounds.");
+      }
       requireBounds(bounds, "native content");
+      if (!minimized) record.lastUnminimizedContentBounds = Object.freeze({ ...bounds });
       const inset = record.chrome.contentInset;
       if (bounds.height <= inset) {
         fail(

@@ -494,7 +494,7 @@ export class WindowsRuntimeHostChromeController {
     // belong to that pending event-bound transaction. Their intermediate
     // geometry must not enqueue relayout work ahead of the exact native
     // presentation event; that event applies the one authoritative layout.
-    if (this.#pending) return;
+    if (this.#pending || this.#native.isMinimized()) return;
     await this.#relayout();
     const observer = this.#placementObserver;
     if (!observer || this.#windowGeneration < 1 || this.#topologyRevision < 1) return;

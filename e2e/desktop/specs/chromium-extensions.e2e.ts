@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { $, browser, expect } from "@wdio/globals";
+import { captureNativeApplicationObservation } from "../support/native-application-observation";
 import { compactExtensionsWindow } from "../support/extensions-layout";
 import { rendererCall } from "../support/renderer-bridge";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, setEditorName, setInputValue, submitEditor, waitForRoute } from "../support/ui";
@@ -83,8 +84,13 @@ describe("Extensions store and per-role configuration", () => {
       if (!future) throw new Error("The visible role creation did not persist");
       const card = await $(`[data-selection-id='${future.id}']`);
       await card.moveTo();
+      await captureNativeApplicationObservation("extensions-before-role-open");
       await card.$("button[aria-label='Open']").click();
-      await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.roles.some(r => r.roleId === future.id && r.status === "loaded" && r.extensionIds.includes(EXTENSION_ID)), { timeout: 30000 });
+      try {
+        await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.roles.some(r => r.roleId === future.id && r.status === "loaded" && r.extensionIds.includes(EXTENSION_ID)), { timeout: 30000 });
+      } finally {
+        await captureNativeApplicationObservation("extensions-after-role-open");
+      }
       await browser.switchToWindow(main);
       await browser.waitUntil(async () => (await rendererCall("listRoleStatuses")).some(r => r.roleId === future.id && r.state === "running"), { timeout: 30000 });
     } else if (phase === "chromium-extensions-restart") {

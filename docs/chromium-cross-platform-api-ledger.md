@@ -83,10 +83,18 @@ remain explicitly earlier-source evidence. New macOS-only CI **34143187025**
 validates the full 1f186739 SHA. Its native job now passes (1681 Rust PASS /
 five ignored; 14 Electron native PASS / two platform skips). Stable full now
 passes 31 ordinary phases + three expected force terminations / 40 journeys.
-Complete Chromium E2E now passes 56 ordinary phases + four expected force
-terminations / 52 journeys; package/updater remains pending. Earlier a8fab843
-package CI failed in exact Cargo-group cleanup after updater execution. No
-Windows acceptance is dispatched.
+Complete Chromium E2E passes 56 ordinary phases + four expected force
+terminations / 52 journeys; CI 34143187025 is now SUCCESS including fixture
+package/updater and packaged AppKit black-box. Earlier a8fab843 cleanup failure
+remains unexplained. Diagnostic-source CI 34145679440 at exact 90614cef now also
+passes native validation, stable full (31 PASS + three expected force terminations /
+40 journeys) and Chromium full (56 PASS + four expected force terminations /
+52 journeys); its package/updater job remains live. These CI reports precede the
+local WDIO before-hook ordering correction described below. The latest local
+hardware replay fails while UserNotificationCenter owns native foreground.
+The owner reports no visible prompt; a subsequent read-only foreground query
+still returns that application, so visible prompt absence is not treated as a
+native focus receipt. No Windows acceptance is dispatched.
 
 | Gate | macOS current evidence | Windows next workstation |
 | --- | --- | --- |
@@ -94,7 +102,7 @@ Windows acceptance is dispatched.
 | CP-10 consented import | Complete visible consent/import/restart PASS in clean 015dbaa2 hardware profile | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 015dbaa2 complete hardware profile and actual dual-display controls PASS; real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
 | CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; 1f186739 stable full 31 PASS + 3 expected force exits | Final-source full and hardware profiles pending |
-| CP-16 package/updater | 61f32424 fixture PASS is historical; a8fab843 updater cleanup FAIL; 1f186739 package pending | Final-source package/update acceptance pending; production-key cutover remains separate |
+| CP-16 package/updater | 1f186739 fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
 ### Next Windows workstation: execution order and evidence to retain
@@ -8793,3 +8801,123 @@ No Windows acceptance job is dispatched. This is a changed-observability run,
 not a retry used to claim a repaired transaction; a green result alone cannot
 close the unexplained a8fab843 failure. Liveness conditions, deadlines, primary
 errors and cleanup gates remain unchanged. The task remains open at 9/18.
+
+
+### 1f186739 full CI completion and retained updater discrepancy — 2026-09-08
+
+CI **34143187025** is terminal **SUCCESS**, exact source
+**1f186739135db07853e7c9e970f1db5ab8dabd00**. Package job **101809468475** passes
+its package/payload verifiers, Rust-owned packaged updater transaction and native
+packaged AppKit Role black-box. The log records "Verified darwin packaged updater
+transaction for 8.5.0" at **2026-09-07T17:11:32Z**. These are existing ephemeral
+fixture transactions, not production-key publication or the four-cell cutover.
+
+Artifact **10027869820**, report
+**2026-09-07T17-11-34-252Z-ee40f177-7420-4a95-850c-296764c582a7-darwin-packaged-black-box**,
+is passed / exitCode=0, visible-os-accessibility-click, appkit-chromium,
+remoteDebugging=false. Executable SHA-256:
+c85c757ce2b8e82cfaa196b74990b3365bd9fe0a162e3cec74b353dd14c20a9a;
+app.asar SHA-256: 335f9510b55245d716d593700d834f70e4c0478f588960e0da4e589378ba6b63;
+native addon SHA-256: 739c2bda059188b8b10e962fb6a7026a663d784711018c306b1f04ad92e6acf8.
+
+This successful later run does not explain the a8fab843 EPERM/malformed-group
+failure. Diagnostic-source run **34145679440** continues at 90614cef. No original
+failure is removed or changed to PASS, and no production/migration gate is waived.
+
+### Current-source local hardware attempt: service ordering and native foreground
+
+To replace the earlier 015dbaa2 physical profile with a current-source receipt,
+a clean isolated **90614cef** Electron E2E build precedes one full
+chromium-macos-appkit-hardware-extended attempt. Report
+**2026-09-07T17-08-56-017Z-darwin** fails its first extensions seed phase at the
+original 30000 ms wait for the new Role's loaded extension. Installation and
+visible Role creation complete; Core admits launch, creates its tab and submits
+nativeWindowTransition mode=focus. The only native state receipt is show with
+focused=false. No successful final flush is claimed; shutdown correctly refuses
+to release the still-nonterminal browser-operation lease. Ordinary physical
+controls and the rest of this full attempt are NOT_RUN, not passed.
+
+The WDIO log also contains a definite prior setup failure:
+"Cannot set properties of undefined (setting 'windowHandle')" at
+wdio.electron.conf.ts:102. The Electron service and configuration before hooks
+execute concurrently. The configuration consumes browser.electron before the
+service attaches it, and consequently never prepares native failure sampling.
+Inspection of the successful 1f186739 Chromium artifact finds the same hidden
+setup error in 31 phase logs; their actual journey assertions still passed, but
+those results do not prove setup/sampler readiness.
+
+The correction leaves the independent script-timeout setup in before and moves
+Electron-dependent launcher selection and sampler preparation to the first
+beforeSuite, after Runner awaits all before hooks and starts Mocha. A one-time
+flag prevents nested suites from stealing a journey's active target. No polling,
+extra deadline, forced activation, input substitution or domain assertion change
+is introduced. Two explicit darwin/win32 mocked lifecycle cases fail before the
+correction and pass after; the adjacent window-selector cases total five PASS.
+The WDIO runtime config is loaded through Vitest's runtime loader in the unit
+test rather than added to the node project's static module graph; Electron's
+service type augmentation is imported explicitly.
+
+Focused report **2026-09-07T17-20-20-264Z-darwin** confirms sampler preparation
+and captures PID **79655**. It still fails the same original Role-loaded wait;
+the main-thread sample is a normal AppKit event-loop wait, not a mutex deadlock.
+The setup correction therefore is not described as a fix for that focus failure.
+
+A read-only native observation is then added before and after the visible Open
+operation, with no activation or AX action. Report
+**2026-09-07T17-23-44-827Z-darwin** captures target PID **79874** inactive before
+and after launch, while **com.apple.UserNotificationCenter, PID 10663**, remains
+the native foreground application. Chromium document.hasFocus() is true despite
+that native state. AX access is trusted and succeeds; the new exact AppKit
+runtime window exists with AXMain=true and AXFocused=false. This is not evidence
+of missing Accessibility permission. The original 30000 ms failure is retained.
+No protected system-application UI content is read or manipulated; the owner is
+asked for any visible system prompt text and buttons. New foreground validation
+is paused pending that information/state change, while non-GUI work and existing
+CI continue. Real sleep/wake remains separately unperformed.
+
+Affected journeys: CHROMIUM-MACOS-APPKIT-EXTENSIONS-001 and
+CHROMIUM-WINDOWS-EXTENSIONS-001; the hook correction applies to Chromium profile
+initialization generally. This is **internal-only** test-driver/diagnostic work,
+with user actions and all existing domain assertions retained. Windows native
+acceptance remains assigned to the later workstation. Swift diagnostic typecheck
+and actual readback succeed; complete local JavaScript passes **473 files / 3837
+tests**, typecheck and hygiene pass, and lint has zero errors / 23 existing warnings.
+
+
+### Service-order correction validation and 90614cef CI receipts — 2026-09-08
+
+The owner reports that no system prompt is currently visible or it has been
+closed. A subsequent read-only NSWorkspace foreground identity query still
+returns com.apple.UserNotificationCenter / PID 10663. No system prompt content
+is inferred from that identity, and no protected UI is read or manipulated.
+The discrepancy remains recorded instead of retrying the same native focus
+failure unchanged. Actual sleep/wake remains a separate unperformed gate.
+
+The corrected WDIO lifecycle and diagnostics pass the focused five tests,
+complete JavaScript suite (473 files / 3837 tests), typecheck, hygiene and lint
+(zero errors / 23 existing warnings). Documentation, AI context and coverage
+checks pass; P0 70/70, P1 77/77 and both Chromium parity sets 41/41 remain intact.
+The isolated worktree initially retained the earlier literal-import test copy,
+causing TS6307/TS2339 during production restoration. After copying the already
+corrected runtime-loader test and explicit service type import, the complete
+renderer/Tauri build and Electron production build pass, followed by production
+E2E isolation. Logs are macos-service-order-production-build-final.log,
+macos-service-order-electron-production-build.log and the adjacent service-order
+validation logs under .desktop-e2e-artifacts/macos-takeover-8dff7722/.
+The root development outputs and independently running owner application are
+untouched. This is source 90614cef plus the recorded local test-driver patch,
+not a clean committed full-hardware receipt.
+
+Diagnostic-source CI 34145679440 supplies two exact-source reports:
+
+| Artifact / report | Source and profile | Observed result |
+| --- | --- | --- |
+| 10028091987 / 2026-09-07T17-00-31-100Z-darwin | 90614cef1864de09b75a39b36a15de56b1a4d4f9; chromium-macos-appkit-smoke; worktreeDirty=true during fixture preparation | 56 PASS + four EXPECTED_FORCE_TERMINATION; 52 journey PASS; every ordinary phase has final flush and process exit |
+| 10027918461 / 2026-09-07T17-00-01-325Z-darwin | Same exact source; stable full / tauri-v22; worktreeDirty=false | 31 PASS + three EXPECTED_FORCE_TERMINATION; 40 journey PASS |
+
+Native job 101817239355 is SUCCESS. Package job 101817105602 is still building
+previous-version updater fixtures at observation time, so package/updater is
+not accepted for this run yet. These reports contain the prior WDIO hook;
+they cannot establish native-driver setup for the local correction. Windows
+native execution remains deferred to the owner's workstation. No failure,
+production transaction or retirement gate is closed from these partial results.

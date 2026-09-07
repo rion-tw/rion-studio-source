@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { browser } from "@wdio/globals";
+import type {} from "@wdio/electron-service";
 
 import { desktopE2eSpecForPhase } from "./phaseSpecs";
 import { requestElectronDesktopE2eClose, electronDesktopE2eProbe } from "./support/electron-driver";
@@ -37,6 +38,8 @@ const electronApplication = packaged
       appArgs: [`--user-data-dir=${userDataDir}`],
       appEntryPoint: entryPoint
     };
+
+let launcherPrepared = false;
 
 export const config = {
   runner: "local",
@@ -88,6 +91,13 @@ export const config = {
     runnerBrowser: WebdriverIO.Browser
   ): Promise<void> => {
     await runnerBrowser.setTimeout({ script: 55_000 });
+  },
+  beforeSuite: async (): Promise<void> => {
+    if (launcherPrepared) return;
+    // WDIO awaits every service/config before hook before starting Mocha.
+    // Service before hooks themselves run concurrently, so browser.electron
+    // cannot be consumed from our before hook while the service creates it.
+    const runnerBrowser = browser;
     const puppeteer = await runnerBrowser.getPuppeteer();
     const webDriverHandles = new Set(await runnerBrowser.getWindowHandles());
     const windows = puppeteer.targets()
@@ -110,6 +120,7 @@ export const config = {
         console.info("Native failure sample preparation unavailable");
       }
     }
+    launcherPrepared = true;
   },
   after: async (): Promise<void> => {
     if (packaged) return;

@@ -34,6 +34,17 @@ export async function exerciseMacroMindMapHover(): Promise<void> {
     await browser.waitUntil(async () => (await node.getAttribute("class") ?? "")
       .split(" ").includes("macro-mind-map-node-active"), {
       timeout: 10_000, timeoutMsg: `Native pointer did not enter mind map node ${id}`
+    }).catch(async (error: unknown) => {
+      if (process.platform !== "win32" || !browser.tauri) throw error;
+      const diagnostic = await browser.execute(() => {
+        const page = window as unknown as Record<string, unknown>;
+        return { target: page.__rionMindMapPointerTarget,
+          events: page.__rionMindMapPointerEvents,
+          hovered: [...document.querySelectorAll(":hover")].map(element => ({
+            tag: element.tagName, id: element.getAttribute("data-id"), class: element.className
+          })) };
+      });
+      throw new Error(`Native mind map pointer evidence: ${JSON.stringify(diagnostic)}`, { cause: error });
     });
     const frames = await browser.executeAsync((done: (frames: MindMapFrame[]) => void) => {
       const samples: MindMapFrame[] = [];

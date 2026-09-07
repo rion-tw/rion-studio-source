@@ -19,6 +19,20 @@ export async function moveWindowsMindMapPointer(nodeId?: string): Promise<void> 
     return { origin, size, scale };
   });
   const point = await browser.execute((id) => {
+    const page = window as unknown as Record<string, unknown>;
+    page.__rionMindMapPointerEvents = [];
+    if (!page.__rionMindMapPointerListener) {
+      const listener = (event: MouseEvent): void => {
+        const journal = page.__rionMindMapPointerEvents as unknown[];
+        journal.push({ type: event.type, x: event.clientX, y: event.clientY,
+          trusted: event.isTrusted, target: (event.target as Element | null)?.closest("[data-id]")?.getAttribute("data-id") });
+        if (journal.length > 32) journal.shift();
+      };
+      for (const type of ["mousemove", "mouseover", "mouseout"]) {
+        document.addEventListener(type, listener as EventListener, true);
+      }
+      page.__rionMindMapPointerListener = true;
+    }
     const element = document.querySelector<HTMLElement>(id
       ? `[data-macro-mind-map] .react-flow__node[data-id='${CSS.escape(id)}']`
       : ".app-main-sidebar");
@@ -29,6 +43,7 @@ export async function moveWindowsMindMapPointer(nodeId?: string): Promise<void> 
     if (!element.contains(document.elementFromPoint(x, y))) {
       throw new Error("Mind map pointer target is obscured");
     }
+    page.__rionMindMapPointerTarget = { x, y, nodeId: id, devicePixelRatio, innerWidth, innerHeight };
     return { x, y };
   }, nodeId);
   const target = {
@@ -41,7 +56,7 @@ export async function moveWindowsMindMapPointer(nodeId?: string): Promise<void> 
       target.x < 0 || target.y < 0 || target.x >= target.width || target.y >= target.height) {
     throw new Error("Native mind map pointer identity or coordinates are invalid");
   }
-  await runEncodedPowerShellJson(String.raw`
+  const acknowledgement = await runEncodedPowerShellJson(String.raw`
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -81,8 +96,12 @@ if ($priorDpi -eq [IntPtr]::Zero) { throw 'Native hover DPI context unavailable'
 try {
   [RionMindMapPointer]::Move([uint32]$payload.processId, [int]$payload.originX, [int]$payload.originY,
     [int]$payload.width, [int]$payload.height, [int]$payload.x, [int]$payload.y)
+  Write-Output "RionMindMapPointer acknowledged"
 } finally {
   [RionMindMapPointer]::SetThreadDpiAwarenessContext($priorDpi) | Out-Null
 }
 `, target, { timeoutMilliseconds: 30_000 });
+  if (acknowledgement !== "RionMindMapPointer acknowledged") {
+    throw new Error("Native mind map pointer did not return its exact acknowledgement");
+  }
 }

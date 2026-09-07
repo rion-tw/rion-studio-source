@@ -10,6 +10,149 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### macOS workstation takeover — 2026-09-07
+
+Current verified count is 9/18, not a macOS-only remaining queue.
+Source candidate 3e2d415a7c3426979f0585543225510ae0cc23e4 includes
+11a779d2 (View-only Windows input cleanup) and 3e2d415a (visible tab driver).
+Both are pushed to codex/electron-chromium-v23-cutover. Fresh
+[CI 34114497057](https://github.com/rion-tw/rion-studio-source/actions/runs/34114497057)
+targets that exact source candidate; its native, full E2E, package and updater
+results are pending. Do not rerun the original handoff jobs or retry unchanged
+failures toward green.
+
+Latest prior candidate fc69f683, CI 34111208046:
+- macOS chromium-macos-appkit-smoke completes 54 PASS plus four expected force
+  terminations (58 phases), artifact 10015095915. This validates the AppKit Stop
+  full-projection ownership correction. macOS packaging advances through release
+  artifacts to previous-version updater fixtures; updater outcome remains pending.
+- Windows chromium-windows-smoke executes 49 PASS, one expected termination and
+  one FAIL at chromium-mixed-recovery-force, artifact 10015019790. PointerAction
+  retained a stale WebElement origin at native-runtime-tabs.ts:462 across a Core
+  projection. Later phases and package/update steps were not reached.
+- Both native jobs 101707810782 / 101707811091 and both stable desktop E2E jobs
+  101707644477 / 101707644391 finish SUCCESS. Shared checks also pass.
+  These receipts predate the View-only deletion and cannot validate that deletion.
+
+The new driver retains visible primary pointer actions, exact native window
+focus evidence and held Macro keyboard state. It reads fresh viewport coordinates,
+checks the exact logical window and elementFromPoint hit target, then performs
+pointer down/up. No retry, deadline extension or weaker domain assertion is added.
+Affected Windows journeys are tab activation and MIXED-RECOVERY force/restart;
+the macOS native tab branch is unchanged. Native replay remains pending.
+
+Local Windows post-deletion validation:
+- Rust lint PASS; Rust tests 1669 PASS / four ignored, including unchanged updater
+  256-round parallel winner. Core 980/1, rion-node 50/1, updater 41/2.
+- Tauri build, Electron production/dev build, actual addon retired-export guard
+  and production desktop-E2E isolation PASS. Current local bundles are production;
+  do not reuse them with an E2E skip-build option.
+- View focused tests: seven files / 126 PASS. Shared pending-lane closure: four
+  files / 66 PASS. Latest driver/adapter/docs guards: seven files / 60 PASS.
+- Typecheck, full lint (zero errors, 23 existing warnings), full source hygiene,
+  docs/context, Cargo dependency checks and git diff --check PASS.
+  Coverage remains P0 70/70, P1 75/75, paired cutover 41/41.
+- Full JS run is NOT green: 13 failed files, 439 passed, ten skipped; 16 failed
+  tests, 3641 passed, 48 skipped. Eleven failures are symlink EPERM: current token
+  lacks SeCreateSymbolicLinkPrivilege and Developer Mode is absent. Four original
+  10000ms timeouts concern Vite React preamble, physical Macro modifiers, long-flow
+  mind-map growth and WebApp preset selection; timing causes remain unresolved.
+  One documentation graph failure from historical deleted-path links was fixed
+  and focused verification passes. The complete suite was not rerun or relabeled.
+  No OS privilege change, assertion skip or timeout increase was made.
+
+Validation logs remain under the ignored local
+.desktop-e2e-artifacts/windows-handoff-b0c3c184 directory:
+view-only-lint-rust.log, view-only-test-rust.log, view-only-tauri-build.log,
+view-only-electron-build.log, view-only-full-js.log, view-only-full-lint.log,
+view-only-full-hygiene.log and cp09-closure-focused.log.
+Do not transfer fixture secrets or assume local artifacts exist on the Mac.
+
+| Remaining gate | Windows | macOS |
+| --- | --- | --- |
+| CP-04 / CP-08 projection and View-only input | Latest source native/full CI pending | AppKit Stop full profile passed at fc69; latest source regression pending |
+| CP-10 Session/import | Session journeys passed; visible consented Chrome import still missing | Same import acceptance remains open |
+| CP-11 / CP-12 capability and lifecycle | Real display, input and session-end evidence pending | Physical AppKit/display/lifecycle evidence pending |
+| CP-15 full/hardware profiles | Latest full replay plus hardware-extended required | Latest regression plus hardware-extended required |
+| CP-16 distribution/updater | NSIS hook compile fixed; full package/update replay pending | Fixture updater run pending; production-key cutover remains external |
+| CP-17 / CP-18 retirement/completion | Tauri runtime must remain; ledger incomplete | Same gates; Mac success cannot replace Windows evidence |
+
+Mac takeover: preserve existing local edits, safely fetch this branch and confirm
+3e2d415a is an ancestor of the latest documentation handoff commit. Read AGENTS.md,
+.agents/context.md, rion-task-router, this section and the original Windows
+workstation handoff below; route the next files before editing. First inspect
+CI 34114497057 and the still-running macOS packaging in 34111208046. Run required
+native Rust checks and chromium-macos-appkit-smoke on the supported Mac for any
+new native changes, then continue the remaining ledger gates from exact failures.
+Windows local interactive replay was blocked by the Parallels prl_cc foreground;
+do not treat elapsed time or Mac results as that missing Windows acceptance.
+Keep Rust/AppKit data, topology and Macro authority. Performance diagnostics and
+high-refresh settings stay removed. Do not publish, merge, change credentials or
+remove the migration-gated Tauri runtime.
+
+### CP-09 closure: nine of eighteen verified
+
+CP-09 is now verified for the shared pending lane and DOM receipt decoder.
+Both production adapters still import ChromiumTrustedInputPendingLane; native
+sequence/focus evidence and Core scheduling remain outside that shared owner.
+At exact 34a98f5b, both report journey inventories explicitly mark PASS for
+MACRO-NATIVE-EFFECT-018, MACRO-BACKGROUND-TAB-004,
+MACRO-STANDBY-RECOVERY-023 and MACRO-INPUT-RECOVERY-011 under each
+CHROMIUM-MACOS-APPKIT / CHROMIUM-WINDOWS prefix (eight exact journeys).
+Artifacts 10013584709 / 10013490282 and their profiles above are the evidence;
+the macOS unrelated visible-tab Stop failure does not invalidate those
+completed Macro journeys or turn its full profile green.
+
+A fresh Windows focused run passes four files / 66 tests:
+electron-chromium-trusted-input-pending-lane,
+electron-macos-appkit-trusted-input-adapter,
+electron-chromium-trusted-input-coordinator and
+electron-chromium-role-trusted-input-preload.
+The shared lane explicitly tests both platforms, duplicate/reentrant completion,
+stale frames, partial native/DOM completion and cancellation/retirement failure.
+CP-08 post-deletion native verification and CP-15 full/hardware gates remain
+separate and open. Verified rows: CP-01, CP-02, CP-03, CP-05, CP-06, CP-07,
+CP-09, CP-13 and CP-14 (9/18).
+
+Post-deletion local Windows Rust completes 1669 PASS / 4 ignored: Core 980/1,
+rion-node 50/1, updater 41/2 including the unchanged 256-round winner.
+The three fewer tests are implementation-only tests in the retired HWND
+modules. Tauri build passes (Rust build 2m45s); Electron build is running;
+full JS validation has not started at this entry.
+
+### Windows View-only cleanup after exact full-profile parity
+
+The deletion gate now has 34a98f5b Windows native input (16 tests) and complete
+chromium-windows-smoke (55 PASS + 4 expected terminations), including controlled
+Reload, Macro terminal-cleanup seed/restart, background-tab and physical input.
+Remove the obsolete child-HWND attachment/submission TS implementations, native
+attachment/probe modules and lib.rs registrations, and implementation-only tests.
+A fresh crate audit confirms windows-sys had only the removed SetParent consumer;
+remove only rion-node's direct dependency/lock edge. Retain the windows crate,
+native foreground and shortcut/F11 modules, AppKit input, and shared delivery.
+
+The Windows adapter/contract now accept View identities exclusively. Existing
+semantic adapter tests use View observations; new negative cases reject missing
+or retired childHwnd owner kinds before preload arming. The stale-probe case
+now exercises a regressed revision, because current View arming intentionally
+allows a newer equivalent observation. Existing focus-change, exact geometry,
+untrusted DOM, cancellation, deadline and hidden-input assertions remain.
+Update two stale E2E source guards to inspect the active View admission and
+submission modules. Seven focused files / 126 tests, typecheck and focused
+ESLint PASS. Post-deletion Windows Rust lint passes (28.87s); tests/build and
+native CI acceptance of this cleanup are still pending. The addon build now
+rejects all four retired child-HWND exports in the actual compiled module.
+
+The prior Core/NSIS candidate fc69f683 completes local Windows Rust:
+1672 PASS / 4 ignored (Core 980 PASS / 1 ignored), unchanged updater 256-round
+winner PASS. This is before the native-module deletion; do not merge totals.
+Fresh CI 34111208046 targets fc69f683 exactly. Shared checks 101707644405 PASS;
+Mac Chromium 101707644260, Windows Chromium 101707644415, paired stable
+101707644477 / 101707644391 and native 101707810782 / 101707811091 remain
+active at this observation. No original handoff CI was rerun.
+Mac can resume at the latest pushed commit after the pending local cleanup
+validation is recorded; future handoffs must distinguish these two candidates.
+
 ### AppKit Stop ownership and Windows NSIS corrections
 
 Implementation commits: e139c1f7 (Core projection owner and regression),
@@ -33,7 +176,7 @@ Role Stop, surviving Workspace membership, explicit full-projection failure
 (Degraded / topology committed / nativeApplied=false), and whole-window
 cohort close. Windows pnpm run lint:rust passes (1m52s); the full workspace
 test is running, not yet accepted. The affected visible journey remains
-chromium-tabs-visible-seed under chromium-macos-smoke; its original assertion
+chromium-tabs-visible-seed under chromium-macos-appkit-smoke; its original assertion
 is retained and native macOS replay remains mandatory. No new journey is
 introduced; focused coverage is lower-layer-covered.
 
@@ -1146,9 +1289,9 @@ from different SHAs into a single-candidate acceptance claim.
    shared/native changes. Use physical mixed-DPI/multi-display profiles only
    when the required real displays are present; otherwise leave those gates open.
 6. After exact input parity, audit/remove the obsolete Windows HWND attachment
-   implementation under CP-08: `crates/rion-node/src/windows_chromium_input_attachment.rs`,
+   implementation under CP-08: crates/rion-node/src/windows_chromium_input_attachment.rs (now retired),
    `windows_chromium_input_probe.rs`, associated lib exports,
-   `src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator.ts`,
+   src/electron/main/windowsChromiumInputSurfaceAttachmentCoordinator.ts (now retired),
    `chromiumOwnedInputSubmission.ts` and legacy input-contract/adapter branches.
    They are still compiled even though product bootstrap no longer uses them.
    Preserve the current View input owner, required foreground reader/F11 and
@@ -1502,9 +1645,9 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-05 | P1 / Fonts | verified adopt; production provider acceptance remains CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | verified v23 provider; paired native probes and settings acceptance at 718dc83a | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
-| CP-08 | P1 / Trusted input | Windows sibling and background-parent native View gates passed; full parity/deletion pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
-| CP-09 | P1 / Trusted input | implemented; paired Macro cutover including input recovery passed at 34a98f5b; closure audit pending | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared transport and native Rust import restart passed at 6ace94b2; visible Session lifecycle and consented import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-08 | P1 / Trusted input | Windows full input parity passed at 34a98f5b; child-HWND implementation removed; post-deletion native validation pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
+| CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
+| CP-10 | P1 / Session maintenance | shared transport/import restart passed; paired Session lifecycle passed at 34a98f5b; consented Chrome import acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
 | CP-12 | P2 / Shell | implemented; overtaken placement receipt corrected, Windows/hardware validation pending | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |

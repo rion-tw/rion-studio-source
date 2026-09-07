@@ -89,8 +89,10 @@ package/updater and packaged AppKit black-box. Earlier a8fab843 cleanup failure
 remains unexplained. Diagnostic-source CI 34145679440 at exact 90614cef now also
 passes native validation, stable full (31 PASS + three expected force terminations /
 40 journeys) and Chromium full (56 PASS + four expected force terminations /
-52 journeys); its package/updater job remains live. These CI reports precede the
-local WDIO before-hook ordering correction described below. The latest local
+52 journeys); the complete run is now SUCCESS, including fixture package/updater
+and packaged AppKit black-box. These CI reports precede the local WDIO before-hook
+ordering correction; macOS-only CI 34149031009 now verifies that correction at
+exact b8bae38bb10acb1e6d295c027c100d7267803815. The latest local
 hardware replay fails while UserNotificationCenter owns native foreground.
 The owner reports no visible prompt; a subsequent read-only foreground query
 still returns that application, so visible prompt absence is not treated as a
@@ -102,7 +104,7 @@ native focus receipt. No Windows acceptance is dispatched.
 | CP-10 consented import | Complete visible consent/import/restart PASS in clean 015dbaa2 hardware profile | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | Clean 015dbaa2 complete hardware profile and actual dual-display controls PASS; real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
 | CP-15 complete profiles | 015dbaa2 Chromium hardware 57 PASS + 4 expected force exits; 1f186739 stable full 31 PASS + 3 expected force exits | Final-source full and hardware profiles pending |
-| CP-16 package/updater | 1f186739 fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
+| CP-16 package/updater | 90614cef fixture package/updater/black-box PASS; a8fab843 cleanup failure still under diagnosis | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
 ### Next Windows workstation: execution order and evidence to retain
@@ -2189,7 +2191,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | 015dbaa2 macOS full hardware 57 PASS + 4 expected force exits; 1f186739 stable full 31 PASS + 3 expected force exits; Windows workstation profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | 61f32424 macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | 90614cef macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | 015dbaa2 macOS native and full hardware passed; 1f186739 stable/native/full Chromium CI passed; latest package CI, Windows workstation and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
@@ -8926,3 +8928,48 @@ not accepted for this run yet. These reports contain the prior WDIO hook;
 they cannot establish native-driver setup for the local correction. Windows
 native execution remains deferred to the owner's workstation. No failure,
 production transaction or retirement gate is closed from these partial results.
+
+
+### 90614cef complete package acceptance and service-order candidate — 2026-09-08
+
+CI **34145679440** is terminal **SUCCESS** for exact
+**90614cef1864de09b75a39b36a15de56b1a4d4f9**. Package job **101817105602**
+records "Verified darwin packaged updater transaction for 8.5.0" at
+**2026-09-07T17:44:54Z**, then passes the packaged AppKit Role black-box.
+The complete job log is retained as ci-90614cef-package.log. No rejected
+processGroupObservation or malformed-group error occurs in this run. This
+successful observation therefore does not explain or repair the earlier
+34140975454 / a8fab843 failure; its exact rejected row remains unavailable.
+
+Artifact **10028650298**, report
+**2026-09-07T17-44-56-386Z-f13b0f69-f950-4f07-89bc-9062f1e30a3d-darwin-packaged-black-box**,
+records passed / exitCode=0, visible-os-accessibility-click, appkit-chromium,
+remoteDebugging=false and appVersion=8.5.0. Its screenshot visibly retains the
+AppKit window controls and tab strip above the Chromium Role fixture.
+
+| Package identity | SHA-256 |
+| --- | --- |
+| Executable | 1f424498deb17183f295938d7590fb6a899ee7eeb51d4022759cb04294b94ed2 |
+| app.asar | 335f9510b55245d716d593700d834f70e4c0478f588960e0da4e589378ba6b63 |
+| Native addon | 2663b3b09fe9104ed6f098911774f0d12c2e16d68d6850fbdb1df33f6bb9f382 |
+| Package manifest | 98b3bc07acacf7e8bb940ed44141a28d1b469ed3e7965a44c279549c8ddafa81 |
+
+The prior watcher exits successfully and is not restarted. After confirming no
+run already exists for the changed test-driver source, macOS-only CI
+**34149031009** is dispatched for complete SHA
+**b8bae38bb10acb1e6d295c027c100d7267803815**, containing the **8d68be93** service-order
+correction. Its purpose is full native/profile validation of that correction,
+including checking phase logs for the previously hidden before-hook exception.
+This is a changed-source validation, not a same-source retry of the updater
+failure. Later evidence-only documentation commits do not create a new runtime
+candidate or justify another dispatch. No Windows acceptance job is requested.
+
+On the local workstation, selecting Finder and using its accessible menu does
+not change NSWorkspace's foreground identity from UserNotificationCenter / PID
+10663. The background Finder menu is cancelled through its exposed Cancel action;
+no protected system-application content is read or acted on. The owner is asked
+to manually switch to Finder or the desktop and report the result before another
+foreground-dependent hardware attempt. No local replay is repeated with the
+same unresolved precondition. Sleep/wake, Windows workstation acceptance, the
+four production updater transactions and gated retirement remain open. Closure
+is still **9/18**.

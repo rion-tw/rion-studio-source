@@ -288,7 +288,13 @@ fn appkit_activation_commits_core_topology_and_finishes_from_exact_native_projec
     let (stop_result, stop_actions, _) = drive_async_command_with(
         Arc::clone(&core),
         CoreCommand::BrowserAppKitRuntimeEvent { event: stop },
-        |effect| effect_result(effect, None),
+        |effect| {
+            // A phase-only update cannot remove the closed native tab.
+            let fail = matches!(effect.action,
+                CoreEffectAction::EmbeddedFollowRoleOwnership { .. })
+                .then_some("embeddedFollowRoleOwnership");
+            effect_result(effect, fail)
+        },
     );
     let stop_receipt: crate::model::AppKitRuntimeEventReceiptRecord =
         serde_json::from_value(stop_result.unwrap()).unwrap();
@@ -298,6 +304,8 @@ fn appkit_activation_commits_core_topology_and_finishes_from_exact_native_projec
     );
     assert!(stop_receipt.topology_committed);
     assert!(stop_receipt.native_applied);
+    assert!(!stop_actions.iter().any(|action| matches!(action,
+        CoreEffectAction::EmbeddedFollowRoleOwnership { .. })));
     assert!(stop_actions.iter().any(|action| matches!(
         action,
         CoreEffectAction::EmbeddedDestroyTab { tab_id, .. } if tab_id == &tab_ids[0]

@@ -303,7 +303,10 @@ impl AppCore {
             } => {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || {
-                    core.stop_embedded_tab_mutation(request, &source_id, &tab_type)
+                    core.stop_embedded_tab_mutation(
+                        request, &source_id, &tab_type,
+                        EmbeddedCloseProjection::FollowRoleOwnership,
+                    )
                 })
                 .await
                 .map_err(|error| CoreError::Internal(error.to_string()))?

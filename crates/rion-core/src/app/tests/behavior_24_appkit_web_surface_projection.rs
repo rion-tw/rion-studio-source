@@ -260,3 +260,64 @@ fn appkit_cross_window_move_reparents_exact_web_surface_attempt_and_generation_f
     );
     core.shutdown();
 }
+
+#[test]
+fn appkit_workspace_stop_projects_surviving_membership_and_reports_native_failure() {
+    for fail_projection in [false, true] {
+        let (_directory, core) = chromium_web_core("darwin");
+        let first = create_web_only_workspace(&core, "Closing Workspace");
+        let second = create_web_only_workspace(&core, "Surviving Workspace");
+        let closing = launch_appkit_web_workspace(Arc::clone(&core), &first, "appkit-stop");
+        let survivor = launch_appkit_web_workspace(Arc::clone(&core), &second, "appkit-stop");
+        let snapshot = core.browser_runtime.snapshot().unwrap();
+        let window = &snapshot.windows["appkit-stop"];
+        let mut observation = appkit_test_observation("appkit-stop", 1);
+        observation.window_generation = window.window_generation;
+        observation.topology_revision = window.revision;
+        let prior_revision = window.revision;
+        let event = crate::model::AppKitRuntimeEventRecord {
+            event_id: uuid::Uuid::new_v4().to_string(),
+            adapter_sequence: 1,
+            hosts: vec![observation],
+            action: crate::model::AppKitRuntimeEventActionRecord::Stop {
+                tab_id: closing.clone(), ordered_tab_ids: vec![survivor.clone()],
+            },
+        };
+        let event_id = event.event_id.clone();
+        let (result, actions, _) = drive_async_command_with(Arc::clone(&core),
+            CoreCommand::BrowserAppKitRuntimeEvent { event }, |effect| {
+                let reject_projection = fail_projection && matches!(
+                    effect.action, CoreEffectAction::EmbeddedApplyAppKitProjection { .. });
+                let mut receipt = effect_result(effect, None);
+                if reject_projection {
+                    receipt.ok = false;
+                    receipt.error = Some(CoreErrorPayload {
+                        code: "TEST_APPKIT_PROJECTION_FAILED".to_owned(),
+                        message: "The exact full projection failed.".to_owned(),
+                    });
+                }
+                receipt
+            });
+        let receipt: crate::model::AppKitRuntimeEventReceiptRecord =
+            serde_json::from_value(result.unwrap()).unwrap();
+        assert_eq!(receipt.status, if fail_projection {
+            crate::model::SystemRuntimeOperationStatus::Degraded
+        } else { crate::model::SystemRuntimeOperationStatus::Applied });
+        assert!(receipt.topology_committed);
+        assert_eq!(receipt.native_applied, !fail_projection);
+        assert!(!actions.iter().any(|action| matches!(action,
+            CoreEffectAction::EmbeddedFollowRoleOwnership { .. })));
+        let destroy_index = actions.iter().position(|action| matches!(action,
+            CoreEffectAction::EmbeddedDestroyTab { tab_id, .. } if tab_id == &closing)).unwrap();
+        let projection_index = actions.iter().position(|action| matches!(action,
+            CoreEffectAction::EmbeddedApplyAppKitProjection { projection }
+                if projection.event_id == event_id
+                    && projection.windows[0].logical_tab_ids == vec![survivor.clone()]
+                    && projection.windows[0].active_tab_id.as_ref() == Some(&survivor)
+                    && projection.windows[0].topology_revision > prior_revision)).unwrap();
+        assert!(destroy_index < projection_index);
+        assert_eq!(core.browser_runtime.snapshot().unwrap().windows["appkit-stop"].all_tab_ids(),
+            vec![survivor]);
+        core.shutdown();
+    }
+}

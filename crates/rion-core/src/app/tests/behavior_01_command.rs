@@ -670,6 +670,7 @@ use std::{
             CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
             CoreEffectAction::EmbeddedDestroyRole { .. } => "embeddedDestroyRole",
             CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
+            CoreEffectAction::EmbeddedFollowRoleOwnership { .. } => "embeddedFollowRoleOwnership",
             CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
             _ => "other",
         };

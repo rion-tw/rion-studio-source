@@ -1002,7 +1002,10 @@ impl AppCore {
             source_window_generation: close.window_generation.0,
             lifecycle_epoch: event.adapter_sequence,
         };
-        match self.stop_embedded_tab_mutation(request, &close.source_id, &close.tab_type) {
+        match self.stop_embedded_tab_mutation(
+            request, &close.source_id, &close.tab_type,
+            EmbeddedCloseProjection::AppKitEvent,
+        ) {
             Ok(_) => {
                 self.finish_runtime_logical_close(&close, "closed")?;
                 let remaining = self.browser_runtime.snapshot()?;

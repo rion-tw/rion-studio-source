@@ -1,10 +1,10 @@
 impl AppCore {
     fn stop_embedded_role(&self, role_id: &str) -> CoreResult<()> {
-        self.stop_embedded_role_with_operation_lease(role_id, true, false, false, None)
+        self.stop_embedded_role_with_operation_lease(role_id, true, false, EmbeddedCloseProjection::FollowRoleOwnership, None)
     }
 
     fn stop_embedded_role_under_active_lease(&self, role_id: &str) -> CoreResult<()> {
-        self.stop_embedded_role_with_operation_lease(role_id, false, false, false, None)
+        self.stop_embedded_role_with_operation_lease(role_id, false, false, EmbeddedCloseProjection::FollowRoleOwnership, None)
     }
 
     fn stop_embedded_role_with_operation_lease(
@@ -12,7 +12,7 @@ impl AppCore {
         role_id: &str,
         acquire_operation_lease: bool,
         close_role_tab: bool,
-        persist_closed_tab: bool,
+        close_projection: EmbeddedCloseProjection,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
         let initial_snapshot = self
@@ -205,20 +205,14 @@ impl AppCore {
             }
             self.macro_runtime.release_role(role_id)?;
             if close_role_tab {
-                if persist_closed_tab {
-                    self.commit_embedded_runtime_snapshot_without_native_effect(
-                        &std::collections::HashSet::new(),
-                    )?;
-                } else {
-                    self.browser_runtime_snapshot_without_persistence()?;
-                }
+                self.browser_runtime_snapshot_without_persistence()?;
             } else {
                 self.project_embedded_runtime_snapshot_without_persistence(parent_operation_id)?;
             }
             Ok(())
         })();
         let result = result.and_then(|()| {
-            if close_role_tab {
+            if close_role_tab && close_projection == EmbeddedCloseProjection::FollowRoleOwnership {
                 self.project_surviving_chromium_window_after_close(
                     initial_window_id.as_deref(),
                     parent_operation_id,

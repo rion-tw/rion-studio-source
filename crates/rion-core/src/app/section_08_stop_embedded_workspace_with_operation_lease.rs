@@ -23,6 +23,7 @@ impl AppCore {
         workspace_id: &str,
         acquire_operation_lease: bool,
         persist_closed_tab: bool,
+        close_projection: EmbeddedCloseProjection,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
         let initial_snapshot = self
@@ -255,10 +256,13 @@ impl AppCore {
             Ok(())
         })();
         let result = result.and_then(|()| {
-            self.project_surviving_chromium_window_after_close(
-                initial_window_id.as_deref(),
-                parent_operation_id,
-            )
+            if close_projection == EmbeddedCloseProjection::FollowRoleOwnership {
+                self.project_surviving_chromium_window_after_close(
+                    initial_window_id.as_deref(),
+                    parent_operation_id,
+                )?;
+            }
+            Ok(())
         });
         let Some(lease) = lease else {
             return result;

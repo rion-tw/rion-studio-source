@@ -1,3 +1,11 @@
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EmbeddedCloseProjection {
+    FollowRoleOwnership,
+    // The admitted AppKit event publishes full membership and owns the exact
+    // native terminal receipt after destruction completes.
+    AppKitEvent,
+}
+
 impl AppCore {
     fn apply_embedded_runtime_command(
         &self,
@@ -32,6 +40,7 @@ impl AppCore {
         request: crate::model::RuntimeTabMutationRequestRecord,
         source_id: &str,
         tab_type: &str,
+        close_projection: EmbeddedCloseProjection,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         if request.mutation_kind != "stop" || !matches!(tab_type, "role" | "workspace") {
             return Err(CoreError::Domain {
@@ -71,6 +80,7 @@ impl AppCore {
                 source_id,
                 true,
                 false,
+                close_projection,
                 Some(&request.operation_id),
             )?;
         } else {
@@ -78,7 +88,7 @@ impl AppCore {
                 source_id,
                 true,
                 true,
-                false,
+                close_projection,
                 Some(&request.operation_id),
             )?;
         }

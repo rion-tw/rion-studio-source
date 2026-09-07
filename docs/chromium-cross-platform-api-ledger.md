@@ -48,7 +48,7 @@ operations remain the primary user actions; no debug import command replaces the
 | Fresh import readback | After the null fix, sequence 70–77 snapshot/apply succeeds; sequence 78–81 verify fails CHROMIUM_PROFILE_IMPORT_FRESH_READBACK_MISMATCH and rolls back. Isolated bundled-Electron apply/verify probe finds LocalStorage persisted but cookies empty. Setting sessionData to the exact role Chromium path before ready produces exact cookie and LocalStorage persistence without relaxing sandboxing or verification. Visible UI seed and fresh-app restart now both PASS in local report 2026-09-07T12-33-18-293Z-darwin: exact one cookie/one LocalStorage marker, source digest unchanged, no pending import journal, finalFlush=true and processExited=true in both phases. Affected journey: CHROMIUM-MACOS-APPKIT-CHROME-PROFILE-IMPORT-033; Windows counterpart remains pending. |
 | Native Rust | Current native lint PASS; complete Rust test PASS (1677 passed, 5 ignored across eight binaries), retaining the updater 256-round test. No Rust production source changed in this follow-up. |
 | JavaScript baseline | Latest import follow-up: full suite 463 files / 3729 PASS; lint 0 errors and 23 existing warnings; hygiene, typecheck and E2E coverage PASS. Malformed commit-marker values remain rejected. Full native Chromium profile is next. |
-| Physical displays | Two Studio Displays are physically present (IDs 2, 3), currently both scale 2. Read-only mode inventory exposes genuine scale-1 modes on the secondary display. No display mode has been changed yet; hardware-extended and lifecycle evidence remain pending. |
+| Physical displays | Two Studio Displays are physically present (IDs 2, 3), currently both scale 2. Read-only mode inventory exposes genuine scale-1 modes on the secondary display. No display mode has been changed yet; hardware-extended remains pending. Existing macro standby coverage injects serialized suspend/resume signals and does not establish actual machine sleep/wake evidence; CP-12 physical power acceptance remains separately pending. |
 
 The sandbox diagnosis is supported by Electron v43.6.0
 [GetNetworkContextsParentDirectory](https://github.com/electron/electron/blob/v43.6.0/shell/browser/electron_browser_client.cc#L1161),
@@ -91,6 +91,76 @@ admission requires a push event, so manual diagnostic success cannot become
 production release evidence. The new run must bind the exact final SHA and
 contain no Windows jobs; package/updater evidence still uses CI fixture trust
 and cannot close the production cutover gate.
+
+### 01916dd5 macOS-only CI and production output
+
+Exact source `01916dd5fb2f2b4df84d5ef8b1e10afc8daf9ab7` is pushed.
+CI [34123638762](https://github.com/rion-tw/rion-studio-source/actions/runs/34123638762)
+was dispatched with platform_scope=macos and that complete immutable ref.
+Observed job inventory: macOS package/E2E 101747126644, stable E2E
+101747126714, native validation 101747259668, and shared Linux checks/assets/
+sanitizer only. No Windows job was created. Native validation and stable full E2E succeeded, as did all shared jobs. Chromium/package job failed at chromium-macro-background-tab; package/updater steps were not reached.
+
+Local final checks: full Vitest 464 files / 3735 PASS; lint 0 errors / 23 existing
+warnings; typecheck, full hygiene and production E2E isolation PASS. One initial
+full-suite failure was a stale YAML-format source assertion after matrix syntax
+changed; the assertion was updated to the explicit JSON platform declaration,
+and the complete suite then passed. Tauri and Electron production builds PASS;
+out/renderer is restored to production (38 sources / 3346159 bytes). Original
+8dff7722 and b0c3c184 remain ancestors; the preserved graphics-work branch remains.
+
+Affected runtime journeys: paired GAME-WINDOWS-TABS-020 and
+TABS-VISIBLE-ACTIVATION-019 for exact detach ownership, and paired
+CHROME-PROFILE-IMPORT-033 for descriptor/one-time transfer. macOS import seed and
+restart are passed as recorded above; latest full/native tabs and Windows
+workstation replay remain pending. Native AX driver and diagnostic observer
+changes are internal-only; they retain visible primary actions. The observer's
+real failed-run evidence records exact native events without creating progress.
+CI-scope routing is internal-only, with 17 focused workflow checks and complete
+JS validation; no product journey or coverage target was removed.
+
+### Admitted launch / clean-exit dependency correction (working tree)
+
+The exact unfinished records in 2026-09-07T12-40-38-789Z-darwin are the default
+Role launch, native focus continuation, and cleanExitLifecycle; runtime clean
+preparation never starts. Source tracing identifies the post-admission optional
+cache reconciliation in ChromiumRuntimeLaunchCoordinator: it calls the same
+settling snapshot reader used before actions, so it waits for native focus after
+Core already admitted the launch. Renderer ingress drain then waits for that
+request before the effect coordinator can cancel the native continuation.
+
+The correction makes only the post-admission cache check non-waiting. It still
+validates the full current Core/native/display envelope and leaves a mismatched
+or unfinished target pending and non-reusable. Required pre-action reads still
+wait for exact authoritative events; no timeout, optimistic promotion, or weaker
+projection assertion is added. Three regression cases trap native-event drain,
+projection settle, and next-projection wait after admission; all three fail the
+old implementation without waiting for a deadline. After correction, launch,
+clean-exit and bootstrap suites pass 84 tests. Native blocked-focus shutdown is
+still pending; unit success does not clear the interrupted extension journey.
+Affected journeys include paired RUNTIME-LAUNCH-DESTINATIONS-008, EXTENSIONS-001
+and QUIT-GUARD-014. Windows execution remains a separate workstation gate.
+
+### 01916dd5 macro physical-click evidence and follow-up
+
+CI 34123638762 artifact 10019614396 / report
+2026-09-07T12-47-04-742Z-darwin has 26 PASS and one FAIL. The failing
+chromium-macro-background-tab reaches showChromiumMacroWindow line 529 after
+its physical Show click; both before/after receipts have runtime revision 0 and
+no windows, and the Core command journal contains no show/restore request.
+The screenshot instead shows a selected row and bulk-selection toolbar.
+useListSelection's click capture consumes modifier clicks as selection, so
+inherited modifier flags are a concrete hypothesis; the old run did not record
+its click modifiers and cannot by itself prove the exact input flags.
+
+The physical driver now explicitly requests a plain left click (empty CGEvent
+flags and click count 1) and records the actual trusted DOM click, exact target,
+button and all four modifier booleans. It asserts the full receipt and never
+retries the click. Missing input fails at the receipt boundary; the existing
+Show/native completion assertion remains. Swift assertion failures use stderr
+and exit(1), avoiding crash-report windows from fatalError. Swift typecheck,
+TypeScript typecheck and hygiene pass; live Macro acceptance remains pending
+on the next corrected source. Windows driver behavior is unchanged.
 
 ### 82db2663 import gate and exact navigation failure follow-up
 

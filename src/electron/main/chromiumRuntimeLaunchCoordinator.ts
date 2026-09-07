@@ -1171,7 +1171,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     // already acknowledged. A still-pending native effect leaves only a
     // non-reusable cache entry; no delay, retry, or polling promotes it.
     try {
-      await this.#readCoherentSnapshot();
+      await this.#readCoherentSnapshot(false);
     } catch {
       // The launch admission remains authoritative. A later user intent may
       // promote the target only after a fresh exact Core/native projection.
@@ -1250,12 +1250,13 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     return after;
   }
 
-  async #readCoherentSnapshot(): Promise<CoherentLaunchSnapshot> {
-    // AppKit may synchronously create a host and then enqueue an authoritative
-    // frame/window-state correction. Drain every callback admitted before this
-    // fence before comparing Core with the native Chromium projection.
-    await this.#input.settleNativeEvents?.();
-    let projectionSequence = await this.#input.settleRuntimeProjection?.() ?? 0;
+  async #readCoherentSnapshot(waitForProjection = true): Promise<CoherentLaunchSnapshot> {
+    // Required pre-action reads drain earlier AppKit callbacks and projection
+    // effects. The optional post-admission cache check only reads current state;
+    // it cannot make an admitted renderer request wait for native completion.
+    if (waitForProjection) await this.#input.settleNativeEvents?.();
+    let projectionSequence = waitForProjection
+      ? await this.#input.settleRuntimeProjection?.() ?? 0 : 0;
     while (true) {
       const core = await this.#input.core.invoke({ type: "appSnapshot" });
       const displayTopology = await this.#input.readDisplayTopology();
@@ -1271,7 +1272,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         if (
           error instanceof RionBridgeError &&
           error.code === "ELECTRON_RUNTIME_PROJECTION_NOT_READY" &&
-          this.#input.waitForRuntimeProjection
+          waitForProjection && this.#input.waitForRuntimeProjection
         ) {
           projectionSequence = await this.#input.waitForRuntimeProjection(
             projectionSequence

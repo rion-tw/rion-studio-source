@@ -166,6 +166,24 @@ async function pressVisibleControl(
   if (!focused) {
     throw new Error("The visible Chromium Macro control rejected exact focus");
   }
+  const clickReceiptKey = "rionMacroPhysicalClickReceipt";
+  if (interaction === "physical") {
+    await browser.execute((target, key) => {
+      const root = document.documentElement;
+      root.removeAttribute(key);
+      document.addEventListener("click", (event) => {
+        root.setAttribute(key, JSON.stringify({
+          expectedTarget: event.composedPath().includes(target),
+          trusted: event.isTrusted,
+          button: event.button,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey
+        }));
+      }, { capture: true, once: true });
+    }, control, clickReceiptKey);
+  }
   const probe = await electronDesktopE2eProbe();
   await executeFile("/usr/bin/osascript", [
     "-e",
@@ -200,6 +218,10 @@ end run`,
   const script = `
 import ApplicationServices
 import AppKit
+func fail(_ message: String) -> Never {
+  FileHandle.standardError.write(Data((message + "\\n").utf8))
+  exit(1)
+}
 let targetPid = pid_t(${probe.processId})
 let expectedLabel = ${JSON.stringify(accessibleLabel)}
 let useAccessibilityAction = ${interaction === "accessibility"}
@@ -208,11 +230,11 @@ let appKitWindowPrefix = "com.rionstudio.runtime.appkit-window.v1:"
 let application = AXUIElementCreateApplication(targetPid)
 
 guard let targetApplication = NSRunningApplication(processIdentifier: targetPid) else {
-  fatalError("exact Rion application is unavailable")
+  fail("exact Rion application is unavailable")
 }
 if useAccessibilityAction {
   guard targetApplication.activate(options: [.activateAllWindows]) else {
-    fatalError("exact Rion application rejected foreground activation")
+    fail("exact Rion application rejected foreground activation")
   }
   RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 }
@@ -280,7 +302,7 @@ func sizeAttribute(_ element: AXUIElement, _ attribute: CFString) -> CGSize? {
 
 let roots = elementArrayAttribute(application, kAXWindowsAttribute as CFString)
 guard !roots.isEmpty else {
-  fatalError("exact Rion launcher AXWindow unavailable")
+  fail("exact Rion launcher AXWindow unavailable")
 }
 let launcherRoots = roots.filter { element in
   stringAttribute(element, kAXRoleAttribute as CFString) == (kAXWindowRole as String)
@@ -288,20 +310,20 @@ let launcherRoots = roots.filter { element in
       .hasPrefix(appKitWindowPrefix) ?? false)
 }
 guard launcherRoots.count == 1 else {
-  fatalError("exact Rion launcher AXWindow count was " + String(launcherRoots.count))
+  fail("exact Rion launcher AXWindow count was " + String(launcherRoots.count))
 }
 var queue = launcherRoots
 var cursor = 0
 var matches: [AXUIElement] = []
 while cursor < queue.count {
   guard queue.count <= 4096 else {
-    fatalError("exact Rion accessibility tree exceeded its bounded search")
+    fail("exact Rion accessibility tree exceeded its bounded search")
   }
   let element = queue[cursor]
   cursor += 1
   var ownerPid: pid_t = 0
   guard AXUIElementGetPid(element, &ownerPid) == .success, ownerPid == targetPid else {
-    fatalError("accessibility control escaped the exact Rion process")
+    fail("accessibility control escaped the exact Rion process")
   }
   var actionValues: CFArray?
   let elementRole = stringAttribute(element, kAXRoleAttribute as CFString)
@@ -336,13 +358,13 @@ while cursor < queue.count {
   ))
 }
 guard matches.count == 1 else {
-  fatalError("exact Rion focused AXPress control count was " + String(matches.count))
+  fail("exact Rion focused AXPress control count was " + String(matches.count))
 }
 guard AXUIElementPerformAction(
   launcherRoots[0],
   kAXRaiseAction as CFString
 ) == .success else {
-  fatalError("exact Rion launcher AXWindow rejected AXRaise")
+  fail("exact Rion launcher AXWindow rejected AXRaise")
 }
 RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
 if useAccessibilityAction {
@@ -350,19 +372,19 @@ if useAccessibilityAction {
     matches[0],
     kAXPressAction as CFString
   ) == .success else {
-    fatalError("exact Rion visible control rejected AXPress")
+    fail("exact Rion visible control rejected AXPress")
   }
 } else {
   guard stringAttribute(
     matches[0],
     kAXRoleAttribute as CFString
   ) == (expectedRole.isEmpty ? (kAXMenuItemRole as String) : expectedRole) else {
-    fatalError("exact Rion destination has an unexpected accessibility role")
+    fail("exact Rion destination has an unexpected accessibility role")
   }
   guard let position = pointAttribute(matches[0], kAXPositionAttribute as CFString),
       let size = sizeAttribute(matches[0], kAXSizeAttribute as CFString),
       size.width > 0, size.height > 0 else {
-    fatalError("exact Rion visible control has invalid accessibility geometry")
+    fail("exact Rion visible control has invalid accessibility geometry")
   }
   let clickPoint = CGPoint(
     x: position.x + size.width / 2,
@@ -370,7 +392,7 @@ if useAccessibilityAction {
   )
   if !targetApplication.isActive {
     guard targetApplication.activate(options: []) else {
-      fatalError("exact Rion application rejected physical-click activation")
+      fail("exact Rion application rejected physical-click activation")
     }
     let activationDeadline = Date(timeIntervalSinceNow: 2)
     while !targetApplication.isActive && Date() < activationDeadline {
@@ -408,8 +430,12 @@ if useAccessibilityAction {
       mouseCursorPosition: clickPoint,
       mouseButton: .left
     ) else {
-      fatalError("exact Rion visible control mouse event is unavailable")
+      fail("exact Rion visible control mouse event is unavailable")
     }
+    // This action is an ordinary click. A nil event source can inherit flags
+    // from an earlier synthetic shortcut and turn Show into row selection.
+    event.flags = []
+    event.setIntegerValueField(.mouseEventClickState, value: 1)
     event.post(tap: .cghidEventTap)
     usleep(50_000)
   }
@@ -420,6 +446,25 @@ RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
     encoding: "utf8",
     timeout: 30_000
   });
+  if (interaction === "physical") {
+    await browser.waitUntil(() => browser.execute((key) =>
+      document.documentElement.hasAttribute(key), clickReceiptKey), {
+      timeout: 10_000, timeoutMsg: "The single physical click produced no renderer event receipt"
+    });
+    const receipt = await browser.execute((key) => {
+      const root = document.documentElement;
+      const value = root.getAttribute(key);
+      root.removeAttribute(key);
+      return value === null ? null : JSON.parse(value) as Record<string, unknown>;
+    }, clickReceiptKey);
+    await writeChromiumMacroEvidence("chromium-macro-physical-click.json", {
+      selector, expectedLabel: accessibleLabel, receipt
+    });
+    expect(receipt).toEqual({
+      expectedTarget: true, trusted: true, button: 0,
+      metaKey: false, ctrlKey: false, shiftKey: false, altKey: false
+    });
+  }
 }
 
 export async function createChromiumMacroWindow(

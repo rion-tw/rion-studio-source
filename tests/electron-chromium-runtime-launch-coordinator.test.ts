@@ -619,6 +619,42 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(settleRuntimeProjection).toHaveBeenCalled();
   });
 
+  it.each(["native-events", "projection-settle", "projection-next"] as const)(
+    "returns admitted launch without waiting for post-admission %s", async (stage) => {
+      let admitted = false;
+      let reportUnexpected!: () => void;
+      const unexpected = new Promise<"unexpected-wait">((resolve) => {
+        reportUnexpected = () => resolve("unexpected-wait");
+      });
+      let release!: () => void;
+      const pending = new Promise<number>((resolve) => { release = () => resolve(1); });
+      const gate = (candidate: typeof stage) => {
+        if (!admitted || stage !== candidate) return Promise.resolve(0);
+        reportUnexpected();
+        return pending;
+      };
+      const { coordinator, state } = launchHarness({
+        settleNativeEvents: async () => { await gate("native-events"); },
+        settleRuntimeProjection: () => gate("projection-settle"),
+        waitForRuntimeProjection: () => gate("projection-next"),
+        onLaunch: () => {
+          admitted = true;
+          if (stage === "projection-next") state.projectionReady = false;
+        }
+      });
+      const launch = coordinator.launchRole(ROLE_ID, { kind: "new-window" });
+      const result = await Promise.race([launch, unexpected]);
+      // Release the diagnostic trap even on the old implementation; failure is
+      // the wrong dependency, never an elapsed test deadline.
+      state.projectionReady = true;
+      release();
+      await launch;
+      expect(result).toMatchObject({
+        launchReceipt: { status: "applied" }, windowId: WINDOW_ID
+      });
+    }
+  );
+
   it("waits for the next projection effect when Core is ahead of Electron", async () => {
     const settleRuntimeProjection = vi.fn(async () => 0);
     const waitForRuntimeProjection = vi.fn(async (afterSequence: number) => {

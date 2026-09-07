@@ -76,6 +76,46 @@ also succeed. Chromium/package job 101754476949 is still running at this
 checkpoint; neither its full-profile result nor package/updater result is yet
 claimed. No Windows job exists in this manually scoped run.
 
+### 806ddb0a complete Chromium E2E and local hardware-driver follow-up
+
+CI 34125930709 Chromium artifact 10020872712 / report
+2026-09-07T13-11-49-757Z-darwin completes chromium-macos-appkit-smoke with
+**56 PASS plus four expected force terminations; 52 journey verdicts PASS**.
+Checkout is 806ddb0a; report worktreeDirty=true reflects the CI's ephemeral updater
+trust/version fixture preparation, so this is not labelled a clean production
+checkout or production-key update verdict. Packaging is still running at this
+checkpoint. Macro background tab, tabs-visible seed/restart and Chrome-profile
+import seed/restart all pass with finalFlush=true and processExited=true.
+The tab evidence includes reordered, moved-existing, detached-with-successor,
+hidden/revealed and restart-consolidated stages. Import evidence retains the same
+cookie/LocalStorage markers after a fresh app restart under appkit-chromium.
+The neutral physical-click path passes its trusted/exact-target/no-modifier
+assertions; this does not retrospectively prove the old failing event's flags.
+
+The owner confirms that the earlier system prompt is no longer present. Local
+hardware-focused validation resumes on the same-scale displays, with these
+separate failures retained:
+
+| Local report | Exact finding and action |
+| --- | --- |
+| 2026-09-07T13-33-14-293Z-darwin, clean 8906ecb2 | The focused runner includes restart but omits its transitive seed prerequisite. Missing Chromium Tabs Target Window; finalFlush/processExited true. The runner now resolves the complete prerequisite graph once in dependency order, rejecting cycles and prerequisites outside the selected profile. Six focused planning cases cover the paired hardware profiles and invalid graphs. |
+| 2026-09-07T13-36-44-612Z-darwin, 8906ecb2 plus runner fix | Seed now runs, but System Events native-tab traversal fails with osascript assistive-access error -1728. Current System Events UI-elements-enabled and AXIsProcessTrusted both return true; exact TCC attribution is com.openai.codex at /Applications/ChatGPT.app, with allowed Accessibility/PostEvent and AppleEvents decisions. No grant/reset is changed; the error is not sufficient evidence of missing owner permission. |
+| 2026-09-07T13-44-26-375Z-darwin, plus native-tab adapter fix | Exact retained AppKit tab coordinates and typed PID/window/tab focus validation pass. The journey advances to the native close button, where System Events list-based AXPress raises the same -1728. A typed exact-PID/AXIdentifier close helper now checks Accessibility trust, foreground/focused window, AXCloseButton role/subrole/enabled state and AXWindow ownership before actual AXPress. Native close acceptance remains pending. |
+| 2026-09-07T13-48-34-342Z-darwin | Build verifier refuses the overwritten production main bundle before any phase launches. An independent electron-vite dev process is rebuilding the shared out directory. Preserve that process and move further native acceptance to an isolated worktree; do not bypass the build verifier. |
+
+Tab point calculation is shared with the existing native context-menu path.
+Eight pure macOS geometry tests cover unequal-width tabs at negative screen
+coordinates, wrong owners/order, duplicates, missing anchors and invalid bounds.
+These changes are internal-only E2E driver/runner corrections. Primary native
+actions, exact domain assertions and their existing deadlines remain required;
+neither simulation nor a partial hardware run closes hardware acceptance.
+Current follow-up validation: complete JavaScript suite 467 files / 3774 PASS;
+typecheck PASS; lint 0 errors / 23 existing warnings; native close Swift typecheck
+PASS. The initial geometry test imported the full E2E UI module and exposed a
+TypeScript project-file boundary error; geometry is now a pure scoped module
+included explicitly in the Node test project. No broader E2E module inclusion or
+typecheck suppression is used.
+
 | Windows follow-up | Exact evidence and next workstation acceptance |
 | --- | --- |
 | Post-cleanup native/full regression | Handoff 8dff7722 contains View-only cleanup. Preserve Rust lint/test with the unweakened 256-round updater test; run complete Windows native, production-build/isolation and chromium-windows-smoke acceptance on the final handed-off SHA. |

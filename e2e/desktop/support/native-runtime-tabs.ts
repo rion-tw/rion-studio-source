@@ -1,10 +1,15 @@
 import { MACOS_NATIVE_CHROME_ELEMENTS } from "./macos-native-chrome";
+import { readMacosVisibleRuntimeTabPoint } from "./macos-appkit-ui";
+import { focusVisibleMacosAppKitRuntime, waitForFocusedMacosAppKitRuntime } from
+  "./native-application-actions";
+import { rendererCall } from "./renderer-bridge";
 import { readWindowsRuntimeTabCloseEvidence } from "./windows-runtime-tab-close";
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 import { $, browser, expect } from "@wdio/globals";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { resolve } from "node:path";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import {
@@ -157,91 +162,20 @@ usleep(100_000)
   });
 }
 
-async function clickMacosAppKitTab(tabName: string): Promise<void> {
-  const processId = String((await electronDesktopE2eProbe()).processId);
-  let rawPoint = "";
-  await browser.waitUntil(async () => {
-    rawPoint = await readAppKitAction(`
-on run argv
-  set targetName to item 1 of argv
-  set targetPid to (item 2 of argv) as integer
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetTab to missing value
-    set targetWindow to missing value
-    set targetCount to 0
-    set observedTabs to ""
-    repeat with appWindow in windows of targetProcess
-      set allElements to my nativeChromeElements(appWindow)
-      repeat with candidate in allElements
-        try
-          if role of candidate is "AXRadioButton" then
-            set observedTabs to observedTabs & " [name=" & (name of candidate as text) & "; description=" & (description of candidate as text) & "]"
-            if description of candidate is targetName then
-              set targetTab to candidate
-              set targetWindow to appWindow
-              set targetCount to targetCount + 1
-            end if
-          end if
-        end try
-      end repeat
-    end repeat
-    if targetCount is 0 then return "pending:" & observedTabs
-    if targetCount is not 1 then error "ambiguous AppKit tab; observed" & observedTabs
-    if targetWindow is missing value then error "exact AppKit tab has no AXWindow owner"
-    set targetPosition to position of targetTab
-    set targetSize to size of targetTab
-    set clickX to ((item 1 of targetPosition) + ((item 1 of targetSize) / 2)) as integer
-    set clickY to ((item 2 of targetPosition) + ((item 2 of targetSize) / 2)) as integer
-    set targetIdentifier to value of attribute "AXIdentifier" of targetWindow
-    if targetIdentifier is missing value or targetIdentifier is "" then ¬
-      error "exact AppKit tab window has no stable identifier"
-    set frontmost of targetProcess to true
-    perform action "AXRaise" of targetWindow
-    return (clickX as text) & "," & (clickY as text) & "," & targetIdentifier
-  end tell
-end run`, tabName, processId);
-    return notPendingAppKitValue(rawPoint);
-  }, {
-    interval: 100,
-    timeout: 10_000,
-    timeoutMsg: `The exact AppKit tab ${tabName} did not become Accessibility-ready`
-  });
-  const fields = rawPoint.split(",");
-  const point = fields.slice(0, 2).map(Number);
-  const windowIdentifier = fields[2];
-  if (fields.length !== 3 || point.some((value) => !Number.isFinite(value)) ||
-      !windowIdentifier) {
-    throw new Error(`The exact AppKit tab click point is invalid (${rawPoint})`);
+async function clickMacosAppKitTab(tabId: string, tabName: string): Promise<void> {
+  const processId = (await electronDesktopE2eProbe()).processId;
+  const runtime = await rendererCall("getEmbeddedRuntimeState");
+  const matches = runtime.tabs.filter((tab) => tab.id === tabId && tab.name === tabName);
+  if (matches.length !== 1 || matches[0]!.hidden) {
+    throw new Error(`The exact visible AppKit tab ${tabName} has no unique Core owner`);
   }
-  await clickMacosScreenPoint(point[0]!, point[1]!);
-  await readAppKitAction(`
-on run argv
-  set targetIdentifier to item 1 of argv
-  set targetPid to (item 2 of argv) as integer
-  tell application "System Events"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindow to missing value
-    set targetCount to 0
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is targetIdentifier then
-          set targetWindow to appWindow
-          set targetCount to targetCount + 1
-        end if
-      end try
-    end repeat
-    if targetCount is not 1 then error "exact clicked AppKit tab window unavailable"
-    set focusedWindow to value of attribute "AXFocusedWindow" of targetProcess
-    if focusedWindow is missing value then error "exact AppKit tab click has no focused window"
-    set focusedIdentifier to value of attribute "AXIdentifier" of focusedWindow
-    if focusedIdentifier is not targetIdentifier then ¬
-      error "exact AppKit tab click did not focus its owner"
-    return "focused"
-  end tell
-end run`, windowIdentifier, processId);
+  const windowId = matches[0]!.windowId;
+  // Typed AX validates the exact PID/window and its tab. Geometry comes from
+  // retained AppKit anchors, never a name-coerced System Events object list.
+  await focusVisibleMacosAppKitRuntime({ processId, windowId, runtimeTabName: tabName });
+  const point = await readMacosVisibleRuntimeTabPoint({ tabId, tabName, windowId });
+  await clickMacosScreenPoint(point.x, point.y);
+  await waitForFocusedMacosAppKitRuntime({ processId, windowId, runtimeTabName: tabName });
 }
 
 function notPendingAppKitValue(value: string): boolean {
@@ -387,57 +321,19 @@ end run`, expectedWindowIdentifier, processId)), {
 }
 
 async function closeMacosAppKitWindow(windowId?: string, tabName?: string): Promise<void> {
-  const processId = String((await electronDesktopE2eProbe()).processId);
-  const windowIdentifier = windowId
-    ? `com.rionstudio.runtime.appkit-window.v1:${windowId}`
-    : "";
-  await runAppKitAction(`
-on run argv
-  set targetName to item 1 of argv
-  set targetPid to (item 2 of argv) as integer
-  set expectedWindowIdentifier to item 3 of argv
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindow to missing value
-    set targetCount to 0
-    repeat with appWindow in windows of targetProcess
-      set hasRuntimeTab to false
-      set hasTargetTab to false
-      if expectedWindowIdentifier is not "" then
-        try
-          if value of attribute "AXIdentifier" of appWindow is expectedWindowIdentifier then
-            set hasRuntimeTab to true
-            set hasTargetTab to true
-          end if
-        end try
-      else
-        set allElements to entire contents of appWindow
-        repeat with candidate in allElements
-          try
-            if role of candidate is "AXRadioButton" then
-              set hasRuntimeTab to true
-              if targetName is not "" and description of candidate is targetName then
-                set hasTargetTab to true
-              end if
-            end if
-          end try
-        end repeat
-      end if
-      if hasRuntimeTab and (targetName is "" or hasTargetTab) then
-        set targetWindow to appWindow
-        set targetCount to targetCount + 1
-      end if
-    end repeat
-    if targetCount is not 1 then error "exact AppKit runtime window unavailable"
-    tell targetWindow
-      set closeButtons to buttons whose subrole is "AXCloseButton"
-      if (count of closeButtons) is not 1 then error "AppKit close control unavailable"
-      perform action "AXPress" of item 1 of closeButtons
-    end tell
-  end tell
-end run`, tabName ?? "", processId, windowIdentifier);
+  const processId = (await electronDesktopE2eProbe()).processId;
+  if (!windowId) {
+    const runtime = await rendererCall("getEmbeddedRuntimeState");
+    const candidates = tabName
+      ? [...new Set(runtime.tabs.filter((tab) => tab.name === tabName).map((tab) => tab.windowId))]
+      : runtime.windows.map((window) => window.id);
+    if (candidates.length !== 1) throw new Error("exact AppKit close window is ambiguous or unavailable");
+    windowId = candidates[0]!;
+  }
+  await focusVisibleMacosAppKitRuntime({ processId, windowId });
+  await executeFile("/usr/bin/xcrun", [
+    "swift", resolve("e2e/desktop/support/macos-native-window-close.swift"), String(processId), windowId
+  ], { encoding: "utf8", timeout: 10_000 });
 }
 
 async function readVisibleWindowsRuntimeTabPoint(tabId: string, expectedWindowId?: string) {
@@ -470,7 +366,7 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
   tabName: string;
 }>): Promise<void> {
   if (input.platform === "macos") {
-    await clickMacosAppKitTab(input.tabName);
+    await clickMacosAppKitTab(input.tabId, input.tabName);
     return;
   }
   const processId = (await electronDesktopE2eProbe()).processId;

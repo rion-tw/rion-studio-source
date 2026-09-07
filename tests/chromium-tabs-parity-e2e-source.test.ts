@@ -42,17 +42,13 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("browser.execute(");
     expect(helper).toContain('perform action "AXRaise" of targetWindow');
-    expect(helper).toContain('if targetCount is 0 then return "pending:" & observedTabs');
-    expect(helper).toContain(
-      "did not become Accessibility-ready"
-    );
+    expect(helper).toContain("readMacosVisibleRuntimeTabPoint({ tabId, tabName, windowId })");
+    expect(helper).toContain("focusVisibleMacosAppKitRuntime({ processId, windowId, runtimeTabName: tabName })");
     expect(helper).toContain('if targetCount is 0 then return "pending"');
-    expect(helper).toContain("await clickMacosScreenPoint(point[0]!, point[1]!)");
+    expect(helper).toContain("await clickMacosScreenPoint(point.x, point.y)");
     expect(helper).toContain(".leftMouseDown");
     expect(helper).toContain(".leftMouseUp");
-    expect(helper).toContain(
-      "if focusedIdentifier is not targetIdentifier then"
-    );
+    expect(helper).toContain("waitForFocusedMacosAppKitRuntime({ processId, windowId, runtimeTabName: tabName })");
     expect(helper).toContain("const appKit = toolbar.native.appKit");
     expect(helper).toContain("appKit?.tabAnchors?.[input.tabId]");
     expect(helper).toContain("bounds.x + anchor.x - 18");
@@ -64,7 +60,12 @@ describe("Chromium native tab exact replacements", () => {
     expect(appKitTabs).not.toContain("self.accessibilityIdentifier = tab.identifier;");
     expect(appKitDrag).toContain("surface.layer.presentationLayer");
     expect(appKitDrag).toContain("surface.superview convertRect:visibleSurfaceFrame");
-    expect(helper).toContain('whose subrole is "AXCloseButton"');
+    const nativeClose = await source("e2e/desktop/support/macos-native-window-close.swift");
+    expect(nativeClose).toContain('object(window, "AXCloseButton")');
+    expect(nativeClose).toContain("AXIsProcessTrusted()");
+    expect(nativeClose).toContain("ownerPid == targetPid");
+    expect(nativeClose).toContain("CFEqual(owner, window)");
+    expect(nativeClose).toContain("AXUIElementPerformAction(button, kAXPressAction");
     expect(helper).toContain("[data-runtime-tab-activate]");
     expect(helper).toContain("[data-runtime-tab-close]");
     expect(helper).toContain("button[data-window-command='closeWindow']");
@@ -79,15 +80,16 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).toContain("chromium-tabs-topology-observations.json");
     expect(spec).toContain('stage: "detached-with-successor"');
     expect(spec).toContain('stage: "windows-geometry"');
-    expect(appKitHelper).toContain("appKit?.tabAnchors?.[input.tabId]");
-    expect(appKitHelper).toContain(
+    const tabGeometry = await source("e2e/desktop/support/macos-native-tab-geometry.ts");
+    expect(tabGeometry).toContain("appKit?.tabAnchors?.[input.tabId]");
+    expect(tabGeometry).toContain(
       "inspection.tabIds.filter((tabId) => tabId === input.tabId).length !== 1"
     );
-    expect(appKitHelper).toContain("const tabLeft = previousAnchor === undefined");
-    expect(appKitHelper).toContain(
+    expect(tabGeometry).toContain("const tabLeft = previousAnchor === undefined");
+    expect(tabGeometry).toContain(
       "const anchorScreenOffsetX = bounds.x + bounds.width - firstAnchor.x"
     );
-    expect(appKitHelper).toContain(
+    expect(tabGeometry).toContain(
       "const clickY = bounds.y + bounds.height / 2"
     );
     expect(appKitHelper).not.toContain(

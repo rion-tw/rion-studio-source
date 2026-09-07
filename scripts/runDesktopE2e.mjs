@@ -5,6 +5,7 @@ import { access, copyFile, mkdir, readFile, watch, writeFile } from "node:fs/pro
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { observeElectronPhaseShutdown } from "./desktopE2eElectronShutdown.mjs";
+import { resolveDesktopE2eFocusedPhases } from "./desktopE2eFocusedPhases.mjs";
 
 import {
   aggregateDesktopE2eJourneyVerdicts,
@@ -158,7 +159,9 @@ focusedPhaseDependencies.set("chromium-extensions-restart", ["chromium-extension
 const phases = withChromiumMacroCutoverNativePrerequisites({
   platform: process.platform,
   selectedPhases: phaseArgument
-    ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
+    ? resolveDesktopE2eFocusedPhases({
+        configuredPhases, dependencies: focusedPhaseDependencies, phase: phaseArgument
+      })
     : configuredPhases
 });
 const phaseNamespaces = new Map([

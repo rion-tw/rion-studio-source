@@ -1,3 +1,4 @@
+import { resolveMacosNativeTabPoint } from "./macos-native-tab-geometry";
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -722,6 +723,19 @@ const TAB_MENU_LABELS = Object.freeze({
   ])
 });
 
+/** Reads the exact retained AppKit tab centre; it never submits an action. */
+export async function readMacosVisibleRuntimeTabPoint(input: Readonly<{
+  tabId: string;
+  tabName: string;
+  windowId: string;
+}>): Promise<Readonly<{ x: number; y: number }>> {
+  const [inspection, runtimeInspection] = await Promise.all([
+    electronDesktopE2eFullscreenToolbarRuntime(input.windowId),
+    electronDesktopE2eGameWindowRuntime(input.windowId)
+  ]);
+  return resolveMacosNativeTabPoint(input, inspection, runtimeInspection.currentRuntime);
+}
+
 /** Opens the visible native NSMenu and selects one of its real menu items. */
 export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
   action: "hide" | "move" | "moveToNewWindow" | "reload" | "mute" | "unmute";
@@ -736,61 +750,7 @@ export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
   const processId = String((await electronDesktopE2eProbe()).processId);
   const expectedWindowIdentifier =
     `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
-  const [inspection, runtimeInspection] = await Promise.all([
-    electronDesktopE2eFullscreenToolbarRuntime(input.windowId),
-    electronDesktopE2eGameWindowRuntime(input.windowId)
-  ]);
-  const bounds = inspection.native.appKit?.tabScreenBounds;
-  const tabIndex = inspection.tabIds.indexOf(input.tabId);
-  const anchor = inspection.native.appKit?.tabAnchors?.[input.tabId];
-  const firstTabId = inspection.tabIds[0];
-  const firstAnchor = firstTabId === undefined
-    ? undefined
-    : inspection.native.appKit?.tabAnchors?.[firstTabId];
-  const previousTabId = tabIndex > 0 ? inspection.tabIds[tabIndex - 1] : undefined;
-  const previousAnchor = previousTabId === undefined
-    ? undefined
-    : inspection.native.appKit?.tabAnchors?.[previousTabId];
-  const runtime = runtimeInspection.currentRuntime;
-  if (
-    inspection.hostKind !== "appkit" ||
-    inspection.tabIds.filter((tabId) => tabId === input.tabId).length !== 1 ||
-    !sameOrderedStrings(runtime?.nativeTabIds ?? [], inspection.tabIds) ||
-    tabIndex < 0 || firstAnchor === undefined ||
-    (tabIndex > 0 && previousAnchor === undefined) ||
-    bounds === undefined || anchor === undefined || !runtime ||
-    runtime.hostKind !== "appkit-chromium" ||
-    runtime.windowId !== input.windowId ||
-    runtime.nativeTabIds.filter((tabId) => tabId === input.tabId).length !== 1
-  ) {
-    throw new Error(
-      `The exact AppKit desktop-E2E geometry for ${input.tabName} is unavailable`
-    );
-  }
-  // AppKit exposes the first rendered tab's absolute screen bounds plus every
-  // tab's window-relative right-centre anchor. Use their shared first-tab edge
-  // to translate all anchors into screen coordinates. Core's nativeDisplay
-  // bounds describe Chromium content and can begin below the retained titlebar.
-  const anchorScreenOffsetX = bounds.x + bounds.width - firstAnchor.x;
-  const tabLeft = previousAnchor === undefined
-    ? bounds.x
-    : anchorScreenOffsetX + previousAnchor.x;
-  const tabRight = anchorScreenOffsetX + anchor.x;
-  const clickX = tabLeft + (tabRight - tabLeft) / 2;
-  const clickY = bounds.y + bounds.height / 2;
-  if (
-    bounds.width <= 0 || bounds.height <= 0 ||
-    anchor.x < 0 || anchor.y < 0 || firstAnchor.x < 0 ||
-    tabLeft < bounds.x || tabRight <= tabLeft ||
-    clickY < bounds.y || clickY > bounds.y + bounds.height ||
-    ![
-      anchorScreenOffsetX, tabLeft, tabRight, clickX, clickY,
-      anchor.x, anchor.y, firstAnchor.x, firstAnchor.y,
-      bounds.x, bounds.y, bounds.width, bounds.height
-    ].every(Number.isFinite)
-  ) {
-    throw new Error("The AppKit native tab geometry escaped its exact window");
-  }
+  const { x: clickX, y: clickY } = await readMacosVisibleRuntimeTabPoint(input);
   await readSystemEvents(`
 on run argv
   set expectedWindowIdentifier to item 1 of argv

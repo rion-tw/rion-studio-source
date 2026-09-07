@@ -6,7 +6,7 @@ import { rendererCall } from "../support/renderer-bridge";
 import { scrollLayoutControlIntoView } from "../support/ui";
 import {
   bootstrapChromiumMacroCutover, createChromiumMacroWindow,
-  launchChromiumRoleVisible, macroFixtureUrl
+  launchChromiumRoleVisible, macroFixtureUrl, writeChromiumMacroEvidence
 } from "./chromium-macro-cutover-support";
 
 export async function prepareChromiumFontRole() {
@@ -22,6 +22,7 @@ export async function prepareChromiumFontRole() {
 }
 
 export async function verifyChromiumFontApplication(input: Awaited<ReturnType<typeof prepareChromiumFontRole>>) {
+  const pickerEvidence: unknown[] = [];
   const read = async () => {
     const state = await readElectronRoleFontState(input.url, input.mainWindowHandle);
     expect(state.trusted).toBe(true);
@@ -35,9 +36,34 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
     const picker = await $(`button[aria-label='${slot}']`);
     await scrollLayoutControlIntoView(picker);
     await picker.waitForClickable({ timeout: 10_000 });
+    const beforeClick = await browser.execute((target: HTMLElement) => {
+      const bounds = target.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      document.documentElement.removeAttribute("data-rion-font-click");
+      document.addEventListener("click", (event) => {
+        document.documentElement.setAttribute("data-rion-font-click", JSON.stringify({
+          expectedTarget: event.composedPath().includes(target), trusted: event.isTrusted,
+          targetTag: (event.target as HTMLElement | null)?.tagName,
+          targetLabel: (event.target as HTMLElement | null)?.getAttribute("aria-label"),
+          metaKey: event.metaKey, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, altKey: event.altKey
+        }));
+      }, { capture: true, once: true });
+      return { hitMatches: hit !== null && target.contains(hit), hasFocus: document.hasFocus(),
+        bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } };
+    }, picker as unknown as HTMLElement);
     await picker.click();
     const option = await $(`[role='menuitemradio']*=${family} · System`);
-    await option.waitForDisplayed({ timeout: 10_000 });
+    try {
+      await option.waitForDisplayed({ timeout: 10_000 });
+    } finally {
+      const afterClick = await browser.execute((target: HTMLElement) => ({
+        expanded: target.getAttribute("aria-expanded"),
+        receipt: document.documentElement.getAttribute("data-rion-font-click"),
+        menuCount: document.querySelectorAll("[role='menu']").length
+      }), picker as unknown as HTMLElement);
+      pickerEvidence.push({ family, slot, beforeClick, afterClick });
+      await writeChromiumMacroEvidence("chromium-font-picker-click.json", pickerEvidence);
+    }
     await option.click();
   };
   const press = async (label: string) => {

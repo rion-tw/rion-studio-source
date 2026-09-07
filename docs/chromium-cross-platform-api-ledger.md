@@ -78,7 +78,7 @@ Earlier handoff tables below describe their historical checkpoint.
 | CP-10 consented import | Visible consent/cancel/chooser/confirmation and fresh-process cookie/LocalStorage restart PASS in 61f32424 full CI | Native chooser and complete consent/import/restart acceptance pending |
 | CP-11 / CP-12 hardware/lifecycle | 61f32424 full CI passed; focused physical display/control PASS after fullscreen fix; complete local hardware and real sleep/wake pending | Physical display/input/session-end gates pending; mixed-DPI removed |
 | CP-15 complete profiles | Stable 29 PASS + 3 expected force exits; Chromium 56 PASS + 4 expected force exits at 61f32424 | Final-source full and hardware profiles pending |
-| CP-16 package/updater | CI fixture package, signed update transaction and packaged native Role black-box PASS at 806ddb0a | Final-source package/update acceptance pending; production-key cutover remains separate |
+| CP-16 package/updater | CI fixture package, signed update transaction and packaged native Role black-box PASS at 61f32424 | Final-source package/update acceptance pending; production-key cutover remains separate |
 | CP-17 / CP-18 retirement/final closure | Still gated; AppKit and Rust authority retained | No Tauri retirement based on macOS-only evidence |
 
 CI **34125930709** is now completed **SUCCESS**, exact checkout
@@ -101,11 +101,16 @@ packaged executable SHA-256 is
 82762f2fea802e4de80a9fc02879a34aa326be32fafc0e67e0e536f5c4072095.
 This is packaged CI fixture acceptance, not the final production migration gate.
 
-Local E2E now runs in an isolated detached worktree so the owner's independent
-root electron-vite process can continue. Shared dependency/target-cache symlinks
-are untracked inputs and must not be counted as a clean worktree. Node is
-explicitly pinned to /Users/aron/.nvm/versions/node/v24.20.0/bin for subsequent
-native runs. Production runtime content remains unchanged from 806ddb0a.
+Local E2E runs in the isolated detached worktree
+/Users/aron/.codex/worktrees/rion-macos-native-20260907 so the owner's independent
+root electron-vite process and uncommitted feature work can continue. The initial
+shared node_modules symlink was replaced with independent frozen-lockfile/offline
+installed dependencies after the updater signer correctly rejected an escaped
+workspace path. The shared target build cache is excluded locally as a build
+input; no source is hidden. Node is explicitly pinned to
+/Users/aron/.nvm/versions/node/v24.20.0/bin. Clean reports starting at 61f32424 refer
+to this isolated checkout, not the owner's dirty root workspace. Production
+runtime content is 61f32424; subsequent commits change E2E drivers and this ledger.
 
 | Local follow-up report | Exact result and correction |
 | --- | --- |
@@ -2115,21 +2120,21 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-01 | P1 / Architecture | verified | none | Catalog all nine features and infrastructure, identify authoritative sources and replacement candidates, preserve explicit open/probe/gated work and link the active catalog. This ledger is the initial source-audit deliverable; physical verification is separately tracked. |
 | CP-02 | P0 / Diagnostics | verified; paired settings/removal acceptance at 718dc83a | CP-01 | Owner-directed complete removal of performance measurement UI, IPC commands/events, sampler, power/thermal probes and exported sample payload in both shells. Preserve general diagnostics export and verify absent controls on both platforms. |
 | CP-03 | P0 / Core + Sessions | verified shared path boundaries; paired native Rust and restart acceptance at 718dc83a | CP-01 | Share Rust Chromium engine-path conversion and Electron canonical-path/ownership helpers across Role, Global Web and maintenance helpers. Reject unsupported device paths consistently without moving stores. Test drive/UNC/case/alias/owner boundaries and persistent restart on Windows. |
-| CP-04 | P1 / Runtime projection | implemented; c72d688e corrects raw/logical detach ownership, 806ddb0a macOS native/full replay passed; Windows workstation acceptance pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
+| CP-04 | P1 / Runtime projection | implemented; c72d688e corrects raw/logical detach ownership, 61f32424 macOS native/full replay passed; Windows workstation acceptance pending | CP-01 | Extract equivalent snapshot, bounds, visibility, zoom, reparent and compensation steps; retain AppKit transaction/geometry and Windows host effects. Test stale revision, partial application, compensation failure and exact quarantine, plus paired topology/recovery journeys. |
 | CP-05 | P1 / Fonts | verified adopt; production provider acceptance remains CP-06 | CP-01 | Evaluate queryLocalFonts on pinned Electron: family/CJK/duplicates, focus/activation, permission, reload, generic fallback and existing automatic settings loading. Allow enumeration only in an authenticated app frame; remote pages remain denied. Produce adopt/retain result with both native runs. |
 | CP-06 | P1 / Fonts + bridge | verified v23 provider; paired native probes and settings acceptance at 718dc83a | CP-05 passes | Keep listSystemFonts Promise result, bounded Rust normalization/cache/fallback, and shell enumeration provider. Remove v23 native enumeration only after equivalent settings behavior is proven. Retain v22 reachability until CP-17. If CP-05 fails, close as a documented retained adapter. |
 | CP-07 | P1 / Application input | verified retain; Windows lifecycle correction confirmed | CP-01 | Compare before-input-event and Menu with Windows F11 hook across main, Role, global Web, popup, focused/hidden hosts, repeat and key-up. Remove hook only with exact once-only routing and page suppression; do not substitute globalShortcut. |
 | CP-08 | P1 / Trusted input | Windows full input parity passed at 34a98f5b; child-HWND implementation removed; post-deletion native validation pending | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
-| CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed in 806ddb0a full CI; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
+| CP-10 | P1 / Session maintenance | shared lifecycle passed at 34a98f5b; macOS visible consent/import/restart passed in 61f32424 full CI; Windows consented import workstation acceptance pending | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
 | CP-11 | P1 / Browser capability owners | audited; Windows navigation/upload/security passed at 6ace94b2 and settings/fonts at 009c4eb4; full/hardware pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
-| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency; 806ddb0a native/full CI passed; real sleep/wake and multi-display evidence pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
+| CP-12 | P2 / Shell | implemented; 806ddb0a corrects admitted-launch projection dependency and 61f32424 corrects native fullscreen exit; 61f32424 native/full CI and focused physical display/control passed; real sleep/wake and complete hardware profile pending; physical mixed-DPI gate removed by owner | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | 806ddb0a macOS stable full 29 PASS + 3 expected force exits and Chromium 56 PASS + 4 expected force exits; Windows workstation and hardware profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | 806ddb0a macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-15 | P1 / Desktop E2E | 61f32424 macOS stable full 29 PASS + 3 expected force exits and Chromium 56 PASS + 4 expected force exits; Windows workstation and hardware profiles pending | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-16 | P2 / Release tooling | 61f32424 macOS CI-fixture package/updater and packaged native Role black-box passed; Windows workstation and production gates pending | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
-| CP-18 | P1 / Validation | paired native and stable full passed at 6ace94b2; current Chromium full and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
+| CP-18 | P1 / Validation | 61f32424 macOS native, stable and Chromium full passed; Windows workstation, complete hardware and external gates pending | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
 Start CP-02 and CP-03 after the baseline. CP-04 and CP-09 through CP-13 are
 independent of native replacement approval, except for their listed data
@@ -8333,3 +8338,66 @@ not clear the failed complete hardware profile. Affected journeys include
 CHROMIUM-MACOS-APPKIT-SHELL-001 and
 CHROMIUM-MACOS-APPKIT-APPLICATION-SHORTCUTS-030; Windows behavior is unchanged and
 its native acceptance remains with the separate workstation.
+
+
+### 61f32424 package completion and typed native file-panel follow-up
+
+CI **34133998284** is completed **SUCCESS**, including package job
+**101780553083**. Exact checkout is 61f3242491d16a119acbd349b048278208f00098;
+there are no Windows jobs. The log confirms the darwin packaged updater
+transaction for 8.5.0 at 2026-09-07T15:21:17Z. Native validation has
+1677 Rust PASS / 5 ignored and 14 native Electron PASS / two platform skips;
+the full updater concurrency test remains intact.
+
+Packaged black-box artifact **10024719890**, report
+**2026-09-07T15-21-19-584Z-f30aae40-b672-4385-9b91-7dbc25f76881-darwin-packaged-black-box**,
+records verdict=passed, exitCode=0, fixtureInteraction=visible-os-accessibility-click,
+nativeHostKind=appkit-chromium and remoteDebugging=false. Executable SHA-256 is
+e280954351cc587d7d8350372922d4c0e835f2c8fd8697cd3ebbb92dfed373b5;
+app.asar SHA-256 is
+6aa67186f268bfc14d35a06885737538e653b9f99a255f16572568027ab4b899.
+These are existing ephemeral CI signing fixtures, not production-key migration
+transactions, publication or CP-17 retirement authorization.
+
+Clean **d14d203f044ccc5abed762c77496e4ffc6e35996** hardware report
+**2026-09-07T15-04-41-665Z-darwin** reaches **38 PASS / one FAIL**. The new failure
+is chromium-system-settings: the exact native save panel appears, but the old
+System Events entire-contents traversal cannot resolve its Cancel button
+(-2700). No cancellation or successful full profile is inferred.
+
+The existing typed folder-panel helper is generalized as
+macos-native-file-panel.swift with explicit select-directory and cancel modes.
+Both modes discover only the exact app's attached AXSheet/AXDialog, retain the
+bounded native traversal and exact AppKit XPC owner checks, and never enter
+AXWebArea or enumerate unrelated processes. Cancellation requires one enabled
+Cancel AXButton on the same attached panel, submits AXPress once and observes
+panel closure within the unchanged deadline. The original directory selection
+still uses visible Go to Folder, its exact field, Open and panel-closure checks.
+
+Focused settings report **2026-09-07T15-15-21-611Z-darwin** stops before testing
+cancellation: Courier New's menu option never appears after the picker click.
+The screenshot shows a closed menu; the native font inventory assertion already
+passed. This is not evidence that Courier New is missing. A passive click/hit/
+focus/expanded-state diagnostic is retained. The next diagnostic settings report
+**2026-09-07T15-45-51-961Z-darwin** passes, including typed native cancellation,
+Core diagnostics export invocation count zero, finalFlush=true and processExited=true.
+This does not prove the intermittent font-picker failure repaired. Its final
+picker receipt has expectedTarget=false on click while aria-expanded=true and a
+menu exists; do not treat that click receipt alone as proof the dropdown did not
+open. Subsequent diagnostics retain each picker attempt instead of overwriting
+one final receipt.
+
+Focused import report **2026-09-07T15-46-57-735Z-darwin** passes both
+chrome-profile-import seed/restart with the shared native panel helper. Each has
+finalFlush=true and processExited=true. Swift and TypeScript checks, complete
+hygiene, lint (0 errors / 23 existing warnings) and complete JavaScript validation
+(**468 files / 3803 PASS**) pass. These focused reports use d14d203f plus the
+recorded E2E edits, not a clean exact-SHA complete hardware verdict.
+
+Affected journeys: CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-EXPORT-029,
+CHROMIUM-MACOS-APPKIT-SYSTEM-SETTINGS-013,
+CHROMIUM-MACOS-APPKIT-FONT-APPLICATION-033 and
+CHROMIUM-MACOS-APPKIT-CHROME-PROFILE-IMPORT-033. Changes are internal-only native
+E2E driver/evidence work; product behavior, Windows implementation, deadlines,
+coverage targets and domain assertions remain unchanged. Complete hardware
+revalidation and real sleep/wake remain pending. API closure remains 9/18.

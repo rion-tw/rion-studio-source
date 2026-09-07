@@ -51,8 +51,8 @@ do {
     return;
   }
   await execute("/usr/bin/xcrun", [
-    "swift", fileURLToPath(new URL("./macos-native-directory.swift", import.meta.url)),
-    String(input.processId), input.path
+    "swift", fileURLToPath(new URL("./macos-native-file-panel.swift", import.meta.url)),
+    String(input.processId), "select-directory", input.path
   ], {
     timeout: 15_000,
     encoding: "utf8"

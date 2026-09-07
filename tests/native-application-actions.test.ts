@@ -36,18 +36,17 @@ describe("native application shortcut target modes", () => {
     expect(windowsNativeDialogDeclarations).toContain("native file control is occluded at its click point");
   });
 
-  it("resolves macOS save-panel AX queries inside the System Events scope", () => {
-    const saveDialogHelper = sourceBetween(
-      "on filePanels(targetProcess)",
-      "end filePanels"
-    );
-    expect(saveDialogHelper).toContain('tell application "System Events"');
-    expect(saveDialogHelper).toContain("repeat with appSheet in sheets of appWindow");
-    expect(saveDialogHelper).toContain('role of appSheet is "AXSheet"');
-    expect(source).toContain(
-      'role of candidate is "AXButton" and name of candidate is "Cancel"'
-    );
-    expect(source).toContain('perform action "AXPress" of item 1 of cancelButtons');
+  it("fences macOS cancellation to the exact attached native panel and Cancel control", async () => {
+    const panel = await readFile("e2e/desktop/support/macos-native-file-panel.swift", "utf8");
+    const cancel = sourceBetween("async function cancelMacosNativeSaveDialog", "async function cancelWindowsNativeSaveDialog");
+    expect(cancel).toContain('String(processId), "cancel"');
+    expect(panel).toContain('AXUIElementCreateApplication(targetPid)');
+    expect(panel).toContain('com.apple.appkit.xpc.openAndSavePanelService');
+    expect(panel).toContain('if role == "AXWebArea" { return }');
+    expect(panel).toContain('CFEqual(currentPanels[0], panel)');
+    expect(panel).toContain('text($0, "AXRole") == "AXButton" && text($0, "AXTitle") == "Cancel"');
+    expect(panel).toContain('AXUIElementPerformAction(buttons[0], kAXPressAction');
+    expect(panel).toContain('awaitCondition("cancelled panel closure") { panels().isEmpty }');
   });
 
   it("keeps launcher as the default on both native platforms", () => {

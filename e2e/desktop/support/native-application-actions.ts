@@ -39,62 +39,10 @@ function boundedPowerShellFailure(error: unknown): string {
 }
 
 async function cancelMacosNativeSaveDialog(processId: number): Promise<void> {
-  const script = String.raw`
-on filePanels(targetProcess)
-  tell application "System Events"
-    set matches to {}
-    repeat with appWindow in windows of targetProcess
-      try
-        if subrole of appWindow is "AXDialog" then set end of matches to appWindow
-      end try
-      try
-        repeat with appSheet in sheets of appWindow
-          if role of appSheet is "AXSheet" then set end of matches to appSheet
-        end repeat
-      end try
-    end repeat
-    return matches
-  end tell
-end filePanels
-
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set expiry to (current date) + 10
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set frontmost of targetProcess to true
-    repeat
-      set panels to my filePanels(targetProcess)
-      if (count of panels) is 1 then exit repeat
-      if (count of panels) is greater than 1 then error "multiple exact AppKit file panels"
-      if (current date) is greater than expiry then error "exact AppKit save panel unavailable"
-      delay 0.05
-    end repeat
-    set cancelButtons to {}
-    repeat with candidateReference in (get entire contents of item 1 of panels)
-      set candidate to contents of candidateReference
-      try
-        if role of candidate is "AXButton" and name of candidate is "Cancel" then
-          set end of cancelButtons to candidate
-        end if
-      end try
-    end repeat
-    if (count of cancelButtons) is not 1 then error "exact AppKit Cancel control unavailable"
-    perform action "AXPress" of item 1 of cancelButtons
-    repeat
-      if (count of my filePanels(targetProcess)) is 0 then exit repeat
-      if (current date) is greater than expiry then error "AppKit save panel did not close"
-      delay 0.05
-    end repeat
-  end tell
-end run`;
-  await executeFile("/usr/bin/osascript", [
-    "-e",
-    script,
-    "--",
-    String(processId)
+  await executeFile("/usr/bin/xcrun", [
+    "swift",
+    fileURLToPath(new URL("./macos-native-file-panel.swift", import.meta.url)),
+    String(processId), "cancel"
   ], { encoding: "utf8", timeout: 15_000 });
 }
 

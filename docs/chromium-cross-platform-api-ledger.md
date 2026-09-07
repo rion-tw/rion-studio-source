@@ -28,6 +28,15 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Reopened generation belongs to the accepted snapshot — 2026-09-07
+
+At 8c0fe409, artifact 2026-09-07T05-03-50-998Z-win32 passed the exact reopen
+predicate, then an extra one-shot generation inspection overlapped the next
+placement projection (Core 56 / native 55, generation 39 and equal ownership).
+Return generation from the already-accepted showSavedWindow snapshot and retain
+the greater-than-old-generation assertion against that same evidence. This
+removes an inconsistent second observation, not an assertion or a native fence.
+
 ### Resize probe document prerequisite — 2026-09-07
 
 At 791c65b4, artifact 2026-09-07T05-01-55-033Z-win32 reached resize but the new

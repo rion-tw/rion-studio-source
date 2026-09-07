@@ -223,7 +223,8 @@ async function showSavedWindow(input: Readonly<{
   activeTabId: string;
   gameWindow: GameWindow;
   orderedTabIds: readonly string[];
-}>): Promise<void> {
+}>): Promise<number> {
+  let observedGeneration = 0;
   await openSection("Windows", "/game-windows");
   const row = await $(`[data-selection-id='${input.gameWindow.id}']`);
   await row.waitForDisplayed({ timeout: 10_000 });
@@ -249,13 +250,15 @@ async function showSavedWindow(input: Readonly<{
         const visibleSurfaceTabIds = inspection.surfaces
           .filter((surface) => surface.visible)
           .map((surface) => surface.tabId);
-        return current?.visible === true && current.focused &&
+        const matches = current?.visible === true && current.focused &&
           sameOrderedIds(current.coreTabIds, input.orderedTabIds) &&
           sameOrderedIds(current.nativeTabIds, input.orderedTabIds) &&
           sameOrderedIds(liveTabIds, input.orderedTabIds) &&
           logical?.activeTabId === input.activeTabId &&
           sameOrderedIds(inspection.tabIds, input.orderedTabIds) &&
           sameOrderedIds(visibleSurfaceTabIds, [input.activeTabId]);
+        if (matches) observedGeneration = current.windowGeneration;
+        return matches;
       } catch {
         return false;
       }
@@ -277,6 +280,7 @@ async function showSavedWindow(input: Readonly<{
       { cause: error }
     );
   }
+  return observedGeneration;
 }
 
 async function launchRoleIntoWindow(
@@ -839,13 +843,12 @@ async function closeAndReopenSavedWindow(input: Readonly<{
   expect(saved.tabs.map((tab) => tab.id)).toEqual(input.orderedTabIds);
   expect(saved.activeTabId).toBe(input.orderedTabIds.at(-1));
 
-  await showSavedWindow({
+  const reopenedGeneration = await showSavedWindow({
     activeTabId: input.orderedTabIds.at(-1)!,
     gameWindow: saved,
     orderedTabIds: input.orderedTabIds
   });
-  const reopened = await electronDesktopE2eGameWindowRuntime(saved.id);
-  expect(reopened.currentRuntime?.windowGeneration).toBeGreaterThan(generation);
+  expect(reopenedGeneration).toBeGreaterThan(generation);
   await expectExactNativeTopology({
     activeTabId: input.orderedTabIds.at(-1)!,
     gameWindow: saved,

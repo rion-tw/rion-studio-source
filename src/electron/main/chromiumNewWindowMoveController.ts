@@ -566,21 +566,27 @@ implements ChromiumNewWindowMovePort {
   }
 
   async #presentTarget(windowId: string, tabId: string): Promise<void> {
-    await this.#input.core.invoke({
+    const shown = await this.#input.core.invoke({
       type: "embeddedWindowsShow",
       windowId
     });
-    const exact = await this.#exactTabOwner(tabId);
-    if (exact.logical.windowId !== windowId) {
+    // Core returns this captured topology only after its exact reveal/focus
+    // effect has terminalized from native evidence. A subsequent placement can
+    // already be admitted while its projection is still in flight; comparing
+    // two new snapshots then would revoke an acknowledged presentation and
+    // incorrectly start destructive compensation for a successful detach.
+    const windows = shown.windows.filter(window => window.windowId === windowId);
+    const owners = shown.windows.filter(window => window.tabIds.includes(tabId));
+    const tabs = shown.tabs.filter(tab => tab.id === tabId);
+    if (
+      windows.length !== 1 || owners.length !== 1 || tabs.length !== 1 ||
+      owners[0]!.windowId !== windowId || tabs[0]!.windowId !== windowId ||
+      !exactIds(windows[0]!.tabIds, [tabId]) ||
+      windows[0]!.activeTabId !== tabId || tabs[0]!.hidden
+    ) {
       throw moveError(
         "ELECTRON_CHROMIUM_NEW_WINDOW_OWNER_STALE",
-        "The moved tab did not retain its exact Core/native target owner."
-      );
-    }
-    if (!exact.native.visible) {
-      throw moveError(
-        "ELECTRON_CHROMIUM_NEW_WINDOW_PRESENTATION_INCOMPLETE",
-        "The moved tab's new runtime window did not become visible."
+        "The terminal native show receipt did not retain its exact Core target owner."
       );
     }
   }

@@ -10,6 +10,59 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### macOS takeover execution — 2026-09-07
+
+Safely fetched and checked out `8dff7722462f51d5407cf520bc7d37629829ede9`;
+both `3e2d415a` and `b0c3c184` are ancestors. The clean local-only graphics
+commit `cef7fbb8` is preserved on `codex/macos-preserved-graphics-cef7fbb8`;
+it is not applied to the takeover branch. Retired settings remain absent.
+
+CI 34114497057 at exact `3e2d415a` was inspected without rerunning:
+- Paired stable full jobs 101718052837 / 101718052815 SUCCESS.
+- macOS native 101718227688 SUCCESS. Windows native 101718227707 passes
+  Rust and native integration and is still in renderer validation.
+- macOS Chromium artifact 10016353075, report
+  `2026-09-07T11-02-40-837Z-darwin`, has 54 PASS and four expected force
+  terminations in `chromium-macos-appkit-smoke`; package validation continues.
+- Windows Chromium artifact 10016317719, report
+  `2026-09-07T11-03-22-029Z-win32`, has 53 PASS, four expected terminations
+  and one FAIL in `chromium-tabs-visible-seed`; the restart phase and package
+  steps are not reached. MIXED-RECOVERY force/restart now passes.
+- Shared checks 101718052475 fails two deleted-path documentation references;
+  `8dff7722` already repairs them. Local full hygiene passes at the handoff SHA.
+  The failed CI job is not relabeled successful.
+
+Prior `fc69f683` CI 34111208046 macOS package job 101707644260 is now SUCCESS:
+distribution payloads, packaged Rust updater transaction and packaged AppKit
+Role black-box all pass. This is ephemeral CI trust, not production cutover.
+
+The Windows detach failure reports
+`ELECTRON_CHROMIUM_NEW_WINDOW_COMPENSATION_FAILED`. Its exact flow records
+native reveal/focus applied at 2359 (window generation 72, topology 73), Core
+Show completion at 2368, and a new placement projection at 2371 (topology 74).
+The controller compares newly read Core/native snapshots after Show and
+mistakes the in-flight placement for failed presentation, then attempts
+compensation. Presentation must consume Core's terminal Show snapshot, whose
+return is already conditional on the exact native effect completing. It now
+checks unique window/tab ownership, exact one-tab membership, active tab and
+visibility in that receipt without revoking success from later snapshots.
+Admission, actual native acknowledgement, persistence, rollback and AppKit
+ownership remain unchanged; failed native Show still rejects.
+
+New platform-table regressions reproduce the placement race before the fix
+and reject mismatched terminal ownership; related controller/transition tests
+pass 2 files / 27 tests afterward. Typecheck, focused ESLint and diff checks
+pass. macOS native checks on `8dff7722` (Rust unchanged by this TS repair):
+Rust lint PASS; workspace tests 1677 PASS / five ignored, including the intact
+256-round updater concurrent-winner test. Logs and downloaded CI artifacts:
+`.desktop-e2e-artifacts/macos-takeover-8dff7722`. Repair native replay and full
+JS/build validation remain pending. Affected paired journeys:
+CHROMIUM-MACOS-APPKIT / CHROMIUM-WINDOWS TABS-VISIBLE-ACTIVATION-019,
+GAME-WINDOWS-TABS-020 and RUNTIME-TAB-TOPOLOGY-009. Existing visible E2E
+assertions are unchanged; focused regression coverage is lower-layer-covered.
+Verified count remains 9/18 until the remaining native, import, hardware and
+update gates are met. No publication, credential change or Tauri retirement.
+
 ### macOS workstation takeover — 2026-09-07
 
 Current verified count is 9/18, not a macOS-only remaining queue.

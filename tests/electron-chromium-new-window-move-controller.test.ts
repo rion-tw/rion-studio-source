@@ -174,6 +174,9 @@ class MoveHarness {
   displayScaleFactor = 2;
   failSave = false;
   pendingPlacementAfterShowObservation = false;
+  pendingPlacementAtShowCompletion = false;
+  invalidShowOwner = false;
+  failShow = false;
   moveStatus: SystemRuntimeOperationStatus = "applied";
 
   constructor(
@@ -299,9 +302,29 @@ class MoveHarness {
         );
       }
       case "embeddedWindowsShow": {
+        if (this.failShow) throw new Error("native show failed");
         const native = this.native(command.windowId!);
         Object.assign(native, { visible: true, focused: true });
-        return structuredClone(this.coreSnapshot.browserRuntime);
+        const snapshot = {
+          ...structuredClone(this.coreSnapshot.browserRuntime),
+          windows: this.coreSnapshot.logicalWindows.map((window) => ({
+            windowId: window.windowId,
+            activeTabId: window.activeTabId,
+            tabIds: window.tabs.map((item) => item.id)
+          })),
+          tabs: this.coreSnapshot.logicalWindows.flatMap((window) =>
+            window.tabs.map((item) => ({
+              ...structuredClone(item),
+              windowId: this.invalidShowOwner ? SOURCE_WINDOW_ID : window.windowId,
+              slots: [],
+              webSurfaces: []
+            }))
+          )
+        };
+        if (this.pendingPlacementAtShowCompletion) {
+          this.logical(TARGET_WINDOW_ID).revision += 1;
+        }
+        return snapshot;
       }
       default:
         throw new Error("Unexpected Core command: " + command.type);
@@ -645,6 +668,39 @@ describe("Chromium Core-owned move to new window", () => {
     expect(harness.logical(TARGET_WINDOW_ID).tabs.map((item) => item.id))
       .toEqual([TAB_ID]);
   });
+  it.each(["win32", "darwin"] as const)(
+    "uses the terminal show receipt when placement starts before its continuation on %s", async (platform) => {
+      const harness = new MoveHarness(platform, [tab(TAB_ID), tab(SECOND_TAB_ID)]);
+      harness.pendingPlacementAtShowCompletion = true;
+      const result = await harness.controller().moveTabToNewWindow("move-show-placement", TAB_ID);
+      expect(result.receipt.status).toBe("applied");
+      expect(harness.logical(TARGET_WINDOW_ID).revision)
+        .toBe(harness.native(TARGET_WINDOW_ID).topologyRevision + 1);
+      expect(harness.commands.filter(command => command.type === "embeddedTabMove"))
+        .toHaveLength(platform === "win32" ? 1 : 0);
+      expect(harness.quarantineHost).not.toHaveBeenCalled();
+    }
+  );
+  it.each(["win32", "darwin"] as const)(
+    "rejects a mismatched terminal show owner on %s", async (platform) => {
+      const harness = new MoveHarness(platform, [tab(TAB_ID), tab(SECOND_TAB_ID)]);
+      harness.invalidShowOwner = true;
+      await expect(harness.controller().moveTabToNewWindow("move-show-wrong-owner", TAB_ID))
+        .rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_NEW_WINDOW_OWNER_STALE" });
+      expect(harness.logical(SOURCE_WINDOW_ID).tabs.map(item => item.id))
+        .toEqual([TAB_ID, SECOND_TAB_ID]);
+    }
+  );
+  it.each(["win32", "darwin"] as const)(
+    "does not turn a failed native show into successful detach on %s", async (platform) => {
+      const harness = new MoveHarness(platform, [tab(TAB_ID), tab(SECOND_TAB_ID)]);
+      harness.failShow = true;
+      await expect(harness.controller().moveTabToNewWindow("move-show-failed", TAB_ID))
+        .rejects.toThrow("native show failed");
+      expect(harness.logical(SOURCE_WINDOW_ID).tabs.map(item => item.id))
+        .toEqual([TAB_ID, SECOND_TAB_ID]);
+    }
+  );
   it.each(["win32", "darwin"] as const)(
     "retains the accepted move observation across later placement on %s", async (platform) => {
       const harness = new MoveHarness(platform, [tab(TAB_ID), tab(SECOND_TAB_ID)]);

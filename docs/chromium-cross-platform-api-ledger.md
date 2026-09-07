@@ -10,6 +10,46 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### 009c4eb4 Windows font acceptance and 6ace94b2 paired CI
+
+Windows local chromium-system-settings passes at
+009c4eb4be0e0e069bd1d7aa0a713282164e5b07, including named/system font
+CSS and Canvas application/reset and native diagnostics-export cancellation.
+Artifact .desktop-e2e-artifacts/2026-09-07T09-12-23-954Z-win32;
+log windows-handoff-b0c3c184/009c4eb4-system-settings-x64.log.
+
+CI 34103441049 at 6ace94b2: full Tauri Windows 101682934758 and macOS
+101682934917 pass; macOS native 101683102221 passes. Windows native
+101683102355 has passed Rust lint/test; remaining steps were still running.
+Windows Chromium 101682934832 passes 39 phases then fails system settings
+at the covered English & Latin picker (875,14), matching the exact nested
+scroll defect fixed and locally accepted at 009c4eb4. Artifact 10011979826,
+report 2026-09-07T09-00-27-597Z-win32. All Macro cutover phases, workspace
+recovery, Extensions persistence, upload and CRUD in those 39 phases pass.
+Neither this partial CI nor isolated settings acceptance is a full-profile PASS.
+
+macOS Chromium 101682935016 passes 29 phases then fails input recovery.
+Artifact 10011727659, report 2026-09-07T08-59-04-877Z-darwin.
+Fixture sequences 447-479 contain trusted canvas input but no
+navigation-requested or active-navigation-failure target. The intended native
+navigation click is not established; this is not proof of a Core Macro stop
+failure. Exact native-point/hit-target evidence remains required.
+
+Windows local chromium-role-session-isolation-restart at 009c4eb4 fails seed:
+artifact 2026-09-07T09-20-32-234Z-win32; log
+windows-handoff-b0c3c184/009c4eb4-session-isolation-x64.log.
+Core browserWorkspaceLaunch 87/89 admitted, embeddedCreateTab 88/92
+acknowledged 93/94; ownership effect ddae31b1-1446-4cc8-be0f-dbc0b881d43a
+starts 97 and executor admission completes 109, with no terminal Core ack.
+Both Roles remain launching and no Session is created. Clean exit rejects
+CORE_SHUTDOWN_BROWSER_OPERATIONS_UNVERIFIED at 156-158; report retains
+FAIL and electronProcessExited=false. Subsequent process inspection finds no
+Electron process; that is not an authoritative successful flush. No unchanged
+rerun, deadline increase, or relaxed shutdown/fixture assertion.
+
+Ledger remains 8/18 verified. Full Chromium, session lifecycle, native input
+retirement, packaging/update and physical-device gates remain open; retain Tauri.
+
 ### 5266ff87 Windows Macro close terminal ordering
 
 Windows focused profile chromium-macro-cutover-terminal-cleanup-restart at

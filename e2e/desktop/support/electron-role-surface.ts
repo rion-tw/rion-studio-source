@@ -3,6 +3,7 @@ import { Key } from "webdriverio";
 import { fixtureCursor, waitFixtureEvent } from "./fixture";
 import { sendChromiumEscapeKey } from "./chromium-escape-key";
 import { visibleCanvasPoint } from "./visible-canvas-point";
+import { scrollLayoutControlIntoView } from "./ui";
 
 import {
   electronDesktopE2eProbe,
@@ -111,11 +112,19 @@ async function visiblePageElementGeometry(
 ): Promise<VisibleElectronPageGeometry> {
   const element = await $(selector);
   await element.waitForDisplayed({ timeout: 10_000 });
-  await element.scrollIntoView({ block: "center", inline: "center" });
+  await scrollLayoutControlIntoView(element);
   const geometry = await browser.execute((targetSelector) => {
     const target = document.querySelector(targetSelector);
     if (!(target instanceof HTMLElement)) return null;
     const bounds = target.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+    );
+    if (!hit || (hit !== target && !target.contains(hit))) {
+      throw new Error(`Chromium visible control ${targetSelector} center is covered by ${
+        hit instanceof HTMLElement ? `${hit.tagName}#${hit.id}.${hit.className}` : "no element"
+      }`);
+    }
     return {
       bounds: {
         height: bounds.height,
@@ -233,7 +242,7 @@ export async function clickVisibleElectronPageElement(
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const element = await $(selector);
     await element.waitForDisplayed({ timeout: 10_000 });
-    await element.scrollIntoView({ block: "center", inline: "center" });
+    await scrollLayoutControlIntoView(element);
     await element.click();
   });
 }
@@ -251,7 +260,7 @@ export async function clickVisibleElectronPageElementKeepingTarget(
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const element = await $(selector);
     await element.waitForDisplayed({ timeout: 10_000 });
-    await element.scrollIntoView({ block: "center", inline: "center" });
+    await scrollLayoutControlIntoView(element);
     await element.click();
   }, false);
 }
@@ -265,7 +274,7 @@ async function clickVisibleElectronPageElementWithPointerTarget(
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const element = await $(selector);
     await element.waitForDisplayed({ timeout: 10_000 });
-    await element.scrollIntoView({ block: "center", inline: "center" });
+    await scrollLayoutControlIntoView(element);
     await element.waitForClickable({ timeout: 10_000 });
     await browser.action("pointer", { parameters: { pointerType: "mouse" } })
       .move({ duration: 100, origin: element })

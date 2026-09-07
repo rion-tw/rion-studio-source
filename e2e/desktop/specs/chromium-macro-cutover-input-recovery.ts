@@ -213,6 +213,14 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
       "#active-navigation-failure"
     );
   }
+  const navigationRequested = await waitFixtureEvent({
+    afterSequence: verificationComplete.sequence,
+    kind: "navigation-requested",
+    roleId: FIXTURE_ID
+  });
+  expect(navigationRequested).toMatchObject({
+    isTrusted: true, targetId: "active-navigation-failure"
+  });
   await waitForMacroProjection({
     absent: true,
     afterSequence: failureCursor,

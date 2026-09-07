@@ -192,6 +192,13 @@ export interface RionStudioApi {
   requestChromeQuitForImport: (importId: string) => Promise<ChromeProfileImportPreview>;
   applyChromeProfileImport: (input: ChromeProfileImportInput) => Promise<ChromeProfileImportResult>;
   discardChromeProfileImport: (importId: string) => Promise<void>;
+  getGraphicsSettings: () => Promise<import("./generated").GraphicsSettingsSnapshotRecord>;
+  updateGraphicsSettings: (settings: import("./generated").GraphicsSettingsRecord) => Promise<import("./generated").GraphicsSettingsSnapshotRecord>;
+  getGraphicsStatus: (complete?: boolean) => Promise<import("./generated").GraphicsStatusRecord>;
+  copyGraphicsReport: () => Promise<void>;
+  restartApplication: () => Promise<void>;
+  onGraphicsSettingsChanged: (callback: (snapshot: import("./generated").GraphicsSettingsSnapshotRecord) => void) => () => void;
+  onGraphicsStatusChanged: (callback: (status: import("./generated").GraphicsStatusRecord) => void) => () => void;
   getGameBrowserSettings: () => Promise<GameBrowserSettings>;
   updateGameBrowserSettings: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   patchGameBrowserSettings: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;

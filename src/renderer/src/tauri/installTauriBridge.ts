@@ -1,3 +1,4 @@
+import { defaultGraphicsSettings, unsupportedGraphicsStatus } from "../../../shared/graphicsSettings";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -605,6 +606,13 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     }),
     discardChromeProfileImport: (importId) =>
       invokeCore({ type: "chromeProfileDiscard", importId }).then(() => undefined),
+    getGraphicsSettings: async () => ({ revision: 0, settings: { ...defaultGraphicsSettings } }),
+    updateGraphicsSettings: async () => { throw new Error("Graphics settings require Chromium."); },
+    getGraphicsStatus: async () => unsupportedGraphicsStatus(),
+    copyGraphicsReport: async () => { throw new Error("GPU reports require Chromium."); },
+    restartApplication: async () => { throw new Error("Graphics restart requires Chromium."); },
+    onGraphicsSettingsChanged: () => () => undefined,
+    onGraphicsStatusChanged: () => () => undefined,
     getGameBrowserSettings: () => invokeCore({ type: "gameBrowserSettingsGet" }),
     updateGameBrowserSettings: (settings) =>
       invokeCore({ type: "gameBrowserSettingsReplace", settings }),

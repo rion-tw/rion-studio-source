@@ -1,10 +1,13 @@
+import { sharedUserDataDirectory } from "./electronUserDataDirectory";
+import { GraphicsHost } from "./graphicsHost";
+import { createGraphicsApiDispatcher } from "./graphicsApiDispatcher";
 import { ExtensionStoreHost } from "./extensionStoreHost";
 import { createExtensionApiDispatcher } from "./extensionApiDispatcher";
 import { ChromiumExtensionSessions } from "./chromiumExtensionSessions";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -200,25 +203,6 @@ function platform(): "darwin" | "win32" {
   });
 }
 
-function sharedUserDataDirectory(): string {
-  const override = process.env.RION_STUDIO_USER_DATA_DIR;
-  if (override) {
-    if (app.isPackaged) {
-      throw new RionBridgeError({
-        code: "ELECTRON_USER_DATA_OVERRIDE_FORBIDDEN",
-        message: "The user-data override is restricted to development builds."
-      });
-    }
-    if (!isAbsolute(override)) {
-      throw new RionBridgeError({
-        code: "ELECTRON_USER_DATA_PATH_INVALID",
-        message: "RION_STUDIO_USER_DATA_DIR must be an absolute path."
-      });
-    }
-    return override;
-  }
-  return join(app.getPath("appData"), APP_NAME);
-}
 
 async function createCore(userDataDir: string): Promise<CoreAddonClient> {
   const initialized = await createElectronCore({
@@ -490,6 +474,7 @@ function revealShellError(error: ReturnType<typeof normalizeRionBridgeError>): v
   if (mainIdentity) ipcBridge?.publish(mainIdentity, "onShellError", error);
 }
 async function disposeShellAfterFatalTermination(): Promise<void> {
+  graphicsHost?.dispose();
   chromiumUpdater?.dispose();
   unsubscribeDisplayTopology?.(); unsubscribeDisplayTopology = null;
   displayTopology?.dispose(); displayTopology = null;
@@ -676,6 +661,8 @@ function projectAppSnapshot(snapshot: CoreAppSnapshotRecord) {
   );
 }
 
+let graphicsHost: GraphicsHost | null = null;
+
 async function bootstrap(
   updaterRecovery: { attemptId: string; userDataDir: string } | null = null
 ): Promise<void> {
@@ -695,7 +682,7 @@ async function bootstrap(
     });
     nativeAddon = addon;
   }
-  const userDataDirectory = updaterRecovery?.userDataDir ?? sharedUserDataDirectory();
+  const userDataDirectory = updaterRecovery?.userDataDir ?? sharedUserDataDirectory(app, APP_NAME);
   const preserveDriverUserData = preserveWebDriverUserDataDirectory({
     driverUserDataSwitchPresent: app.commandLine.hasSwitch("user-data-dir"),
     packaged: app.isPackaged,
@@ -708,6 +695,11 @@ async function bootstrap(
     app.quit();
     return;
   }
+  const graphicsAddon = nativeAddon ?? loadNativeAddon();
+  graphicsHost = new GraphicsHost(app,
+    () => graphicsAddon.readGraphicsSettingsAtStartup(userDataDirectory), platform(),
+    (status) => { if (mainIdentity) ipcBridge?.publish(mainIdentity, "onGraphicsStatusChanged", status); },
+    (snapshot) => { if (mainIdentity) ipcBridge?.publish(mainIdentity, "onGraphicsSettingsChanged", snapshot); });
   const startupQuitFence = installElectronStartupQuitFence(app);
   try {
     await runElectronReadyPhase(
@@ -755,6 +747,7 @@ async function bootstrapReadyPhase(
     refreshDisplayTopology("screen-display-metrics-changed");
   });
   core = await createCore(userDataDirectory);
+  graphicsHost?.attach(core);
   runtimeRestoreSession = new ChromiumRuntimeRestoreSessionCoordinator({ core });
   overlayShellEffects = new ElectronOverlayShellEffects({
     clipboard,
@@ -1521,7 +1514,10 @@ async function bootstrapReadyPhase(
   });
   const dispatcher = createElectronUpdaterDispatcher(
     chromiumUpdater,
-    createExtensionApiDispatcher(activeCore(), extensionStore, fontAwareDispatcher)
+    createGraphicsApiDispatcher(activeCore(), graphicsHost!.diagnostics, async (identity) => {
+      currentWindow(identity);
+      await activeLifecycle().confirmRestart();
+    }, createExtensionApiDispatcher(activeCore(), extensionStore, fontAwareDispatcher), (report) => clipboard.writeText(report))
   );
   ipcBridge = registerRionIpcBridge({
     ipcMain,
@@ -1587,6 +1583,7 @@ async function bootstrapReadyPhase(
         unsubscribeDisplayTopology = null;
         await applicationLifecycle?.dispose();
         coreRendererEvents?.dispose();
+        graphicsHost?.dispose();
         chromiumLaunchCompletions?.dispose();
         chromiumLaunchCompletions = null;
         if (chromiumRuntime) await chromiumRuntime.shutdown();

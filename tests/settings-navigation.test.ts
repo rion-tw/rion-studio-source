@@ -9,6 +9,7 @@ import {
 describe("settings navigation", () => {
   it("normalizes section query values", () => {
     expect(readSettingsSection("preferences")).toBe("preferences");
+    expect(readSettingsSection("graphics")).toBe("graphics");
     expect(readSettingsSection("interface")).toBe("interface");
     expect(readSettingsSection("macros")).toBe("macros");
     expect(readSettingsSection("data")).toBe("data");
@@ -23,7 +24,8 @@ describe("settings navigation", () => {
     expect(settingsSectionQueryValues).toMatchObject({
       data: "data",
       interface: "interface",
-      preferences: "preferences"
+      preferences: "preferences",
+      graphics: "graphics"
     });
   });
 

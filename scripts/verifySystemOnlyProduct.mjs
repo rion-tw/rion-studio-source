@@ -116,6 +116,7 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs"
   ])],
   ["electron", new Set([
+    "scripts/desktopE2eElectronShutdown.mjs",
     "scripts/probeChromiumInput.cjs",
     "scripts/probeChromiumViewport.cjs",
     "scripts/probeChromiumShortcuts.cjs",
@@ -389,7 +390,6 @@ for (const customBackgroundMechanism of [
 }
 for (const [path, retiredContract] of [
   ["src/shared/api.ts", "getGraphicsDiagnostics"],
-  ["src/shared/api.ts", "restartApplication"],
   ["src/shared/generated/CoreCommand.ts", "graphicsDiagnosticsAssemble"],
   ["src/shared/generated/EngineCapabilitySnapshotRecord.ts", "graphicsTuning"]
 ]) {

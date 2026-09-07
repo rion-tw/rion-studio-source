@@ -765,3 +765,30 @@ history, while v23 becomes the only active runtime contract.
 The additive [Extensions capability](extensions.md) keeps package and role
 configuration authority in Rust and loads approved packages into role Sessions.
 Its paired native and desktop journey gates are required before production use.
+
+## Application graphics preferences
+
+Chromium exposes application-wide GPU acceleration (default on), GPU rasterization
+(auto/enabled/disabled), and hardware video decoding (auto/disabled) on the dedicated
+Graphics settings page (`/settings?section=graphics`) in the General sidebar group. Rust owns the independent, revisioned `graphicsSettings` SQLite record.
+It is local to the installation, excluded from portable export/import, and retained
+when other state snapshots are replaced. A synchronous Node-API read applies the
+record before Electron ready; missing preferences use defaults and unreadable
+preferences fail startup without repair or writes. The stable v22 shell does not
+expose these controls or change its native WebView policy.
+
+Saved preferences and the current process's applied preferences remain distinct.
+The GPU master switch suppresses subordinate overrides without erasing their
+stored values. Rasterization uses only enable/disable-gpu-rasterization; video
+decoding uses only disable-accelerated-video-decode. Default modes add no switches.
+No blocklist, sandbox, driver workaround, ANGLE, frame cadence or page-quality
+bypass is introduced. Restart passes the existing renderer quit guard and the
+exact clean Core shutdown before Electron schedules relaunch.
+
+GPU feature status originates from Electron's gpu-info-update event. The main
+process publishes sequenced observations; complete information is requested on
+page entry or refresh and stale promise results are discarded. Graphics information
+is always visible in a separate settings group without a disclosure control. Diagnostics show
+actual observations, missing fields remain unavailable, and errors never become
+success through elapsed time. This feature does not sample frame rate or poll GPU
+state. Both platforms exercise the paired GRAPHICS-SETTINGS-001 journeys.

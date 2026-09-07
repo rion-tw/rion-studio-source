@@ -473,6 +473,7 @@ pub enum CoreEvent {
         #[ts(rename = "schemaVersion")]
         schema_version: u32,
     },
+    GraphicsSettingsChanged { snapshot: GraphicsSettingsSnapshotRecord },
     StateChanged {
         #[ts(type = "number")]
         revision: u64,

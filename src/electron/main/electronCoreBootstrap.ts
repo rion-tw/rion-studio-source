@@ -32,6 +32,7 @@ export interface LoadedRionNodeAddon
     WindowsRuntimeShortcutOwnerDiagnosticPort {
   /** Same clock domain as Core Macro scheduledAtMs and deadlineMs. */
   macroInputEpochMillis: () => number;
+  readGraphicsSettingsAtStartup: (userDataDir: string) => string;
 }
 
 interface ElectronCoreBootstrapOptions {

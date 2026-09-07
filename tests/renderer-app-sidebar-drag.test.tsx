@@ -2,7 +2,8 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
+import { unsupportedGraphicsStatus } from "../src/shared/graphicsSettings";
 
 import { AppSidebar } from "../src/renderer/src/components/AppSidebar";
 import { WindowDragHandle } from "../src/renderer/src/components/WindowDragHandle";
@@ -56,7 +57,27 @@ function installWindowBridge() {
   return { startCurrentWindowDrag, toggleCurrentWindowMaximize };
 }
 
+function SettingsLocation(): React.JSX.Element {
+  const location = useLocation();
+  return <output aria-label="Settings location">{location.pathname}{location.search}</output>;
+}
+
 describe("application sidebar window dragging", () => {
+  it.each(["mac", "windows"] as const)("opens a dedicated graphics page from General on %s", async (platform) => {
+    installWindowBridge();
+    setWindowPlatform(platform);
+    window.rionStudio.getGraphicsStatus = vi.fn(async () => ({ ...unsupportedGraphicsStatus(), supported: true }));
+    render(<MemoryRouter initialEntries={["/settings"]}>
+      <SettingsSidebar t={t} /><SettingsLocation />
+    </MemoryRouter>);
+    const general = screen.getByRole("navigation", { name: "General" });
+    fireEvent.click(await within(general).findByRole("button", { name: "Graphics settings" }));
+    expect(screen.getByLabelText("Settings location").textContent).toBe("/settings?section=graphics");
+    expect(within(general).getByRole("button", { name: "Graphics settings" }).className).toContain("nav-item-active");
+    fireEvent.click(within(general).getByRole("button", { name: "Preferences" }));
+    expect(screen.getByLabelText("Settings location").textContent).toBe("/settings?section=preferences");
+  });
+
   it("groups preferences with general settings and data transfer with system settings", () => {
     installWindowBridge();
     setWindowPlatform("windows");

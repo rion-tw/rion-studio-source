@@ -8,6 +8,7 @@ export interface ElectronAppLifecyclePort {
   on: (event: AppEvent, listener: AppListener) => void;
   removeListener: (event: AppEvent, listener: AppListener) => void;
   quit: () => void;
+  relaunch?: () => void;
 }
 
 export interface ElectronLifecycleWindowPort {
@@ -223,6 +224,17 @@ export class ElectronMainLifecycle {
   confirmQuit(): Promise<void> {
     if (this.#quitPromise) return this.#quitPromise;
     this.#quitPromise = this.prepareCleanQuit().then(() => {
+      this.#input.app.quit();
+    });
+    return this.#quitPromise;
+  }
+
+  /** Invoked only after the renderer's guarded application action approves restart. */
+  confirmRestart(): Promise<void> {
+    if (this.#quitPromise) return this.#quitPromise;
+    if (!this.#input.app.relaunch) return Promise.reject(new Error("Application restart is unavailable."));
+    this.#quitPromise = this.prepareCleanQuit().then(() => {
+      this.#input.app.relaunch!();
       this.#input.app.quit();
     });
     return this.#quitPromise;

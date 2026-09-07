@@ -159,6 +159,11 @@ export type { EngineCapabilitySnapshotRecord } from "./EngineCapabilitySnapshotR
 export type { EngineCapabilityEvidenceRecord } from "./EngineCapabilityEvidenceRecord";
 export type { EngineCapabilityStatus } from "./EngineCapabilityStatus";
 export type { SystemWebViewIssueReason } from "./SystemWebViewIssueReason";
+export type { GraphicsSettingsRecord } from "./GraphicsSettingsRecord";
+export type { GraphicsSettingsSnapshotRecord } from "./GraphicsSettingsSnapshotRecord";
+export type { GraphicsStatusRecord } from "./GraphicsStatusRecord";
+export type { GpuRasterizationMode } from "./GpuRasterizationMode";
+export type { HardwareVideoDecodeMode } from "./HardwareVideoDecodeMode";
 export type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";
 export type { GameBrowserSettingsPatchRecord } from "./GameBrowserSettingsPatchRecord";
 export type { GameCreateInputRecord } from "./GameCreateInputRecord";

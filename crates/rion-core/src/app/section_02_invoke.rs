@@ -299,6 +299,23 @@ impl AppCore {
             CoreCommand::MacrosClearRole { role_id } => {
                 self.mutate_state(StateMutation::MacrosClearRole { role_id })
             }
+            CoreCommand::GraphicsSettingsGet => {
+                let _guard = self.state_mutation_guard()?;
+                serde_json::to_value(self.read_optional_scalar_state::<crate::model::GraphicsSettingsSnapshotRecord>("graphicsSettings")?.unwrap_or_default())
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::GraphicsSettingsReplace { settings } => {
+                let _guard = self.state_mutation_guard()?;
+                let previous = self.read_optional_scalar_state::<crate::model::GraphicsSettingsSnapshotRecord>("graphicsSettings")?.unwrap_or_default();
+                let snapshot = if previous.settings == settings { previous } else {
+                    let revision = previous.revision.checked_add(1).ok_or_else(|| CoreError::Internal("graphics revision exhausted".to_owned()))?;
+                    let snapshot = crate::model::GraphicsSettingsSnapshotRecord { revision, settings };
+                    self.replace_scalar_state_under_guard("graphicsSettings", snapshot.clone())?;
+                    self.emit(vec![CoreEvent::GraphicsSettingsChanged { snapshot: snapshot.clone() }]);
+                    snapshot
+                };
+                serde_json::to_value(snapshot).map_err(|error| CoreError::Internal(error.to_string()))
+            }
             CoreCommand::GameBrowserSettingsGet => {
                 serde_json::to_value(self.read_scalar_state::<GameBrowserSettingsRecord>(
                     "gameBrowserSettings",

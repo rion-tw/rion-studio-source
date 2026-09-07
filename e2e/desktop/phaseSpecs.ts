@@ -63,6 +63,8 @@ export const desktopE2eSpecByPhase: Readonly<Record<string, string>> = {
   "chromium-quit-guard-seed": "e2e/desktop/specs/chromium-quit-guard.e2e.ts",
   "chromium-quick-access-restart": "e2e/desktop/specs/chromium-quick-access.e2e.ts",
   "chromium-quick-access-seed": "e2e/desktop/specs/chromium-quick-access.e2e.ts",
+  "chromium-graphics-settings-seed": "e2e/desktop/specs/chromium-graphics-settings.e2e.ts",
+  "chromium-graphics-settings-restart": "e2e/desktop/specs/chromium-graphics-settings.e2e.ts",
   "chromium-system-settings": "e2e/desktop/specs/chromium-system-settings.e2e.ts",
   "chromium-tabs-visible-restart": "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
   "chromium-tabs-visible-seed": "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",

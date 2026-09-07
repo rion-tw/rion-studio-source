@@ -22,6 +22,7 @@ import type { CoreStateSnapshotRecord } from "./CoreStateSnapshotRecord";
 import type { DiagnosticExportResultRecord } from "./DiagnosticExportResultRecord";
 import type { EmbeddedKeyTransitionRecord } from "./EmbeddedKeyTransitionRecord";
 import type { EmbeddedLaunchResultRecord } from "./EmbeddedLaunchResultRecord";
+import type { GraphicsSettingsSnapshotRecord } from "./GraphicsSettingsSnapshotRecord";
 import type { GameBrowserSettingsRecord } from "./GameBrowserSettingsRecord";
 import type { GlobalWebProfilePathsRecord } from "./GlobalWebProfilePathsRecord";
 import type { GlobalWebProfileClearReceiptRecord } from "./GlobalWebProfileClearReceiptRecord";
@@ -133,6 +134,8 @@ type TypedCoreCommandResultMap = {
   macroCreate: StateMacroRecord;
   macroUpdate: StateMacroRecord;
   macrosDelete: BulkDeleteResultRecord;
+  graphicsSettingsGet: GraphicsSettingsSnapshotRecord;
+  graphicsSettingsReplace: GraphicsSettingsSnapshotRecord;
   gameBrowserSettingsGet: GameBrowserSettingsRecord;
   gameBrowserSettingsReplace: GameBrowserSettingsRecord;
   gameBrowserSettingsPatch: GameBrowserSettingsRecord;

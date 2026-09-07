@@ -152,6 +152,8 @@
         "chromium-app-crud-cleanup",
         "chromium-app-crud-final-restart",
         "chromium-system-settings",
+        "chromium-graphics-settings-seed",
+        "chromium-graphics-settings-restart",
         "chromium-quit-guard-seed",
         "chromium-quit-guard-restart",
         "chromium-role-session-isolation-seed",
@@ -194,6 +196,7 @@
         "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
         "e2e/desktop/specs/chromium-app-crud.e2e.ts",
         "e2e/desktop/specs/chromium-system-settings.e2e.ts",
+        "e2e/desktop/specs/chromium-graphics-settings.e2e.ts",
         "e2e/desktop/specs/chromium-quit-guard.e2e.ts",
         "e2e/desktop/specs/chromium-role-session-isolation.e2e.ts",
         "e2e/desktop/specs/chromium-role-session-reset.e2e.ts",
@@ -247,6 +250,8 @@
         "chromium-app-crud-cleanup",
         "chromium-app-crud-final-restart",
         "chromium-system-settings",
+        "chromium-graphics-settings-seed",
+        "chromium-graphics-settings-restart",
         "chromium-quit-guard-seed",
         "chromium-quit-guard-restart",
         "chromium-role-session-isolation-seed",
@@ -289,6 +294,7 @@
         "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
         "e2e/desktop/specs/chromium-app-crud.e2e.ts",
         "e2e/desktop/specs/chromium-system-settings.e2e.ts",
+        "e2e/desktop/specs/chromium-graphics-settings.e2e.ts",
         "e2e/desktop/specs/chromium-quit-guard.e2e.ts",
         "e2e/desktop/specs/chromium-role-session-isolation.e2e.ts",
         "e2e/desktop/specs/chromium-role-session-reset.e2e.ts",
@@ -2752,6 +2758,52 @@
       "replaces": [
         "MACRO-SOURCE-ROLE-014"
       ]
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-GRAPHICS-SETTINGS-001",
+      "coverageGroup": "chromium-v23-graphics-settings",
+      "feature": "settings",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-graphics-settings-seed",
+        "chromium-graphics-settings-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-graphics-settings.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "restart"
+      ],
+      "description": "Select GPU rasterization and video decoding through the dedicated Graphics settings page in the General sidebar group, verify Preferences contains no graphics controls, disable hardware acceleration, read the always-visible GPU diagnostics in their own group, then verify the saved subordinate choices and actual disabled acceleration in a fresh process using the same SQLite namespace."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-GRAPHICS-SETTINGS-001",
+      "coverageGroup": "chromium-v23-graphics-settings",
+      "feature": "settings",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-graphics-settings-seed",
+        "chromium-graphics-settings-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-graphics-settings.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": [
+        "success",
+        "restart"
+      ],
+      "description": "Select GPU rasterization and video decoding through the dedicated Graphics settings page in the General sidebar group, verify Preferences contains no graphics controls, disable hardware acceleration, read the always-visible GPU diagnostics in their own group, then verify the saved subordinate choices and actual disabled acceleration in a fresh process using the same SQLite namespace."
     }
   ]
 }

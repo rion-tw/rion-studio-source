@@ -188,6 +188,8 @@ pub enum CoreCommand {
         #[ts(rename = "roleId")]
         role_id: String,
     },
+    GraphicsSettingsGet,
+    GraphicsSettingsReplace { settings: GraphicsSettingsRecord },
     GameBrowserSettingsGet,
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,

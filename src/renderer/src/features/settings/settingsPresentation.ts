@@ -13,6 +13,7 @@ export const settingsSectionTitleKeys: Record<SettingsSectionId, TranslationKey>
   interface: "settings.interface",
   macros: "settings.macros",
   preferences: "settings.preferences",
+  graphics: "settings.graphics.title",
   updates: "settings.updates",
   diagnostics: "settings.diagnostics"
 };
@@ -23,6 +24,7 @@ export const settingsSectionDescriptionKeys: Record<SettingsSectionId, Translati
   interface: "settings.interfaceDescription",
   macros: "settings.macrosDescription",
   preferences: "settings.preferencesDescription",
+  graphics: "settings.graphics.description",
   updates: "settings.updatesDescription",
   diagnostics: "settings.diagnosticsDescription"
 };

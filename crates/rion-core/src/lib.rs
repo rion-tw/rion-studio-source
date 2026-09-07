@@ -15,6 +15,7 @@ mod error;
 mod extensions;
 mod font_catalog;
 mod global_web_profile;
+mod graphics_settings;
 mod layout;
 mod legal;
 mod log_capture;
@@ -51,6 +52,7 @@ pub use chrome_profile_import_contract::{
     ChromeProfileImportVaultEvidence,
 };
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
+pub use graphics_settings::read_graphics_settings_at_startup;
 pub use legal::current_versions as current_legal_document_versions;
 pub use macro_runtime::{
     MacroInputRecoveryCompletion, MacroInputRecoveryTicket, macro_input_epoch_millis,
@@ -157,6 +159,10 @@ pub use model::{
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
     WorkspaceLayoutInput, WorkspaceLayoutOutput, WorkspaceSlotInputRecord, WorkspaceSlotRequest,
     WorkspaceUpdateInputRecord, WorkspaceUpdateRequest, WorkspaceWebContentRecord,
+};
+pub use model::{
+    GpuRasterizationMode, GraphicsSettingsRecord, GraphicsSettingsSnapshotRecord,
+    GraphicsStatusRecord, HardwareVideoDecodeMode,
 };
 pub use portable::PORTABLE_SCHEMA_VERSION;
 pub use runtime_kernel::{

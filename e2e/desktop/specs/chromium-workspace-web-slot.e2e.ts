@@ -1,3 +1,4 @@
+import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 
 import type {
@@ -166,7 +167,7 @@ async function createWorkspaceThroughVisibleSlotControls(
   await setInputValue("#workspace-web-name", WEB_NAME);
   await setInputValue("#workspace-web-url", configuredWebUrl());
 
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${role.id}']`).click();

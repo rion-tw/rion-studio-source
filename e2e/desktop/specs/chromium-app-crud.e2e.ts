@@ -1,3 +1,4 @@
+import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
@@ -184,7 +185,7 @@ async function createRecoveryWorkspace(
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${primaryRole.id}']`).click();
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${recoveryRole.id}']`).click();

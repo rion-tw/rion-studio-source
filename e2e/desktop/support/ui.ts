@@ -128,6 +128,14 @@ export async function acceptLegalAndSkipFirstRun(): Promise<void> {
   await sidebar.waitForExist({ timeout: 20_000 });
 }
 
+/** Keep the selected slot clear of the fixed native titlebar drag overlay. */
+export async function clickWorkspaceSlot(index: number): Promise<void> {
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error("Invalid workspace slot index");
+  const slot = await $(`[data-workspace-slot-index='${index}']`);
+  await slot.scrollIntoView({ block: "center", inline: "center" });
+  await slot.waitForClickable({ timeout: 10_000 });
+  await slot.click();
+}
 export async function clickWorkspaceCreateAction(): Promise<void> {
   for (const label of ["New workspace", "Create workspace"] as const) {
     const action = await $(`button=${label}`);

@@ -1,3 +1,4 @@
+import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -137,7 +138,7 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await $("[role='option']=Web app").click();
   await setInputValue("#workspace-web-name", WEB_NAME);
   await setInputValue("#workspace-web-url", fixtureUrl(WEB_FIXTURE, MARKERS.web));
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${role.id}']`).click();

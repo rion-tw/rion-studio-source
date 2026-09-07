@@ -1,3 +1,4 @@
+import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 
 import type { AppSnapshot, Game, LaunchWorkspace, Macro, Role } from "../../../src/shared/types";
@@ -141,7 +142,7 @@ async function createRecoveryWorkspace(primaryRole: Role, recoveryRole: Role): P
   await primaryRoleOption.waitForExist({ timeout: 10_000 });
   await primaryRoleOption.click();
   await $(`[data-workspace-role-id='${primaryRole.id}']`).click();
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   const recoveryRoleOption = await $("[role='option']=Role");
   await recoveryRoleOption.waitForExist({ timeout: 10_000 });

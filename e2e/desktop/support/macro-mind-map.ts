@@ -1,6 +1,7 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 
 import { moveMacosMindMapPointer } from "./macos-mind-map-pointer";
+import { moveWindowsMindMapPointer } from "./windows-mind-map-pointer";
 
 interface MindMapFrame {
   activeIds: string[];
@@ -28,6 +29,7 @@ export async function exerciseMacroMindMapHover(): Promise<void> {
     if (!id) throw new Error("Mind map node has no identity");
     await node.scrollIntoView({ block: "center", inline: "center" });
     if (process.platform === "darwin" && browser.tauri) await moveMacosMindMapPointer(id);
+    else if (process.platform === "win32" && browser.tauri) await moveWindowsMindMapPointer(id);
     else await node.moveTo();
     await browser.waitUntil(async () => (await node.getAttribute("class") ?? "")
       .split(" ").includes("macro-mind-map-node-active"), {
@@ -66,5 +68,6 @@ export async function exerciseMacroMindMapHover(): Promise<void> {
   }
   // Leave the canvas before the existing click-selection assertions.
   if (process.platform === "darwin" && browser.tauri) await moveMacosMindMapPointer();
+  else if (process.platform === "win32" && browser.tauri) await moveWindowsMindMapPointer();
   else await $(".app-main-sidebar").moveTo();
 }

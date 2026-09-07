@@ -1,3 +1,4 @@
+import { clickWorkspaceSlot } from "../support/ui";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -229,7 +230,7 @@ async function createWorkspace(roleA: Role, roleB: Role): Promise<LaunchWorkspac
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${roleA.id}']`).click();
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${roleB.id}']`).click();

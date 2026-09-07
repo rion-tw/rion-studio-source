@@ -37,8 +37,16 @@ public static class RionProbeCaption {
       throw new InvalidOperationException("The exact visible probe caption is unavailable.");
     var point = new Point { x = (rect.left + rect.right) / 2, y = (rect.top + origin.y) / 2 };
     var packed = new IntPtr(unchecked((int)(((uint)point.y & 0xffff) << 16 | ((uint)point.x & 0xffff))));
-    if (GetAncestor(WindowFromPoint(point), 2) != hwnd || SendMessage(hwnd, 0x0084, IntPtr.Zero, packed).ToInt64() != 2)
-      throw new InvalidOperationException("The exact probe title bar is occluded or no longer under the pointer target.");
+    var actualRoot = GetAncestor(WindowFromPoint(point), 2);
+    var hitTest = SendMessage(hwnd, 0x0084, IntPtr.Zero, packed).ToInt64();
+    if (actualRoot != hwnd || hitTest != 2) {
+      uint actualPid;
+      GetWindowThreadProcessId(actualRoot, out actualPid);
+      throw new InvalidOperationException("The exact probe title bar is occluded or no longer under the pointer target." +
+        " expectedHwnd=" + hwnd.ToInt64() + " actualHwnd=" + actualRoot.ToInt64() +
+        " expectedPid=" + expectedPid + " actualPid=" + actualPid + " hitTest=" + hitTest +
+        " point=" + point.x + "," + point.y + " windowTop=" + rect.top + " clientTop=" + origin.y);
+    }
     Point actual;
     if (!SetCursorPos(point.x, point.y) || !GetCursorPos(out actual) ||
         actual.x != point.x || actual.y != point.y || GetAncestor(WindowFromPoint(actual), 2) != hwnd)

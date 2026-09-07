@@ -1,3 +1,4 @@
+import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
@@ -372,7 +373,7 @@ async function createAndEditWorkspace(role: Role): Promise<LaunchWorkspace> {
   await setInputValue("#workspace-web-url",
     `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/chromium-workspace-web`
   );
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${role.id}']`).click();

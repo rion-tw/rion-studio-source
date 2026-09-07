@@ -28,6 +28,72 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+The UI-driver follow-up also verifies production bundle isolation: an initial
+check intentionally rejects the currently built E2E bundle; rebuild Electron
+main/preload/renderer with RION_STUDIO_DESKTOP_E2E_BUILD=0, then the production
+Cargo graph/config/bundle isolation gate passes. Restore the E2E bundle with
+RION_STUDIO_DESKTOP_E2E_BUILD=1 for subsequent native journeys. This is bundle
+isolation evidence, not a production-addon or package acceptance claim.
+Logs: 33c-ui-driver-production-bundles.log and 33c-ui-driver-e2e-bundles.log.
+### 33c3738c native acceptance, exact UI failures, and workstation obstruction
+
+Windows local Rust 1.98.1 x64 full workspace tests pass: 1,671 passed, 0 failed,
+4 explicitly ignored; Core 979 tests / 192.20s and updater 41 tests / 1.81s.
+The terminal_receipt_create_new_commit_has_exactly_one_concurrent_winner test
+retains all 256 rounds. The log is ca7a0b3a-test-rust-x64.log: it started before
+the E2E/bootstrap-only 33c3738c commit, with unchanged Rust sources. Windows lint
+already passed. macOS ca7a0b3a CI 101656222944 actually runs and passes Rust lint,
+1,679 tests (5 ignored), and native integration 14 passed / 2 platform skips.
+Do not accept that run's Windows pnpm-driven job greens, which were no-ops.
+
+Local Windows Electron 43.6.0 / Chromium 150.0.7871.250 native integration at
+33c3738c passes 8 files / 16 tests in 93.37s, including exact hidden/sibling and
+background-parent View input ownership, trusted DOM delivery and focus retention.
+Log: 33c3738c-native-integration-x64.log. The E2E addon/build and renderer purity
+check also pass (33c3738c-build-chromium-e2e-x64.log).
+
+CI 34096644201 binds 33c3738c7b1bfb7cc62183af082d1fcfce1d6f6d. The repaired
+Windows bootstrap runs actual scripts. Windows Chromium artifact 10009032625 /
+2026-09-07T07-42-22-412Z-win32 passes Extensions seed/restart, shell smoke,
+physical input, Game CRUD seed/restart, then fails entity persistence seed.
+Both Chromium jobs (Windows 101661672889, macOS 101661672817) reject a workspace
+slot click under the fixed titlebar drag overlay (x=801, y=20 Windows / y=9 Mac).
+Use the shared clickWorkspaceSlot UI driver to scroll the exact slot to the
+viewport center, require clickability, and perform the visible click. Apply it
+to the same slot-selection pattern in persistence, workspace, isolation, CRUD
+and recovery journeys; never dispatch a synthetic DOM click or remove the overlay.
+Affected paired journey families include ROLE-PERSIST-003, WORKSPACE-PERSIST-004,
+MACRO-PERSIST-005, FULL-CRUD-010, CRUD-REORDER-011, APP-RECOVERY-015,
+WORKSPACE-WEB-SLOT-016, WORKSPACE-WEB-FULLSCREEN-017 and MIXED-RECOVERY-021,
+plus their stable app-journey coverage. Native replay remains pending.
+
+macOS stable full job 101661672820 passes at 33c3738c; macOS native job
+101661840847 passes. Windows stable 101661672944 fails the newly added
+MACROS-UI-001 hover gate (root:macro never gains its active class). Artifact
+10009152776 / 2026-09-07T07-42-14-572Z-win32 shows the visible measured graph.
+Use a Windows Tauri native pointer driver after the authoritative main-focus
+receipt, binding PID, client origin/size and the unobscured DOM target; verify
+native foreground/root HWND and exact cursor readback. Preserve all 30-frame
+active-node, visibility, geometry and edge assertions. Chromium and AppKit paths
+retain their existing drivers. C# declarations compile locally; TypeScript,
+focused lint, source hygiene (2,495 files) and coverage pass. Native hover
+acceptance is pending. The caption diagnostic's five focused tests also pass.
+
+Local Macro terminal-cleanup attempt 2026-09-07T07-53-05-966Z-win32 fails its
+physical prerequisite before any cleanup seed. Diagnostic-only follow-up
+2026-09-07T07-57-13-017Z-win32 records expected probe HWND 1574310 / PID 18648,
+actual HWND 16385086 / PID 20736, hitTest=2, point=(935,189). The obstructing
+PickerHost.exe owns a Shell_SystemDim overlay; subsequent exact process-window
+inspection identifies a Windows Security system dialog. It is not a Rion View
+failure and has NOT been attributed to the pnpm reproduction. The owner was
+asked to complete/dismiss the system dialog; no credentials or system-dialog
+controls were operated. Local input replay is pending removal of that observed
+obstruction. The diagnostic preserves the original caption rejection.
+
+The isolated workspace layout assertion from the earlier all-file Vitest failure
+passes once with its original assertion (1 passed / 8 filtered skips, 6.99s;
+ca7-layout-failure-isolated.log). Keep the all-file run failed; an isolated pass
+neither proves a contention cause nor replaces the outstanding Windows gate.
 ### Windows all-file Vitest qualification on the upgraded toolchain
 
 The local all-file run ends at 434 passing / 19 failing / 10 skipped files,

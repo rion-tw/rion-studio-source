@@ -13,6 +13,7 @@ import {
   acceptLegalAndSkipFirstRun,
   clickEntityMenuAction,
   clickWorkspaceCreateAction,
+  clickWorkspaceSlot,
   ensureEnglishUi,
   setEditorName,
   submitEditor,
@@ -117,7 +118,7 @@ export async function createCutoverRoleWorkspace(
   await waitForRoute("/workspaces/new");
   await setEditorName(name);
   for (const [index, role] of roles.entries()) {
-    if (index > 0) await $(`[data-workspace-slot-index='${index}']`).click();
+    if (index > 0) await clickWorkspaceSlot(index);
     await $("#workspace-slot-content").click();
     await $("[role='option']=Role").click();
     const option = await $(`[data-workspace-role-id='${role.id}']`);

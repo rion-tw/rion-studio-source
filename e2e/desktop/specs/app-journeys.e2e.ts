@@ -1,3 +1,4 @@
+import { clickWorkspaceSlot } from "../support/ui";
 import { assertSeedPrimaryPage } from "../support/primary-navigation";
 import { exerciseMacroMindMapHover } from "../support/macro-mind-map";
 import { $, browser, expect } from "@wdio/globals";
@@ -267,7 +268,7 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await $("#workspace-web-url").setValue(
     `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}?mode=seed&marker=${WEB_SESSION_MARKER}`
   );
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   const roleOption = await $("[role='option']=Role");
   await roleOption.waitForExist({ timeout: 10_000 });
@@ -302,7 +303,7 @@ async function createContainedFullscreenWorkspace(role: Role): Promise<LaunchWor
   await $("#workspace-web-url").setValue(
     `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}`
   );
-  await $("[data-workspace-slot-index='1']").click();
+  await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
   await $(`[data-workspace-role-id='${role.id}']`).click();

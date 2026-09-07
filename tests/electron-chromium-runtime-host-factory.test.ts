@@ -211,6 +211,7 @@ class FakeWindow {
   }
 
   isFullScreen(): boolean {
+    if (this.destroyed) throw new Error("Object has been destroyed");
     return this.fullscreen;
   }
 

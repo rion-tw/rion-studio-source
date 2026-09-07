@@ -383,7 +383,7 @@ export class WindowsRuntimeHostChromeController {
       ) {
         throw chromeError(
           "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE",
-          "The bundled toolbar command did not match its exact sender projection."
+          `The bundled toolbar command did not match its exact sender projection: ${JSON.stringify(isWindowsRuntimeHostCommand(candidate) ? { type: candidate.type, submitted: candidate.projectionRevision, current: this.#projectionRevision, windowId: candidate.windowId } : { malformed: true })}.`
         );
       }
       if (candidate.type === "workspaceDividerPointer") {
@@ -557,6 +557,13 @@ export class WindowsRuntimeHostChromeController {
     });
     this.#commandLane = operation.catch(() => undefined);
     return operation;
+  }
+
+  readCoreFence(): Readonly<{ windowGeneration: number; topologyRevision: number }> {
+    return Object.freeze({
+      windowGeneration: this.#windowGeneration,
+      topologyRevision: this.#topologyRevision
+    });
   }
 
   readObservation(): ChromiumRuntimeFullscreenToolbarObservation {

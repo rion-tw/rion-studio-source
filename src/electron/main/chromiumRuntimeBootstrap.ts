@@ -617,10 +617,13 @@ export class ChromiumRuntimeBootstrap {
       input.platform === "win32"
         ? {
             platform: "win32",
-            onError: (error) => input.onError(normalizeRionBridgeError(
-              error,
-              "ELECTRON_WINDOWS_RUNTIME_COMMAND_FAILED"
-            )),
+            onError: (error) => {
+              if (error instanceof Error) console.error(error.stack);
+              input.onError(normalizeRionBridgeError(
+                error,
+                "ELECTRON_WINDOWS_RUNTIME_COMMAND_FAILED"
+              ));
+            },
             browserWindows: input.windows!.browserWindows,
             displays: input.windows!.displays,
             runtimeDocumentPath: input.windows!.runtimeDocumentPath,

@@ -711,7 +711,7 @@ implements ChromiumNewWindowMovePort {
     ) {
       throw moveError(
         "ELECTRON_CHROMIUM_NEW_WINDOW_FENCE_STALE",
-        "The Core and native runtime-window ownership fence is stale."
+        `The Core and native runtime-window ownership fence is stale: ${JSON.stringify({ windowId, core: logical && { generation: logical.windowGeneration, revision: logical.revision, tabIds: logical.tabs.map((tab) => tab.id) }, native: native && { generation: native.windowGeneration, revision: native.topologyRevision, tabIds: native.tabIds } })}.`
       );
     }
     return { logical, native };

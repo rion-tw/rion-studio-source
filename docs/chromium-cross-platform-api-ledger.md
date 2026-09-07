@@ -28,6 +28,23 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Native close stream and remaining terminal errors — 2026-09-07
+
+At 3aa30075, Windows artifact 2026-09-07T05-11-12-221Z-win32 completed the
+visible tabs seed actions including native resize/minimize/restore, but its final
+empty-shell-error assertion rejected five errors. The closed stream incorrectly
+called the fullscreen observation reader after BrowserWindow destruction. Making
+the fake native fullscreen accessor reject after destruction reproduced `failed`
+instead of `closed`; reading the controller's retained Core fence fixes that
+regression (60 host/chrome tests pass). Viewport validation/cache is extracted to
+windowsRuntimeHostGeometry to restore the 64 KiB host-factory limit; hygiene and
+typecheck pass. Toolbar stale-command diagnostics now retain command/projection
+identity, and new-window diagnostics retain Core/native generation/revision and
+membership; native errors retain their stack in the process log. These diagnose
+the remaining command race without suppressing the shell error journal. Paired
+journeys chromium-tabs-019/020 remain pending; no input or Tauri deletion gate is
+released by this focused evidence.
+
 ### Minimized native viewport preservation — 2026-09-07
 
 At 4c572d72, artifact 2026-09-07T05-06-16-754Z-win32 passed physical resize and

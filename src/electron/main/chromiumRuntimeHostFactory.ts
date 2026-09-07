@@ -1,3 +1,4 @@
+import { requireBounds, WindowsRuntimeContentGeometry } from "./windowsRuntimeHostGeometry";
 import { parse, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -229,7 +230,7 @@ interface WindowsHostRecord {
   windowState: WindowsRuntimeWindowStateStream;
   shortcutOwnerInstalled: boolean;
   lastNativeLayoutSignature: string | null;
-  lastUnminimizedContentBounds: ChromiumRoleSurfaceBounds | null;
+  readonly contentGeometry: WindowsRuntimeContentGeometry;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -268,27 +269,6 @@ function requireIdentifier(value: unknown, field: string): string {
     );
   }
   return value;
-}
-
-function requireBounds(
-  bounds: ChromiumRoleSurfaceBounds,
-  field: string,
-  minimumWidth = 1,
-  minimumHeight = 1
-): void {
-  if (
-    !bounds ||
-    ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isSafeInteger) ||
-    bounds.width < minimumWidth ||
-    bounds.height < minimumHeight ||
-    !Number.isSafeInteger(bounds.x + bounds.width) ||
-    !Number.isSafeInteger(bounds.y + bounds.height)
-  ) {
-    fail(
-      "ELECTRON_RUNTIME_HOST_BOUNDS_INVALID",
-      `Core supplied invalid ${field} bounds for the runtime host.`
-    );
-  }
 }
 
 function stableTargetEquals(
@@ -895,7 +875,7 @@ implements ChromiumRuntimeHostFactoryPort {
       windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
       shortcutOwnerInstalled: false,
       lastNativeLayoutSignature: null,
-      lastUnminimizedContentBounds: null
+      contentGeometry: new WindowsRuntimeContentGeometry()
     };
     record.chrome = new WindowsRuntimeHostChromeController({
       documentUrl: record.documentUrl,
@@ -932,7 +912,7 @@ implements ChromiumRuntimeHostFactoryPort {
       nativeGeneration: record.nativeGeneration,
       nativeHostId: record.nativeId,
       probe: this.#runtimeForegroundProbe,
-      readCoreFence: () => record.chrome.readObservation(),
+      readCoreFence: () => record.chrome.readCoreFence(),
       isCurrent: () => record.state === "active" &&
         !native.isDestroyed() &&
         this.#activeByLogicalWindow.get(record.logicalWindowId) === record &&
@@ -1497,31 +1477,9 @@ implements ChromiumRuntimeHostFactoryPort {
   }
 
   #contentBounds(record: WindowsHostRecord): ChromiumRoleSurfaceBounds {
-    return this.#withCurrent(record, () => {
-      // Minimize has no new content viewport. Preserve the exact last observed
-      // native size until restore/resize supplies a usable viewport again.
-      const minimized = record.native.isMinimized();
-      const bounds = minimized ? record.lastUnminimizedContentBounds : record.native.getContentBounds();
-      if (!bounds) {
-        fail("ELECTRON_RUNTIME_HOST_CONTENT_BOUNDS_UNOBSERVED",
-          "The minimized Windows host has no previously observed content bounds.");
-      }
-      requireBounds(bounds, "native content");
-      if (!minimized) record.lastUnminimizedContentBounds = Object.freeze({ ...bounds });
-      const inset = record.chrome.contentInset;
-      if (bounds.height <= inset) {
-        fail(
-          "ELECTRON_RUNTIME_HOST_CONTENT_BOUNDS_INVALID",
-          "The Windows runtime host has no content area below its chrome."
-        );
-      }
-      return Object.freeze({
-        x: 0,
-        y: inset,
-        width: bounds.width,
-        height: bounds.height - inset
-      });
-    });
+    return this.#withCurrent(record, () =>
+      record.contentGeometry.read(record.native, record.chrome.contentInset)
+    );
   }
 
   #publishPopupLayout(record: WindowsHostRecord): void {

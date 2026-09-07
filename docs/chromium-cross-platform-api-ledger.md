@@ -242,7 +242,112 @@ Windows product build. Preserved the ARM64 dependency tree under ignored
 `pnpm install --frozen-lockfile` passed without lockfile changes. Merely running
 install over the ARM64 tree did not supply x64 optional native bindings.
 Windows x64 `pnpm run lint:rust` passed in 15m29s under ARM64 emulation
-(`lint-rust-x64.log`); x64 Rust workspace tests are running sequentially next.
+(`lint-rust-x64.log`). The source repair is now committed as
+`72bc7da318faff7849772dc292e4a1c69a1f0b50` (local commit; no release or merge).
+The matching working-tree x64 `pnpm run test:rust` passed: 1,642 tests, three
+existing ignored, 11m50s cold compilation and 185.48s Core execution. The unchanged
+256-round updater concurrent-publication test passed in this run, and the exact
+import-journal restart test also passed. Log: `test-rust-x64.log`. x64 typecheck
+passed (`typecheck-x64.log`). This is a four-core Parallels ARM virtual machine;
+these x64-emulated Windows results are not physical mixed-DPI/display evidence.
+The sequential x64 native-integration run uses a separate `x64-native/` report
+directory so that the earlier ARM64 reports remain intact.
+`pnpm run test:electron:native-integration` passed all eight files / 15 tests
+in 93.13s. The production View-owner report has all eight `received` direct
+key/middle samples, all trusted DOM events, preserved foreground identity, and
+four `applied` hidden admissions including background parents. The log is
+`native-integration-x64.log`; input, shortcuts, View-owner, fullscreen and font
+JSON reports are in `x64-native/`. Full `chromium-windows-smoke` execution is
+now running against `72bc7da3` plus this documentation-only evidence update.
+The current run root is
+`.desktop-e2e-artifacts/2026-09-07T01-13-12-592Z-win32`. Its first 12 phases
+passed, including both `chromium-workspace-web-only-seed` and restart. This
+directly exercises the formerly failing last-tab close read and the additional
+empty renderer-topology event assertion for
+CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024. No deadline or assertion was relaxed.
+The full attempt subsequently stopped with **30 PASS / 1 FAIL** at
+`chromium-macro-cutover-topology-seed`; terminal-cleanup was not reached.
+After Role ownership transfer, fixture sequence 668 records trusted `KeyS`
+keydown, but the consumer keyup required at `chromium-macro-cutover-topology.ts:178`
+never arrives. Core flow rejects browser-action-16 with an invalid terminal
+receipt, then browser-action-20 with incomplete native submission; their cleanup
+actions expire before preload arming. This is distinct from hidden-parent
+admission and from the repaired Web-only read. The native View remains focused
+and attached in the final observations. Preserve the consumer release assertion.
+
+The E2E-only `trustedInputDiagnosticsObserver.ts` now retains bounded in-memory
+raw adapter/submission receipts and timing fields, returning original promises,
+receipts and exceptions. It writes on `will-quit`, outside input delivery.
+Typecheck passed. A focused topology-seed run is collecting this missing failure
+evidence; it is not a retry intended to establish full-profile acceptance.
+The focused run `.desktop-e2e-artifacts/2026-09-07T01-35-17-545Z-win32`
+completed its topology UI assertions, but the runner failed with `ENOENT` for
+`chromium-windows-trusted-input-physical/windows-input-physical-probe.log`.
+Its selected-phase dependency list omitted the native prerequisite that the
+unchanged validator requires. Added platform-aware prerequisite selection,
+preserving seed/restart order and avoiding duplication in full profiles; the
+eight-test Macro cutover suite passed. This fixes the focused harness, not the
+original input failure. All captured receipts in that focused UI run were
+applied; the original partial-submission failure remains unresolved.
+Next, the independent terminal-cleanup restart selection runs physical input,
+cleanup seed and cleanup restart with the diagnostic observer installed.
+Its first build was stopped by a missing adjacent `.d.mts` export, which is now
+added. The following attempt
+`.desktop-e2e-artifacts/2026-09-07T01-41-56-974Z-win32` failed the physical
+prerequisite before cleanup: `SYSTEM_TRUSTED_INPUT_FOREGROUND_DEADLINE` while
+admitting the probe's visible Role. No cleanup verdict was produced. Added
+failure-only exact View observation to that probe and asked whether the VM
+remained unlocked and free from competing desktop input. Full hygiene passed,
+including unchanged P0/P1 100% and paired cutover 40/40 targets. A diagnostic
+attempt now retains the missing foreground facts; neither intermittent UI
+failure is considered repaired by instrumentation alone.
+The diagnostic physical attempt returned `parentForeground: false` while the
+View remained attached/visible and Electron reported its content focused.
+The exact admission guard correctly rejected that combination. The standalone
+probe is spawned by WDIO's background Node process. Windows explicitly restricts
+[programmatic foreground activation](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow).
+The probe now establishes its initial foreground precondition with one visible
+caption click, fenced by PID, HWND, native hit-testing, occlusion and per-monitor
+DPI coordinates. It happens before the first foreground sample; no click or focus
+repair is added during hidden/background delivery. Native verification of this
+precondition passed in the subsequent focused run below. Future UI runs stream their original runner output,
+avoiding separate PowerShell log-reader launches during focus-sensitive work.
+
+The next focused attempt, `.desktop-e2e-artifacts/2026-09-07T02-07-46-063Z-win32`,
+passed the physical prerequisite and failed terminal-cleanup seed before Window B
+could show. Core effect 505 acknowledged Window A's native destruction with an
+empty topology; snapshots 512/514/516 retained Window A and its old tab despite
+empty role ownership. No Core effect was rejected. Windows `browserWindowStop`
+had omitted the Core logical-window removal performed by the AppKit close path.
+The working correction commits removal after exact native acknowledgement, with
+generation/revision/tab membership checked under the Rust authority barrier.
+Visibility quarantine uses that same commit. New platform-explicit Rust tests
+cover successful stop, saved configuration, surviving topology, failed destroy
+and a changed topology during acknowledgement. The paired terminal-cleanup
+journeys now explicitly assert absence of Window A and its tabs before launching
+Window B. The harness correction is committed as `d890d609`. Focused harness
+tests passed (13), typecheck/lint/full hygiene passed (23 existing ESLint
+warnings; P0/P1 100%, paired cutover 40/40). Windows x64 workspace Rust tests
+passed: **1,644 passed / three existing ignored**, Core 954 in 196.29s;
+the unchanged updater 256-round race passed again. Logs:
+`windows-handoff-b0c3c184/window-stop-test-rust-x64.log` and
+`window-stop-full-hygiene.log` under the artifact root. Final Windows x64
+`lint:rust` passed in 57.89s (`window-stop-lint-rust-final-x64.log`). Native
+terminal-cleanup validation is next; neither full-profile acceptance
+nor legacy input deletion is authorized by this correction. AppKit projection
+quarantine also uses the shared Core terminal commit, preserving its native
+authority and including hidden tabs in teardown. Its platform-aware Rust
+quarantine regressions passed; native macOS validation remains pending.
+
+The completed uncontended x64 Vitest batch (`vitest-x64-uncontended.log`)
+reported 452 files: 430 passed, 12 failed, ten skipped; 3,582 tests passed,
+15 failed, 48 skipped, 742.31s. Eleven failures are exact `symlink` `EPERM`
+errors, two are `spawnSync bash ENOENT`, and two renderer cases hit the unchanged
+10-second limit. Git Bash exists at `C:/Program Files/Git/bin/bash.exe`; focused
+Bash validation now adds that existing directory to PATH. The initial-click
+helper's tests are separate from that batch's selected test files. No symlink
+test was skipped or substituted, and no timeout was enlarged. These results
+remain qualified Windows-VM evidence, not a green full suite.
 
 The x64 full Vitest batch with two workers was interrupted after repeated
 failures while competing with the cold Rust compilation on this four-core host.

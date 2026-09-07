@@ -1353,33 +1353,12 @@ impl AppCore {
                 window_id: window_id.to_owned(),
                 window_generation: projection.window_generation,
                 topology_revision: projection.topology_revision,
-                tab_ids,
+                tab_ids: window.all_tab_ids(),
                 intent_origin: "appKitProjectionQuarantine".to_owned(),
                 admission_id: None,
                 closing_tabs: Vec::new(),
             };
             self.stop_embedded_window(&request, false)?;
-
-            let after_native = self.browser_runtime.snapshot()?;
-            let current = after_native.windows.get(window_id).ok_or_else(|| {
-                appkit_event_error(
-                    "APPKIT_PROJECTION_QUARANTINE_STALE",
-                    "The quarantined AppKit window disappeared before Core removal.",
-                )
-            })?;
-            if current.window_generation != request.window_generation
-                || current.revision != request.topology_revision
-                || current.tab_ids() != request.tab_ids
-            {
-                return Err(appkit_event_error(
-                    "APPKIT_PROJECTION_QUARANTINE_STALE",
-                    "The quarantined AppKit window changed during Core teardown.",
-                ));
-            }
-            self.apply_runtime_intent(crate::RuntimeIntent::RemoveWindow {
-                operation_id: format!("{event_id}:remove-quarantined-appkit-window:{window_id}"),
-                window_id: window_id.to_owned(),
-            })?;
         }
         Ok(())
     }

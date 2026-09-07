@@ -1608,7 +1608,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["macos"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through retained AppKit tab close, window close, and application Quit while proving exact input-neutrality receipts and clean restart."
+      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through retained AppKit tab close, window close, and application Quit while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-TERMINAL-CLEANUP-006",
@@ -1620,7 +1620,7 @@
       "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
       "platforms": ["windows"], "kind": "native", "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through bundled native tab close, window close, and application Close while proving exact input-neutrality receipts and clean restart, with the ABI-v3 physical gate required."
+      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through bundled native tab close, window close, and application Close while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart, with the ABI-v3 physical gate required."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-KEY-BLUR-004",

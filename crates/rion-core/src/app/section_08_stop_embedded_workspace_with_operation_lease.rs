@@ -447,6 +447,8 @@ impl AppCore {
         if let Some(error) = first_error {
             return Err(error);
         }
+        self.commit_closed_embedded_window(request)?;
+        self.browser_runtime_snapshot_without_persistence()?;
         for role_id in &pending_role_ids {
             self.macro_runtime.release_role(role_id)?;
         }

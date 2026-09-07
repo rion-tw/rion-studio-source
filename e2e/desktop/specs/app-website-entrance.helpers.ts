@@ -1,3 +1,4 @@
+import { selectGroupedDramaWebsite } from "../support/workspace-web-groups";
 import { $, browser, expect } from "@wdio/globals";
 import { closeWindowAndWait, keyboardInputSequence, probe, rendererCall, requireEnvironment, runtimeUiAction, waitEvent, windowSnapshot } from "../support/control";
 import { clickWorkspaceCreateAction, navigate, setEditorName, submitEditor, waitForRoute } from "../support/ui";
@@ -16,6 +17,10 @@ export async function exerciseNativeWebsiteEntrance(restart: boolean): Promise<v
     await $("#workspace-slot-content").click();
     await $("[role='option']=Website").click();
     await expect($("#workspace-web-name")).toHaveValue("Website");
+    await expect($("#workspace-web-url")).toHaveValue("");
+    await selectGroupedDramaWebsite();
+    await $("#workspace-web-url").clearValue();
+    await $("#workspace-web-name").setValue("Website");
     await expect($("#workspace-web-url")).toHaveValue("");
     await submitEditor("/workspaces");
   }
@@ -47,7 +52,7 @@ export async function exerciseNativeWebsiteEntrance(restart: boolean): Promise<v
   expect(snapshot.kernel?.tabs.find(item => item.tabId === tab.id)?.workspaceSlots[0]?.web?.startUrl).toBe("");
   const fixtureUrl = `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/e2e-website-entrance`;
   for (const [control, expectedUrl] of [
-    ["youtube", fixtureUrl], ["home", surface.url], ["back", fixtureUrl],
+    ["iqiyi", fixtureUrl], ["home", surface.url], ["back", fixtureUrl],
     ["forward", surface.url], ["reload", surface.url]
   ] as const) {
     const before = (await probe()).latestSequence;
@@ -55,6 +60,15 @@ export async function exerciseNativeWebsiteEntrance(restart: boolean): Promise<v
       action: "focusWebsiteControl", control, roleId: surface.roleId,
       tabId: tab.id, windowGeneration: snapshot.windowGeneration
     });
+    if (control === "iqiyi") {
+      const catalog = await waitEvent({ afterSequence: before, kind: "website-entrance-catalog" });
+      expect(catalog.details).toMatchObject({
+        categories: [
+          { id: "media", title: expect.stringMatching(/^Media\s*$/u), count: 15 }, { id: "live", title: expect.stringMatching(/^Live\s*$/u), count: 2 },
+          { id: "social", title: expect.stringMatching(/^Social\s*$/u), count: 8 }, { id: "other", title: expect.stringMatching(/^Other\s*$/u), count: 1 }
+        ], imagesLoaded: true
+      });
+    }
     // Real platform keyboard input activates the visible focused card/button.
     await keyboardInputSequence([
       { code: "Enter", phase: "keyDown" }, { code: "Enter", phase: "keyUp" }
@@ -64,7 +78,7 @@ export async function exerciseNativeWebsiteEntrance(restart: boolean): Promise<v
       timeoutMs: 15_000
     }).catch(async error => {
       const current = await windowSnapshot(tab.windowId);
-      const receipt = control === "youtube" ? null : await waitEvent({
+      const receipt = control === "iqiyi" ? null : await waitEvent({
         afterSequence: before, kind: "website-chrome-action", timeoutMs: 1000
       }).catch(() => null);
       throw new Error(`Website ${control} failed: ${String(error)}; ${JSON.stringify({ views: current.native.roleWebviews, receipt })}`, { cause: error });

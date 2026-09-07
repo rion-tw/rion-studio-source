@@ -1,5 +1,7 @@
+import { selectGroupedDramaWebsite } from "./workspace-web-groups";
 import { openCutoverWorkspace } from "./chromium-workspace-cutover";
 import { $, browser, expect } from "@wdio/globals";
+import { Key } from "webdriverio";
 import { switchTrackedWindow, withRolePageTarget } from "./electron-role-surface";
 import { rendererCall } from "./renderer-bridge";
 import { closeVisibleRuntimeTab } from "./native-runtime-tabs";
@@ -27,6 +29,12 @@ export async function verifyWorkspaceStartPage(input: {
     await $("[role='option']=Website").click();
     await expect($("#workspace-web-name")).toHaveValue("Website");
     await expect($("#workspace-web-url")).toHaveValue("");
+    await selectGroupedDramaWebsite();
+    await $("#workspace-web-url").click();
+    await browser.keys([Key.Ctrl, "a"]);
+    await browser.keys(Key.Backspace);
+    await $("#workspace-web-name").setValue("Website");
+    await expect($("#workspace-web-url")).toHaveValue("");
     await submitEditor("/workspaces");
   }
   const workspace = (await rendererCall("listLaunchWorkspaces")).find(item => item.name === NAME);
@@ -35,13 +43,22 @@ export async function verifyWorkspaceStartPage(input: {
   await openCutoverWorkspace(workspace, "new-window");
   await withRolePageTarget(START, input.mainWindowHandle, async () => {
     await expect($("[data-rion-workspace-start]")).toBeDisplayed();
-    expect(await browser.$$("[data-workspace-start-site]")).toHaveLength(12);
+    expect(await browser.$$("[data-workspace-start-site]")).toHaveLength(26);
     expect(await $("input").isExisting()).toBe(false);
+    const groups = await browser.$$("[data-workspace-start-category]");
+    expect(await groups.map(group => group.getAttribute("data-workspace-start-category")))
+      .toEqual(["media", "live", "social", "other"]);
+    for (const [id, count] of [["media", 15], ["live", 2], ["social", 8], ["other", 1]] as const) {
+      expect(await $(`[data-workspace-start-category='${id}']`).$$("a")).toHaveLength(count);
+    }
+    const last = await $("[data-workspace-start-site='wikipedia']");
+    await last.scrollIntoView({ block: "center" });
+    await expect(last).toBeDisplayed();
   });
   const identity = await browser.electron.execute((electron, start, fixtureUrl) => {
     const content = electron.webContents.getAllWebContents().find(wc => wc.getURL() === start);
     if (!content) throw new Error("Entrance content is missing");
-    content.session.webRequest.onBeforeRequest({ urls: ["https://www.youtube.com/*"] },
+    content.session.webRequest.onBeforeRequest({ urls: ["https://www.iq.com/*"] },
       (_request, callback) => callback({ redirectURL: fixtureUrl }));
     const chrome = electron.webContents.getAllWebContents().filter(wc => wc.getURL().includes("runtime-web-chrome-electron.html"));
     return { contentId: content.id, chromeIds: chrome.map(wc => wc.id) };
@@ -49,7 +66,9 @@ export async function verifyWorkspaceStartPage(input: {
   try {
     // The card click is the primary action; the session hook supplies a deterministic response.
     await withRolePageTarget(START, input.mainWindowHandle, async () => {
-      await $("[data-workspace-start-site='youtube']").click();
+      const card = await $("[data-workspace-start-site='iqiyi']");
+      await card.scrollIntoView({ block: "center" });
+      await card.click();
     });
     await browser.waitUntil(async () => browser.electron.execute((electron, id, url) =>
       electron.webContents.fromId(id)?.getURL() === url, identity.contentId, input.fixtureUrl),

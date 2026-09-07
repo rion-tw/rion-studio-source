@@ -1376,5 +1376,14 @@
   "workspaces.webStartPage": "熱門網站入口",
   "workspaces.webStartTitle": "探索喜愛的網站",
   "workspaces.webStartHint": "選擇下方網站，或使用上方網址列搜尋與前往網站。",
-  "workspaces.webAddressPlaceholder": "搜尋或輸入網址"
+  "workspaces.webAddressPlaceholder": "搜尋或輸入網址",
+  "workspaces.webCategory.media": "影音",
+  "workspaces.webCategory.live": "直播",
+  "workspaces.webCategory.social": "社群",
+  "workspaces.webCategory.other": "其他",
+  "workspaces.webSite.bahamut": "巴哈姆特",
+  "workspaces.webSite.friday": "friDay 影音",
+  "workspaces.webSite.iqiyi": "愛奇藝國際版",
+  "workspaces.webSite.youku": "優酷國際版",
+  "workspaces.webSite.mango": "芒果 TV"
 }

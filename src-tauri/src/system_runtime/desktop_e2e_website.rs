@@ -6,7 +6,9 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         control: &str,
     ) -> Result<(), String> {
+        let is_card = matches!(control, "youtube" | "iqiyi");
         let selector = match control {
+            "iqiyi" => "[data-workspace-start-site='iqiyi']",
             "youtube" => "[data-workspace-start-site='youtube']",
             "home" => "#home",
             "back" => "#back",
@@ -26,10 +28,13 @@ impl SystemRuntimeExecutor {
             {
                 return Err(format!("Website {control} is disabled in native history at {}", website.document_epoch));
             }
-            (window, if control == "youtube" { surface.webview.clone() }
+            (window, if is_card { surface.webview.clone() }
                 else { website.chrome.webview.clone() })
         };
-        let fixture = if control == "youtube" {
+        let catalog_evidence = if is_card {
+            "categories: [...document.querySelectorAll('[data-workspace-start-category]')].map(group => ({ id: group.dataset.workspaceStartCategory, title: group.querySelector('h2').innerText, count: group.querySelectorAll('a').length })), imagesLoaded: [...document.images].every(image => image.complete && image.naturalWidth > 0),"
+        } else { "" };
+        let fixture = if is_card {
             let origin = std::env::var("RION_STUDIO_E2E_FIXTURE_ORIGIN")
                 .map_err(|error| error.to_string())?;
             let url = Url::parse(&origin).map_err(|error| error.to_string())?;
@@ -45,7 +50,7 @@ impl SystemRuntimeExecutor {
         // activates the visible link/button; this hook never calls click/navigate.
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         webview.eval_with_callback(format!(
-            "(() => {{ const element = document.querySelector({}); const error = document.querySelector('#location[aria-invalid=true]')?.title; if (error || !element || element.disabled || !element.getClientRects().length) return {{ error: error || 'Website control is not visible' }}; {fixture} element.focus(); return {{ focused: document.activeElement === element }}; }})();",
+            "(() => {{ const element = document.querySelector({}); const error = document.querySelector('#location[aria-invalid=true]')?.title; if (error || !element || element.disabled || !element.getClientRects().length) return {{ error: error || 'Website control is not visible' }}; {fixture} element.scrollIntoView({{ block: 'center' }}); element.focus(); return {{ {catalog_evidence} focused: document.activeElement === element }}; }})();",
             serde_json::to_string(selector).map_err(|error| error.to_string())?
         ), move |value| { let _ = sender.send(value); }).map_err(|error| error.to_string())?;
         let value = receiver.recv_timeout(std::time::Duration::from_secs(5))
@@ -53,6 +58,9 @@ impl SystemRuntimeExecutor {
         let value: Value = serde_json::from_str(&value).map_err(|error| error.to_string())?;
         if value.get("focused").and_then(Value::as_bool) != Some(true) {
             return Err(format!("Website {control} focus was not acknowledged: {value}"));
+        }
+        if is_card {
+            crate::desktop_e2e::record_event("website-entrance-catalog", None, None, None, value);
         }
         Ok(())
     }

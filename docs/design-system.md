@@ -105,6 +105,12 @@ and `src/shared/workspaceWebCatalog.json`; run `pnpm run generate:workspace-star
 after changing the catalog, brand assets, translations, tokens, or entrance CSS.
 The generated HTML is shared by both desktop shells and performs no network
 requests until a card is activated. The slot's URL remains empty after browsing.
+The preset menu and entrance share the Media, Live, Social and Other category
+order in `src/shared/workspaceWebCategories.json`, with 26 curated destinations.
+Menu groups use accessible Select labels; the entrance renders expanded sections
+with 32px gaps, 12px heading gaps, and independent 1–4-column card grids. New
+service icons and their source record are bundled under the workspace-web assets;
+no runtime favicon service is used.
 
 - The renderer preserves the `light | dark | system` preference and existing
   localStorage/portable behavior.

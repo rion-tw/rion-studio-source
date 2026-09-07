@@ -89,7 +89,7 @@ describe("workspace editor role picker layout", () => {
     const presetSelect = screen.getByRole("combobox", { name: "Popular sites" });
     expect(presetSelect.textContent).toContain("Select a popular site");
     await user.click(presetSelect);
-    expect(screen.getAllByRole("option")).toHaveLength(12);
+    expect(screen.getAllByRole("option")).toHaveLength(26);
     await user.click(screen.getByRole("option", { name: "YouTube" }));
 
     const displayName = screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement;
@@ -143,7 +143,7 @@ describe("workspace editor role picker layout", () => {
     expect(url.required).toBe(false);
     expect(save.disabled).toBe(false);
     await user.click(screen.getByRole("combobox", { name: "Popular sites" }));
-    await user.click(screen.getByRole("option", { name: "YouTube" }));
+    await user.click(screen.getByRole("option", { name: "iQIYI (International)" }));
     await user.clear(url);
     await user.type(url, "https://");
     expect(save.disabled).toBe(true);
@@ -151,7 +151,7 @@ describe("workspace editor role picker layout", () => {
     expect(save.disabled).toBe(false);
     await user.click(save);
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
-    expect(onSave.mock.calls[0][0].slots[0].web).toEqual({ name: "YouTube", startUrl: "" });
+    expect(onSave.mock.calls[0][0].slots[0].web).toEqual({ name: "iQIYI (International)", startUrl: "" });
   });
 
   it("restores a known brand image while editing and keeps custom sites generic", async () => {

@@ -1376,5 +1376,14 @@
   "workspaces.webStartPage": "Popular websites",
   "workspaces.webStartTitle": "Explore your favorite websites",
   "workspaces.webStartHint": "Choose a website below, or use the address bar above to search or go somewhere new.",
-  "workspaces.webAddressPlaceholder": "Search or enter an address"
+  "workspaces.webAddressPlaceholder": "Search or enter an address",
+  "workspaces.webCategory.media": "Media",
+  "workspaces.webCategory.live": "Live",
+  "workspaces.webCategory.social": "Social",
+  "workspaces.webCategory.other": "Other",
+  "workspaces.webSite.bahamut": "Bahamut",
+  "workspaces.webSite.friday": "friDay Video",
+  "workspaces.webSite.iqiyi": "iQIYI (International)",
+  "workspaces.webSite.youku": "YOUKU (International)",
+  "workspaces.webSite.mango": "Mango TV"
 }

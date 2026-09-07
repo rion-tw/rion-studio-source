@@ -207,7 +207,7 @@ export type RuntimeUiActionRequest =
       windowGeneration: number;
     }
   | { action: "focusRole"; roleId: string; tabId: string; windowGeneration: number }
-  | { action: "focusWebsiteControl"; control: "youtube" | "home" | "back" | "forward" | "reload"; roleId: string; tabId: string; windowGeneration: number }
+  | { action: "focusWebsiteControl"; control: "youtube" | "iqiyi" | "home" | "back" | "forward" | "reload"; roleId: string; tabId: string; windowGeneration: number }
   | { action: "clickRoleContent"; button?: "left" | "middle" | "right"; roleId: string; tabId: string; windowGeneration: number }
   | { action: "pressRoleSlot"; roleId: string; tabId: string; windowGeneration: number }
   | {

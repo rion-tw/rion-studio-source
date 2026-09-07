@@ -6,6 +6,7 @@ import { buildWorkspaceStartPage } from "../scripts/generateWorkspaceStartPage.m
 import { WORKSPACE_START_URL, isWorkspaceStartUrl, workspaceWebLaunchUrl } from "../src/shared/workspaceStartPage";
 import { installWorkspaceWebAddress, resolveWorkspaceWebAddress } from "../src/shared/workspaceWebAddress";
 import { parseWorkspaceWebChromeAction, parseWorkspaceWebChromeState } from "../src/shared/workspaceWebChrome";
+import categories from "../src/shared/workspaceWebCategories.json";
 import catalog from "../src/shared/workspaceWebCatalog.json";
 
 describe("packaged website entrance", () => {
@@ -16,6 +17,21 @@ describe("packaged website entrance", () => {
     expect(page.querySelector("script,input,iframe")).toBeNull();
     expect([...page.querySelectorAll("a")].map((card) => [card.dataset.workspaceStartSite, card.getAttribute("href")]))
       .toEqual(catalog.map((site) => [site.id, site.startUrl]));
+    const groups = [...page.querySelectorAll<HTMLElement>("[data-workspace-start-category]")];
+    expect(groups.map(group => group.dataset.workspaceStartCategory)).toEqual(["media", "live", "social", "other"]);
+    expect(groups.map(group => group.querySelectorAll("a").length)).toEqual([15, 2, 8, 1]);
+    expect(new Set(catalog.map(site => site.id)).size).toBe(26);
+    expect(catalog.every(site => site.category in categories)).toBe(true);
+    for (const group of groups) {
+      const id = group.dataset.workspaceStartCategory;
+      expect([...group.querySelectorAll<HTMLElement>("a")].map(card => card.dataset.workspaceStartSite))
+        .toEqual(catalog.filter(site => site.category === id).map(site => site.id));
+      expect(group.getAttribute("aria-labelledby")).toBe(group.querySelector("h2")?.id);
+      for (const language of ["en", "zh-TW", "zh-CN", "ja"]) {
+        expect(group.querySelector(`h2 [data-language="${language}"]`)?.textContent).toBeTruthy();
+      }
+    }
+    expect(page.querySelector('[data-workspace-start-site="iqiyi"] [data-language="zh-TW"]')?.textContent).toBe("愛奇藝國際版");
     expect([...page.images].every((image) => image.src.startsWith("data:image/"))).toBe(true);
     for (const language of ["en", "zh-TW", "zh-CN", "ja"]) {
       expect(page.querySelector(`h1 [data-language="${language}"]`)?.textContent).toBeTruthy();

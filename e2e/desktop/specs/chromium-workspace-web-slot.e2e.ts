@@ -1,3 +1,4 @@
+import { selectGroupedDramaWebsite } from "../support/workspace-web-groups";
 import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 
@@ -151,19 +152,7 @@ async function createWorkspaceThroughVisibleSlotControls(
 
   await $("#workspace-slot-content").click();
   await $("[role='option']=Website").click();
-  const preset = await $("[data-workspace-web-preset-select]");
-  await preset.waitForClickable({ timeout: 10_000 });
-  await preset.click();
-  const youtube = await $("[role='option'][data-workspace-web-preset='youtube']");
-  await youtube.waitForDisplayed({ timeout: 10_000 });
-  await youtube.click();
-  await browser.waitUntil(async () =>
-    await $("#workspace-web-name").getValue() === "YouTube" &&
-    await $("#workspace-web-url").getValue() === "https://www.youtube.com/" &&
-    await preset.getText() === "YouTube", {
-    timeout: 10_000,
-    timeoutMsg: "The visible popular-site menu did not apply the YouTube preset"
-  });
+  await selectGroupedDramaWebsite();
   await setInputValue("#workspace-web-name", WEB_NAME);
   await setInputValue("#workspace-web-url", configuredWebUrl());
 

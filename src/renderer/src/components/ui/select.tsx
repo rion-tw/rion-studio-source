@@ -8,7 +8,7 @@ export function Select(props: React.ComponentProps<typeof SelectPrimitive.Root>)
   return <SelectPrimitive.Root {...props} />;
 }
 
-const SelectGroup = forwardRef<
+export const SelectGroup = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Group>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Group>
 >((props, ref) => <SelectPrimitive.Group ref={ref} {...props} />);
@@ -107,7 +107,7 @@ export const SelectContent = forwardRef<
 
 SelectContent.displayName = SelectPrimitive.Content.displayName;
 
-const SelectLabel = forwardRef<
+export const SelectLabel = forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
 >(({ className, ...props }, ref) => (

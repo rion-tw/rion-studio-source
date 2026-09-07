@@ -5,6 +5,8 @@ import { FormField } from "../../components/ui/patterns";
 import {
   Select,
   SelectContent,
+  SelectGroup,
+  SelectLabel,
   SelectItem,
   SelectTrigger,
   SelectValue
@@ -19,6 +21,8 @@ import type { LaunchWorkspaceSlot } from "../../../../shared/types";
 import {
   resolveWorkspaceWebPreset,
   workspaceWebPresets,
+  workspaceWebPresetGroups,
+  workspaceWebPresetName,
   type WorkspaceWebPreset
 } from "./workspaceWebPresets";
 
@@ -58,18 +62,19 @@ export function WorkspaceWebPresetPicker({
             data-workspace-web-preset-select
           >
             <SelectValue placeholder={t("workspaces.webPresetsPlaceholder")}>
-              {selectedPreset ? <WorkspaceWebPresetOption preset={selectedPreset} /> : undefined}
+              {selectedPreset ? <WorkspaceWebPresetOption preset={selectedPreset} t={t} /> : undefined}
             </SelectValue>
           </SelectTrigger>
           <SelectContent position="popper">
-            {workspaceWebPresets.map((preset) => (
-              <SelectItem
-                key={preset.id}
-                data-workspace-web-preset={preset.id}
-                value={preset.id}
-              >
-                <WorkspaceWebPresetOption preset={preset} />
-              </SelectItem>
+            {workspaceWebPresetGroups.map((group) => (
+              <SelectGroup key={group.id} data-workspace-web-category={group.id}>
+                <SelectLabel>{t(group.labelKey)}</SelectLabel>
+                {group.presets.map((preset) => (
+                  <SelectItem key={preset.id} data-workspace-web-preset={preset.id} value={preset.id}>
+                    <WorkspaceWebPresetOption preset={preset} t={t} />
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>
@@ -81,7 +86,7 @@ export function WorkspaceWebPresetPicker({
   );
 }
 
-function WorkspaceWebPresetOption({ preset }: { preset: WorkspaceWebPreset }): JSX.Element {
+function WorkspaceWebPresetOption({ preset, t }: { preset: WorkspaceWebPreset; t: Translator }): JSX.Element {
   return (
     <span className="flex min-w-0 items-center gap-2">
       <span className="grid size-5 shrink-0 place-items-center overflow-hidden rounded-xs bg-media-black">
@@ -95,7 +100,7 @@ function WorkspaceWebPresetOption({ preset }: { preset: WorkspaceWebPreset }): J
           src={preset.brandImageUrl}
         />
       </span>
-      <span className="min-w-0 truncate">{preset.name}</span>
+      <span className="min-w-0 truncate">{workspaceWebPresetName(preset, t)}</span>
     </span>
   );
 }

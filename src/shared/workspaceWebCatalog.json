@@ -7,7 +7,8 @@
       "youtube.com",
       "youtu.be"
     ],
-    "brandAsset": "youtube.svg"
+    "brandAsset": "youtube.svg",
+    "category": "media"
   },
   {
     "id": "netflix",
@@ -16,16 +17,8 @@
     "hostnames": [
       "netflix.com"
     ],
-    "brandAsset": "netflix.svg"
-  },
-  {
-    "id": "twitch",
-    "name": "Twitch",
-    "startUrl": "https://www.twitch.tv/",
-    "hostnames": [
-      "twitch.tv"
-    ],
-    "brandAsset": "twitch.svg"
+    "brandAsset": "netflix.svg",
+    "category": "media"
   },
   {
     "id": "disney-plus",
@@ -35,7 +28,8 @@
       "disneyplus.com"
     ],
     "brandAsset": "disney-plus.jpg",
-    "brandImagePresentation": "cover"
+    "brandImagePresentation": "cover",
+    "category": "media"
   },
   {
     "id": "prime-video",
@@ -44,7 +38,8 @@
     "hostnames": [
       "primevideo.com"
     ],
-    "brandAsset": "prime-video.png"
+    "brandAsset": "prime-video.png",
+    "category": "media"
   },
   {
     "id": "spotify",
@@ -53,7 +48,8 @@
     "hostnames": [
       "spotify.com"
     ],
-    "brandAsset": "spotify.svg"
+    "brandAsset": "spotify.svg",
+    "category": "media"
   },
   {
     "id": "crunchyroll",
@@ -62,7 +58,121 @@
     "hostnames": [
       "crunchyroll.com"
     ],
-    "brandAsset": "crunchyroll.svg"
+    "brandAsset": "crunchyroll.svg",
+    "category": "media"
+  },
+  {
+    "id": "apple-music",
+    "name": "Apple Music",
+    "startUrl": "https://music.apple.com/",
+    "hostnames": [
+      "music.apple.com"
+    ],
+    "brandAsset": "apple-music.png",
+    "brandImagePresentation": "cover",
+    "category": "media"
+  },
+  {
+    "id": "line-tv",
+    "name": "LINE TV",
+    "startUrl": "https://www.linetv.tw/",
+    "hostnames": [
+      "linetv.tw"
+    ],
+    "brandAsset": "line-tv.png",
+    "brandImagePresentation": "cover",
+    "category": "media"
+  },
+  {
+    "id": "friday-video",
+    "name": "friDay Video",
+    "startUrl": "https://video.friday.tw/",
+    "hostnames": [
+      "video.friday.tw"
+    ],
+    "brandAsset": "friday-video.ico",
+    "brandImagePresentation": "cover",
+    "category": "media",
+    "nameKey": "workspaces.webSite.friday"
+  },
+  {
+    "id": "myvideo",
+    "name": "MyVideo",
+    "startUrl": "https://www.myvideo.net.tw/",
+    "hostnames": [
+      "myvideo.net.tw"
+    ],
+    "brandAsset": "myvideo.ico",
+    "brandImagePresentation": "cover",
+    "category": "media"
+  },
+  {
+    "id": "apple-tv",
+    "name": "Apple TV",
+    "startUrl": "https://tv.apple.com/",
+    "hostnames": [
+      "tv.apple.com"
+    ],
+    "brandAsset": "apple-tv.png",
+    "brandImagePresentation": "cover",
+    "category": "media"
+  },
+  {
+    "id": "iqiyi",
+    "name": "iQIYI (International)",
+    "startUrl": "https://www.iq.com/",
+    "hostnames": [
+      "iq.com"
+    ],
+    "brandAsset": "iqiyi.png",
+    "brandImagePresentation": "cover",
+    "category": "media",
+    "nameKey": "workspaces.webSite.iqiyi"
+  },
+  {
+    "id": "wetv",
+    "name": "WeTV",
+    "startUrl": "https://wetv.vip/",
+    "hostnames": [
+      "wetv.vip"
+    ],
+    "brandAsset": "wetv.ico",
+    "brandImagePresentation": "cover",
+    "category": "media"
+  },
+  {
+    "id": "youku",
+    "name": "YOUKU (International)",
+    "startUrl": "https://www.youku.tv/",
+    "hostnames": [
+      "youku.tv"
+    ],
+    "brandAsset": "youku.png",
+    "brandImagePresentation": "cover",
+    "category": "media",
+    "nameKey": "workspaces.webSite.youku"
+  },
+  {
+    "id": "mango-tv",
+    "name": "Mango TV",
+    "startUrl": "https://www.mgtv.com/",
+    "hostnames": [
+      "mgtv.com"
+    ],
+    "brandAsset": "mango-tv.png",
+    "brandImagePresentation": "cover",
+    "category": "media",
+    "nameKey": "workspaces.webSite.mango"
+  },
+  {
+    "id": "twitch",
+    "name": "Twitch",
+    "startUrl": "https://www.twitch.tv/",
+    "hostnames": [
+      "twitch.tv"
+    ],
+    "brandAsset": "twitch.svg",
+    "category": "live"
   },
   {
     "id": "kick",
@@ -71,7 +181,8 @@
     "hostnames": [
       "kick.com"
     ],
-    "brandAsset": "kick.svg"
+    "brandAsset": "kick.svg",
+    "category": "live"
   },
   {
     "id": "tiktok",
@@ -80,7 +191,8 @@
     "hostnames": [
       "tiktok.com"
     ],
-    "brandAsset": "tiktok.svg"
+    "brandAsset": "tiktok.svg",
+    "category": "social"
   },
   {
     "id": "instagram",
@@ -89,7 +201,8 @@
     "hostnames": [
       "instagram.com"
     ],
-    "brandAsset": "instagram.svg"
+    "brandAsset": "instagram.svg",
+    "category": "social"
   },
   {
     "id": "reddit",
@@ -98,7 +211,8 @@
     "hostnames": [
       "reddit.com"
     ],
-    "brandAsset": "reddit.svg"
+    "brandAsset": "reddit.svg",
+    "category": "social"
   },
   {
     "id": "x",
@@ -108,6 +222,64 @@
       "x.com",
       "twitter.com"
     ],
-    "brandAsset": "x.svg"
+    "brandAsset": "x.svg",
+    "category": "social"
+  },
+  {
+    "id": "facebook",
+    "name": "Facebook",
+    "startUrl": "https://www.facebook.com/",
+    "hostnames": [
+      "facebook.com"
+    ],
+    "brandAsset": "facebook.ico",
+    "brandImagePresentation": "cover",
+    "category": "social"
+  },
+  {
+    "id": "threads",
+    "name": "Threads",
+    "startUrl": "https://www.threads.com/",
+    "hostnames": [
+      "threads.com",
+      "threads.net"
+    ],
+    "brandAsset": "threads.webp",
+    "brandImagePresentation": "cover",
+    "category": "social"
+  },
+  {
+    "id": "discord",
+    "name": "Discord",
+    "startUrl": "https://discord.com/app",
+    "hostnames": [
+      "discord.com"
+    ],
+    "brandAsset": "discord.ico",
+    "brandImagePresentation": "cover",
+    "category": "social"
+  },
+  {
+    "id": "bahamut",
+    "name": "Bahamut",
+    "startUrl": "https://www.gamer.com.tw/",
+    "hostnames": [
+      "gamer.com.tw"
+    ],
+    "brandAsset": "bahamut.svg",
+    "brandImagePresentation": "cover",
+    "category": "social",
+    "nameKey": "workspaces.webSite.bahamut"
+  },
+  {
+    "id": "wikipedia",
+    "name": "Wikipedia",
+    "startUrl": "https://www.wikipedia.org/",
+    "hostnames": [
+      "wikipedia.org"
+    ],
+    "brandAsset": "wikipedia.png",
+    "brandImagePresentation": "cover",
+    "category": "other"
   }
 ]

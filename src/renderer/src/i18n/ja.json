@@ -1307,5 +1307,14 @@
   "workspaces.webStartPage": "人気のウェブサイト",
   "workspaces.webStartTitle": "お気に入りのサイトを見つけよう",
   "workspaces.webStartHint": "下のサイトを選ぶか、上のアドレスバーで検索して移動できます。",
-  "workspaces.webAddressPlaceholder": "検索またはアドレスを入力"
+  "workspaces.webAddressPlaceholder": "検索またはアドレスを入力",
+  "workspaces.webCategory.media": "動画・音楽",
+  "workspaces.webCategory.live": "ライブ配信",
+  "workspaces.webCategory.social": "ソーシャル",
+  "workspaces.webCategory.other": "その他",
+  "workspaces.webSite.bahamut": "Bahamut",
+  "workspaces.webSite.friday": "friDay Video",
+  "workspaces.webSite.iqiyi": "iQIYI（国際版）",
+  "workspaces.webSite.youku": "YOUKU（国際版）",
+  "workspaces.webSite.mango": "Mango TV"
 }

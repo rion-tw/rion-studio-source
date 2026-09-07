@@ -1,3 +1,4 @@
+import { selectGroupedDramaWebsite } from "../support/workspace-web-groups";
 import { exerciseNativeWebsiteEntrance } from "./app-website-entrance.helpers";
 import { clickWorkspaceSlot } from "../support/ui";
 import { assertSeedPrimaryPage } from "../support/primary-navigation";
@@ -257,16 +258,7 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await webOption.click();
   await expect($("#workspace-web-name")).toHaveValue("Website");
   await expect($("#workspace-web-url")).toHaveValue("");
-  const webPresetSelect = await $("[data-workspace-web-preset-select]");
-  await webPresetSelect.click();
-  const youtubePreset = await $("[role='option'][data-workspace-web-preset='youtube']");
-  await youtubePreset.waitForDisplayed({ timeout: 10_000 });
-  await youtubePreset.click();
-  await browser.waitUntil(async () =>
-    await $("#workspace-web-name").getValue() === "YouTube" &&
-    await $("#workspace-web-url").getValue() === "https://www.youtube.com/" &&
-    await webPresetSelect.getText() === "YouTube"
-  );
+  await selectGroupedDramaWebsite();
   await $("#workspace-web-name").setValue("E2E Web App");
   await $("#workspace-web-url").setValue(
     `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}?mode=seed&marker=${WEB_SESSION_MARKER}`

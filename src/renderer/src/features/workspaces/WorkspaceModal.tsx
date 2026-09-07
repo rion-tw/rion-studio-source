@@ -1,3 +1,4 @@
+import { workspaceWebPresetName } from "./workspaceWebPresets";
 import { Check, Eraser, Save } from "lucide-react";
 
 import { type FormEvent, type JSX, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -310,7 +311,7 @@ function WorkspaceLayoutFormEditor({
 
   function handleWebPresetSelect(preset: WorkspaceWebPreset): void {
     updateSelectedWeb({
-      name: preset.name,
+      name: workspaceWebPresetName(preset, t),
       startUrl: preset.startUrl
     });
   }

@@ -28,6 +28,20 @@ minimal native adapters where equivalent behavior is unavailable. AppKit native
 windows, tabs, gestures, geometry, focus, fullscreen, and trusted input remain
 required. Do not introduce an engine selector or public automation transport.
 
+### Windows visible tab driver requires native foreground — 2026-09-07
+
+At 2ca9b21f, artifact 2026-09-07T05-51-42-331Z-win32 passed seed and restart's
+previous reorder/selection boundary, then exact native topology asserted focused
+true against false after a WebDriver tab/page click. Membership, visibility and
+revision were coherent. The Windows helper clicked a DOM button in a background
+native parent without bringing that parent forward (unlike the AppKit driver).
+Capture PID in the launcher, bind the visible tab's native UIA close control to
+its exact HWND, use the existing native foreground helper, then click the visible
+tab button. The driver does not invoke a runtime action or change production
+focus policy. Retain focused=true and every existing deadline. Focus/control
+helper tests and typecheck/lint/hygiene verify the driver boundary; native replay
+remains required for TABS-VISIBLE-ACTIVATION-019 / GAME-WINDOWS-TABS-020.
+
 ### Windows tabs seed accepted; inactive drag selection corrected — 2026-09-07
 
 At 64dcfdc5, artifact 2026-09-07T05-45-15-608Z-win32 passed tabs visible seed

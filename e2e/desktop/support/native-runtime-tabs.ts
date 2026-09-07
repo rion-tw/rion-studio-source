@@ -1,5 +1,6 @@
 import { MACOS_NATIVE_CHROME_ELEMENTS } from "./macos-native-chrome";
 import { readWindowsRuntimeTabCloseEvidence } from "./windows-runtime-tab-close";
+import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 import { $, browser, expect } from "@wdio/globals";
 import { execFile } from "node:child_process";
@@ -450,11 +451,27 @@ export async function clickVisibleRuntimeTab(input: Readonly<{
     await clickMacosAppKitTab(input.tabName);
     return;
   }
+  const processId = (await electronDesktopE2eProbe()).processId;
   await withWindowsRuntimeHost(input.mainWindowHandle, input.tabId, async () => {
     const activate = await $(
       `[data-runtime-tab-activate][data-tab-id='${input.tabId}']`
     );
     await activate.waitForClickable({ timeout: 10_000 });
+    await activate.moveTo();
+    const windowId = await browser.execute(() =>
+      document.documentElement.dataset.runtimeWindowId
+    );
+    if (!windowId) throw new Error("The exact visible tab omitted its logical window");
+    const close = await $(`[data-runtime-tab-close][data-tab-id='${input.tabId}']`);
+    await close.waitForDisplayed({ timeout: 10_000 });
+    const controlName = await close.getAttribute("aria-label");
+    if (!controlName) throw new Error("The exact visible tab omitted its native control name");
+    const evidence = await readWindowsRuntimeTabCloseEvidence({
+      processId, tabId: input.tabId, windowId, controlName
+    });
+    await focusWindowsRuntimeNativeWindow({
+      processId, nativeWindowHandle: evidence.nativeHandle
+    });
     await activate.click();
   });
 }

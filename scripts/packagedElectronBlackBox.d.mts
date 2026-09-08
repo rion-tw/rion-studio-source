@@ -14,6 +14,7 @@ export interface PackagedPngArtifact {
 
 export const MACOS_ACCESSIBILITY_TRAVERSAL_HANDLERS: string;
 export const MACOS_RETAINED_APPKIT_HANDLERS: string;
+export const WINDOWS_PACKAGED_MAIN_WINDOW_HANDLERS: string;
 
 export function seedPackagedElectronRole(input: {
   gameName: string;

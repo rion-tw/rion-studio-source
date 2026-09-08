@@ -62,7 +62,10 @@ export function createEncodedPowerShellJsonInvocation(trustedScript, payload) {
     `${payloadPrelude}\n${trustedScript}\n`,
     "utf16le"
   ).toString("base64");
-  const standardInput = `${payloadPrelude}\n${trustedScript}\n`;
+  // -Command - otherwise evaluates statements separately and can continue
+  // after a terminating error. Submit one block so the original failure stops
+  // every subsequent native action; the blank line terminates block input.
+  const standardInput = `& {\n${payloadPrelude}\n${trustedScript}\n}\n\n`;
   return Object.freeze({
     arguments: Object.freeze([
       "-NoLogo",

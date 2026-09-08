@@ -716,7 +716,15 @@ function runPowerShell(script, payload) {
   });
 }
 
-const windowsUiAutomationPrelude = String.raw`
+export const WINDOWS_PACKAGED_MAIN_WINDOW_HANDLERS = String.raw`
+function Rion-MainWindows([uint32]$processId) {
+  foreach ($window in @(Rion-Windows $processId)) {
+    if (@(Rion-ButtonByName $window "Home").Count -eq 1) { $window }
+  }
+}
+`;
+
+const windowsUiAutomationPrelude = WINDOWS_PACKAGED_MAIN_WINDOW_HANDLERS + String.raw`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
@@ -762,10 +770,7 @@ if ($targetPid -eq 0 -or [String]::IsNullOrEmpty($roleName)) {
   throw "invalid packaged role launch identity"
 }
 for ($attempt = 0; $attempt -lt 300; $attempt++) {
-  $dashboardWindows = @()
-  foreach ($window in @(Rion-Windows $targetPid)) {
-    if ((Rion-DescendantByName $window "Dashboard").Count -eq 1) { $dashboardWindows += $window }
-  }
+  $dashboardWindows = @(Rion-MainWindows $targetPid)
   if ($dashboardWindows.Count -eq 1) {
     $dashboardWindows[0].SetFocus()
     [System.Windows.Forms.SendKeys]::SendWait("^k")
@@ -828,10 +833,7 @@ throw "bundled Chromium role window did not close"
 const windowsQuitApplicationScript = `${windowsUiAutomationPrelude}
 $targetPid = [uint32]$payload.processId
 if ($targetPid -eq 0) { throw "invalid packaged application identity" }
-$matches = @()
-foreach ($window in @(Rion-Windows $targetPid)) {
-  if ((Rion-DescendantByName $window "Dashboard").Count -eq 1) { $matches += $window }
-}
+$matches = @(Rion-MainWindows $targetPid)
 if ($matches.Count -ne 1) { throw "exact packaged main window unavailable" }
 $matches[0].SetFocus()
 [System.Windows.Forms.SendKeys]::SendWait("^q")

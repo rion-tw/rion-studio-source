@@ -33,6 +33,32 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+At exact 07950a33a04bbd313e926e4a3b9077a0f18f21b8, CI 34202245777 passes
+shared JS 3877/11 platform skips, stable full 31+3 expected force/40 journeys
+and complete Chromium 58+4/54, with all phase membership/order, exits and normal
+Chromium flush/exit verified. Native job 101983647773 FAILS: Core 981 PASS/
+1 FAIL/1 ignored, after four binding tests pass. The restart test first records
+a state-worker shutdown timeout at its unchanged three-second boundary, then
+APP_INSTANCE_LOCKED when it opens the same directory for v22. Original logical
+platform/substage is unavailable. Subsequent native integration/Windows JS/
+Tauri build are skipped; the independent package job is still pending.
+
+Test-only 57b5daf00c7c41ba78348d42aecd099a0cc85b0e checks all three shutdown
+terminals in that test and reports the platform plus original error immediately.
+Focused native test and Rust lint PASS; full local Rust passes 1673/4 ignored
+at exact 57b5daf0, with only ledger edits present. Both production builds and E2E
+isolation pass; the earlier local runtime-verifier crash is not rerun away. The CI
+timeout remains undiagnosed, with its deadline and lock retention unchanged.
+Tooling-only bffcb262486dceac7ea19b55a77b0bfee15ab54b persists bounded updater
+observations in the existing artifact root, with create-new/source binding and
+original-error preservation. The record explicitly cannot substitute for Core
+or production terminal receipts. Adjacent JS 51 PASS/2 existing platform skips,
+typecheck/hygiene/lint PASS. The API ledger retains full failure and artifact
+identities; no old CI is reclassified by these later changes.
+Windows-only CI 34204932987 is dispatched once at 08:31:10 UTC for exact source
+and workflow head 57b5daf00c7c41ba78348d42aecd099a0cc85b0e. The prior package
+job continues independently; no macOS run is dispatched.
+
 CI 34198254073 is terminal FAIL at updater launch, after real Windows NSIS
 installed-payload PASS for exact source 0935ac593e0630ecfc785cacce1a7f66bcf1e32c.
 Version 8.5.0 installs the exact source tree plus its single expected unsigned

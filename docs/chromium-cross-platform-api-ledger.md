@@ -39,12 +39,19 @@ was changed. Screen inventory
 contains only DISPLAY1, 5120x2880 (work area 5120x2784); ordinary two-display
 extended acceptance is blocked by missing hardware. Physical mixed-DPI remains
 removed by owner decision. Actual OS sleep/wake remains unverified.
+At the current manifest, stable extended requires 35 phases/41 journeys and
+chromium-windows-hardware-extended requires 63 phases/56 journeys. They add
+extended-native and chromium-native-window-display-extended respectively to
+the completed 34/62-phase profiles. Neither complete hardware superset is
+claimed as executed. The stable Windows hardware phase also requires a
+negative-coordinate secondary display and nonempty work-area inset; no display
+mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | CI 34198254073 at 0935ac593e0630ecfc785cacce1a7f66bcf1e32c passes Windows Rust 1673/4 ignored, native integration 16, complete Windows JS 3835/48 platform skips, shared JS 3876/11 platform skips and Tauri build. App runtime remains 3eff9b28; local Rust 1673/4 ignored, both production builds and E2E isolation pass. The local runtime verifier fails 0xC0000005; one instrumented diagnostic succeeds but does not establish a fix. Historical x64 Macro timeout remains recorded. Updater 256 rounds unchanged. |
+| 1. Native/shared/build | Latest CI 34202245777 at 07950a33 fails Core 981/1/1 ignored after a three-second state-worker shutdown timeout; later native/Windows JS/build skip. Prior complete CI 0935ac59 remains Rust 1673/4 ignored, native integration 16, Windows JS 3835/48 skips. Local 57b5daf0 passes full Rust 1673/4 ignored, both production builds and E2E isolation; exact-source CI 34204932987 is pending. App runtime remains 3eff9b28. Local runtime verifier 0xC0000005 and historical Macro/state-worker timeouts remain unresolved. Updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | CI 34198254073 at exact 0935ac59 passes stable 31+3 expected force/40 journeys and Chromium 58+4/54. Manifest membership and order match all 34/62 phases; every normal Chromium phase flushes/exits and all phase exit codes are 0. Prior 3eff9b28 full-profile evidence also captures the corrected Web-only close overlapping quit and terminalizing before Core effects are disposed. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
+| 3. Full profiles | CI 34202245777 at exact 07950a33 passes stable 31+3 expected force/40 journeys and Chromium 58+4/54. Manifest membership and order match all 34/62 phases; every normal Chromium phase flushes/exits and all phase exit codes are 0. Prior 3eff9b28 full-profile evidence also captures the corrected Web-only close overlapping quit and terminalizing before Core effects are disposed. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
 | 6. Install/update | CI 34198254073 at 0935ac59 passes target 8.5.0/previous 8.4.0 builds, runtime/package/distribution and actual NSIS installed payload. Exact Job total 3, root/final active 0, exit 0 and profile/ACL cleanup verify; source tree is identical apart from the expected uninstaller. Updater then fails before any pnpm/Node process is observed, exit 1; black-box is SKIPPED. Tooling-only 07950a33 corrects its forced pnpm.cmd selection to the already verified pnpm.exe; new exact-source Windows CI is pending. No updater transaction or production-key cutover is inferred from installed-payload PASS. |
@@ -52,6 +59,56 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- CI 34202245777 at exact 07950a33a04bbd313e926e4a3b9077a0f18f21b8 passes
+  shared JS 3877/11 platform skips and complete stable/Chromium profiles.
+  Stable report 2026-09-08T08-02-37-391Z-win32 is 31 normal + three expected
+  force/40 journeys; artifact 10046917958, SHA-256
+  aefce9dc79f2d94e0828bdccd639fb4456804e6a6eb8538dd6e0b45722174b7a.
+  Chromium report 2026-09-08T08-02-32-393Z-win32 is 58 normal + four expected
+  force/54 journeys; artifact 10046997964, SHA-256
+  42600163397c17204829d8640c49a2b013342e16c310a51ea27d96b25b53ea99.
+  Downloaded hashes, exact source, all phase membership/order and journey
+  aggregation verify; all phase exits are 0 and all normal Chromium phases
+  flush/exit. Windows native job 101983647773 FAILS: after four binding tests
+  pass, Core is 981 PASS/1 FAIL/1 ignored. The failing test is
+  a_new_v23_role_commits_empty_store_evidence_and_remains_launchable_after_restart.
+  Its restarted Core first logs state worker shutdown timed out after three
+  seconds; the following v22 AppCore::create unwrap fails APP_INSTANCE_LOCKED
+  at behavior_21_session_migration_launch_gate.rs:484. The original logical
+  platform argument and state-worker substage were not retained. Later native
+  integration, complete Windows JS and Tauri build are skipped in this job;
+  prior 0935ac59 results are not relabeled. Loader artifact 10046901398 hashes
+  to c358b879fa09b3b3803354fa714f923694a2870581c3d6dbe39f7fb9d7597b65;
+  the original failure excerpt is retained separately in the takeover root.
+  The independent package job remains pending at this checkpoint.
+- Test-only 57b5daf00c7c41ba78348d42aecd099a0cc85b0e requires exact Completed
+  results from all three shutdown_checked calls in that restart test, with
+  explicit logical platform and initial/restarted/stable failure labels. This
+  prevents a later instance-lock assertion from masking the original shutdown
+  error. The unmodified three-second state-worker deadline and failed-shutdown
+  lock retention remain intact. Focused Windows-native test PASS (8.67 s for
+  both explicit platform branches), Rust lint PASS; full local Windows x64 Rust
+  passes 1673/4 ignored at exact 57b5daf0, 08:27:08–08:30:09 UTC, with only a
+  ledger edit present at invocation. Both production builds and E2E isolation
+  also pass at that source with documentation-only changes. No runtime verifier
+  rerun is used to relabel the earlier 0xC0000005 failure.
+  This is stronger failure reporting, not a diagnosed fix for the CI timeout.
+- Tooling-only bffcb262486dceac7ea19b55a77b0bfee15ab54b saves updater probe
+  observations into the existing CI artifact root. The hidden isolated console
+  otherwise loses its stdout-only observation record. A fixed create-new file
+  is reserved before invoking the probe; it records exact source, version,
+  artifact/manifest hashes and completed cases, or bounded redacted original
+  command/cause diagnostics. Probe errors are rethrown unchanged; persistence
+  failures cannot turn them into success. The record is explicitly non-authoritative
+  and not a production terminal receipt. Local adjacent checks 51 PASS/2 existing
+  platform skips include real CLI preflight-failure persistence; typecheck,
+  hygiene and lint PASS (23 existing warnings). E2E omission: lower-layer-covered.
+  This later tooling is not included in the still-running 07950a33 CI.
+  New Windows-only CI 34204932987 is dispatched once at 08:31:10 UTC for exact
+  source/workflow head 57b5daf00c7c41ba78348d42aecd099a0cc85b0e, after checking
+  existing runs. It includes both diagnostic persistence and stronger restart
+  assertions; app runtime remains 3eff9b28. The earlier independent package job
+  continues to its own terminal result.
 - CI 34198254073 is terminal FAIL only at the packaged updater step in job
   101970799154; the NSIS installed-payload correction itself passes. Exact
   source 0935ac593e0630ecfc785cacce1a7f66bcf1e32c/version 8.5.0 produces a

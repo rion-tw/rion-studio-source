@@ -49,15 +49,93 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | CI 34236090355 at exact a12e932c passes Rust 1673/4 ignored, native integration 16, complete Windows JS 3879/48 platform skips and Tauri build; shared JS passes 3903/28 skips. Local full JS remains FAIL: 3858 PASS/21 FAIL/48 skips (11 EPERM, ten original 10000ms timeouts); adjacent 42 PASS, hygiene/typecheck/lint/both builds/isolation PASS. Diagnostic three-file run has 69 PASS/one EPERM and does not reproduce the ten timeouts. App runtime remains 3eff9b28; updater 256 rounds unchanged. |
+| 1. Native/shared/build | Latest CI 34244392164 at a48a151b: Rust 1673/4 ignored and native integration 16 PASS; Windows JS 3879 PASS/one Job-fixture timeout/48 skips FAIL, Tauri build skipped; shared 3903/29 skips PASS. Local full a48a151b JS 3867 PASS/13 FAIL/48 skips. New test/E2E candidate 81b0343c has 12 adjacent PASS and typecheck/hygiene/lint/coverage PASS; full local JS and new Windows CI pending. Latest both-shell builds/isolation PASS belong to a12e932c. Runtime implementation remains 3eff9b28; updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | CI 34236090355 at exact a12e932c passes stable 31+3 expected force/40 journeys/all 34 phases and Chromium 58+4/54/all 62 phases, all normal Chromium flush/exit verified. Local d1e539 (built code 737d5a1f) passes complete stable 31+3/40; local 1ae51c6e (built code 3c08e479) passes complete Chromium 58+4/54. Earlier native shortcut/buffer failures remain unexplained; later PASS is not a repair. |
+| 3. Full profiles | Latest a48a151b Chromium full PASS: 58+4 expected force/54 journeys/all 62 ordered phases/normal flush and exit. Stable FAIL: three PASS/one FAIL, 30 missing phases, two PASS/two FAIL/36 NOT_RUN journeys; current-action refetch candidate 81b0343c still needs full profiles. Prior a12e932c stable full and prior complete local profiles remain historical PASS. Earlier shortcut/buffer causes remain unexplained. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. Best-effort simulation/native-event coverage is owner-directed; the local 12-file display/power/session-end/quit suite passes 78 tests at d1e539 (code 737d5a1f). No physical second display, actual OS sleep or actual OS sign-out evidence; no manual hardware/OS operation is required. |
-| 6. Install/update | Latest 67822229 NSIS PASS, updater journal ACK timeout FAIL, black-box skipped. Prior 68a0e92c Electron 8.4.0→8.5.0 fixture updater PASS precedes an exact UIA SetFocus black-box failure. Foreground correction 67822229 passes native tests; new relaunch diagnosis a12e932c is in CI 34236090355. No Tauri source transaction or production-key cutover is inferred. |
+| 6. Install/update | Exact a48a151b CI NSIS, Electron 8.4.0→8.5.0 fixture updater and packaged native black-box PASS. SHA-verified artifact 10065038342 retains installed proof, updater observations and passed black-box report; all three isolated Jobs end active zero. No Tauri source transaction or production-key cutover is inferred; the older updater ACK timeout cause remains unexplained. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
-Latest reconciliation (2026-09-08, after complete local Windows profiles):
+Latest reconciliation (2026-09-09 Asia/Taipei; command timestamps below are UTC):
+
+- Test/E2E-only 81b0343c1dc17927754495cab025e148df3dc4a6 replaces the optional
+  console-owning diagnostic root with a compiled Windows GUI-subsystem fixture.
+  The PE subsystem must be 2, the root must have no console, and the exact-one
+  pre-release Job member assertion remains unchanged. Local a48a151b full JS
+  captured root Node PID 14700 plus conhost 11488, both native image queries
+  successful and both in the Job; the earlier Node-root change did not remove
+  this OS-created member. The GUI diagnostic exits 0 in 17.027s, with root 17912,
+  one pre-release member, all guards true and final active zero. This does not
+  satisfy the original 10000ms unit deadline: the adjacent native run has nine
+  PASS/two timeouts (Job diagnostics and unchanged inline PowerShell). A retained
+  timing probe locates most cost in helper compilation and GUI compilation;
+  no deadline, cardinality assertion or privilege policy is changed.
+  The same commit refetches the current visible workspace-create button on each
+  WebDriver observation within one unchanged 10000ms boundary, then clicks once.
+  It preserves original errors and adds bounded current DOM/element-ID/hit-target
+  diagnostics. Explicit darwin/win32 replacement models fail on the old helper
+  (two FAIL/four PASS), then the adjacent suite passes 12/two files. This models
+  a known stale-handle gap; it does not prove the historical CI cause, whose
+  original element ID was not retained. Affected journeys include
+  WORKSPACE-WEB-SLOT-004 and WORKSPACE-WEB-ONLY-006; product behavior and coverage
+  requirements are unchanged. Typecheck, full hygiene, lint (23 existing warnings) and coverage pass; full
+  local JS is running at this exact SHA. Windows-only CI 34249936184 was first
+  dispatched at 16:15:26.192Z with matching workflow/checkout source SHA.
+  Complete stable and corresponding
+  Chromium profiles remain required. Logs use workspace-gui-* and
+  workspace-create-refetch-*; app runtime implementation remains 3eff9b28.
+- CI 34244392164 is terminal FAIL at exact
+  a48a151b65ed09b55f3540c6c90e5b262ac5f2b3. Shared JS passes 3903/29 platform
+  skips. Native job 102122727923 passes Rust 1673/four ignored and Electron
+  native integration 16, but complete Windows JS has 3879 PASS/one original
+  10000ms Job-fixture timeout/48 skips; Tauri build is skipped. Complete local
+  JS at this SHA also FAILS: 3867 PASS/13 FAIL/48 skips in 1221.99s,
+  15:02:56.232–15:23:23.957Z. Its failures are 11 symlink EPERM, the exact
+  extra-conhost assertion above, and the original 10000ms compatibility-receipt
+  parent-sealed-output-root timeout. Focused results do not replace either run.
+  Stable report 2026-09-08T15-24-30-066Z-win32 has three PASS/one FAIL, 30 missing
+  phases, two PASS/two FAIL/36 NOT_RUN journeys. website-entrance-seed fails
+  because Create workspace is not clickable within 10000ms. Screenshot shows
+  the visible button; original WebElement identity/hit state are unavailable.
+  Artifact 10063742345 SHA-256
+  1b4f5c265157a2fda30fbade7537afda60d1e9a5344e8a51d45ca3cef4c3847b
+  is retained in ci-visible-close-stable with the exact failed phase.
+  Chromium report 2026-09-08T15-24-25-342Z-win32 passes 58 normal/four expected
+  force, all 62 ordered phases and 54 journeys, every normal flush/exit and all
+  phase exits verified (15:24:25.653–15:42:36.234Z). Artifact 10064188687 SHA-256
+  8b74d12a5fd819de52d24bc557f392be90b7371e7a2997845dfdd1d870e6c4a2
+  is retained and reconciled in ci-visible-close-chromium; dirty state is CI
+  fixture preparation. No failed source was rerun for green.
+- The same exact a48a151b package job 102122519718 PASSES NSIS, fixture updater
+  and packaged native black-box. Artifact 10065038342 SHA-256
+  10e52c98b2b6614fd5636ecfa5b7fe75502d0c7a4cee4ff9b04d1a0278ee0263
+  is downloaded/hash-verified in ci-visible-close-package. Unsigned 8.5.0 NSIS
+  has 101626191 bytes/SHA-256
+  9229112989dec3f75cea1e1c8c8a45bdbe7c04a6be5c0b0d534eff747a05fe00;
+  installed proof hash is 7a61bdd7a406a69a7f3ed7b0d8f604840757f422cbaebfc9431783c896fb8525,
+  normalized payload hash d4506008993b264cff4aecb30742444c9a6b0ebec6ddde60c58aca3fb8483d51.
+  Exact source/version/payload, expected uninstaller-only addition, no mutation,
+  isolated profile and unsigned policy all reconcile. NSIS Job has three members,
+  root 8640, active zero and verified cleanup. Electron 8.4.0 to 8.5.0 fixture
+  updater passes at 16:01:39.463Z, manifest hash
+  dbb51b7aea466ac40ad46a66985097d0fc72f24c0e90c5d1b3ee635eafb3d942,
+  installed replacement/relaunch and fail-closed manifest cases applied; Job 88,
+  root 7152, active zero, target application PID 9272. The observation explicitly
+  says productionTerminalReceipt=false; no Tauri-source transaction is present.
+  Black-box report 2026-09-08T16-02-16-198Z-75a994fe-5b33-4945-8163-b38e29899194-win32-packaged-black-box
+  has verdict passed, exitCode 0, visible-os-accessibility-click, no remote
+  debugging and a temporary local Windows profile. Game
+  5ceeb052-34a3-4d13-b99d-f0d500cfdc4e / Role
+  f964c39d-df56-42ec-8f0f-529d32da212b complete visible launch/click/close and app
+  quit; Job 43, root 9676, app PID 8932, active zero. Executable SHA-256
+  373ce09ca562a701155a8fd94ca1fe59e68403a71d28ab44fc3f19ddda8eca62,
+  app.asar c6ef3635411b29ae2e7edc013ddbca0a4c190e743b13b88b547a4c257ce30ab1,
+  addon b14f43a15e9afd0b478f2c6316457b9f4e1508c3b33f679804f685828018d87b.
+  The success report does not persist the role HWND, although the action and
+  disappearance assertion use that exact native identity. This closes the
+  fixture black-box failure at visible-role-close, not production-key cutover
+  or the earlier unexplained updater ACK timeout. API remains 11/18.
 
 - Harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 invokes the exact
   visible Close Game Window button instead of guarded WindowPattern.Close.

@@ -6,7 +6,7 @@ requirements remain in [Chromium Runtime Migration](chromium-runtime-migration.m
 and [Updater Install Transaction](updater-transaction-contract.md); this file is
 only an execution view and must never be used to waive a gate.
 
-Last reconciled: 2026-09-08.
+Last reconciled: 2026-09-09 (Asia/Taipei).
 
 The separate [Chromium Cross-Platform API Ledger](chromium-cross-platform-api-ledger.md)
 tracks shared API adoption and justified native boundaries. Its maintenance
@@ -32,6 +32,43 @@ tasks do not waive or replace the release-cutover gates in this ledger.
   count. Historical evidence does not count for the current source SHA.
 
 ## 2026-09-08 workstation acceptance checkpoint
+
+2026-09-09 reconciliation (UTC evidence timestamps): CI 34244392164 at exact
+a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 is terminal FAIL overall. Its Windows
+package job 102122519718 passes NSIS installed-payload proof, Electron
+8.4.0 to 8.5.0 fixture updater and native packaged black-box, including visible
+Close Game Window and application exit. Artifact 10065038342 SHA-256
+10e52c98b2b6614fd5636ecfa5b7fe75502d0c7a4cee4ff9b04d1a0278ee0263 is retained;
+the API ledger records exact installer/payload/manifest/executable/asar/addon
+hashes, logical identities and Job terminal observations (three/88/43 members,
+each active zero). Updater observation explicitly has
+productionTerminalReceipt=false; it contains no Tauri-source transaction.
+Chromium full passes 58 normal/four expected force, 54 journeys/all 62 ordered
+phases with normal flush/exit; artifact 10064188687 SHA-256
+8b74d12a5fd819de52d24bc557f392be90b7371e7a2997845dfdd1d870e6c4a2.
+Stable full fails at website-entrance-seed: three PASS/one FAIL, 30 missing
+phases and two PASS/two FAIL/36 NOT_RUN journeys; original button element ID is
+unavailable. Native Rust passes 1673/four ignored and native integration 16;
+Windows JS has 3879 PASS/one original Job-fixture 10000ms timeout/48 skips,
+so Tauri build is skipped. Shared JS passes 3903/29 skips. Full local a48a151b
+JS has 3867 PASS/13 FAIL/48 skips: 11 EPERM, exact unexpected conhost 11488
+beside root Node 14700, and one original compatibility-receipt 10000ms timeout.
+
+Test/E2E-only 81b0343c1dc17927754495cab025e148df3dc4a6 uses a GUI-subsystem
+diagnostic root with no console and retains the exact-one-root assertion. A
+raw native diagnostic passes all guards/final active zero but takes 17.027s;
+the adjacent original 10000ms unit deadline remains FAIL. The same commit
+refetches current workspace-create elements within the original 10000ms
+boundary and preserves primary/diagnostic errors. Explicit darwin/win32 tests
+reproduce the modeled old-handle gap, then 12 adjacent tests pass. The exact
+historical CI cause is not claimed. Affected WORKSPACE-WEB-SLOT-004 and
+WORKSPACE-WEB-ONLY-006 still require complete profiles; focused PASS is not a
+full-profile verdict. Typecheck/hygiene/lint/coverage pass and complete local JS is
+running. Windows-only CI 34249936184 is the first dispatch of exact 81b0343c
+(16:15:26.192Z). App runtime implementation remains 3eff9b28. No physical second
+display, real OS sleep/sign-out, four production transactions, terminal
+promotion or v22 configuration delta is inferred. API remains 11/18 and the
+overlapping five-work-package/nine-deliverable counts do not change.
 
 Harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 closes the exact role
 through its visible Close Game Window action, retaining the native-close guard,

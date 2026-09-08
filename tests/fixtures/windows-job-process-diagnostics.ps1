@@ -86,7 +86,23 @@ try {
   $taskExitedRootCanJoin = [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
     $taskJob, $taskChild.Handle, $taskChild.Id)
   # A prior empty notification must not authorize a different live Job member.
-  $taskSurvivor = [Diagnostics.Process]::Start($taskStart)
+  # The survivor needs only an exact native process blocked on stdin, not a
+  # second PowerShell runtime startup inside the test's unchanged deadline.
+  $taskSurvivorStart = [Diagnostics.ProcessStartInfo]::new()
+  $taskSurvivorStart.FileName = $env:ComSpec
+  foreach ($taskArgument in @('/d', '/q', '/c', 'set /p rion_fixture_input= & exit /b 0')) {
+    $taskSurvivorStart.ArgumentList.Add($taskArgument)
+  }
+  $taskSurvivorStart.UseShellExecute = $false
+  $taskSurvivorStart.CreateNoWindow = $true
+  $taskSurvivorStart.RedirectStandardInput = $true
+  $taskSurvivorStart.RedirectStandardOutput = $true
+  $taskSurvivorStart.RedirectStandardError = $true
+  $taskSurvivorStart.Environment.Clear()
+  foreach ($taskName in $taskStart.Environment.Keys) {
+    $taskSurvivorStart.Environment[$taskName] = $taskStart.Environment[$taskName]
+  }
+  $taskSurvivor = [Diagnostics.Process]::Start($taskSurvivorStart)
   if (-not [DiagnosticTestJob]::AssignProcessToJobObject($taskJob, $taskSurvivor.Handle)) {
     throw "Could not bind the accounting-fence survivor to its exact job."
   }

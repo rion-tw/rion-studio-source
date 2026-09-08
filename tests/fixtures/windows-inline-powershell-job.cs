@@ -94,6 +94,8 @@ public static class InlinePowerShellTestJob
                             throw new System.ComponentModel.Win32Exception();
                     }
                 }
+                if (!QueryInformationJobObject(job, 1, information, 48, IntPtr.Zero))
+                    throw new System.ComponentModel.Win32Exception();
                 return new uint[] { exit, process.processId,
                     (uint)Marshal.ReadInt32(information, 36),
                     (uint)Marshal.ReadInt32(information, 40), initialActive,

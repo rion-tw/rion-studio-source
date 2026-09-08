@@ -418,6 +418,9 @@ public static class RionWindowsJobRunner
                         new InvalidOperationException("The isolated root command exited with code " + exitCode + "."), error);
                 }
             }
+            // Identity checks above may race with native exit. Decide from a
+            // final authoritative accounting query, not the earlier snapshot.
+            activeProcessesAfterRootExit = QueryActiveProcesses(job, accountingBuffer, accountingSize);
             if (activeProcessesAfterRootExit != 0 && !TerminateJobObject(job, 1))
             {
                 throw new Win32Exception();

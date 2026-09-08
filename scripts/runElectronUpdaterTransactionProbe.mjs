@@ -565,9 +565,12 @@ export function windowsUpdaterProcessTerminationScript(processId) {
     "  if ($LASTEXITCODE -ne 0) { throw 'Updater target process tree did not terminate.' }",
     // Request acceptance can precede exit; retain the existing external deadline.
     "  $root | Wait-Process -Timeout 120 -ErrorAction Stop",
+    "  if (-not $root.HasExited) { throw 'Updater target root process survived termination.' }",
     "}",
     `$remaining = Find-RionProbeProcess ${processId}`,
-    "if ($remaining) { throw 'Updater target root process survived termination.' }"
+    // Windows can retain an exited process in enumeration while a native handle
+    // remains open. Presence is not liveness; a live or reused PID still fails.
+    "if ($remaining -and -not $remaining.HasExited) { throw 'Updater target root process survived termination.' }"
   ].join("\n");
 }
 

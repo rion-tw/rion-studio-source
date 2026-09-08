@@ -1,4 +1,4 @@
-import { $, expect } from "@wdio/globals";
+import { $, browser, expect } from "@wdio/globals";
 
 const EMPTY_PRIMARY_PAGES: Readonly<Record<string, readonly [string, string]>> = {
   "/roles": ["No roles yet", "Create role"],
@@ -11,9 +11,17 @@ export async function assertSeedPrimaryPage(path: string): Promise<void> {
   await expect($(".app-page")).toBeDisplayed();
   const empty = EMPTY_PRIMARY_PAGES[path];
   if (empty) {
-    // Resolve from the document: a lazy route can replace the page between
-    // assertions. A retained parent handle can keep searching the old subtree.
-    await expect($(".app-page h2")).toHaveText(empty[0]);
+    // WebView2 can return null repeatedly for an obsolete heading instead of a
+    // stale-element error. Requery on every observation of the lazy route,
+    // within the existing assertion boundary; wrong text still fails.
+    await browser.waitUntil(async () => {
+      const heading = await $(".app-page h2");
+      return await heading.isExisting() && await heading.getText() === empty[0];
+    }, {
+      timeout: browser.options.waitforTimeout,
+      interval: 100,
+      timeoutMsg: `The current ${path} heading did not equal ${empty[0]}`
+    });
     await expect($(".app-page h2")).toBeDisplayed();
     await expect($(`//section[contains(concat(' ', normalize-space(@class), ' '), ' app-page ')]//button[normalize-space(.)='${empty[1]}']`)).toBeDisplayed();
     await expect($(".app-page .app-page-header")).not.toExist();

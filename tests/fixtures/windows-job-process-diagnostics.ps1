@@ -1,4 +1,3 @@
-param([Parameter(Mandatory=$true)][string] $NodeExecutable)
 $ErrorActionPreference = "Stop"
 $taskRepository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 Add-Type -Path @(
@@ -43,19 +42,22 @@ if ($taskJob -eq [IntPtr]::Zero) { throw "Could not create diagnostic test job."
 $taskObserver = $null
 $taskChild = $null
 $taskSurvivor = $null
+$taskTempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+$taskFixtureRoot = [IO.Path]::GetFullPath((Join-Path $taskTempParent ('rion-job-root-' + [Guid]::NewGuid().ToString('N'))))
 try {
+  [void][IO.Directory]::CreateDirectory($taskFixtureRoot)
+  $taskRootExecutable = Join-Path $taskFixtureRoot 'diagnostic-root.exe'
+  $taskCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+  if (-not (Test-Path -LiteralPath $taskCompiler -PathType Leaf)) { throw 'Native fixture compiler unavailable.' }
+  & $taskCompiler /nologo /target:winexe "/out:$taskRootExecutable" (Join-Path $PSScriptRoot 'windows-job-diagnostic-root.cs')
+  if ($LASTEXITCODE -ne 0) { throw 'GUI diagnostic root compilation failed.' }
+  $taskImage = [IO.File]::ReadAllBytes($taskRootExecutable)
+  $taskPeOffset = [BitConverter]::ToInt32($taskImage, 0x3c)
+  $taskRootSubsystem = [BitConverter]::ToUInt16($taskImage, $taskPeOffset + 4 + 20 + 68)
+  if ($taskRootSubsystem -ne 2) { throw 'Diagnostic root must use the Windows GUI PE subsystem.' }
   $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
   $taskStart = [Diagnostics.ProcessStartInfo]::new()
-  # This fixture needs a pipe-blocked process, not PowerShell's optional console
-  # bootstrap. Keep the exact one-root pre-release assertion deterministic.
-  $taskStart.FileName = [IO.Path]::GetFullPath($NodeExecutable)
-  if (-not (Test-Path -LiteralPath $taskStart.FileName -PathType Leaf)) {
-    throw "The fixture's exact Node executable is unavailable."
-  }
-  foreach ($taskArgument in @(
-    '-e',
-    'process.stdin.once("data", () => { const child = require("node:child_process").spawnSync(process.env.ComSpec, ["/d", "/c", "exit", "0"], { windowsHide: true, stdio: "ignore" }); if (child.error) throw child.error; process.exit(child.status ?? 1); }); process.stdin.resume();'
-  )) { $taskStart.ArgumentList.Add($taskArgument) }
+  $taskStart.FileName = $taskRootExecutable
   $taskStart.UseShellExecute = $false
   $taskStart.CreateNoWindow = $true
   $taskStart.RedirectStandardInput = $true
@@ -123,6 +125,7 @@ try {
     platform = 'win32'
     rootProcessId = $taskChild.Id
     rootImagePath = $taskStart.FileName
+    rootSubsystem = $taskRootSubsystem
     totalProcesses = [DiagnosticTestJob]::TotalProcesses($taskJob)
     notificationError = $taskObserver.NotificationError
     truncated = $taskObserver.Truncated
@@ -149,4 +152,13 @@ try {
   }
   if ($null -ne $taskObserver) { $taskObserver.Dispose() }
   [void][DiagnosticTestJob]::CloseHandle($taskJob)
+  if (Test-Path -LiteralPath $taskFixtureRoot) {
+    $taskResolvedFixtureRoot = (Resolve-Path -LiteralPath $taskFixtureRoot).ProviderPath
+    if (-not $taskResolvedFixtureRoot.StartsWith($taskTempParent, [StringComparison]::OrdinalIgnoreCase) -or
+        -not [String]::Equals($taskResolvedFixtureRoot, $taskFixtureRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        ((Get-Item -LiteralPath $taskFixtureRoot).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+      throw 'Diagnostic fixture cleanup target changed.'
+    }
+    Remove-Item -LiteralPath $taskResolvedFixtureRoot -Recurse -Force
+  }
 }

@@ -8,13 +8,13 @@ it.skipIf(process.platform !== "win32")(
   async () => {
     const { stdout } = await promisify(execFile)("pwsh.exe", [
       "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
-      resolve("tests/fixtures/windows-job-process-diagnostics.ps1"),
-      "-NodeExecutable", process.execPath
+      resolve("tests/fixtures/windows-job-process-diagnostics.ps1")
     ], { windowsHide: true, maxBuffer: 1024 * 1024 });
     const result = JSON.parse(stdout) as {
       platform: string;
       rootProcessId: number;
       rootImagePath: string;
+      rootSubsystem: number;
       totalProcesses: number;
       notificationError: number;
       truncated: boolean;
@@ -35,6 +35,7 @@ it.skipIf(process.platform !== "win32")(
       }[];
     };
     expect(result.platform).toBe("win32");
+    expect(result.rootSubsystem).toBe(2);
     expect(result.notificationError).toBe(0);
     expect(result.truncated).toBe(false);
     expect(result.activeSnapshotError).toBe(0);

@@ -2,6 +2,7 @@ import { $, $$, browser, expect } from "@wdio/globals";
 import { Key, type ChainablePromiseElement } from "webdriverio";
 
 import { focusMainApplicationWindow } from "./control";
+export { clickWorkspaceCreateAction } from "./workspace-create-action";
 
 const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 const RENDERER_PROBE_TIMEOUT_MS = 5_000;
@@ -145,17 +146,6 @@ export async function clickWorkspaceSlot(index: number): Promise<void> {
   await slot.waitForClickable({ timeout: 10_000 });
   await slot.click();
 }
-export async function clickWorkspaceCreateAction(): Promise<void> {
-  for (const label of ["New workspace", "Create workspace"] as const) {
-    const action = await $(`button=${label}`);
-    if (!(await action.isExisting())) continue;
-    await action.waitForClickable({ timeout: 10_000 });
-    await action.click();
-    return;
-  }
-  throw new Error("The Workspaces route has no visible create action");
-}
-
 export async function navigate(path: string): Promise<void> {
   const result = await browser.executeAsync(
     (nextPath: string, done: (result: RendererNavigationResult) => void) => {

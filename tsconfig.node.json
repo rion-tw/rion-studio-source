@@ -7,6 +7,7 @@
   "include": [
     "e2e/desktop/support/platform.ts",
     "e2e/desktop/support/primary-navigation.ts",
+    "e2e/desktop/support/workspace-create-action.ts",
     "e2e/desktop/support/macos-native-tab-geometry.ts",
     "e2e/desktop/support/visible-canvas-point.ts",
     "e2e/desktop/support/native-failure-sample.ts",

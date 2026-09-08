@@ -80,7 +80,13 @@ and prove that its installed payload equals the already black-boxed
 `win-unpacked` manifest after removing exactly the generated root uninstaller.
 The isolated runner must report root exit code zero, Job Object active-zero,
 exactly three observed processes, and verified profile/account/ACL cleanup in a
-create-new measured result. Its repository-detached, parent-owned input root is
+create-new measured result. NSIS performs its runtime-presence check in-process,
+without PowerShell/cmd helpers. Both the Electron executable and rion-tauri.exe
+must be absent; lookup errors fail closed. A running application must complete
+its normal Rust-owned drain before replacement. Interactive installation offers
+an explicit Retry/Cancel after manual close; silent installation returns failure.
+The installer never force-terminates either runtime to satisfy this precondition.
+Its repository-detached, parent-owned input root is
 read-only to the temporary SID; the source package has an explicit recursive
 deny. A canonical inventory lists the source root plus every directory and file;
 before NSIS starts, non-mutating native probes must receive `ACCESS_DENIED` for

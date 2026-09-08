@@ -1065,7 +1065,7 @@
       "kind": "native",
       "risk": "external",
       "outcomes": ["cancel"],
-      "description": "Complete portable round-trip, Chrome transfer, font installation, live Chromium role DOM/Canvas font replacement on the retained macOS AppKit and Windows hosts, diagnostics export, and staged updater installation with native dialogs."
+      "description": "Complete portable round-trip, Chrome transfer, font installation, live Chromium role DOM/Canvas font replacement on the retained macOS AppKit and Windows hosts, diagnostics export, and staged updater installation with native dialogs. On Windows, verify the NSIS Retry/Cancel boundary while either runtime remains active and require normal Rust-owned drain before replacement; silent installation must fail closed. The native running/absent process gate has separate lower-layer fixture coverage; this planned interactive journey is not promoted by that fixture."
     },
     {
       "id": "APP-NATIVE-MENU-002",

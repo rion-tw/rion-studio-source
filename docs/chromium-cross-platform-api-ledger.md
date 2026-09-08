@@ -167,6 +167,54 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   environment paths and terminates only its own Job during cleanup. This is
   internal-only tooling; no product journey changes. Full JS/new-source hosted
   installer diagnostics remain pending at this checkpoint.
+- Exactly one Windows diagnostic run, 34185634130, is dispatched for source
+  f7e3ef9508b9a5ef344055aafbca7d99d360182c (workflow head
+  f92fee12b0dace84bbb867593b1cb0a5387cd7f6). Local complete JS has not started
+  while Windows UAC awaits the elevated symlink-capable test launch. A separate
+  non-installing native NSIS 3.0.4.1 fixture compiles the dependency's actual
+  IS_POWERSHELL_AVAILABLE/FIND_PROCESS macros and observes eight Job processes:
+  its pwsh harness, fixture executable, two SysWOW64 PowerShell processes,
+  SysWOW64 cmd and three conhost processes. It targets a never-installed unique
+  path/name and never executes the dependency's kill macro. FIND_PROCESS returns
+  255 on this ARM64 host, so this is bounded diagnostic evidence, not successful
+  installer acceptance or an exact reproduction of the hosted count 12.
+  Reports nsis-preflight-job-user-environment.json/native-status.txt are retained
+  under windows-takeover-4e5ec764. The original NSIS proof count remains 3.
+- Run 34185634130 fails Chromium full before installation: 10 normal phases
+  PASS, then chromium-workspace-web-fullscreen-seed FAIL; 11 journeys PASS,
+  four FAIL and 39 NOT_RUN. Artifact 10040537849/report
+  2026-09-08T04-05-22-426Z-win32 retains the chooser failure: Electron PID 1196,
+  foreground dialog HWND 393578/PID 7880, exact owner HWND 786840/PID 1196.
+  The 15 s helper is killed after its failure snapshot; original control IDs
+  1148/1 did not match one exact dialog, but child IDs are absent from the old
+  evidence. Installer process identities were not reached. Stable separately
+  fails smoke-seed with expected "No roles yet", received null (artifact
+  10040568493/report 2026-09-08T04-05-10-021Z-win32). Neither is relabeled fixed.
+- Installer-only 9e56d430ee464f0c0ce4c511ea8badfd8661612d replaces the
+  dependency's external helper process check with its existing native nsProcess
+  plugin. Both the Electron image and rion-tauri.exe must return exactly 603
+  (absent); lookup errors/running runtimes block replacement. Interactive
+  Retry/Cancel follows normal application close; silent mode exits 1. No
+  installer-owned forced termination or automatic retry is added. The native
+  fixture proves absent -> exit 0/admission and running -> exit 1/no admission.
+  This is lower-layer-covered installer remediation; the affected planned
+  SETTINGS-TRANSFER-002 interactive journey remains planned, not fixture-PASS.
+- Complete local NSIS compile at those hook bytes passes with Electron 43.6.0,
+  application 0.0.0-development/Core 0.1.0 and Authenticode NotSigned. Artifact
+  nsis-native-full-package/Rion.Studio-win.exe SHA-256
+  e8f48e17a5d23989f12db0311c91183312747bf0a75350ae341c329ec3e77caf
+  uses the prior ca4375cf production outputs and was compiled before committing
+  the identical installer hook; nsis-native-full-package.receipt.json records
+  that dirty-build distinction. This is compile evidence, not installed-payload,
+  production-key or updater acceptance. No package is published or installed.
+- E2E-only 56bee2adf66eead1f9d4903d22b844b8b653ca08 retains bounded exact-owner
+  child control IDs/classes/visibility and failure reasons, without changing
+  matching, clicks or deadlines (journey CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028).
+  CI-only bb9c29d4a971714f31b9bd1b14eb6b1ff6dde637 collects independent Windows
+  package evidence even when Chromium E2E fails, then explicitly fails the job
+  unless that original complete E2E outcome was success. Source tests preserve
+  this final failure gate. Native C# compilation, focused checks, typecheck,
+  lint and hygiene/coverage pass; new-source full JS/CI remain pending.
 - Final production restoration at ca4375cf passes pnpm run build (clean start),
   pnpm run build:electron (only these two ledger edits pending),
   check:desktop-e2e-isolation and verify:electron-runtime. Actual x64 runtime is

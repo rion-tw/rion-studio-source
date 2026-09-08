@@ -85,6 +85,29 @@ preserving all count, active-zero, command-exit and cleanup gates. Native local
 compilation/focused 18 PASS plus two existing platform skips, typecheck, hygiene
 and lint pass; full JS and exact-source hosted installer diagnostics are pending.
 The observer is not a completion authority and records no arguments/environment.
+Windows-only diagnostic run 34185634130 checks out f7e3ef95 (full SHA above),
+with workflow head f92fee12b0dace84bbb867593b1cb0a5387cd7f6. Local full JS
+launch is waiting for Windows UAC and is not a started/passing test. A separate
+non-installing native NSIS macro fixture observes PowerShell/cmd/conhost helpers
+but does not reproduce the exact hosted count; the original proof count 3 stays.
+That run's Chromium profile stops after 10 PASS phases at the native upload
+chooser (11 journey PASS/4 FAIL/39 NOT_RUN, artifact 10040537849); stable
+smoke-seed separately expects "No roles yet" but receives null (10040568493).
+The hosted installer diagnostic is therefore not reached. Installer-only
+9e56d430ee464f0c0ce4c511ea8badfd8661612d uses the existing native nsProcess
+plugin and admits replacement only when both runtimes are absent. It preserves
+the three-process proof gate, requires normal Rust drain, and fails silent
+installation while either runtime is active or the lookup is unknown. Native
+absent/running fixtures and complete local NSIS compile pass (application
+0.0.0-development, Electron 43.6.0, Core 0.1.0); installed-payload acceptance
+remains pending. SETTINGS-TRANSFER-002 stays planned; its native precondition
+uses lower-layer-covered evidence, not an interactive journey PASS.
+E2E-only 56bee2adf66eead1f9d4903d22b844b8b653ca08 adds bounded file-dialog
+failure controls without changing matching/deadlines. CI-only
+bb9c29d4a971714f31b9bd1b14eb6b1ff6dde637 collects independent Windows package
+evidence, then still fails the job unless the original complete Chromium E2E
+outcome is success. Focused/native compile/typecheck/lint/hygiene pass; exact
+new-source full JS and CI remain pending. No production acceptance is inferred.
 Both production shell builds, production E2E isolation and actual x64 runtime
 verification subsequently pass at ca4375cf (Electron 43.6.0/Chromium
 150.0.7871.250/Node 24.20.0/Core 0.1.0). Final addon inventory has no retired

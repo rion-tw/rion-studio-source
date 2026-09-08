@@ -92,7 +92,10 @@ lint fix and documentation. Production runtime/package code remains identical
 to c52decf9. Scope is Windows only, to obtain the native integration and complete
 Windows JS results that the prior Rust failure prevented. Existing macOS jobs
 continue on c52decf9; no macOS acceptance was redispatched. The new Windows run
-is active, not PASS.
+has completed shared checks as SUCCESS: **3712 JS PASS / 29 platform skips**,
+lint 0 errors / 23 existing warnings, portable Rust 997 PASS / 1 ignored,
+renderer build and sanitizer/concurrency SUCCESS. Windows native/package jobs
+remain active, not PASS.
 
 ### Final runtime-source complete profiles
 
@@ -113,8 +116,55 @@ on each platform. Windows artifact SHA-256:
 macOS artifact SHA-256:
 `67b64588637d5c5d16e4e963fdfc76a78eb296c9f2b2fad28687425b4ca62244`.
 ZIPs, reports and manifest-reconciled summaries are retained under
-`.desktop-e2e-artifacts/ci34286895282/`. The two source-specific package jobs
-are building release artifacts; complete profiles do not replace their results.
+`.desktop-e2e-artifacts/ci34286895282/`. Complete profiles do not replace package
+verification results.
+
+### Final runtime-source macOS package
+
+Job 102264458817 is terminal **SUCCESS**. It verified Electron 43.6.0,
+Chromium 150.0.7871.250, Node 24.20.0, Node-API 10 and Rust Core 8.5.0 on
+darwin-arm64; app structure, ad-hoc signing, DMG and updater distribution all
+passed. The fixed published v8.3.0 source passed native fixture preparation,
+including its pinned bytes/hash, plist versions and strict codesign verification.
+
+The Rust packaged updater probe completed four applied cases: manifest
+fail-closed, Electron-layout replacement from fixture versions 8.3.0 and 8.4.0,
+and helper handoff/relaunch from the real published Tauri v22 8.3.0 source to
+the CI fixture 8.5.0 target. Target archive SHA-256:
+`90805a83bdf18b5cd4aaf7d8ab6af7df9297d2cd83decf8553e4b8f34e793bd5`;
+manifest SHA-256:
+`465e7583c63e3f83bc20570353cdd43116c43614fc4749ffc70359945ba2359a`.
+The job-log observations are retained as
+`ci34286895282/macos-packaged-updater-observations.json` under the local artifact
+root, explicitly non-authoritative and not a production terminal receipt.
+
+Packaged AppKit black-box report
+`2026-09-08T23-09-50-354Z-cd7ec567-41ec-49c8-8057-4da9f545a664-darwin-packaged-black-box/packaged-smoke-report.json`
+is PASS: visible OS accessibility click, `appkit-chromium` host, fixed isolated
+macOS home, no remote debugging and exit code 0. It binds package manifest
+`dc33d9fb90307f761eb198a575fbeb2941a2747ee91257ac2c0c05b6adac749e`
+(601 entries: 319 directories, 268 regular files, 14 symlinks;
+316183585 regular-file bytes). Artifact 10080738353 was downloaded and matched
+SHA-256 `04c53180c197da2ec473b1885947f66745fa889638fe9a737a1497882a0d8d87`.
+The ZIP and selected report are retained under `ci34286895282/`.
+This completes the previously failing macOS package path at the exact c52decf9
+runtime source; it does not establish production-key cutover or a real source
+updater fetching a production release. The paired Windows package job has passed
+NSIS installed-payload and Rust updater steps and is running native black-box.
+
+### Local retirement preservation
+
+The tracked old runtime and launch roots are absent. A final filesystem audit
+found five ignored generated JSON schemas under `src-tauri/gen/schemas`.
+Their exact bytes and SHA-256 were preserved, then the old local directory was
+moved to `.desktop-e2e-artifacts/retired-local-tauri-generated-20260909/`.
+`preservation.json` records the original paths and verified destination hashes.
+No user file was discarded or overwritten; the source `src-tauri` directory is
+now absent too. `pnpm run verify:system-only` passes. The four requested handoff
+ancestors are still in HEAD history, and the tracked worktree is clean.
+Local scope/provenance observations are retained in
+`.desktop-e2e-artifacts/sole-entry-completion-audit.json`; it deliberately records
+`complete: false` while final Windows CI remains pending.
 
 Program commits:
 

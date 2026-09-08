@@ -65,6 +65,7 @@ export const desktopE2eSpecByPhase: Readonly<Record<string, string>> = {
   "chromium-workspaces-recovery": "e2e/desktop/specs/chromium-workspaces-recovery.e2e.ts",
   "chromium-quit-guard-restart": "e2e/desktop/specs/chromium-quit-guard.e2e.ts",
   "chromium-quit-guard-seed": "e2e/desktop/specs/chromium-quit-guard.e2e.ts",
+  "chromium-windows-session-end": "e2e/desktop/specs/chromium-windows-session-end.e2e.ts",
   "chromium-quick-access-restart": "e2e/desktop/specs/chromium-quick-access.e2e.ts",
   "chromium-quick-access-seed": "e2e/desktop/specs/chromium-quick-access.e2e.ts",
   "chromium-system-settings": "e2e/desktop/specs/chromium-system-settings.e2e.ts",

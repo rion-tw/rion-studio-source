@@ -33,6 +33,15 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+CI 34224123627 at exact 68a0e92c2b3f00edc62a7fd2a30c3a2fc9581789
+passes shared JS 3898/27 platform skips and both complete Windows profiles:
+stable 31 normal/three expected force, 40 journeys/all 34 phases; Chromium 58
+normal/four expected force, 54 journeys/all 62 phases. Artifact 10055652342
+and 10055704709 hashes, exact report membership and all normal Chromium
+flush/process exits verify. Native job 102054376905 also succeeds: Rust 1673
+PASS/four ignored, native integration 16 PASS, complete Windows JS 3873 PASS/48
+platform skips and Tauri build PASS. Package results continue independently.
+
 Latest correction 68a0e92c2b3f00edc62a7fd2a30c3a2fc9581789 distinguishes
 retained process enumeration from native liveness, rereads final Job accounting
 after identity checks, and removes one unnecessary native fixture runtime startup.

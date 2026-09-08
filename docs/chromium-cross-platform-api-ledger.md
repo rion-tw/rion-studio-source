@@ -54,13 +54,44 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 | 3. Full profiles | CI 34202245777 at exact 07950a33 passes stable 31+3 expected force/40 journeys and Chromium 58+4/54. Manifest membership and order match all 34/62 phases; every normal Chromium phase flushes/exits and all phase exit codes are 0. Prior 3eff9b28 full-profile evidence also captures the corrected Web-only close overlapping quit and terminalizing before Core effects are disposed. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI 34198254073 at 0935ac59 passes target 8.5.0/previous 8.4.0 builds, runtime/package/distribution and actual NSIS installed payload. Exact Job total 3, root/final active 0, exit 0 and profile/ACL cleanup verify; source tree is identical apart from the expected uninstaller. Updater then fails before any pnpm/Node process is observed, exit 1; black-box is SKIPPED. Tooling-only 07950a33 corrects its forced pnpm.cmd selection to the already verified pnpm.exe; new exact-source Windows CI is pending. No updater transaction or production-key cutover is inferred from installed-payload PASS. |
+| 6. Install/update | CI 34202245777 at 07950a33 passes target 8.5.0/previous 8.4.0 builds, runtime/package/distribution and actual NSIS payload (Job 3/active 0/exit 0/cleanup verified). Native pnpm, Node, Rust probe and actual updater installer/uninstaller now execute, but the command exits 1; original child stderr is unavailable and black-box skips. CI 34204932987 at 57b5daf0 includes persisted probe diagnostics and is pending. No updater transaction or production-key cutover is inferred from installed-payload PASS. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- CI 34202245777 is terminal FAIL in native and package jobs. Package job
+  101983499285 passes runtime/package/distribution and actual 8.5.0 NSIS payload:
+  proof SHA-256 88b3c995a23a224f464bf5113bafe8b36394bea1777edaf6bf3a78a4f52a0fd6,
+  unsigned installer 101627435 bytes/SHA-256
+  653a8108023333f9f3fd61df1a30a465c14896690961cbb84719d59e04fcf056,
+  normalized source manifest
+  5b6fdfcf41f7c7485d28a1fd95479a6390abe0e4a6e30c646e8c78b17512d76e.
+  Installed executable SHA-256 is
+  373ce09ca562a701155a8fd94ca1fe59e68403a71d28ab44fc3f19ddda8eca62;
+  only the expected uninstaller is added. Job total 3, root/final active 0,
+  command exit 0 and cleanup verify. Native PIDs are pwsh 2708, conhost 2148
+  and installer 8900. Downloaded artifact 10047717814 hashes to
+  c3a9ea73dc74b116f44ebea6d6b0216098a2b328239fcf1da673e70427f7eded.
+  It contains the install proof, not updater terminal observations or a
+  packaged black-box report; the latter step is SKIPPED.
+- The corrected native-pnpm updater command now actually executes pnpm PID
+  2164 from C:\Users\runneradmin\setup-pnpm\node_modules\pnpm\pnpm.exe,
+  Node 24.20.0 PIDs 7544/1388/8280, Rust probes 3660/7524, previous-version
+  installer 5548 under rion-electron-updater-KpC4x8\previous-8.4.0, target
+  installer 4900 in the temporary user's app-updates\pending directory, and
+  old-uninstaller 7004. Final command exit is 1, Job total 79/active 0, with
+  diagnostic error 0/no truncation. This establishes execution beyond the old
+  shim boundary but not successful replacement/relaunch. Original child stderr
+  and final probe observations are unavailable, so the precise later failure
+  cannot be reconstructed from those process observations. Source 57b5daf0
+  already contains the bounded diagnostic capture for its pending CI.
 - CI 34202245777 at exact 07950a33a04bbd313e926e4a3b9077a0f18f21b8 passes
   shared JS 3877/11 platform skips and complete stable/Chromium profiles.
+  Its Windows native log identifies Microsoft Windows Server 2025 Datacenter
+  10.0.26100, runner image windows-2025-vs2026 version 20260824.214.3. This is
+  separate from the local Windows 11 ARM64 VM evidence. Stable runner logs
+  identify msedge/WebView2 151.0.0.0; Chromium uses Electron 43.6.0 with
+  Chromium 150.0.7871.250.
   Stable report 2026-09-08T08-02-37-391Z-win32 is 31 normal + three expected
   force/40 journeys; artifact 10046917958, SHA-256
   aefce9dc79f2d94e0828bdccd639fb4456804e6a6eb8538dd6e0b45722174b7a.
@@ -80,7 +111,7 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   prior 0935ac59 results are not relabeled. Loader artifact 10046901398 hashes
   to c358b879fa09b3b3803354fa714f923694a2870581c3d6dbe39f7fb9d7597b65;
   the original failure excerpt is retained separately in the takeover root.
-  The independent package job remains pending at this checkpoint.
+  The independent package job's terminal failure is recorded above.
 - Test-only 57b5daf00c7c41ba78348d42aecd099a0cc85b0e requires exact Completed
   results from all three shutdown_checked calls in that restart test, with
   explicit logical platform and initial/restarted/stable failure labels. This
@@ -92,6 +123,11 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   ledger edit present at invocation. Both production builds and E2E isolation
   also pass at that source with documentation-only changes. No runtime verifier
   rerun is used to relabel the earlier 0xC0000005 failure.
+  Direct x64 Node 24.20.0 inventory of the resulting addon confirms NativeAppCore
+  and absence of all four retired child-HWND input exports. Its SHA-256 remains
+  68e96299d9810f601800c257b1b2c025942ce924c27698b32dbf9e645c032c84;
+  observation head c02ce1d79ada9a14c2ba00192b154c0df92da1c3 is documentation-only
+  after the 57b5daf0 build source.
   This is stronger failure reporting, not a diagnosed fix for the CI timeout.
 - Tooling-only bffcb262486dceac7ea19b55a77b0bfee15ab54b saves updater probe
   observations into the existing CI artifact root. The hidden isolated console
@@ -3114,7 +3150,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware and Windows local c17f9763 / CI 0935ac59 stable full 31+3/40, Chromium full 58+4/54 PASS; Windows hardware supersets need a second display | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows 0935ac59 actual NSIS payload PASS (3 total/active 0/exit 0/cleanup verified), updater fails at pnpm.cmd launch and black-box skips; 07950a33 native-entry correction pending CI; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows 07950a33 actual NSIS payload PASS (3 total/active 0/exit 0/cleanup verified), updater executes native pnpm/Rust/installers but fails and black-box skips; 57b5daf0 diagnostic capture pending CI; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS 85f662f4 native/full hardware/CI and Windows local c17f9763 / CI 0935ac59 complete profiles PASS; latest-source paired matrix, Windows package/physical-display and external gates remain open | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 

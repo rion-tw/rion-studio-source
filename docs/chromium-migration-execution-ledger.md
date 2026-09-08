@@ -33,6 +33,19 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+CI 34202245777 is terminal FAIL in native and package jobs. The package job
+101983499285 passes actual 8.5.0 NSIS payload with exact Job 3/active 0/exit 0
+and verified cleanup. Proof SHA-256
+88b3c995a23a224f464bf5113bafe8b36394bea1777edaf6bf3a78a4f52a0fd6 is retained in
+artifact 10047717814 (ZIP SHA-256
+c3a9ea73dc74b116f44ebea6d6b0216098a2b328239fcf1da673e70427f7eded).
+The updater now executes native pnpm, Node, Rust probes, previous 8.4.0 installer
+and target installer/old-uninstaller; it then exits 1 with Job total 79/active 0.
+Original child stderr and final observations are unavailable; black-box skips.
+This proves the native-entry correction executes the command, not successful
+updater replacement/relaunch. Pending 57b5daf0 CI retains the diagnostic capture
+needed for this later failure. Exact process/package identities are in the API ledger.
+
 At exact 07950a33a04bbd313e926e4a3b9077a0f18f21b8, CI 34202245777 passes
 shared JS 3877/11 platform skips, stable full 31+3 expected force/40 journeys
 and complete Chromium 58+4/54, with all phase membership/order, exits and normal
@@ -41,7 +54,7 @@ Chromium flush/exit verified. Native job 101983647773 FAILS: Core 981 PASS/
 a state-worker shutdown timeout at its unchanged three-second boundary, then
 APP_INSTANCE_LOCKED when it opens the same directory for v22. Original logical
 platform/substage is unavailable. Subsequent native integration/Windows JS/
-Tauri build are skipped; the independent package job is still pending.
+Tauri build are skipped; the independent package job's terminal result is above.
 
 Test-only 57b5daf00c7c41ba78348d42aecd099a0cc85b0e checks all three shutdown
 terminals in that test and reports the platform plus original error immediately.

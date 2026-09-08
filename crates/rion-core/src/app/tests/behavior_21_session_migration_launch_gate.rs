@@ -425,7 +425,13 @@ fn a_new_v23_role_commits_empty_store_evidence_and_remains_launchable_after_rest
                 .starts_with("v23-empty-store:")
         );
         assert!(crate::v23_role_initialization::marker_path(directory.path(), &role_id).is_file());
-        core.shutdown();
+        assert_eq!(
+            core.shutdown_checked().unwrap_or_else(|error| {
+                panic!("{platform}: initial Core shutdown failed: {error:?}")
+            }),
+            crate::AppCoreShutdownOutcome::Completed,
+            "{platform}: Core must terminalize before restart",
+        );
 
         let restarted = Arc::new(
             AppCore::create(migration_gate_options(directory.path(), platform, 23)).unwrap(),
@@ -478,7 +484,13 @@ fn a_new_v23_role_commits_empty_store_evidence_and_remains_launchable_after_rest
             admitted,
             "{platform}: focusing an already-running role must not advance the launch fence",
         );
-        restarted.shutdown();
+        assert_eq!(
+            restarted.shutdown_checked().unwrap_or_else(|error| {
+                panic!("{platform}: restarted Core shutdown failed: {error:?}")
+            }),
+            crate::AppCoreShutdownOutcome::Completed,
+            "{platform}: restarted Core must terminalize before downgrade",
+        );
 
         let stable =
             AppCore::create(migration_gate_options(directory.path(), platform, 22)).unwrap();
@@ -490,7 +502,13 @@ fn a_new_v23_role_commits_empty_store_evidence_and_remains_launchable_after_rest
             "ROLE_SESSION_MIGRATION_DOWNGRADE_UNSAFE",
             "{platform}",
         );
-        stable.shutdown();
+        assert_eq!(
+            stable.shutdown_checked().unwrap_or_else(|error| {
+                panic!("{platform}: stable Core shutdown failed: {error:?}")
+            }),
+            crate::AppCoreShutdownOutcome::Completed,
+            "{platform}: stable Core must terminalize before the next platform",
+        );
     }
 }
 

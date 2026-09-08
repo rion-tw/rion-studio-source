@@ -42,12 +42,12 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | Complete local JS 3814 PASS/48 skips at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e. CI 34178511175 at d67d87596695b912ff8912481dbf7356ae1e9778: Windows Rust 1673 PASS/4 ignored, native integration 16 PASS, complete Windows JS 3813 PASS/48 skips. Local x64 Rust's separate 2 s Macro event failure remains 1672 PASS/1 FAIL/4 ignored across the original and remaining-crate commands. Updater 256 rounds unchanged. Final production builds for both shells, E2E isolation and actual runtime probe PASS at ca4375cf. Architecture-matched x64 addon verification passes. |
+| 1. Native/shared/build | Complete local JS 3814 PASS/48 skips at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e. CI 34182057095 at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e: Windows Rust 1673 PASS/4 ignored, native integration 16 PASS, complete Windows JS 3814 PASS/48 skips. Local x64 Rust's separate 2 s Macro event failure remains 1672 PASS/1 FAIL/4 ignored across the original and remaining-crate commands. Updater 256 rounds unchanged. Final production builds for both shells, E2E isolation and actual runtime probe PASS at ca4375cf. Architecture-matched x64 addon verification passes. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | Local clean-start c17f9763f28409c0582a8a7730809017b004ac63: stable 31 PASS + 3 expected force/40 journey PASS; Chromium 58 PASS + 4 expected force/54 journey PASS, all 62 required phases. CI d67d8759 has the same complete counts. Earlier OS 5 and ReplaceFileW failures remain recorded and not precisely reproduced. Hardware supersets require the missing second display. |
+| 3. Full profiles | Local clean-start c17f9763f28409c0582a8a7730809017b004ac63: stable 31 PASS + 3 expected force/40 journey PASS; Chromium 58 PASS + 4 expected force/54 journey PASS, all 62 required phases. CI d67d8759 has the same complete counts; newest ca4375cf Chromium is again 58+4/54, while newest stable fails the original native tab-chrome bootstrap deadline. Earlier OS 5 and ReplaceFileW failures remain recorded and not precisely reproduced. Hardware supersets require the missing second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI 34178511175 builds target Electron 43.6.0/Core 8.5.0 and previous fixtures, then fails package Authenticode module loading. Installed payload/updater/packaged black-box did not run. Tooling-only ca4375cf binds the host Security module and retains package observations; Windows-only CI 34182057095 is pending. Fixture trust never becomes production-key evidence. |
+| 6. Install/update | CI 34182057095 at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e passes target/previous fixture builds and complete package/AuthentiCode/distribution checks, then NSIS isolation fails its unchanged exact process count: 12 observed, 3 required. Updater/packaged black-box are skipped. Bounded Job process diagnostics at f7e3ef9508b9a5ef344055aafbca7d99d360182c retain the original gate. Fixture trust never becomes production-key evidence. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
@@ -139,6 +139,34 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   worktreeDirty=true again reflects the explicit ephemeral 8.5.0 fixture
   version. The job proceeds to package validation; the overall run cannot be
   called green because of its independently failed stable native bootstrap.
+- The same exact-source Windows native job 101923060225 is SUCCESS: Rust
+  1673 PASS/4 ignored (including the unchanged 256-round concurrent terminal
+  receipt test), native Electron integration 16 PASS in eight files, complete
+  Windows JS 3814 PASS/48 platform skips and Tauri build PASS. This is the
+  current source's native evidence, while the separate older local x64 Macro
+  timeout and hosted stable bootstrap failure remain recorded failures.
+- CI 34182057095 finishes FAIL. Chromium/package job 101922967609 passes
+  package structure, explicit host Security-module import, Authenticode-unsigned
+  and distribution-policy checks. Its subsequent NSIS isolated installed-payload
+  command fails only the reported exact Job count (12 observed, 3 expected).
+  The failure precedes writing the installer proof; updater transactions and
+  packaged black-box remain skipped. Always-upload artifact 10039932747 retains
+  prior package-stage evidence (SHA-256
+  2ca674aac815e119e06d11e21bde55adbbabec9ed253130321b76ddd33d87e6f).
+  Missing process identities cannot be inferred from the count.
+- Diagnostic-only source f7e3ef9508b9a5ef344055aafbca7d99d360182c associates
+  a completion port with the empty Job before child creation and records at most
+  128 PID/image/exact-Job observations, without arguments or environment.
+  Native Job accounting, expected count 3, active-zero, exit and cleanup checks
+  remain unchanged. Native local compilation and focused checks pass (18 tests,
+  two pre-existing platform skips); typecheck, hygiene and lint pass. The local
+  observer test compares observations with native accounting, including an
+  OS-created conhost, rather than guessing two processes. Its initial guessed
+  count failure and temporary environment-cache artifact are retained under
+  windows-takeover-4e5ec764; the corrected fixture supplies standard Windows
+  environment paths and terminates only its own Job during cleanup. This is
+  internal-only tooling; no product journey changes. Full JS/new-source hosted
+  installer diagnostics remain pending at this checkpoint.
 - Final production restoration at ca4375cf passes pnpm run build (clean start),
   pnpm run build:electron (only these two ledger edits pending),
   check:desktop-e2e-isolation and verify:electron-runtime. Actual x64 runtime is
@@ -2628,7 +2656,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware and Windows c17f9763 stable full 31+3/40, Chromium full 58+4/54 PASS; Windows hardware supersets need a second display | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows target and previous fixtures build, Authenticode module loading fails before install/update; ca4375cf tooling validation in CI 34182057095 pending; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows ca4375cf package/AuthentiCode checks PASS, NSIS exact Job process count FAIL (12/3), updater/black-box skipped; f7e3ef95 diagnostics pending; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS 85f662f4 native/full hardware/CI and Windows c17f9763 complete profiles PASS; latest-source paired matrix, Windows package/physical-display and external gates remain open | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 

@@ -72,6 +72,19 @@ flush/exit, artifact 10039609270/report 2026-09-08T03-02-46-256Z-win32,
 exact source ca4375cfa86a17c62cdb6140d28ba56ac2aa872e with the explicit 8.5.0
 fixture version applied. Package validation continues; overall CI remains
 non-green because of the independent stable bootstrap failure.
+Windows native job 101923060225 on ca4375cf subsequently finishes SUCCESS:
+Rust 1673 PASS/4 ignored, unchanged updater 256-round concurrency test,
+native integration 16 PASS, full JS 3814 PASS/48 skips and Tauri build PASS.
+The run finishes FAIL: package/AuthentiCode/distribution checks now pass, but
+the isolated NSIS installed-payload gate observes 12 Job processes versus the
+unchanged expected 3. No installer proof is written; updater/packaged black-box
+are skipped. Artifact 10039932747 retains prior package-stage evidence.
+Diagnostic-only source f7e3ef9508b9a5ef344055aafbca7d99d360182c adds bounded
+Job completion-port PID/image observations before the existing count assertion,
+preserving all count, active-zero, command-exit and cleanup gates. Native local
+compilation/focused 18 PASS plus two existing platform skips, typecheck, hygiene
+and lint pass; full JS and exact-source hosted installer diagnostics are pending.
+The observer is not a completion authority and records no arguments/environment.
 Both production shell builds, production E2E isolation and actual x64 runtime
 verification subsequently pass at ca4375cf (Electron 43.6.0/Chromium
 150.0.7871.250/Node 24.20.0/Core 0.1.0). Final addon inventory has no retired

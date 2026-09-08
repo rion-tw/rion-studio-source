@@ -60,6 +60,18 @@ the executing Windows PowerShell Security module, preserves unsigned checks and
 retains public package/updater observations. Focused 44 tests, typecheck, lint,
 hygiene and complete local JS 3814 PASS/48 skips pass. Exactly one new Windows-only
 CI, 34182057095, is pending on this source. No completed macOS gate is rerun.
+The new run subsequently fails stable fullscreen-toolbar before any passing
+phase (artifact 10039400895): the visible Role launch reaches
+WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT after the original 2000 ms native wait,
+with revision-1 WINDOWS_TAB_CHROME_ACK_TIMEOUT. Later native acknowledgements
+do not repair the original launch. The delayed-bootstrap cause remains open;
+no same-source rerun or deadline increase is used. Its independent Chromium
+package and native jobs remain in progress.
+Chromium full in that same run subsequently passes 58+4/54 with all normal
+flush/exit, artifact 10039609270/report 2026-09-08T03-02-46-256Z-win32,
+exact source ca4375cfa86a17c62cdb6140d28ba56ac2aa872e with the explicit 8.5.0
+fixture version applied. Package validation continues; overall CI remains
+non-green because of the independent stable bootstrap failure.
 Both production shell builds, production E2E isolation and actual x64 runtime
 verification subsequently pass at ca4375cf (Electron 43.6.0/Chromium
 150.0.7871.250/Node 24.20.0/Core 0.1.0). Final addon inventory has no retired

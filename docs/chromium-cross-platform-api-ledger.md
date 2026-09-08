@@ -113,6 +113,32 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   elevated local JS is 3814 PASS/48 platform skips/0 FAIL in 228.47 s on that
   exact clean source (full-js-package-evidence). Windows-only CI 34182057095
   was dispatched once for this new source; no macOS acceptance is rerun.
+- New run 34182057095 is already non-green: stable job 101922967734 fails its
+  first fullscreen-toolbar phase, report 2026-09-08T03-02-50-686Z-win32,
+  artifact 10039400895 (1 journey FAIL/39 NOT_RUN). The visible Open click
+  succeeds; the subsequent fixture observation reaches its original 45 s
+  boundary. Native logs establish WINDOWS_TAB_CHROME_ACK_TIMEOUT revision 1
+  at 03:09:36.589 UTC (2014 ms), followed by
+  WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT on the original 2000 ms wait. Exact
+  window 3857985a-0007-4cc6-9a3e-4336d74e5b4d/generation 3, tab
+  1d2d48c0-a3e7-46eb-8786-a127bda12a31, Role
+  d286c335-6ad8-4978-b187-b9086698b91e, operation
+  46e9ec64-5a0e-4665-9de4-4182f8d43f1f and effect
+  df9aa061-6d52-4cd2-bbb3-ee29edb2178f are retained. Later revision 2/3/4
+  acknowledgements arrive at 03:09:37.434 UTC; they do not repair the failed
+  launch. This is a native readiness failure preceding the fixture timeout,
+  not a successful fullscreen journey. The cause of delayed bootstrap is
+  unresolved; no deadline or assertion is relaxed and no same-source rerun
+  is dispatched. The unchanged stable runtime's earlier full PASS remains
+  separately identified. Chromium package and native jobs continue independently.
+- CI 34182057095 subsequently completes Chromium full on
+  ca4375cfa86a17c62cdb6140d28ba56ac2aa872e: artifact 10039609270/report
+  2026-09-08T03-02-46-256Z-win32 has 58 PASS + 4 expected force terminations,
+  54 journey PASS and all normal flush/exit/exit 0. Archive SHA-256 is
+  308fabf023d3202a13c4214e11df01581a78e2c20a22fbe560a546264a55935e.
+  worktreeDirty=true again reflects the explicit ephemeral 8.5.0 fixture
+  version. The job proceeds to package validation; the overall run cannot be
+  called green because of its independently failed stable native bootstrap.
 - Final production restoration at ca4375cf passes pnpm run build (clean start),
   pnpm run build:electron (only these two ledger edits pending),
   check:desktop-e2e-isolation and verify:electron-runtime. Actual x64 runtime is

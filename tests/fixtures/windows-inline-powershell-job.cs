@@ -45,7 +45,8 @@ public static class InlinePowerShellTestJob
     private static extern bool QueryInformationJobObject(IntPtr job, int informationClass,
         IntPtr information, uint length, IntPtr returnedLength);
 
-    public static uint[] Run(IntPtr job, string executable, string encoded, string directory)
+    public static uint[] Run(IntPtr job, string executable, string encoded, string directory,
+        RionWindowsJobProcessDiagnostics observer)
     {
         var startup = new StartupInfo {
             cb = (uint)Marshal.SizeOf<StartupInfo>(), flags = 1, show = 0
@@ -75,12 +76,23 @@ public static class InlinePowerShellTestJob
                     throw new System.ComponentModel.Win32Exception();
                 uint initialActive = (uint)Marshal.ReadInt32(information, 40);
                 uint? drainedHost = null;
-                if (initialActive != 0)
+                if (initialActive != 0 && RionWindowsJobRunner.CanJoinExitedRootAccounting(
+                    job, process.process, process.processId))
+                {
+                    observer.WaitForEmptyNotification((int)Math.Max(0, 5000 - clock.ElapsedMilliseconds));
+                    if (!QueryInformationJobObject(job, 1, information, 48, IntPtr.Zero))
+                        throw new System.ComponentModel.Win32Exception();
+                }
+                if (Marshal.ReadInt32(information, 40) != 0)
                 {
                     drainedHost = RionWindowsJobRunner.DrainSoleConsoleHost(job,
                         (int)Math.Max(0, 5000 - clock.ElapsedMilliseconds));
-                    if (drainedHost.HasValue && !QueryInformationJobObject(job, 1, information, 48, IntPtr.Zero))
-                        throw new System.ComponentModel.Win32Exception();
+                    if (drainedHost.HasValue)
+                    {
+                        observer.WaitForEmptyNotification((int)Math.Max(0, 5000 - clock.ElapsedMilliseconds));
+                        if (!QueryInformationJobObject(job, 1, information, 48, IntPtr.Zero))
+                            throw new System.ComponentModel.Win32Exception();
+                    }
                 }
                 return new uint[] { exit, process.processId,
                     (uint)Marshal.ReadInt32(information, 36),

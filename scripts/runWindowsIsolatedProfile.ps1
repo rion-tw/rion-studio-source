@@ -580,6 +580,7 @@ try {
     totalProcesses = $totalProcesses
     activeProcessesAtRootExit = $jobResult.ActiveProcessesAtRootExit
     drainedConsoleHostProcessId = $jobResult.DrainedConsoleHostProcessId
+    joinedExitedRootAccounting = $jobResult.JoinedExitedRootAccounting
     notificationError = $jobResult.ProcessNotificationError
     truncated = $jobResult.ProcessObservationsTruncated
     observations = @($jobResult.ProcessObservations)

@@ -46,6 +46,7 @@ import { createUpdaterProbeRuntimeEnvironment } from
   "./runtimeEnvironmentPolicy.mjs";
 import { signUpdaterArtifact } from "./updaterSignerEnvironment.mjs";
 import { runUpdaterProbeWithDiagnostics } from "./electronUpdaterProbeDiagnostics.mjs";
+import { withUpdaterProbeCleanup } from "./updaterProbeCleanup.mjs";
 import { resolveVerifiedWindowsProfileIsolation } from
   "./windowsIsolatedProfile.mjs";
 
@@ -435,15 +436,15 @@ async function runWindowsProbe(
       stdio: "ignore",
       windowsHide: true
     });
-    try {
+    await withUpdaterProbeCleanup(async () => {
       await waitForUpdaterJournalRemoval(
         join(userData, "app-update-install-journal.json"),
         EXTERNAL_ACK_DEADLINE_MS
       );
       await assertRegularNonempty(marker);
-    } finally {
+    }, async () => {
       await terminateWindowsProcessTree(launched.pid, caseEnvironment);
-    }
+    });
     evidenceCases.push({
       outcome: "applied",
       probe: "windows-installed-layout-replacement-and-relaunch",
@@ -552,20 +553,26 @@ export async function waitForWindowsProcess(processId, environment) {
   });
 }
 
-export async function terminateWindowsProcessTree(processId, environment) {
+export function windowsUpdaterProcessTerminationScript(processId) {
   if (!Number.isSafeInteger(processId) || processId <= 1) {
     throw new Error("Refusing to terminate an invalid updater target process.");
   }
-  const script = [
+  return [
     findWindowsProbeProcess,
     `$root = Find-RionProbeProcess ${processId}`,
     "if ($root) {",
     `  & "$env:SystemRoot\\System32\\taskkill.exe" /PID ${processId} /T /F | Out-Null`,
     "  if ($LASTEXITCODE -ne 0) { throw 'Updater target process tree did not terminate.' }",
+    // Request acceptance can precede exit; retain the existing external deadline.
+    "  $root | Wait-Process -Timeout 120 -ErrorAction Stop",
     "}",
     `$remaining = Find-RionProbeProcess ${processId}`,
     "if ($remaining) { throw 'Updater target root process survived termination.' }"
   ].join("\n");
+}
+
+export async function terminateWindowsProcessTree(processId, environment) {
+  const script = windowsUpdaterProcessTerminationScript(processId);
   await execFileAsync("powershell.exe", [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script
   ], {

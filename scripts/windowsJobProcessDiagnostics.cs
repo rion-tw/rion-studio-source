@@ -25,6 +25,8 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
     private readonly List<RionWindowsJobProcessObservation> observations =
         new List<RionWindowsJobProcessObservation>();
     private bool disposed;
+    private readonly ManualResetEvent emptyOrStopped = new ManualResetEvent(false);
+    private volatile bool receivedEmptyNotification;
     public bool Truncated { get; private set; }
     public int NotificationError { get; private set; }
     public int ActiveSnapshotError { get; private set; }
@@ -93,9 +95,16 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
             if (!GetQueuedCompletionStatus(port, out message, out key, out value, UInt32.MaxValue))
             {
                 NotificationError = Marshal.GetLastWin32Error();
+                emptyOrStopped.Set();
                 return;
             }
-            if (key == UIntPtr.Zero) return;
+            if (key == UIntPtr.Zero) { emptyOrStopped.Set(); return; }
+            if (message == 4) // JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+            {
+                receivedEmptyNotification = true;
+                emptyOrStopped.Set();
+                continue;
+            }
             if (message != 6) continue; // JOB_OBJECT_MSG_NEW_PROCESS
             lock (observations)
             {
@@ -144,6 +153,17 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
         lock (observations) { return observations.ToArray(); }
     }
 
+    public void WaitForEmptyNotification(int remainingMilliseconds)
+    {
+        // This is only an event wakeup. The caller must subsequently query native
+        // Job accounting; neither notification nor elapsed time establishes PASS.
+        if (!emptyOrStopped.WaitOne(Math.Max(0, remainingMilliseconds)))
+            throw new TimeoutException("The exited root's Job accounting notification did not arrive within the original command deadline.");
+        if (receivedEmptyNotification) return;
+        if (NotificationError != 0) throw new Win32Exception(NotificationError);
+        throw new InvalidOperationException("The Job notification stream stopped before the empty notification.");
+    }
+
     public RionWindowsJobProcessObservation[] SnapshotActive()
     {
         // One bounded observation at root exit, before cleanup. This is not a
@@ -184,6 +204,7 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
         bool stopped = worker.Join(30000);
         if (posted) CloseHandle(port);
         if (!stopped) throw new TimeoutException("Windows Job diagnostic consumer did not stop.");
+        emptyOrStopped.Dispose();
         if (!posted) throw new Win32Exception(postError);
     }
 }

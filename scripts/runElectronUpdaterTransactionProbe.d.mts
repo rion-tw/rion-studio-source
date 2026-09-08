@@ -42,6 +42,7 @@ export function macosUpdaterProbeToolchainHomes(
 
 export function waitForWindowsProcess(processId: number, environment: NodeJS.ProcessEnv): Promise<void>;
 export function terminateWindowsProcessTree(processId: number, environment: NodeJS.ProcessEnv): Promise<void>;
+export function windowsUpdaterProcessTerminationScript(processId: number): string;
 
 export function verifyElectronUpdaterCompatibilityInput(input: Readonly<{
   fixtureRoot: string;

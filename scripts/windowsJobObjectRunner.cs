@@ -14,6 +14,7 @@ public sealed class RionWindowsJobResult
     public uint ActiveProcessesAfterRootExit { get; set; }
     public uint ActiveProcessesAtRootExit { get; set; }
     public uint? DrainedConsoleHostProcessId { get; set; }
+    public bool JoinedExitedRootAccounting { get; set; }
     public uint TotalProcesses { get; set; }
     public RionWindowsJobProcessObservation[] ProcessObservations { get; set; }
     public bool ProcessObservationsTruncated { get; set; }
@@ -248,6 +249,25 @@ public static class RionWindowsJobRunner
         finally { CloseHandle(process); }
     }
 
+    public static bool CanJoinExitedRootAccounting(IntPtr job, IntPtr rootProcess, uint rootProcessId)
+    {
+        // The retained CreateProcess handle pins identity; a live root or any
+        // other native Job member is not eligible for this accounting fence.
+        if (WaitForSingleObject(rootProcess, 0) != WaitObject0) return false;
+        int bytes = 8 + 2 * IntPtr.Size;
+        IntPtr ids = Marshal.AllocHGlobal(bytes);
+        try
+        {
+            if (!QueryInformationJobObject(job, 3, ids, (uint)bytes, IntPtr.Zero)) return false;
+            int assigned = Marshal.ReadInt32(ids, 0);
+            int listed = Marshal.ReadInt32(ids, 4);
+            if (assigned == 0 && listed == 0) return true;
+            return assigned == 1 && listed == 1 &&
+                checked((uint)Marshal.ReadIntPtr(ids, 8).ToInt64()) == rootProcessId;
+        }
+        finally { Marshal.FreeHGlobal(ids); }
+    }
+
     public static RionWindowsJobResult Run(
         string username,
         string domain,
@@ -362,6 +382,23 @@ public static class RionWindowsJobRunner
             var activeObservations = processDiagnostics.SnapshotActive();
             uint activeProcessesAtRootExit = activeProcessesAfterRootExit;
             uint? drainedConsoleHost = null;
+            bool joinedExitedRootAccounting = false;
+            if (activeProcessesAfterRootExit != 0 &&
+                CanJoinExitedRootAccounting(job, process.hProcess, process.dwProcessId))
+            {
+                try
+                {
+                    processDiagnostics.WaitForEmptyNotification(
+                        (int)Math.Max(0, commandTimeoutMilliseconds - commandClock.ElapsedMilliseconds));
+                    joinedExitedRootAccounting = true;
+                    activeProcessesAfterRootExit = QueryActiveProcesses(job, accountingBuffer, accountingSize);
+                }
+                catch (Exception error) when (exitCode != 0)
+                {
+                    throw new AggregateException("The isolated command and its exited-root accounting fence failed.",
+                        new InvalidOperationException("The isolated root command exited with code " + exitCode + "."), error);
+                }
+            }
             if (drainSoleConsoleHost && activeProcessesAfterRootExit != 0)
             {
                 try
@@ -369,7 +406,11 @@ public static class RionWindowsJobRunner
                     drainedConsoleHost = DrainSoleConsoleHost(job,
                         (int)Math.Max(0, commandTimeoutMilliseconds - commandClock.ElapsedMilliseconds));
                     if (drainedConsoleHost.HasValue)
+                    {
+                        processDiagnostics.WaitForEmptyNotification(
+                            (int)Math.Max(0, commandTimeoutMilliseconds - commandClock.ElapsedMilliseconds));
                         activeProcessesAfterRootExit = QueryActiveProcesses(job, accountingBuffer, accountingSize);
+                    }
                 }
                 catch (Exception error) when (exitCode != 0)
                 {
@@ -391,6 +432,7 @@ public static class RionWindowsJobRunner
                 ActiveProcessesAfterRootExit = activeProcessesAfterRootExit,
                 ActiveProcessesAtRootExit = activeProcessesAtRootExit,
                 DrainedConsoleHostProcessId = drainedConsoleHost,
+                JoinedExitedRootAccounting = joinedExitedRootAccounting,
                 TotalProcesses = totalProcesses,
                 ActiveProcessObservations = activeObservations,
                 ActiveProcessSnapshotError = processDiagnostics.ActiveSnapshotError,

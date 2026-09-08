@@ -47,7 +47,7 @@ exit $LASTEXITCODE
     if ($taskJob -eq [IntPtr]::Zero) { throw 'Fixture Job creation failed.' }
     $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
     try {
-      $taskResult = [InlinePowerShellTestJob]::Run($taskJob, $taskExecutable, $taskEncoded, $taskRoot)
+      $taskResult = [InlinePowerShellTestJob]::Run($taskJob, $taskExecutable, $taskEncoded, $taskRoot, $taskObserver)
       $taskObserver.Dispose()
       $taskResults += @{code=$taskCode;exitCode=$taskResult[0];rootPid=$taskResult[1];
         totalProcesses=$taskResult[2];activeAfterConsoleDrain=$taskResult[3];

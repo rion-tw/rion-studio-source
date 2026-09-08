@@ -21,6 +21,11 @@ it.skipIf(process.platform !== "win32")(
       activeSnapshotError: number;
       activeSnapshotTruncated: boolean;
       nonConsoleSurvivorRejected: boolean;
+      liveRootAccountingRejected: boolean;
+      missingEmptyNotificationRejected: boolean;
+      finalActiveProcesses: number;
+      exitedRootAccountingEligible: boolean;
+      otherLiveMemberRejected: boolean;
       observations: {
         ProcessId: number;
         ImagePath: string | null;
@@ -34,6 +39,11 @@ it.skipIf(process.platform !== "win32")(
     expect(result.activeSnapshotError).toBe(0);
     expect(result.activeSnapshotTruncated).toBe(false);
     expect(result.nonConsoleSurvivorRejected).toBe(true);
+    expect(result.liveRootAccountingRejected).toBe(true);
+    expect(result.missingEmptyNotificationRejected).toBe(true);
+    expect(result.exitedRootAccountingEligible).toBe(true);
+    expect(result.otherLiveMemberRejected).toBe(true);
+    expect(result.finalActiveProcesses).toBe(0);
     expect(result.activeBeforeRelease).toEqual([
       expect.objectContaining({ ProcessId: result.rootProcessId, InJobAtObservation: true })
     ]);

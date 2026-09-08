@@ -20,13 +20,19 @@ public static class DiagnosticTestJob {
   private static extern bool QueryInformationJobObject(
     IntPtr job, int informationClass, IntPtr information, uint length, IntPtr returnedLength);
   public static int TotalProcesses(IntPtr job) {
+    return AccountingCount(job, 36);
+  }
+  public static int ActiveProcesses(IntPtr job) {
+    return AccountingCount(job, 40);
+  }
+  private static int AccountingCount(IntPtr job, int offset) {
     // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION: four LARGE_INTEGER fields,
     // then TotalPageFaultCount and TotalProcesses.
     IntPtr buffer = Marshal.AllocHGlobal(48);
     try {
       if (!QueryInformationJobObject(job, 1, buffer, 48, IntPtr.Zero))
         throw new System.ComponentModel.Win32Exception();
-      return Marshal.ReadInt32(buffer, 36);
+      return Marshal.ReadInt32(buffer, offset);
     } finally { Marshal.FreeHGlobal(buffer); }
   }
 }
@@ -35,6 +41,7 @@ $taskJob = [DiagnosticTestJob]::CreateJobObject([IntPtr]::Zero, $null)
 if ($taskJob -eq [IntPtr]::Zero) { throw "Could not create diagnostic test job." }
 $taskObserver = $null
 $taskChild = $null
+$taskSurvivor = $null
 try {
   $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
   $taskStart = [Diagnostics.ProcessStartInfo]::new()
@@ -63,10 +70,32 @@ try {
   $taskActiveSnapshotError = $taskObserver.ActiveSnapshotError
   $taskActiveSnapshotTruncated = $taskObserver.ActiveSnapshotTruncated
   $taskNonConsoleRejected = $null -eq [RionWindowsJobRunner]::DrainSoleConsoleHost($taskJob, 0)
+  $taskLiveRootRejected = -not [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
+    $taskJob, $taskChild.Handle, $taskChild.Id)
+  $taskEmptyWaitRejected = $false
+  try { $taskObserver.WaitForEmptyNotification(0) } catch {
+    if ($_.Exception.InnerException -isnot [TimeoutException]) { throw }
+    $taskEmptyWaitRejected = $true
+  }
   $taskChild.StandardInput.WriteLine('continue')
   $taskChild.StandardInput.Close()
   if (-not $taskChild.WaitForExit(5000)) { throw "Diagnostic test child did not finish." }
   if ($taskChild.ExitCode -ne 0) { throw $taskChild.StandardError.ReadToEnd() }
+  $taskObserver.WaitForEmptyNotification(5000)
+  $taskFinalActive = [DiagnosticTestJob]::ActiveProcesses($taskJob)
+  $taskExitedRootCanJoin = [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
+    $taskJob, $taskChild.Handle, $taskChild.Id)
+  # A prior empty notification must not authorize a different live Job member.
+  $taskSurvivor = [Diagnostics.Process]::Start($taskStart)
+  if (-not [DiagnosticTestJob]::AssignProcessToJobObject($taskJob, $taskSurvivor.Handle)) {
+    throw "Could not bind the accounting-fence survivor to its exact job."
+  }
+  $taskOtherMemberRejected = -not [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
+    $taskJob, $taskChild.Handle, $taskChild.Id)
+  $taskSurvivor.StandardInput.WriteLine('continue')
+  $taskSurvivor.StandardInput.Close()
+  if (-not $taskSurvivor.WaitForExit(5000)) { throw "Accounting-fence survivor did not finish." }
+  if ($taskSurvivor.ExitCode -ne 0) { throw $taskSurvivor.StandardError.ReadToEnd() }
   $taskObserver.Dispose()
   [ordered]@{
     platform = 'win32'
@@ -80,9 +109,18 @@ try {
     activeSnapshotError = $taskActiveSnapshotError
     activeSnapshotTruncated = $taskActiveSnapshotTruncated
     nonConsoleSurvivorRejected = $taskNonConsoleRejected
+    liveRootAccountingRejected = $taskLiveRootRejected
+    missingEmptyNotificationRejected = $taskEmptyWaitRejected
+    finalActiveProcesses = $taskFinalActive
+    exitedRootAccountingEligible = $taskExitedRootCanJoin
+    otherLiveMemberRejected = $taskOtherMemberRejected
   } | ConvertTo-Json -Depth 4 -Compress
 } finally {
   [void][DiagnosticTestJob]::TerminateJobObject($taskJob, 1)
+  if ($null -ne $taskSurvivor) {
+    if (-not $taskSurvivor.HasExited) { $taskSurvivor.Kill($true); $taskSurvivor.WaitForExit() }
+    $taskSurvivor.Dispose()
+  }
   if ($null -ne $taskChild) {
     if (-not $taskChild.HasExited) { $taskChild.Kill($true); $taskChild.WaitForExit() }
     $taskChild.Dispose()

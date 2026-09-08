@@ -57,6 +57,15 @@ changed local x64 runtime probe pass. This is `internal-only` verifier work with
 no changed product journey; the access violation remains unreproduced, not fixed.
 Final package verification of the changed verifier is pending.
 
+[Windows CI 34291837369](https://github.com/rion-tw/rion-studio-source/actions/runs/34291837369)
+was dispatched once at `2026-09-08T23:42:26.460Z` for exact source
+`40e21d19070a21d4f2cbe78f1e2ff7cc2aa17b75`, after finding zero existing runs
+for it. That source consists of the verifier/test commit 9433f25b and its
+documentation. The run is active, not PASS. Scope is Windows only; no completed
+macOS acceptance was redispatched and no publication was requested.
+The dispatch receipt is `sole-entry-runtime-probe-output-ci-dispatch.json`
+under `.desktop-e2e-artifacts/`.
+
 Final verification candidate: `c52decf9d4c55888f5a0d2e979884d2387020223`
 (documentation on top of the program commits below). On the clean Windows
 worktree, `pnpm run build` passed in 11.31 seconds and

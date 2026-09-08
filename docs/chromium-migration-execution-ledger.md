@@ -33,6 +33,15 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+New CI 34209380675 at 0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8 is in
+progress, but its Chromium report already FAILS after two PASS phases. The
+first native newGameWindow shortcut in shell-smoke reaches the unchanged
+30-second helper deadline with no stage output or trusted-input receipt;
+59 phases remain unexecuted. App PID 4548 final-flushes/exits. This does not
+reach or resolve the previous mixed-seed ERR_NO_BUFFER_SPACE failure. Shared
+JS passes 3888/16 platform skips; independent package, stable and native jobs
+continue. Exact report/artifact/source identities are retained in the API ledger.
+
 Latest CI 34204932987 at 57b5daf00c7c41ba78348d42aecd099a0cc85b0e is FAIL
 in package validation. Windows native Rust 1673/4 ignored, native integration
 16, Windows JS 3843/48 platform skips, shared JS 3883/12 platform skips and

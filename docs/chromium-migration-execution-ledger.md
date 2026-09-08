@@ -75,10 +75,46 @@ Commit `c03203f4c24b1c8b23c416a27b6cdaebc9323b04` adds only `#[cfg(test)]`
 fixed observations for shutdown request, checkpoint entry/exit, connection close
 and response. They expose which existing native boundary is outstanding without
 changing production code, authority, failure results or the 3-second budget.
-Windows x64 Rust lint and source hygiene pass; a complete local x64 Rust suite
-is running against that clean source, with
-`windows-takeover-4e5ec764/sole-entry-shutdown-stage-full-rust.*` receipts.
-No runtime fix or full-regression success is claimed from the focused result.
+Windows x64 Rust lint and source hygiene pass. The complete local x64 Rust
+suite passed against that clean source: **1106 PASS / 4 ignored / 0 FAIL**,
+including the unchanged 256-round concurrent updater test and the exact import
+teardown test. It ran from `2026-09-08T22:59:02.624Z` to
+`2026-09-08T23:02:37.083Z` using Node 24.20.0 x64 and Rust 1.98.1 x64.
+`windows-takeover-4e5ec764/sole-entry-shutdown-stage-full-rust.*` retains the full
+command, clean source, log and exit receipt. The CI timeout is not reproduced;
+diagnostics are not a runtime fix.
+
+[Windows CI 34288948657](https://github.com/rion-tw/rion-studio-source/actions/runs/34288948657)
+was dispatched once at `2026-09-08T23:04:20.199Z` for exact source
+`373880b86092b31d6b7670d0cdc430ea67fe789f`, after confirming zero existing runs
+for it. This source includes both test-diagnostic changes, the equivalent regex
+lint fix and documentation. Production runtime/package code remains identical
+to c52decf9. Scope is Windows only, to obtain the native integration and complete
+Windows JS results that the prior Rust failure prevented. Existing macOS jobs
+continue on c52decf9; no macOS acceptance was redispatched. The new Windows run
+is active, not PASS.
+
+### Final runtime-source complete profiles
+
+Both complete profile artifacts from CI 34286895282 have now been downloaded,
+SHA-256 checked and reconciled against the manifest at the exact runtime source
+`c52decf9d4c55888f5a0d2e979884d2387020223`. Phase order and every derived journey
+verdict match; every normal phase has final flush and process exit. Fixture
+version application explains `worktreeDirty: true` in these reports.
+
+| Platform | Report root | Phase / journey verdicts | Artifact ID |
+| --- | --- | --- | --- |
+| Windows | `2026-09-08T22-39-52-638Z-win32` | 58 PASS + 4 EXPECTED_FORCE_TERMINATION; 54 journeys PASS | 10080334586 |
+| macOS AppKit | `2026-09-08T22-39-20-498Z-darwin` | 56 PASS + 4 EXPECTED_FORCE_TERMINATION; 52 journeys PASS | 10080404245 |
+
+Expected-force phases are exactly app, mixed, window and window-restore recovery
+on each platform. Windows artifact SHA-256:
+`ffb73b302f96c4588faf1bd975d2e1d7f870f1a3aa9427b3627b310f99834f71`;
+macOS artifact SHA-256:
+`67b64588637d5c5d16e4e963fdfc76a78eb296c9f2b2fad28687425b4ca62244`.
+ZIPs, reports and manifest-reconciled summaries are retained under
+`.desktop-e2e-artifacts/ci34286895282/`. The two source-specific package jobs
+are building release artifacts; complete profiles do not replace their results.
 
 Program commits:
 

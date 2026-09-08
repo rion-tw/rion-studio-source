@@ -18,6 +18,7 @@ describe("sole Electron package entry", () => {
     expect(manifest.scripts.build).toBe("pnpm run build:electron");
     expect(manifest.scripts.package).toBe("node scripts/packageElectron.mjs");
     expect(manifest.scripts.dist).toBe("node scripts/buildElectronRelease.mjs");
+    expect(manifest.scripts).not.toHaveProperty("performance:webkit:experiment");
     expect(manifest.scripts["build:e2e:desktop"]).toBe("node scripts/buildElectronDesktopE2e.mjs");
     const dependencies = { ...manifest.dependencies, ...manifest.devDependencies };
     for (const retired of ["@tauri-apps/api", "@wdio/tauri-plugin", "@wdio/tauri-service"]) {

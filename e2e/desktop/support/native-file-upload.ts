@@ -539,6 +539,7 @@ $openButtons = @(Read-ExactDialogControls $dialog 1 'Button')
 if ($openButtons.Count -ne 1) { throw 'exact Windows Open control unavailable' }
 Write-Progress 'focusing-dialog'
 $dialogHandle = [IntPtr]$dialog
+try {
 [RionFileDialogOwnership]::SetForegroundWindow($dialogHandle) | Out-Null
 Click-VisibleControl $dialogHandle $edits[0]
 if ([RionFileDialogOwnership]::GetForegroundWindow() -ne $dialogHandle) {
@@ -558,6 +559,13 @@ do {
   }
   Start-Sleep -Milliseconds 50
 } while ($true)
+} catch {
+  # Keep the original native failure even if diagnostic collection also fails.
+  $primaryFailure = $_
+  try { Write-FailureSnapshot $primaryFailure.Exception.Message }
+  catch { Write-Warning ('native file dialog diagnostic failed: ' + $_.Exception.Message) }
+  throw $primaryFailure
+}
 `;
   try {
     await runEncodedPowerShellJson(script, {

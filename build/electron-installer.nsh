@@ -1,5 +1,28 @@
 !include "LogicLib.nsh"
 
+!macro customCheckAppRunning
+  ; Query in-process: the default dependency macro launches PowerShell/cmd
+  ; helpers and violates the measured three-process installation boundary.
+  ; Only an authoritative "not running" result admits either runtime. Never
+  ; let an installer kill a runtime before Rust has drained its owned state.
+  rion_check_runtime_processes:
+    nsProcess::_FindProcess /NOUNLOAD "${APP_EXECUTABLE_FILENAME}"
+    Pop $R0
+    nsProcess::_FindProcess /NOUNLOAD "rion-tauri.exe"
+    Pop $R1
+    nsProcess::_Unload
+    ${If} $R0 == 603
+    ${AndIf} $R1 == 603
+      Goto rion_runtime_processes_absent
+    ${EndIf}
+    ; Retry is a visible user action after normal application close, never a
+    ; timer or automatic retry. Silent installs fail closed without prompting.
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDCANCEL IDRETRY rion_check_runtime_processes
+    SetErrorLevel 1
+    Quit
+  rion_runtime_processes_absent:
+!macroend
+
 ; Tauri v22 currentUser used the identifier-derived manufacturer key and
 ; product-name uninstall key. Reusing that install-location key lets the
 ; Electron NSIS target replace the existing layout instead of creating a

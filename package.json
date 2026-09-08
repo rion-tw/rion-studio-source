@@ -26,6 +26,7 @@
     "verify:electron-runtime": "node scripts/verifyElectronRuntime.mjs",
     "verify:electron-renderer": "node scripts/verifyElectronRendererBundle.mjs",
     "verify:electron-package": "node scripts/verifyElectronPackage.mjs",
+    "verify:windows-nsis-process-gate": "node scripts/verifyWindowsNsisProcessGate.mjs",
     "probe:electron:appkit": "electron scripts/electronAppKitRuntimeProbe.cjs",
     "build:e2e:desktop": "node scripts/buildDesktopE2e.mjs",
     "package": "node scripts/packageTauri.mjs",

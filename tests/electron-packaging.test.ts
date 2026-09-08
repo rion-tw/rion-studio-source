@@ -48,6 +48,18 @@ const {
 } = await import(configurationModulePath) as ElectronBuilderConfigurationModule;
 
 describe("Electron packaging contract", () => {
+  it("admits NSIS replacement only after both native runtimes are absent", async () => {
+    const hook = await readFile("build/electron-installer.nsh", "utf8");
+    const gate = hook.split("!macro customCheckAppRunning")[1]?.split("!macroend")[0];
+    expect(gate).toContain('nsProcess::_FindProcess /NOUNLOAD "${APP_EXECUTABLE_FILENAME}"');
+    expect(gate).toContain('nsProcess::_FindProcess /NOUNLOAD "rion-tauri.exe"');
+    expect(gate).toContain("${If} $R0 == 603");
+    expect(gate).toContain("${AndIf} $R1 == 603");
+    expect(gate).toContain("/SD IDCANCEL IDRETRY rion_check_runtime_processes");
+    expect(gate).toContain("SetErrorLevel 1");
+    expect(gate).not.toMatch(/nsExec::|_KillProcess|_CloseProcess|\bSleep\b/u);
+  });
+
   it("loads the executing Windows PowerShell security module for every Authenticode probe", async () => {
     const paths = [
       "scripts/verifyElectronPackage.mjs",

@@ -49,16 +49,65 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | Candidate 81b0343c: 12 adjacent and typecheck/hygiene/lint/coverage PASS; shared CI 3911/29 skips PASS. Local full JS FAIL: 3810 PASS/78 FAIL/48 skips. Native CI stops at artifact FinalizeArtifact HTTP 403 before Rust/full JS; no native verdict is inferred. Previous a48a151b Rust 1673/4 ignored and native integration 16 PASS remain historical evidence. Latest production both-shell builds/isolation PASS belong to a12e932c; local stable E2E build at aed95556 completes. Runtime implementation remains 3eff9b28; updater 256 rounds unchanged. |
+| 1. Native/shared/build | Candidate 81b0343c: 12 adjacent and typecheck/hygiene/lint/coverage PASS; shared CI 3911/29 skips PASS. Local full JS FAIL: 3810 PASS/78 FAIL/48 skips. Native CI stops at artifact FinalizeArtifact HTTP 403 before Rust/full JS; no native verdict is inferred. Previous a48a151b Rust 1673/4 ignored and native integration 16 PASS remain historical evidence. Clean document-only HEAD 8f590006 passes both production shell builds/isolation and retired-addon-export check. Runtime implementation remains 3eff9b28; updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
 | 3. Full profiles | Exact 81b0343c CI passes complete stable 31+3 expected force/40 journeys/all 34 phases and Chromium 58+4/54/all 62 phases, with normal Chromium flush/exit and all phase exits verified. Fresh local stable FAILS before workspace creation: one PASS/one FAIL/32 missing phases, exact main-window queued-deadline receipt retained below. Original create-button/shortcut/buffer failures remain separately retained; later PASS does not reconstruct missing observations. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. Best-effort simulation/native-event coverage is owner-directed; the local 12-file display/power/session-end/quit suite passes 78 tests at d1e539 (code 737d5a1f). No physical second display, actual OS sleep or actual OS sign-out evidence; no manual hardware/OS operation is required. |
-| 6. Install/update | Exact a48a151b CI NSIS, Electron 8.4.0→8.5.0 fixture updater and packaged native black-box PASS. SHA-verified artifact 10065038342 retains installed proof, updater observations and passed black-box report; all three isolated Jobs end active zero. No Tauri source transaction or production-key cutover is inferred; the older updater ACK timeout cause remains unexplained. |
+| 6. Install/update | Exact 81b0343c CI NSIS, Electron 8.4.0→8.5.0 fixture updater and packaged native black-box PASS. SHA-verified artifact 10066934988 retains installed proof, updater observations and passed black-box report; isolated Jobs have three/37/43 members and each ends active zero. No Tauri source transaction or production-key cutover is inferred; the older updater ACK timeout cause remains unexplained. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-09 Asia/Taipei; command timestamps below are UTC):
 
+- Final local production restoration at clean document-only HEAD
+  8f59000610acc60e899e8d58b258011c6b93ae88 passes pnpm run build
+  (16:50:51.136–16:56:15.308Z), x64 pnpm run build:electron
+  (16:56:34.012–16:59:31.354Z), and pnpm run check:desktop-e2e-isolation
+  (17:00:40.265–17:00:54.103Z), all exit 0. This HEAD differs from test/E2E
+  candidate 81b0343c1dc17927754495cab025e148df3dc4a6 only in the two ledgers;
+  no runtime/test source is relabeled. Node is 24.20.0, with x64 Node and
+  1.98.1-x86_64-pc-windows-msvc selected for Electron. The rebuilt x64 addon has
+  SHA-256 cd5feb9225328a38a0cf0fb78fd5d1022ff50c540c831c4b88c36356013c260d,
+  NativeAppCore is a function and all four retired child-HWND input exports are
+  absent. Evidence is workspace-gui-production-build.*, workspace-gui-electron-build.*,
+  workspace-gui-production-isolation.* and workspace-gui-addon-inventory.json.
+  Local full JS and stable failure remain FAIL; build/isolation do not repair
+  those results. No production promotion, credential change or protected Tauri
+  runtime removal occurred.
+- CI 34249936184 at exact 81b0343c1dc17927754495cab025e148df3dc4a6 is terminal
+  FAIL only because native job 102141670409 could not finalize its input-probe
+  artifact (HTTP 403); that job never reached Rust/complete JS. Shared, renderer,
+  stable full, Chromium full and package jobs pass. No same-source retry is run.
+  Package job 102141487466 passes NSIS, fixture updater and native black-box.
+  Artifact 10066934988 SHA-256
+  a052ffe752e03f02e3c36a4b95f5510ce40d78f587acc87c2a0c1deb71b3d448 is downloaded
+  and verified in ci-workspace-gui-package. Unsigned 8.5.0 installer has
+  101627523 bytes/SHA-256
+  fdcd00827556d123f734e7c3f9e2ab193224df0e3d0cd2d555727739d78fc9b7;
+  proof hash 42fdd9a7e0d81a231a31d69786fedf738a60a5be51d7e365ed5961b53ceabf93,
+  normalized payload fea2aa9112c2687507f3aa3857b2dd16a68c3bc52b80c7baea94245f4a115df0.
+  Exact source/version/payload, expected uninstaller-only addition, no mutation,
+  isolation and unsigned policy reconcile. NSIS Job root 8088 has three members,
+  active zero and verified cleanup. Electron 8.4.0 to 8.5.0 fixture updater passes
+  at 16:49:59.925Z, manifest
+  733fdac0436a615ba76b71eda27544b19be4db8d44df614c353e6354077c2055,
+  both fail-closed-manifest and installed-replacement/relaunch cases applied;
+  Job root 5428 has 37 members, active zero, target application PID 9164.
+  productionTerminalReceipt remains false and no Tauri source case is present.
+  Black-box report
+  2026-09-08T16-50-37-090Z-c38ac10b-ac42-423e-a0e5-12c589dd8cd2-win32-packaged-black-box
+  passes visible OS Accessibility interaction/role close/app quit with exit 0,
+  a temporary local profile and no remote debugging. Game
+  dcf3c3bf-e16e-4940-b5a2-b911e2ff3716 / Role
+  fa9bad3e-99fe-49b6-8e1a-8c0c415eb450; app PID 2228, Job root 5876/43 members,
+  active zero. Executable SHA-256
+  373ce09ca562a701155a8fd94ca1fe59e68403a71d28ab44fc3f19ddda8eca62,
+  app.asar c6ef3635411b29ae2e7edc013ddbca0a4c190e743b13b88b547a4c257ce30ab1,
+  addon 595c0e6ce3078506199d54e29f1b7fdd5411afc57485814c14e07376487d291e.
+  The success report does not retain the native HWND. Exact native Job
+  observations are separately retained in ci-workspace-gui-job-terminal-receipt.json.
+  These fixture results close no additional production/physical API gate; API
+  remains 11/18, with five work packages/nine overlapping deliverables open.
 - Test/E2E-only 81b0343c1dc17927754495cab025e148df3dc4a6 replaces the optional
   console-owning diagnostic root with a compiled Windows GUI-subsystem fixture.
   The PE subsystem must be 2, the root must have no console, and the exact-one

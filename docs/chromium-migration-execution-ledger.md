@@ -33,6 +33,33 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Final 2026-09-09 reconciliation: clean document-only HEAD
+8f59000610acc60e899e8d58b258011c6b93ae88 passes both local production shell
+builds and production E2E isolation (build 16:50:51.136–16:56:15.308Z,
+Electron 16:56:34.012–16:59:31.354Z, isolation 17:00:40.265–17:00:54.103Z).
+It differs from runtime/test candidate 81b0343c1dc17927754495cab025e148df3dc4a6
+only in these two ledgers. The rebuilt x64 addon retains NativeAppCore and no
+retired child-HWND input exports, SHA-256
+cd5feb9225328a38a0cf0fb78fd5d1022ff50c540c831c4b88c36356013c260d.
+Local JS/stable failures below remain FAIL; no runtime change, deadline change,
+production promotion or protected-runtime removal is inferred from builds.
+
+CI 34249936184 at exact 81b0343c is terminal FAIL solely at native-job artifact
+FinalizeArtifact HTTP 403; Rust/complete Windows JS in that job never ran.
+Shared, stable full, Chromium full and Windows package validation all PASS.
+Package artifact 10066934988 SHA-256
+a052ffe752e03f02e3c36a4b95f5510ce40d78f587acc87c2a0c1deb71b3d448 retains
+NSIS installed proof, Electron 8.4.0 to 8.5.0 fixture updater and passed native
+black-box report. Installer SHA-256
+fdcd00827556d123f734e7c3f9e2ab193224df0e3d0cd2d555727739d78fc9b7,
+normalized payload fea2aa9112c2687507f3aa3857b2dd16a68c3bc52b80c7baea94245f4a115df0,
+updater manifest 733fdac0436a615ba76b71eda27544b19be4db8d44df614c353e6354077c2055.
+NSIS/updater/black-box Jobs have three/37/43 members and each ends active zero;
+updater target PID 9164 and black-box app PID 2228. The API ledger records full
+logical identities and package component hashes. productionTerminalReceipt=false;
+there is no Tauri-source production transaction. API stays 11/18; five work
+packages/nine overlapping deliverables and physical/production gates remain open.
+
 2026-09-09 reconciliation (UTC evidence timestamps): CI 34244392164 at exact
 a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 is terminal FAIL overall. Its Windows
 package job 102122519718 passes NSIS installed-payload proof, Electron

@@ -725,6 +725,13 @@ describe("desktop shell migration workflows", () => {
       "RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}"
     );
     expect(ciProofStep).toContain("runWindowsElectronInstallerPayloadProof.ps1");
+    expect(ciProofStep).toContain('[IO.File]::Copy(');
+    expect(ciProofStep).toContain(
+      '$env:GITHUB_WORKSPACE\\.desktop-e2e-artifacts\\windows-installer-payload-proof.json'
+    );
+    expect(ciProofStep.indexOf('[IO.File]::Copy(')).toBeLessThan(
+      ciProofStep.indexOf('} finally {')
+    );
     expect(ciProofStep).toContain(
       '-ApplicationPath "$env:GITHUB_WORKSPACE\\release\\electron\\win-unpacked"'
     );

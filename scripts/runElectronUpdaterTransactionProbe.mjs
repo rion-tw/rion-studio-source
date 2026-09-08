@@ -290,7 +290,7 @@ export async function runElectronUpdaterTransactionProbe(
         platform: process.platform
       })).receipt
     : null;
-  return { artifact, manifest, platform: process.platform, receipt, version };
+  return { artifact, cases, manifest, platform: process.platform, receipt, version };
 }
 
 async function runMacosProbe(environment, fixtureRoot, isolationBindings) {
@@ -561,7 +561,8 @@ async function terminateWindowsProcessTree(processId, environment) {
 
 async function assertWindowsUnsigned(executable, environment) {
   const script = [
-    `$signature = Get-AuthenticodeSignature -LiteralPath '${executable.replaceAll("'", "''")}'`,
+    "Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop",
+    `$signature = Get-AuthenticodeSignature -LiteralPath '${executable.replaceAll("'", "''")}' -ErrorAction Stop`,
     "if ($signature.Status -ne 'NotSigned') { throw 'Installed executable must be unsigned.' }"
   ].join("; ");
   await execFileAsync("powershell.exe", [
@@ -938,4 +939,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   console.log(
     `Verified ${result.platform} packaged updater transaction for ${result.version}.`
   );
+  // These observations survive temporary-profile cleanup. Production terminal
+  // evidence still requires the independent parent-isolation finalizer.
+  console.log(`RION_UPDATER_PROBE_OBSERVATIONS=${JSON.stringify({
+    kind: "packaged-updater-probe-observations",
+    platform: result.platform,
+    version: result.version,
+    previousVersions: {
+      tauriV22: process.env.RION_UPDATER_PREVIOUS_TAURI_V22_VERSION,
+      electronV23: process.env.RION_UPDATER_PREVIOUS_V23_VERSION
+    },
+    artifactSha256: await hashFile(result.artifact),
+    manifestSha256: await hashFile(result.manifest),
+    cases: result.cases
+  })}`);
 }

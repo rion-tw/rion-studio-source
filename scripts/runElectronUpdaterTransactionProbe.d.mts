@@ -23,6 +23,7 @@ export interface ElectronUpdaterCompatibilityProvisionalReceipt {
 
 export interface ElectronUpdaterTransactionProbeResult {
   readonly artifact: string;
+  readonly cases: readonly ElectronUpdaterCompatibilityCaseObservation[];
   readonly manifest: string;
   readonly platform: NodeJS.Platform;
   readonly receipt: ElectronUpdaterCompatibilityProvisionalReceipt | null;

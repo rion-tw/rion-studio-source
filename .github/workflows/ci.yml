@@ -459,6 +459,11 @@ jobs:
               -OutputPath "$proofRoot\windows-installer-payload-proof.json" `
               -SourceSha $sourceSha `
               -Version "$env:RION_STUDIO_ELECTRON_PACKAGE_VERSION"
+            [IO.File]::Copy(
+              "$proofRoot\windows-installer-payload-proof.json",
+              "$env:GITHUB_WORKSPACE\.desktop-e2e-artifacts\windows-installer-payload-proof.json",
+              $false
+            )
           } finally {
             if (Test-Path -LiteralPath $proofRoot) {
               Remove-Item -LiteralPath $proofRoot -Recurse -Force
@@ -518,7 +523,7 @@ jobs:
             )
 
       - name: Upload packaged Chromium Role black-box E2E diagnostics
-        if: always() && (steps.packaged_chromium_macos_appkit_smoke.outcome != 'skipped' || steps.packaged_chromium_windows_smoke.outcome != 'skipped')
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: packaged-chromium-role-black-box-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

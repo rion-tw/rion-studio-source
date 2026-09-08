@@ -479,7 +479,11 @@ async function verifyWindowsUnsignedExecutable(executablePath) {
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "$signature = Get-AuthenticodeSignature -LiteralPath $env:RION_ELECTRON_VERIFY_PATH; [Console]::Out.Write($signature.Status.ToString())"
+      [
+        "Import-Module (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop",
+        "$signature = Get-AuthenticodeSignature -LiteralPath $env:RION_ELECTRON_VERIFY_PATH -ErrorAction Stop",
+        "[Console]::Out.Write($signature.Status.ToString())"
+      ].join("; ")
     ],
     {
       encoding: "utf8",

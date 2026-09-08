@@ -500,6 +500,11 @@ describe("Electron updater CI fixtures", () => {
     expect(source).toContain("resolveVerifiedWindowsProfileIsolation(environment)");
     expect(source).toContain("profile.localAppDataDirectory");
     expect(source).toContain("profile.userDataDirectory");
+    expect(source).toContain("RION_UPDATER_PROBE_OBSERVATIONS=");
+    expect(source).toContain('kind: "packaged-updater-probe-observations"');
+    expect(source).toContain("cases: result.cases");
+    expect(source).toContain("artifactSha256: await hashFile(result.artifact)");
+    expect(source).toContain("electronV23: process.env.RION_UPDATER_PREVIOUS_V23_VERSION");
     expect(source).not.toContain("isolation: profile.kind");
     expect(source).toContain("runElectronUpdaterDarwinHelperProbe({");
     expect(source).not.toContain("terminateMacosInstalledApplication");

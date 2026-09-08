@@ -48,6 +48,21 @@ const {
 } = await import(configurationModulePath) as ElectronBuilderConfigurationModule;
 
 describe("Electron packaging contract", () => {
+  it("loads the executing Windows PowerShell security module for every Authenticode probe", async () => {
+    const paths = [
+      "scripts/verifyElectronPackage.mjs",
+      "scripts/windowsElectronInstallerPayloadProof.mjs",
+      "scripts/runElectronUpdaterTransactionProbe.mjs"
+    ];
+    for (const path of paths) {
+      const source = await readFile(path, "utf8");
+      expect(source).toContain(
+        "Import-Module (Join-Path $PSHOME 'Modules\\\\Microsoft.PowerShell.Security\\\\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop"
+      );
+      expect(source).toMatch(/Get-AuthenticodeSignature[^\n]+-ErrorAction Stop/u);
+    }
+  });
+
   it("keeps packaging additive and pins the fuse verifier", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
       scripts?: Record<string, string>;

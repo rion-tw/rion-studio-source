@@ -54,8 +54,31 @@ warnings), and hygiene pass locally; logs are
 not to the later test-formatting commit. Sanitizer/concurrency is also SUCCESS.
 macOS native job 102264594395 is terminal SUCCESS: Rust **1116 PASS / 5 ignored**,
 Electron native integration **14 PASS / 2 platform skips**, native lint and
-adapter build passed. Windows native and both package jobs remain running.
+adapter build passed. Windows native job 102264594440 is terminal FAIL: AppKit
+portable stubs 4 PASS, then Core 981 PASS / 1 FAIL / 1 ignored. Its exact failure
+is `app::tests::a_fully_verified_import_journal_allows_launch_without_new_role_evidence`
+at `behavior_21_session_migration_launch_gate.rs:1211`, with
+`StateDatabase("state worker shutdown timed out after 3 seconds")` during checked
+Chromium teardown. Later native/Windows JS steps did not run. The automatically
+invoked loader diagnostic also exited 1, but this was an executed Rust test
+failure, not a test-executable loader failure. Both package jobs remain running.
 No publication was dispatched.
+
+The exact import-teardown test passed once locally on clean source
+`c7edd7b4a7036dd5824ab37b73cdaeaa56f11033`: 1 PASS in 2.52 seconds using Windows
+x64 Rust 1.98.1. This does not reproduce or fix the CI timeout. Receipt/log:
+`windows-takeover-4e5ec764/sole-entry-c7edd7b4-import-teardown-focused.*` under
+`.desktop-e2e-artifacts/`. Source inspection confirms that checkpoint and SQLite
+connection close precede the successful shutdown response.
+
+Commit `c03203f4c24b1c8b23c416a27b6cdaebc9323b04` adds only `#[cfg(test)]`
+fixed observations for shutdown request, checkpoint entry/exit, connection close
+and response. They expose which existing native boundary is outstanding without
+changing production code, authority, failure results or the 3-second budget.
+Windows x64 Rust lint and source hygiene pass; a complete local x64 Rust suite
+is running against that clean source, with
+`windows-takeover-4e5ec764/sole-entry-shutdown-stage-full-rust.*` receipts.
+No runtime fix or full-regression success is claimed from the focused result.
 
 Program commits:
 

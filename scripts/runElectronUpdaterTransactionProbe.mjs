@@ -522,11 +522,26 @@ async function ensurePrivateRuntimeDirectory(directoryPath) {
 }
 
 
-async function waitForWindowsProcess(processId, environment) {
+// A missing exact PID is an observation, not a failed PowerShell command. Catch
+// only that native lookup result; access and other lookup errors stay failures.
+const findWindowsProbeProcess = [
+  "function Find-RionProbeProcess([int]$ProcessId) {",
+  "  try { Get-Process -Id $ProcessId -ErrorAction Stop } catch {",
+  "    if ($_.FullyQualifiedErrorId -ne 'NoProcessFoundForGivenId,Microsoft.PowerShell.Commands.GetProcessCommand') { throw }",
+  "    return $null",
+  "  }",
+  "}"
+].join("\n");
+
+export async function waitForWindowsProcess(processId, environment) {
+  if (!Number.isSafeInteger(processId) || processId <= 1) {
+    throw new Error("Refusing to wait for an invalid updater installer process.");
+  }
   const script = [
-    `$process = Get-Process -Id ${processId} -ErrorAction SilentlyContinue`,
+    findWindowsProbeProcess,
+    `$process = Find-RionProbeProcess ${processId}`,
     "if ($process) { $process | Wait-Process -Timeout 120 -ErrorAction Stop }"
-  ].join("; ");
+  ].join("\n");
   await execFileAsync("powershell.exe", [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script
   ], {
@@ -537,17 +552,18 @@ async function waitForWindowsProcess(processId, environment) {
   });
 }
 
-async function terminateWindowsProcessTree(processId, environment) {
+export async function terminateWindowsProcessTree(processId, environment) {
   if (!Number.isSafeInteger(processId) || processId <= 1) {
     throw new Error("Refusing to terminate an invalid updater target process.");
   }
   const script = [
-    `$root = Get-Process -Id ${processId} -ErrorAction SilentlyContinue`,
+    findWindowsProbeProcess,
+    `$root = Find-RionProbeProcess ${processId}`,
     "if ($root) {",
     `  & "$env:SystemRoot\\System32\\taskkill.exe" /PID ${processId} /T /F | Out-Null`,
     "  if ($LASTEXITCODE -ne 0) { throw 'Updater target process tree did not terminate.' }",
     "}",
-    `$remaining = Get-Process -Id ${processId} -ErrorAction SilentlyContinue`,
+    `$remaining = Find-RionProbeProcess ${processId}`,
     "if ($remaining) { throw 'Updater target root process survived termination.' }"
   ].join("\n");
   await execFileAsync("powershell.exe", [

@@ -40,6 +40,9 @@ export function macosUpdaterProbeToolchainHomes(
   defaultHome: string
 ): { CARGO_HOME: string; RUSTUP_HOME: string };
 
+export function waitForWindowsProcess(processId: number, environment: NodeJS.ProcessEnv): Promise<void>;
+export function terminateWindowsProcessTree(processId: number, environment: NodeJS.ProcessEnv): Promise<void>;
+
 export function verifyElectronUpdaterCompatibilityInput(input: Readonly<{
   fixtureRoot: string;
   inputReceiptPath: string;

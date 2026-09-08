@@ -1,3 +1,4 @@
+param([Parameter(Mandatory=$true)][string] $NodeExecutable)
 $ErrorActionPreference = "Stop"
 $taskRepository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 Add-Type -Path @(
@@ -45,10 +46,15 @@ $taskSurvivor = $null
 try {
   $taskObserver = [RionWindowsJobProcessDiagnostics]::new($taskJob)
   $taskStart = [Diagnostics.ProcessStartInfo]::new()
-  $taskStart.FileName = Join-Path $PSHOME "pwsh.exe"
+  # This fixture needs a pipe-blocked process, not PowerShell's optional console
+  # bootstrap. Keep the exact one-root pre-release assertion deterministic.
+  $taskStart.FileName = [IO.Path]::GetFullPath($NodeExecutable)
+  if (-not (Test-Path -LiteralPath $taskStart.FileName -PathType Leaf)) {
+    throw "The fixture's exact Node executable is unavailable."
+  }
   foreach ($taskArgument in @(
-    '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-    '[void][Console]::ReadLine(); & $env:ComSpec /d /c exit 0'
+    '-e',
+    'process.stdin.once("data", () => { const child = require("node:child_process").spawnSync(process.env.ComSpec, ["/d", "/c", "exit", "0"], { windowsHide: true, stdio: "ignore" }); if (child.error) throw child.error; process.exit(child.status ?? 1); }); process.stdin.resume();'
   )) { $taskStart.ArgumentList.Add($taskArgument) }
   $taskStart.UseShellExecute = $false
   $taskStart.CreateNoWindow = $true

@@ -8,7 +8,8 @@ it.skipIf(process.platform !== "win32")(
   async () => {
     const { stdout } = await promisify(execFile)("pwsh.exe", [
       "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
-      resolve("tests/fixtures/windows-job-process-diagnostics.ps1")
+      resolve("tests/fixtures/windows-job-process-diagnostics.ps1"),
+      "-NodeExecutable", process.execPath
     ], { windowsHide: true, maxBuffer: 1024 * 1024 });
     const result = JSON.parse(stdout) as {
       platform: string;

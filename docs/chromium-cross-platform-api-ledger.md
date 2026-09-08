@@ -101,6 +101,91 @@ Subsequent evidence and corrections:
   installed 1.98.1-x86_64-pc-windows-msvc toolchain, without replacing system
   ARM64 Node again.
 
+At 6476b49d1a86d3463a26f6f15b082cf9ba0ea57b (only ledger edits uncommitted), local x64 runtime verification
+passes (Electron 43.6.0/Chromium 150.0.7871.250/Node 24.20.0/Node-API 10/Core
+0.1.0); native integration has 16 PASS in 8 files. The addon build guard rejects
+all four retired child-HWND exports. Hygiene passes at
+42fd82ce077fe4f0c1d71043f94f1ad16947846a; full ESLint passes at
+9f6e022d0afa3d0949c9b9d30fccb1cf66445d67. Typecheck passes with the declaration
+and chooser changes later committed as 79c6f090/9f6e022d.
+Stable focused smoke-seed at 42fd82ce077fe4f0c1d71043f94f1ad16947846a passes
+with unchanged title assertions on WebView2 152.0.0.0, report
+2026-09-08T00-29-04-337Z-win32. Full stable execution follows with the exact same
+E2E binary, not a production bundle. The CI null-text failure remains unresolved.
+
+Packaging source 6476b49d missed its adjacent .d.mts dependency declaration;
+local typecheck caught TS2554. CI 34173245900 was cancelled, not passed. Commit
+79c6f09017bf41ffbbfb16368e57d32b655368e3 synchronizes that declaration and typecheck then passes. E2E-only commit
+9f6e022d adds a native chooser receipt with exact PID/dialog/Edit/Button HWNDs,
+control IDs 1152/1, owner verification and dialog closure. Neither changes app
+runtime behavior. Replacement Windows-only run
+[34173824730](https://github.com/rion-tw/rion-studio-source/actions/runs/34173824730)
+binds 9f6e022d0afa3d0949c9b9d30fccb1cf66445d67; no successful package or
+production transaction is inferred before its receipts exist.
+
+Latest local and hosted results (2026-09-08):
+
+- Stable full is complete at runner source
+  9f6e022d0afa3d0949c9b9d30fccb1cf66445d67 with a clean starting tree:
+  31 PASS + 3 EXPECTED_FORCE_TERMINATION / 40 journey PASS, report
+  2026-09-08T00-35-11-471Z-win32. The x64 Tauri E2E binary was built at
+  42fd82ce077fe4f0c1d71043f94f1ad16947846a; intervening changes only affect
+  packaging declarations and the Electron import chooser receipt. WebView2 is
+  152.0.0.0. Every phase exits 0; this stable report does not expose the
+  Electron-specific per-phase final-flush flags. Command receipt: stable-full-local.
+- E2E-only source 7bcb2d65d9d7e0ba749fc07d5756beb6fc022535 adds
+  CHROMIUM-WINDOWS-SESSION-END-DRAIN-034 and the chromium-windows-session-end
+  phase. Focused report 2026-09-08T01-01-37-052Z-win32 passes with final flush,
+  process exit and exit 0. It sends WM_QUERYENDSESSION to the exact visible
+  Electron HWND (PID 18060, HWND 17106292), verifies its single real listener,
+  acknowledgement and preventDefault, then observes normal application drain.
+  It does not call the controller directly, broadcast a message, or sign out
+  Windows. Native receipt explicitly records actualOsSignOut=false. The full
+  Windows Chromium manifest now requires 62 phases / 54 journeys; its hardware
+  superset still needs a second display. No focused result replaces that full run.
+- Complete elevated JS at 7bcb2d65d9d7e0ba749fc07d5756beb6fc022535, with only
+  ledger edits uncommitted, is 3810 PASS / 48 platform skips / 0 FAIL in 254.70 s
+  (full-js-session-end). Existing deadlines, safety assertions and updater
+  concurrent rounds remain unchanged.
+- CI 34173824730 is FAILURE at 9f6e022d0afa3d0949c9b9d30fccb1cf66445d67.
+  Shared checks and renderer pass. Stable WebView2 151.0.0.0 fails the original
+  10000 ms Create workspace click deadline in website-entrance-seed after three
+  passing phases (artifact 10036727589). The local 152.0.0.0 full PASS does not
+  prove the hosted failure fixed. Native Rust fails accepted_clear_worker_outlives_its_caller_and_drain_waits_for_domain_terminal
+  on the existing 3 s state-worker shutdown acknowledgement, and
+  a_new_v23_role_commits_empty_store_evidence_and_remains_launchable_after_restart
+  retains APP_INSTANCE_LOCKED after shutdown timeout. The failing rion-core group
+  has 980 PASS / 2 FAIL / 1 ignored; later workspace groups did not execute.
+  The exact shutdown stage remains unknown. Neither failure is a loader error.
+- The same CI's Chromium tabs-visible-seed failure is an exact runtime error,
+  ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE, after closing/relaunching
+  Gamma (artifact 10036913041). Core window
+  8c4c7bf3-9085-41c2-be15-d4b4d5dc0009 remains generation 3/native parent 2;
+  Alpha 66be75b5-0f64-4723-b55e-de29de1547ce and Beta
+  93e84fc9-b017-4fe1-9a2c-c1ebed4624ea survive. Native sequence 18/revision 24
+  retains two tabs; Core runtime revision is 28. Gamma role
+  48ef0d96-2922-460d-b6be-4c0c04ca2e02 launch is rejected at event 796 after
+  successful tab stop 775. This is not a new-window compensation failure.
+  Package/install/update steps did not execute after the E2E failure.
+- Runtime correction d4993ed8cf890e6c5468447aceca3acd6c373099 preserves an
+  already reconciled host when a later tab admission has delayed projection.
+  Previously that admission downgraded the cache to pending; closing the latest
+  tab before another launch read erased the surviving host. Explicit darwin/win32
+  delayed fixtures reproduce two failures before the fix; all 53 coordinator
+  tests pass afterward, including negative identity/revision fences. Reuse still
+  requires a fresh coherent Core/native projection. Geometry helpers and tab-close
+  fixtures move unchanged to cohesive support modules to retain hygiene limits.
+  Paired TABS-VISIBLE-ACTIVATION-019 E2E retains the exact survivor topology
+  before relaunch. Typecheck, focused ESLint, source hygiene and coverage pass.
+  Full Windows native/profile validation is in progress. Historical macOS source
+  85f662f4 does not validate this new shared runtime correction; macOS native
+  validation remains pending without rerunning the owner's completed acceptance.
+
+The table above is the initial checkpoint; these later exact-source results
+supersede its pending entries. API closure remains 9/18 until complete evidence
+is reconciled. Physical dual-display, actual OS sleep, production-key transactions,
+terminal promotion and the final configuration delta remain independent gates.
+
 ### Previous owner steering: macOS execution / Windows workstation acceptance
 
 The owner directs this takeover to focus on macOS. Record Windows issues here

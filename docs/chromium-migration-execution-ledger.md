@@ -50,9 +50,28 @@ PASS. No completed macOS gate is rerun. Only one VM display is available. Detail
 receipts, full-profile results and remaining limitations belong to the latest
 Windows checkpoint in the API ledger. No gate is closed by this progress entry.
 
+Subsequent Windows results supersede the pending statuses in that initial entry:
+stable full at 9f6e022d0afa3d0949c9b9d30fccb1cf66445d67 passes 31 normal phases
+plus three expected force terminations / 40 journeys (report
+2026-09-08T00-35-11-471Z-win32, WebView2 152.0.0.0). Complete JS at E2E-only
+7bcb2d65d9d7e0ba749fc07d5756beb6fc022535 passes 3810 / 48 platform skips.
+Its new exact-HWND WM_QUERYENDSESSION focused journey proves native delivery,
+single-listener handling, final flush and process exit, not an actual OS sign-out.
+The Windows Chromium full manifest now has 62 phases / 54 journeys.
+CI 34173824730 at 9f6e022d fails stable website-entrance-seed, two Rust shutdown
+tests, and Chromium tabs-visible-seed; package/update steps did not run.
+Runtime correction d4993ed8cf890e6c5468447aceca3acd6c373099 exactly reproduces
+and fixes the last failure's reconciled-host cache loss after delayed tab admission
+and close. All 53 coordinator tests pass with paired platform fixtures; complete
+Windows verification is in progress. The two Rust shutdown stages and hosted
+stable click failure remain unresolved. Detailed identities, logs and source
+classification are retained in the API ledger. No production or physical gate
+is closed, and the new shared runtime source still needs native macOS evidence;
+the owner-requested Windows work does not rerun completed macOS acceptance.
+
 This checkpoint supersedes the earlier dated foreground holds and candidate
 status snapshots below; those sections remain historical evidence. The current
-runtime/test candidate is **85f662f4860c9af1623580510f35997256108b66** on
+last fully macOS-verified runtime/test candidate is **85f662f4860c9af1623580510f35997256108b66** on
 codex/electron-chromium-v23-cutover. Later ledger-only commits do not relabel
 older binaries or require another CI run. The detailed commands, identities,
 reports and ordered Windows checklist live in the

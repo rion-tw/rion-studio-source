@@ -1,3 +1,5 @@
+// [state-combination:CHROMIUM-MACOS-APPKIT-MIXED-TOPOLOGY-RECOVERY]
+// [state-combination:CHROMIUM-WINDOWS-MIXED-TOPOLOGY-RECOVERY]
 import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 import { readFile, writeFile } from "node:fs/promises";

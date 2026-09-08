@@ -26,7 +26,7 @@ import {
 } from "./desktopE2eChromiumJourneyEvidence.mjs";
 import { validateChromiumQuickAccessSqliteEvidence } from "./desktopE2eChromiumQuickAccessEvidence.mjs";
 import { withChromiumMacroCutoverNativePrerequisites } from "./desktopE2eChromiumMacroCutoverEvidence.mjs";
-import { resolveDesktopE2eRuntimeTarget } from "./desktopE2eRuntimeTarget.mjs";
+import { resolveDesktopE2eProfileName, resolveDesktopE2eRuntimeTarget } from "./desktopE2eRuntimeTarget.mjs";
 import { verifyDesktopE2eBuild } from "./verifyDesktopE2eBuild.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -39,7 +39,10 @@ const token = randomBytes(32).toString("hex");
 const node = process.execPath;
 const wdio = resolve(root, "node_modules", "@wdio", "cli", "bin", "wdio.js");
 const profileArgument = process.argv.find((argument) => argument.startsWith("--profile="))?.slice(10);
-const profile = profileArgument ?? process.env.RION_STUDIO_E2E_PROFILE ?? "full";
+const profile = resolveDesktopE2eProfileName({
+  platform: process.platform,
+  profileName: profileArgument ?? process.env.RION_STUDIO_E2E_PROFILE ?? "full"
+});
 const coverageManifest = JSON.parse(await readFile(resolve(root, "docs/e2e-coverage.json"), "utf8"));
 let configuredPhases;
 try {

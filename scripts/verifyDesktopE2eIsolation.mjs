@@ -2,33 +2,27 @@ import { execFile } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
+import { verifyElectronRendererBundle } from "./verifyElectronRendererBundle.mjs";
 
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
 const { stdout } = await execute("cargo", [
   "tree",
   "-p",
-  "rion-tauri",
+  "rion-node",
   "--edges",
   "normal",
-  "--no-default-features",
-  "--features",
-  "custom-protocol"
+  "--no-default-features"
 ], { cwd: root, maxBuffer: 16 * 1024 * 1024 });
-for (const forbidden of ["tauri-plugin-wdio ", "tauri-plugin-wdio-webdriver "]) {
+for (const forbidden of ["tauri ", "tauri-plugin-wdio ", "tauri-plugin-wdio-webdriver ", "wry ", "webview2-com "]) {
   if (stdout.includes(forbidden)) {
     throw new Error(`Production Cargo graph contains debug-only dependency: ${forbidden.trim()}`);
   }
 }
 
-const productionConfig = JSON.parse(await readFile(resolve(root, "src-tauri/tauri.conf.json"), "utf8"));
-if (productionConfig.app?.withGlobalTauri === true) {
-  throw new Error("Production Tauri config must not expose withGlobalTauri");
-}
-const permissions = JSON.stringify(productionConfig.app?.security?.capabilities ?? []);
-if (/wdio|desktop-e2e/iu.test(permissions)) {
-  throw new Error("Production Tauri capabilities contain desktop E2E permissions");
-}
+await verifyElectronRendererBundle(resolve(root, "out", "renderer"));
+await readFile(resolve(root, "out", "main", "index.js"));
+await readFile(resolve(root, "out", "preload", "index.cjs"));
 
 const runtimeRoots = [
   {
@@ -49,7 +43,7 @@ const runtimeRoots = [
   }
 ];
 for (const runtimeRoot of runtimeRoots) {
-  const files = await readdir(runtimeRoot.directory, { recursive: true }).catch(() => []);
+  const files = await readdir(runtimeRoot.directory, { recursive: true });
   for (const relativePath of files) {
     if (!/\.(?:cjs|html|js|mjs)$/u.test(relativePath)) continue;
     const source = await readFile(resolve(runtimeRoot.directory, relativePath), "utf8");

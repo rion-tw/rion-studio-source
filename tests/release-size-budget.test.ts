@@ -12,9 +12,9 @@ import {
 describe("release artifact size budget", () => {
   it("defines balanced fixed limits for every release artifact", () => {
     expect(RELEASE_SIZE_LIMITS).toEqual({
-      "Rion.Studio-mac.app.tar.gz": 16_777_216,
-      "Rion.Studio-mac.dmg": 18_874_368,
-      "Rion.Studio-win.exe": 12_582_912
+      "Rion.Studio-mac.app.tar.gz": 268_435_456,
+      "Rion.Studio-mac.dmg": 268_435_456,
+      "Rion.Studio-win.exe": 134_217_728
     });
   });
 

@@ -40,8 +40,7 @@ function initializeDocumentState(): void {
   const platform = detectPlatform();
   document.documentElement.dataset.platform = platform;
   document.documentElement.dataset.windowGestureMode = windowGestureMode(
-    platform,
-    __RION_DESKTOP_SHELL__
+    platform
   );
   document.documentElement.dataset.windowFullscreen = "false";
   document.documentElement.dataset.windowMaximized = "false";

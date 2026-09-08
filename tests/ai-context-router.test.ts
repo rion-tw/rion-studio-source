@@ -25,7 +25,7 @@ describe("AI context router", () => {
     expect(report.areas.map((area) => area.id)).toEqual(["renderer"]);
     expect(report.canonicalDocs).toContain("docs/design-system.md");
     expect(report.e2e.features).toContain("settings");
-    expect(report.e2e.candidateJourneys).toContain("SETTINGS-PERSIST-001");
+    expect(report.e2e.candidateJourneys).toContain("CHROMIUM-MACOS-APPKIT-SETTINGS-PERSIST-006");
     expect(report.platforms.local).toContain("macos");
     expect(report.platforms.pending).toContain("windows");
   });
@@ -65,8 +65,8 @@ describe("AI context router", () => {
     ]));
     expect(report.e2e.features).toEqual(expect.arrayContaining(["macros", "game-windows"]));
     expect(report.e2e.candidateJourneys).toEqual(expect.arrayContaining([
-      "MACRO-INPUT-RECOVERY-011",
-      "RUNTIME-MIXED-RECOVERY-011"
+      "CHROMIUM-MACOS-APPKIT-MACRO-INPUT-RECOVERY-011",
+      "CHROMIUM-MACOS-APPKIT-MIXED-RECOVERY-021"
     ]));
     expect(new Set(report.requiredChecks).size).toBe(report.requiredChecks.length);
   });

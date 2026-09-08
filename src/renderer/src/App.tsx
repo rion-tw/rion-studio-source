@@ -31,7 +31,6 @@ import { useNativeContextMenuSuppression } from "./hooks/useNativeContextMenuSup
 import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
-import { useWindowsApplicationShortcuts } from "./hooks/useWindowsApplicationShortcuts";
 import { useSystemRuntimeWarnings } from "./hooks/useSystemRuntimeWarnings";
 import { localizeErrorMessage } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
@@ -41,9 +40,6 @@ import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppSc
 import { ExtensionsRoute, DashboardRoute, GameEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
 
 const TOAST_DISMISS_MS = 4000;
-const DESKTOP_SHELL = typeof __RION_DESKTOP_SHELL__ === "undefined"
-  ? undefined
-  : __RION_DESKTOP_SHELL__;
 const EMPTY_QUICK_ACCESS_PREFERENCES: QuickAccessPreferences = {
   pinnedItems: [],
   recentItems: []
@@ -60,7 +56,6 @@ export function App(): JSX.Element {
   });
   const preferences = usePreferences();
   const hasBridge = Boolean(window.rionStudio);
-  useWindowsApplicationShortcuts(hasBridge && DESKTOP_SHELL === "tauri");
   const legal = useLegalAcceptance(hasBridge);
   const firstRunOnboarding = useFirstRunOnboarding({ enabled: hasBridge && data.initialLoadState === "ready" && legal.status?.isAccepted === true, roles: data.roles });
   const [gameBrowserSettings, setGameBrowserSettings] = useState<GameBrowserSettings>(DEFAULT_GAME_BROWSER_SETTINGS);

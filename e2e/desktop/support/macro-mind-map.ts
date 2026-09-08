@@ -1,7 +1,5 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 
-import { moveMacosMindMapPointer } from "./macos-mind-map-pointer";
-import { moveWindowsMindMapPointer } from "./windows-mind-map-pointer";
 import { scrollLayoutControlIntoView } from "./ui";
 
 interface MindMapFrame {
@@ -29,18 +27,11 @@ export async function exerciseMacroMindMapHover(): Promise<void> {
     const id = await node.getAttribute("data-id");
     if (!id) throw new Error("Mind map node has no identity");
     await scrollLayoutControlIntoView(node);
-    if (process.platform === "darwin" && browser.tauri) await moveMacosMindMapPointer(id);
-    else if (process.platform === "win32" && browser.tauri) {
-      // Start outside the canvas so this action exercises an actual native enter transition.
-      await moveWindowsMindMapPointer();
-      await moveWindowsMindMapPointer(id);
-    }
-    else await node.moveTo();
+    await node.moveTo();
     await browser.waitUntil(async () => (await node.getAttribute("class") ?? "")
       .split(" ").includes("macro-mind-map-node-active"), {
       timeout: 10_000, timeoutMsg: `Native pointer did not enter mind map node ${id}`
     }).catch(async (error: unknown) => {
-      if (process.platform !== "win32" || !browser.tauri) throw error;
       const diagnostic = await browser.execute(() => {
         const page = window as unknown as Record<string, unknown>;
         return { target: page.__rionMindMapPointerTarget,
@@ -83,7 +74,5 @@ export async function exerciseMacroMindMapHover(): Promise<void> {
     }
   }
   // Leave the canvas before the existing click-selection assertions.
-  if (process.platform === "darwin" && browser.tauri) await moveMacosMindMapPointer();
-  else if (process.platform === "win32" && browser.tauri) await moveWindowsMindMapPointer();
-  else await $(".app-main-sidebar").moveTo();
+  await $(".app-main-sidebar").moveTo();
 }

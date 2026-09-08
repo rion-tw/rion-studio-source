@@ -35,11 +35,21 @@ pub struct ReqwestUpdateTransport {
 impl ReqwestUpdateTransport {
     pub fn new() -> Result<Self, UpdateTransportError> {
         let client = Client::builder()
-            .redirect(Policy::none())
+            .redirect(Policy::custom(|attempt| {
+                if crate::github_release_redirect::permits_redirect(
+                    attempt.previous(),
+                    attempt.url(),
+                ) {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
+            .referer(false)
             .connect_timeout(UPDATE_CONNECT_TIMEOUT)
             .user_agent("Rion-Studio-Chromium-Updater/23")
             .build()
-            .map_err(UpdateTransportError::Request)?;
+            .map_err(|error| UpdateTransportError::Request(error.without_url()))?;
         Ok(Self { client })
     }
 
@@ -57,7 +67,7 @@ impl ReqwestUpdateTransport {
                 "application/octet-stream, application/json",
             )
             .send()
-            .map_err(UpdateTransportError::Request)?;
+            .map_err(|error| UpdateTransportError::Request(error.without_url()))?;
         if response.status() != StatusCode::OK {
             return Err(UpdateTransportError::HttpStatus(response.status().as_u16()));
         }

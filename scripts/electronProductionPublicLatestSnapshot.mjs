@@ -138,6 +138,7 @@ export function assertElectronProductionPublicLatestSnapshot(value) {
       );
   if (value.observationKind !== "observed-release" &&
       value.observationKind !== "expected-latest-projection" &&
+      value.observationKind !== "expected-published-release-latest-projection" &&
       value.observationKind !== "expected-tauri-v22-latest-projection") {
     throw new Error("The public latest snapshot observation kind is invalid.");
   }
@@ -149,11 +150,13 @@ export function assertElectronProductionPublicLatestSnapshot(value) {
       candidateReceipt === null) {
     throw new Error("An expected-latest projection must bind an Electron candidate receipt.");
   }
-  if (value.observationKind === "expected-tauri-v22-latest-projection" &&
+  const publishedReleaseProjection = value.observationKind === "expected-tauri-v22-latest-projection"
+    || value.observationKind === "expected-published-release-latest-projection";
+  if (publishedReleaseProjection &&
       release.isLatest !== true) {
     throw new Error("A Tauri v22 expected-latest projection must project latest status.");
   }
-  if (value.observationKind === "expected-tauri-v22-latest-projection" &&
+  if (publishedReleaseProjection &&
       candidateReceipt !== null) {
     throw new Error(
       "A Tauri v22 expected-latest projection must not bind an Electron candidate receipt."
@@ -204,6 +207,14 @@ export function deriveElectronProductionExpectedLatestState(stagedObserved) {
 }
 
 export function deriveTauriV22ExpectedLatestState(stagedObserved) {
+  return derivePublishedReleaseProjection(stagedObserved, "expected-tauri-v22-latest-projection");
+}
+
+export function derivePublishedReleaseExpectedLatestState(stagedObserved) {
+  return derivePublishedReleaseProjection(stagedObserved, "expected-published-release-latest-projection");
+}
+
+function derivePublishedReleaseProjection(stagedObserved, observationKind) {
   const staged = assertElectronProductionPublicLatestSnapshot(stagedObserved);
   if (staged.observationKind !== "observed-release") {
     throw new Error("Only an observed release can be projected as Tauri v22 latest state.");
@@ -220,7 +231,7 @@ export function deriveTauriV22ExpectedLatestState(stagedObserved) {
   return createSnapshotEnvelope({
     ...state,
     release: Object.freeze({ ...state.release, isLatest: true })
-  }, "expected-tauri-v22-latest-projection");
+  }, observationKind);
 }
 
 export function assertElectronProductionRestorableSourceRelease(input) {
@@ -342,6 +353,7 @@ export function classifyElectronProductionPublicLatestSnapshot(input) {
     throw new Error("The source public latest snapshot must be an observed latest release.");
   }
   if ((target.observationKind !== "expected-latest-projection" &&
+       target.observationKind !== "expected-published-release-latest-projection" &&
        target.observationKind !== "expected-tauri-v22-latest-projection") ||
       target.release.isLatest !== true) {
     throw new Error("The target must be an expected-latest projection.");

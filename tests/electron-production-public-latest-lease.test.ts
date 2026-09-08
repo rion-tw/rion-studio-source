@@ -259,6 +259,30 @@ describe("Electron production durable public-latest lease", () => {
     })).not.toThrow();
   });
 
+  it.each(["tauri-v22", "electron-v23"] as const)(
+    "accepts %s as a source only with a newer Electron publication target",
+    (sourceRuntime) => {
+      expect(acquireLease({ purpose: "electron-v23-publication", sourceRuntime }).target.runtime)
+        .toBe("electron-v23");
+      expect(() => acquireLease({
+        purpose: "electron-v23-publication", sourceRuntime, targetRuntime: "tauri-v22"
+      })).toThrow("target runtime for purpose does not match");
+      expect(() => acquireLease({
+        purpose: "electron-v23-publication", sourceRuntime, targetVersion: "8.4.1"
+      })).toThrow("must be strictly newer");
+    }
+  );
+
+  it("allows restoring an older Electron release but rejects restoring the retired runtime", () => {
+    expect(acquireLease({
+      purpose: "electron-v23-latest-restore", sourceRuntime: "electron-v23",
+      sourceVersion: "8.6.0", targetVersion: "8.5.0"
+    }).target.version).toBe("8.5.0");
+    expect(() => acquireLease({
+      purpose: "electron-v23-latest-restore", targetRuntime: "tauri-v22"
+    })).toThrow("target runtime for purpose does not match");
+  });
+
   it("rejects a purpose/workflow mismatch and all schema expansion", () => {
     const input = acquisitionInput();
     expect(() => acquireElectronProductionPublicLatestLease({

@@ -3,7 +3,11 @@ import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { assertStableTauriV22PublicReleaseAssets } from "./publicReleaseRuntimePolicy.mjs";
+import {
+  assertElectronPublicReleaseAssets,
+  assertStableTauriV22PublicReleaseAssets,
+  identifyPublicReleaseRuntime
+} from "./publicReleaseRuntimePolicy.mjs";
 
 export const REQUIRED_RELEASE_ASSETS = [
   "Rion.Studio-mac.dmg",
@@ -170,15 +174,18 @@ async function runCli() {
   if (!directoryArg || !version) {
     throw new Error(
       "Usage: node scripts/releaseArtifacts.mjs <directory> <version> " +
-      "[--write-checksums|--verify-checksums] [--require-tauri-v22]"
+      "[--write-checksums|--verify-checksums] [--require-electron|--require-supported-source|--require-tauri-v22]"
     );
   }
   const directory = resolve(directoryArg);
   const writeChecksums = flags.includes("--write-checksums");
   const verifyChecksums = flags.includes("--verify-checksums");
   const requireTauriV22 = flags.includes("--require-tauri-v22");
+  const requireElectron = flags.includes("--require-electron");
+  const requireSupportedSource = flags.includes("--require-supported-source");
   const unknownFlags = flags.filter(
-    (flag) => !["--write-checksums", "--verify-checksums", "--require-tauri-v22"].includes(flag)
+    (flag) => !["--write-checksums", "--verify-checksums", "--require-tauri-v22",
+      "--require-electron", "--require-supported-source"].includes(flag)
   );
   if (unknownFlags.length > 0) {
     throw new Error(`Unknown release artifact flags: ${unknownFlags.join(", ")}`);
@@ -186,8 +193,15 @@ async function runCli() {
   if (writeChecksums && verifyChecksums) {
     throw new Error("Choose either --write-checksums or --verify-checksums.");
   }
+  if ([requireTauriV22, requireElectron, requireSupportedSource].filter(Boolean).length > 1) {
+    throw new Error("Choose exactly one release runtime policy.");
+  }
   await verifyReleaseAssets(directory, version, { allowChecksums: verifyChecksums });
   if (requireTauriV22) await assertStableTauriV22PublicReleaseAssets(directory);
+  if (requireElectron) await assertElectronPublicReleaseAssets(directory);
+  if (requireSupportedSource) {
+    console.log(`Verified source runtime: ${await identifyPublicReleaseRuntime(directory)}`);
+  }
   if (writeChecksums) {
     await writeReleaseChecksums(directory);
     await verifyReleaseAssets(directory, version, { allowChecksums: true });

@@ -248,3 +248,28 @@
   --role-cover-menu-control: 0 0% 100% / 0.1;
   --role-cover-menu-control-hover: 0 0% 100% / 0.18;
 }
+
+/* Native Windows Chromium host values share the canonical token source. */
+:root,
+:host {
+  --runtime-host-foreground: #eef1f7;
+  --runtime-host-surface: #171b24;
+  --runtime-host-border: rgb(255 255 255 / 10%);
+  --runtime-host-close-hover: #c42b1c;
+  --runtime-host-muted: rgb(238 241 247 / 72%);
+  --runtime-host-on-active: #fff;
+  --runtime-host-failure: #8a3d32;
+  --runtime-host-warning-foreground: #2b2100;
+  --runtime-host-warning: #d8ad3b;
+  --runtime-host-active: rgb(255 255 255 / 12%);
+  --runtime-host-drag-outline: rgb(170 180 204 / 75%);
+  --runtime-host-drag-surface: rgb(255 255 255 / 16%);
+  --runtime-host-menu-border: rgb(255 255 255 / 14%);
+  --runtime-host-shadow: rgb(0 0 0 / 36%);
+  --runtime-host-divider: rgb(170 180 204 / 55%);
+  --runtime-host-status-size: 9px;
+  --runtime-host-layer-tabs: 1;
+  --runtime-host-layer-controls: 2;
+  --runtime-host-layer-dividers: 3;
+  --runtime-host-layer-menu: 4;
+}

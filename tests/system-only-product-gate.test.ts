@@ -14,9 +14,9 @@ describe("desktop shell migration gate", () => {
       readFile("package.json", "utf8"),
       readFile(".github/workflows/ci.yml", "utf8"),
       readFile(".github/workflows/release.yml", "utf8"),
-      readFile(".github/workflows/tauri-release-preflight.yml", "utf8"),
-      readFile(".github/workflows/tauri-release-build.yml", "utf8"),
-      readFile(".github/workflows/tauri-release-candidate.yml", "utf8"),
+      readFile(".github/workflows/desktop-release-preflight.yml", "utf8"),
+      readFile(".github/workflows/desktop-release-build.yml", "utf8"),
+      readFile(".github/workflows/desktop-release-candidate.yml", "utf8"),
       readFile("scripts/verifySystemOnlyProduct.mjs", "utf8")
     ]);
     const build = buildWorkflow.slice(
@@ -31,7 +31,7 @@ describe("desktop shell migration gate", () => {
     expect(release).toContain("- await-preflight");
     expect(release).toContain("- verify-upgrade-compatibility");
     expect(release).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
-    expect(preflight).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(preflight).toContain("uses: ./.github/workflows/desktop-release-build.yml");
     expect(preflight).toContain("source_ref: ${{ needs.plan-release.outputs.source_ref }}");
     expect(buildWorkflow).toContain("source_ref:");
     expect(buildWorkflow).not.toContain("verified_sha:");
@@ -44,15 +44,10 @@ describe("desktop shell migration gate", () => {
     expect(gate).toContain("proxy_url");
     expect(gate).toContain("BrowserProxySettingsRecord");
     expect(gate).toContain("CoreEffectAction still exposes");
-    expect(gate).toContain('"crates/rion-node/"');
-    expect(gate).toContain('"src/electron/"');
-    expect(gate).toContain('"scripts/verifyDesktopE2eIsolation.mjs"');
-    expect(gate).toContain('"scripts/runtimeEnvironmentPolicy.mjs"');
-    expect(gate).toContain('"scripts/verifyTauriV22UpdaterInput.mjs"');
-    expect(gate).toContain('"scripts/windowsElectronInstallerPayloadProof"');
+    expect(gate).toContain('"crates/rion-node/src"');
+    expect(gate).toContain('"src/electron"');
     expect(gate).toContain("Electron renderer entry contains Tauri compatibility token");
-    expect(gate).toContain("The stable Tauri compatibility renderer entry is not preserved");
-    expect(gate).toContain("stable Tauri boundary plus scoped Electron migration");
+    expect(gate).toContain("sole Electron runtime boundary");
   });
 
   it("executes the product gate instead of checking only source strings", async () => {
@@ -61,7 +56,7 @@ describe("desktop shell migration gate", () => {
     })).resolves.toMatchObject({ stderr: "" });
   }, 10_000);
 
-  it("pins the additive Chromium shell without switching production entry points early", async () => {
+  it("pins Electron as the sole development and production shell", async () => {
     const [
       packageSource,
       cargo,
@@ -90,8 +85,8 @@ describe("desktop shell migration gate", () => {
       "electron-vite": "5.0.0"
     });
     expect(packageJson.devDependencies).not.toHaveProperty("@electron/rebuild");
-    expect(packageJson.scripts?.dev).toBe("node scripts/devTauri.mjs");
-    expect(packageJson.scripts?.build).toContain("cargo build -p rion-tauri");
+    expect(packageJson.scripts?.dev).toBe("pnpm run dev:electron");
+    expect(packageJson.scripts?.build).toBe("pnpm run build:electron");
     expect(packageJson.scripts?.["dev:electron"]).toContain("build:electron:rust");
     expect(packageJson.scripts?.["build:electron"]).toContain("electron-vite build");
     expect(packageJson.scripts?.["verify:electron-runtime"])

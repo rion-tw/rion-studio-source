@@ -25,30 +25,19 @@ describe("renderer visual foundation", () => {
   it("uses system-font tabular lining figures throughout the renderer and boot fallback", () => {
     const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
     const bootDocument = readFileSync(rendererPath("index.html"), "utf8");
-    const runtimeTabs = readFileSync(rendererPath("runtime-tabs.html"), "utf8");
+    const runtimeTabs = readFileSync(rendererPath("runtime-windows-host.html"), "utf8");
     const bootStyles = readFileSync(rendererPath("src", "boot.css"), "utf8");
-    const runtimeTabStyles = readFileSync(rendererPath("runtime-tabs.css"), "utf8");
+    const runtimeTabStyles = readFileSync(rendererPath("runtime-windows-host.css"), "utf8");
     const tokens = readFileSync(path.join(process.cwd(), "src", "shared", "designTokens.css"), "utf8");
 
     expect(styles).toContain("font-variant-numeric: lining-nums tabular-nums");
     expect(styles).toContain("font-variant-numeric: inherit");
     expect(bootDocument).toContain('href="/src/boot.css"');
-    expect(runtimeTabs).toContain('href="/runtime-tabs.css"');
+    expect(runtimeTabs).toContain('href="/runtime-windows-host.css"');
     expect(bootStyles).toContain("font-variant-numeric: lining-nums tabular-nums");
     expect(runtimeTabStyles).toContain("font-variant-numeric: lining-nums tabular-nums");
-    expect(runtimeTabStyles).toMatch(/\.tab \{[\s\S]*?transition: opacity 90ms ease-out;/);
-    expect(runtimeTabStyles).toMatch(
-      /\.tab\.runtime-tab-sort-ghost \{[\s\S]*?visibility: hidden;[\s\S]*?opacity: 0;/
-    );
-    expect(runtimeTabStyles).toMatch(
-      /\.tab\.runtime-tab-sort-fallback \{[\s\S]*?opacity: 1;/
-    );
-    expect(runtimeTabStyles).toMatch(
-      /\.window-drag-surface \{[\s\S]*?-webkit-app-region: drag;/
-    );
-    expect(runtimeTabStyles).toMatch(
-      /body\[data-window-fullscreen="true"\] \.window-drag-surface \{[\s\S]*?-webkit-app-region: no-drag;/
-    );
+    expect(runtimeTabStyles).toMatch(/\.runtime-drag-region \{[\s\S]*?-webkit-app-region: drag;/);
+    expect(runtimeTabStyles).toMatch(/\.runtime-window-controls \{[\s\S]*?-webkit-app-region: no-drag;/);
     expect(tokens).toContain('--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
     expect(styles).not.toContain("@font-face");
   });

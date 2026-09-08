@@ -14,6 +14,8 @@ import {
   writeReleaseChecksums
 } from "../scripts/releaseArtifacts.mjs";
 import {
+  assertElectronPublicReleaseAssets,
+  identifyPublicReleaseRuntime,
   assertStableTauriV22PublicReleaseAssets
 } from "../scripts/publicReleaseRuntimePolicy.mjs";
 import {
@@ -157,7 +159,7 @@ describe("stable Tauri v22 public release policy", () => {
     await expect(
       assertStableTauriV22PublicReleaseAssets(directory)
     ).rejects.toThrow(
-      "Electron release assets require a separate owner-approved promotion workflow"
+      "Expected a legacy Tauri source archive, found Electron"
     );
   });
 
@@ -199,6 +201,26 @@ describe("stable Tauri v22 public release policy", () => {
   });
 });
 
+describe("sole Electron release target policy", () => {
+  it("accepts the complete Electron archive and identifies its source engine", async () => {
+    const directory = await createMacRuntimeArchiveFixture("electron");
+    await expect(assertElectronPublicReleaseAssets(directory)).resolves.toBeUndefined();
+    await expect(identifyPublicReleaseRuntime(directory)).resolves.toBe("electron-v23");
+  });
+
+  it("recognizes a consumed legacy source but rejects it as the new target", async () => {
+    const directory = await createMacRuntimeArchiveFixture("tauri");
+    await expect(identifyPublicReleaseRuntime(directory)).resolves.toBe("tauri-v22");
+    await expect(assertElectronPublicReleaseAssets(directory)).rejects.toThrow("only the Rion Studio main executable");
+  });
+
+  it("rejects a renamed generic application without the Chromium payload", async () => {
+    const directory = await createMacRuntimeArchiveFixture("generic");
+    await expect(assertElectronPublicReleaseAssets(directory)).rejects.toThrow("Contents/Resources/app.asar");
+    await expect(identifyPublicReleaseRuntime(directory)).rejects.toThrow("only the stable Tauri v22 executable");
+  });
+});
+
 describe("public release notes", () => {
   it("removes public and private source commit links", () => {
     const source = [
@@ -235,7 +257,7 @@ async function createReleaseFixture(version: string, options: { omit?: string } 
     writeFile(`${windowsInstaller}.sig`, "windows-signature")
   ]);
   runScript([
-    "scripts/createTauriUpdaterManifest.mjs",
+    "scripts/createUpdaterManifest.mjs",
     "--version", version,
     "--base-url", `https://downloads.example.test/${version}`,
     "--mac-archive", macArchive,
@@ -275,8 +297,12 @@ async function createMacRuntimeArchiveFixture(
   if (runtime === "electron") {
     await Promise.all([
       writeFile(join(application, "Resources", "app.asar"), "fixture:electron-asar"),
-      mkdir(join(application, "Frameworks", "Electron Framework.framework"))
+      mkdir(join(application, "Frameworks", "Electron Framework.framework", "Versions", "A"), { recursive: true })
     ]);
+  }
+
+  if (runtime === "electron") {
+    await writeFile(join(application, "Frameworks", "Electron Framework.framework", "Versions", "A", "Electron Framework"), "fixture:electron-framework");
   }
 
   const result = spawnSync(

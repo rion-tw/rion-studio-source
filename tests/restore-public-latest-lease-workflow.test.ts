@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { assertBashSyntax } from "./helpers/bashSyntax";
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
@@ -19,7 +19,7 @@ describe("public latest restore durable lease workflow", () => {
     const source = await workflow();
 
     expect(source).toContain("workflow_dispatch:");
-    expect(source).toContain("environment: electron-production-release");
+    expect(source).not.toContain("environment:");
     expect(source).toContain("github.repository == 'rion-tw/rion-studio-source'");
     expect(source).toContain(
       "github.event.repository.full_name == 'rion-tw/rion-studio-source'"
@@ -62,12 +62,10 @@ describe("public latest restore durable lease workflow", () => {
     expect(capture).toContain("target-observed-snapshot.json");
     expect(capture).toContain("target-expected-latest-snapshot.json");
     expect(capture).toContain("source-public-latest-snapshot.json");
-    expect(capture).toContain("deriveTauriV22ExpectedLatestState");
-    expect(capture).toContain("--verify-checksums --require-tauri-v22");
-    expect(capture).toContain("source_runtime=tauri-v22");
-    expect(capture).toContain("source_runtime=electron-v23");
-    expect(capture).toContain("Electron Framework.framework");
-    expect(capture).toContain("Contents/Resources/app.asar");
+    expect(capture).toContain("derivePublishedReleaseExpectedLatestState");
+    expect(capture).toContain("--verify-checksums --require-electron");
+    expect(capture).toContain("identifyPublicReleaseRuntime");
+    expect(capture).toContain("--require-supported-source");
     expect(source).not.toContain("gh release download");
 
     for (const asset of EXACT_ASSETS) {
@@ -92,13 +90,13 @@ describe("public latest restore durable lease workflow", () => {
 
     expect(acquire.match(/randomUUID\(\)/gu)).toHaveLength(2);
     expect(acquire).toContain("electronProductionPublicLatestLeaseRemoteCli.mjs acquire");
-    expect(acquire).toContain("--purpose tauri-v22-latest-restore");
+    expect(acquire).toContain("--purpose electron-v23-latest-restore");
     expect(acquire).toContain("--holder-workflow .github/workflows/restore-public-latest.yml");
     expect(acquire).toContain('--holder-run-id "${GITHUB_RUN_ID}"');
     expect(acquire).toContain('--holder-run-attempt "${GITHUB_RUN_ATTEMPT}"');
     expect(acquire).toContain('--control-head-sha "${GITHUB_SHA}"');
     expect(acquire).toContain('--source-runtime "${SOURCE_RUNTIME}"');
-    expect(acquire).toContain("--target-runtime tauri-v22");
+    expect(acquire).toContain("--target-runtime electron-v23");
     expect(observe).toContain("electronProductionPublicLatestLeaseRemoteCli.mjs observe");
     expect(observe).toContain('--held-lease-sha256 "${HELD_SHA256}"');
     expect(source.indexOf("Observe the exact held lease immediately before mutation"))
@@ -147,12 +145,7 @@ describe("public latest restore durable lease workflow", () => {
     const source = await workflow();
     const scripts = bashPrograms(source);
     expect(scripts.length).toBeGreaterThanOrEqual(9);
-    for (const script of scripts) {
-      expect(() => execFileSync("bash", ["-n"], {
-        encoding: "utf8",
-        input: script
-      })).not.toThrow();
-    }
+    expect(() => assertBashSyntax(scripts, process.platform)).not.toThrow();
   });
 });
 

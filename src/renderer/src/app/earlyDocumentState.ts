@@ -26,8 +26,7 @@ const resolvedPlatform =
       : "linux";
 document.documentElement.dataset.platform = resolvedPlatform;
 document.documentElement.dataset.windowGestureMode = windowGestureMode(
-  resolvedPlatform,
-  __RION_DESKTOP_SHELL__
+  resolvedPlatform
 );
 document.documentElement.dataset.windowFullscreen = "false";
 document.documentElement.dataset.windowMaximized = "false";

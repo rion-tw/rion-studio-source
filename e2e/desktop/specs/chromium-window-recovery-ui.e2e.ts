@@ -1,3 +1,5 @@
+// [state-combination:CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-DISCARD]
+// [state-combination:CHROMIUM-WINDOWS-WINDOW-RECOVERY-DISCARD]
 import { $, browser, expect } from "@wdio/globals";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";

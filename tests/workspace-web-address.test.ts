@@ -8,7 +8,6 @@ const { invoke, send, listeners } = vi.hoisted(() => ({
   send: vi.fn(),
   listeners: new Map<string, (event: unknown, value: unknown) => void>()
 }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("electron", () => ({ ipcRenderer: {
   send, on: (channel: string, handler: (event: unknown, value: unknown) => void) => listeners.set(channel, handler)
 } }));
@@ -39,7 +38,7 @@ it.each([
 });
 
 for (const platform of ["macos", "windows"] as const) {
-  describe.each(["tauri", "electron"] as const)(`${platform} %s address integration`, (shell) => {
+  describe(`${platform} Electron address integration`, () => {
     let registered: Array<[string, EventListenerOrEventListenerObject]> = [];
     beforeEach(async () => {
       registered = [];
@@ -50,12 +49,8 @@ for (const platform of ["macos", "windows"] as const) {
       });
       vi.resetModules(); invoke.mockClear(); send.mockClear(); listeners.clear();
       document.body.innerHTML = '<button id="back"></button><button id="forward"></button><button id="reload"></button><button id="home"></button><form id="location-form"><input id="location"></form>';
-      window.__rionWorkspaceWebChromeIdentity = { capabilityToken: "token", generation: 1 };
-      if (shell === "tauri") await import("../src/renderer/runtime-shell/runtimeWebChrome");
-      else {
-        await import("../src/electron/preload/workspaceWebChrome");
-        window.dispatchEvent(new Event("DOMContentLoaded"));
-      }
+      await import("../src/electron/preload/workspaceWebChrome");
+      window.dispatchEvent(new Event("DOMContentLoaded"));
     });
     afterEach(() => {
       for (const [type, listener] of registered) window.removeEventListener(type, listener);
@@ -63,13 +58,10 @@ for (const platform of ["macos", "windows"] as const) {
     });
     const project = (url: string) => {
       const state = { url, canGoBack: true, canGoForward: false, documentEpoch: 4 };
-      if (shell === "tauri") window.__rionApplyWorkspaceWebChromeState?.(state);
-      else {
-        const { documentEpoch: _epoch, ...rest } = state;
-        listeners.get(WORKSPACE_WEB_CHROME_STATE_CHANNEL)?.(null, {
-          ...rest, surfaceId: "surface-a", generation: 1
-        });
-      }
+      const { documentEpoch: _epoch, ...rest } = state;
+      listeners.get(WORKSPACE_WEB_CHROME_STATE_CHANNEL)?.(null, {
+        ...rest, surfaceId: "surface-a", generation: 1
+      });
     };
     it("restores full URLs on focus and latest committed state on blur and Escape", () => {
       const input = document.querySelector<HTMLInputElement>("#location")!;
@@ -97,7 +89,7 @@ for (const platform of ["macos", "windows"] as const) {
       input.dispatchEvent(enter); expect(enter.defaultPrevented).toBe(true);
       expect(invoke).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
       input.dispatchEvent(new CompositionEvent("compositionend")); submit();
-      const action = shell === "tauri" ? invoke.mock.calls.at(-1) : send.mock.calls.at(-1);
+      const action = send.mock.calls.at(-1);
       expect(JSON.stringify(action)).toContain("https://www.google.com/search?q=%E4%B8%AD%E6%96%87%20%26%20cats");
       invoke.mockClear(); send.mockClear(); input.value = "file:///tmp/x"; submit();
       expect(input.getAttribute("aria-invalid")).toBe("true");

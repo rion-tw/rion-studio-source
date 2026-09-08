@@ -10,11 +10,16 @@ export interface DesktopE2eRuntimeTargetPlan {
   applicationPath: string;
   architecture: string;
   buildScriptPath: string;
-  driver: "electron" | "tauri";
+  driver: "electron";
   platform: "macos" | "windows";
   runtimeTargetName: string;
   wdioConfigPath: string;
 }
+
+export function resolveDesktopE2eProfileName(input: {
+  platform: NodeJS.Platform;
+  profileName: string;
+}): string;
 
 export function resolveDesktopE2eRuntimeTarget(input: {
   architecture: string;

@@ -20,7 +20,8 @@ export interface ElectronProductionPublicLatestSnapshot {
   readonly observationKind:
     | "observed-release"
     | "expected-latest-projection"
-    | "expected-tauri-v22-latest-projection";
+    | "expected-tauri-v22-latest-projection"
+    | "expected-published-release-latest-projection";
   readonly repository: "rion-tw/rion-studio";
   readonly release: Readonly<{
     draft: false;
@@ -91,6 +92,10 @@ export function deriveElectronProductionExpectedLatestState(
 ): ElectronProductionPublicLatestSnapshot;
 
 export function deriveTauriV22ExpectedLatestState(
+  stagedObserved: unknown
+): ElectronProductionPublicLatestSnapshot;
+
+export function derivePublishedReleaseExpectedLatestState(
   stagedObserved: unknown
 ): ElectronProductionPublicLatestSnapshot;
 

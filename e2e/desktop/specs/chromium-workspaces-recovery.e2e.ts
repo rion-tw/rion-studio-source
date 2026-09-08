@@ -1,3 +1,5 @@
+// [state-combination:CHROMIUM-MACOS-APPKIT-WORKSPACE-RECOVERY]
+// [state-combination:CHROMIUM-WINDOWS-WORKSPACE-RECOVERY]
 import { browser, expect } from "@wdio/globals";
 
 import type { EmbeddedRuntimeTabSummary } from "../../../src/shared/types";

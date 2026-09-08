@@ -15,7 +15,6 @@ if (
 }
 
 await updateJson("package.json", (value) => ({ ...value, version }));
-await updateJson("src-tauri/tauri.conf.json", (value) => ({ ...value, version }));
 
 const cargoToml = await read("Cargo.toml");
 const updatedCargoToml = cargoToml.replace(
@@ -31,7 +30,6 @@ for (const name of [
   "rion-core",
   "rion-node",
   "rion-platform",
-  "rion-tauri",
   "rion-updater"
 ]) {
   const expression = new RegExp(`(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = )"[^"]+"`);

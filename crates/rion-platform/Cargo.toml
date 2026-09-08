@@ -7,7 +7,6 @@ license.workspace = true
 
 [features]
 default = []
-system-webview-probe = ["dep:webview2-com"]
 
 [dependencies]
 hex.workspace = true
@@ -27,7 +26,6 @@ thiserror.workspace = true
 tempfile = "3.27.0"
 
 [target.'cfg(windows)'.dependencies]
-webview2-com = { version = "=0.39.1", optional = true }
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

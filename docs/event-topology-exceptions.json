@@ -6,14 +6,13 @@
       "paths": [
         "src/renderer/src/app/withTimeout.ts",
         "src/renderer/src/hooks/useAppData.ts",
-        "src/renderer/src/hooks/useLegalAcceptance.ts",
-        "src/renderer/src/tauri/installTauriBridge.ts"
+        "src/renderer/src/hooks/useLegalAcceptance.ts"
       ],
-      "mechanism": "One-shot Promise timeout around an external Tauri listener or command response.",
-      "authoritativeEvent": "The listener registration or typed bridge command resolves or rejects.",
+      "mechanism": "One-shot Promise timeout around an external typed bridge command response.",
+      "authoritativeEvent": "The typed bridge command resolves or rejects.",
       "reason": "The renderer must expose a retryable startup failure when the external bridge never settles.",
       "terminalOutcome": "The renderer reports failure; a late snapshot is rejected by request or revision fencing and never becomes timeout-derived success.",
-      "cleanup": "Listener registration marks itself cancelled and unregisters late listeners; request generations ignore late command responses."
+      "cleanup": "Request generations ignore late command responses."
     },
     {
       "id": "google-font-preview-load-deadline",

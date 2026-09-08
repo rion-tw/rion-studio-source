@@ -1,8 +1,11 @@
+@import "../shared/designTokens.css";
+
 :root,
 body {
   width: 100%;
   height: 100%;
   margin: 0;
+  font-variant-numeric: lining-nums tabular-nums;
   overflow: hidden;
   background: transparent;
 }
@@ -16,9 +19,9 @@ body {
   height: 40px;
   padding: 5px 12px;
   overflow: hidden;
-  color: #eef1f7;
-  background: color-mix(in srgb, #171b24 90%, transparent);
-  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  color: var(--runtime-host-foreground);
+  background: color-mix(in srgb, var(--runtime-host-surface) 90%, transparent);
+  border-bottom: 1px solid var(--runtime-host-border);
   user-select: none;
 }
 
@@ -34,7 +37,7 @@ body {
 
 .runtime-tabs {
   position: relative;
-  z-index: 1;
+  z-index: var(--runtime-host-layer-tabs);
   display: flex;
   min-width: 0;
   gap: 6px;
@@ -45,7 +48,7 @@ body {
 
 .runtime-window-controls {
   position: relative;
-  z-index: 2;
+  z-index: var(--runtime-host-layer-controls);
   display: flex;
   align-self: stretch;
   margin: -5px -12px -5px 8px;
@@ -61,11 +64,11 @@ body {
 }
 
 .runtime-window-controls button:hover {
-  background: rgb(255 255 255 / 10%);
+  background: var(--runtime-host-border);
 }
 
 .runtime-window-controls button[data-window-command="closeWindow"]:hover {
-  background: #c42b1c;
+  background: var(--runtime-host-close-hover);
 }
 
 .runtime-tab {
@@ -76,8 +79,8 @@ body {
   align-items: center;
   padding: 0;
   overflow: hidden;
-  border-radius: 8px;
-  color: rgb(238 241 247 / 72%);
+  border-radius: var(--radius-md);
+  color: var(--runtime-host-muted);
   font: 12px/18px system-ui, sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -116,23 +119,23 @@ body {
   flex: 0 0 12px;
   border: 2px solid currentColor;
   border-right-color: transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   animation: runtime-tab-loading-spin 800ms linear infinite;
 }
 
 .runtime-tab-status {
   flex: 0 0 auto;
   padding: 0 4px;
-  border-radius: 4px;
-  color: #fff;
-  background: #8a3d32;
-  font-size: 9px;
+  border-radius: var(--radius-xs);
+  color: var(--runtime-host-on-active);
+  background: var(--runtime-host-failure);
+  font-size: var(--runtime-host-status-size);
   line-height: 14px;
 }
 
 .runtime-tab[data-phase="degraded"] .runtime-tab-status {
-  color: #2b2100;
-  background: #d8ad3b;
+  color: var(--runtime-host-warning-foreground);
+  background: var(--runtime-host-warning);
 }
 
 @keyframes runtime-tab-loading-spin {
@@ -146,7 +149,7 @@ body {
 .runtime-tab-close {
   width: 28px;
   padding: 0 8px 0 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   opacity: 0;
 }
 
@@ -157,32 +160,32 @@ body {
 }
 
 .runtime-tab-close:hover {
-  background: rgb(255 255 255 / 12%);
+  background: var(--runtime-host-active);
 }
 
 .runtime-tab[data-active="true"] {
-  color: #fff;
-  background: rgb(255 255 255 / 12%);
+  color: var(--runtime-host-on-active);
+  background: var(--runtime-host-active);
 }
 
 .runtime-tab:has(.runtime-tab-activate[data-dragging="true"]) {
-  outline: 1px solid rgb(170 180 204 / 75%);
-  background: rgb(255 255 255 / 16%);
+  outline: 1px solid var(--runtime-host-drag-outline);
+  background: var(--runtime-host-drag-surface);
 }
 
 .runtime-tab-menu {
   position: fixed;
-  z-index: 4;
+  z-index: var(--runtime-host-layer-menu);
   box-sizing: border-box;
   min-width: 176px;
   max-width: 280px;
   padding: 4px;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 8px;
-  color: #eef1f7;
-  background: color-mix(in srgb, #171b24 96%, transparent);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 36%);
+  border: 1px solid var(--runtime-host-menu-border);
+  border-radius: var(--radius-md);
+  color: var(--runtime-host-foreground);
+  background: color-mix(in srgb, var(--runtime-host-surface) 96%, transparent);
+  box-shadow: 0 12px 32px var(--runtime-host-shadow);
   -webkit-app-region: no-drag;
 }
 
@@ -195,7 +198,7 @@ body {
   min-height: 30px;
   padding: 6px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: inherit;
   background: transparent;
   font: 12px/18px system-ui, sans-serif;
@@ -208,7 +211,7 @@ body {
 .runtime-tab-menu button:hover,
 .runtime-tab-menu button:focus-visible {
   outline: 0;
-  background: rgb(255 255 255 / 12%);
+  background: var(--runtime-host-active);
 }
 
 .runtime-tab-menu button:disabled {
@@ -225,7 +228,7 @@ body {
 .runtime-workspace-dividers {
   position: fixed;
   inset: 0;
-  z-index: 3;
+  z-index: var(--runtime-host-layer-dividers);
   pointer-events: none;
 }
 
@@ -248,7 +251,7 @@ body {
 .runtime-workspace-divider::after {
   position: absolute;
   content: "";
-  background: rgb(170 180 204 / 55%);
+  background: var(--runtime-host-divider);
   opacity: 0;
   transition: opacity 80ms ease-out;
 }

@@ -2,23 +2,23 @@ import {
   bootstrapRenderer,
   type RendererNativeStartupStatus
 } from "./app/bootstrapRenderer";
-import {
-  installTauriBridgeIfNeeded,
-  reportRendererStartupFailure,
-  waitForNativeStartup
-} from "./tauri/installTauriBridge";
 
-const desktopE2eReady = __RION_DESKTOP_E2E__ && __RION_DESKTOP_E2E_DRIVER__ === "tauri"
-  ? import("@wdio/tauri-plugin").then(() => undefined)
-  : Promise.resolve();
+async function prepareElectronRenderer(): Promise<RendererNativeStartupStatus> {
+  if (typeof window.rionStudio !== "object" || window.rionStudio === null) {
+    throw new Error("The Chromium desktop bridge is unavailable.");
+  }
+  return { windowsMicaEnabled: false };
+}
 
-async function prepareTauriRenderer(): Promise<RendererNativeStartupStatus> {
-  await desktopE2eReady;
-  await installTauriBridgeIfNeeded();
-  return await waitForNativeStartup();
+function reportElectronRendererStartupFailure(message: string): void {
+  if (typeof window.rionStudio !== "object" || window.rionStudio === null) return;
+  window.rionStudio.reportRendererLog({
+    event: "renderer_error",
+    message
+  });
 }
 
 void bootstrapRenderer({
-  prepare: prepareTauriRenderer,
-  reportStartupFailure: reportRendererStartupFailure
+  prepare: prepareElectronRenderer,
+  reportStartupFailure: reportElectronRendererStartupFailure
 });

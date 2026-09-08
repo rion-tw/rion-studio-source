@@ -1,3 +1,5 @@
+// [state-combination:CHROMIUM-MACOS-APPKIT-MACRO-STANDBY]
+// [state-combination:CHROMIUM-WINDOWS-MACRO-STANDBY]
 import { $, browser, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";

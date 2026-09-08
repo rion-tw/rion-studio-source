@@ -409,13 +409,12 @@ describe("generated Rust core contracts", () => {
   });
 
   it("generates stable quick access refs, preferences, commands, and snapshot projection", async () => {
-    const [item, preferences, command, resultMap, snapshot, shell] = await Promise.all([
+    const [item, preferences, command, resultMap, snapshot] = await Promise.all([
       readFile("src/shared/generated/QuickAccessItemRefRecord.ts", "utf8"),
       readFile("src/shared/generated/QuickAccessPreferencesRecord.ts", "utf8"),
       readFile("src/shared/generated/CoreCommand.ts", "utf8"),
       readFile("src/shared/generated/CoreCommandResultMap.ts", "utf8"),
-      readFile("src/shared/generated/CoreStateSnapshotRecord.ts", "utf8"),
-      readFile("src-tauri/src/lib/section_03_rion_overlay_request.rs", "utf8")
+      readFile("src/shared/generated/CoreStateSnapshotRecord.ts", "utf8")
     ]);
 
     expect(item).toContain('kind: "role" | "workspace" | "gameWindow" | "macro"');
@@ -426,7 +425,6 @@ describe("generated Rust core contracts", () => {
     expect(command).toContain('{ "type": "quickAccessRecentClear" }');
     expect(resultMap).toContain("quickAccessPinSet: QuickAccessPreferencesRecord");
     expect(snapshot).toContain("quickAccessPreferences?: QuickAccessPreferencesRecord");
-    expect(shell).toContain('"quickAccessPreferences"');
   });
 
   it("omits the removed workspace resource policy from every generated boundary", async () => {
@@ -456,10 +454,10 @@ describe("generated Rust core contracts", () => {
 });
 
 describe("direct Rust core build verification", () => {
-  it("builds one Cargo-owned core for the Tauri transition shell and Electron Node-API adapter", async () => {
+  it("builds one Cargo-owned core through the sole Electron Node-API adapter", async () => {
     const [manifest, shellManifest, packageJsonSource, workflow] = await Promise.all([
       readFile("Cargo.toml", "utf8"),
-      readFile("src-tauri/Cargo.toml", "utf8"),
+      readFile("crates/rion-node/Cargo.toml", "utf8"),
       readFile("package.json", "utf8"),
       readFile(".github/workflows/ci.yml", "utf8")
     ]);
@@ -468,13 +466,13 @@ describe("direct Rust core build verification", () => {
     expect(manifest).toContain('"crates/rion-node"');
     expect(manifest).toContain('napi-build = "2.4.1"');
     expect(shellManifest).toContain(
-      'rion-core = { path = "../crates/rion-core", features = ["system-webview-probe"] }'
+      'rion-core = { path = "../rion-core", default-features = false }'
     );
     expect(packageJson.scripts["build:electron:rust"])
       .toBe("node scripts/buildElectronRust.mjs");
     expect(packageJson.scripts["build:electron"])
       .toContain("pnpm run build:electron:rust");
-    expect(packageJson.scripts.build).toContain("cargo build -p rion-tauri");
+    expect(packageJson.scripts.build).toBe("pnpm run build:electron");
     expect(workflow).toContain("pnpm run build");
     expect(workflow).not.toContain("retired native addon");
   });

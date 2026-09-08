@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { assertBashSyntax } from "./helpers/bashSyntax";
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
@@ -15,7 +15,7 @@ const EXACT_ASSETS = [
   "latest.json"
 ];
 
-describe("stable Tauri v22 durable public publisher", () => {
+describe("Electron durable public publisher", () => {
   it("accepts only the two protected-main reusable callers and trusted control SHA", async () => {
     const [publish, finalize] = await Promise.all([workflow(), finalizer()]);
 
@@ -57,21 +57,21 @@ describe("stable Tauri v22 durable public publisher", () => {
     expect(capture).toContain("private-release-api.json");
     expect(capture).toContain("private-release-notes.md");
     expect(capture).toContain("stable-publication-input.json");
-    expect(capture.match(/kind: "rion-stable-tauri-v22-publication-input"/gu)).toHaveLength(1);
+    expect(capture.match(/kind: "rion-electron-v23-publication-input"/gu)).toHaveLength(1);
     expect(capture).toContain("git archive --format=tar");
     expect(capture).not.toContain("git checkout");
     expect(source).not.toContain("gh release download");
     for (const asset of EXACT_ASSETS) expect(capture).toContain(asset);
-    expect(reverify).toContain("--verify-checksums --require-tauri-v22");
+    expect(reverify).toContain("--verify-checksums --require-electron");
     expect(source.indexOf(reverify)).toBeLessThan(token);
     expect(token).toBeGreaterThan(source.indexOf("stable-publication-input.json"));
   });
 
-  it("stages exactly seven Tauri assets as non-latest and captures both releases by ID", async () => {
+  it("stages exactly seven Electron assets as non-latest and captures both releases by ID", async () => {
     const source = await workflow();
     const stage = step(
       source,
-      "Stage and capture the exact Tauri v22 target and current latest"
+      "Stage and capture the exact Electron target and current latest"
     );
 
     for (const asset of EXACT_ASSETS) expect(stage).toContain(asset);
@@ -82,8 +82,8 @@ describe("stable Tauri v22 durable public publisher", () => {
     expect(stage).toContain("source-public-latest-snapshot.json");
     expect(stage).toContain("target-observed-snapshot.json");
     expect(stage).toContain("target-expected-latest-snapshot.json");
-    expect(stage).toContain("deriveTauriV22ExpectedLatestState");
-    expect(stage).toContain("--verify-checksums --require-tauri-v22");
+    expect(stage).toContain("derivePublishedReleaseExpectedLatestState");
+    expect(stage).toContain("--verify-checksums --require-electron");
     expect(stage).not.toContain("--clobber");
   });
 
@@ -91,7 +91,7 @@ describe("stable Tauri v22 durable public publisher", () => {
     const source = await workflow();
     const stage = step(
       source,
-      "Stage and capture the exact Tauri v22 target and current latest"
+      "Stage and capture the exact Electron target and current latest"
     );
     const acquire = step(source, "Acquire the durable public-latest publication lease");
     const gate = step(source, "Require a terminal exact public latest result");
@@ -122,7 +122,7 @@ describe("stable Tauri v22 durable public publisher", () => {
 
     expect(acquire.match(/randomUUID\(\)/gu)).toHaveLength(2);
     expect(acquire).toContain("electronProductionPublicLatestLeaseRemoteCli.mjs acquire");
-    expect(acquire).toContain("--purpose tauri-v22-publication");
+    expect(acquire).toContain("--purpose electron-v23-publication");
     expect(acquire).toContain(
       "--holder-workflow .github/workflows/publish-public-release.yml"
     );
@@ -183,7 +183,7 @@ describe("stable Tauri v22 durable public publisher", () => {
       expect(credentialJob).not.toContain("ref: ${{ inputs.tag }}");
     }
     expect(upload).toContain("releases/assets/${asset_id}");
-    expect(upload).toContain("--verify-checksums --require-tauri-v22");
+    expect(upload).toContain("--verify-checksums --require-electron");
     expect(upload).not.toContain("gh release download");
     expect(terminal).toContain("releases/${RELEASE_ID}");
     expect(terminal).toContain("-F draft=false -f make_latest=false");
@@ -193,12 +193,7 @@ describe("stable Tauri v22 durable public publisher", () => {
     for (const source of await Promise.all([workflow(), finalizer()])) {
       const scripts = bashPrograms(source);
       expect(scripts.length).toBeGreaterThanOrEqual(5);
-      for (const script of scripts) {
-        expect(() => execFileSync("bash", ["-n"], {
-          encoding: "utf8",
-          input: script
-        })).not.toThrow();
-      }
+      expect(() => assertBashSyntax(scripts, process.platform)).not.toThrow();
     }
   });
 });

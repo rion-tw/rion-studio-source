@@ -4,14 +4,17 @@ $diagnosticsDirectory = Join-Path $PWD "diagnostics/windows-test-loader"
 New-Item -ItemType Directory -Force -Path $diagnosticsDirectory | Out-Null
 
 $testBinaries = @(
-  Get-ChildItem -Path "target/debug/deps" -Filter "rion_studio_lib-*.exe" -File |
-    Sort-Object LastWriteTimeUtc -Descending
+  Get-ChildItem -Path "target/debug/deps" -Filter "rion_*.exe" -File |
+    Where-Object { $_.BaseName -match '^rion_(core|platform|node|updater|appkit)-[0-9a-f]+$' } |
+    Sort-Object Name
 )
 if ($testBinaries.Count -eq 0) {
-  throw "The rion-tauri Windows test executable was not found."
+  throw "No current Rion Rust workspace test executables were found."
 }
 
-$testBinary = $testBinaries[0]
+foreach ($testBinary in $testBinaries) {
+$diagnosticsDirectory = Join-Path $PWD "diagnostics/windows-test-loader/$($testBinary.BaseName)"
+New-Item -ItemType Directory -Force -Path $diagnosticsDirectory | Out-Null
 $binaryDestination = Join-Path $diagnosticsDirectory $testBinary.Name
 Copy-Item -LiteralPath $testBinary.FullName -Destination $binaryDestination
 
@@ -161,3 +164,4 @@ if ($null -eq $mt) {
   }
 }
 $manifestReport | Tee-Object -FilePath (Join-Path $diagnosticsDirectory "manifest.txt")
+}

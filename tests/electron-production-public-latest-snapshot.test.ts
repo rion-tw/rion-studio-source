@@ -18,6 +18,7 @@ import {
   createElectronProductionPublicLatestSnapshot,
   deriveElectronProductionExpectedLatestState,
   deriveTauriV22ExpectedLatestState,
+  derivePublishedReleaseExpectedLatestState,
   ELECTRON_PRODUCTION_PUBLIC_RELEASE_ASSET_NAMES,
   readElectronProductionPublicLatestSnapshot,
   serializeElectronProductionPublicLatestSnapshot,
@@ -309,7 +310,10 @@ describe("Electron production public latest snapshot", () => {
     )).toThrow("candidate receipt");
   });
 
-  it("projects and classifies a candidate-less Tauri v22 restore target", async () => {
+  it.each([
+    [deriveTauriV22ExpectedLatestState, "expected-tauri-v22-latest-projection"],
+    [derivePublishedReleaseExpectedLatestState, "expected-published-release-latest-projection"]
+  ] as const)("projects a published target with %s", async (derive, observationKind) => {
     const sourceFixture = await createFixture({
       idBase: 500,
       includeCandidateReceipt: false,
@@ -329,7 +333,7 @@ describe("Electron production public latest snapshot", () => {
       assetDirectory: targetFixture.assetDirectory,
       release: targetFixture.release
     });
-    const target = deriveTauriV22ExpectedLatestState(staged);
+    const target = derive(staged);
     const observedTarget = await createElectronProductionPublicLatestSnapshot({
       assetDirectory: targetFixture.assetDirectory,
       release: { ...targetFixture.release, isLatest: true }
@@ -337,7 +341,7 @@ describe("Electron production public latest snapshot", () => {
 
     expect(target).toMatchObject({
       candidateReceipt: null,
-      observationKind: "expected-tauri-v22-latest-projection",
+      observationKind,
       release: { isLatest: true }
     });
     expect(target.stateSha256).toBe(observedTarget.stateSha256);
@@ -358,10 +362,10 @@ describe("Electron production public latest snapshot", () => {
       candidateReceiptSha256: electronFixture.candidateReceiptSha256,
       release: electronFixture.release
     });
-    expect(() => deriveTauriV22ExpectedLatestState(electron)).toThrow(
+    expect(() => derive(electron)).toThrow(
       "must not bind an Electron candidate receipt"
     );
-    expect(() => deriveTauriV22ExpectedLatestState(source)).toThrow(
+    expect(() => derive(source)).toThrow(
       "must be observed as non-latest"
     );
   });

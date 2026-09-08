@@ -56,6 +56,8 @@ import {
   type WindowsElectronInstallerPayloadProof
 } from "../scripts/windowsElectronInstallerPayloadProofContract.mjs";
 
+import { resolveUpdaterSignerEntrypoint } from "../scripts/updaterSignerEnvironment.mjs";
+
 const SOURCE_SHA = "a".repeat(40);
 const VERSION = "23.4.5";
 const PUBLISHED_AT = "2026-08-31T10:30:00Z";
@@ -303,7 +305,7 @@ describe("Electron production candidate trust", () => {
     const privateKeyPath = join(directory, "updater.key");
     const password = "candidate-test-password";
     await writeFile(artifactPath, "production-candidate-fixture");
-    runTauriSigner([
+    await runTauriSigner([
       "generate",
       "--ci",
       "--password", password,
@@ -1198,7 +1200,7 @@ describe("Electron production candidate workflow", () => {
       macosPackageBindingScript
     ] = await Promise.all([
       readFile(".github/workflows/electron-production-candidate.yml", "utf8"),
-      readFile(".github/workflows/tauri-release-candidate.yml", "utf8"),
+      readFile(".github/workflows/desktop-release-candidate.yml", "utf8"),
       readFile("scripts/applyReleaseVersion.mjs", "utf8"),
       readFile("electron-builder.config.mjs", "utf8"),
       readFile("scripts/electronProductionCandidate.mjs", "utf8"),
@@ -1324,14 +1326,14 @@ describe("Electron production candidate workflow", () => {
     expect(candidateScript).toContain("verifyPackagedBlackBoxReport");
     expect(candidateScript).toContain("verifyEd25519(null, blake2b512");
     expect(candidateScript).toContain("verifyEd25519(null, globalMessage");
-    expect(stableTauriWorkflow).toContain("name: Tauri Release Candidate");
-    expect(stableTauriWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(stableTauriWorkflow).toContain("name: Electron Release Candidate");
+    expect(stableTauriWorkflow).toContain("uses: ./.github/workflows/desktop-release-build.yml");
+    expect(versionScript).not.toContain('"rion-tauri"');
     for (const packageName of [
       "rion-appkit",
       "rion-core",
       "rion-node",
       "rion-platform",
-      "rion-tauri",
       "rion-updater"
     ]) {
       expect(versionScript).toContain(`"${packageName}"`);
@@ -1580,13 +1582,13 @@ function writeCanonicalBlackBoxReportSource(path: string, source: string) {
   );
 }
 
-function runTauriSigner(argumentsList: string[], environment: NodeJS.ProcessEnv = {}): void {
-  const executable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  const result = spawnSync(executable, ["exec", "tauri", "signer", ...argumentsList], {
+async function runTauriSigner(argumentsList: string[], environment: NodeJS.ProcessEnv = {}): Promise<void> {
+  const entrypoint = await resolveUpdaterSignerEntrypoint(process.cwd());
+  const result = spawnSync(process.execPath, [entrypoint, "signer", ...argumentsList], {
     cwd: process.cwd(),
     encoding: "utf8",
     env: { ...process.env, ...environment },
-    shell: process.platform === "win32",
+    shell: false,
     windowsHide: true
   });
   expect(result.status, result.stderr).toBe(0);

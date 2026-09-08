@@ -204,15 +204,11 @@ describe("Electron production abandoned-lease recovery workflow", () => {
     );
   });
 
-  it("documents both skipped-job fences and the marker-before-enable gate", async () => {
+  it("keeps retired promotion prerequisites out of the active updater contract", async () => {
     const contract = await normalizedFile(UPDATER_CONTRACT_PATH);
-
-    expect(contract).toContain("both possible public\nmutation jobs");
-    expect(contract).toContain("`publish-provisional` job");
-    expect(contract).toContain("`cleanup-held-lease-after-store-failure` job");
-    expect(contract).toContain("terminal `skipped` with no executed steps");
-    expect(contract).toContain("durable\none-shot public-mutation marker");
-    expect(contract).toContain("owner-approved recovery\ndrill has passed");
+    expect(contract).toContain("no additional GitHub environment or recovery infrastructure");
+    expect(contract).toContain("Neither path may produce a new Tauri target.");
+    expect(contract).toContain("are no longer execution gates");
   });
 
   it("rebuilds the exact Tauri source inside the mutation invocation", async () => {

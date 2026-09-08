@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs";
+
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
@@ -24,7 +26,7 @@ afterEach(() => {
 function setWindowPlatform(platform: "mac" | "windows"): void {
   document.documentElement.dataset.platform = platform;
   document.documentElement.dataset.windowGestureMode =
-    platform === "windows" ? "native-non-client" : "appkit-bridge";
+    "native-non-client";
 }
 
 function renderSidebar(initialEntry: string): void {
@@ -99,25 +101,25 @@ describe("application sidebar window dragging", () => {
       expect(brandRegion?.parentElement?.className).toContain("app-main-sidebar");
       expect(brandTitle.closest("button")).toBeNull();
       if (!brandRegion) throw new Error("Expected a sidebar window drag handle.");
-      const expectedDragClass = platform === "windows" ? "app-drag" : "app-no-drag";
+      const expectedDragClass = "app-drag";
       expect(brandRegion.className).toContain(expectedDragClass);
       expect(brandRegion.hasAttribute("data-tauri-drag-region")).toBe(false);
       expect(brandRegion.parentElement?.className).toContain(expectedDragClass);
       expect(brandRegion.parentElement?.hasAttribute("data-window-drag-handle")).toBe(true);
 
       fireEvent.mouseDown(brandTitle, { button: 0, detail: 1 });
-      expect(bridge.startCurrentWindowDrag).toHaveBeenCalledTimes(platform === "mac" ? 1 : 0);
+      expect(bridge.startCurrentWindowDrag).not.toHaveBeenCalled();
       expect(bridge.toggleCurrentWindowMaximize).not.toHaveBeenCalled();
       fireEvent.mouseDown(brandTitle, { button: 0, detail: 2 });
-      expect(bridge.startCurrentWindowDrag).toHaveBeenCalledTimes(platform === "mac" ? 1 : 0);
-      expect(bridge.toggleCurrentWindowMaximize).toHaveBeenCalledTimes(platform === "mac" ? 1 : 0);
+      expect(bridge.startCurrentWindowDrag).not.toHaveBeenCalled();
+      expect(bridge.toggleCurrentWindowMaximize).not.toHaveBeenCalled();
 
       const home = screen.getByRole("button", { name: "Home" });
       expect(home.className).toContain("app-no-drag");
       expect(home.className).not.toContain("nav-item-active");
 
       fireEvent.mouseDown(home, { button: 0, detail: 1 });
-      expect(bridge.startCurrentWindowDrag).toHaveBeenCalledTimes(platform === "mac" ? 1 : 0);
+      expect(bridge.startCurrentWindowDrag).not.toHaveBeenCalled();
 
       fireEvent.click(home);
 
@@ -125,33 +127,9 @@ describe("application sidebar window dragging", () => {
     }
   );
 
-  it("routes the macOS content-top surface through native drag and maximize commands", () => {
+  it.each(["mac", "windows"] as const)("hands the %s content-top surface to the native non-client region", (platform) => {
     const bridge = installWindowBridge();
-    setWindowPlatform("mac");
-    render(<WindowDragHandle className="app-content-window-drag-region" />);
-
-    const contentRegion = document.querySelector<HTMLElement>(".app-content-window-drag-region");
-    expect(contentRegion).not.toBeNull();
-    expect(contentRegion?.className).toContain("app-no-drag");
-    expect(contentRegion?.hasAttribute("data-selection-ignore")).toBe(true);
-    expect(contentRegion?.hasAttribute("data-tauri-drag-region")).toBe(false);
-
-    fireEvent.pointerDown(contentRegion!, { button: 0, isPrimary: true, pointerId: 1 });
-    fireEvent.mouseDown(contentRegion!, { button: 0, detail: 1 });
-    expect(bridge.startCurrentWindowDrag).toHaveBeenCalledOnce();
-    expect(bridge.toggleCurrentWindowMaximize).not.toHaveBeenCalled();
-    fireEvent.mouseDown(contentRegion!, { button: 0, detail: 2 });
-    expect(bridge.startCurrentWindowDrag).toHaveBeenCalledOnce();
-    expect(bridge.toggleCurrentWindowMaximize).toHaveBeenCalledOnce();
-    fireEvent.mouseDown(contentRegion!, { button: 2, detail: 1 });
-    fireEvent.mouseDown(contentRegion!, { button: 0, detail: 3 });
-    expect(bridge.startCurrentWindowDrag).toHaveBeenCalledOnce();
-    expect(bridge.toggleCurrentWindowMaximize).toHaveBeenCalledOnce();
-  });
-
-  it("hands the Windows content-top surface to the native non-client region", () => {
-    const bridge = installWindowBridge();
-    setWindowPlatform("windows");
+    setWindowPlatform(platform);
     render(<WindowDragHandle className="app-content-window-drag-region" />);
 
     const contentRegion = document.querySelector<HTMLElement>(".app-content-window-drag-region")!;
@@ -170,7 +148,7 @@ describe("application sidebar window dragging", () => {
   it("uses the explicit host gesture capability instead of browser or platform sniffing", () => {
     const bridge = installWindowBridge();
     document.documentElement.dataset.platform = "windows";
-    document.documentElement.dataset.windowGestureMode = "appkit-bridge";
+    document.documentElement.dataset.windowGestureMode = "unavailable";
     const { rerender } = render(
       <WindowDragHandle className="app-content-window-drag-region" />
     );
@@ -180,7 +158,7 @@ describe("application sidebar window dragging", () => {
     )!;
     expect(contentRegion.className).toContain("app-no-drag");
     fireEvent.mouseDown(contentRegion, { button: 0, detail: 1 });
-    expect(bridge.startCurrentWindowDrag).toHaveBeenCalledOnce();
+    expect(bridge.startCurrentWindowDrag).not.toHaveBeenCalled();
 
     document.documentElement.dataset.platform = "mac";
     document.documentElement.dataset.windowGestureMode = "native-non-client";
@@ -190,15 +168,18 @@ describe("application sidebar window dragging", () => {
     )!;
     expect(contentRegion.className).toContain("app-drag");
     fireEvent.mouseDown(contentRegion, { button: 0, detail: 1 });
-    expect(bridge.startCurrentWindowDrag).toHaveBeenCalledOnce();
+    expect(bridge.startCurrentWindowDrag).not.toHaveBeenCalled();
   });
 
   it.each(["mac", "windows"] as const)(
-    "disables manual window gestures while fullscreen on %s",
+    "disables native drag regions through the fullscreen CSS rule on %s",
     (platform) => {
       const bridge = installWindowBridge();
       setWindowPlatform(platform);
       document.documentElement.dataset.windowFullscreen = "true";
+      expect(readFileSync("src/renderer/src/styles/layout.css", "utf8")).toMatch(
+        /:root\[data-window-fullscreen="true"\] \.app-drag\s*\{\s*-webkit-app-region: no-drag;/
+      );
       render(<WindowDragHandle className="app-content-window-drag-region" />);
 
       const contentRegion = document.querySelector<HTMLElement>(".app-content-window-drag-region")!;
@@ -222,14 +203,14 @@ describe("application sidebar window dragging", () => {
       );
       const sidebar = document.querySelector<HTMLElement>(".settings-mode-sidebar")!;
       expect(sidebar.tagName).toBe("ASIDE");
-      expect(sidebar.className).toContain(platform === "windows" ? "app-drag" : "app-no-drag");
+      expect(sidebar.className).toContain("app-drag");
 
       fireEvent.mouseDown(sidebar, { button: 0, detail: 1 });
-      expect(bridge.startCurrentWindowDrag).toHaveBeenCalledTimes(platform === "mac" ? 1 : 0);
+      expect(bridge.startCurrentWindowDrag).not.toHaveBeenCalled();
       const back = screen.getByRole("button", { name: "Back to app" });
       expect(back.className).toContain("app-no-drag");
       fireEvent.mouseDown(back, { button: 0, detail: 1 });
-      expect(bridge.startCurrentWindowDrag).toHaveBeenCalledTimes(platform === "mac" ? 1 : 0);
+      expect(bridge.startCurrentWindowDrag).not.toHaveBeenCalled();
     }
   );
 });

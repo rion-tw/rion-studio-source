@@ -5,6 +5,8 @@ export const ELECTRON_PRODUCTION_PUBLIC_LATEST_LEASE_FILE:
 export const ELECTRON_PRODUCTION_PUBLIC_LATEST_LEASE_HOLDER_REPOSITORY:
   "rion-tw/rion-studio-source";
 export const ELECTRON_PRODUCTION_PUBLIC_LATEST_LEASE_HOLDER_WORKFLOWS: Readonly<{
+  "electron-v23-publication": ".github/workflows/publish-public-release.yml";
+  "electron-v23-latest-restore": ".github/workflows/restore-public-latest.yml";
   "electron-v23-provisional-publication":
     ".github/workflows/electron-production-provisional-publish.yml";
   "tauri-v22-publication": ".github/workflows/publish-public-release.yml";
@@ -12,6 +14,8 @@ export const ELECTRON_PRODUCTION_PUBLIC_LATEST_LEASE_HOLDER_WORKFLOWS: Readonly<
 }>;
 
 export type ElectronProductionPublicLatestLeasePurpose =
+  | "electron-v23-publication"
+  | "electron-v23-latest-restore"
   | "electron-v23-provisional-publication"
   | "tauri-v22-publication"
   | "tauri-v22-latest-restore";

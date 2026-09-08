@@ -56,33 +56,4 @@ describe("runtime tab HIG status presentation", () => {
     expect(failurePresentation).not.toContain("makeFirstResponder:_failureRetryButton");
   });
 
-  it("keeps the HTML accessory semantic across motion and contrast preferences", async () => {
-    const [tabStyles, statusDocument, statusStyles] = await Promise.all([
-      readFile(new URL("../src/renderer/runtime-tabs.css", import.meta.url), "utf8"),
-      readFile(new URL("../src/renderer/runtime-tab-status.html", import.meta.url), "utf8"),
-      readFile(new URL("../src/renderer/runtime-tab-status.css", import.meta.url), "utf8")
-    ]);
-
-    expect(tabStyles).toMatch(/\.phase-accessory \{[\s\S]*?width: 12px;[\s\S]*?height: 12px;/);
-    expect(tabStyles).toMatch(/\.tab-end-accessory \{[\s\S]*?display: grid;[\s\S]*?width: 20px;/);
-    expect(tabStyles).toContain(
-      ".tab.tab-closable .tab-end-accessory:hover .phase-accessory"
-    );
-    expect(tabStyles).toContain(
-      ".tab.tab-closable .tab-end-accessory:hover .close"
-    );
-    expect(tabStyles).not.toContain(".tab.tab-closable:hover");
-    expect(tabStyles).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(tabStyles).toMatch(/\.phase-spinner \{[\s\S]*?animation: none;/);
-    expect(tabStyles).toContain("@media (prefers-contrast: more)");
-    expect(tabStyles).toContain("@media (forced-colors: active)");
-    expect(statusDocument).toContain('role="status"');
-    expect(statusDocument).toContain('aria-live="polite"');
-    expect(statusDocument).toContain('id="loading-status"');
-    expect(statusStyles).toContain(".loading-spinner");
-    expect(statusStyles).toMatch(/prefers-reduced-motion[\s\S]*?\.loading-spinner \{[\s\S]*?animation: none;/);
-    expect(statusStyles).toContain("background: hsl(var(--background));");
-    expect(statusStyles).toContain("button:focus-visible");
-    expect(statusStyles).toContain("@media (forced-colors: active)");
-  });
 });

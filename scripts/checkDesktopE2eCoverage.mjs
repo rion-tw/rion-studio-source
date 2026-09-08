@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveDesktopE2eProfile } from "./desktopE2eManifest.mjs";
 
 const KNOWN_GATES = new Set(["pull-request", "nightly", "release-candidate"]);
-const KNOWN_DRIVERS = new Set(["electron", "tauri"]);
+const KNOWN_DRIVERS = new Set(["electron"]);
 const KNOWN_KINDS = new Set(["native", "ui"]);
 const KNOWN_OUTCOMES = new Set(["cancel", "failure", "restart", "success"]);
 const KNOWN_PLATFORMS = new Set(["macos", "windows"]);
@@ -31,7 +32,7 @@ export async function validateDesktopE2eCoverage(rootDirectory) {
   const journeys = manifest.journeys ?? [];
   const phaseSpecSource = await readFile(resolve(root, "e2e/desktop/phaseSpecs.ts"), "utf8");
 
-  if (manifest.version !== 3) failures.push("manifest version must be 3");
+  if (manifest.version !== 4) failures.push("manifest version must be 4");
   if (features.size !== (manifest.features ?? []).length) failures.push("feature names must be unique");
   if (journeys.length === 0) failures.push("manifest must contain journeys");
   if (stateCombinations.length === 0) failures.push("manifest must contain state combinations");
@@ -280,17 +281,21 @@ export async function validateDesktopE2eCoverage(rootDirectory) {
     }
   }
 
-  const journeyById = new Map(journeys.map((journey) => [journey.id, journey]));
-  const compatibilityJourneyIds = new Set(journeys
-    .filter((journey) => {
-      const targetName = profiles[journey.profile]?.runtimeTarget;
-      const target = runtimeTargets[targetName];
-      return journey.status === "automated" &&
-        ["P0", "P1"].includes(journey.priority) &&
-        target?.status === "active-compatibility" &&
-        target.cutoverRequired === false;
-    })
-    .map((journey) => journey.id));
+  const baseline = manifest.retiredCompatibility;
+  if (createHash("sha256").update(JSON.stringify(baseline ?? null)).digest("hex") !==
+      "64c9950adfced1912428e97913081b0805106ce89b73041abb838adc4f0dd91b") {
+    failures.push("retired v22 compatibility baseline differs from its preserved source evidence");
+  }
+  const compatibilityJourneys = (baseline?.journeys ?? []).filter((journey) =>
+    journey.status === "automated" && ["P0", "P1"].includes(journey.priority)
+  );
+  const journeyById = new Map(compatibilityJourneys.map((journey) => [journey.id, journey]));
+  const compatibilityJourneyIds = new Set(journeyById.keys());
+  if (baseline?.runtime !== "tauri-v22" ||
+      !/^[0-9a-f]{40}$/u.test(baseline?.sourceSha ?? "") ||
+      compatibilityJourneys.length !== 41 || compatibilityJourneyIds.size !== 41) {
+    failures.push("retired compatibility baseline must retain all 41 distinct v22 P0/P1 journeys and its source SHA");
+  }
   const replacementsByTarget = new Map(cutoverTargets.map(([targetName]) => [
     targetName,
     new Map()

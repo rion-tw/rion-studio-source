@@ -1,7 +1,6 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 import { Key, type ChainablePromiseElement } from "webdriverio";
 
-import { focusMainApplicationWindow } from "./control";
 export { clickWorkspaceCreateAction } from "./workspace-create-action";
 
 const LANGUAGE_STORAGE_KEY = "rion-studio-language";
@@ -382,7 +381,6 @@ export async function clickEntityMenuAction(
   const trigger = await entity.$(`button[aria-label='${triggerLabel}']`);
   await trigger.waitForExist({ timeout: 10_000 });
   await trigger.scrollIntoView({ block: "center", inline: "center" });
-  if (browser.tauri) await focusMainApplicationWindow();
   await entity.moveTo();
   await browser.execute((control) => control.focus({ preventScroll: true }), trigger);
   await trigger.waitForDisplayed({ timeout: 10_000 });

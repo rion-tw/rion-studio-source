@@ -1,0 +1,309 @@
+name: Electron Release Build
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Immutable 40-character source commit SHA to package
+        required: true
+        type: string
+      version:
+        description: Semantic version to embed in the release candidate, for example 2.4.0
+        required: true
+        type: string
+      updater_base_url:
+        description: HTTPS directory where the release assets will be published
+        required: true
+        type: string
+      run_quality:
+        description: Run the reusable CI quality workflow before packaging
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      release_artifact_name:
+        description: Name of the verified release candidate artifact
+        value: ${{ jobs.manifest.outputs.release_artifact_name }}
+      version:
+        description: Semantic version of the release candidate
+        value: ${{ jobs.validate.outputs.version }}
+    secrets:
+      RION_STUDIO_UPDATER_PUBLIC_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
+
+concurrency:
+  group: desktop-release-build-${{ inputs.source_ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Validate immutable release inputs
+        id: release
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+          RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          require_secret() {
+            local name="$1"
+            if [[ -z "${!name}" ]]; then
+              echo "::error::${name} is required for updater-signed release artifacts."
+              exit 1
+            fi
+          }
+          require_secret RION_STUDIO_UPDATER_PUBLIC_KEY
+          require_secret TAURI_SIGNING_PRIVATE_KEY
+          require_secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          [[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          [[ "${UPDATER_BASE_URL}" == https://* ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_REF}"
+          echo "version=${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+
+  quality:
+    needs: validate
+    if: inputs.run_quality
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.source_ref }}
+
+  build:
+    needs:
+      - validate
+      - quality
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      (needs.quality.result == 'success' || needs.quality.result == 'skipped')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos-arm64
+          - os: windows-latest
+            name: windows-x64
+    env:
+      RION_STUDIO_UPDATER_ENDPOINT: https://github.com/rion-tw/rion-studio/releases/latest/download/latest.json
+      RION_STUDIO_UPDATER_PUBLIC_KEY: ${{ secrets.RION_STUDIO_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - name: Start release build timing
+        shell: bash
+        run: echo "RELEASE_BUILD_STARTED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
+      - name: Checkout immutable release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Record checkout timing
+        shell: bash
+        run: echo "RELEASE_CHECKOUT_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: "false"
+          shared-key: platform-electron-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Record environment timing
+        shell: bash
+        run: echo "RELEASE_ENVIRONMENT_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Record dependency timing
+        shell: bash
+        run: echo "RELEASE_DEPENDENCIES_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
+      - name: Apply release version
+        run: pnpm run release:version -- ${{ needs.validate.outputs.version }}
+
+      - name: Record versioning timing
+        shell: bash
+        run: echo "RELEASE_VERSION_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
+      - name: Build Electron release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_started_at=$(date +%s)
+          pnpm run dist
+          package_finished_at=$(date +%s)
+          echo "RELEASE_PACKAGE_SECONDS=$(( package_finished_at - build_started_at ))" >> "${GITHUB_ENV}"
+          echo "RELEASE_PACKAGE_FINISHED_AT=${package_finished_at}" >> "${GITHUB_ENV}"
+
+      - name: Verify packaged macOS candidate
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="release/electron/mac-arm64/Rion Studio.app"
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+          codesign_details="$(codesign --display --verbose=4 "${app_path}" 2>&1)"
+          grep -F "Signature=adhoc" <<< "${codesign_details}"
+          grep -F "TeamIdentifier=not set" <<< "${codesign_details}"
+          test -s "release/electron/Rion.Studio-mac.app.tar.gz"
+          test -s "release/electron/Rion.Studio-mac.app.tar.gz.sig"
+
+      - name: Verify packaged Windows candidate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $executable = (Resolve-Path "release/electron/win-unpacked/Rion Studio.exe").Path
+          $bytes = [System.IO.File]::ReadAllBytes($executable)
+          if ($bytes.Length -lt 64) { throw "Windows executable is too small to contain a PE header." }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 0 -or $peOffset + 94 -gt $bytes.Length) { throw "Windows executable has an invalid PE header offset." }
+          if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw "Windows executable is missing the PE signature." }
+          $optionalHeaderOffset = $peOffset + 24
+          $optionalHeaderMagic = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset)
+          if ($optionalHeaderMagic -notin @(0x010b, 0x020b)) { throw "Windows executable has an unsupported PE optional header." }
+          $subsystem = [BitConverter]::ToUInt16($bytes, $optionalHeaderOffset + 68)
+          if ($subsystem -ne 2) { throw "Windows executable must use IMAGE_SUBSYSTEM_WINDOWS_GUI; found subsystem $subsystem." }
+          $installer = Get-Item -LiteralPath "release/electron/Rion.Studio-win.exe"
+          if ($null -eq $installer) { throw "NSIS installer is missing." }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne "NotSigned") { throw "Windows candidate must remain unsigned like the legacy release." }
+          if (-not (Test-Path "$($installer.FullName).sig" -PathType Leaf)) { throw "Updater signature is missing." }
+
+      - name: Normalize release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            cp "release/electron/Rion.Studio-mac.dmg" candidate/Rion.Studio-mac.dmg
+            cp "release/electron/Rion.Studio-mac.app.tar.gz" candidate/Rion.Studio-mac.app.tar.gz
+            cp "release/electron/Rion.Studio-mac.app.tar.gz.sig" candidate/Rion.Studio-mac.app.tar.gz.sig
+          else
+            installer="release/electron/Rion.Studio-win.exe"
+            cp "${installer}" candidate/Rion.Studio-win.exe
+            cp "${installer}.sig" candidate/Rion.Studio-win.exe.sig
+          fi
+
+      - name: Verify release size budgets
+        run: pnpm run check:release-size -- candidate
+
+      - name: Upload verified platform candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-${{ matrix.name }}-${{ needs.validate.outputs.version }}
+          if-no-files-found: error
+          retention-days: 14
+          path: candidate
+          compression-level: 0
+
+      - name: Publish release build timing summary
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          finished_at=$(date +%s)
+          {
+            echo "## Release build timing (${RUNNER_OS} ${RUNNER_ARCH})"
+            echo
+            echo "| Stage | Duration |"
+            echo "| --- | ---: |"
+            echo "| Checkout | $(( RELEASE_CHECKOUT_FINISHED_AT - RELEASE_BUILD_STARTED_AT )) s |"
+            echo "| Toolchain setup and Rust cache restore | $(( RELEASE_ENVIRONMENT_FINISHED_AT - RELEASE_CHECKOUT_FINISHED_AT )) s |"
+            echo "| JavaScript dependencies | $(( RELEASE_DEPENDENCIES_FINISHED_AT - RELEASE_ENVIRONMENT_FINISHED_AT )) s |"
+            echo "| Release versioning | $(( RELEASE_VERSION_FINISHED_AT - RELEASE_DEPENDENCIES_FINISHED_AT )) s |"
+            echo "| Electron build, signing, and bundles | ${RELEASE_PACKAGE_SECONDS} s |"
+            echo "| Verification and artifact upload | $(( finished_at - RELEASE_PACKAGE_FINISHED_AT )) s |"
+            echo "| Total | $(( finished_at - RELEASE_BUILD_STARTED_AT )) s |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  manifest:
+    needs:
+      - validate
+      - build
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      release_artifact_name: ${{ steps.artifact.outputs.name }}
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Download verified candidates
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: electron-*-${{ needs.validate.outputs.version }}
+          path: candidate
+          merge-multiple: true
+
+      - name: Create updater-signed manifest
+        shell: bash
+        env:
+          UPDATER_BASE_URL: ${{ inputs.updater_base_url }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/createUpdaterManifest.mjs \
+            --version "${VERSION}" \
+            --base-url "${UPDATER_BASE_URL}" \
+            --mac-archive candidate/Rion.Studio-mac.app.tar.gz \
+            --windows-installer candidate/Rion.Studio-win.exe \
+            --output candidate/latest.json
+          node scripts/releaseArtifacts.mjs candidate "${VERSION}" --write-checksums --require-electron
+
+      - name: Record verified release artifact
+        id: artifact
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: echo "name=electron-release-assets-${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload verified release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: candidate

@@ -32,10 +32,11 @@ describe("Chromium Macro paired cutover E2E source", () => {
   it("preserves the eight v22 native contracts as separate paired verdicts", async () => {
     const manifest = JSON.parse(await source("docs/e2e-coverage.json")) as {
       journeys: Array<Record<string, unknown>>;
+      retiredCompatibility: { journeys: Array<Record<string, unknown>> };
     };
     expect(chromiumMacroCutoverReplacementPlan).toHaveLength(16);
     for (const sourceId of sourceIds) {
-      const retained = manifest.journeys.find((journey) => journey.id === sourceId);
+      const retained = manifest.retiredCompatibility.journeys.find((journey) => journey.id === sourceId);
       const replacements = chromiumMacroCutoverReplacementPlan.filter(
         (journey) => journey.replaces[0] === sourceId
       );

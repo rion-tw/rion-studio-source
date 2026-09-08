@@ -121,9 +121,6 @@ vi.mock("../src/renderer/src/hooks/useWorkspaceWorkflow", () => ({
 vi.mock("../src/renderer/src/hooks/useAppUpdates", () => ({
   useAppUpdates: () => ({ appVersion: "", isBusy: false, status: null })
 }));
-vi.mock("../src/renderer/src/hooks/useWindowsApplicationShortcuts", () => ({
-  useWindowsApplicationShortcuts: vi.fn()
-}));
 beforeEach(() => {
   state.legalAccepted = false;
   state.onboardingVisible = true;

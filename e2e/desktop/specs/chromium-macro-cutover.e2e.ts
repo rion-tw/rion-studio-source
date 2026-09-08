@@ -1,3 +1,7 @@
+// [state-combination:CHROMIUM-MACOS-APPKIT-MACRO-TOPOLOGY]
+// [state-combination:CHROMIUM-WINDOWS-MACRO-TOPOLOGY]
+// [state-combination:CHROMIUM-MACOS-APPKIT-MACRO-INPUT-RECOVERY]
+// [state-combination:CHROMIUM-WINDOWS-MACRO-INPUT-RECOVERY]
 import {
   restartChromiumMacroTerminalCleanup,
   seedChromiumMacroTerminalCleanup

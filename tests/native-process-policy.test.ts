@@ -13,7 +13,7 @@ function rustSources(directory: string): string[] {
 
 describe("native child-process policy", () => {
   it("routes app-owned commands through the no-console command builder", () => {
-    const roots = ["crates/rion-core/src", "crates/rion-platform/src", "src-tauri/src"];
+    const roots = ["crates/rion-core/src", "crates/rion-platform/src"];
     const helper = path.resolve("crates/rion-platform/src/background_command.rs");
     const directSpawns = roots
       .flatMap((root) => rustSources(path.resolve(root)))
@@ -26,15 +26,14 @@ describe("native child-process policy", () => {
     expect(helperSource).toContain("command.creation_flags(CREATE_NO_WINDOW)");
   });
 
-  it("uses native dialogs and native Windows font enumeration", () => {
-    const dialogs = readFileSync("src-tauri/src/native_shell.rs", "utf8");
-    const fonts = readFileSync("crates/rion-platform/src/system_fonts.rs", "utf8");
+  it("uses Electron native dialogs and Chromium font enumeration", () => {
+    const dialogs = readFileSync("src/electron/main/index.ts", "utf8");
+    const fonts = readFileSync("src/electron/main/chromiumSystemFonts.ts", "utf8");
 
-    expect(dialogs).toContain("DialogExt");
-    expect(dialogs).toContain(".set_parent(window)");
+    expect(dialogs).toContain("dialog.showOpenDialog(activeMainWindow(),");
     expect(dialogs).not.toContain("System.Windows.Forms");
     expect(dialogs).not.toContain("run_windows_dialog");
-    expect(fonts).toContain("EnumFontFamiliesExW");
+    expect(fonts).toContain("window.queryLocalFonts()");
     expect(fonts).not.toContain("powershell.exe");
   });
 });

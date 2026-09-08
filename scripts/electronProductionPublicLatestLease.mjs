@@ -26,6 +26,8 @@ export const ELECTRON_PRODUCTION_PUBLIC_LATEST_LEASE_HOLDER_REPOSITORY =
   "rion-tw/rion-studio-source";
 export const ELECTRON_PRODUCTION_PUBLIC_LATEST_LEASE_HOLDER_WORKFLOWS =
   Object.freeze({
+    "electron-v23-publication": ".github/workflows/publish-public-release.yml",
+    "electron-v23-latest-restore": ".github/workflows/restore-public-latest.yml",
     "electron-v23-provisional-publication":
       ".github/workflows/electron-production-provisional-publish.yml",
     "tauri-v22-publication": ".github/workflows/publish-public-release.yml",
@@ -465,16 +467,16 @@ function assertState(value, label) {
 }
 
 function assertPurposeStateTransition(purpose, source, target) {
-  const expectedTargetRuntime = purpose === "electron-v23-provisional-publication"
+  const expectedTargetRuntime = purpose.startsWith("electron-v23-")
     ? "electron-v23"
     : "tauri-v22";
-  if (purpose !== "tauri-v22-latest-restore") {
+  if (purpose === "tauri-v22-publication" || purpose === "electron-v23-provisional-publication") {
     assertEqual(source.runtime, "tauri-v22",
       "public-latest lease source runtime for purpose");
   }
   assertEqual(target.runtime, expectedTargetRuntime,
     "public-latest lease target runtime for purpose");
-  if (purpose !== "tauri-v22-latest-restore") {
+  if (purpose !== "tauri-v22-latest-restore" && purpose !== "electron-v23-latest-restore") {
     assertSemanticVersionIsNewer(
       target.version,
       source.version,

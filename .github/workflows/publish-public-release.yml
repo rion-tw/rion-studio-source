@@ -63,7 +63,7 @@ jobs:
               ;;
           esac
           test "${WORKFLOW_REF}" = "${expected_workflow_ref}"
-          test "${RELEASE_CONTRACT}" = "tauri-v22"
+          test "${RELEASE_CONTRACT}" = "electron-v23"
           [[ "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 
       - name: Checkout the trusted main publication implementation
@@ -165,7 +165,7 @@ jobs:
           test "$(git rev-parse "${source_sha}^{commit}")" = "${source_sha}"
           version="${TAG#v}"
           node scripts/releaseArtifacts.mjs "${asset_root}" "${version}" \
-            --verify-checksums --require-tauri-v22
+            --verify-checksums --require-electron
           jq -r 'if .body == null then "" else .body end' \
             "${input_root}/private-release-api.json" \
             > "${input_root}/private-release-notes.md"
@@ -217,7 +217,7 @@ jobs:
           const documents = await collectPublicDocuments(process.env.DOCS_ROOT);
           const receipt = {
             schemaVersion: 1,
-            kind: "rion-stable-tauri-v22-publication-input",
+            kind: "rion-electron-v23-publication-input",
             controlSha: process.env.CONTROL_SHA,
             repository: "rion-tw/rion-studio-source",
             sourceSha: process.env.SOURCE_SHA,
@@ -265,13 +265,13 @@ jobs:
             --arg source_sha "${EXPECTED_SOURCE_SHA}" --arg tag "${TAG}" \
             --arg version "${EXPECTED_VERSION}" \
             '.schemaVersion == 1 and
-             .kind == "rion-stable-tauri-v22-publication-input" and
+             .kind == "rion-electron-v23-publication-input" and
              .controlSha == $control_sha and .sourceSha == $source_sha and
              .tag == $tag and .version == $version and
              .release.prerelease == false and (.assets | keys | length) == 7' \
             "${input_root}/stable-publication-input.json" >/dev/null
           node scripts/releaseArtifacts.mjs "${input_root}/release-assets" \
-            "${EXPECTED_VERSION}" --verify-checksums --require-tauri-v22
+            "${EXPECTED_VERSION}" --verify-checksums --require-electron
           INPUT_ROOT="${input_root}" node --input-type=module <<'NODE'
           import { createHash } from "node:crypto";
           import { readFile } from "node:fs/promises";
@@ -392,7 +392,7 @@ jobs:
           gh api --method POST "repos/${PUBLIC_RELEASE_REPOSITORY}/git/refs" \
             -f ref="refs/tags/${TAG}" -f sha="${commit_sha}" >/dev/null
 
-      - name: Stage and capture the exact Tauri v22 target and current latest
+      - name: Stage and capture the exact Electron target and current latest
         id: stage
         shell: bash
         env:
@@ -553,7 +553,7 @@ jobs:
             done
             node scripts/releaseArtifacts.mjs \
               "${work_root}/target-staged-draft-assets" "${version}" \
-              --verify-checksums --require-tauri-v22
+              --verify-checksums --require-electron
             gh release edit "${TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" \
               --draft=false --latest=false --notes-file "${marker_source}" --verify-tag
           else
@@ -569,7 +569,7 @@ jobs:
             cmp "${private_assets}/${name}" "${work_root}/target-verified-assets/${name}"
           done
           node scripts/releaseArtifacts.mjs "${work_root}/target-verified-assets" \
-            "${version}" --verify-checksums --require-tauri-v22
+            "${version}" --verify-checksums --require-electron
           jq -r 'if .body == null then "" else .body end' \
             "${work_root}/target-published.json" > "${work_root}/published-notes.md"
           cmp "${marker_source}" "${work_root}/published-notes.md"
@@ -588,7 +588,7 @@ jobs:
             done
             node scripts/releaseArtifacts.mjs \
               "${work_root}/target-current-latest/assets" "${version}" \
-              --verify-checksums --require-tauri-v22
+              --verify-checksums --require-electron
             test "$(gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/latest" --jq .id)" = \
               "${target_id}"
             echo "mode=idempotent-already-latest" >> "${GITHUB_OUTPUT}"
@@ -610,21 +610,27 @@ jobs:
           source_version="$(jq -r .latestJson.version \
             "${evidence_root}/source-public-latest-snapshot.json")"
           node scripts/releaseArtifacts.mjs "${work_root}/target/assets" "${version}" \
-            --verify-checksums --require-tauri-v22
+            --verify-checksums --require-electron
           node scripts/releaseArtifacts.mjs "${work_root}/source/assets" \
-            "${source_version}" --verify-checksums --require-tauri-v22
+            "${source_version}" --verify-checksums --require-supported-source
+          source_runtime="$(node --input-type=module - "${work_root}/source/assets" <<'NODE'
+          import { identifyPublicReleaseRuntime } from "./scripts/publicReleaseRuntimePolicy.mjs";
+          console.log(await identifyPublicReleaseRuntime(process.argv[2]));
+          NODE
+          )"
+          echo "source_runtime=${source_runtime}" >> "${GITHUB_OUTPUT}"
           TARGET_OBSERVED="${evidence_root}/target-observed-snapshot.json" \
           TARGET_PROJECTED="${evidence_root}/target-expected-latest-snapshot.json" \
           node --input-type=module <<'NODE'
           import { readFile } from "node:fs/promises";
           import {
-            deriveTauriV22ExpectedLatestState,
+            derivePublishedReleaseExpectedLatestState,
             writeElectronProductionPublicLatestSnapshot
           } from "./scripts/electronProductionPublicLatestSnapshot.mjs";
           const observed = JSON.parse(await readFile(process.env.TARGET_OBSERVED, "utf8"));
           await writeElectronProductionPublicLatestSnapshot({
             outputPath: process.env.TARGET_PROJECTED,
-            snapshot: deriveTauriV22ExpectedLatestState(observed)
+            snapshot: derivePublishedReleaseExpectedLatestState(observed)
           });
           NODE
           echo "mode=latest-mutation" >> "${GITHUB_OUTPUT}"
@@ -644,6 +650,7 @@ jobs:
           GH_TOKEN: ${{ steps.public-token.outputs.token }}
           SOURCE_STATE_SHA256: ${{ steps.stage.outputs.source_state_sha256 }}
           SOURCE_VERSION: ${{ steps.stage.outputs.source_version }}
+          SOURCE_RUNTIME: ${{ steps.stage.outputs.source_runtime }}
           TARGET_STATE_SHA256: ${{ steps.stage.outputs.target_state_sha256 }}
           TARGET_VERSION: ${{ steps.stage.outputs.target_version }}
         run: |
@@ -657,14 +664,14 @@ jobs:
             'import { randomUUID } from "node:crypto"; console.log(randomUUID())')"
           node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs acquire \
             --transaction-id "${transaction_id}" --lease-id "${lease_id}" \
-            --purpose tauri-v22-publication \
+            --purpose electron-v23-publication \
             --holder-workflow .github/workflows/publish-public-release.yml \
             --holder-run-id "${GITHUB_RUN_ID}" \
             --holder-run-attempt "${GITHUB_RUN_ATTEMPT}" \
             --control-head-sha "${GITHUB_SHA}" \
-            --source-runtime tauri-v22 --source-version "${SOURCE_VERSION}" \
+            --source-runtime "${SOURCE_RUNTIME}" --source-version "${SOURCE_VERSION}" \
             --source-state-sha256 "${SOURCE_STATE_SHA256}" \
-            --target-runtime tauri-v22 --target-version "${TARGET_VERSION}" \
+            --target-runtime electron-v23 --target-version "${TARGET_VERSION}" \
             --target-state-sha256 "${TARGET_STATE_SHA256}" \
             --recorded-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             --output "${output_root}/electron-production-public-latest-lease.json" \
@@ -768,7 +775,7 @@ jobs:
           const status = process.env.HTTP_STATUS;
           process.stdout.write(serializeCanonicalJson({
             schemaVersion: 1,
-            kind: "rion-stable-tauri-v22-latest-mutation-acknowledgement",
+            kind: "rion-electron-v23-latest-mutation-acknowledgement",
             acknowledgement: process.env.ACKNOWLEDGEMENT,
             commandExitCode: Number(process.env.COMMAND_STATUS),
             httpStatus: status === "" ? null : Number(status),
@@ -872,7 +879,7 @@ jobs:
           }
           process.stdout.write(serializeCanonicalJson({
             schemaVersion: 1,
-            kind: "rion-stable-tauri-v22-publication-readback",
+            kind: "rion-electron-v23-publication-readback",
             captureSucceeded: process.env.CAPTURE_STATUS === "0",
             classification
           }));
@@ -965,7 +972,7 @@ jobs:
           import { serializeCanonicalJson } from "./scripts/canonicalJson.mjs";
           process.stdout.write(serializeCanonicalJson({
             schemaVersion: 1,
-            kind: "rion-stable-tauri-v22-publication-final-summary",
+            kind: "rion-electron-v23-publication-final-summary",
             mode: process.env.MODE,
             acknowledgement: process.env.ACKNOWLEDGEMENT,
             classification: process.env.CLASSIFICATION,
@@ -975,7 +982,7 @@ jobs:
           }));
           NODE
           {
-            echo "## Stable Tauri v22 public release"
+            echo "## Electron public release"
             echo
             echo "- Target: https://github.com/${PUBLIC_RELEASE_REPOSITORY}/releases/tag/${TAG}"
             echo "- Mode: ${MODE:-unknown}"
@@ -989,7 +996,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: stable-tauri-v22-publication-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: electron-v23-publication-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
             stable-publication-evidence
             stable-publication-input/stable-publication-input.json

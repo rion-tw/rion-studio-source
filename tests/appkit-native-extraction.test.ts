@@ -9,8 +9,7 @@ describe("shared AppKit runtime controller", () => {
       appKitBuild,
       appKitRust,
       controllerHeader,
-      controllerBridge,
-      tauriBuild
+      controllerBridge
     ] =
       await Promise.all([
         readFile("crates/rion-appkit/Cargo.toml", "utf8"),
@@ -20,8 +19,7 @@ describe("shared AppKit runtime controller", () => {
         readFile(
           "crates/rion-appkit/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
           "utf8"
-        ),
-        readFile("src-tauri/build.rs", "utf8")
+        )
       ]);
 
     expect(appKitManifest).toContain('links = "rion_appkit_native"');
@@ -35,71 +33,26 @@ describe("shared AppKit runtime controller", () => {
       /rion_appkit_runtime_tabs_abi_version\(void\)\s*\{\s*return 6;\s*\}/u
     );
     expect(controllerBridge).not.toContain("TaoWindow");
-    expect(tauriBuild).not.toContain('file("native/macos/RionRuntimeTabsController.mm")');
-  });
-
-  it("keeps the Tao and WK fallback hook inside the stable Tauri shell", async () => {
-    const [compatibility, tauriBuild, tauriBridge] = await Promise.all([
-      readFile("src-tauri/native/macos/RionTauriWebKitEventCompatibility.m", "utf8"),
-      readFile("src-tauri/build.rs", "utf8"),
-      readFile(
-        "src-tauri/src/runtime_tabs_macos/section_01_controller_creation_timeout.rs",
-        "utf8"
-      )
-    ]);
-
-    expect(compatibility).toContain('NSClassFromString(@"TaoWindow")');
-    expect(compatibility).toContain("RionTauriIsMarkedWebKitMacroFallbackEvent");
-    expect(tauriBuild).toContain('file("native/macos/RionTauriWebKitEventCompatibility.m")');
-    expect(tauriBridge).toContain("rion_tauri_install_safe_tao_webkit_event_dispatch");
-  });
-
-  it("keeps the stable shell's native-tab ensure call aligned with ABI v6", async () => {
-    const tauriBridge = await readFile(
-      "src-tauri/src/runtime_tabs_macos/section_01_controller_creation_timeout.rs",
-      "utf8"
-    );
-    const declaration = tauriBridge.slice(
-      tauriBridge.indexOf("fn rion_runtime_tabs_ensure("),
-      tauriBridge.indexOf("fn rion_runtime_tabs_reserve(")
-    );
-    const ensure = tauriBridge.slice(
-      tauriBridge.indexOf("    pub fn ensure("),
-      tauriBridge.indexOf("    pub fn reserve(")
-    );
-
-    expect(declaration).toMatch(
-      /name: \*const c_char,\s+phase: \*const c_char,\s+tab_type: \*const c_char/u
-    );
-    expect(declaration).toContain(") -> bool;");
-    expect(ensure).toContain('let phase = c_string("ready");');
-    expect(ensure).toMatch(
-      /name\.as_ptr\(\),\s+phase\.as_ptr\(\),\s+tab_type\.as_ptr\(\)/u
-    );
   });
 
   it("keeps the stable v22 WebKit probe out of the Chromium addon", async () => {
-    const [nodeManifest, tauriManifest, platformProbe] = await Promise.all([
+    const [nodeManifest, platformManifest, platformProbe] = await Promise.all([
       readFile("crates/rion-node/Cargo.toml", "utf8"),
-      readFile("src-tauri/Cargo.toml", "utf8"),
+      readFile("crates/rion-platform/Cargo.toml", "utf8"),
       readFile("crates/rion-platform/src/system_webview.rs", "utf8")
     ]);
 
     expect(nodeManifest).toContain(
       'rion-platform = { path = "../rion-platform", default-features = false }'
     );
-    expect(tauriManifest).toContain(
-      'rion-platform = { path = "../crates/rion-platform", features = ["system-webview-probe"] }'
-    );
-    expect(platformProbe).toContain(
-      '#[cfg(all(target_os = "macos", feature = "system-webview-probe"))]'
-    );
-    expect(platformProbe).toContain('#[link(name = "WebKit", kind = "framework")]');
+    expect(platformManifest).not.toContain("system-webview-probe");
+    expect(platformManifest).not.toContain("webview2-com");
+    expect(platformProbe).not.toContain('#[link(name = "WebKit", kind = "framework")]');
+    expect(platformProbe).toContain("system-webview-runtime-retired");
   });
 
   it("propagates desktop E2E and exposes a fail-closed Electron NSView boundary", async () => {
-    const [tauriManifest, nodeManifest, header, bridge] = await Promise.all([
-      readFile("src-tauri/Cargo.toml", "utf8"),
+    const [nodeManifest, header, bridge] = await Promise.all([
       readFile("crates/rion-node/Cargo.toml", "utf8"),
       readFile("crates/rion-appkit/native/macos/RionRuntimeTabsController.h", "utf8"),
       readFile(
@@ -108,8 +61,6 @@ describe("shared AppKit runtime controller", () => {
       )
     ]);
 
-    expect(tauriManifest).toContain('rion-appkit = { path = "../crates/rion-appkit" }');
-    expect(tauriManifest).toContain('"rion-appkit/desktop-e2e"');
     expect(nodeManifest).toContain('rion-appkit = { path = "../rion-appkit" }');
     expect(nodeManifest).toContain('desktop-e2e = ["rion-appkit/desktop-e2e"]');
     expect(header).toContain("rion_appkit_resolve_electron_native_view_window");

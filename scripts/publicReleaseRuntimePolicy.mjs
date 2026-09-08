@@ -19,6 +19,55 @@ const ELECTRON_CANDIDATE_RECEIPTS = Object.freeze([
   "platform-receipt.json"
 ]);
 
+const ELECTRON_REQUIRED_FILES = Object.freeze([
+  "Rion Studio.app/Contents/Info.plist",
+  "Rion Studio.app/Contents/MacOS/Rion Studio",
+  "Rion Studio.app/Contents/Resources/app.asar",
+  "Rion Studio.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+]);
+
+/** Identify a previously published source without treating its engine as a target. */
+export async function identifyPublicReleaseRuntime(directory) {
+  const archivePath = join(directory, MACOS_UPDATER_ARCHIVE);
+  const archive = await lstat(archivePath);
+  if (!archive.isFile() || archive.isSymbolicLink() || archive.size === 0) {
+    throw new Error(`Expected a non-empty regular ${MACOS_UPDATER_ARCHIVE}.`);
+  }
+  const entries = await listArchiveEntries(archivePath);
+  if (entries.some((entry) => ELECTRON_ARCHIVE_MARKERS.some((marker) => entry.includes(marker)))) {
+    await assertElectronPublicReleaseAssets(directory);
+    return "electron-v23";
+  }
+  await assertStableTauriV22PublicReleaseAssets(directory);
+  return "tauri-v22";
+}
+
+/** Require the sole supported target; this is package shape, not publication evidence. */
+export async function assertElectronPublicReleaseAssets(directory) {
+  const archivePath = join(directory, MACOS_UPDATER_ARCHIVE);
+  const archive = await lstat(archivePath);
+  if (!archive.isFile() || archive.isSymbolicLink() || archive.size === 0) {
+    throw new Error(`Expected a non-empty regular ${MACOS_UPDATER_ARCHIVE}.`);
+  }
+  const entries = await listArchiveEntries(archivePath);
+  if (entries.some((entry) => entry.includes("\\") || entry.split("/").includes("..")
+    || !entry.startsWith("Rion Studio.app/"))) {
+    throw new Error("Electron archive contains a path outside its application bundle.");
+  }
+  const executables = entries.filter((entry) => entry.startsWith(MACOS_EXECUTABLE_DIRECTORY)
+    && entry.slice(MACOS_EXECUTABLE_DIRECTORY.length).length > 0
+    && !entry.slice(MACOS_EXECUTABLE_DIRECTORY.length).includes("/"));
+  if (executables.length !== 1 || executables[0] !== ELECTRON_REQUIRED_FILES[1]) {
+    throw new Error("Electron archive must contain only the Rion Studio main executable.");
+  }
+  for (const requiredEntry of ELECTRON_REQUIRED_FILES) {
+    if (entries.filter((entry) => entry === requiredEntry).length !== 1) {
+      throw new Error(`Electron archive must contain exactly one ${requiredEntry}.`);
+    }
+    await assertRegularArchiveEntry(archivePath, requiredEntry);
+  }
+}
+
 export async function assertStableTauriV22PublicReleaseAssets(directory) {
   const names = await readdir(directory);
   const receipts = ELECTRON_CANDIDATE_RECEIPTS.filter((name) => names.includes(name));
@@ -40,7 +89,7 @@ export async function assertStableTauriV22PublicReleaseAssets(directory) {
   );
   if (electronMarker) {
     throw new Error(
-      `Electron release assets require a separate owner-approved promotion workflow: ${electronMarker}`
+      `Expected a legacy Tauri source archive, found Electron: ${electronMarker}`
     );
   }
 
@@ -101,7 +150,7 @@ async function assertRegularArchiveEntry(archivePath, requiredEntry) {
   );
   if (!entry || entry[0] !== "-") {
     throw new Error(
-      `The stable Tauri v22 executable must be a regular archive entry: ${requiredEntry}.`
+      `The required payload must be a regular archive entry: ${requiredEntry}.`
     );
   }
 }

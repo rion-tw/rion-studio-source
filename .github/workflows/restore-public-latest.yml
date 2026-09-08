@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Published public Tauri v22 release to restore (vMAJOR.MINOR.PATCH)
+        description: Published public Electron release to restore (vMAJOR.MINOR.PATCH)
         required: true
         type: string
       confirm:
@@ -34,7 +34,6 @@ jobs:
           github.ref_protected == true &&
           github.workflow_ref == 'rion-tw/rion-studio-source/.github/workflows/restore-public-latest.yml@refs/heads/main' }}
     runs-on: ubuntu-latest
-    environment: electron-production-release
     steps:
       - name: Fence dispatch to the trusted main control plane
         shell: bash
@@ -194,47 +193,28 @@ jobs:
           source_version="$(jq -r .latestJson.version \
             "${evidence_root}/source-public-latest-snapshot.json")"
           node scripts/releaseArtifacts.mjs "${work_root}/target/assets" "${target_version}" \
-            --verify-checksums --require-tauri-v22
+            --verify-checksums --require-electron
           node scripts/releaseArtifacts.mjs "${work_root}/source/assets" "${source_version}" \
-            --verify-checksums
+            --verify-checksums --require-supported-source
 
-          set +e
-          node --input-type=module - "${work_root}/source/assets" <<'NODE'
-          import { assertStableTauriV22PublicReleaseAssets } from
-            "./scripts/publicReleaseRuntimePolicy.mjs";
-          await assertStableTauriV22PublicReleaseAssets(process.argv[2]);
+          source_runtime="$(node --input-type=module - "${work_root}/source/assets" <<'NODE'
+          import { identifyPublicReleaseRuntime } from "./scripts/publicReleaseRuntimePolicy.mjs";
+          console.log(await identifyPublicReleaseRuntime(process.argv[2]));
           NODE
-          source_is_tauri=$?
-          set -e
-          if test "${source_is_tauri}" = "0"; then
-            source_runtime=tauri-v22
-          else
-            tar -tzf "${work_root}/source/assets/Rion.Studio-mac.app.tar.gz" \
-              > "${work_root}/source/archive-entries.txt"
-            grep -Fq '/Contents/Frameworks/Electron Framework.framework' \
-              "${work_root}/source/archive-entries.txt"
-            grep -Fq '/Contents/Resources/app.asar' \
-              "${work_root}/source/archive-entries.txt"
-            if grep -Fq '/Contents/MacOS/rion-tauri' \
-              "${work_root}/source/archive-entries.txt"; then
-              echo "Current latest mixes Tauri and Electron runtime markers." >&2
-              exit 1
-            fi
-            source_runtime=electron-v23
-          fi
+          )"
 
           TARGET_OBSERVED="${evidence_root}/target-observed-snapshot.json" \
           TARGET_PROJECTED="${evidence_root}/target-expected-latest-snapshot.json" \
           node --input-type=module <<'NODE'
           import { readFile } from "node:fs/promises";
           import {
-            deriveTauriV22ExpectedLatestState,
+            derivePublishedReleaseExpectedLatestState,
             writeElectronProductionPublicLatestSnapshot
           } from "./scripts/electronProductionPublicLatestSnapshot.mjs";
           const observed = JSON.parse(await readFile(process.env.TARGET_OBSERVED, "utf8"));
           await writeElectronProductionPublicLatestSnapshot({
             outputPath: process.env.TARGET_PROJECTED,
-            snapshot: deriveTauriV22ExpectedLatestState(observed)
+            snapshot: derivePublishedReleaseExpectedLatestState(observed)
           });
           NODE
 
@@ -269,7 +249,7 @@ jobs:
           node scripts/electronProductionPublicLatestLeaseRemoteCli.mjs acquire \
             --transaction-id "${transaction_id}" \
             --lease-id "${lease_id}" \
-            --purpose tauri-v22-latest-restore \
+            --purpose electron-v23-latest-restore \
             --holder-workflow .github/workflows/restore-public-latest.yml \
             --holder-run-id "${GITHUB_RUN_ID}" \
             --holder-run-attempt "${GITHUB_RUN_ATTEMPT}" \
@@ -277,7 +257,7 @@ jobs:
             --source-runtime "${SOURCE_RUNTIME}" \
             --source-version "${SOURCE_VERSION}" \
             --source-state-sha256 "${SOURCE_STATE_SHA256}" \
-            --target-runtime tauri-v22 \
+            --target-runtime electron-v23 \
             --target-version "${TARGET_VERSION}" \
             --target-state-sha256 "${TARGET_STATE_SHA256}" \
             --recorded-at "${recorded_at}" \

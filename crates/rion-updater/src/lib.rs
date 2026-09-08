@@ -3,6 +3,7 @@
 //! Electron is a transport and presentation layer only. Release selection,
 //! artifact identity, SHA-256, and Minisign verification remain Rust-owned.
 
+mod github_release_redirect;
 mod manager;
 mod manifest;
 mod persistence;

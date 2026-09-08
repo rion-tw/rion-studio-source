@@ -5,6 +5,14 @@ const PLATFORM_NAMES = new Map([
   ["win32", "windows"]
 ]);
 
+export function resolveDesktopE2eProfileName({ platform, profileName }) {
+  if (!new Set(["smoke", "full", "extended"]).has(profileName)) return profileName;
+  const prefix = platform === "darwin" ? "chromium-macos-appkit"
+    : platform === "win32" ? "chromium-windows" : null;
+  if (!prefix) throw new Error(`Desktop E2E does not support host platform ${platform}`);
+  return `${prefix}-${profileName === "extended" ? "hardware-extended" : "smoke"}`;
+}
+
 export function resolveDesktopE2eRuntimeTarget({
   architecture,
   manifest,
@@ -32,22 +40,6 @@ export function resolveDesktopE2eRuntimeTarget({
   }
 
   const root = resolve(repositoryRoot);
-  if (runtimeTarget.driver === "tauri") {
-    return {
-      applicationPath: resolve(
-        root,
-        "target",
-        "debug",
-        platform === "win32" ? "rion-tauri.exe" : "rion-tauri"
-      ),
-      architecture,
-      buildScriptPath: resolve(root, "scripts/buildDesktopE2e.mjs"),
-      driver: "tauri",
-      platform: platformName,
-      runtimeTargetName,
-      wdioConfigPath: resolve(root, "e2e/desktop/wdio.conf.ts")
-    };
-  }
   if (runtimeTarget.driver === "electron") {
     return {
       applicationPath: resolve(root, "out/main/index.js"),

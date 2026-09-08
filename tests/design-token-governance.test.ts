@@ -9,7 +9,7 @@ const sharedTokensPath = path.join(root, "src", "shared", "designTokens.css");
 const productCssPaths = [
   path.join(root, "src", "renderer", "src", "styles.css"),
   path.join(root, "src", "renderer", "src", "boot.css"),
-  path.join(root, "src", "renderer", "runtime-tabs.css"),
+  path.join(root, "src", "renderer", "runtime-windows-host.css"),
   path.join(root, "src", "shared", "browser-overlay", "macroOverlay.css"),
   path.join(root, "src", "shared", "browser-overlay", "runtimeIndicators.css")
 ];
@@ -30,12 +30,11 @@ function relative(file: string): string {
 
 describe("design token governance", () => {
   it("provides one canonical token source to every product-owned document", async () => {
-    const [tokens, renderer, boot, runtimeTabs, shell] = await Promise.all([
+    const [tokens, renderer, boot, runtimeTabs] = await Promise.all([
       readSourceTree(sharedTokensPath, "utf8"),
       readSourceTree(path.join(root, "src", "renderer", "src", "styles.css"), "utf8"),
       readSourceTree(path.join(root, "src", "renderer", "src", "boot.css"), "utf8"),
-      readSourceTree(path.join(root, "src", "renderer", "runtime-tabs.css"), "utf8"),
-      readSourceTree(path.join(root, "src-tauri", "src", "system_runtime.rs"), "utf8")
+      readSourceTree(path.join(root, "src", "renderer", "runtime-windows-host.css"), "utf8")
     ]);
 
     for (const token of [
@@ -48,7 +47,6 @@ describe("design token governance", () => {
     expect(renderer).toContain('@import "../../shared/designTokens.css"');
     expect(boot).toContain('@import "../../shared/designTokens.css"');
     expect(runtimeTabs).toContain('@import "../shared/designTokens.css"');
-    expect(shell).toContain('const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.css")');
   });
 
   it("rejects direct palette colors and arbitrary type, radius, or numeric layers in renderer markup", async () => {

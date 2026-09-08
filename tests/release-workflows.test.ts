@@ -3,21 +3,15 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("desktop shell migration workflows", () => {
-  it("runs Tauri compatibility, Electron packaging, and desktop E2E on both platforms", async () => {
+  it("runs Rust, Electron packaging, and complete Chromium E2E on both platforms", async () => {
     const [
       workflow,
       packageJsonSource,
-      windowsLoaderDiagnostic,
-      tauriBuildScript,
-      windowsManifest,
-      windowsTestResource
+      windowsLoaderDiagnostic
     ] = await Promise.all([
       readWorkflow(".github/workflows/ci.yml"),
       readFile("package.json", "utf8"),
-      readFile("scripts/diagnoseWindowsTestLoader.ps1", "utf8"),
-      readFile("src-tauri/build.rs", "utf8"),
-      readFile("src-tauri/windows-app-manifest.xml", "utf8"),
-      readFile("src-tauri/windows-test-manifest.rc", "utf8")
+      readFile("scripts/diagnoseWindowsTestLoader.ps1", "utf8")
     ]);
     const packageJson = JSON.parse(packageJsonSource) as { scripts: Record<string, string> };
     const checks = workflow.slice(
@@ -37,10 +31,9 @@ describe("desktop shell migration workflows", () => {
       workflow.indexOf("  electron-platform-validation:")
     );
     const electronChecks = workflow.slice(
-      workflow.indexOf("  electron-platform-validation:"),
-      workflow.indexOf("  desktop-e2e:")
+      workflow.indexOf("  electron-platform-validation:")
     );
-    const desktopE2e = workflow.slice(workflow.indexOf("  desktop-e2e:"));
+    expect(workflow).not.toContain("  desktop-e2e:");
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("pull_request:");
@@ -172,24 +165,10 @@ describe("desktop shell migration workflows", () => {
     expect(electronChecks).toContain(
       "Upload packaged Chromium Role black-box E2E diagnostics"
     );
-    expect(desktopE2e).toContain("id: desktop_smoke");
-    expect(desktopE2e).toContain("pnpm run test:e2e:desktop:smoke");
-    expect(desktopE2e).toContain("if: github.event_name == 'pull_request'");
-    expect(desktopE2e).toContain("id: desktop_e2e");
-    expect(desktopE2e).toContain("Run hosted full desktop E2E gate");
-    expect(desktopE2e).toContain(
-      "continue-on-error: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}"
-    );
-    expect(desktopE2e).toContain("timeout-minutes: 75");
-    expect(desktopE2e).toContain("pnpm run test:e2e:desktop:full");
-    expect(desktopE2e).toContain("include-hidden-files: true");
-    expect(desktopE2e).toContain("path: |");
-    expect(desktopE2e).toContain(".desktop-e2e-artifacts");
-    expect(desktopE2e).toContain("!.desktop-e2e-artifacts/**/roles/*/browser/**");
     expect(electronChecks).toContain(
       "!.desktop-e2e-artifacts/**/user-data/**"
     );
-    expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
+    expect(windowsLoaderDiagnostic).toContain('Filter "rion_*.exe"');
     expect(windowsLoaderDiagnostic).toContain("/imports $testBinary.FullName");
     expect(windowsLoaderDiagnostic).toContain("/dependents $testBinary.FullName");
     expect(windowsLoaderDiagnostic).toContain("/headers $testBinary.FullName");
@@ -198,24 +177,12 @@ describe("desktop shell migration workflows", () => {
     expect(windowsLoaderDiagnostic).toContain("NativeLibrary]::TryGetExport");
     expect(windowsLoaderDiagnostic).toContain('"application-manifest.xml"');
     expect(windowsLoaderDiagnostic).toContain("Common Controls v6 dependency");
-    expect(tauriBuildScript).toContain(
-      'embed_resource::compile_for_everything("windows-test-manifest.rc"'
-    );
-    expect(tauriBuildScript).toContain(".manifest_required()");
-    expect(tauriBuildScript).toContain("WindowsAttributes::new_without_app_manifest()");
-    expect(windowsManifest).toContain('name="Microsoft.Windows.Common-Controls"');
-    expect(windowsManifest).toContain('version="6.0.0.0"');
-    expect(windowsTestResource).toContain(
-      'CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "windows-app-manifest.xml"'
-    );
     expect(rendererAssets.indexOf("pnpm run build:renderer")).toBeLessThan(
       rendererAssets.indexOf("Upload renderer assets for platform checks")
     );
     expect(platformChecks).toContain("needs: renderer-assets");
     expect(platformChecks).not.toContain("needs: checks");
     expect(electronChecks).not.toContain("needs:");
-    expect(desktopE2e).not.toContain("needs:");
-    expect(desktopE2e).not.toContain("renderer-assets-");
     expect(platformChecks.indexOf("Download renderer assets for platform checks")).toBeLessThan(
       platformChecks.indexOf("pnpm run lint:rust")
     );
@@ -228,19 +195,12 @@ describe("desktop shell migration workflows", () => {
     expect(workflow).toContain('"os":"macos-latest"');
     expect(workflow).toContain('"os":"windows-latest"');
     expect(platformChecks).not.toContain("cargo check -p rion-tauri --all-targets");
-    expect(platformChecks).toContain("cargo build -p rion-tauri");
+    expect(platformChecks).toContain("pnpm run build:electron:rust");
     expect(platformChecks).toContain(
       "shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}"
     );
     expect(platformChecks).toContain('save-if: "false"');
-    expect(desktopE2e).toContain(
-      "shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}"
-    );
-    expect(desktopE2e).toContain('cache-on-failure: "true"');
-    expect(desktopE2e).toContain(
-      "save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
-    );
-    expect(workflow.match(/shared-key: platform-ci-/gu)).toHaveLength(2);
+    expect(workflow.match(/shared-key: platform-ci-/gu)).toHaveLength(1);
     expect(workflow).not.toContain("shared-key: platform-tauri-");
     expect(workflow).not.toContain("pnpm exec tauri build");
     expect(workflow).not.toContain("pnpm run dist");
@@ -770,7 +730,7 @@ describe("desktop shell migration workflows", () => {
     const [workflow, runner, wdio] = await Promise.all([
       readWorkflow(".github/workflows/desktop-e2e-extended.yml"),
       readWorkflow("scripts/runDesktopE2e.mjs"),
-      readWorkflow("e2e/desktop/wdio.conf.ts")
+      readWorkflow("e2e/desktop/wdio.electron.conf.ts")
     ]);
     expect(workflow).toContain("schedule:");
     expect(workflow).toContain("workflow_dispatch:");
@@ -779,7 +739,6 @@ describe("desktop shell migration workflows", () => {
     expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64, rion-desktop-e2e]");
     expect(workflow).toContain("Extended E2E ref must be a full immutable Git SHA");
     expect(workflow).toContain("RION_STUDIO_E2E_COMMIT: ${{ inputs.ref || github.sha }}");
-    expect(workflow).toContain("pnpm run test:e2e:desktop:extended");
     expect(workflow).toContain(
       "pnpm run test:e2e:desktop:chromium:macos-appkit:hardware"
     );
@@ -809,15 +768,14 @@ describe("desktop shell migration workflows", () => {
       macConfigSource,
       releasePlanScript
     ] = await Promise.all([
-      readWorkflow(".github/workflows/tauri-release-build.yml"),
-      readWorkflow(".github/workflows/tauri-release-compatibility.yml"),
-      readWorkflow(".github/workflows/tauri-release-candidate.yml"),
-      readWorkflow("scripts/buildTauriRelease.mjs"),
-      readWorkflow("scripts/packageTauri.mjs"),
-      readWorkflow("src-tauri/tauri.macos.conf.json"),
+      readWorkflow(".github/workflows/desktop-release-build.yml"),
+      readWorkflow(".github/workflows/desktop-release-compatibility.yml"),
+      readWorkflow(".github/workflows/desktop-release-candidate.yml"),
+      readWorkflow("scripts/buildElectronRelease.mjs"),
+      readWorkflow("scripts/packageElectron.mjs"),
+      readWorkflow("electron-builder.config.mjs"),
       readWorkflow("scripts/planSemanticRelease.mjs")
     ]);
-    const macConfig = JSON.parse(macConfigSource);
     const quality = buildWorkflow.slice(
       buildWorkflow.indexOf("  quality:"),
       buildWorkflow.indexOf("  build:")
@@ -890,7 +848,7 @@ describe("desktop shell migration workflows", () => {
     expect(compatibility).toContain("timeout-minutes: 10");
     expect(compatibilityWorkflow).toContain("PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio");
     expect(compatibility).toContain("Verify macOS manual replacement preserves shared data");
-    expect(compatibility).toContain("Verify Windows clean install and previous Tauri in-place upgrade");
+    expect(compatibility).toContain("Verify Windows clean install and previous release in-place upgrade");
     expect(compatibility).toContain('@("/S", "--updated", "/D=$installPath")');
     expect(compatibility).not.toContain("--force-run");
     expect(compatibility).not.toContain("Start-Process -FilePath $previousExecutable");
@@ -921,23 +879,23 @@ describe("desktop shell migration workflows", () => {
     expect(candidateWorkflow).toContain("source_ref: ${{ needs.resolve.outputs.source_ref }}");
     expect(candidateWorkflow).toContain("version: ${{ needs.resolve.outputs.version }}");
     expect(candidateWorkflow).toContain('test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"');
-    expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(candidateWorkflow).toContain("uses: ./.github/workflows/desktop-release-build.yml");
     expect(candidateWorkflow).not.toContain("desktop-e2e-extended.yml");
-    expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-compatibility.yml");
+    expect(candidateWorkflow).toContain("uses: ./.github/workflows/desktop-release-compatibility.yml");
     expect(candidateWorkflow).toContain(
       "run_quality: ${{ github.event_name == 'workflow_dispatch' }}"
     );
     expect(buildWorkflow).toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(buildWorkflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(buildWorkflow).toContain("pnpm run release:version -- ${{ needs.validate.outputs.version }}");
-    expect(buildWorkflow).toContain("pnpm run dist -- --bundles");
+    expect(buildWorkflow).toContain("pnpm run dist");
     expect(buildWorkflow).toContain("Start release build timing");
     expect(buildWorkflow).toContain("Publish release build timing summary");
     expect(buildWorkflow).toContain("RELEASE_PACKAGE_SECONDS");
     expect(buildWorkflow).toContain("compression-level: 0");
     expect(build).not.toContain("fetch-depth: 0");
     expect(build).toContain(
-      "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
+      "shared-key: platform-electron-${{ runner.os }}-${{ runner.arch }}"
     );
     expect(buildWorkflow).toContain("codesign --verify --deep --strict");
     expect(buildWorkflow).toContain('grep -F "Signature=adhoc"');
@@ -945,18 +903,18 @@ describe("desktop shell migration workflows", () => {
     expect(buildWorkflow).not.toContain("Import Apple Developer ID certificate");
     expect(buildWorkflow).not.toContain("xcrun stapler validate");
     expect(buildWorkflow).not.toContain("Import Windows Authenticode certificate");
-    expect(releaseScript).toContain('signingIdentity: "-"');
-    expect(releaseScript).toContain("delete buildEnvironment[name]");
+    expect(releaseScript).toContain("verifyPackagedElectron");
+    expect(releaseScript).toContain("sanitizeUpdaterRuntimeEnvironment(environment)");
     expect(releaseScript).not.toContain("releasePlatformBundle");
-    expect(packageScript).toContain('signingIdentity: "-"');
+    expect(packageScript).toContain("package:electron:mac");
     expect(packageScript).not.toContain("test:native:");
     expect(buildWorkflow).not.toContain("test:native:");
     expect(buildWorkflow).not.toContain("attestation");
-    expect(macConfig.bundle.macOS.signingIdentity).toBe("-");
+    expect(macConfigSource).toContain('identity: "-"');
     expect(buildWorkflow).toContain("Get-AuthenticodeSignature");
     expect(buildWorkflow).toContain('$signature.Status -ne "NotSigned"');
     expect(buildWorkflow).not.toContain("WINDOWS_CERTIFICATE_THUMBPRINT");
-    expect(buildWorkflow).toContain("createTauriUpdaterManifest.mjs");
+    expect(buildWorkflow).toContain("createUpdaterManifest.mjs");
     expect(buildWorkflow).not.toContain("createLegacyUpdateManifests.mjs");
     expect(buildWorkflow).toContain("releaseArtifacts.mjs");
     expect(buildWorkflow).toContain("Rion.Studio-mac.app.tar.gz.sig");
@@ -979,15 +937,15 @@ describe("desktop shell migration workflows", () => {
     expect(releasePlanScript).toContain('git("branch", "--show-current") !== "main"');
     expect(releasePlanScript).toContain('git("branch", "--force", "main", sourceSha)');
     expect(releasePlanScript).toContain("has_release: Boolean(releaseVersion)");
-    expect(buildWorkflow.toLowerCase()).not.toContain("electron");
-    expect(compatibilityWorkflow.toLowerCase()).not.toContain("electron");
+    expect(buildWorkflow).toContain("--require-electron");
+    expect(compatibilityWorkflow).toContain("Rion Studio.exe");
   });
 
   it("validates the candidate before creating a resumable semantic draft", async () => {
     const [workflow, preflightWorkflow, compatibilityWorkflow, finalizeWorkflow, resumeWorkflow, config] = await Promise.all([
       readWorkflow(".github/workflows/release.yml"),
-      readWorkflow(".github/workflows/tauri-release-preflight.yml"),
-      readWorkflow(".github/workflows/tauri-release-compatibility.yml"),
+      readWorkflow(".github/workflows/desktop-release-preflight.yml"),
+      readWorkflow(".github/workflows/desktop-release-compatibility.yml"),
       readWorkflow(".github/workflows/finalize-private-release.yml"),
       readWorkflow(".github/workflows/resume-release.yml"),
       readWorkflow("release.config.mjs")
@@ -1003,14 +961,14 @@ describe("desktop shell migration workflows", () => {
     const semantic = workflow.slice(semanticIndex, finalizeIndex);
     const finalize = workflow.slice(finalizeIndex);
 
-    expect(workflow).toContain("name: Private Tauri Release");
+    expect(workflow).toContain("name: Private Electron Release");
     expect(workflow).toContain("workflow_run:");
-    expect(workflow).toContain("uses: ./.github/workflows/tauri-release-compatibility.yml");
-    expect(workflow).not.toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(workflow).toContain("uses: ./.github/workflows/desktop-release-compatibility.yml");
+    expect(workflow).not.toContain("uses: ./.github/workflows/desktop-release-build.yml");
     expect(awaitPreflight).toContain("needs: validate-ci-run");
     expect(awaitPreflight).toContain("timeout-minutes: 60");
     expect(awaitPreflight).toContain("actions: write");
-    expect(awaitPreflight).toContain('workflow_file="tauri-release-preflight.yml"');
+    expect(awaitPreflight).toContain('workflow_file="desktop-release-preflight.yml"');
     expect(awaitPreflight).toContain("wait_for_preflight push ''");
     expect(awaitPreflight).toContain("gh workflow run");
     expect(awaitPreflight).toContain("current_has_release");
@@ -1025,7 +983,7 @@ describe("desktop shell migration workflows", () => {
     expect(stage).toContain('gh run download "${PREFLIGHT_RUN_ID}"');
     expect(stage).toContain("Stage verified release assets for release checks");
     expect(stage).toContain("node scripts/releaseArtifacts.mjs release-assets");
-    expect(workflow).toContain("tauri-release-assets-");
+    expect(workflow).toContain("electron-release-assets-");
     expect(workflow).toContain(
       "name: ${{ needs.await-preflight.outputs.release_artifact_name }}"
     );
@@ -1062,10 +1020,10 @@ describe("desktop shell migration workflows", () => {
     expect(compatibilityIndex).toBeGreaterThan(stageIndex);
     expect(semanticIndex).toBeGreaterThan(compatibilityIndex);
     expect(finalizeIndex).toBeGreaterThan(semanticIndex);
-    expect(workflow.toLowerCase()).not.toContain("electron");
+    expect(workflow).toContain("name: Private Electron Release");
 
-    expect(preflightWorkflow).toContain("name: Tauri Release Preflight");
-    expect(preflightWorkflow).toContain("run-name: Tauri Release Preflight");
+    expect(preflightWorkflow).toContain("name: Electron Release Preflight");
+    expect(preflightWorkflow).toContain("run-name: Electron Release Preflight");
     expect(preflightWorkflow).toContain("  push:");
     expect(preflightWorkflow).toContain("      - main");
     expect(preflightWorkflow).toContain("workflow_dispatch:");
@@ -1073,7 +1031,7 @@ describe("desktop shell migration workflows", () => {
     expect(preflightWorkflow).toContain("pnpm run release:plan > release-plan.json");
     expect(preflightWorkflow).toContain("has_release=$(jq -r '.has_release' release-plan.json)");
     expect(preflightWorkflow).toContain("if: needs.plan-release.outputs.has_release == 'true'");
-    expect(preflightWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
+    expect(preflightWorkflow).toContain("uses: ./.github/workflows/desktop-release-build.yml");
     expect(preflightWorkflow).not.toContain("desktop-e2e-extended.yml");
     expect(preflightWorkflow).toContain("source_ref: ${{ needs.plan-release.outputs.source_ref }}");
     expect(preflightWorkflow).toContain("version: ${{ needs.plan-release.outputs.release_version }}");
@@ -1134,103 +1092,28 @@ describe("desktop shell migration workflows", () => {
     expect(workflow).not.toContain("gh release download");
   });
 
-  it("keeps generic public promotion restricted to stable Tauri v22 assets", async () => {
-    const [
-      publish,
-      finalize,
-      restore,
-      runtimePolicy,
-      candidate,
-      candidateProducer,
-      readiness,
-      updaterContract
-    ] = await Promise.all([
+  it("publishes and restores only Electron targets while recognizing legacy sources", async () => {
+    const [publish, finalize, restore, runtimePolicy, updaterContract] = await Promise.all([
       readWorkflow(".github/workflows/publish-public-release.yml"),
       readWorkflow(".github/workflows/finalize-private-release.yml"),
       readWorkflow(".github/workflows/restore-public-latest.yml"),
       readWorkflow("scripts/publicReleaseRuntimePolicy.mjs"),
-      readWorkflow(".github/workflows/electron-production-candidate.yml"),
-      readWorkflow("scripts/electronProductionCandidate.mjs"),
-      readWorkflow(".github/workflows/electron-production-promotion-readiness.yml"),
       readWorkflow("docs/updater-transaction-contract.md")
     ]);
-
     expect(publish).not.toContain("workflow_dispatch:");
-    expect(publish).toContain("release_contract:");
-    expect(publish).toContain('RELEASE_CONTRACT: ${{ inputs.release_contract }}');
-    expect(publish).toContain('test "${RELEASE_CONTRACT}" = "tauri-v22"');
-    expect(publish.match(/--require-tauri-v22/gu)?.length ?? 0).toBeGreaterThanOrEqual(3);
-    expect(finalize).toContain("release_contract: tauri-v22");
-    expect(finalize.match(/--require-tauri-v22/gu)).toHaveLength(2);
-    expect(restore).toContain("--require-tauri-v22");
-    expect(runtimePolicy).toContain("electron-production-candidate-receipt.json");
+    expect(publish).toContain('test "${RELEASE_CONTRACT}" = "electron-v23"');
+    expect(publish.match(/--require-electron/gu)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(publish).toContain("--require-supported-source");
+    expect(finalize).toContain("release_contract: electron-v23");
+    expect(finalize.match(/--require-electron/gu)).toHaveLength(2);
+    expect(restore).toContain("--require-electron");
+    expect(restore).toContain("--require-supported-source");
+    expect(runtimePolicy).toContain("assertElectronPublicReleaseAssets");
+    expect(runtimePolicy).toContain("assertStableTauriV22PublicReleaseAssets");
     expect(runtimePolicy).toContain("/Contents/Resources/app.asar");
     expect(runtimePolicy).toContain("/Contents/Frameworks/Electron Framework.framework");
-    expect(candidate).toContain("environment: electron-production-release");
-    expect(candidate).toContain(
-      "electron-production-candidate-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}"
-    );
-    expect(candidate).toContain(
-      "electron-production-macos-arm64-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}"
-    );
-    expect(candidate).toContain(
-      "electron-production-windows-x64-${{ inputs.version }}-${{ inputs.source_sha }}-attempt-${{ github.run_attempt }}"
-    );
-    expect(candidateProducer).toContain('status: "verified-not-published"');
-    expect(candidate).not.toContain("publish-public-release.yml");
-    for (const fragment of [
-      "electronProductionPromotionReadinessCli.mjs verify",
-      "Publication performed by this workflow: false",
-      "attestations: read",
-      "persist-credentials: false",
-      "EXPECTED_REPOSITORY: rion-tw/rion-studio-source",
-      'test "${DISPATCH_REF}" = "refs/heads/main"',
-      'test "${DISPATCH_REF_PROTECTED}" = "true"',
-      "@refs/heads/main",
-      "ref: ${{ github.sha }}",
-      'test "$(jq -r .head_repository.full_name <<< "${run_json}")" = "rion-tw/rion-studio-source"',
-      'test "$(jq -r .head_branch <<< "${run_json}")" = "main"',
-      'echo "${label}_control_sha=${control_sha}"',
-      "electron-production-candidate-trusted-control-${VERSION}-${SOURCE_SHA}",
-      "electron-production-candidate-trusted-control-${PRIOR_ELECTRON_VERSION}-${PRIOR_ELECTRON_SOURCE_SHA}",
-      "--candidate-trusted-control-receipt candidate-trusted-control/",
-      "--prior-candidate-trusted-control-receipt prior-candidate-trusted-control/",
-      '--candidate-run-control-sha "${CANDIDATE_CONTROL_SHA}"',
-      '--evidence-run-control-sha "${EVIDENCE_CONTROL_SHA}"',
-      '--provisional-publication-run-control-sha "${PROVISIONAL_PUBLICATION_CONTROL_SHA}"',
-      '--tauri-lineage-run-control-sha "${TAURI_LINEAGE_CONTROL_SHA}"',
-      '--readiness-control-sha "${READINESS_CONTROL_SHA}"',
-      '--signer-digest "${EVIDENCE_CONTROL_SHA}"',
-      '--signer-digest "${PROVISIONAL_PUBLICATION_CONTROL_SHA}"',
-      '--signer-digest "${TAURI_LINEAGE_CONTROL_SHA}"',
-      'jq -e --arg invocation_uri "${invocation_uri}"'
-    ]) expect(readiness).toContain(fragment);
-    expect(readiness).not.toContain('.head_sha <<< "${run_json}")" = "${SOURCE_SHA}"');
-    expect(readiness).not.toContain('--signer-digest "${SOURCE_SHA}"');
-    expect(readiness).not.toContain('--source-digest "${SOURCE_SHA}"');
-    const permissions = readiness.slice(
-      readiness.indexOf("permissions:"),
-      readiness.indexOf("\n\nconcurrency:")
-    );
-    expect(permissions.trim()).toBe([
-      "permissions:",
-      "  actions: read",
-      "  attestations: read",
-      "  contents: read"
-    ].join("\n"));
-    expect(readiness).not.toMatch(/^\s+[\w-]+:\s*write\s*$/mu);
-    expect(readiness).not.toMatch(/gh release (?:create|edit|upload)/u);
-    expect(updaterContract).toMatch(
-      /no approved or enabled provisional publisher/u
-    );
-    expect(updaterContract).toMatch(
-      /closed terminal-promotion schema and producer now exist/u
-    );
-    expect(updaterContract).toMatch(
-      /every finalizer job is literal\s+`if: \$\{\{ false \}\}`/u
-    );
-    expect(updaterContract).toContain("sourceUpdaterInvoked: false");
-    expect(updaterContract).toContain("terminal promotion receipt");
+    expect(updaterContract).toContain("Neither path may produce a new Tauri target.");
+    expect(updaterContract).toContain("no additional GitHub environment or recovery infrastructure");
   });
 
   it("updates public documents atomically and verifies the resulting managed tree", async () => {
@@ -1254,7 +1137,7 @@ describe("desktop shell migration workflows", () => {
     expect(workflow).toContain("Capture exact source and target snapshots by immutable release ID");
     expect(workflow).toContain('releases/${release_id}');
     expect(workflow).toContain('releases/assets/${asset_id}');
-    expect(workflow).toContain("deriveTauriV22ExpectedLatestState");
+    expect(workflow).toContain("derivePublishedReleaseExpectedLatestState");
     expect(workflow).toContain(
       "electronProductionPublicLatestLeaseRemoteCli.mjs acquire"
     );

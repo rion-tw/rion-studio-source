@@ -1,3 +1,5 @@
+// [state-combination:CHROMIUM-MACOS-APPKIT-ROLE-SESSION-CONTINUITY]
+// [state-combination:CHROMIUM-WINDOWS-ROLE-SESSION-CONTINUITY]
 import { focusWindowsRuntimeNativeWindow } from "../support/windows-runtime-foreground";
 import { clickWorkspaceSlot } from "../support/ui";
 import { createHash } from "node:crypto";

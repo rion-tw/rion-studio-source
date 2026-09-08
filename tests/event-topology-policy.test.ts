@@ -141,7 +141,7 @@ describe("event topology architecture contract", () => {
     const [rustContract, entryContract, ...parts] = await Promise.all([
       readFile(
         new URL(
-          "../src-tauri/src/system_runtime/section_02_native_operation_contract.rs",
+          "../crates/rion-core/src/app/section_01_event_queue_capacity.rs",
           import.meta.url
         ),
         "utf8"
@@ -149,7 +149,7 @@ describe("event topology architecture contract", () => {
       readFile(new URL("../docs/system-webview-runtime-contract.md", import.meta.url), "utf8"),
       ...partNames.map((name) => readFile(new URL(name, contractDirectory), "utf8"))
     ]);
-    const rustVersion = rustContract.match(/SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = (\d+);/u)?.[1];
+    const rustVersion = rustContract.match(/STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = (\d+);/u)?.[1];
     const entryVersion = entryContract.match(/^Contract version (\d+)\b/mu)?.[1];
 
     expect(rustVersion).toBeDefined();

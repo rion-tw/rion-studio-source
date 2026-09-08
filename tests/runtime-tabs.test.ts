@@ -1,13 +1,6 @@
-import { readSourceTree as readFile } from "./helpers/readSourceTree";
-
 import { describe, expect, it } from "vitest";
 
 import { formatRuntimeTabTooltip, isRuntimeTabAction } from "../src/shared/runtimeTabs";
-
-const systemRuntimeSource = await readFile(
-  new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
-  "utf8"
-);
 
 describe("runtime tab shell-neutral contracts", () => {
   it("accepts only bounded runtime tab action shapes", () => {
@@ -75,19 +68,4 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(formatRuntimeTabTooltip(tab, "zh-TW")).toBe("Daily：One, Two");
   });
 
-  it("forwards workspace templates through every native tab metadata path", () => {
-    expect(systemRuntimeSource.match(/"workspaceTemplate": workspace_template/g)).toHaveLength(2);
-    expect(
-      systemRuntimeSource.match(
-        /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+workspace_template: Option<String>,/g
-      )
-    ).toHaveLength(1);
-    expect(
-      systemRuntimeSource.match(
-        /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+let workspace_template/g
-      )
-    ).toHaveLength(4);
-    expect(systemRuntimeSource).toContain('"workspaceTemplate": presented.workspace_template');
-    expect(systemRuntimeSource).not.toContain("live.workspace_template.clone()");
-  });
 });

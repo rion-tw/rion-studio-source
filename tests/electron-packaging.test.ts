@@ -75,7 +75,7 @@ describe("Electron packaging contract", () => {
     }
   });
 
-  it("keeps packaging additive and pins the fuse verifier", async () => {
+  it("routes packaging to Electron and pins the fuse verifier", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
       scripts?: Record<string, string>;
       devDependencies?: Record<string, string>;
@@ -85,8 +85,8 @@ describe("Electron packaging contract", () => {
     expect(packageJson.devDependencies?.["@electron/fuses"]).toBe("2.1.3");
     expect(electronBuilderConfiguration.electronVersion)
       .toBe(packageJson.devDependencies?.electron);
-    expect(packageJson.scripts?.package).toBe("node scripts/packageTauri.mjs");
-    expect(packageJson.scripts?.dist).toBe("node scripts/buildTauriRelease.mjs");
+    expect(packageJson.scripts?.package).toBe("node scripts/packageElectron.mjs");
+    expect(packageJson.scripts?.dist).toBe("node scripts/buildElectronRelease.mjs");
     expect(packagePreparation).toContain("build:electron:rust:release");
     expect(packagePreparation).toContain("pnpm run verify:electron-runtime");
     expect(packagePreparation.indexOf("build:electron:rust:release"))

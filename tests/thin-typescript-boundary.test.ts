@@ -4,15 +4,14 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-describe("thin renderer and Tauri bridge boundary", () => {
+describe("thin renderer and Electron preload boundary", () => {
   it("keeps Node, Tauri, and browser automation imports out of renderer features", async () => {
     const files = await sourceFiles("src/renderer/src");
     const violations: string[] = [];
 
     for (const path of files) {
-      if (path.replaceAll("\\", "/").endsWith("/tauri/installTauriBridge.ts")) continue;
       const source = await readFile(path, "utf8");
-      if (/from\s+["'](?:node:|@tauri-apps\/|playwright|puppeteer)/.test(source)) {
+      if (/from\s+["'](?:node:|electron|@tauri-apps\/|playwright|puppeteer)/.test(source)) {
         violations.push(path);
       }
     }
@@ -20,17 +19,18 @@ describe("thin renderer and Tauri bridge boundary", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps filesystem and system WebView ownership in Rust", async () => {
+  it("keeps filesystem and topology authority in Rust behind the typed preload", async () => {
     const [bridge, core, shell] = await Promise.all([
-      readFile("src/renderer/src/tauri/installTauriBridge.ts", "utf8"),
+      readFile("src/electron/preload/installRionStudioBridge.ts", "utf8"),
       readSourceTree("crates/rion-core/src/app.rs", "utf8"),
-      readSourceTree("src-tauri/src/system_runtime.rs", "utf8")
+      readSourceTree("crates/rion-node/src/lib.rs", "utf8")
     ]);
 
     expect(bridge).not.toContain('from "node:fs');
     expect(bridge).not.toContain("writeFile(");
     expect(core).toContain("delete_role_saga");
-    expect(shell).toContain("SystemRuntimeExecutor");
+    expect(shell).toContain("AppCore::create");
+    expect(shell).toContain("CoreCommand");
   });
 });
 

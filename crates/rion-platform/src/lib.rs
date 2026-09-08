@@ -25,8 +25,6 @@ pub use protected_data::{
     SESSION_TRANSFER_V2_MAX_PLAINTEXT_BYTES, protect_session_transfer, protect_session_transfer_v2,
     unprotect_session_transfer, unprotect_session_transfer_v2,
 };
-mod system_fonts;
-pub use system_fonts::query_system_font_names;
 mod system;
 pub use system::{
     SystemHostDiagnostics, collect_system_host_diagnostics, request_graceful_chrome_quit,

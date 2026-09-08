@@ -1,4 +1,4 @@
-name: Private Tauri Release
+name: Private Electron Release
 
 on:
   workflow_run:
@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: private-tauri-release-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: private-electron-release-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -70,7 +70,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Require a matching successful Tauri preflight
+      - name: Require a matching successful Electron preflight
         id: gate
         shell: bash
         env:
@@ -78,7 +78,7 @@ jobs:
           SOURCE_REF: ${{ needs.validate-ci-run.outputs.source_ref }}
         run: |
           set -euo pipefail
-          workflow_file="tauri-release-preflight.yml"
+          workflow_file="desktop-release-preflight.yml"
           artifact_name="release-preflight-${SOURCE_REF}"
 
           wait_for_preflight() {
@@ -106,7 +106,7 @@ jobs:
               fi
               sleep 15
             done
-            echo "Timed out waiting for ${event_name} Tauri release preflight for ${SOURCE_REF}." >&2
+            echo "Timed out waiting for ${event_name} Electron release preflight for ${SOURCE_REF}." >&2
             return 1
           }
 
@@ -123,7 +123,7 @@ jobs:
                then .build_result == "success" and
                     (.release_version | test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$")) and
                     (.release_tag == ("v" + .release_version)) and
-                    (.artifact_name == ("tauri-release-assets-" + .release_version))
+                    (.artifact_name == ("electron-release-assets-" + .release_version))
                else .build_result == "skipped" and
                     .release_version == "" and .release_tag == "" and .artifact_name == ""
                end)
@@ -156,7 +156,7 @@ jobs:
 
           if [[ "${preflight_has_release}" != true || "${preflight_version}" != "${current_version}" ]]; then
             gh workflow run "${workflow_file}" --repo "${GITHUB_REPOSITORY}" --ref main -f "source_ref=${SOURCE_REF}"
-            expected_title="Tauri Release Preflight (${SOURCE_REF})"
+            expected_title="Electron Release Preflight (${SOURCE_REF})"
             preflight_run_id="$(wait_for_preflight workflow_dispatch "${expected_title}")"
             read_metadata "${preflight_run_id}"
           fi
@@ -168,7 +168,7 @@ jobs:
           test "${has_release}" = true
           test "${release_version}" = "${current_version}"
           test "${release_tag}" = "v${release_version}"
-          test "${release_artifact_name}" = "tauri-release-assets-${release_version}"
+          test "${release_artifact_name}" = "electron-release-assets-${release_version}"
           echo "has_release=${has_release}" >> "${GITHUB_OUTPUT}"
           echo "preflight_run_id=${preflight_run_id}" >> "${GITHUB_OUTPUT}"
           echo "release_artifact_name=${release_artifact_name}" >> "${GITHUB_OUTPUT}"
@@ -199,7 +199,7 @@ jobs:
           VERSION: ${{ needs.await-preflight.outputs.release_version }}
         run: |
           set -euo pipefail
-          test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"
+          test "${ARTIFACT_NAME}" = "electron-release-assets-${VERSION}"
           [[ "${PREFLIGHT_RUN_ID}" =~ ^[0-9]+$ ]]
           gh run download "${PREFLIGHT_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "${ARTIFACT_NAME}" --dir release-assets
           node scripts/releaseArtifacts.mjs release-assets "${VERSION}" --verify-checksums
@@ -216,7 +216,7 @@ jobs:
     needs:
       - await-preflight
       - stage-preflight-release
-    uses: ./.github/workflows/tauri-release-compatibility.yml
+    uses: ./.github/workflows/desktop-release-compatibility.yml
     with:
       source_ref: ${{ needs.await-preflight.outputs.source_ref }}
       version: ${{ needs.await-preflight.outputs.release_version }}

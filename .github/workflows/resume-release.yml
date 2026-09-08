@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: private-tauri-release-${{ inputs.tag }}
+  group: private-electron-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -47,7 +47,7 @@ jobs:
           git merge-base --is-ancestor "${source_ref}" origin/main
           release_json="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json tagName,isDraft)"
           test "$(jq -r .tagName <<< "${release_json}")" = "${TAG}"
-          preflight_run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/tauri-release-preflight.yml/runs?head_sha=${source_ref}&status=success&per_page=100" --jq '[.workflow_runs[] | select(.head_sha == env.source_ref and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty' 2>/dev/null || true)"
+          preflight_run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/desktop-release-preflight.yml/runs?head_sha=${source_ref}&status=success&per_page=100" --jq '[.workflow_runs[] | select(.head_sha == env.source_ref and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty' 2>/dev/null || true)"
           echo "source_ref=${source_ref}" >> "${GITHUB_OUTPUT}"
           echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
           echo "preflight_run_id=${preflight_run_id}" >> "${GITHUB_OUTPUT}"
@@ -70,7 +70,7 @@ jobs:
       - name: Download and verify preserved preflight candidate
         shell: bash
         env:
-          ARTIFACT_NAME: tauri-release-assets-${{ needs.resolve-release.outputs.version }}
+          ARTIFACT_NAME: electron-release-assets-${{ needs.resolve-release.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREFLIGHT_RUN_ID: ${{ needs.resolve-release.outputs.preflight_run_id }}
           VERSION: ${{ needs.resolve-release.outputs.version }}
@@ -83,19 +83,19 @@ jobs:
         id: artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: tauri-release-assets-${{ needs.resolve-release.outputs.version }}
+          name: electron-release-assets-${{ needs.resolve-release.outputs.version }}
           if-no-files-found: error
           retention-days: 14
           path: release-assets
       - name: Record staged artifact name
         id: artifact_name
         shell: bash
-        run: echo "release_artifact_name=tauri-release-assets-${{ needs.resolve-release.outputs.version }}" >> "${GITHUB_OUTPUT}"
+        run: echo "release_artifact_name=electron-release-assets-${{ needs.resolve-release.outputs.version }}" >> "${GITHUB_OUTPUT}"
 
   rebuild-release:
     needs: resolve-release
     if: needs.resolve-release.outputs.preflight_run_id == ''
-    uses: ./.github/workflows/tauri-release-build.yml
+    uses: ./.github/workflows/desktop-release-build.yml
     with:
       source_ref: ${{ needs.resolve-release.outputs.source_ref }}
       version: ${{ needs.resolve-release.outputs.version }}
@@ -114,7 +114,7 @@ jobs:
     if: >-
       always() &&
       (needs.stage-preflight-release.result == 'success' || needs.rebuild-release.result == 'success')
-    uses: ./.github/workflows/tauri-release-compatibility.yml
+    uses: ./.github/workflows/desktop-release-compatibility.yml
     with:
       source_ref: ${{ needs.resolve-release.outputs.source_ref }}
       version: ${{ needs.resolve-release.outputs.version }}

@@ -8,6 +8,7 @@ import { validateDesktopE2eCoverage } from "../scripts/checkDesktopE2eCoverage.m
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 type CoverageManifest = {
+  retiredCompatibility: { journeys: unknown[] };
   journeys: Array<{
     coverageGroup?: string;
     id: string;
@@ -41,8 +42,8 @@ async function createCoverageFixture(): Promise<string> {
     JSON.stringify(manifest)
   );
   await copyFile(
-    resolve(repositoryRoot, "e2e/desktop/wdio.conf.ts"),
-    resolve(temporaryRoot, "e2e/desktop/wdio.conf.ts")
+    resolve(repositoryRoot, "e2e/desktop/wdio.electron.conf.ts"),
+    resolve(temporaryRoot, "e2e/desktop/wdio.electron.conf.ts")
   );
   await copyFile(
     resolve(repositoryRoot, "e2e/desktop/phaseSpecs.ts"),
@@ -60,15 +61,14 @@ describe("desktop E2E coverage policy", () => {
     const result = await validateDesktopE2eCoverage(repositoryRoot);
     expect(result.failures).toEqual([]);
     expect(result.manifest.runtimeTargets).toMatchObject({
-      "tauri-v22": { status: "active-compatibility", cutoverRequired: false },
       "chromium-v23-macos-appkit": {
-        status: "planned",
+        status: "active-compatibility",
         cutoverRequired: true,
         driver: "electron",
         platforms: ["macos"]
       },
       "chromium-v23-windows": {
-        status: "planned",
+        status: "active-compatibility",
         cutoverRequired: true,
         driver: "electron",
         platforms: ["windows"]
@@ -86,6 +86,18 @@ describe("desktop E2E coverage policy", () => {
         missingJourneyIds: []
       }
     });
+  });
+
+  it("rejects edits to the preserved v22 parity baseline", async () => {
+    const temporaryRoot = await createCoverageFixture();
+    const manifestPath = resolve(temporaryRoot, "docs/e2e-coverage.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as CoverageManifest;
+    manifest.retiredCompatibility.journeys.pop();
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const result = await validateDesktopE2eCoverage(temporaryRoot);
+    expect(result.failures).toContain(
+      "retired v22 compatibility baseline differs from its preserved source evidence"
+    );
   });
 
   it("blocks a cutover target from becoming active before every v22 P0/P1 replacement exists", async () => {
@@ -296,12 +308,12 @@ describe("desktop E2E coverage policy", () => {
     const temporaryRoot = await createCoverageFixture();
     const manifestPath = resolve(temporaryRoot, "docs/e2e-coverage.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as CoverageManifest;
-    manifest.profiles.full!.runtimeTarget = "chromium-v23-windows";
+    manifest.profiles["chromium-macos-appkit-hardware-extended"]!.runtimeTarget = "chromium-v23-windows";
     await writeFile(manifestPath, JSON.stringify(manifest));
 
     const result = await validateDesktopE2eCoverage(temporaryRoot);
     expect(result.failures).toContain(
-      "full: inherited profiles must use the same runtime target"
+      "chromium-macos-appkit-hardware-extended: inherited profiles must use the same runtime target"
     );
   });
 
@@ -335,8 +347,8 @@ describe("desktop E2E coverage policy", () => {
     await mkdir(resolve(temporaryRoot, "e2e/desktop"), { recursive: true });
     await writeFile(resolve(temporaryRoot, "docs/e2e-coverage.json"), JSON.stringify(manifest));
     await copyFile(
-      resolve(repositoryRoot, "e2e/desktop/wdio.conf.ts"),
-      resolve(temporaryRoot, "e2e/desktop/wdio.conf.ts")
+      resolve(repositoryRoot, "e2e/desktop/wdio.electron.conf.ts"),
+      resolve(temporaryRoot, "e2e/desktop/wdio.electron.conf.ts")
     );
     await copyFile(
       resolve(repositoryRoot, "e2e/desktop/phaseSpecs.ts"),
@@ -361,8 +373,8 @@ describe("desktop E2E coverage policy", () => {
     await mkdir(resolve(temporaryRoot, "e2e/desktop"), { recursive: true });
     await writeFile(resolve(temporaryRoot, "docs/e2e-coverage.json"), JSON.stringify(manifest));
     await copyFile(
-      resolve(repositoryRoot, "e2e/desktop/wdio.conf.ts"),
-      resolve(temporaryRoot, "e2e/desktop/wdio.conf.ts")
+      resolve(repositoryRoot, "e2e/desktop/wdio.electron.conf.ts"),
+      resolve(temporaryRoot, "e2e/desktop/wdio.electron.conf.ts")
     );
     await copyFile(
       resolve(repositoryRoot, "e2e/desktop/phaseSpecs.ts"),
@@ -373,12 +385,12 @@ describe("desktop E2E coverage policy", () => {
       await copyFile(resolve(repositoryRoot, spec), resolve(temporaryRoot, spec));
     }
     await appendFile(
-      resolve(temporaryRoot, "e2e/desktop/specs/app-journeys.e2e.ts"),
-      "\n// [journey:APP-LEGAL-001]\n"
+      resolve(temporaryRoot, "e2e/desktop/specs/chromium-game-crud.e2e.ts"),
+      "\n// [journey:CHROMIUM-MACOS-APPKIT-LEGAL-007]\n"
     );
 
     const result = await validateDesktopE2eCoverage(temporaryRoot);
-    expect(result.failures).toContain("APP-LEGAL-001: journey marker must appear exactly once");
+    expect(result.failures).toContain("CHROMIUM-MACOS-APPKIT-LEGAL-007: journey marker must appear exactly once");
   });
 
   it("rejects automated P0/P1 journeys without phase evidence", async () => {
@@ -386,7 +398,7 @@ describe("desktop E2E coverage policy", () => {
     const manifest = JSON.parse(
       await readFile(resolve(repositoryRoot, "docs/e2e-coverage.json"), "utf8")
     ) as CoverageManifest;
-    const legal = manifest.journeys.find((journey) => journey.id === "APP-LEGAL-001");
+    const legal = manifest.journeys.find((journey) => journey.id === "CHROMIUM-MACOS-APPKIT-LEGAL-007");
     if (!legal) throw new Error("Expected the legal journey");
     delete legal.phases;
     const specs = new Set<string>(Object.values(manifest.profiles).flatMap((profile) => profile.specs));
@@ -394,8 +406,8 @@ describe("desktop E2E coverage policy", () => {
     await mkdir(resolve(temporaryRoot, "e2e/desktop"), { recursive: true });
     await writeFile(resolve(temporaryRoot, "docs/e2e-coverage.json"), JSON.stringify(manifest));
     await copyFile(
-      resolve(repositoryRoot, "e2e/desktop/wdio.conf.ts"),
-      resolve(temporaryRoot, "e2e/desktop/wdio.conf.ts")
+      resolve(repositoryRoot, "e2e/desktop/wdio.electron.conf.ts"),
+      resolve(temporaryRoot, "e2e/desktop/wdio.electron.conf.ts")
     );
     await copyFile(
       resolve(repositoryRoot, "e2e/desktop/phaseSpecs.ts"),
@@ -408,7 +420,7 @@ describe("desktop E2E coverage policy", () => {
 
     const result = await validateDesktopE2eCoverage(temporaryRoot);
     expect(result.failures).toContain(
-      "APP-LEGAL-001: automated P0/P1 journey must list evidence phases"
+      "CHROMIUM-MACOS-APPKIT-LEGAL-007: automated P0/P1 journey must list evidence phases"
     );
   });
 
@@ -422,8 +434,8 @@ describe("desktop E2E coverage policy", () => {
     await mkdir(resolve(temporaryRoot, "e2e/desktop"), { recursive: true });
     await writeFile(resolve(temporaryRoot, "docs/e2e-coverage.json"), JSON.stringify(manifest));
     await copyFile(
-      resolve(repositoryRoot, "e2e/desktop/wdio.conf.ts"),
-      resolve(temporaryRoot, "e2e/desktop/wdio.conf.ts")
+      resolve(repositoryRoot, "e2e/desktop/wdio.electron.conf.ts"),
+      resolve(temporaryRoot, "e2e/desktop/wdio.electron.conf.ts")
     );
     await copyFile(
       resolve(repositoryRoot, "e2e/desktop/phaseSpecs.ts"),

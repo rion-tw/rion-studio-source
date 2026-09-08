@@ -20,40 +20,26 @@ afterEach(async () => {
 });
 
 describe("Electron renderer purity", () => {
-  it("uses a shell-specific entry while retaining the Tauri compatibility entry", async () => {
-    const [
-      bootstrap,
-      electronEntry,
-      electronVite,
-      rendererDocument,
-      tauriEntry,
-      tauriVite
-    ] = await Promise.all([
-      readFile("src/renderer/src/app/bootstrapRenderer.tsx", "utf8"),
-      readFile("src/renderer/src/electron.tsx", "utf8"),
-      readFile("electron.vite.config.ts", "utf8"),
+  it("uses one typed Electron entry and excludes retired renderer documents", async () => {
+    const [rendererDocument, entry, bootstrap, vite] = await Promise.all([
       readFile("src/renderer/index.html", "utf8"),
       readFile("src/renderer/src/main.tsx", "utf8"),
-      readFile("vite.tauri.config.ts", "utf8")
+      readFile("src/renderer/src/app/bootstrapRenderer.tsx", "utf8"),
+      readFile("electron.vite.config.ts", "utf8")
     ]);
-
     expect(rendererDocument).toContain('src="/src/main.tsx"');
-    expect(tauriEntry).toContain("installTauriBridgeIfNeeded");
-    expect(tauriEntry).toContain("@wdio/tauri-plugin");
-    expect(electronVite).toContain('src="/src/electron.tsx"');
-    expect(electronVite).toContain("electronRendererEntryPlugin()");
-    expect(electronEntry).toContain("window.rionStudio");
-    expect(bootstrap).not.toContain("@tauri-apps/api");
-    expect(bootstrap).not.toContain("__TAURI_INTERNALS__");
+    expect(entry).toContain("prepareElectronRenderer");
+    expect(entry).toContain("window.rionStudio");
+    expect(vite).not.toContain("electronRendererEntryPlugin");
     for (const marker of FORBIDDEN_ELECTRON_RENDERER_MARKERS) {
-      expect(electronEntry).not.toContain(marker);
+      expect(entry).not.toContain(marker);
+      expect(bootstrap).not.toContain(marker);
     }
     for (const document of TAURI_COMPATIBILITY_RENDERER_DOCUMENTS) {
-      expect(electronVite).not.toContain(`src/renderer/${document}`);
-      expect(tauriVite).toContain(`src/renderer/${document}`);
+      expect(vite).not.toContain("src/renderer/" + document);
     }
     for (const document of ELECTRON_RENDERER_DOCUMENTS) {
-      expect(electronVite).toContain(`src/renderer/${document}`);
+      expect(vite).toContain("src/renderer/" + document);
     }
   });
 

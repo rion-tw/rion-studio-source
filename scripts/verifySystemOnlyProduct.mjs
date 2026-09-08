@@ -6,6 +6,13 @@ import { TAURI_COMPATIBILITY_RENDERER_DOCUMENTS } from "./verifyElectronRenderer
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const removedPaths = [
+  "src-tauri/Cargo.toml",
+  "vite.tauri.config.ts",
+  "src/renderer/src/tauri",
+  "src/renderer/runtime-shell",
+  "scripts/buildTauriRelease.mjs",
+  "scripts/packageTauri.mjs",
+  "scripts/devTauri.mjs",
   "electron-builder.config.d.mts",
   "native/macos/runtime-tabs",
   "native/windows/webview2",
@@ -67,8 +74,6 @@ const sourceRoots = [
   "crates/rion-platform/src",
   "scripts",
   "src/electron",
-  "src-tauri",
-  "src/renderer/runtime-shell",
   "src/renderer/src",
   "src/shared"
 ];
@@ -135,40 +140,6 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs"
   ])]
 ]);
-const migrationElectronPrefixes = [
-  ".github/workflows/",
-  "crates/rion-node/",
-  "crates/rion-core/src/app/tests/behavior_25_runtime_ui_actions.rs",
-  "scripts/checkDesktopE2eCoverage.mjs",
-  "scripts/buildElectron",
-  "scripts/buildElectronDesktopE2e.mjs",
-  "scripts/desktopE2eChromium",
-  "scripts/desktopE2eRuntimeTarget",
-  "scripts/electron",
-  "scripts/eventTopologyPolicy.mjs",
-  "scripts/finalizeMacosElectronUpdaterCompatibilityReceipt",
-  "scripts/finalizeWindowsElectronUpdaterCompatibilityReceipt",
-  "scripts/packagedElectron",
-  "scripts/prepareElectron",
-  "scripts/publicReleaseRuntimePolicy.mjs",
-  "scripts/runElectron",
-  "scripts/runDesktopE2e.mjs",
-  "scripts/runPackagedElectron",
-  "scripts/restoreElectron",
-  "scripts/runtimeEnvironmentPolicy.mjs",
-  "scripts/tauriV22PublicLineage.mjs",
-  "scripts/verifyDesktopE2eIsolation.mjs",
-  "scripts/verifyDesktopE2eBuild",
-  "scripts/verifyElectron",
-  "scripts/verifyTauriV22UpdaterInput.mjs",
-  "scripts/windowsElectronInstallerPayloadProof",
-  "src/electron/",
-  "src/renderer/src/electron.tsx",
-  "src/renderer/src/app/windowGestureMode.ts",
-  "src/renderer/src/global.d.ts",
-  "tests/electron-"
-];
-
 const probePath = optionValue("--probe");
 if (probePath) {
   const source = await readFile(probePath, "utf8");
@@ -188,10 +159,14 @@ for (const path of removedPaths) {
 }
 
 for (const root of sourceRoots) {
-  for (const path of await sourceFiles(join(repositoryRoot, root))) {
-    const repositoryPath = relative(repositoryRoot, path).replaceAll("\\", "/");
-    const source = await readFile(path, "utf8");
-    failures.push(...inspectSource(repositoryPath, source));
+  const paths = await sourceFiles(join(repositoryRoot, root));
+  for (let offset = 0; offset < paths.length; offset += 16) {
+    const batch = paths.slice(offset, offset + 16);
+    const sources = await Promise.all(batch.map((path) => readFile(path, "utf8")));
+    for (const [index, path] of batch.entries()) {
+      const repositoryPath = relative(repositoryRoot, path).replaceAll("\\", "/");
+      failures.push(...inspectSource(repositoryPath, sources[index]));
+    }
   }
 }
 
@@ -204,6 +179,9 @@ const directPackages = {
   ...packageJson.devDependencies
 };
 for (const name of [
+  "@tauri-apps/api",
+  "@wdio/tauri-plugin",
+  "@wdio/tauri-service",
   "@electron/osx-sign",
   "electron-updater",
   "node-gyp"
@@ -226,15 +204,14 @@ for (const [name, command] of Object.entries(packageJson.scripts ?? {})) {
   if (/node-gyp|buildMacRuntimeTabs|buildWindowsWebView2/i.test(command)) {
     failures.push(`package script ${name} invokes a retired native-shell build path`);
   }
-  if (/electron(?:-builder|-vite)?/i.test(command) && !/electron/i.test(name)) {
-    failures.push(`package script ${name} hides an Electron migration command behind a non-Electron name`);
+  if (/rion-tauri|vite\.tauri|(?:exec\s+tauri\s+(?:build|dev))/iu.test(command)) {
+    failures.push(`package script ${name} invokes the retired Tauri runtime`);
   }
 }
 
-const [electronViteSource, electronRendererEntry, tauriRendererEntry, rendererDocument] =
+const [electronViteSource, electronRendererEntry, rendererDocument] =
   await Promise.all([
     readFile(join(repositoryRoot, "electron.vite.config.ts"), "utf8"),
-    readFile(join(repositoryRoot, "src/renderer/src/electron.tsx"), "utf8"),
     readFile(join(repositoryRoot, "src/renderer/src/main.tsx"), "utf8"),
     readFile(join(repositoryRoot, "src/renderer/index.html"), "utf8")
   ]);
@@ -243,9 +220,6 @@ for (const token of ["@tauri-apps/api", "__TAURI_INTERNALS__", "installTauriBrid
     failures.push(`Electron renderer entry contains Tauri compatibility token ${token}`);
   }
 }
-if (!electronViteSource.includes('src="/src/electron.tsx"')) {
-  failures.push("electron.vite.config.ts does not select the pure Electron renderer entry");
-}
 for (const document of TAURI_COMPATIBILITY_RENDERER_DOCUMENTS) {
   if (electronViteSource.includes(`src/renderer/${document}`)) {
     failures.push(`electron.vite.config.ts includes Tauri compatibility document ${document}`);
@@ -253,12 +227,15 @@ for (const document of TAURI_COMPATIBILITY_RENDERER_DOCUMENTS) {
 }
 if (
   !rendererDocument.includes('src="/src/main.tsx"') ||
-  !tauriRendererEntry.includes("installTauriBridgeIfNeeded")
+  !electronRendererEntry.includes("prepareElectronRenderer")
 ) {
-  failures.push("The stable Tauri compatibility renderer entry is not preserved");
+  failures.push("The sole renderer entry must require the typed Electron preload bridge");
 }
 
 const cargoWorkspace = await readFile(join(repositoryRoot, "Cargo.toml"), "utf8");
+for (const token of ['"src-tauri"', 'tauri =', 'tauri-build =']) {
+  if (cargoWorkspace.includes(token)) failures.push(`Cargo workspace retains ${token}`);
+}
 for (const token of ["crates/rion-node", "napi =", "napi-build", "napi-derive"]) {
   if (!cargoWorkspace.includes(token)) failures.push(`Cargo workspace is missing migration dependency ${token}`);
 }
@@ -376,18 +353,6 @@ for (const retiredGraphicsArgument of [
     failures.push(`System WebView bootstrap still applies retired graphics argument ${retiredGraphicsArgument}.`);
   }
 }
-const productionSystemRuntime = await readRustSourceTree(
-  join(repositoryRoot, "src-tauri/src/system_runtime.rs"),
-).then((source) => source.split("#[cfg(test)]", 1)[0]);
-for (const customBackgroundMechanism of [
-  "MemoryUsageTargetLevel",
-  "PreferredBackgroundTimerWakeInterval",
-  "TrySuspend"
-]) {
-  if (productionSystemRuntime.includes(customBackgroundMechanism)) {
-    failures.push(`System WebView runtime uses forbidden custom background mechanism ${customBackgroundMechanism}.`);
-  }
-}
 for (const [path, retiredContract] of [
   ["src/shared/api.ts", "getGraphicsDiagnostics"],
   ["src/shared/api.ts", "restartApplication"],
@@ -403,7 +368,7 @@ for (const [path, retiredContract] of [
 if (failures.length > 0) {
   throw new Error(`Desktop shell migration gate failed:\n- ${failures.join("\n- ")}`);
 }
-console.log("Verified stable Tauri boundary plus scoped Electron migration: Rust remains authoritative and no External Chrome, unguarded remote-debugging transport, CDN, proxy, or profile runtime fallback is present.");
+console.log("Verified sole Electron runtime boundary: Rust remains authoritative and no External Chrome, unguarded remote-debugging transport, CDN, proxy, or profile runtime fallback is present.");
 
 async function exists(path) {
   try {
@@ -454,8 +419,7 @@ function inspectSource(repositoryPath, source) {
     }
   }
   for (const [token, allowlist] of migrationOnlyTokens) {
-    const migrationElectronSource = token === "electron" &&
-      migrationElectronPrefixes.some((prefix) => repositoryPath.startsWith(prefix));
+    const migrationElectronSource = token === "electron";
     if (source.toLowerCase().includes(token.toLowerCase()) &&
         !allowlist.has(repositoryPath) && !migrationElectronSource) {
       findings.push(`${repositoryPath} contains migration-only token ${token}`);

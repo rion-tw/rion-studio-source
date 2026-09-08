@@ -4,9 +4,11 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 export const RELEASE_SIZE_LIMITS = Object.freeze({
-  "Rion.Studio-mac.app.tar.gz": 16 * 1024 * 1024,
-  "Rion.Studio-mac.dmg": 18 * 1024 * 1024,
-  "Rion.Studio-win.exe": 12 * 1024 * 1024
+  // Bundled Chromium replaces the OS WebView: the Windows fixture is ~97 MiB.
+  // Keep explicit compressed distribution budgets, including the macOS framework.
+  "Rion.Studio-mac.app.tar.gz": 256 * 1024 * 1024,
+  "Rion.Studio-mac.dmg": 256 * 1024 * 1024,
+  "Rion.Studio-win.exe": 128 * 1024 * 1024
 });
 
 const MAC_ARTIFACTS = ["Rion.Studio-mac.app.tar.gz", "Rion.Studio-mac.dmg"];

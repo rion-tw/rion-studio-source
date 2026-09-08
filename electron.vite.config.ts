@@ -29,28 +29,6 @@ const rendererInput = {
     "src/renderer/runtime-role-placeholder-electron.html"
   )
 };
-const tauriRendererEntry = '<script type="module" src="/src/main.tsx"></script>';
-const electronRendererEntry = '<script type="module" src="/src/electron.tsx"></script>';
-
-export function electronRendererEntryPlugin() {
-  return {
-    name: "rion-electron-renderer-entry",
-    transformIndexHtml: {
-      order: "pre" as const,
-      handler(html: string, context: { filename: string }): string {
-        if (resolve(context.filename) !== rendererInput.main) return html;
-        const entryCount = html.split(tauriRendererEntry).length - 1;
-        if (entryCount !== 1) {
-          throw new Error(
-            `Electron renderer expected one Tauri compatibility entry; received ${entryCount}.`
-          );
-        }
-        return html.replace(tauriRendererEntry, electronRendererEntry);
-      }
-    }
-  };
-}
-
 export default defineConfig({
   main: {
     plugins: [electronMainBundleGuard()],
@@ -95,7 +73,6 @@ export default defineConfig({
   },
   renderer: {
     define: {
-      __RION_DESKTOP_SHELL__: JSON.stringify("electron"),
       __RION_DESKTOP_E2E__: JSON.stringify(
         process.env.RION_STUDIO_DESKTOP_E2E_BUILD === "1"
       ),
@@ -104,7 +81,7 @@ export default defineConfig({
       )
     },
     root: "src/renderer",
-    plugins: [electronRendererEntryPlugin(), tailwindcss(), react(), electronReactRefresh()],
+    plugins: [tailwindcss(), react(), electronReactRefresh()],
     build: {
       emptyOutDir: true,
       outDir: resolve(repositoryRoot, "out/renderer"),

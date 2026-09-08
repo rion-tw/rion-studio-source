@@ -421,11 +421,7 @@ impl AppCore {
                     CoreError::Internal("system font cache lock poisoned".to_owned())
                 })?;
                 if cache.is_none() {
-                    let queried = if self.runtime_contract_version >= 23 {
-                        families.unwrap_or_default()
-                    } else {
-                        rion_platform::query_system_font_names(self.platform).unwrap_or_default()
-                    };
+                    let queried = families.unwrap_or_default();
                     *cache = Some(crate::system_fonts::normalize_or_fallback(queried));
                 }
                 serde_json::to_value(cache.as_ref().expect("font cache initialized"))

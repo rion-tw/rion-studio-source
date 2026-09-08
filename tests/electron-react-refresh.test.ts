@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +10,8 @@ describe("Electron development React startup", () => {
   it("serves the Vite React preamble externally under the strict script policy", async () => {
     const server = await createServer({
       configFile: false,
+      // Bound Vite's entry discovery and watcher to this test's HTML fixture.
+      root: fileURLToPath(new URL("./fixtures/react-refresh/", import.meta.url)),
       plugins: [react(), electronReactRefresh()],
       server: { middlewareMode: true, hmr: { port: 0 } },
       appType: "custom"

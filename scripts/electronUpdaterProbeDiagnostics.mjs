@@ -1,8 +1,8 @@
 import { lstat, open } from "node:fs/promises";
 import { basename, dirname, isAbsolute } from "node:path";
+import { summarizeNativeProbeError } from "./nativeProbeFailureDiagnostics.mjs";
 
 const FILE_NAME = "packaged-updater-probe-observations.json";
-const MAX_TEXT_CHARACTERS = 8192;
 
 export async function runUpdaterProbeWithDiagnostics({
   run, outputPath, sourceSha, platform, privateValues = []
@@ -42,7 +42,7 @@ export async function runUpdaterProbeWithDiagnostics({
       completedAt: new Date().toISOString(),
       ...(failures.length === 0
         ? { observations }
-        : { error: summarizeError(primaryError, privateValues) })
+        : { error: summarizeNativeProbeError(primaryError, privateValues) })
     }, null, 2) + "\n");
     await file.sync();
   } catch (error) {
@@ -58,37 +58,4 @@ export async function runUpdaterProbeWithDiagnostics({
     throw new AggregateError(failures, "Updater probe and diagnostic persistence failures.");
   }
   return observations;
-}
-
-function summarizeError(error, privateValues, depth = 0, budget = { nodes: 32, text: 32768 }) {
-  if (budget.nodes-- <= 0 || budget.text <= 0) {
-    return { message: "[diagnostic limit reached]" };
-  }
-  const text = (value) => {
-    let result = typeof value === "string" ? value : String(value);
-    for (const secret of privateValues) {
-      if (typeof secret === "string" && secret.length > 0) {
-        result = result.replaceAll(secret, "[redacted]");
-      }
-    }
-    const maximum = Math.min(MAX_TEXT_CHARACTERS, budget.text);
-    budget.text -= Math.min(result.length, maximum);
-    return result.length > maximum
-      ? result.slice(0, maximum) + " [truncated]" : result;
-  };
-  if (!(error instanceof Error)) return { message: text(error) };
-  return {
-    name: text(error.name),
-    ...(error.code !== undefined ? { code: text(error.code) } : {}),
-    message: text(error.message),
-    ...(error.stdout !== undefined ? { stdout: text(error.stdout) } : {}),
-    ...(error.stderr !== undefined ? { stderr: text(error.stderr) } : {}),
-    ...(error.cause !== undefined && depth < 3
-      ? { cause: summarizeError(error.cause, privateValues, depth + 1, budget) }
-      : {}),
-    ...(error instanceof AggregateError && depth < 3
-      ? { errors: error.errors.slice(0, 8).map((item) =>
-        summarizeError(item, privateValues, depth + 1, budget)) }
-      : {})
-  };
 }

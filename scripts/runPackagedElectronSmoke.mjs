@@ -30,6 +30,8 @@ import { createPackagedElectronRuntimeEnvironment } from
   "./runtimeEnvironmentPolicy.mjs";
 import { createDarwinPrivatePackagedElectronBundle } from
   "./packagedElectronDarwinPrivateBundle.mjs";
+import { throwPackagedSmokeFailureWithDiagnostics } from
+  "./packagedElectronSmokeFailureDiagnostics.mjs";
 import {
   assertPackagedElectronPackageManifestUnchanged,
   capturePackagedElectronPackageManifest,
@@ -42,7 +44,6 @@ import {
   createPackagedElectronPrivateBundleContainment,
   createPackagedElectronProcessOwner,
   packagedElectronSpawnOptions,
-  packagedSmokeFailure,
   terminatePackagedElectronProcessTree,
   terminatePackagedElectronPrivateBundleContainment,
   waitForPackagedElectronProcessClose,
@@ -115,6 +116,7 @@ let stderr = "";
 let nativeHostKind;
 let privateBundle;
 let processTreeTerminal = false;
+let stage = "verify-execution-package";
 try {
   if (process.platform === "darwin") {
     privateBundle = await createDarwinPrivatePackagedElectronBundle(applicationPath);
@@ -143,6 +145,7 @@ try {
     executablePath,
     nativeAddonPath
   });
+  stage = "seed-core-fixture";
   const seeded = await seedPackagedElectronRole({
     gameName,
     launchUrl: fixture.url,
@@ -158,6 +161,7 @@ try {
   }, {
     ...isolation.environment
   });
+  stage = "spawn-packaged-application";
   const spawnedAtMilliseconds = Date.now();
   child = spawn(executablePath, ["--force-renderer-accessibility"], {
     cwd: repositoryRoot,
@@ -204,19 +208,24 @@ try {
     privateBundle,
     spawnedAtMilliseconds
   });
+  stage = "capture-process-ownership";
   await waitForPackagedElectronProcessOwnership(childOwner);
+  stage = "visible-role-launch";
   await launchRoleThroughNativeInput({
     platform: process.platform,
     processId: childOwner.processId,
     roleName
   });
+  stage = "visible-role-content";
   nativeHostKind = await pressPackagedRoleContent({
     buttonName: fixtureButtonName,
     platform: process.platform,
     processId: childOwner.processId,
     roleName
   });
+  stage = "fixture-click-acknowledgement";
   await fixture.clicked;
+  stage = "capture-native-screenshot";
   const screenshot = await capturePackagedScreen({
     buttonName: fixtureButtonName,
     outputPath: join(
@@ -227,24 +236,29 @@ try {
     processId: childOwner.processId,
     roleName
   });
+  stage = "visible-role-close";
   await closePackagedRoleWindow({
     buttonName: fixtureButtonName,
     platform: process.platform,
     processId: childOwner.processId,
     roleName
   });
+  stage = "visible-application-quit";
   await quitPackagedApplication({
     platform: process.platform,
     processId: childOwner.processId
   });
+  stage = "wait-application-exit";
   const exit = await waitForPackagedElectronProcessClose(childOwner, 60_000);
   if (exit.code !== 0) {
     throw new Error(
       `Packaged Electron exited with ${exit.code ?? exit.signal ?? "unknown"}.`
     );
   }
+  stage = "verify-process-tree-terminal";
   await assertPackagedElectronProcessTreeGone(childOwner);
   processTreeTerminal = true;
+  stage = "verify-package-unchanged-after-exit";
   assertPackagedElectronPackageManifestUnchanged(
     executionPackageManifest,
     await capturePackagedElectronPackageManifest(executionApplicationPath)
@@ -265,12 +279,16 @@ try {
   });
   await verifyPackagedElectron(executionApplicationPath);
   await verifyPackagedElectron(applicationPath);
+  stage = "close-fixture";
   await fixture.close();
+  stage = "persist-application-output";
   await Promise.all([
     writeFile(join(artifactDirectory, "packaged-stdout.log"), stdout, "utf8"),
     writeFile(join(artifactDirectory, "packaged-stderr.log"), stderr, "utf8")
   ]);
+  stage = "cleanup-private-bundle";
   await privateBundle?.cleanup();
+  stage = "write-passed-report";
   await writePassedReport(artifactDirectory, {
     schemaVersion: 1,
     kind: PACKAGED_ELECTRON_BLACK_BOX_KIND,
@@ -372,7 +390,15 @@ try {
       "The private macOS packaged launch bundle could not be removed."
     );
   }
-  throw packagedSmokeFailure(error, cleanupErrors);
+  await throwPackagedSmokeFailureWithDiagnostics({
+    artifactDirectory, platform: process.platform, stage,
+    processId: child?.pid, packageHashes, error, cleanupErrors,
+    privateValues: [
+      process.env.TAURI_SIGNING_PRIVATE_KEY,
+      process.env.TAURI_SIGNING_PRIVATE_KEY_PATH,
+      process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    ]
+  });
 }
 
 function parseApplicationPath(argumentsList) {

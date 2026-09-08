@@ -33,6 +33,30 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Test-only 719101d7513bf7762d065d85c531947a486689de isolates the native Job
+fixture from PowerShell's optional conhost startup without relaxing its exact
+one-root assertion. Native/adjacent tests pass 12/five files and hygiene,
+typecheck and lint pass. Full local JS is 3863 PASS/11 symlink EPERM/48 platform
+skips, with no native assertion or timeout failure; it remains a local FAIL.
+Existing CI 34229084549 validates exact packaged correction 67822229, not this
+later test-only SHA. Both sources and actual result boundaries stay distinct.
+
+Latest tooling correction 6782222976223e1483d3678784e4aa1abcc43390 uses
+native HWND/PID foreground activation/readback instead of unsupported top-level
+UIA SetFocus for Windows packaged launch/capture/quit. Original visible actions,
+deadlines and isolation remain. Native activation plus explicit UIA-failure
+replay and adjacent tests pass 14/two platform skips; hygiene/typecheck/lint
+pass. Complete JS and new exact-source Windows CI are in progress.
+
+CI 34224123627 is terminal FAIL solely in packaged black-box. NSIS and the
+Rust-owned Electron-v23 8.4.0→8.5.0 fixture updater pass at exact 68a0e92c,
+including signature/hash, preserved marker, pending-journal removal and process
+cleanup. Actual packaged black-box launch fails because its exact main UIA
+element cannot receive SetFocus (PID 3968); the newly preserved primary error,
+package identities, artifact 10056501199 and hashes are in the API ledger.
+No Tauri-v22 source transaction, production-key cutover or black-box PASS is
+inferred from the successful fixture updater.
+
 CI 34224123627 at exact 68a0e92c2b3f00edc62a7fd2a30c3a2fc9581789
 passes shared JS 3898/27 platform skips and both complete Windows profiles:
 stable 31 normal/three expected force, 40 journeys/all 34 phases; Chromium 58
@@ -40,7 +64,7 @@ normal/four expected force, 54 journeys/all 62 phases. Artifact 10055652342
 and 10055704709 hashes, exact report membership and all normal Chromium
 flush/process exits verify. Native job 102054376905 also succeeds: Rust 1673
 PASS/four ignored, native integration 16 PASS, complete Windows JS 3873 PASS/48
-platform skips and Tauri build PASS. Package results continue independently.
+platform skips and Tauri build PASS. Terminal package outcomes are above.
 
 Latest correction 68a0e92c2b3f00edc62a7fd2a30c3a2fc9581789 distinguishes
 retained process enumeration from native liveness, rereads final Job accounting

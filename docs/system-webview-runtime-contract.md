@@ -1,13 +1,20 @@
 # System WebView Runtime Contract
 
-Contract version 22 defines the shared semantics for WKWebView on macOS and
-WebView2 on Windows. Rust orchestration owns the contract, while the
-AppKit/WKWebView and Win32/WebView2 adapters implement it. The native APIs may
-differ, but both platforms must expose the same observable contract.
+Contract version 22 preserves the shared compatibility semantics documented in
+the linked parts. The active Electron registration uses Chromium contract
+version 23; Core retains version 22 only for consumed legacy data and fixtures.
 
-`RuntimeKernel` is the logical authority. Tauri owns native handles and applies
-revision-fenced desired projections. Native adapters, SQLite, and renderer
-stores are followers; none may create a second logical writer.
+The System Runtime contract retains Rust-owned semantics across the migration
+from v22 WebView2/WKWebView to v23 Chromium. Electron is now the sole repository
+shell; the legacy filename remains the contract index for existing references.
+Historical native mechanisms in the linked parts describe compatibility origins;
+they do not authorize a live Tauri/System WebView path.
+
+`RuntimeKernel` is the logical authority. Electron owns Chromium handles and
+applies revision-fenced Rust projections; macOS retains the AppKit native host.
+Native adapters, SQLite, and renderer stores remain followers and cannot create
+a second logical writer. See [the Chromium contract](chromium-runtime-migration.md)
+for the current engine boundary.
 
 Normal correctness is event-bound. Event-bound work never terminalizes because
 time elapsed: it completes only from its exact authoritative event,

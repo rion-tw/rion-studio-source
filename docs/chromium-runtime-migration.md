@@ -2,17 +2,17 @@
 
 ## Status and scope
 
-This document is the staged contract for replacing the Tauri 2 System WebView
-shell with Electron and its bundled Chromium runtime. System Runtime contract
-v22 remains the production authority until every cutover gate in this document
-passes. The Chromium implementation advances the contract to v23 only when the
-new shell, role sessions, updater, release artifacts, and desktop journeys are
-verified on both supported operating systems.
+The owner authorized Electron as the sole repository runtime and retirement of
+Tauri/System WebView on 2026-09-09. The final configuration delta and this cleanup
+are the remaining work; the former acceptance backlog is retired, not marked
+PASS. See [the current execution ledger](chromium-migration-execution-ledger.md).
+No publication, merge, credential change, or new release infrastructure is part
+of the cleanup. Historical migration evidence remains in immutable Git history.
 
-This is a product migration, not a permanent engine choice. Users are never
-offered a Tauri-versus-Chromium selector. During development the two shells may
-coexist behind explicit build and test entry points; production remains on the
-last verified shell.
+The ownership, security, data migration, and event-topology contracts below
+remain requirements of the Electron product. There is no engine selector or
+live Tauri fallback. Previously published v22 packages may be consumed only as
+legacy installation/data sources.
 
 ## Target ownership
 
@@ -23,12 +23,11 @@ last verified shell.
   Node-API boundary. It serializes existing shared contracts and does not create
   a second domain model in TypeScript.
 - `crates/rion-appkit` owns the reusable macOS runtime-window/tab controller and
-  its engine-neutral C ABI. Tauri v22 and Chromium v23 link the same controller;
-  Tao/WKWebView event compatibility remains outside this crate in the v22 shell.
-- The legacy System WebView capability probe is compiled only through the
-  `system-webview-probe` Cargo feature. The Tauri v22 compatibility shell enables
-  it explicitly; `rion-node` disables default features, so the Chromium addon
-  retains AppKit and QuartzCore while linking neither WebKit nor WebView2.
+  its engine-neutral C ABI. Chromium links this retained controller; the retired
+  Tao/WKWebView event adapter is removed.
+- The old System WebView probe now returns an unavailable compatibility response.
+  Its Cargo feature and native engines are removed. The Chromium addon retains
+  AppKit and QuartzCore while linking neither WebKit nor WebView2.
 - Electron main owns application lifecycle and non-serializable Chromium
   handles: `WebContentsView`, `WebContents`, and `Session`. The Windows adapter
   also owns its Electron native runtime windows. macOS retains the AppKit-native
@@ -631,9 +630,8 @@ requires the same admission observation and an ordered submission receipt plus
 its private trusted DOM acknowledgement. Changed pre-submission ownership is
 superseded; unknown post-submission outcomes remain indeterminate. Core deadlines
 can fail admission but never establish success. Movement, retirement, quarantine,
-hiding and disposal revoke pending visible focus admission. The retained
-child-HWND implementation is transition-only, has no product composition route,
-and remains pending deletion after direct-View native parity gates pass.
+hiding and disposal revoke pending visible focus admission. The old child-HWND
+input implementation is retired; Chromium View ownership remains authoritative.
 
 Fullscreen Game Window presentation uses the same Rust/Core-owned placement and
 window-preference records on both targets. On macOS, the View-menu checkbox and
@@ -698,80 +696,33 @@ built-in macOS auto-updater is not the authority because production macOS builds
 remain ad-hoc signed. A Rust-owned helper verifies and stages the correct
 Electron artifact before the same install transaction terminalizes.
 
-Production macOS applications remain ad-hoc signed and not notarized. Windows
-installers remain Authenticode-unsigned. Tauri-to-Electron upgrade compatibility
-and Electron-to-Electron update recovery must both pass before the production
-channel changes shells.
+Production macOS applications remain ad-hoc signed without notarization and
+Windows installers remain Authenticode-unsigned. The existing release App,
+updater trust, endpoint, identity, and seven public assets are reused. Repository
+entry points and release workflows build Electron. Previously published v22 or
+Electron artifacts may be consumed as upgrade sources; all new targets are
+Electron. Runtime labels v22/v23 remain independent of application SemVer.
 
-`v22` and `v23` in this migration are runtime-contract identities, not
-application-version majors. Published Tauri, prior Electron, and target Electron
-artifacts each carry an independent strict SemVer application version. Release
-gates bind those exact versions and require the target to be newer than both
-sources; they must not require application major 22 or 23.
+The retained GitHub latest-download endpoint needs its bounded release redirects;
+see [the configuration delta](v22-configuration-delta.md). Rust still verifies
+Minisign, SHA-256, staged identity, drain receipts, and first-boot terminality.
+Fixture verification does not claim a real production update transaction.
 
-The cross-shell input/layout gate consumes immutable external artifacts from the
-exact retained Tauri release rather than relabelling an Electron fixture as v22.
-It binds the release tag, source commit, version, target Electron commit, both
-platform artifact hashes, updater manifest, detached signature, and production
-updater key into an auditable receipt. Its isolated macOS and Windows probes
-exercise real bundle/installer replacement, but deliberately record
-`sourceUpdaterInvoked: false` and `cutoverEligible: false`; they are not evidence
-that the published v22 process fetched and initiated v23.
+## Cleanup verification
 
-The gate also produces a separate, create-new public-source-lineage receipt on
-each platform. It binds the public release and asset IDs, selected artifact
-bytes and hashes, peeled source tag, target source SHA, updater trust, and the
-actual v22 executable derived from the canonical macOS archive member or an
-isolated Windows NSIS installation. Each single-file receipt is attempt-bound
-and receives GitHub provenance attestation, but remains
-`cutoverEligible: false`. Promotion readiness verifies both attestations and
-cross-binds their artifact, manifest, trust, and executable hashes to the real
-v22 terminal transactions; lineage alone never claims updater invocation.
+The owner removed the former cutover backlog as prerequisites. Changes made by
+the sole-runtime cleanup still need typed-bridge and Rust tests, platform-native
+checks, complete affected Chromium profiles, production E2E isolation, package
+payload verification, and exact source-specific receipts. The versioned E2E
+manifest preserves all 41 v22 P0/P1 source journeys as immutable comparison data;
+both native targets must retain equivalent automated journeys.
 
-Cutover additionally requires four externally attested source-runtime
-transactions: v22-to-v23 and prior-v23-to-target-v23 on macOS and Windows. Each
-transaction preserves the product's raw install-attempt ID, binds the actual
-source fetch endpoint separately from the target binary's future embedded
-endpoint, and ends only after target first boot writes a durable Rust-authored
-terminal receipt. That receipt hashes the exact source journal and is committed
-only after platform finalization, pending-payload cleanup, and preference
-persistence; only then may the source journal be removed. On macOS the target
-observation must still identify the retained AppKit host.
-
-The published v22 endpoint is compile-time fixed to the public latest route, so
-real v22 evidence cannot honestly be produced while the target is unserved. A
-future owner-approved flow must preserve the v22 latest snapshot, provisionally
-serve the exact candidate, obtain the four terminal transactions, and then either
-finalize with a distinct terminal promotion receipt or record rollback or an
-indeterminate outcome. Candidate construction and read-only readiness
-aggregation cannot publish, finalize, or bypass these missing gates.
-
-## Cutover gates
-
-The production entry points change from Tauri to Electron only after all of the
-following are true:
-
-- the Node-API bridge and typed preload pass contract, validation, cancellation,
-  subscription, backpressure, shutdown, and malformed-input tests;
-- every v22 P0/P1 desktop journey has a visible-UI Chromium equivalent, including
-  role isolation, popups, downloads, file uploads, macros, recovery, updates,
-  and permissions;
-- the complete session migration passes fresh, retry, crash-resume, readback,
-  rollback, explicit-reset, and mixed-role fixtures on macOS and Windows;
-- packaged Electron artifacts contain the correct native addon and Chromium
-  resources, use a portable macOS addon install name, contain no renderer E2E
-  controls, start from the final ASAR under an isolated platform AppData home,
-  and pass signed-candidate integrity checks;
-- macOS and Windows build, lint, Rust test, renderer test, smoke, full, isolation,
-  update, and release workflows are green; and
-- a source gate proves no renderer imports privileged APIs, no forbidden browser
-  fallback has returned, and no production path still depends on Tauri.
-
-After cutover, Tauri dependencies, `src-tauri`, Tauri build and release scripts,
-System WebView native adapters, and transitional dual-shell entry points are
-removed in one audited cleanup. The engine-neutral `rion-appkit` controller
-remains part of the macOS product. Contract v22 remains documented as migration
-history, while v23 becomes the only active runtime contract.
+Remove obsolete Tauri build/runtime/renderer/E2E paths while preserving Rust data,
+topology, operation, Macro and updater authority, the AppKit native host, and
+consumed v22 data compatibility. Retaining the existing Tauri updater signer is
+a build-tool choice, not a live desktop engine. Do not reinstate physical
+multi-monitor, actual sleep/sign-out, four production transactions, or terminal
+promotion as blockers. Removed requirements and old failures are never PASS.
 
 ## Extensions
 

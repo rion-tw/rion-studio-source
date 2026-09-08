@@ -6,31 +6,25 @@ lines. The targets declared in the manifest are authoritative and must not be
 lowered without owner approval. Every product feature listed in the manifest
 must have an automated UI happy path.
 
-The manifest binds every profile to one runtime target. The current `smoke`,
-`full`, and `extended` evidence belongs only to the `tauri-v22` compatibility
-runtime; it is not Chromium cutover evidence. Chromium v23 has two deliberately
-separate required targets: `chromium-v23-macos-appkit` proves the retained AppKit
-window/tab/input/fullscreen host with embedded Chromium, while
-`chromium-v23-windows` proves the Windows Electron/Chromium host. Profiles may
-inherit phases and specs only within the same runtime target, so a v22 result or
-a Windows result can never silently establish the macOS AppKit verdict.
+The manifest binds every active profile to one of the two Electron targets:
+`chromium-v23-macos-appkit` retains AppKit windows, tabs and trusted input;
+`chromium-v23-windows` uses the Windows Electron/Chromium host. Profiles inherit
+phases only within one target. A Windows result cannot establish macOS evidence.
 
-Chromium parity is accounted separately from aggregate coverage. A v23 journey
-may claim a v22 equivalent only through its explicit `replaces` list, and the
-replacement must retain the source priority, feature, UI/native kind, risk, and
-every source outcome. The coverage checker reports each cutover target's
-replacement count and refuses to
-promote either target from `planned` to `active-compatibility` while any v22
-P0/P1 journey is missing. Adding more Chromium-only journeys therefore cannot
-make an incomplete migration look cutover-ready.
+The owner authorized Tauri/System WebView retirement on 2026-09-09. Manifest
+version 4 retains the immutable prior 41 P0/P1 journeys under
+`retiredCompatibility`, including their digest and source SHA. Both active
+targets must explicitly replace every source outcome with equal priority,
+feature, kind and risk coverage. Retired journeys remain comparison evidence,
+not a runnable second shell or an additional passing journey count.
 
 ## Profiles and gates
 
 | Profile | Gate | Scope |
 | --- | --- | --- |
-| `smoke` | Pull requests on hosted macOS and Windows | Legal/first run, primary navigation, Game/Role/Workspace/Macro creation and launch admission, Game Window lifecycle, and Settings persistence. |
-| `full` | Required hosted macOS and Windows gate on `main` and release/rebuild validation; advisory on non-release branch pushes | All smoke journeys, edit/reorder/bulk-delete persistence, Workspace partial failure/cancellation, the unsaved-change quit guard, native Game Window/tab persistence and recovery, and system Settings boundaries. |
-| `extended` | Scheduled or manually dispatched hardware runners | The complete full profile plus multi-display, fullscreen Spaces, and other native fixtures. |
+| `smoke` | Alias for the complete native Chromium profile | Resolves to the macOS AppKit or Windows profile below; no reduced subset. |
+| `full` | Alias for the same complete native Chromium profile | Hosted CI and cleanup verification retain every declared phase and journey. |
+| `extended` | Optional hardware-runner profile alias | The complete native Chromium profile plus its secondary-display journey; not a cleanup prerequisite. |
 | `chromium-macos-appkit-smoke` | Pull requests on hosted macOS | Chromium main-shell/preload/Core readiness, Electron native non-client drag regions, real Command+N/fullscreen/zoom application shortcuts through the retained NSMenu, visible Game/entity persistence, retained AppKit fullscreen-toolbar auto-hide/reveal/pin/restart parity, real CoreGraphics tab reorder plus retained NSMenu move/detach/hide/reveal/reload and restart persistence, cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access interception, visible Settings persistence, visible Macro authoring/list/scheduler plus foreground and hidden native-effect parity through the retained AppKit trusted-input adapter, exact-Session permission/download deny parity and OS-native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and a retained-v22 Role whose blocked launch, visible explicit reset, AppKit-hosted Chromium launch, and restart continuity are verified. |
 | `chromium-windows-smoke` | Pull requests on hosted Windows | Chromium shell/preload/Core readiness bound to the Windows Electron target, real Ctrl+N/F11/zoom application shortcuts, visible Game/entity persistence, local-shell fullscreen-toolbar auto-hide/reveal/pin/restart parity, visible context-menu controlled Role reload, paired cross-entity CRUD/reorder/cleanup parity, managed-page Quick Access and F11 interception, visible Settings persistence, visible Macro authoring/list/scheduler parity, exact foreground and hidden native trusted-input effects plus the exact direct-View physical input gate, exact-Session permission/download deny parity and exact-PID native file-upload parity from visible remote controls, system Settings boundaries including exact-PID native diagnostics-export cancellation, and the retained-v22 Role explicit-reset and restart journey. |
 
@@ -58,7 +52,7 @@ Windows also resizes two exact hosts and proves content bounds equal the Chromiu
 viewport, then minimizes and visibly restores without a resize event. Debug
 bridges only read these receipts and never perform a tab mutation.
 
-The paired `chromium-*-hardware-extended` profiles require a real secondary
+When explicitly run, the optional `chromium-*-hardware-extended` profiles require a real secondary
 display; equal scale factors are supported. On 2026-09-07 the owner removed the
 physical mixed-DPI acceptance requirement because suitable hardware is unavailable.
 Deterministic scale/geometry tests cover that data boundary; they do not establish
@@ -73,17 +67,15 @@ Rust-published display topology.
 The scheduled hardware workflow runs those profiles explicitly with
 `pnpm run test:e2e:desktop:chromium:macos-appkit:hardware` on its macOS AppKit
 runner and `pnpm run test:e2e:desktop:chromium:windows:hardware` on its Windows
-runner. Their results remain separate from the Tauri v22 `extended` evidence;
+runner. Historical Tauri v22 `extended` evidence remains separate;
 one platform cannot establish the other platform's verdict.
 
 Run profiles with `pnpm run test:e2e:desktop:smoke`,
 `pnpm run test:e2e:desktop:full`, or
 `pnpm run test:e2e:desktop:extended`. The runner reads its phase list from the
-manifest, resolves `full` from `smoke` and `extended` from `full`, launches the
-real debug-feature binary for the profile's runtime target, and rejects unknown
-profiles. During the migration, the existing three profiles still launch the
-Tauri v22 compatibility binary. Product builds continue to be checked for
-E2E-control isolation.
+manifest, resolves the aliases to the host platform, launches the real
+debug-feature Electron app and rejects unknown profiles. No command launches
+the retired Tauri shell. Product builds remain checked for E2E-control isolation.
 
 The two Chromium foundation profiles run with
 `pnpm run test:e2e:desktop:chromium:macos-appkit` and

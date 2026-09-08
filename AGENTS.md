@@ -14,10 +14,9 @@ then follow the scoped `AGENTS.md` nearest the files you edit.
 
 ## Product Boundaries
 
-- Rion Studio is migrating from its stable Tauri 2/System WebView shell to an
-  Electron + Chromium shell. Migration code may coexist only in the scoped
-  transition roots routed by `.agents/context-map.json`; it must not create a
-  permanent user-selectable dual-engine product.
+- Rion Studio uses Electron + bundled Chromium as its sole repository runtime.
+  The owner authorized Tauri/System WebView retirement on 2026-09-09. Preserve
+  consumed legacy data and updater compatibility, not a second runnable shell.
 - Rust remains the logical authority for filesystem access, SQLite state,
   managed role stores, runtime topology, operation terminality, and macro
   scheduling. Electron owns Chromium sessions and non-serializable WebContents
@@ -28,9 +27,8 @@ then follow the scoped `AGENTS.md` nearest the files you edit.
   Node APIs, Electron internals, Tauri internals, or browser automation clients.
 - Shared contracts under `src/shared` are the source of truth across Rust, the
   transition shells, the renderer, and tests.
-- The stable v22 runtime remains WebView2 on Windows and WKWebView on macOS 14+
-  until the Chromium v23 parity and migration gates pass. The target runtime is
-  the Electron-bundled Chromium on both platforms. External Chrome, a remote
+- The runtime is Electron-bundled Chromium on both platforms, retaining the
+  macOS 14+ AppKit host. External Chrome, a remote
   debugging port, CDN rewriting, and a user's Chrome profile as a live runtime
   remain forbidden.
 - Target macOS runtime code must adapt Chromium surfaces to the retained AppKit
@@ -64,10 +62,10 @@ then follow the scoped `AGENTS.md` nearest the files you edit.
 
 ## Cross-Platform Requirement
 
-- macOS and Windows are both required. During migration,
-  runtime/native/filesystem changes must audit both the stable
-  Win32/WebView2/AppKit/WKWebView path and the target Electron/Chromium path,
-  including paths, file locking, and matching `#[cfg]` reachability.
+- macOS and Windows are both required. Runtime/native/filesystem changes must
+  audit both the Windows Electron host and macOS Chromium/AppKit path, including
+  paths, file locking, and matching `#[cfg]` reachability. Legacy data decoders
+  remain covered without rebuilding the retired Tauri shell.
 - Shared tests must pass `platform` explicitly. Use platform-aware unit tests or
   mocks when the other native target is unavailable locally.
 - Keep both `macos-latest` and `windows-latest` CI validation. Handoffs must state

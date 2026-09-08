@@ -30,7 +30,7 @@ result. The Electron transition uses a Node-API boundary but does not move
 authority into Node or the renderer.
 
 IPC changes update the complete contract together: Rust domain/result types,
-generated TypeScript, `src/shared/api.ts`, active Tauri and Electron adapters,
+generated TypeScript, `src/shared/api.ts`, Electron adapters,
 bridge wiring, renderer usage, and adjacent Rust/Vitest coverage.
 
 Async behavior follows an event topology:

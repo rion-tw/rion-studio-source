@@ -56,7 +56,7 @@
     },
     "native-runtime": {
       "fastChecks": [
-        "cargo test -p rion-tauri <adjacent module or test>"
+        "cargo test -p rion-node <adjacent module or test>"
       ],
       "requiredChecks": [
         "pnpm run lint:rust",

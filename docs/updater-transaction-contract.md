@@ -1,8 +1,8 @@
 # Updater Install Transaction
 
-Rion Studio treats installation as a recoverable transaction. The stable v22
-Tauri shell and target v23 Electron shell share the same persisted preferences,
-install-attempt phases, updater signature, and SHA-256 release contract.
+Rion Studio treats installation as a recoverable transaction. The sole Electron
+shell retains persisted preferences, install-attempt phases, updater signatures,
+and the SHA-256 release contract, including consumed legacy v22 records.
 Production macOS artifacts continue to use the ad-hoc identity (`-`) without
 notarization, and Windows installers remain Authenticode-unsigned. Platform
 signing policy does not weaken the mandatory Minisign `.sig` and SHA-256 checks.
@@ -13,7 +13,7 @@ it does not select releases, trust a URL, calculate success from elapsed time,
 or use Electron `autoUpdater`. The compile-time verification key and HTTPS
 manifest endpoint enter only the Rust Node-API addon. The manifest parser
 selects one exact platform artifact, requires a strictly newer semantic version
-and RFC 3339 publication time, and rejects credentials, redirects, queries,
+and RFC 3339 publication time, and rejects credentials, queries,
 fragments, unknown fields, and over-limit input.
 
 ## Public state
@@ -39,7 +39,8 @@ or installer launch.
 
 ## Verified staging
 
-The v23 downloader disables redirects and applies explicit external-network
+The v23 downloader rejects redirects except for the bounded, fixed public GitHub
+release route documented in the configuration delta. It applies explicit external-network
 deadlines. A connection receives ten seconds, a complete manifest request
 receives thirty seconds, and a complete artifact stream receives sixty minutes,
 which prevents the former thirty-second whole-download cutoff. Manifest input
@@ -53,289 +54,31 @@ exact regular artifact before restoring `downloaded` state. Missing, malformed,
 symlinked, mismatched, or tampered evidence is never installable.
 
 Packaged v23 builds have no implicit GitHub release endpoint. They must embed an
-owner-selected HTTPS origin whose manifest and artifact URLs answer directly
-without redirects; a missing endpoint makes updater construction fail closed.
+owner-selected HTTPS origin. Direct responses or the fixed GitHub release
+redirect chain are accepted; a missing endpoint makes updater construction fail closed.
 Unpackaged development uses only the non-routable `updates.invalid` placeholder.
 
-## Production Electron candidate gate
+## Release entry and evidence
 
-The production Chromium asset set is built only by the manual, protected
-`Electron Production Candidate` workflow described in
-[`electron-production-candidate.md`](electron-production-candidate.md). The
-owner must provide one exact source SHA, strict semantic version, calendar-valid
-RFC 3339 publication timestamp, direct-200 HTTPS asset base, and explicit
-acknowledgement. Both platform jobs use the existing production updater
-public/private key secrets; a fixture or ephemeral key is forbidden. The macOS
-job retains the AppKit host and ad-hoc identity (`-`) without notarization, while
-the Windows executable and installer remain Authenticode-unsigned.
+Electron is the sole repository release target, using the existing release
+workflows, App, updater credentials, endpoint, application identity, and normalized
+asset names. The owner retired the provisional publication/terminal-promotion
+backlog on 2026-09-09; no additional GitHub environment or recovery infrastructure
+is required. This does not authorize publication during repository cleanup.
 
-The v22/v23 names below identify runtime contracts only. They do not constrain
-the major number of the application SemVer carried by a release. The target
-application version must be strict SemVer and strictly newer than the exact
-published Tauri source and prior Electron source versions.
+Current publication and restore targets must pass the Electron package shape,
+Minisign, SHA-256, exact inventory, and immutable-source checks. Published legacy
+v22 packages remain valid source inputs only. The existing protected-main control
+boundary, durable public-latest lease, exact source/target snapshot identity,
+acknowledgement and fresh readback rules remain enforced. Ordinary publication
+requires a strictly newer target; latest restoration may select an older verified
+Electron release. Neither path may produce a new Tauri target.
 
-Before any production updater private key enters scope, the Windows job must
-silently install the exact NSIS artifact under a temporary local-user profile
-and prove that its installed payload equals the already black-boxed
-`win-unpacked` manifest after removing exactly the generated root uninstaller.
-The isolated runner must report root exit code zero, Job Object active-zero,
-exactly three observed processes, and verified profile/account/ACL cleanup in a
-create-new measured result. The attested NSIS PowerShell file executes in the
-already isolated, noninteractive host with literal named parameter values; it
-does not create a duplicate PowerShell host. Its three Job members are the
-PowerShell host, the system console host and the installer. The parent retains
-the raw active count at root exit. If a native Job query finds only the exact
-System32 conhost.exe, it may join that process's terminal event within the
-original command's remaining deadline, then require Job active-zero. Unknown or
-multiple survivors, access/identity failures and an expired deadline remain
-failures; diagnostics never substitute for native Job accounting. Other isolated
-invocation modes retain their existing root-exit boundary. NSIS performs its runtime-presence check in-process,
-without PowerShell/cmd helpers. Both the Electron executable and rion-tauri.exe
-must be absent; lookup errors fail closed. A running application must complete
-its normal Rust-owned drain before replacement. Interactive installation offers
-an explicit Retry/Cancel after manual close; silent installation returns failure.
-The installer never force-terminates either runtime to satisfy this precondition.
-Its repository-detached, parent-owned input root is
-read-only to the temporary SID; the source package has an explicit recursive
-deny. A canonical inventory lists the source root plus every directory and file;
-before NSIS starts, non-mutating native probes must receive `ACCESS_DENIED` for
-read, write, and delete access to every path. A canonical closed-schema payload
-proof binds a fresh attempt nonce, exact command-invocation digest,
-command/harness/installer/inventory identities, that result, both full
-manifests, the sole allowed added path, the unsigned
-policy, source SHA, version, and black-box component and package digests. It
-also rejects non-default NTFS streams and binds Authenticode status to the same
-locked bytes that were hashed. The proof is part of the exact Windows platform-candidate inventory;
-its identity is recorded in the platform and cross-platform receipts and is
-re-verified against the staged installer during assembly. Missing, forged,
-noncanonical, stale, or payload-divergent proof prevents signing or assembly.
-
-The assembly gate re-verifies both Minisign signatures, inline manifest hashes,
-`SHA256SUMS.txt`, exact filenames, platform receipts, source SHA, version,
-endpoint, and normalized public-key digest. It then rebinds every copied
-single-link asset to the corresponding closed platform receipt. macOS and Windows must therefore be
-parts of one immutable candidate rather than independent release selections.
-The macOS receipt additionally binds the signed tar and DMG to one package
-manifest already proven by the retained AppKit/Chromium black-box. Before the
-private key enters scope, the detached signer restores the unsigned handoff only
-under a create-new temp root. One bounded type-aware extractor rejects
-out-of-root paths, hardlinks, special entries, symlink escapes or ancestor
-writes, and colliding paths. Producer must safely extract the tar and attach
-the DMG read-only before and after signing; native verifiers receive no
-updater-private environment values. It fences artifact identity and bytes and
-requires the binding during staging, assembly, and final verification.
-The terminal candidate receipt is explicitly `verified-not-published`. The
-workflow has read-only repository permission and cannot create or mutate a
-release or updater endpoint. A later promotion needs a separate owner-approved
-environment gate, the exact candidate receipt, and the required v22-to-v23 and
-v23-to-v23 compatibility evidence. The stable Tauri release path remains active
-until those cutover gates pass.
-
-The manual `Electron Production Promotion Readiness` workflow is the read-only
-aggregation boundary for those future receipts. It accepts exact target,
-prior-v23, and evidence workflow-run IDs plus owner-recorded receipt hashes,
-verifies each run's workflow path, successful conclusion, attempt, source SHA,
-and event, and then downloads both complete candidates, all four platform
-candidate artifacts, two attested public-v22 lineage receipts, and four terminal
-transaction bundles. Candidate, platform, and external-evidence artifact names
-include `-attempt-<run_attempt>`; each lineage name embeds the exact
-API-verified run ID and attempt. The downloader derives every name only from the
-verified run metadata, so a rerun cannot fall back to an earlier same-source
-artifact. The candidate verifier rejects unknown receipt fields, rebuilds both
-cross-platform candidates from their platform receipts and packaged black-box
-reports, re-verifies production Minisign, and requires byte-identical assets and
-byte-identical canonical candidate receipts. A terminal receipt cannot invent
-its prior-v23 lineage.
-
-Each public-v22 lineage receipt is create-new and closed-schema. The macOS job
-derives the exact regular `Rion Studio.app/Contents/MacOS/rion-tauri` member;
-the Windows job obtains the unique regular, non-reparse `rion-tauri.exe` only by
-installing the verified NSIS artifact into a fresh isolated per-user root. The
-receipt binds the public release and selected asset IDs, bytes and hashes, the
-peeled source tag, target source SHA, production updater-key digest, and the
-derived executable hash. Its producer name includes the API-verified workflow
-run and attempt, and GitHub provenance attests that single receipt file. It
-remains `cutoverEligible: false`: it proves source lineage, not source updater
-invocation. Readiness cross-binds its artifact, manifest, trust, and executable
-hashes to each platform's real v22 terminal transaction.
-
-Each terminal transaction bundle has a closed inventory and one externally
-attested receipt for one platform and one transition. The receipt binds a fresh,
-bounded-lifetime challenge; published or canonically rebuilt source lineage;
-the source binary's actual fetch endpoint; the target candidate's distinct
-embedded future endpoint; exact manifest, artifact, signature, and updater key;
-source invocation and handoff; data preservation; and native-host identity.
-`evidenceAttemptId` is a unique RFC 9562 UUID, while
-`sourceInstallAttemptId` preserves the product journal exactly: v22 uses an
-`update-install-<u64>` sequence and v23 uses
-`update-install-<uuid>`. The bundle contains the raw source journal and the
-durable product-authored first-boot receipt that cryptographically binds that
-journal's bytes and digest. A producer-authored `applied` boolean is not a
-terminal authority. The aggregator requires all four combinations: Tauri v22
-to Electron v23 and Electron v23 to Electron v23 on both macOS AppKit and
-Windows. GitHub artifact attestation must identify the fixed external evidence
-workflow and exact target source digest; an unattested receipt is not evidence.
-The v23 source endpoint remains direct HTTP 200 with no redirect. The immutable
-v22 GitHub public-latest endpoint instead records its real bounded HTTPS redirect
-chain: one to three ordered hops, an exact first hop to the target version tag,
-then only GitHub release-asset hosts, and a final HTTP 200. Short-lived signed
-asset URLs are bound by SHA-256 plus scheme and host rather than persisted with
-their query credentials.
-
-The readiness result is create-new and explicitly
-`verified-terminal-evidence`/
-`externally-served-terminal-evidence-observed`. It has no release,
-updater-endpoint, GitHub App, or updater-private-key write authority and is not a
-terminal promotion receipt. It does not claim `not-published`: an immutable
-published v22 binary can fetch v23 only after its compile-time public-latest URL
-serves that target. The status records the completed evidence window and does
-not assert that the endpoint is still serving v23 when readiness later runs; a
-terminal finalizer must re-observe that external state. The fixed external
-terminal-evidence workflow named by this gate now has a hard-disabled producer
-implementation. Every job remains literal `if: ${{ false }}` and no native
-transaction has been owner-authorized or executed, so the gate cannot pass from
-current repository evidence. This is intentional fail-closed state, not
-permission to infer the missing runtime observations.
-
-## Public promotion boundary
-
-The generic workflows that finalize a private release, publish a public release,
-or restore the public latest release are stable Tauri v22 paths only. The public
-publisher is reusable but is not manually dispatchable. Its caller must select
-the `tauri-v22` release contract, and every private or public asset download is
-checked again against the exact checksum set and the packaged macOS application
-shape. The archive must contain exactly one regular top-level macOS executable at
-`Rion Studio.app/Contents/MacOS/rion-tauri`. A second top-level executable, an
-archive containing Electron's `app.asar` or `Electron Framework.framework`, an
-Electron candidate receipt, or any unrecognized release asset fails closed.
-These checks preserve the existing v22 publication and recovery behavior; they
-are not an Electron promotion mechanism.
-
-There is still no approved or enabled provisional publisher and no enabled or
-owner-approved execution of either the hard-disabled externally attested
-terminal-transaction producer or the hard-disabled terminal-promotion
-finalizer. A closed terminal-promotion schema and producer now exist as
-non-authorizing transition code, but every finalizer job is literal
-`if: ${{ false }}`. Therefore no enabled workflow may translate a
-`verified-not-published` candidate or a `verified-terminal-evidence` receipt
-into a terminal published outcome. The compatibility receipt described below is
-also ineligible because it records `sourceUpdaterInvoked: false` and
-`cutoverEligible: false`. Because the existing v22 endpoint is immutable, a
-future Electron writer must first preserve and re-hash the exact v22 latest
-snapshot, compare-and-swap the exact target into externally served state, and
-write only a non-terminal provisional receipt. A read-only producer may then
-obtain the four real transactions. A separate finalizer must re-observe the
-external state before writing the sole terminal promotion receipt; failure,
-cancellation, or an unknown acknowledgement requires a dedicated rollback or
-an indeterminate outcome. Until those gates are owner-enabled and successfully
-executed, every generic Electron publication or latest-promotion attempt is
-rejected.
-
-The hard-disabled terminal finalizer serializes with every public-latest writer.
-It re-verifies the exact readiness, provisional receipt, recovery-capsule source
-and target snapshots, and held durable lease before any public write credential
-enters scope. A read-only job must first observe the exact target. One separate
-narrow writer may then release only the bound held lease with authoritative
-readback. A second read-only job must still observe the exact target after that
-release. Only those two target observations plus a confirmed or later
-reconciled exact lease-release acknowledgement can create the canonical
-`rion-electron-production-terminal-promotion` receipt with outcome `promoted`.
-The final receipt binds the readiness and provisional hashes, both snapshot
-identities, both observation receipts, held and released lease event hashes,
-candidate identity, protected control-plane SHA, retained AppKit requirement,
-and independent Windows evidence. Detached attestation receives that receipt
-alone. A rejected, foreign, source, transport-unknown, or
-acknowledgement-unknown input creates no terminal promotion receipt; the durable
-recovery workflow remains the sole authority for rollback and non-terminal
-indeterminate outcomes.
-
-A provisional-publisher draft and a durable public-repository blob-SHA lease
-transport now exist only as non-authorizing transition code. Its stage,
-lease-acquisition, and latest-mutation jobs are statically disabled. The draft
-already implements authoritative lease-file 404/genesis or blob-SHA
-compare-and-swap, protected-default-branch writer jobs that never execute
-candidate code beside release credentials, and exact last-moment public-state
-readback.
-
-The durable recovery path also exists as a separate hard-disabled workflow. It
-fresh-reads a private append-only capsule and store seal, routes the current
-public state, and probes one proof-derived marker slot for each outcome
-predecessor before deciding whether any new public mutation is allowed. Only the
-run that creates an absent marker may receive the public writer token and submit
-one rollback or held-lease release. A resumed marker receives no public writer
-token and performs observation-only reconciliation; already-released and
-possibly-released lease routes likewise emit a canonical zero-PUT operation.
-Rejected, unknown-acknowledgement, no-op, and successful operations all bind into
-an append-only recovery outcome. Non-terminal outcomes use one create-new CAS;
-terminal outcomes write the attempt and fixed terminal path as one atomic pair.
-A distinct private reader then fresh-reads the applied commit and complete chain,
-and the detached gate succeeds only for an exact terminal outcome.
-
-Every job in that recovery workflow remains literal `if: ${{ false }}`. The
-current draft models private-store coordinates, narrow reader and writer GitHub
-Apps, protected environments, and matching variables and secrets. Those are
-prerequisites of that draft as implemented, not approved requirements to create
-additional release infrastructure. Under the owner's 2026-09-06 decision, the
-final configuration audit must start from the complete existing v22 release
-setup and reuse its authority, secrets, permissions and endpoints wherever they
-satisfy this contract. Simplify or replace provisional draft assumptions when
-that audit proves equivalent authority already exists; do not enable an
-incompatible draft unchanged or waive its security and recovery invariants.
-
-Enabling a resulting transition workflow still requires explicit owner approval,
-verified configuration for that implementation, and an independent recovery
-drill. No publication or credential change is authorized by the audit. Neither
-a local artifact, lease receipt nor repository default establishes authority.
-The [migration execution ledger](chromium-migration-execution-ledger.md#remaining-work-packages)
-tracks the final delta audit separately from real updater transactions and
-terminal promotion.
-
-The hard-disabled abandoned-lease cleanup draft is deliberately narrower than
-durable recovery. It may release only the current held provisional-publication
-lease while GitHub still retains authoritative live metadata proving the exact
-holder run attempt is terminally failed or cancelled and both possible public
-mutation jobs are terminal `skipped` with no executed steps: the fixed
-`publish-provisional` job and the fixed
-`cleanup-held-lease-after-store-failure` job. The
-workflow reads the bounded, fully paginated exact-attempt job set, fences the
-two unique numeric job identities, and repeats that bounded exact-attempt
-job-list read before mutation. It also rebuilds the exact Tauri source from an
-initial latest/tag/assets observation, then requires an unchanged closing
-latest/tag and a final unchanged latest reread immediately before the lease
-CAS. If run or job metadata is missing, expired, non-unique, mutable, or
-otherwise ambiguous, this shortcut cannot act and the lease requires the full
-durable capsule/rollback recovery path. Its live Actions metadata is not
-durable evidence and it cannot close a submitted or possibly submitted latest
-mutation. The shortcut must remain statically disabled until its own durable
-one-shot public-mutation marker is enforced and an owner-approved recovery
-drill has passed.
-
-The durable lease occupies the fixed
-`releases/electron-production-public-latest-lease.json` path on `main` in the
-public `rion-tw/rion-studio` repository. A missing-file observation is genesis
-authority only when the same operation independently verifies that repository
-is public, its default branch is `main`, and the exact `heads/main` reference is
-readable. Publication leases require a Tauri v22 source; a Tauri latest-restore
-lease records the actually observed source and may therefore start from either
-Tauri v22 or an Electron v23 provisional latest, while its target remains Tauri
-v22. Every non-genesis write supplies the currently observed Git blob SHA
-to the GitHub Contents API. A create or update is acknowledged only after a
-fresh read returns the exact canonical expected lease and blob identity;
-conflict, malformed, foreign, transport-ambiguous, or server-ambiguous outcomes
-remain non-success. The transport has no retry, timeout-to-success, expiry, or
-stale-holder takeover path.
-
-Production candidate signing, cross-platform candidate assembly, provisional
-publication, readiness, recovery, and finalization execute their control code
-only from a protected `main` control-plane SHA in
-`rion-tw/rion-studio-source`. A candidate source SHA is immutable product input
-carried by closed receipts, hashes, and attestations; it is not the workflow
-implementation SHA. Candidate-controlled repository code must never execute on
-a runner after an updater private key, release GitHub App private key, release
-token, terminal-receipt attestation authority, or equivalent publication
-credential enters scope. Downstream provenance therefore verifies the fixed
-repository, protected branch, workflow path, run attempt, and control-plane SHA
-separately from the candidate source identity.
+The former four production updater transactions and terminal-promotion receipts
+are no longer execution gates. Existing receipts retain their original semantics:
+fixtures and installer replacement tests do not prove a source updater actually
+fetched or installed a production release. Historical gate specifications remain
+in [the pre-cleanup contract](https://github.com/rion-tw/rion-studio-source/blob/e61895ba3848947132191eb55e3f73026f548bf7/docs/updater-transaction-contract.md).
 
 ## Durable journal
 
@@ -410,14 +153,6 @@ therefore names the live helper or target process rather than a short-lived
 LaunchServices command. A verified target may use a different executable name
 from the displaced Tauri bundle; executable identity is derived independently
 from each bundle's signed `Info.plist`.
-
-On Windows, `Update::install` extracts the installer before invoking its
-`on_before_exit` hook. Extraction failure leaves WebView2 and Core accepting
-work. The hook writes `draining`, closes runtime/core, records installer handoff,
-calls Tauri's `cleanup_before_exit()`, and then lets the plugin launch the
-installer and terminate the process. If handoff returns an observable error
-after draining began, the journal records `failedAfterDrain` and Rion Studio
-restarts automatically.
 
 For v23 Windows, the already verified, fixed-path NSIS executable is prepared
 while Chromium and Core remain available. Rust records `draining` before the
@@ -558,14 +293,6 @@ bundle descendants and requires bundle-process active-zero before parent-only
 terminal-receipt finalization. Native AppKit/helper reachability and Seatbelt
 inheritance remain required macOS CI evidence; a portable source test cannot
 establish them.
-
-The workflow has read-only repository permission and cannot publish or promote
-the target needed for that final source-runtime transaction. Real cutover
-evidence therefore remains pending until the exact published v22 executable
-initiates the production-signed candidate update and reaches its authoritative
-terminal outcome on both macOS and Windows. The existing Tauri compatibility
-and release entry remains active until then; macOS or portable results cannot
-substitute for Windows evidence.
 
 Placement or restore-session persistence runs before either platform begins
 installation. Failure there is `install_failed`, retains the verified pending

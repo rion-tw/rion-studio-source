@@ -1,9 +1,8 @@
 # Rion Studio AI Context Index
 
-Rion Studio is migrating from a Tauri/System WebView desktop launcher to a
-Chromium launcher while retaining Rust runtime authority and the macOS AppKit
-native host. Windows uses the Electron host; macOS replaces WKWebView inside the
-existing AppKit window/tab boundary. For substantial work, use the deterministic
+Rion Studio uses Electron/Chromium while retaining Rust runtime authority and
+the macOS AppKit native host. Tauri/System WebView runtime retirement is owner
+authorized; retain consumed legacy data compatibility. For substantial work, use the deterministic
 router before loading topic documents:
 
 ```bash

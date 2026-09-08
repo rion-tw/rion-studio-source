@@ -82,10 +82,15 @@ The full Rust result includes the unchanged 256-round concurrent terminal-receip
 test in `crates/rion-updater/src/persistence.rs`. The local host is Windows ARM64;
 this does not replace the Windows x64 Electron build/package or macOS evidence.
 
-The next diagnostic JavaScript command is `pnpm run test --maxWorkers=1`, with
+The completed diagnostic JavaScript command was `pnpm run test --maxWorkers=1`, with
 the original 10-second deadline and every collected test retained. Its log is
-`sole-electron-full-js-serial.log`; no final verdict is claimed until that command
-exits. Source fixes continued in the dirty worktree, so this is intermediate
+`sole-electron-full-js-serial.log`: **3638 PASS / 32 FAIL / 48 skipped**, exit 1,
+1219.30 seconds. The 32 failures comprise 11 symlink EPERM, 14 original
+10,000 ms deadline failures and 7 other assertions. Exact failure names and
+errors are in `sole-electron-full-js-serial-failures.json`. The command began
+from HEAD `446974bd41bc6d6bd8f999f092f10f9ff5806ac8` and ended after the document
+commit `fc530bcfe5079f2184bcc7a38d75085ea25f919e`; source fixes continued in the
+dirty worktree, so this is intermediate
 diagnosis, not an immutable candidate receipt. Observed failures include symlink
 EPERM, signer/Bash startup overhead, stale contract references and renderer
 timeouts. Standalone architecture validation took 2,491 ms; twelve independent
@@ -99,3 +104,34 @@ integration test instead of through a pnpm shell. The release preflight now chec
 strict semantic versions and rejects updater endpoint credentials, query and
 fragment before packaging. These latest fixes still require their focused checks
 and final complete source-specific validation.
+
+## Sole-entry implementation candidate — 2026-09-09
+
+Program and test commit: `76042b4a988dcf32bf989971b4a08cc1c7f3f7ea`.
+Documentation/context changes are committed separately. This implementation
+candidate retires the Tauri shell and routes existing build/package/release
+commands to Electron. It is not yet a fully validated runtime candidate.
+
+Latest local checks before the program commit:
+
+| Check | Result | Artifact under `.desktop-e2e-artifacts/` |
+| --- | --- | --- |
+| TypeScript | PASS | `sole-electron-typecheck-final-cleanup.log` |
+| ESLint | 0 errors / 23 warnings | `sole-electron-lint-final-cleanup.log` |
+| Source/docs/context/unused/Cargo/E2E hygiene | PASS; retained unused-export/type warnings are not errors | `sole-electron-hygiene-entry-fixed.log` |
+| E2E manifest | P0 48/48, P1 58/58, P2 4/4; retained compatibility 41/41 on each platform | Same hygiene log; manifest coverage is not execution evidence |
+| Entry, package, release and contract checks | 86 PASS / 1 FAIL; the last obsolete Tauri version-list assertion was then corrected | `sole-electron-final-entry-contracts.log` |
+| Complete adjacent candidate test file after that correction | 13 PASS | `sole-electron-candidate-version-fixed.log` |
+
+The generated offline start page was regenerated with the repository generator
+after the canonical design-token update. No generated source was hand-edited.
+Package preparation now requires the distribution's matching Node/Rust target:
+macOS arm64 or Windows x64. This Windows ARM64 workstation uses the existing
+portable x64 Node 24.20.0 and x64 Rust 1.98.1 for Electron native/package checks;
+the system installation remains Node 24.20.0 ARM64. This prevents a build for one
+architecture from packaging a leftover addon for another architecture.
+
+Next: validate this committed source with Windows x64 build and production
+isolation, the complete affected Chromium profile and package checks; classify
+remaining complete-JS failures and obtain any needed exact-source CI evidence.
+The owner-retired physical/production/terminal-promotion backlog stays removed.

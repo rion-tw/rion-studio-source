@@ -1,13 +1,10 @@
 # System Runtime
 
-The stable v22 runtime uses WebView2 on Windows and WKWebView on macOS. The
-target v23 runtime uses the Electron-bundled Chromium and per-role
-`session.fromPath` stores on both platforms. macOS retains the current AppKit
-game-window/tab presentation, gestures, and trusted-input adapter while replacing
-WKWebView with Chromium; Windows uses the Electron/Chromium native host.
-The v22 System WebView probe is available only through the explicit
-`system-webview-probe` Cargo feature: Tauri enables it, while `rion-node` keeps
-default features disabled so the Chromium addon does not link WebKit/WebView2.
+Electron-bundled Chromium is the sole repository runtime on both platforms,
+with per-role `session.fromPath` stores. macOS retains the AppKit game-window/tab
+presentation, gestures, and trusted-input adapter; Windows uses the native
+Chromium View host. The old System WebView probe now returns only an unavailable
+compatibility response. No WebKit/WebView2 runtime or Cargo probe feature remains.
 `RuntimeKernel` owns logical window/tab topology, role leases, logical surface
 lifecycle, operation terminality, and revisioned desired state. Platform adapters
 own only their native handles and input APIs, translate native events, and apply
@@ -17,7 +14,7 @@ complete desired projections.
 only the contract part it identifies for the current runtime task.
 
 - Do not expose remote debugging or fall back to another browser runtime.
-- Treat the per-role WebView2 profile, WKWebsiteDataStore, or Chromium session as
+- Treat the per-role Chromium session as
   the only ordinary LocalStorage writer. Enumeration or replay is allowed only
   inside the authenticated, revision-fenced v22-to-v23 migration or the
   user-consented Chrome Profile import; ordinary Runtime must not checkpoint,
@@ -27,7 +24,7 @@ only the contract part it identifies for the current runtime task.
 - Do not synchronously call `AppCore` while applying an effect that AppCore is
   waiting to acknowledge.
 - macOS window layout and mouse coordinates use `NSWindow.contentLayoutRect`.
-- Windows WebView2 and macOS WKWebView implementations must expose the same
+- Windows Chromium and macOS AppKit/Chromium adapters must expose the same
   semantic result even when their native mechanisms differ.
 - AppKit/HTML gestures submit `RuntimeIntent`; a transient drag overlay may be
   shown while held, but committed membership/order/selection comes only from a
@@ -47,9 +44,8 @@ only the contract part it identifies for the current runtime task.
   monotonic epoch. No released role may remain as an orphan input fence.
 - Build/package/CI compile and test native targets without launching a machine-
   specific WebView.
-- Transition code never exposes a user engine selector. A role remains on v22
-  only until its encrypted, readback-verified Chromium store migration commits;
-  final v23 removal is gated by both-platform E2E parity.
+- There is no engine selector or live v22 runtime. Consumed legacy data, encrypted
+  transfer envelopes, and readback verification remain compatibility contracts.
 - Cookie set/get/flush promises may acknowledge cookie-only Chromium migration.
   DOM Storage flush has no completion receipt, so LocalStorage-bearing migration
   stays non-success until a fresh process reopens the exact role path and reads

@@ -8,8 +8,8 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 
 | Document | Status | Load when |
 | --- | --- | --- |
-| [System WebView Runtime Contract](system-webview-runtime-contract.md) | Active, version owner | Any Core/Tauri/native runtime contract changes |
-| [Chromium Runtime Migration](chromium-runtime-migration.md) | Active, staged contract | Electron/Chromium architecture, session transfer, cutover, or Tauri retirement |
+| [System WebView Runtime Contract](system-webview-runtime-contract.md) | Active, version owner | Core/Electron/native runtime contracts and consumed v22 compatibility |
+| [Chromium Runtime Migration](chromium-runtime-migration.md) | Active, runtime contract | Electron/Chromium architecture, session transfer, cutover, or Tauri retirement |
 | [Chromium Migration Execution Ledger](chromium-migration-execution-ledger.md) | Active, non-normative ledger | Remaining work count, gate status, or migration handoff |
 | [v22 Configuration Delta](v22-configuration-delta.md) | Active, observed configuration comparison | Reusing existing release settings for the sole Electron entry |
 | [Chromium Cross-Platform API Ledger](chromium-cross-platform-api-ledger.md) | Active, non-normative ledger | Shared Chromium API adoption, retained native boundaries, maintenance tasks and equivalence evidence |

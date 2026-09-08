@@ -250,6 +250,7 @@ try {
     -AdditionalDeniedPaths @($application) `
     -CommandPath $pwsh `
     -CommandArguments $isolatedArguments `
+    -InvokePowerShellFileInProcess `
     -CommandTimeoutSeconds 300 `
     -ExpectedTotalProcesses 3 `
     -ResultPath $isolationResultPath `

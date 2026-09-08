@@ -5,6 +5,9 @@ param(
   [Parameter()]
   [string[]] $CommandArguments = @(),
 
+  [Parameter()]
+  [switch] $InvokePowerShellFileInProcess,
+
   [Parameter(Mandatory = $true)]
   [string] $RepositoryRoot,
 
@@ -99,6 +102,28 @@ $resolvedResultPath = $null
 $resolvedResultCommandHarness = $null
 $resolvedResultInstaller = $null
 $resolvedResultForbiddenSourceList = $null
+if ($InvokePowerShellFileInProcess) {
+  $requiredHostArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File')
+  if (
+    -not $ResultPath -or
+    -not $ResultCommandHarnessPath -or
+    $resolvedCommand -ne (Join-Path $PSHOME 'pwsh.exe') -or
+    $CommandArguments.Count -lt 5
+  ) {
+    throw 'In-process PowerShell execution requires the exact attested host and file harness.'
+  }
+  for ($argumentIndex = 0; $argumentIndex -lt $requiredHostArguments.Count; $argumentIndex++) {
+    if ($CommandArguments[$argumentIndex] -cne $requiredHostArguments[$argumentIndex]) {
+      throw 'In-process PowerShell execution requires the unchanged noninteractive host arguments.'
+    }
+  }
+  if (
+    (Resolve-Path -LiteralPath $CommandArguments[4]).Path -ne
+    (Resolve-Path -LiteralPath $ResultCommandHarnessPath).Path
+  ) {
+    throw 'In-process PowerShell execution must invoke the exact attested harness.'
+  }
+}
 $resolvedProtectedSiblingParent = $null
 if ($ProtectedSiblingParent) {
   $resolvedProtectedSiblingParent = (
@@ -514,6 +539,7 @@ try {
     allowEphemeralUpdaterSigningEnvironment = [bool] $AllowEphemeralUpdaterSigningEnvironment
     arguments = @($CommandArguments)
     commandPath = $resolvedCommand
+    invokePowerShellFileInProcess = [bool] $InvokePowerShellFileInProcess
     expectedSid = $profileSid
     parentSid = $parentSid
     workingDirectory = $resolvedWorkingDirectory
@@ -536,7 +562,8 @@ try {
       $resolvedWorkingDirectory,
       $CommandTimeoutSeconds * 1000,
       $ephemeralPrivateKeyForChild,
-      $ephemeralPrivateKeyPasswordForChild
+      $ephemeralPrivateKeyPasswordForChild,
+      [bool] $InvokePowerShellFileInProcess
     )
   } finally {
     $ephemeralPrivateKeyForChild = $null
@@ -551,6 +578,8 @@ try {
     kind = "windows-job-process-observations"
     authoritative = $false
     totalProcesses = $totalProcesses
+    activeProcessesAtRootExit = $jobResult.ActiveProcessesAtRootExit
+    drainedConsoleHostProcessId = $jobResult.DrainedConsoleHostProcessId
     notificationError = $jobResult.ProcessNotificationError
     truncated = $jobResult.ProcessObservationsTruncated
     observations = @($jobResult.ProcessObservations)

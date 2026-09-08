@@ -62,6 +62,7 @@ try {
   $taskActiveBeforeRelease = @($taskObserver.SnapshotActive())
   $taskActiveSnapshotError = $taskObserver.ActiveSnapshotError
   $taskActiveSnapshotTruncated = $taskObserver.ActiveSnapshotTruncated
+  $taskNonConsoleRejected = $null -eq [RionWindowsJobRunner]::DrainSoleConsoleHost($taskJob, 0)
   $taskChild.StandardInput.WriteLine('continue')
   $taskChild.StandardInput.Close()
   if (-not $taskChild.WaitForExit(5000)) { throw "Diagnostic test child did not finish." }
@@ -78,6 +79,7 @@ try {
     activeBeforeRelease = $taskActiveBeforeRelease
     activeSnapshotError = $taskActiveSnapshotError
     activeSnapshotTruncated = $taskActiveSnapshotTruncated
+    nonConsoleSurvivorRejected = $taskNonConsoleRejected
   } | ConvertTo-Json -Depth 4 -Compress
 } finally {
   [void][DiagnosticTestJob]::TerminateJobObject($taskJob, 1)

@@ -5,6 +5,40 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-IsolatedPowerShellFileInvocation {
+  param([string] $CommandPath, [string[]] $CommandArguments)
+
+  $requiredHostArguments = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File')
+  if (
+    $CommandPath -ne (Join-Path $PSHOME 'pwsh.exe') -or
+    $CommandArguments.Count -lt 5 -or
+    ($CommandArguments.Count - 5) % 2 -ne 0
+  ) {
+    throw 'In-process PowerShell requires the exact host, file and named parameter/value pairs.'
+  }
+  for ($index = 0; $index -lt $requiredHostArguments.Count; $index++) {
+    if ($CommandArguments[$index] -cne $requiredHostArguments[$index]) {
+      throw 'In-process PowerShell rejects alternate host options.'
+    }
+  }
+  $script = Get-Item -LiteralPath $CommandArguments[4] -Force -ErrorAction Stop
+  if (
+    $script -isnot [IO.FileInfo] -or $script.Extension -ine '.ps1' -or
+    ($script.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+  ) {
+    throw 'In-process PowerShell requires a regular PowerShell file.'
+  }
+  $parameters = @{}
+  for ($index = 5; $index -lt $CommandArguments.Count; $index += 2) {
+    $name = $CommandArguments[$index]
+    if ($name -notmatch '^-[A-Za-z][A-Za-z0-9]*$' -or $parameters.ContainsKey($name.Substring(1))) {
+      throw 'In-process PowerShell rejects invalid or duplicate named parameters.'
+    }
+    $parameters.Add($name.Substring(1), $CommandArguments[$index + 1])
+  }
+  return @{ Path = $script.FullName; Parameters = $parameters }
+}
+
 if (-not $IsWindows) {
   throw "The isolated profile command requires Windows."
 }
@@ -174,7 +208,18 @@ $env:RION_WINDOWS_ISOLATED_PROFILE_USER_PROGRAM_FILES = $userProgramFiles
 
 Push-Location -LiteralPath $envelope.workingDirectory
 try {
-  & $envelope.commandPath @($envelope.arguments)
+  if ($envelope.invokePowerShellFileInProcess -eq $true) {
+    # This process is already the exact noninteractive pwsh host under the
+    # isolated SID and Job. Keep the attested file and literal parameter values,
+    # without starting a redundant second host (or changing native Job counts).
+    $invocation = Get-IsolatedPowerShellFileInvocation `
+      -CommandPath $envelope.commandPath -CommandArguments @($envelope.arguments)
+    $scriptParameters = $invocation.Parameters
+    $global:LASTEXITCODE = 0
+    & $invocation.Path @scriptParameters
+  } else {
+    & $envelope.commandPath @($envelope.arguments)
+  }
   $commandExitCode = $LASTEXITCODE
   if ($null -eq $commandExitCode) {
     $commandExitCode = 0

@@ -12,6 +12,8 @@ public sealed class RionWindowsJobResult
 {
     public uint ExitCode { get; set; }
     public uint ActiveProcessesAfterRootExit { get; set; }
+    public uint ActiveProcessesAtRootExit { get; set; }
+    public uint? DrainedConsoleHostProcessId { get; set; }
     public uint TotalProcesses { get; set; }
     public RionWindowsJobProcessObservation[] ProcessObservations { get; set; }
     public bool ProcessObservationsTruncated { get; set; }
@@ -193,6 +195,59 @@ public static class RionWindowsJobRunner
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, uint processId);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool inJob);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool QueryFullProcessImageName(
+        IntPtr process, uint flags, StringBuilder path, ref uint characters);
+
+    public static uint? DrainSoleConsoleHost(IntPtr job, int remainingMilliseconds)
+    {
+        // A fresh native Job identity query, not diagnostic observations or a
+        // liveness poll. Unknown/multiple survivors still fail the active-zero gate.
+        int bytes = 8 + 2 * IntPtr.Size;
+        IntPtr ids = Marshal.AllocHGlobal(bytes);
+        uint processId;
+        try
+        {
+            if (!QueryInformationJobObject(job, 3, ids, (uint)bytes, IntPtr.Zero))
+                return null;
+            int assigned = Marshal.ReadInt32(ids, 0);
+            int listed = Marshal.ReadInt32(ids, 4);
+            if (assigned == 0 && listed == 0) return 0;
+            if (assigned != 1 || listed != 1) return null;
+            processId = checked((uint)Marshal.ReadIntPtr(ids, 8).ToInt64());
+        }
+        finally { Marshal.FreeHGlobal(ids); }
+        IntPtr process = OpenProcess(0x00101000, false, processId);
+        if (process == IntPtr.Zero)
+        {
+            // ERROR_INVALID_PARAMETER is the native absence result for this
+            // exact PID; all other access/query failures remain nonterminal.
+            return Marshal.GetLastWin32Error() == 87 ? 0u : (uint?)null;
+        }
+        try
+        {
+            bool inJob;
+            if (!IsProcessInJob(process, job, out inJob) || !inJob) return null;
+            uint length = 32768;
+            var image = new StringBuilder((int)length);
+            if (!QueryFullProcessImageName(process, 0, image, ref length)) return null;
+            if (!String.Equals(image.ToString(), System.IO.Path.Combine(
+                Environment.SystemDirectory, "conhost.exe"), StringComparison.OrdinalIgnoreCase)) return null;
+            // The opened process handle pins exact identity. Only its terminal
+            // event permits the final Job accounting check, within the original
+            // command's remaining external deadline; elapsed time never succeeds.
+            uint wait = WaitForSingleObject(process, (uint)Math.Max(0, remainingMilliseconds));
+            if (wait == WaitTimeout) throw new TimeoutException("The exact isolated console host did not exit within the original command deadline.");
+            if (wait != WaitObject0) throw new Win32Exception();
+            return processId;
+        }
+        finally { CloseHandle(process); }
+    }
+
     public static RionWindowsJobResult Run(
         string username,
         string domain,
@@ -202,7 +257,8 @@ public static class RionWindowsJobRunner
         string workingDirectory,
         int commandTimeoutMilliseconds,
         string ephemeralUpdaterSigningKeyPath,
-        string ephemeralUpdaterSigningKeyPassword)
+        string ephemeralUpdaterSigningKeyPassword,
+        bool drainSoleConsoleHost = false)
     {
         if (commandTimeoutMilliseconds < 1000)
         {
@@ -271,6 +327,7 @@ public static class RionWindowsJobRunner
                 throw new Win32Exception();
             }
             childAssigned = true;
+            var commandClock = Stopwatch.StartNew();
             uint resumeResult = ResumeThread(process.hThread);
             if (resumeResult == UInt32.MaxValue)
             {
@@ -303,6 +360,23 @@ public static class RionWindowsJobRunner
                 accountingBuffer,
                 accountingSize);
             var activeObservations = processDiagnostics.SnapshotActive();
+            uint activeProcessesAtRootExit = activeProcessesAfterRootExit;
+            uint? drainedConsoleHost = null;
+            if (drainSoleConsoleHost && activeProcessesAfterRootExit != 0)
+            {
+                try
+                {
+                    drainedConsoleHost = DrainSoleConsoleHost(job,
+                        (int)Math.Max(0, commandTimeoutMilliseconds - commandClock.ElapsedMilliseconds));
+                    if (drainedConsoleHost.HasValue)
+                        activeProcessesAfterRootExit = QueryActiveProcesses(job, accountingBuffer, accountingSize);
+                }
+                catch (Exception error) when (exitCode != 0)
+                {
+                    throw new AggregateException("The isolated command and its exact console-host drain failed.",
+                        new InvalidOperationException("The isolated root command exited with code " + exitCode + "."), error);
+                }
+            }
             if (activeProcessesAfterRootExit != 0 && !TerminateJobObject(job, 1))
             {
                 throw new Win32Exception();
@@ -315,6 +389,8 @@ public static class RionWindowsJobRunner
             {
                 ExitCode = exitCode,
                 ActiveProcessesAfterRootExit = activeProcessesAfterRootExit,
+                ActiveProcessesAtRootExit = activeProcessesAtRootExit,
+                DrainedConsoleHostProcessId = drainedConsoleHost,
                 TotalProcesses = totalProcesses,
                 ActiveProcessObservations = activeObservations,
                 ActiveProcessSnapshotError = processDiagnostics.ActiveSnapshotError,

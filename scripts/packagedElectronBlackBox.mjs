@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { extractFile } from "@electron/asar";
 
 import { runEncodedPowerShellJson } from "./encodedPowerShell.mjs";
+import { WINDOWS_PACKAGED_FOREGROUND_HANDLERS } from "./packagedElectronWindowsForeground.mjs";
 
 const execFileAsync = promisify(execFile);
 const UI_ACTION_DEADLINE_MS = 35_000;
@@ -724,7 +725,8 @@ function Rion-MainWindows([uint32]$processId) {
 }
 `;
 
-const windowsUiAutomationPrelude = WINDOWS_PACKAGED_MAIN_WINDOW_HANDLERS + String.raw`
+const windowsUiAutomationPrelude = WINDOWS_PACKAGED_MAIN_WINDOW_HANDLERS +
+  WINDOWS_PACKAGED_FOREGROUND_HANDLERS + String.raw`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
@@ -772,7 +774,7 @@ if ($targetPid -eq 0 -or [String]::IsNullOrEmpty($roleName)) {
 for ($attempt = 0; $attempt -lt 300; $attempt++) {
   $dashboardWindows = @(Rion-MainWindows $targetPid)
   if ($dashboardWindows.Count -eq 1) {
-    $dashboardWindows[0].SetFocus()
+    Rion-ForegroundWindow $dashboardWindows[0] $targetPid
     [System.Windows.Forms.SendKeys]::SendWait("^k")
     Start-Sleep -Milliseconds 200
     Rion-SendKeysLiteral $roleName
@@ -835,7 +837,7 @@ $targetPid = [uint32]$payload.processId
 if ($targetPid -eq 0) { throw "invalid packaged application identity" }
 $matches = @(Rion-MainWindows $targetPid)
 if ($matches.Count -ne 1) { throw "exact packaged main window unavailable" }
-$matches[0].SetFocus()
+Rion-ForegroundWindow $matches[0] $targetPid
 [System.Windows.Forms.SendKeys]::SendWait("^q")
 `;
 
@@ -851,7 +853,7 @@ if ($targetPid -eq 0 -or [String]::IsNullOrEmpty($roleName) -or
 }
 $matches = @(Rion-ExactRoleContentWindows $targetPid $roleName $buttonName)
 if ($matches.Count -ne 1) { throw "exact packaged role window unavailable for capture" }
-$matches[0].SetFocus()
+Rion-ForegroundWindow $matches[0] $targetPid
 $bounds = $matches[0].Current.BoundingRectangle
 $left = [int][Math]::Floor($bounds.Left)
 $top = [int][Math]::Floor($bounds.Top)

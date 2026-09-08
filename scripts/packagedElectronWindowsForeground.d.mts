@@ -1,0 +1,1 @@
+export const WINDOWS_PACKAGED_FOREGROUND_HANDLERS: string;

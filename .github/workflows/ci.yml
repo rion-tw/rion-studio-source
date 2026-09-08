@@ -354,6 +354,7 @@ jobs:
       - name: Run Windows Chromium shell E2E
         if: runner.os == 'Windows'
         id: chromium_windows_smoke
+        continue-on-error: true
         timeout-minutes: 90
         run: pnpm run test:e2e:desktop:chromium:windows
         env:
@@ -436,6 +437,10 @@ jobs:
         env:
           RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
         run: |
+          pnpm run verify:windows-nsis-process-gate
+          if ($LASTEXITCODE -ne 0) {
+            throw "The native NSIS runtime-presence gate did not verify."
+          }
           Get-ChildItem Env: | Where-Object {
             $_.Name.StartsWith("TAURI_SIGNING_", [StringComparison]::OrdinalIgnoreCase) -or
             $_.Name.StartsWith("RION_STUDIO_UPDATER_PRIVATE_", [StringComparison]::OrdinalIgnoreCase)
@@ -533,6 +538,10 @@ jobs:
           path: |
             .desktop-e2e-artifacts
             !.desktop-e2e-artifacts/**/roles/*/browser/**
+
+      - name: Require complete Windows Chromium E2E after independent package evidence
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.chromium_windows_smoke.outcome != 'success' }}
+        run: exit 1
 
   desktop-e2e:
     name: ${{ matrix.name }} desktop E2E

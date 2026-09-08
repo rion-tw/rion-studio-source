@@ -1,3 +1,5 @@
+# Retired by the owner-authorized sole Electron release entry on 2026-09-09.
+# Use desktop-release-* workflows with the existing repository configuration.
 name: Electron Updater Tauri v22 Layout Compatibility
 
 on:
@@ -51,6 +53,7 @@ concurrency:
 
 jobs:
   authorize-control-plane:
+    if: ${{ false }}
     name: Authorize the trusted compatibility control plane
     runs-on: ubuntu-latest
     environment: electron-production-release
@@ -81,6 +84,7 @@ jobs:
           echo "control_plane_sha=${CONTROL_PLANE_SHA}" >> "${GITHUB_OUTPUT}"
 
   build-target-input:
+    if: ${{ false }}
     name: ${{ matrix.name }} exact-SHA unsigned compatibility input
     needs: authorize-control-plane
     runs-on: ${{ matrix.os }}
@@ -219,6 +223,7 @@ jobs:
           path: ${{ env.RION_UPDATER_PREVIOUS_V23_INSTALLER }}
 
   attest-signing-input:
+    if: ${{ false }}
     name: Attest ${{ matrix.platform }} unsigned input from trusted control
     needs:
       - authorize-control-plane
@@ -321,6 +326,7 @@ jobs:
           subject-path: ${{ env.RION_COMPATIBILITY_SIGNING_INPUT_ROOT }}/electron-updater-tauri-v22-trusted-control-receipt.json
 
   prepare-signed-input:
+    if: ${{ false }}
     name: ${{ matrix.name }} detached production updater input signing
     needs:
       - authorize-control-plane
@@ -516,6 +522,7 @@ jobs:
           path: ${{ env.RION_UPDATER_PREPARED_INPUT_ROOT }}
 
   artifact-compatibility:
+    if: ${{ false }}
     name: ${{ matrix.name }} published v22 input and v23 layout replacement
     needs:
       - authorize-control-plane
@@ -1397,6 +1404,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
   attest-lineage:
+    if: ${{ false }}
     name: Attest ${{ matrix.platform }} public v22 source lineage without signing material
     needs:
       - authorize-control-plane

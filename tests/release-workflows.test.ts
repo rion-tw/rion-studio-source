@@ -3,6 +3,29 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("desktop shell migration workflows", () => {
+  it("retires every provisional release job while keeping the existing Electron release entry", async () => {
+    const retired = [
+      "electron-production-abandoned-lease-recovery.yml", "electron-production-candidate.yml",
+      "electron-production-promotion-readiness.yml", "electron-production-provisional-publish.yml",
+      "electron-production-provisional-recovery.yml", "electron-production-terminal-promotion.yml",
+      "electron-production-updater-evidence.yml", "electron-updater-tauri-v22-compatibility.yml"
+    ];
+    for (const name of retired) {
+      const source = await readWorkflow(`.github/workflows/${name}`);
+      const jobs = source.slice(source.indexOf("\njobs:\n"))
+        .split(/^  [\w-]+:\n/mu).slice(1);
+      expect(jobs.length, name).toBeGreaterThan(0);
+      for (const job of jobs) expect(job, name).toMatch(/^    if: \$\{\{ false(?: |\})/mu);
+    }
+    const candidate = await readWorkflow(".github/workflows/desktop-release-candidate.yml");
+    expect(candidate).toContain("uses: ./.github/workflows/desktop-release-build.yml");
+    const build = await readWorkflow(".github/workflows/desktop-release-build.yml");
+    expect(build).toContain("pnpm run dist");
+    expect(build).not.toContain("environment: electron-production-");
+    expect(candidate).not.toContain("environment: electron-production-");
+    expect(candidate).not.toContain("pnpm exec tauri build");
+  });
+
   it("runs Rust, Electron packaging, and complete Chromium E2E on both platforms", async () => {
     const [
       workflow,

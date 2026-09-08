@@ -1,3 +1,5 @@
+# Retired by the owner-authorized sole Electron release entry on 2026-09-09.
+# Use desktop-release-* workflows with the existing repository configuration.
 name: Electron Production Provisional Publish
 
 on:
@@ -72,6 +74,7 @@ concurrency:
 
 jobs:
   verify-plan:
+    if: ${{ false }}
     name: Verify inputs and seal the pre-publication staging plan
     runs-on: ubuntu-latest
     environment: electron-production-release
@@ -674,6 +677,7 @@ jobs:
           path: plan-input
 
   attest-plan:
+    if: ${{ false }}
     name: Attest the pre-publication staging plan without release credentials
     needs: verify-plan
     runs-on: ubuntu-latest
@@ -1206,6 +1210,7 @@ jobs:
           path: staged-target
 
   attest-staged-target:
+    if: ${{ false }}
     name: Attest the observed non-latest target without release credentials
     needs: stage-target
     runs-on: ubuntu-latest
@@ -1570,6 +1575,7 @@ jobs:
           path: lease-evidence
 
   attest-public-latest-lease:
+    if: ${{ false }}
     name: Attest the exact held public-latest lease evidence without credentials
     needs: acquire-public-latest-lease
     runs-on: ubuntu-latest
@@ -1599,6 +1605,7 @@ jobs:
           subject-path: ${{ runner.temp }}/publication-held-lease/electron-production-public-latest-held-lease-evidence.json
 
   create-intent:
+    if: ${{ false }}
     name: Seal and upload the complete pre-mutation recovery capsule
     needs:
       - verify-plan
@@ -1842,6 +1849,7 @@ jobs:
           path: recovery-capsule-package/electron-production-publication-recovery-capsule.capsule.json
 
   attest-intent:
+    if: ${{ false }}
     name: Attest the complete recovery capsule without release credentials
     needs:
       - verify-plan
@@ -2304,6 +2312,7 @@ jobs:
           path: recovery-store-evidence
 
   attest-recovery-capsule-store:
+    if: ${{ false }}
     name: Attest the durable recovery-store evidence without credentials
     needs:
       - verify-plan
@@ -3478,6 +3487,7 @@ jobs:
           test "${RECEIPT_PHASE}" = "provisional"
 
   attest-provisional:
+    if: ${{ false }}
     name: Attest the non-terminal provisional receipt without release credentials
     needs: publish-provisional
     runs-on: ubuntu-latest

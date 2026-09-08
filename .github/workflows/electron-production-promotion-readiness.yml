@@ -1,3 +1,5 @@
+# Retired by the owner-authorized sole Electron release entry on 2026-09-09.
+# Use desktop-release-* workflows with the existing repository configuration.
 name: Electron Production Promotion Readiness
 
 on:
@@ -111,6 +113,7 @@ concurrency:
 
 jobs:
   authorize-control-plane:
+    if: ${{ false }}
     name: Authorize the trusted readiness control plane
     runs-on: ubuntu-latest
     environment: electron-production-release
@@ -142,6 +145,7 @@ jobs:
           echo "control_plane_sha=${CONTROL_PLANE_SHA}" >> "${GITHUB_OUTPUT}"
 
   verify-readiness:
+    if: ${{ false }}
     name: Verify immutable cross-platform promotion readiness
     needs: authorize-control-plane
     runs-on: ubuntu-latest

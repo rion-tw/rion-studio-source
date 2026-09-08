@@ -1,3 +1,5 @@
+# Retired by the owner-authorized sole Electron release entry on 2026-09-09.
+# Use desktop-release-* workflows with the existing repository configuration.
 name: Electron Production Candidate
 
 on:
@@ -35,6 +37,7 @@ concurrency:
 
 jobs:
   authorize-control-plane:
+    if: ${{ false }}
     name: Authorize the trusted production control plane
     runs-on: ubuntu-latest
     environment: electron-production-release
@@ -68,6 +71,7 @@ jobs:
           echo "control_plane_sha=${CONTROL_PLANE_SHA}" >> "${GITHUB_OUTPUT}"
 
   validate:
+    if: ${{ false }}
     name: Validate owner-locked production inputs
     needs: authorize-control-plane
     runs-on: ubuntu-latest
@@ -163,6 +167,7 @@ jobs:
           path: trusted-control/electron-production-candidate-trusted-control-receipt.json
 
   quality:
+    if: ${{ false }}
     name: Re-run exact-SHA quality gates
     needs: validate
     uses: ./.github/workflows/ci.yml
@@ -170,6 +175,7 @@ jobs:
       ref: ${{ inputs.source_sha }}
 
   build:
+    if: ${{ false }}
     name: ${{ matrix.name }} production candidate
     needs:
       - validate
@@ -405,6 +411,7 @@ jobs:
           path: ${{ env.RION_STUDIO_ELECTRON_PAYLOAD_PROOF_ROOT }}/windows-installer-payload-proof.json
 
   attest-signing-input:
+    if: ${{ false }}
     name: Attest ${{ matrix.platform }} closed signing input from trusted control
     needs:
       - authorize-control-plane
@@ -509,6 +516,7 @@ jobs:
           subject-path: electron-production-candidate-signing-input-receipt.json
 
   sign:
+    if: ${{ false }}
     name: ${{ matrix.name }} detached production updater signing
     needs:
       - authorize-control-plane
@@ -719,6 +727,7 @@ jobs:
           path: platform-candidate
 
   assemble:
+    if: ${{ false }}
     name: Assemble cross-platform production candidate
     needs:
       - authorize-control-plane

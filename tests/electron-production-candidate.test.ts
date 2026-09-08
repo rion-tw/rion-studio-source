@@ -311,7 +311,7 @@ describe("Electron production candidate trust", () => {
       "--password", password,
       "--write-keys", privateKeyPath
     ]);
-    runTauriSigner(["sign", artifactPath], {
+    await runTauriSigner(["sign", artifactPath], {
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: password,
       TAURI_SIGNING_PRIVATE_KEY_PATH: privateKeyPath
     });

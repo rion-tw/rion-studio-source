@@ -515,6 +515,19 @@ function Write-FailureSnapshot([string]$reason) {
 }
 
 $expiry = [DateTime]::UtcNow.AddSeconds(10)
+function Wait-ExactForeground([IntPtr]$expected) {
+  # External native activation acknowledgement: Win32 may report NULL while
+  # activation changes. Observe only that transition within the existing budget;
+  # a different foreground HWND fails immediately. Never replay the click.
+  $foreground = [RionFileDialogOwnership]::GetForegroundWindow()
+  while ($foreground -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $expiry) {
+    Start-Sleep -Milliseconds 50
+    $foreground = [RionFileDialogOwnership]::GetForegroundWindow()
+  }
+  if ($foreground -ne $expected) {
+    throw 'exact Windows file dialog is not foreground for input'
+  }
+}
 do {
   Capture-WindowSnapshot
   # PowerShell enumerates a one-item List returned from a function into the
@@ -542,10 +555,9 @@ Write-Progress 'focusing-dialog'
 $dialogHandle = [IntPtr]$dialog
 try {
 [RionFileDialogOwnership]::SetForegroundWindow($dialogHandle) | Out-Null
+Wait-ExactForeground $dialogHandle
 Click-VisibleControl $dialogHandle $edits[0]
-if ([RionFileDialogOwnership]::GetForegroundWindow() -ne $dialogHandle) {
-  throw 'exact Windows file dialog is not foreground for input'
-}
+Wait-ExactForeground $dialogHandle
 Write-Progress 'entering-file-name'
 [RionFileDialogOwnership]::SetExactFileName(
   $dialogHandle, $edits[0], $fixturePath)

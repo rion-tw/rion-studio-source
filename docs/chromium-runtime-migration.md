@@ -565,6 +565,14 @@ terminal outcome, Chromium storage is flushed, Rust shuts down, and only then
 does the process exit. Renderer disappearance never becomes proof that Core
 shutdown completed.
 
+The Windows native window/tab controls, controlled reload and divider callbacks
+retain their accepted command Promises behind the native admission fence. Clean
+exit waits for that exact cohort while Core effects remain available, before
+disposing platform intake or the effect executor. A visible click returning or
+a tab disappearing is not its command terminal. The drain preserves original
+Core errors and never turns elapsed time into completion; macOS retains its
+existing AppKit event-drain boundary.
+
 Windows OS shutdown, restart, and sign-out enter through the main native
 window's `query-session-end` event because Electron does not deliver the normal
 application quit sequence for that boundary. The handler prevents immediate

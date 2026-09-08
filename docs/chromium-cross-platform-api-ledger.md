@@ -42,16 +42,70 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | Earlier local complete JS 3814 PASS/48 skips; CI f7e3ef95 complete Windows JS 3815 PASS/48 skips. Latest CI 34187765250 at caea487d: Windows Rust 1673 PASS/4 ignored, native integration 16 PASS, complete Windows JS 3819 PASS/2 FAIL/48 skips (old navigation mock, fixed at 129702a3; full revalidation pending). Local x64 Rust's separate 2 s Macro event failure remains 1672 PASS/1 FAIL/4 ignored across commands. Updater 256 rounds unchanged. UAC-blocked elevated JS never started. Final production Tauri build at 2ee06d88 and Electron build/isolation/runtime probe at 129702a3 PASS. |
+| 1. Native/shared/build | CI 34190968118 at c153c0c737fde081d6b5050e4bfe8d1fa6a507c5 passes Windows Rust 1673/4 ignored, native integration 16, full Windows JS 3827/48 skips, shared JS 3869/10 skips and Tauri build. This fully validates the page/mock correction. Local historical x64 Macro timeout remains recorded. New runtime 3eff9b28 passes focused 52, typecheck/hygiene/lint and native Rust lint; full native/build/profile checks are in progress. Updater 256 rounds unchanged. Local production restoration at 129702a3 passed, but new-runtime restoration is required. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | Local c17f9763f28409c0582a8a7730809017b004ac63: stable 31 PASS + 3 expected force/40 journey PASS; Chromium 58 PASS + 4 expected force/54 journey PASS, all 62 phases. CI caea487d Chromium again passes 58+4/54, all normal flush/exit; CI 8ed20726 stable passes 31+3/40. Latest caea487d CI stable fails an obsolete page handle, fixed at 129702a3 with full revalidation pending. Local stable remains obstructed by the cancelled test's UAC prompt. Historical bootstrap, chooser, OS 5 and ReplaceFileW failures remain recorded. Hardware supersets require the missing second display. |
+| 3. Full profiles | Local c17f9763 stable 31+3 expected force/40 journeys and Chromium 58+4/54 remain complete evidence. Latest CI c153c0c7 stable passes 31+3/40, but Chromium FAILS after 12 phases/15 journey PASS/39 NOT_RUN: final-close native operation is still nonterminal at Core teardown. Runtime fix 3eff9b28 has 52 focused PASS; full profile remains pending. Latest complete Chromium PASS is caea487d. Local trusted UI is obstructed by UAC; extended supersets require a second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI caea487d package/distribution checks and native running/absent fixtures PASS. Installed payload still FAILS: exact Job count 4/3 and 1 active at root exit; two pwsh, one conhost and the exact installer were observed, but the remaining identity was not recorded. No valid installed proof; updater/black-box SKIPPED. Earlier ca4375cf 12/3 failure remains. c153c0c7 adds bounded active-member diagnosis; rejected console-launch experiments were withdrawn. Expected count 3, active-zero, cleanup and all production-key gates remain unchanged. |
+| 6. Install/update | CI c153c0c7 package/distribution/native NSIS preconditions PASS; installed proof FAILS total 4/expected 3, with active snapshot empty/error 0. Exact observations: two pwsh, one conhost and staged installer. Prior caea487d retained-1 failure is not repaired by this later result. No valid installed proof; updater/black-box SKIPPED. Rejected detached/hidden console-launch changes were withdrawn. Process-count, active-zero, cleanup and production-key gates remain unchanged. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- CI 34190968118 checks out c153c0c737fde081d6b5050e4bfe8d1fa6a507c5
+  (workflow-definition head 8bd62ff679690f59ea187807f68974646a4c9e1f) and is
+  terminal FAIL overall. Windows native job 101948908937 passes Rust 1673/4
+  ignored, native integration 16, complete JS 3827/48 skips and Tauri build.
+  Shared job 101948782263 passes complete JS 3869/10 skips. Stable full job
+  101948782130 passes 31 normal plus three expected-force phases, 40 journeys,
+  all phase exits 0, clean source. Report 2026-09-08T05-33-25-227Z-win32,
+  artifact 10042591212, digest
+  0360e329dde3d00ab7cb6c759d057ab26e9de7d2968ddaddbb0d6fff8bee5df6.
+  This is full regression evidence for the 129702a3 navigation correction.
+- The same run's Chromium report 2026-09-08T05-33-11-886Z-win32 FAILS, despite
+  the API step conclusion being normalized by continue-on-error. Always inspect
+  report.failure and complete phase/journey membership, not that conclusion.
+  Artifact 10042368444, digest
+  5b53e22aafc7dde4ebeec0c007331e0657dbc1307550b4f76a214902ff2b49b7,
+  contains only 12 normal PASS phases and 15 journey PASS/39 NOT_RUN. The next
+  phase, chromium-workspace-web-only-seed, passes its visible UI spec but lacks
+  final flush: CORE_SHUTDOWN_BROWSER_OPERATIONS_UNVERIFIED. Core-flow sequence
+  479 starts embeddedTabStop, 480 starts cleanExitLifecycle, 488/489 disposes
+  Core effects, and 512/513 rejects checked Core shutdown with the original
+  nonterminal-lease error. The final entrance tab is
+  e45018ca-0dbb-4ed6-b55d-4265f68f8d5b in window
+  d97ffed6-b952-4b00-a4f3-9297f7877452, generation 19/revision 22/native parent 4;
+  survivor Web-only tab 3e85d052-e5c3-43bc-9592-2f506f85bcab remains in window
+  8b10d6f2-4d06-4a03-8e5c-2de13c83e00d, generation 13/revision 17/native parent 3.
+  These identities are from the last pre-shutdown topology; no failed phase is
+  counted as a normal exit. The latest complete Chromium PASS remains caea487d.
+- Runtime fix 3eff9b2865f90b85908b1c71f605d64805051ddd retains admitted native
+  window/tab/divider/reload Promises and waits for all exact terminals before
+  Core effect teardown. The synchronous ingress fence remains; no timeout,
+  projection-as-completion, direct-controller fallback or assertion weakening
+  is added. Original Core errors survive the drain. The bootstrap ordering test
+  fails before wiring and passes after; six explicit darwin/win32 gate tests
+  cover delayed terminals, late rejection and reentrant closure. Adjacent tests
+  total 52 PASS; hygiene, lint and corrected ES2022 typecheck PASS. The initial
+  Promise.withResolvers TS2550 is retained and fixed without changing the target
+  library. CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024 retains the visible close next
+  to phase teardown and its complete-profile final-flush requirement; its
+  manifest description is updated, coverage remains P0 70/70, P1 77/77 and both
+  cutover groups 41/41. Full native/build/profile validation of this new runtime
+  source is pending; older full PASS is not relabeled as this correction.
+- c153c0c7 package job 101948782030 again passes package/distribution/native
+  NSIS preconditions, then rejects total process count 4/expected 3. Observed
+  PIDs are pwsh 8660/6684, conhost 476 and exact staged installer 10036 at
+  D:\a\_temp\rion-electron-installer-payload-1d58c95c75504bb7b8fb3918b9f8d3fc\input\Rion.Studio-win.exe.
+  The new bounded active snapshot is empty with error 0/not truncated; this
+  attempt has no active-zero failure and does not repair the prior retained-1
+  result. No installed proof is written; updater/packaged black-box are skipped.
+  Artifact 10042706820 contains prior diagnostics, not a successful packaged
+  black-box. Controlled PowerShell 7.6.5 probes strengthen rejection of the
+  withdrawn detached launcher: DETACHED_PROCESS returns 0 without writing the
+  requested marker; flags 0 execute the identical command and return 7. Both
+  outcomes are retained under detached-marker-native-result.json and
+  console-inheritance-control-result.json; no console-policy change is applied.
 - CI 34187765250 is terminal FAIL at exact source
   caea487d93c0b6200b181c866b1a6a46ef994e8e. Windows job 101939561346 passes
   Rust 1673/4 ignored and native integration 16, then complete JS reports
@@ -2793,7 +2847,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware and Windows c17f9763 stable full 31+3/40, Chromium full 58+4/54 PASS; Windows hardware supersets need a second display | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows caea487d package/distribution/native NSIS preconditions PASS, installed proof FAIL (4/3 total, 1 active), updater/black-box skipped; c153c0c7 adds exact active-member diagnosis; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows c153c0c7 package/distribution/native NSIS preconditions PASS, installed proof FAIL (4/3 total, active snapshot empty), updater/black-box skipped; prior retained-1 result remains unresolved; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS 85f662f4 native/full hardware/CI and Windows c17f9763 complete profiles PASS; latest-source paired matrix, Windows package/physical-display and external gates remain open | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 

@@ -33,6 +33,41 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Newest completed Windows CI 34190968118 tests exact source
+c153c0c737fde081d6b5050e4bfe8d1fa6a507c5 (workflow head
+8bd62ff679690f59ea187807f68974646a4c9e1f). Windows Rust 1673 PASS/4 ignored,
+native integration 16, full Windows JS 3827/48 skips and shared JS 3869/10 skips
+PASS. Stable full passes 31 normal + 3 expected force / 40 journeys, all exits 0
+(report 2026-09-08T05-33-25-227Z-win32, artifact 10042591212). This validates the
+129702a3 page-handle correction with full regression, not just focused tests.
+
+Chromium full FAILS after 12 normal phases: 15 journey PASS/39 NOT_RUN. The
+next Web-only Workspace phase passes its UI spec but cannot flush at quit:
+embeddedTabStop starts at Core-flow sequence 479, clean exit starts at 480,
+Core effects dispose at 488/489, then checked shutdown rejects the still-owned
+browser-operation lease. Report 2026-09-08T05-33-11-886Z-win32, artifact
+10042368444; original code CORE_SHUTDOWN_BROWSER_OPERATIONS_UNVERIFIED is
+retained. GitHub's continue-on-error-normalized step conclusion is not the
+report verdict; the final workflow guard still fails the job.
+
+Runtime correction 3eff9b2865f90b85908b1c71f605d64805051ddd waits for the exact
+cohort of accepted native window/tab/divider/reload Promises while Core effects
+remain live, then performs existing ordered teardown. Original Core errors,
+admission fences, final-flush assertions and all deadlines remain intact. A
+bootstrap ordering regression fails before wiring and passes after; six explicit
+darwin/win32 tests cover delayed terminality, failures and reentrant closure.
+Focused suite 52 PASS; hygiene, lint and corrected ES2022 typecheck PASS. The
+Windows WORKSPACE-WEB-ONLY-024 journey retains its final visible close beside
+teardown and the complete-profile normal-exit requirement. New-source full
+native/build/profile validation is pending; macOS native acceptance of new
+runtime changes is not inferred from prior CI and is not rerun in this takeover.
+
+The c153c0c7 NSIS attempt still fails exact total 4/expected 3. The new snapshot
+has no active members, error 0 and no truncation; the prior retained-1 failure
+is not retroactively fixed. Observed processes are pwsh 8660/6684, conhost 476,
+installer 10036. No valid installed proof exists; updater and packaged black-box
+remain skipped. Production-key transactions and hardware gates remain open.
+
 Latest terminal CI: 34187765250 at
 caea487d93c0b6200b181c866b1a6a46ef994e8e FAILS overall. Windows Rust passes
 1673/4 ignored and native integration 16. Complete Windows JS is 3819 PASS /

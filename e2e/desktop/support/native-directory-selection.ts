@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +21,11 @@ export async function selectNativeChromeImportDirectory(input: Readonly<{
     throw new Error("The directory chooser requires the exact fixture and application PID");
   }
   if (input.platform === "windows") {
-    await runEncodedPowerShellJson(String.raw`
+    const artifactDirectory = process.env.RION_STUDIO_E2E_ARTIFACT_DIR;
+    if (!artifactDirectory || !isAbsolute(artifactDirectory)) {
+      throw new Error("The native chooser requires an absolute evidence directory");
+    }
+    const receipt = await runEncodedPowerShellJson(String.raw`
 Add-Type -TypeDefinition @'
 ${windowsNativeDialogDeclarations}
 '@
@@ -47,7 +52,20 @@ do {
   if ([DateTime]::UtcNow -gt $expiry) { throw 'native folder dialog did not close' }
   Start-Sleep -Milliseconds 50
 } while ($true)
+[ordered]@{
+  platform = 'win32'
+  processId = $targetPid
+  dialogHandle = $dialog.ToInt64().ToString()
+  editHandle = $edits[0].ToInt64().ToString()
+  editControlId = 1152
+  selectButtonHandle = $buttons[0].ToInt64().ToString()
+  selectButtonControlId = 1
+  exactOwner = $true
+  dialogClosed = $true
+} | ConvertTo-Json -Compress
 `, input, { timeoutMilliseconds: 15_000 });
+    await writeFile(join(artifactDirectory, "native-chrome-import-directory-selection.json"),
+      JSON.stringify(JSON.parse(receipt), null, 2));
     return;
   }
   await execute("/usr/bin/xcrun", [

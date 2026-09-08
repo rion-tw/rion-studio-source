@@ -4,7 +4,8 @@ This ledger tracks the remaining work between the current transition tree and
 the owner-approved Electron/Chromium v23 production cutover. The normative
 requirements remain in [Chromium Runtime Migration](chromium-runtime-migration.md)
 and [Updater Install Transaction](updater-transaction-contract.md); this file is
-only an execution view and must never be used to waive a gate.
+only an execution view and cannot itself waive a gate. The explicit owner scope
+decision recorded below removes the named acceptance requirements.
 
 Last reconciled: 2026-09-09 (Asia/Taipei).
 
@@ -12,22 +13,46 @@ The separate [Chromium Cross-Platform API Ledger](chromium-cross-platform-api-le
 tracks shared API adoption and justified native boundaries. Its maintenance
 tasks do not waive or replace the release-cutover gates in this ledger.
 
+## Owner scope decision — 2026-09-09
+
+The owner explicitly removed physical dual-monitor acceptance, actual OS
+sleep/wake and sign-out acceptance, and real production updater transactions
+from the ledger. All four production updater cells (Tauri v22 and prior
+Electron to target Electron on both platforms) are removed requirements,
+not completed transactions. The real updater transaction producer's two
+execution deliverables are therefore removed from the remaining count.
+
+This decision supersedes older pending-gate statements and five-package /
+nine-deliverable counts in the dated checkpoints below. Hardware-only profile
+supersets are no longer mandatory acceptance. Existing simulations, native
+input and lifecycle tests, fixture package/updater evidence and their exact
+classifications remain; no synthetic or fixture result becomes physical or
+production PASS. Signature/hash verification and Rust updater authority remain.
+
+Terminal promotion, the final v22 configuration delta, applicable exact-source
+native evidence and protected sole-entry cleanup remain. The disabled promotion
+workflow currently depends on the removed producer: reconciling that dependency
+with the owner's revised scope belongs to the existing promotion package, not a
+new obligation to run those four transactions. This ledger-only change does not
+enable the workflow, fabricate receipts or authorize publication, merge,
+credential changes or runtime retirement.
+
 ## Current count
 
-- Five release-cutover work packages remain before the migration can be called
+- Four release-cutover work packages remain before the migration can be called
   done. A failed native gate may add remediation work, but cannot remove a gate.
-- The known packages contain nine independently verifiable deliverables.
+- The known packages contain seven independently verifiable deliverables.
 - Within the currently authorized candidate-branch scope, Windows validation
   and remediation are in progress. Candidate closure requires the latest branch
   head to have a green exact-SHA macOS/Windows CI matrix; the hosted status is
   reported in the handoff because it can change after this ledger is committed.
 - The one later repository-mutation package is the deliberately gated sole-entry
-  cleanup, which cannot begin until the external native and release gates pass.
-  The real-transaction producer and terminal-promotion finalizer are implemented
-  as hard-disabled transition code but remain open execution gates. The
+  cleanup, which cannot begin until the remaining native and release gates pass.
+  The real-transaction producer remains hard-disabled code but is no longer an
+  open execution gate. The terminal-promotion finalizer remains pending. The
   owner-controlled release-configuration package is a provisional final delta
   audit, not a presumption that v23 needs a second release infrastructure. One
-  package is exact-candidate native and physical-platform evidence.
+  package is exact-candidate native evidence under the revised acceptance scope.
 - A passing portable or macOS-only test run does not reduce the Windows evidence
   count. Historical evidence does not count for the current source SHA.
 
@@ -57,8 +82,9 @@ updater manifest 733fdac0436a615ba76b71eda27544b19be4db8d44df614c353e6354077c205
 NSIS/updater/black-box Jobs have three/37/43 members and each ends active zero;
 updater target PID 9164 and black-box app PID 2228. The API ledger records full
 logical identities and package component hashes. productionTerminalReceipt=false;
-there is no Tauri-source production transaction. API stays 11/18; five work
-packages/nine overlapping deliverables and physical/production gates remain open.
+there is no Tauri-source production transaction. API stays 11/18; the owner scope
+decision leaves four work packages/seven overlapping deliverables. Removed
+physical/production transaction requirements are not outstanding gates.
 
 2026-09-09 reconciliation (UTC evidence timestamps): CI 34244392164 at exact
 a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 is terminal FAIL overall. Its Windows
@@ -917,11 +943,10 @@ simplified if the existing release setup already supplies the required authority
 
 | Package | Required deliverables | Current state | Completion evidence |
 | --- | ---: | --- | --- |
-| Real updater transaction producer | 2 | Implemented but hard-disabled and unexecuted: the fixed workflow seals one challenge and exact upstream identities, drives visible updater UI in four native cells, records product-authored terminality and target-process identity, detached-attests only each terminal receipt, and verifies the aggregate | Four exact source-runtime transactions: Tauri v22 and prior Electron to target Electron on both macOS and Windows |
-| Terminal promotion finalizer | 2 | Implemented but hard-disabled and unexecuted: the fixed workflow re-verifies readiness/provisional/capsule/lease identities, brackets the sole lease release with exact target observations, writes only a create-new `promoted` receipt, and leaves every non-success path to durable recovery | Fresh external-state observation plus one terminal promotion receipt, with rollback or indeterminate closure for every non-success path |
+| Terminal promotion finalizer | 2 | Implemented but hard-disabled and unexecuted; its existing four-cell producer prerequisite must be reconciled with the 2026-09-09 owner removal before any authorized execution | Fresh external-state observation plus one terminal promotion receipt, with rollback or indeterminate closure for every non-success path; removed production transactions are not a prerequisite to restore through this ledger |
 | Sole Electron production entry and cleanup | 2 | Pending until every prior gate passes; Tauri v22 remains stable production | macOS and Windows release/CI matrices green; make Electron the only production entry, then remove Tauri/System WebView and dual-shell code while retaining `rion-appkit` |
 | Owner-controlled release configuration | 1 | Deferred to the final delta audit; existing v22 release configuration is the baseline and no new repository, App, environment, variable, or secret is presumed necessary | Read-only v22-to-v23 configuration/workflow comparison, followed only by owner-approved Electron-specific adjustments that the comparison proves unavoidable |
-| Current-SHA native release evidence | 2 | 85f662f4 macOS physical/native and fixture package/update PASS; Windows and production execution remain pending | Retained AppKit-host macOS package/update evidence and physical Windows install/update/trusted-input evidence for the exact candidate SHA |
+| Current-SHA native release evidence | 2 | 85f662f4 macOS native/package evidence retained; Windows 81b0343c full CI profiles and fixture package/updater/black-box PASS, but latest native job stops at upload 403 and local JS/stable regressions remain | Applicable exact-candidate macOS/Windows native, package and trusted-input evidence; physical dual-display, actual OS sleep/sign-out and real production updater transactions are excluded by owner decision |
 
 Repository code may validate and consume owner-controlled configuration, but it
 must not create it, guess repository identity, or enable public mutation without
@@ -937,20 +962,18 @@ remain statically disabled. Its currently modeled separate store, GitHub Apps,
 protected environments, variables, and secrets remain provisional until the
 final v22-to-v23 delta audit; they are not inferred owner requirements.
 
-The real updater transaction producer is also no longer missing repository
-implementation. Its hard-disabled fixed workflow is covered by focused source,
-contract, bundle, promotion-readiness, and full repository tests. This does not
-complete either of its deliverables: the owner-controlled provisional endpoint
-or reused v22 endpoint and native environments must still run all four exact
-transactions, including retained AppKit evidence on macOS and physical Windows
-evidence.
+The real updater transaction producer is removed from remaining work by the
+2026-09-09 owner decision. Its hard-disabled implementation and historical test
+evidence remain in the repository. Neither of its former execution deliverables
+is labeled PASS, and no real production transaction receipt is inferred.
 
 The terminal-promotion finalizer is likewise no longer missing repository
 implementation. Its closed receipt, file-bound CLI, source contract, and
 hard-disabled workflow are covered by focused tests. This does not complete
-either finalizer deliverable: the owner must first authorize and successfully
-run the upstream four-cell producer, then authorize this finalizer against the
-live public state. Unknown or failed mutation acknowledgement remains a durable
+either finalizer deliverable. Before authorized execution against live public
+state, its current producer dependency must be reconciled with the removed
+acceptance requirement without inventing successful upstream receipts. Unknown
+or failed mutation acknowledgement remains a durable
 recovery outcome and is never promoted by elapsed time or local inference.
 
 ## 2026-09-04 current-branch validation hold

@@ -10,6 +10,35 @@ Research baseline: `33fff22550b8f1959c54c8231717c13dfc4d1b16`, Electron 43.4.1,
 research ran four Session/lifecycle Vitest files containing 56 passing tests;
 it did not establish native replacement parity on either platform.
 
+### Owner scope decision — 2026-09-09
+
+The owner explicitly removed physical dual-monitor acceptance, actual OS
+sleep/wake and sign-out acceptance, and real production updater transactions
+from the remaining ledger gates. This includes all four previously required
+production cells (Tauri v22 and prior Electron to target Electron on macOS and
+Windows). These requirements are removed by owner decision, not verified PASS.
+They must not reappear as blocked or pending work in subsequent handoffs.
+
+Retain the existing display/lifecycle simulations, real Electron powerMonitor
+listener coverage, native session-end/close-drain tests, fixture updater,
+signature/hash checks and packaged native black-box evidence with their actual
+classifications. Hardware-only profile supersets remain available coverage;
+their absence no longer blocks this ledger. Do not change profile membership,
+skip assertions, manufacture production receipts or infer physical acceptance.
+
+API closure remains **11/18**: CP-04, CP-11, CP-12, CP-15, CP-16, CP-17 and
+CP-18 retain software regression, applicable exact-candidate native evidence
+or retained release/cleanup work. The migration count becomes **four work
+packages / seven overlapping deliverables** after removing the real updater
+transaction producer's two execution deliverables. Terminal promotion, the
+final v22 configuration delta and protected runtime retirement remain separate.
+This instruction authorizes a ledger scope change, not publication, workflow
+activation, credentials, merge or runtime removal.
+
+This decision and the execution register supersede older pending-gate/count
+statements below. Dated test results and historical checkpoints remain evidence
+of what ran; removed acceptance requirements are not outstanding work.
+
 ### Windows workstation takeover — 2026-09-08 (in progress)
 
 This checkpoint follows the owner's Windows execution instruction and supersedes
@@ -36,9 +65,9 @@ SeCreateSymbolicLinkPrivilege and Developer Mode is absent. A temporary elevated
 test process successfully created/read back a real file symlink; no persistent
 privilege policy, Developer Mode, credential, display mode, assertion or deadline
 was changed. Screen inventory
-contains only DISPLAY1, 5120x2880 (work area 5120x2784); ordinary two-display
-extended acceptance is blocked by missing hardware. Physical mixed-DPI remains
-removed by owner decision. Actual OS sleep/wake remains unverified.
+contains only DISPLAY1, 5120x2880 (work area 5120x2784). Physical dual-display,
+actual OS sleep/wake and sign-out acceptance are removed by the 2026-09-09
+owner decision; physical mixed-DPI was already removed. No physical PASS is claimed.
 At the current manifest, stable extended requires 35 phases/41 journeys and
 chromium-windows-hardware-extended requires 63 phases/56 journeys. They add
 extended-native and chromium-native-window-display-extended respectively to
@@ -55,7 +84,7 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. Best-effort simulation/native-event coverage is owner-directed; the local 12-file display/power/session-end/quit suite passes 78 tests at d1e539 (code 737d5a1f). No physical second display, actual OS sleep or actual OS sign-out evidence; no manual hardware/OS operation is required. |
 | 6. Install/update | Exact 81b0343c CI NSIS, Electron 8.4.0→8.5.0 fixture updater and packaged native black-box PASS. SHA-verified artifact 10066934988 retains installed proof, updater observations and passed black-box report; isolated Jobs have three/37/43 members and each ends active zero. No Tauri source transaction or production-key cutover is inferred; the older updater ACK timeout cause remains unexplained. |
-| 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
+| 7. Closure | API remains 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Four migration work packages/seven deliverables overlap this count. Software failures, applicable exact-candidate native evidence, promotion, configuration delta and protected runtime retirement remain open. Physical dual-display, actual OS sleep/sign-out and real production updater transactions are removed requirements. |
 
 Latest reconciliation (2026-09-09 Asia/Taipei; command timestamps below are UTC):
 
@@ -107,7 +136,8 @@ Latest reconciliation (2026-09-09 Asia/Taipei; command timestamps below are UTC)
   The success report does not retain the native HWND. Exact native Job
   observations are separately retained in ci-workspace-gui-job-terminal-receipt.json.
   These fixture results close no additional production/physical API gate; API
-  remains 11/18, with five work packages/nine overlapping deliverables open.
+  remains 11/18; the subsequent owner scope decision reduces remaining migration
+  work to four packages/seven overlapping deliverables.
 - Test/E2E-only 81b0343c1dc17927754495cab025e148df3dc4a6 replaces the optional
   console-owning diagnostic root with a compiled Windows GUI-subsystem fixture.
   The PE subsystem must be 2, the root must have no console, and the exact-one
@@ -1916,9 +1946,9 @@ baseline; do not silently label an older binary as the newer source.
 | 2. Exact known failures, CP-04/08 | Inspect mixed-recovery-force's stale WebElement-origin correction and the new-window detach/compensation failure described in the Windows follow-up table below. Preserve exact logical/native window identity, real pointer hit, survivor topology, primary error and compensation error. A later successful projection cannot repair a failed terminal receipt. |
 | 3. Complete profiles, CP-11/15 | Run chromium-windows-smoke and stable full, or their hardware/extended supersets when ordinary physical displays are available. Read the manifest/report instead of assuming Mac phase counts. Verify the document-root navigation locator on the real Windows UI. A focused repair must be followed by the applicable complete profile. |
 | 4. Consented import, CP-10 | Execute visible consent, cancel, native directory picker, profile/game choice, final confirmation and fresh-process restart. Verify exactly scoped launch-origin cookie/LocalStorage data and unchanged source bytes. Native picker control ID 1152 still needs Windows evidence. Never replace consent with debug import or use a real user profile as the live runtime. |
-| 5. Hardware/lifecycle, CP-12 | Retain real foreground/hidden trusted input, ordinary secondary-display controls and session-end/close-drain acceptance. Same-scale displays are allowed. Physical mixed-DPI is removed by owner decision; retain the actual-power limitation separately from synthetic power-event ingress. Do not require manual sleep/wake assistance; run the strengthened standby journey and paired deterministic cases, then record any unavailable unattended hardware/OS behavior honestly. |
+| 5. Hardware/lifecycle, CP-12 | Retain real foreground/hidden trusted input, display simulations, native session-end/close-drain and the strengthened standby journey with paired deterministic cases. Physical dual-display and actual OS sleep/wake/sign-out acceptance are removed by owner decision on 2026-09-09; mixed-DPI was already removed. Keep native/synthetic evidence classifications exact. |
 | 6. Package/install/update, CP-16 | Follow the existing Windows package workflow/runbook for the NSIS installed payload, Rust-owned updater transaction, signature/hash checks and packaged native black-box. Record exact source/version/package identities. Do not invent signing inputs, modify credentials or infer production-key transactions from fixture tests. |
-| 7. Final ledger decision, CP-17/18 | Record complete SHA, OS/runtime, commands, artifact/run IDs, profile/phase/journey verdicts, normal flush/exit and expected-force outcomes. Keep real update, promotion and release-delta gates separate. Do not remove protected Tauri/System WebView code based only on Mac success or a subset of these Windows checks. |
+| 7. Final ledger decision, CP-17/18 | Record complete SHA, OS/runtime, commands, artifact/run IDs, profile/phase/journey verdicts, normal flush/exit and expected-force outcomes. Real production updater transactions are removed requirements; retain promotion and release-delta gates. Do not remove protected Tauri/System WebView code before the remaining gates pass. |
 
 The original Windows workstation JavaScript result remains **16 FAIL / 3641
 PASS / 48 skipped**: 11 file-symlink EPERM failures, four original 10000 ms
@@ -3979,14 +4009,14 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-08 | P1 / Trusted input | verified adopt with retained AppKit adapter; post-deletion Windows native integration, addon inventory and complete local c17f9763 / CI d67d8759 input parity PASS | CP-01 | Evaluate sendInputEvent separately for foreground and hidden Role input, modifiers, held keys, middle button, zoom and reload. Preserve focus and owner/generation/epoch/DOM evidence. Partial replacement is permitted only with proven equivalent semantics; retain AppKit input. |
 | CP-09 | P1 / Trusted input | verified shared coordination; all eight required paired Macro journeys PASS at 34a98f5b | CP-01 | Consolidate genuinely identical pending-sequence, frame, cancellation and retirement coordination around the existing shared coordinator. Preserve independent native evidence validation and Core scheduling. Test stale/duplicate/partial submission and paired Macro journeys. |
 | CP-10 | P1 / Session maintenance | verified shared lifecycle and consented import/restart; macOS 85f662f4 full hardware plus Windows c17f9763 complete profile and native chooser 1152/1 PASS | CP-03 | Share helper launch, process identity, response validation, drain and cancellation plumbing. Keep reset, migration and Chrome import data scopes/terminality distinct. Fresh-process DOM Storage readback remains required; test tampered/stale helper outcomes and restart persistence. |
-| CP-11 | P1 / Browser capability owners | macOS 85f662f4 hardware/capabilities and Windows local c17f9763 / CI 0935ac59 complete capabilities PASS; Windows physical dual-display hardware superset pending | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
-| CP-12 | P2 / Shell | shared shell coordination implemented; macOS 85f662f4 and Windows local c17f9763 / CI 0935ac59 full shell/standby PASS; native Windows session-end drain PASS; physical display superset pending; actual sleep unobserved without manual-assistance requirement | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
+| CP-11 | P1 / Browser capability owners | complete capability profiles PASS; latest local JS font UI failures and applicable exact-candidate acceptance remain unresolved; physical dual-display acceptance removed by owner on 2026-09-09 | CP-01 | Trace navigation/reload/popups/audio/zoom/fonts/overlay/security/certificates/download denial/upload/HTML fullscreen from API through consumer and exact receipt to journey. Close shared capabilities with behavior evidence, not source tokens. Preserve distinct Session policies. |
+| CP-12 | P2 / Shell | full shell/standby and native Windows session-end drain PASS; latest local stable startup terminal failure and applicable exact-candidate acceptance remain unresolved; physical dual-display and actual OS sleep/sign-out acceptance removed by owner on 2026-09-09 | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware passes; Windows CI 68a0e92c completes stable 31+3/40 and Chromium 58+4/54, local d1e539/1ae51c6e also complete stable/Chromium; native CI 34224123627 passes; package remains pending; earlier shortcut timeout and mixed-seed load failure remain unexplained; owner directs best-effort simulation for unavailable hardware | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS 85f662f4 fixture package/updater/black-box PASS; Windows 68a0e92c NSIS payload and 8.4.0→8.5.0 fixture updater PASS, black-box fails on exact UIA root SetFocus; correction 67822229 native tests pass, its NSIS passes but updater ACK times out and black-box is skipped; diagnostic a12e932c CI 34236090355 pending; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
-| CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
-| CP-18 | P1 / Validation | macOS 85f662f4 native/full hardware/CI and Windows local c17f9763 / CI 0935ac59 complete profiles PASS; latest-source paired matrix, Windows package/physical-display and external gates remain open | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
+| CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware PASS; Windows 81b0343c CI stable 31+3/40 and Chromium 58+4/54 PASS; latest local stable startup FAIL and native CI upload 403 leave acceptance incomplete; hardware-only supersets no longer gate closure | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve profile definitions and applicable full-profile coverage. |
+| CP-16 | P2 / Release tooling | macOS 85f662f4 fixture package/updater/black-box PASS; Windows 81b0343c NSIS, fixture updater and packaged native black-box PASS; real production transaction requirement removed by owner; exact-candidate release evidence and final configuration/promotion work remain | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-17 | P1 / Migration | gated by the remaining four migration packages; owner-removed acceptance requirements are excluded | remaining migration execution gates | Make Electron the sole production entry only after applicable exact-candidate native parity and remaining release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. |
+| CP-18 | P1 / Validation | latest local JS/stable failures, incomplete exact-candidate native matrix and remaining release/cleanup gates stay open; physical dual-display, actual OS sleep/sign-out and real production updater transactions removed by owner | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 
 Start CP-02 and CP-03 after the baseline. CP-04 and CP-09 through CP-13 are
 independent of native replacement approval, except for their listed data

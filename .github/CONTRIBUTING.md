@@ -88,7 +88,7 @@ and SHA-256 verification remain mandatory on both platforms. The pinned Tauri
 CLI remains only as the updater signing tool, not as a runtime or build shell.
 
 Keep `Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`,
-`Rion.Studio-win.exe`, their updater signatures, `checksums.txt` and `latest.json`
+`Rion.Studio-win.exe`, their updater signatures, `SHA256SUMS.txt` and `latest.json`
 consistent with the existing release inventory. Publish the manifest only after
 the immutable assets and signatures verify. Release finalization and Resume
 Release preserve immutable tags and reject non-identical asset replacement.

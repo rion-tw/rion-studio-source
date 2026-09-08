@@ -9,7 +9,15 @@ ${windowsNativeEditDeclarations}
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+  [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
+  [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+  [StructLayout(LayoutKind.Sequential)] private struct MouseInput {
+    public int X, Y; public uint Data, Flags, Time; public UIntPtr Extra;
+  }
+  [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public MouseInput Mouse; }
+  [DllImport("user32.dll", SetLastError = true)]
+  private static extern uint SendInput(uint count, Input[] inputs, int size);
+  public static object LastClick { get; private set; }
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
   private delegate bool WindowCallback(IntPtr hwnd, IntPtr parameter);
@@ -21,6 +29,15 @@ ${windowsNativeEditDeclarations}
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
   [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
   public static void ClickVisibleControl(IntPtr dialog, IntPtr control, int targetPid) {
+    // Keep bounds, hit testing and cursor readback in the same physical-pixel
+    // space, independent of the PowerShell host's DPI-awareness default.
+    IntPtr priorDpi = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    if (priorDpi == IntPtr.Zero)
+      throw new InvalidOperationException("native file dialog DPI context is unavailable");
+    try { ClickExactVisibleControl(dialog, control, targetPid); }
+    finally { SetThreadDpiAwarenessContext(priorDpi); }
+  }
+  private static void ClickExactVisibleControl(IntPtr dialog, IntPtr control, int targetPid) {
     uint pid, ownerPid;
     GetWindowThreadProcessId(dialog, out pid);
     GetWindowThreadProcessId(GetWindow(dialog, 4), out ownerPid);
@@ -35,10 +52,24 @@ ${windowsNativeEditDeclarations}
     IntPtr hit = WindowFromPoint(point);
     if (hit != control && !IsChild(control, hit))
       throw new InvalidOperationException("native file control is occluded at its click point");
-    if (!SetCursorPos(point.X, point.Y) || GetForegroundWindow() != dialog)
+    Point actual;
+    if (!SetCursorPos(point.X, point.Y) || !GetCursorPos(out actual))
+      throw new InvalidOperationException("native file control pointer move was not acknowledged");
+    IntPtr actualHit = WindowFromPoint(actual);
+    LastClick = new { dialog = dialog.ToInt64(), control = control.ToInt64(),
+      expectedX = point.X, expectedY = point.Y, actualX = actual.X, actualY = actual.Y,
+      hit = actualHit.ToInt64(), foreground = GetForegroundWindow().ToInt64() };
+    if (actual.X != point.X || actual.Y != point.Y ||
+        (actualHit != control && !IsChild(control, actualHit)))
+      throw new InvalidOperationException("native file control pointer readback differs from exact target");
+    if (GetForegroundWindow() != dialog)
       throw new InvalidOperationException("native file control lost foreground before click");
-    mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
-    mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+    var inputs = new Input[] {
+      new Input { Mouse = new MouseInput { Flags = 0x0002 } },
+      new Input { Mouse = new MouseInput { Flags = 0x0004 } }
+    };
+    if (SendInput(2, inputs, Marshal.SizeOf(typeof(Input))) != 2)
+      throw new InvalidOperationException("native file control click was not fully submitted");
   }
   public static string WindowClass(IntPtr hwnd) {
     var name = new System.Text.StringBuilder(256);

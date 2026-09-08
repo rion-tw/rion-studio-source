@@ -501,6 +501,7 @@ function Write-FailureSnapshot([string]$reason) {
     foregroundProcessId = Get-NativeWindowProcessId ([int64]$foregroundHandle)
     observedWindows = @($observedWindows.Values)
     targetProcessId = $targetPid
+    lastClick = [RionFileDialogOwnership]::LastClick
     dialogControls = @(
       foreach ($handle in [RionFileDialogOwnership]::OwnedWindows($targetPid, $true)) {
         [ordered]@{

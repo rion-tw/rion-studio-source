@@ -35,8 +35,6 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Electron Production Candidate](electron-production-candidate.md) | Active, owner-locked | Chromium production candidate inputs, updater trust, assets, or promotion boundary |
 | [Validation](validation/README.md) | Active index | Native/hardware runbooks or historical evidence lookup |
 | [Windows Game Window Placement](validation/runbooks/windows-game-window-placement.md) | Active runbook | Physical Windows placement, DPI, and generation acceptance |
-| [macOS WKWebView Game Mode A/B](validation/runbooks/macos-wkwebview-game-mode.md) | Active runbook | Isolated fullscreen Game Mode eligibility and Flyff performance gates |
-| [macOS Flyff Brave/Rion Same-Scene A/B](validation/runbooks/macos-flyff-brave-rion-same-scene.md) | Active runbook | Matched Brave/Rion Flyff scene, Effects-on gap, and stability measurement |
 
 | [Chromium Extensions](extensions.md) | Active, additive capability | Extension packages, role leases, store presentation, and native validation |
 
@@ -59,3 +57,7 @@ product note.
 Validation artifacts under `validation/archive` are exact-SHA evidence and are
 never proof for current `HEAD` unless an active audit explicitly establishes
 ancestry and applicability.
+
+The retired WKWebView Game Mode and Brave/System WebKit comparison runbooks are
+retained in the [validation archive manifest](validation/archive/manifest.json). Their launchers and performance gates do not apply to
+the sole Electron runtime.

@@ -8,10 +8,6 @@ be treated as current evidence.
 
 - [Windows Game Window Placement](runbooks/windows-game-window-placement.md):
   W1-W11 placement, persistence, display, DPI, and generation-fence acceptance.
-- [macOS WKWebView Game Mode A/B](runbooks/macos-wkwebview-game-mode.md):
-  isolated fullscreen Game Mode eligibility, workload controls, and FPS gates.
-- [macOS Flyff Brave/Rion Same-Scene A/B](runbooks/macos-flyff-brave-rion-same-scene.md):
-  matched Effects-on scene controls, interleaved sampling, and stability gates.
 
 Desktop smoke, full, and extended profile policy remains in
 [Desktop E2E Strategy](../e2e-strategy.md). Journey and phase membership remains
@@ -46,3 +42,7 @@ historical references may name paths that no longer exist at current `HEAD`.
 
 To add evidence, create a new dated directory and manifest entry. Never revise
 an existing archived artifact to make it appear current.
+
+The retired WKWebView Game Mode and Brave/System WebKit comparison runbooks are
+retained in the [validation archive manifest](archive/manifest.json). Their launchers and performance gates do not apply to
+the sole Electron runtime.

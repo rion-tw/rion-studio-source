@@ -135,3 +135,58 @@ Next: validate this committed source with Windows x64 build and production
 isolation, the complete affected Chromium profile and package checks; classify
 remaining complete-JS failures and obtain any needed exact-source CI evidence.
 The owner-retired physical/production/terminal-promotion backlog stays removed.
+
+## Native candidate evidence and retired launcher cleanup — 2026-09-09
+
+Exact clean Windows x64 source: `9c19a4008188a448da83e58f7fba654337200032`
+(program ancestor `76042b4a988dcf32bf989971b4a08cc1c7f3f7ea`). Node 24.20.0 x64,
+Rust 1.98.1 x64, Electron 43.6.0 / Chromium 150.0.7871.250. The system Node
+installation is 24.20.0 ARM64; distribution/native Electron checks use the
+existing portable x64 runtime without changing that installation.
+
+| Command / evidence | Actual result |
+| --- | --- |
+| `pnpm run build` | PASS; production Electron renderer and native addon built |
+| `pnpm run check:desktop-e2e-isolation` | PASS |
+| `pnpm run test:electron:native-integration` | 16 PASS / 0 skipped, 8 files |
+| `pnpm run test:e2e:desktop:full` | FAIL: 10 phases PASS then `chromium-workspace-web-fullscreen-seed` FAIL; 11 journeys PASS / 4 FAIL / 39 NOT_RUN |
+
+Build, isolation and native-integration logs plus command/SHA receipts are under
+`.desktop-e2e-artifacts/windows-takeover-4e5ec764/sole-entry-9c19-` with suffixes
+`build-x64`, `isolation` and `native-integration`. The full profile log uses
+`chromium-full`; its report is
+`.desktop-e2e-artifacts/2026-09-08T21-38-16-609Z-win32/report.json`.
+The manifest declares 62 phases; this failed run did not complete the profile.
+The observed failure is `exact Windows file dialog is not foreground for input`
+after matching the exact native dialog. The progress receipt stops at
+`focusing-dialog`; the original helper omitted its HWND snapshot on this error.
+This is an observed failure, not an expected forced termination. The report
+retains final-flush and process-exit receipts for the failed phase too.
+
+[CI 34281548249](https://github.com/rion-tw/rion-studio-source/actions/runs/34281548249)
+was dispatched once for exact source `9c19a4008188a448da83e58f7fba654337200032`.
+Observed completed jobs: shared checks (job 102247242966), renderer build,
+Linux sanitizer/concurrency, and macOS native validation (job 102247422680).
+The shared complete JS run is **3706 PASS / 29 platform skips**, 448 passing
+files / 9 skipped files. macOS native Rust is **1116 PASS / 5 ignored**, and
+Electron integration is **14 PASS / 2 platform skips**. Windows native and both
+package jobs were still running at this checkpoint. Linux shared JS success
+does not rewrite the earlier local Windows JS failure or prove Windows native
+reachability. No unchanged CI rerun was dispatched.
+
+Follow-up program commit: `eb92d4c0420fc312edbe166631135b683b63b840`. It removes
+the unused Tauri development bundle and WKWebView experiment launcher, including
+the misleading `performance:webkit:experiment` command which would now start
+Electron. The sole-entry guard rejects their return. It also retains exact
+native-dialog failure snapshots during focus/input/submission without changing
+the original error, input assertions or deadline. This diagnostic addition is
+not a claim that the foreground failure is fixed.
+
+The adjacent entry/documentation/fullscreen-source tests passed **17/17**;
+`verify:system-only`, full hygiene, TypeScript and ESLint passed (ESLint retains
+23 warnings, 0 errors). Artifacts use `sole-electron-retired-launcher-` prefixes.
+E2E omission for launcher removal is `compile-only`; dialog diagnostics are
+`internal-only` and still require the affected Windows profile investigation.
+The removed WebKit-only runbooks are archived byte-for-byte with full source SHA
+and SHA-256 in the archive manifest. CONTRIBUTING now describes the sole Electron
+commands, current native validation and existing release inputs.

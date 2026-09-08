@@ -56,6 +56,20 @@
       "capturedAt": "2026-08-15",
       "testedCommit": "564319d336240fe62a36f9296f98d606e0a7481e",
       "contentSha256": "f1d60628fb422fe2dfca65258836b5bd58e6a0dd11d700d2c0d63fc07b2dca48"
+    },
+    {
+      "path": "docs/validation/archive/2026-09-09-webkit-retirement/macos-wkwebview-game-mode.md",
+      "sourcePath": "docs/validation/runbooks/macos-wkwebview-game-mode.md",
+      "capturedAt": "2026-09-09",
+      "sourceCommit": "9c19a4008188a448da83e58f7fba654337200032",
+      "contentSha256": "c6031d93cf59249f4ab90ee67e88702a6669b98425468dfa3c513e5eac21c0ad"
+    },
+    {
+      "path": "docs/validation/archive/2026-09-09-webkit-retirement/macos-flyff-brave-rion-same-scene.md",
+      "sourcePath": "docs/validation/runbooks/macos-flyff-brave-rion-same-scene.md",
+      "capturedAt": "2026-09-09",
+      "sourceCommit": "9c19a4008188a448da83e58f7fba654337200032",
+      "contentSha256": "44e3d65ae59833a694180425a5c924e45c9f8f2b0c651394ae519819d14bcfad"
     }
   ]
 }

@@ -1,148 +1,99 @@
 # Contributing
 
-## Developer Notes
+## Stack and commands
 
-### Stack
+Rion Studio uses a React/TypeScript renderer, Electron with bundled Chromium,
+and a Rust Core exposed through a narrow Node-API boundary. Rust owns SQLite,
+managed role stores, macros, runtime topology and operation terminality. macOS
+retains the AppKit native window, tab and trusted-input boundary. The renderer
+uses only the typed `window.rionStudio` bridge.
 
-- React + TypeScript renderer
-- Rust Core with a narrow Node-API boundary
-- Electron/Chromium v23 target shell, with AppKit retained for macOS native game windows
-- Tauri 2 v22 compatibility shell during the bounded session migration
-- Vite for the renderer build
-- Rust Core for SQLite, macros, platform work, runtime topology, and migration journals
-- Vitest for unit tests
-
-### Commands
+Use the Node and pnpm versions declared by `package.json` and the pinned Rust
+toolchain. For distribution builds, use macOS arm64 or Windows x64 Node and Rust;
+package preparation rejects a mismatched host architecture.
 
 ```bash
 pnpm install
 pnpm run dev
-pnpm run dev:renderer # Optional renderer-only UI development
 pnpm run typecheck
 pnpm run test
 pnpm run lint
+pnpm run lint:rust
+pnpm run test:rust
 pnpm run build
 pnpm run package
 ```
 
-### Runtime Data
+The unqualified `dev`, `build`, `package` and `dist` commands target Electron.
+`dist` additionally requires the existing updater signing inputs. Build/package
+verification does not launch the application; native integration and desktop E2E
+are separate explicit commands.
 
-The Rust core stores metadata in `rion-studio.sqlite3` below the canonical
+## Runtime data and browser sessions
+
+The Rust Core stores metadata in `rion-studio.sqlite3` below the canonical
 `Rion Studio` application-data directory (`~/Library/Application Support/Rion Studio`
-on macOS and `%APPDATA%\\Rion Studio` on Windows).
+on macOS and `%APPDATA%\Rion Studio` on Windows).
 
 The retired sibling directory named `rion-studio` is ignored. Rion Studio does not
-move, delete, or replace that data; it opens the canonical `Rion Studio` directory
+move, delete or replace that data; it opens the canonical `Rion Studio` directory
 when present and creates a fresh canonical data root otherwise.
 
-Each role owns an isolated browser directory at:
+Each role owns an isolated Chromium profile under `roles/{roleId}/browser/chromium`.
+Consumed v22 data and installation compatibility remain supported without a
+second desktop runtime. Chrome Profile import is a visible, consented, one-time
+transfer of the launch origin's cookies and LocalStorage. The source stays
+unchanged and is never used as a live runtime. Session secrets never pass through
+the renderer. Rion Studio stores browser session data, not login passwords.
 
-```text
-roles/{roleId}/browser
-```
+## Native validation
 
-The app stores browser session data only. It does not store login passwords.
-
-### Browser Session Architecture
-
-The v23 runtime gives every role an isolated bundled-Chromium profile below its
-Rust-owned `browser/chromium` directory. Windows uses the Electron Chromium host.
-macOS keeps the AppKit native window, tab, focus, fullscreen, display, and trusted
-input boundary while replacing only WKWebView with Chromium content surfaces.
-It must not fall back to the Windows HTML window host.
-
-The v22 compatibility shell continues to use WebView2 or WKWebView only while an
-authenticated, revision-fenced migration transfers the launch origin's cookies
-and Local Storage. The runtime never uses an installed third-party browser
-profile directly, never exposes session secrets to the renderer, and never
-mutates the source profile.
-
-### Packaging Notes
-
-Production remains on the Tauri compatibility shell until the Chromium capability,
-session migration, updater, and desktop-E2E cutover gates are complete. Do not
-switch the unqualified `dev`, `build`, `package`, or `dist` commands early.
-
-Linux CI validates only the portable Rust crates because Linux is not a supported
-Tauri shell target. Run the same portable gates locally with:
+Linux validates portable Rust and shared JavaScript. It cannot establish native
+Windows or macOS reachability. Changes to native code, platform imports or shared
+runtime contracts require both supported native targets. Windows uses the
+Visual Studio MSVC/Windows SDK components for `x86_64-pc-windows-msvc`.
 
 ```bash
 pnpm run lint:rust:portable
 pnpm run test:rust:portable
-```
-
-The complete Rust workspace and both desktop shells must be compiled on both
-supported platforms. Windows platform operations are part of the `rion-platform` Rust crate.
-Install the pinned Rust toolchain and the Visual Studio 2022 MSVC/Windows SDK
-components required by the `x86_64-pc-windows-msvc` target. To run the complete
-Rust checks directly on macOS or Windows:
-
-```bash
-pnpm run lint:rust
-pnpm run test:rust
-cargo check -p rion-tauri
-pnpm run package:electron:dir
-pnpm run verify:electron-package -- --app <unpacked-app-path>
+pnpm run test:electron:native-integration
+pnpm run test:e2e:desktop:full
+pnpm run check:desktop-e2e-isolation
 pnpm run verify:system-only
 ```
 
-Linux portable checks do not compile the Tauri shell's Windows-only or macOS-only
-`cfg` paths. Any change to native runtime code, platform imports, or shared
-runtime contracts therefore requires the native platform gate above; do not
-infer Windows reachability from a green Linux job.
+The full E2E command runs the complete host-platform Chromium profile from
+[the coverage manifest](../docs/e2e-coverage.json). Follow the
+[E2E strategy](../docs/e2e-strategy.md) for exact journeys and evidence. Optional
+hardware profiles are separate; physical dual-monitor and actual OS sleep or
+sign-out are not cleanup prerequisites. An omitted hardware check is not PASS.
 
-CI builds the renderer in an independent Linux preparation job and shares those
-assets with the macOS and Windows Tauri validation jobs. A separate macOS/Windows
-matrix builds an unpacked Electron package and verifies its fuses, final ASAR
-entry points and E2E isolation, native addon, portable macOS install name, and
-platform linkage. It runs the target-specific Chromium shell E2E both before
-packaging and from the final packaged binary: macOS binds its result to the
-retained AppKit target, while Windows binds its result to the Windows Chromium
-target. Packaged smoke uses an artifact-local fixed home on macOS. Windows uses
-a GitHub-hosted temporary local-user profile and its real OS Known Folders, with
-the command tree fenced by a kill-on-close Job Object; it does not relax the
-product ban on packaged user-data overrides. Neither shell result
-substitutes for the v22 compatibility suite or the later full Chromium P0/P1
-migration gates. The renderer preparation, common
-checks, Linux sanitizer, compatibility validation, and Chromium package
-validation can run in parallel. Release packaging is not a replacement for these
-daily platform checks.
+CI retains shared checks, Linux sanitizer/concurrency checks, macOS and Windows
+native validation, and native Electron package validation. Package checks cover
+ASAR entries, fuses, production E2E isolation, native ABI/linkage, installed NSIS
+payload, Rust-owned updater transactions and packaged native black-box E2E.
+Fixture results do not establish a real production update transaction.
 
-`pnpm run build` links the Rust core directly into the application. CI must validate
-both `macos-latest` and `windows-latest` with platform-aware Rust lint, tests, and
-`cargo check -p rion-tauri --all-targets`. After that quality gate succeeds, the
-release candidate orchestration is the only production Tauri bundle build and
-verifies the resulting installers on both platforms. Its build/manifest and
-upgrade-compatibility gates both complete before semantic-release creates the
-immutable tag and private draft. Assets are checksum-verified in that draft before
-the public draft is promoted. If finalization fails, dispatch **Resume Release**
-with the existing tag; it reuses the retained preflight candidate when available,
-otherwise rebuilds the tagged SHA and refuses to overwrite non-identical assets.
-macOS releases target 14+, use the explicit ad-hoc signing identity (`-`), and must
-not import a Developer ID certificate or submit for notarization. Windows releases
-remain unsigned and require a WebView2 runtime presence check. The updater archives
-on both platforms still require Tauri's independent cryptographic signature.
+## Packaging and releases
 
-Releases use only Tauri's updater-signed `latest.json`. Keep
-`Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`, and
-`Rion.Studio-win.exe` stable because updater manifests and README links depend on
-them. Manifests are uploaded only after the immutable assets and updater signatures verify.
+The existing desktop-release workflows build the exact source SHA and reuse the
+existing release App, updater keys, endpoint, app identity and asset names. See
+[the v22 configuration delta](../docs/v22-configuration-delta.md). Do not create
+additional release environments or credentials for the cutover.
 
-`pnpm run verify:system-only` validates the negative architecture boundary. Keep
-current product behavior covered by focused Rust and Vitest tests; historical
-parity ledgers are not part of the release contract.
+macOS targets 14+ and uses the explicit ad-hoc identity (`-`), without Developer
+ID signing or notarization. Windows installers remain Authenticode-unsigned;
+bundled Chromium does not require a WebView2 installation. Updater signatures
+and SHA-256 verification remain mandatory on both platforms. The pinned Tauri
+CLI remains only as the updater signing tool, not as a runtime or build shell.
 
-### Windows Multi-Display Release Check
+Keep `Rion.Studio-mac.dmg`, `Rion.Studio-mac.app.tar.gz`,
+`Rion.Studio-win.exe`, their updater signatures, `checksums.txt` and `latest.json`
+consistent with the existing release inventory. Publish the manifest only after
+the immutable assets and signatures verify. Release finalization and Resume
+Release preserve immutable tags and reject non-identical asset replacement.
+Publication and credential changes require explicit authorization.
 
-Before releasing workspace display changes, smoke-test the x64 NSIS build on both
-Windows 10 and Windows 11. Use at least two displays with mixed 100% and
-125%/150% scaling, then repeat with the secondary display positioned to the left
-or above the primary display. Verify bottom and side taskbar layouts when the
-hardware permits.
-
-For each topology, launch a System WebView workspace. The workspace must remain
-on the selected display, fit inside that display's work area without covering the
-taskbar, and keep the same display reserved. Also verify simultaneous launches,
-all-displays-occupied cancellation, and display disconnect/reconnect behavior.
-These native checks supplement the platform-aware unit tests and the existing
-`windows-latest` x64 NSIS build job.
+`pnpm run verify:system-only` enforces the negative architecture boundary. Keep
+current behavior covered by focused Rust/Vitest tests and complete affected
+profiles; retired parity ledgers are historical evidence, not extra release gates.

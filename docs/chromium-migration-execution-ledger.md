@@ -33,6 +33,22 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Windows-only CI 34198254073 tests exact tooling source
+0935ac593e0630ecfc785cacce1a7f66bcf1e32c from documentation-only workflow head
+efef879adf7e2fb8e40f05cd292ddf646cf1ae2b. Shared JS passes 3876/11 platform skips.
+Stable full passes 31 normal + three expected force/40 journeys (artifact
+10045318438, report 2026-09-08T07-14-45-533Z-win32). Complete
+chromium-windows-smoke passes 58 normal + four expected force/54 journeys
+(artifact 10045417927, report 2026-09-08T07-14-42-429Z-win32). Downloaded hashes,
+exact source, all 34/62 phase memberships/order and journey aggregation verify;
+all phase exit codes are 0 and all normal Chromium phases flush and exit.
+Windows native job 101970942425 is SUCCESS: Rust lint and 1673 PASS/4 ignored,
+native integration 16 PASS, complete Windows JS 3835 PASS/48 platform skips and
+Tauri build. The new PowerShell fixture passes in the complete suite at 6623 ms
+under its unchanged 10000 ms deadline. Downstream installed-payload/updater/
+black-box remain pending at this checkpoint. The API ledger retains artifact
+hashes and native identities.
+
 Latest tooling correction 0935ac593e0630ecfc785cacce1a7f66bcf1e32c executes the
 exact attested NSIS PowerShell file in the already isolated host and removes the
 duplicate host. A native probe measures total 4 before/3 after, with real marker
@@ -42,8 +58,8 @@ the exactly revalidated same-Job system conhost within the original remaining
 deadline. Final Job active-zero, exact total 3, exit code, identity binding and
 profile/ACL cleanup remain mandatory. Unknown survivors are rejected. Native
 and adjacent checks pass 34/2 existing platform skips; hygiene/typecheck/lint
-PASS. This is lower-layer-covered tooling work; real installed-payload and
-complete regression at its exact SHA still require the next Windows CI. The
+PASS. This is lower-layer-covered tooling work; complete regression at its exact
+SHA now passes in CI 34198254073, while real installed-payload remains pending. The
 unsupported child-side console drain was withdrawn with its failure evidence.
 
 Current candidate 3eff9b2865f90b85908b1c71f605d64805051ddd passes local Windows

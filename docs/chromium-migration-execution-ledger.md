@@ -59,11 +59,17 @@ are being adapted; the worktree is not yet a completed cutover.
 | Window gesture / onboarding / native shortcut source checks | 21 PASS | `sole-electron-window-gesture-tests.log` |
 | E2E coverage and profile alias checks | 25 PASS; immutable 41-journey source baseline retained for both platforms | `sole-electron-coverage-size-tests.log` (the separate size-constant assertion failed and was subsequently updated) |
 | First complete cleanup JavaScript run | 3605 PASS / 90 FAIL / 61 skipped; includes retired source references and symlink EPERM | `sole-electron-full-js-first.log` |
-| GitHub release redirect policy | 4 PASS; actual Rust transport probe pending | `sole-electron-github-redirect-tests.log` |
+| GitHub release redirect policy | 4 PASS; actual Rust transport fetched the 1,237-byte v8.4.2 manifest successfully without installing | `sole-electron-github-redirect-tests.log`, `sole-electron-endpoint-rust-live.log` |
+| Updated Rust lint including redirect transport | PASS | `sole-electron-rust-lint-current.log` |
+| Updated full Windows ARM64 Rust suite | 1106 PASS / 4 ignored / 0 FAIL | `sole-electron-rust-tests-current.log` |
+| Cleanup contracts, first focused batch | 76 PASS / 13 FAIL; stale paths and 10-second timeouts retained | `sole-electron-cleanup-contracts-current.log` |
+| Updated workflow contracts | 31 PASS / 6 FAIL; remaining source assertions and Bash/gate timeouts retained | `sole-electron-workflow-contracts-updated.log` |
+| TypeScript after the first contract cleanup | PASS | `sole-electron-typecheck-cleanup-contracts.log` |
+| Hygiene after the first contract cleanup | Source hygiene, docs and AI context PASS; Knip failed on the retired renderer entry and unused sortable dependencies, subsequently corrected | `sole-electron-hygiene-current.log` |
 
 Artifacts above are under `.desktop-e2e-artifacts/`. The first full JS result
 remains a failure. Focused results and removal of obsolete-runtime tests do not
-replace a new complete run. Native Rust checks must be repeated for the new
+replace a new complete run. The updated Windows native Rust suite includes the new
 transport change. Full build, isolation, affected Chromium profiles and packaged
 verification remain required for the resulting source.
 
@@ -71,3 +77,25 @@ The configuration comparison discovered the existing GitHub endpoint's two-hop
 redirect chain. A bounded Rust transport adaptation is part of the cleanup;
 see the updated configuration delta. No credentials or remote settings changed,
 and no publication or real production updater transaction was performed.
+
+The full Rust result includes the unchanged 256-round concurrent terminal-receipt
+test in `crates/rion-updater/src/persistence.rs`. The local host is Windows ARM64;
+this does not replace the Windows x64 Electron build/package or macOS evidence.
+
+The next diagnostic JavaScript command is `pnpm run test --maxWorkers=1`, with
+the original 10-second deadline and every collected test retained. Its log is
+`sole-electron-full-js-serial.log`; no final verdict is claimed until that command
+exits. Source fixes continued in the dirty worktree, so this is intermediate
+diagnosis, not an immutable candidate receipt. Observed failures include symlink
+EPERM, signer/Bash startup overhead, stale contract references and renderer
+timeouts. Standalone architecture validation took 2,491 ms; twelve independent
+Bash syntax inputs took 5,604 ms. These measurements do not change a failed test
+verdict or authorize a larger deadline.
+
+The cleanup removes the unused sortable dependencies, corrects the Knip renderer
+entry, and preserves every literal Bash program as syntax-only input with bounded
+parallel parser processes. The pinned updater signer is invoked directly in its
+integration test instead of through a pnpm shell. The release preflight now checks
+strict semantic versions and rejects updater endpoint credentials, query and
+fragment before packaging. These latest fixes still require their focused checks
+and final complete source-specific validation.

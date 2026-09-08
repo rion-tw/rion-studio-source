@@ -48,8 +48,10 @@ Signed CDN query values are omitted from diagnostics. Existing request deadlines
 stream limits, Minisign and SHA-256 verification remain unchanged.
 
 The four redirect-policy tests pass locally. A separate read-only probe using the
-actual Rust transport is being verified; this is not a production updater
-transaction. Observation receipt:
+actual Rust transport also passed: it downloaded the 1,237-byte v8.4.2 manifest
+from the existing endpoint. This is not a production updater transaction.
+Rust probe receipt: `.desktop-e2e-artifacts/sole-electron-endpoint-rust-live.log`.
+Observation receipt:
 `.desktop-e2e-artifacts/v22-updater-endpoint-redirect-observation.json`.
 
 ## Necessary repository changes

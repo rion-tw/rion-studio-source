@@ -81,6 +81,9 @@ describe("Chromium recovery parity replacement source", () => {
       "chromium-window-recovery-restore-force"
     ]) expect(isExpectedDesktopE2eForcedTermination(phase)).toBe(true);
     for (const phase of [
+      "force-terminate",
+      "crash-restart",
+      "p1-cross-domain-topology-force",
       "chromium-mixed-recovery-seed",
       "chromium-mixed-recovery-restore",
       "chromium-window-recovery-discard",

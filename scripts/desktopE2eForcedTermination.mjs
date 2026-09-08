@@ -5,10 +5,7 @@ const forcedTerminationPhases = new Set([
   "chromium-app-recovery-force",
   "chromium-mixed-recovery-force",
   "chromium-window-recovery-force",
-  "chromium-window-recovery-restore-force",
-  "force-terminate",
-  "crash-restart",
-  "p1-cross-domain-topology-force"
+  "chromium-window-recovery-restore-force"
 ]);
 
 export function isExpectedDesktopE2eForcedTermination(phase) {

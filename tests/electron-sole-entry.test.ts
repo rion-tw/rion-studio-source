@@ -12,6 +12,17 @@ describe("sole Electron package entry", () => {
   it("rejects an unsupported native target", () => {
     expect(() => electronPackageScript("linux")).toThrow("only on macOS and Windows");
   });
+  it("does not admit retired shell phases or their disconnect success marker", async () => {
+    const runner = await readFile("scripts/runDesktopE2e.mjs", "utf8");
+    for (const retired of [
+      '"smoke-seed"', '"p1-mutations"', '"website-entrance-seed"',
+      '"clean-shutdown.json"', "acceptedCleanShutdownDisconnect"
+    ]) {
+      expect(runner).not.toContain(retired);
+    }
+    expect(runner).toContain("observeElectronPhaseShutdown");
+    expect(runner).toContain("acceptedDesktopE2eForcedTermination");
+  });
   it("routes default entries to Electron and keeps only the updater signer tool", async () => {
     const manifest = JSON.parse(await readFile("package.json", "utf8"));
     expect(manifest.scripts.dev).toBe("pnpm run dev:electron");

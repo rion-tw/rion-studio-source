@@ -5,7 +5,8 @@
 export async function observeElectronPhaseShutdown({
   driver, forcedTermination, exitCode, readFinalFlush, waitForProcessExit
 }) {
-  if (driver !== "electron" || forcedTermination) return {};
+  if (driver !== "electron") throw new Error("Desktop shutdown requires the sole Electron driver");
+  if (forcedTermination) return {};
   let finalFlush;
   try {
     finalFlush = await readFinalFlush();

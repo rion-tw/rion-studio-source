@@ -37,14 +37,23 @@ describe("Electron phase shutdown observation", () => {
     })).rejects.toThrow("missing final flush");
   });
 
-  it.each([
-    { driver: "tauri", forcedTermination: false },
-    { driver: "electron", forcedTermination: true }
-  ])("does not reinterpret an unrelated or forced shutdown: %j", async target => {
+  it("rejects a retired driver before consuming its shutdown markers", async () => {
+    const readFinalFlush = vi.fn();
+    const waitForProcessExit = vi.fn();
+    await expect(observeElectronPhaseShutdown({
+      driver: "tauri", forcedTermination: false, exitCode: 0,
+      readFinalFlush, waitForProcessExit
+    })).rejects.toThrow("sole Electron driver");
+    expect(readFinalFlush).not.toHaveBeenCalled();
+    expect(waitForProcessExit).not.toHaveBeenCalled();
+  });
+
+  it("does not reinterpret an expected forced shutdown", async () => {
     const readFinalFlush = vi.fn();
     const waitForProcessExit = vi.fn();
     expect(await observeElectronPhaseShutdown({
-      ...target, exitCode: 1, readFinalFlush, waitForProcessExit
+      driver: "electron", forcedTermination: true, exitCode: 1,
+      readFinalFlush, waitForProcessExit
     })).toEqual({});
     expect(readFinalFlush).not.toHaveBeenCalled();
     expect(waitForProcessExit).not.toHaveBeenCalled();

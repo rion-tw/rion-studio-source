@@ -22,7 +22,7 @@ const ELECTRON_PRELOAD_BUNDLES = Object.freeze([
 ]);
 
 export async function verifyDesktopE2eBuild({ driver, repositoryRoot }) {
-  if (driver !== "electron") return;
+  if (driver !== "electron") throw new Error("Desktop E2E build requires the sole Electron driver");
 
   for (const expectation of ELECTRON_E2E_BUNDLE_SIGNATURES) {
     const bundlePath = resolve(repositoryRoot, ...expectation.path);

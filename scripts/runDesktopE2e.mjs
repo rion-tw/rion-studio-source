@@ -80,7 +80,6 @@ const chromiumAppCrudFocusedDependencies = [
   "chromium-macro-native-effect"
 ];
 const focusedPhaseDependencies = new Map([
-  ["website-entrance-restart", ["website-entrance-seed"]],
   [
     "chromium-app-crud-mutations",
     chromiumAppCrudFocusedDependencies
@@ -119,45 +118,7 @@ const focusedPhaseDependencies = new Map([
   ["chromium-quit-guard-restart", ["chromium-quit-guard-seed"]],
   ["chromium-role-session-isolation-restart", ["chromium-role-session-isolation-seed"]],
   ["chromium-role-session-reset-restart", ["chromium-role-session-reset-seed"]],
-  ["chromium-chrome-profile-import-restart", ["chromium-chrome-profile-import-seed"]],
-  ["fullscreen-toolbar-restart", ["fullscreen-toolbar"]],
-  ["restart", ["seed"]],
-  ["p1-role-session-isolation", ["p1-role-session-seed"]],
-  ["p1-mutations", ["smoke-seed", "smoke-restart"]],
-  ["p1-workspace-recovery", ["smoke-seed", "smoke-restart", "p1-mutations"]],
-  ["p1-cross-domain-topology-force", ["p1-cross-domain-seed"]],
-  [
-    "p1-cross-domain-recovery",
-    ["p1-cross-domain-seed", "p1-cross-domain-topology-force"]
-  ],
-  [
-    "p1-cross-domain-final-restart",
-    [
-      "p1-cross-domain-seed",
-      "p1-cross-domain-topology-force",
-      "p1-cross-domain-recovery"
-    ]
-  ],
-  [
-    "p1-guard-cleanup",
-    ["smoke-seed", "smoke-restart", "p1-mutations", "p1-workspace-recovery"]
-  ],
-  [
-    "p1-final-restart",
-    [
-      "smoke-seed",
-      "smoke-restart",
-      "p1-mutations",
-      "p1-workspace-recovery",
-      "p1-guard-cleanup"
-    ]
-  ],
-  ["crash-restart", ["seed", "restart", "force-terminate"]],
-  ["crash-discard", ["seed", "restart", "force-terminate", "crash-restart"]],
-  [
-    "recovery-final-restart",
-    ["seed", "restart", "force-terminate", "crash-restart", "crash-discard"]
-  ]
+  ["chromium-chrome-profile-import-restart", ["chromium-chrome-profile-import-seed"]]
 ]);
 focusedPhaseDependencies.set("chromium-extensions-restart", ["chromium-extensions-seed"]);
 const phases = withChromiumMacroCutoverNativePrerequisites({
@@ -169,8 +130,6 @@ const phases = withChromiumMacroCutoverNativePrerequisites({
     : configuredPhases
 });
 const phaseNamespaces = new Map([
-  ["website-entrance-seed", "website-entrance-lifecycle"],
-  ["website-entrance-restart", "website-entrance-lifecycle"],
   ["chromium-app-crud-mutations", "chromium-entity-persistence-lifecycle"],
   ["chromium-app-crud-cleanup", "chromium-entity-persistence-lifecycle"],
   ["chromium-app-crud-final-restart", "chromium-entity-persistence-lifecycle"],
@@ -190,28 +149,7 @@ const phaseNamespaces = new Map([
   ["chromium-role-session-reset-seed", "chromium-role-session-reset-lifecycle"],
   ["chromium-role-session-reset-restart", "chromium-role-session-reset-lifecycle"],
   ["chromium-chrome-profile-import-seed", "chromium-chrome-profile-import-lifecycle"],
-  ["chromium-chrome-profile-import-restart", "chromium-chrome-profile-import-lifecycle"],
-  ["fullscreen-toolbar", "fullscreen-toolbar-lifecycle"],
-  ["fullscreen-toolbar-restart", "fullscreen-toolbar-lifecycle"],
-  ["smoke-seed", "app-entity-lifecycle"],
-  ["smoke-restart", "app-entity-lifecycle"],
-  ["p1-role-session-seed", "role-session-lifecycle"],
-  ["p1-role-session-isolation", "role-session-lifecycle"],
-  ["p1-mutations", "app-entity-lifecycle"],
-  ["p1-workspace-recovery", "app-entity-lifecycle"],
-  ["p1-guard-cleanup", "app-entity-lifecycle"],
-  ["p1-final-restart", "app-entity-lifecycle"],
-  ["p1-cross-domain-seed", "cross-domain-lifecycle"],
-  ["p1-cross-domain-topology-force", "cross-domain-lifecycle"],
-  ["p1-cross-domain-recovery", "cross-domain-lifecycle"],
-  ["p1-cross-domain-final-restart", "cross-domain-lifecycle"],
-  ["seed", "window-recovery-lifecycle"],
-  ["restart", "window-recovery-lifecycle"],
-  ["force-terminate", "window-recovery-lifecycle"],
-  ["crash-restart", "window-recovery-lifecycle"],
-  ["crash-discard", "window-recovery-lifecycle"],
-  ["recovery-final-restart", "window-recovery-lifecycle"],
-  ["extended-native", "window-recovery-lifecycle"]
+  ["chromium-chrome-profile-import-restart", "chromium-chrome-profile-import-lifecycle"]
 ]);
 phaseNamespaces.set("chromium-extensions-seed", "chromium-extensions");
 phaseNamespaces.set("chromium-extensions-restart", "chromium-extensions");
@@ -229,16 +167,6 @@ const worktreeDirty = execFileSync("git", ["status", "--porcelain"], {
   encoding: "utf8"
 }).trim().length > 0;
 const requestedCommit = process.env.RION_STUDIO_E2E_COMMIT;
-const windowIds = {
-  a: "e2e00000-0000-4000-8000-00000000000a",
-  b: "e2e00000-0000-4000-8000-00000000000b",
-  c: "e2e00000-0000-4000-8000-00000000000c",
-  fullscreen: "e2e00000-0000-4000-8000-000000000012",
-  maximized: "e2e00000-0000-4000-8000-000000000011",
-  normal: "e2e00000-0000-4000-8000-000000000010"
-};
-let seedBounds;
-let previousSessionGeneration = 0;
 let chromiumExplicitResetEvidence;
 const chromiumRoleRuntimeEvidenceByFlow = new Map();
 
@@ -485,126 +413,6 @@ async function validateChromiumRoleRuntimeEvidence(phase, phaseDir) {
     );
   }
   return evidence;
-}
-
-function validateGameWindowSqliteEvidence(phase, gameWindows, settings, blocked) {
-  const byId = new Map(gameWindows.map((window) => [window.id, window]));
-  const expectedWindows = [
-    [windowIds.a, "E2E Window A", "normal"],
-    [windowIds.b, "E2E Window B", "normal"],
-    [windowIds.c, "E2E Three Tabs", "normal"],
-    [windowIds.normal, "E2E Mode 1 Normal", "normal"],
-    [windowIds.maximized, "E2E Mode 2 Maximized", "maximized"],
-    [windowIds.fullscreen, "E2E Mode 3 Fullscreen", "fullscreen"]
-  ];
-  for (const [id, name, presentation] of expectedWindows) {
-    const record = byId.get(id);
-    requireEvidence(record, `${phase}: missing permanent window ${id}`);
-    requireEvidence(record.name === name, `${phase}: ${id} lost its permanent name`);
-    requireEvidence(
-      record.payload?.placement?.presentation === presentation,
-      `${phase}: ${name} persisted an unexpected mode`
-    );
-  }
-
-  const bounds = byId.get(windowIds.a)?.payload?.placement?.normalBounds;
-  requireEvidence(
-    [bounds?.x, bounds?.y, bounds?.width, bounds?.height].every(Number.isFinite),
-    `${phase}: Window A has invalid normal bounds`
-  );
-  requireEvidence(bounds.width > 0 && bounds.height > 0, `${phase}: Window A has empty bounds`);
-  if (phase === "seed") seedBounds = structuredClone(bounds);
-  else if (phase !== "extended-native") {
-    requireEvidence(
-      sameValue(bounds, seedBounds),
-      `${phase}: Window A normal bounds drifted from the seed phase`
-    );
-  }
-
-  const windowC = byId.get(windowIds.c)?.payload;
-  requireEvidence(
-    sameValue(windowC?.tabs?.map((tab) => tab.name), ["E2E alpha", "E2E beta", "E2E gamma"]),
-    `${phase}: Window C did not retain its ordered three-tab topology`
-  );
-  requireEvidence(
-    windowC?.activeTabId === windowC?.tabs?.at(-1)?.id,
-    `${phase}: Window C did not retain its active tab`
-  );
-
-  const session = settings.find((setting) => setting.key === "runtimeRestoreSession")?.payload;
-  requireEvidence(session, `${phase}: runtime restore session is missing`);
-  if (!blocked) {
-    requireEvidence(
-      session.cleanExit === !isExpectedDesktopE2eForcedTermination(phase),
-      `${phase}: runtime restore session has the wrong clean-exit state`
-    );
-  }
-  const expectedLiveWindowIds = ["crash-discard", "recovery-final-restart"].includes(phase)
-    ? []
-    : isExpectedDesktopE2eForcedTermination(phase)
-      ? [windowIds.a, windowIds.b, windowIds.c]
-      : [windowIds.a];
-  requireEvidence(
-    sameValue(session.liveWindowIds, expectedLiveWindowIds),
-    `${phase}: restart cohort did not match the exact live Game Window set`
-  );
-  requireEvidence(
-    sameValue(session.restoreInProgressWindowIds, []),
-    `${phase}: restore-in-progress cohort was not terminalized`
-  );
-  const expectedLastFocusedWindowIds = ["crash-discard", "recovery-final-restart"].includes(phase)
-    ? new Set([null])
-    : isExpectedDesktopE2eForcedTermination(phase)
-      ? new Set([windowIds.c])
-      : phase === "restart"
-        ? new Set([windowIds.a, windowIds.b])
-        : new Set([windowIds.a]);
-  requireEvidence(
-    expectedLastFocusedWindowIds.has(session.lastFocusedWindowId ?? null),
-    `${phase}: the last-focused permanent window was not retained`
-  );
-  requireEvidence(
-    Number.isSafeInteger(session.sessionGeneration)
-      && session.sessionGeneration > previousSessionGeneration,
-    `${phase}: session generation did not advance`
-  );
-  previousSessionGeneration = session.sessionGeneration;
-
-  return {
-    cleanExit: session.cleanExit,
-    sessionGeneration: session.sessionGeneration,
-    windowABounds: bounds,
-    windowCount: gameWindows.length,
-    windowCTabCount: windowC.tabs.length
-  };
-}
-
-function validateSmokeSqliteEvidence(phase, entities, settings) {
-  const expectedNames = {
-    games: "E2E Smoke Game Edited",
-    macros: "E2E Smoke Macro",
-    roles: "E2E Smoke Role",
-    workspaces: "E2E Smoke Workspace"
-  };
-  for (const [entityType, name] of Object.entries(expectedNames)) {
-    requireEvidence(
-      entities[entityType].some((entity) => entity.name === name),
-      `${phase}: missing persisted ${entityType} journey entity ${name}`
-    );
-  }
-  requireEvidence(
-    !entities.games.some((game) => game.name === "E2E Delete Game"),
-    `${phase}: cancelled-and-confirmed delete target was retained`
-  );
-  const preferences = settings.find((setting) => setting.key === "runtimeWindowPreferences")?.payload;
-  requireEvidence(
-    preferences?.alwaysHideTabCloseButton === true,
-    `${phase}: runtime window preferences were not persisted`
-  );
-  return {
-    entityCounts: Object.fromEntries(Object.entries(entities).map(([key, values]) => [key, values.length])),
-    runtimeWindowPreferencesPersisted: true
-  };
 }
 
 function validateChromiumAppCrudMutationSqliteEvidence(phase, entities) {
@@ -974,220 +782,7 @@ function validateChromiumRoleSessionIsolationSqliteEvidence(
   };
 }
 
-function validateP1MutationSqliteEvidence(
-  phase,
-  entities,
-  { expectRecoveryWindow = true } = {}
-) {
-  const expectedRoleOrder = [
-    "E2E P1 Role Edited Copy",
-    "E2E P1 Role Edited",
-    "E2E P1 Recovery Role"
-  ];
-  const expectedWorkspaceOrder = [
-    "E2E P1 Workspace Edited Copy",
-    "E2E P1 Workspace Edited",
-    "E2E P1 Recovery Workspace"
-  ];
-  const expectedNames = {
-    games: ["E2E Smoke Game Edited", "E2E P1 Unused Game", "E2E P1 Recovery Game"],
-    macros: ["E2E P1 Macro Edited", "E2E P1 Macro Edited Copy"],
-    roles: expectedRoleOrder,
-    workspaces: expectedWorkspaceOrder
-  };
-  if (expectRecoveryWindow) {
-    expectedNames.gameWindows = ["E2E P1 Game Window"];
-  }
-  for (const [entityType, names] of Object.entries(expectedNames)) {
-    for (const name of names) {
-      requireEvidence(
-        entities[entityType].some((entity) => entity.name === name),
-        `${phase}: missing persisted P1 ${entityType} entity ${name}`
-      );
-    }
-  }
-  requireEvidence(
-    sameValue(
-      entities.roles.filter((role) => expectedRoleOrder.includes(role.name)).map((role) => role.name),
-      expectedRoleOrder
-    ),
-    `${phase}: persisted Role ordinal does not match the UI pointer reorder`
-  );
-  requireEvidence(
-    sameValue(
-      entities.workspaces
-        .filter((workspace) => expectedWorkspaceOrder.includes(workspace.name))
-        .map((workspace) => workspace.name),
-      expectedWorkspaceOrder
-    ),
-    `${phase}: persisted Workspace ordinal does not match the UI pointer reorder`
-  );
-  for (const oldName of ["E2E Smoke Role", "E2E Smoke Workspace", "E2E Smoke Macro"]) {
-    requireEvidence(
-      !Object.values(entities).some((values) => values.some((entity) => entity.name === oldName)),
-      `${phase}: edit journey retained old entity name ${oldName}`
-    );
-  }
-  return {
-    editedEntitiesPersisted: true,
-    roleOrder: expectedRoleOrder,
-    workspaceOrder: expectedWorkspaceOrder
-  };
-}
-
-function validateP1CleanupSqliteEvidence(phase, entities, settings) {
-  for (const values of Object.values(entities)) {
-    for (const entity of values) {
-      requireEvidence(
-        !entity.name.startsWith("E2E "),
-        `${phase}: P1 cleanup retained ${entity.name}`
-      );
-    }
-  }
-  requireEvidence(
-    entities.gameWindows.length === 0,
-    `${phase}: P1 cleanup retained Game Window state`
-  );
-  const session = settings.find((setting) => setting.key === "runtimeRestoreSession")?.payload;
-  requireEvidence(session?.cleanExit === true, `${phase}: guarded application quit was not persisted as clean`);
-  return { cleanupComplete: true, cleanExit: true };
-}
-
-function validateP1RecoverySqliteEvidence(phase, entities) {
-  const mutationEvidence = validateP1MutationSqliteEvidence(
-    phase,
-    entities,
-    { expectRecoveryWindow: false }
-  );
-  for (const gameWindow of entities.gameWindows) {
-    requireEvidence(
-      !gameWindow.name.startsWith("E2E "),
-      `${phase}: Workspace recovery retained Game Window ${gameWindow.name}`
-    );
-  }
-  return { ...mutationEvidence, recoveryWindowDeleted: true };
-}
-
-function validateRoleIsolationSqliteEvidence(phase, entities) {
-  const expectedNames = {
-    games: ["E2E P1 Session Isolation Game"],
-    roles: ["E2E P1 Session Role A", "E2E P1 Session Role B"]
-  };
-  if (phase === "p1-role-session-seed") {
-    for (const [collection, names] of Object.entries(expectedNames)) {
-      for (const name of names) {
-        requireEvidence(
-          entities[collection].some((entity) => entity.name === name),
-          `${phase}: missing persisted session entity ${name}`
-        );
-      }
-    }
-    for (const role of entities.roles.filter((candidate) => expectedNames.roles.includes(candidate.name))) {
-      requireEvidence(
-        role.payload?.launchUrl?.includes("mode=observe"),
-        `${phase}: ${role.name} did not persist its observe-only launch URL`
-      );
-    }
-    return { observeRoleCount: expectedNames.roles.length, sessionSeedPersisted: true };
-  }
-  const staleNames = Object.values(expectedNames).flat();
-  requireEvidence(
-    Object.values(entities).every((collection) =>
-      collection.every((entity) => !staleNames.includes(entity.name))
-    ),
-    `${phase}: session isolation entities were not cleaned after observation`
-  );
-  return { sessionEntitiesCleaned: true };
-}
-
-function validateSharedOwnershipSqliteEvidence(phase, entities) {
-  const expectedNames = new Set([
-    "E2E P1 Shared Ownership Game",
-    "E2E P1 Shared Role",
-    "E2E P1 Workspace A Role",
-    "E2E P1 Workspace B Role",
-    "E2E P1 Shared Workspace A",
-    "E2E P1 Shared Workspace B"
-  ]);
-  requireEvidence(
-    Object.values(entities).every((collection) =>
-      collection.every((entity) => !expectedNames.has(entity.name))
-    ),
-    `${phase}: shared ownership entities were not cleaned`
-  );
-  return { sharedOwnershipEntitiesCleaned: true };
-}
-
-function validateCrossDomainSqliteEvidence(phase, entities, settings) {
-  const prefix = "E2E Cross Domain";
-  const crossDomain = Object.fromEntries(Object.entries(entities).map(([key, values]) => [
-    key,
-    values.filter((entity) => entity.name.startsWith(prefix))
-  ]));
-  const session = settings.find((setting) => setting.key === "runtimeRestoreSession")?.payload;
-  requireEvidence(session, `${phase}: runtime restore session is missing`);
-
-  if (["p1-cross-domain-recovery", "p1-cross-domain-final-restart"].includes(phase)) {
-    requireEvidence(
-      Object.values(crossDomain).every((values) => values.length === 0),
-      `${phase}: cross-domain fixture entities were not cleaned`
-    );
-    requireEvidence(session.cleanExit === true, `${phase}: cleanup was not persisted as a clean exit`);
-    requireEvidence(
-      sameValue(session.liveWindowIds, [])
-        && sameValue(session.restoreInProgressWindowIds, []),
-      `${phase}: runtime recovery session retained live or restoring windows`
-    );
-    return { cleanExit: true, cleanupComplete: true };
-  }
-
-  const expectedCounts = {
-    gameWindows: 2,
-    macros: 2,
-    roles: 4,
-    workspaces: 2
-  };
-  for (const [collection, count] of Object.entries(expectedCounts)) {
-    requireEvidence(
-      crossDomain[collection].length === count,
-      `${phase}: expected ${count} ${collection}, found ${crossDomain[collection].length}`
-    );
-  }
-  requireEvidence(
-    crossDomain.workspaces.every((workspace) => workspace.payload?.slots?.length >= 2),
-    `${phase}: overlapping Workspaces did not retain multi-role topology`
-  );
-  requireEvidence(
-    crossDomain.macros.some((macro) => macro.payload?.roleIds?.length === 1)
-      && crossDomain.macros.some((macro) => macro.payload?.roleIds?.length > 1),
-    `${phase}: single-role and multi-role Macro assignments were not retained`
-  );
-  const forced = phase === "p1-cross-domain-topology-force";
-  requireEvidence(
-    session.cleanExit === !forced,
-    `${phase}: runtime restore session has the wrong clean-exit state`
-  );
-  if (forced) {
-    requireEvidence(
-      session.liveWindowIds?.length >= 2,
-      `${phase}: mixed topology did not retain at least two live windows`
-    );
-    requireEvidence(
-      crossDomain.gameWindows.some((window) =>
-        window.payload?.tabs?.some((tab) => tab.hidden === true)),
-      `${phase}: hidden tab state was not persisted`
-    );
-  }
-  return {
-    cleanExit: session.cleanExit,
-    entityCounts: Object.fromEntries(
-      Object.entries(crossDomain).map(([key, values]) => [key, values.length])
-    ),
-    liveWindowCount: session.liveWindowIds?.length ?? 0
-  };
-}
-
-async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
+async function captureSqlite(phase, userDataDir, validateEvidence) {
   const phaseDir = resolve(artifactRoot, "phases", phase);
   await mkdir(phaseDir, { recursive: true });
   const databasePath = resolve(userDataDir, "rion-studio.sqlite3");
@@ -1256,15 +851,6 @@ async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
         validationSkipped: "phase-failed"
       };
     }
-    if (phase.startsWith("website-entrance-")) {
-      const slot = entities.workspaces.find((entry) => entry.name === "Native Website entrance")?.payload.slots[0];
-      requireEvidence(slot?.web?.name === "Website" && slot.web.startUrl === "" && !slot.roleId,
-        `${phase}: the persisted entrance definition changed during navigation`);
-      return { websiteEntrancePersisted: true };
-    }
-    if (phase === "smoke-seed" || phase === "smoke-restart") {
-      return validateSmokeSqliteEvidence(phase, entities, settings);
-    }
     if (phase === "chromium-game-crud-seed" || phase === "chromium-game-crud-restart") {
       return validateChromiumGameCrudSqliteEvidence(phase, entities);
     }
@@ -1327,31 +913,6 @@ async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
         pendingRoleBrowserDataClearOperations
       );
     }
-    if (phase === "p1-mutations") return validateP1MutationSqliteEvidence(phase, entities);
-    if (phase === "p1-workspace-recovery") return validateP1RecoverySqliteEvidence(phase, entities);
-    if (["p1-role-session-seed", "p1-role-session-isolation"].includes(phase)) {
-      return validateRoleIsolationSqliteEvidence(phase, entities);
-    }
-    if (phase === "p1-workspace-shared-role") {
-      return validateSharedOwnershipSqliteEvidence(phase, entities);
-    }
-    if (phase.startsWith("p1-cross-domain-")) {
-      return validateCrossDomainSqliteEvidence(phase, entities, settings);
-    }
-    if (["p1-guard-cleanup", "p1-final-restart"].includes(phase)) {
-      return validateP1CleanupSqliteEvidence(phase, entities, settings);
-    }
-    if ([
-      "seed",
-      "restart",
-      "force-terminate",
-      "crash-restart",
-      "crash-discard",
-      "recovery-final-restart",
-      "extended-native"
-    ].includes(phase)) {
-      return validateGameWindowSqliteEvidence(phase, entities.gameWindows, settings, blocked);
-    }
     return {
       entityCounts: Object.fromEntries(Object.entries(entities).map(([key, values]) => [key, values.length]))
     };
@@ -1359,20 +920,6 @@ async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
     await writeFile(resolve(phaseDir, "sqlite-query-error.txt"), `${String(error)}\n`);
     throw error;
   }
-}
-
-async function acceptedCleanShutdown(phaseDir) {
-  let marker;
-  try {
-    marker = JSON.parse(await readFile(resolve(phaseDir, "clean-shutdown.json"), "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return undefined;
-    throw error;
-  }
-  if (marker.complete !== true || !Number.isSafeInteger(marker.eventSequence)) {
-    throw new Error("Clean-shutdown marker did not contain authoritative final-flush evidence");
-  }
-  return marker;
 }
 
 async function acceptedElectronFinalFlush(phaseDir, phase) {
@@ -1515,9 +1062,6 @@ try {
     const forcedTermination = isExpectedDesktopE2eForcedTermination(phase)
       ? await acceptedDesktopE2eForcedTermination(phaseDir)
       : undefined;
-    const cleanShutdown = result.code !== 0 && !forcedTermination
-      ? await acceptedCleanShutdown(phaseDir)
-      : undefined;
     const shutdown = await observeElectronPhaseShutdown({
       driver: executionPlan.driver,
       forcedTermination: Boolean(forcedTermination),
@@ -1538,17 +1082,15 @@ try {
     const sqliteEvidence = await captureSqlite(
       phase,
       userDataDir,
-      blocked,
-      result.code === 0 || Boolean(forcedTermination) || Boolean(cleanShutdown)
+      result.code === 0 || Boolean(forcedTermination)
     );
     const phaseStatus = blocked
       ? "BLOCKED"
       : forcedTermination
         ? "EXPECTED_FORCE_TERMINATION"
-        : result.code === 0 || cleanShutdown ? "PASS" : "FAIL";
+        : result.code === 0 ? "PASS" : "FAIL";
     report.phases.push({
       blockedReason: blocked,
-      acceptedCleanShutdownDisconnect: cleanShutdown ? true : undefined,
       exitCode: result.code,
       expectedForcedTermination: forcedTermination ? true : undefined,
       electronFinalFlush: electronFinalFlush ? true : undefined,
@@ -1559,7 +1101,7 @@ try {
       sqliteEvidence,
       status: phaseStatus
     });
-    if (blocked || (result.code !== 0 && !forcedTermination && !cleanShutdown)) {
+    if (blocked || (result.code !== 0 && !forcedTermination)) {
       throw new Error(
         blocked ?? `Desktop E2E phase ${phase} failed (${result.code})`
       );

@@ -80,13 +80,13 @@ describe("desktop E2E build verifier", () => {
     })).rejects.toThrow(/not an E2E build.*SKIP_BUILD/u);
   });
 
-  it("does not impose Electron bundle signatures on the Tauri driver", async () => {
+  it("rejects the retired Tauri driver before reading bundle signatures", async () => {
     const root = await temporaryRoot();
 
     await expect(verifyDesktopE2eBuild({
       driver: "tauri",
       repositoryRoot: root
-    })).resolves.toBeUndefined();
+    })).rejects.toThrow("sole Electron driver");
   });
 
   it("rejects a split sandbox preload before WebDriver starts", async () => {

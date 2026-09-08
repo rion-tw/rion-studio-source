@@ -22,7 +22,8 @@ function installReplacementFixture(platform: "darwin" | "win32", replacementText
     const obsolete = heading && headingIds.length === 0;
     if (heading) headingIds.push(`${platform}-${obsolete ? "old-route" : "active-route"}`);
     return {
-      isExisting: async () => true,
+      isExisting: async () => !selector.endsWith(".app-page-header") && !selector.endsWith(".app-page-kicker"),
+      isDisplayed: async () => true,
       getText: async () => obsolete ? null : replacementText
     };
   });

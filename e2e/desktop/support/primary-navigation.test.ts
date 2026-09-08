@@ -16,10 +16,32 @@ vi.mock("@wdio/globals", () => {
   }
   function element(selector: string, root: ParentNode = document) {
     const node = select(selector, root);
-    return { node, selector, $: (child: string) => element(child, node ?? document.createElement("div")) };
+    return {
+      node, selector,
+      isExisting: async () => Boolean(node?.isConnected),
+      getText: async () => node?.isConnected ? node.textContent : null,
+      isDisplayed: async () => {
+        const visible = Boolean(node?.isConnected && !node.hasAttribute("hidden"));
+        if (state.replacePage && selector === ".app-page") {
+          state.replacePage = false;
+          document.body.innerHTML = '<section class="app-page"><h2>No roles yet</h2><button>Create role</button></section>';
+        }
+        return visible;
+      },
+      $: (child: string) => element(child, node ?? document.createElement("div"))
+    };
   }
   return {
     $: element,
+    browser: {
+      options: { waitforTimeout: 10_000 },
+      waitUntil: async (predicate: () => Promise<boolean>) => {
+        for (let observation = 0; observation < 2; observation += 1) {
+          if (await predicate()) return;
+        }
+        throw new Error("The current DOM did not satisfy the primary-page assertion");
+      }
+    },
     expect: (target: ReturnType<typeof element>) => ({
       async toBeDisplayed() {
         expect(target.node?.isConnected, target.selector).toBe(true);
@@ -40,6 +62,11 @@ import { assertSeedPrimaryPage } from "./primary-navigation";
 afterEach(() => { state.replacePage = false; document.body.innerHTML = ""; });
 
 describe.each(["darwin", "win32"])("primary navigation DOM assertions (%s)", () => {
+  it("requeries a hidden old page instead of retaining its display handle", async () => {
+    document.body.innerHTML = '<section class="app-page" hidden><header class="app-page-header">Games</header></section>';
+    state.replacePage = true;
+    await expect(assertSeedPrimaryPage("/roles")).resolves.toBeUndefined();
+  });
   it("resolves the current page after the route replaces the parent element", async () => {
     document.body.innerHTML = '<section class="app-page"><header class="app-page-header">Games</header></section>';
     state.replacePage = true;
@@ -60,6 +87,18 @@ describe.each(["darwin", "win32"])("primary navigation DOM assertions (%s)", () 
 
   it("still rejects a header on an empty primary page", async () => {
     document.body.innerHTML = '<section class="app-page"><header class="app-page-header">Roles</header><h2>No roles yet</h2><button>Create role</button></section>';
+    await expect(assertSeedPrimaryPage("/roles")).rejects.toThrow();
+  });
+
+  it("requires a visible header for a nonempty primary page", async () => {
+    document.body.innerHTML = '<section class="app-page"><header class="app-page-header">Games</header></section>';
+    await expect(assertSeedPrimaryPage("/games")).resolves.toBeUndefined();
+    document.querySelector("header")!.setAttribute("hidden", "");
+    await expect(assertSeedPrimaryPage("/games")).rejects.toThrow();
+  });
+
+  it("still rejects the retired primary-page kicker", async () => {
+    document.body.innerHTML = '<section class="app-page"><h2>No roles yet</h2><button>Create role</button><span class="app-page-kicker">Roles</span></section>';
     await expect(assertSeedPrimaryPage("/roles")).rejects.toThrow();
   });
 });

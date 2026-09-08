@@ -59,6 +59,28 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- Harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 invokes the exact
+  visible Close Game Window button instead of guarded WindowPattern.Close.
+  It rejects wrong PID/zero HWND, duplicate, disabled or offscreen controls,
+  and preserves the original exact-HWND disappearance check (300x100ms), now
+  retaining PID/HWND/remaining-count failure context. Product runtime and its
+  native-close guard are unchanged. Adjacent checks pass 15 tests/two platform
+  skips across four files; hygiene/typecheck/lint pass with 23 existing warnings.
+  The native fixture verifies a blocked native WindowPattern close, native
+  button notification, exact target closure and a surviving decoy. Its button
+  UIA-provider projection is explicitly modeled: this workstation's legacy
+  provider reported fixture buttons as Pane, so this is not full Chromium UIA
+  evidence. The fixture creates windows without taking foreground ownership.
+  E2E omission is lower-layer-covered; complete packaged black-box is still
+  required. The local full JS run remains in progress, with an observed native
+  Job assertion failure and original 10000ms compatibility-receipt timeout in
+  addition to symlink EPERM; no complete PASS is claimed. One raw Job diagnostic
+  has root PID 15532, five exact members, all image-query/guard checks correct
+  and final active zero; it does not reproduce or replace the original failure.
+  Windows-only CI 34244392164 was dispatched once at 15:23:04.592Z for exact
+  a48a151b. Local logs use the packaged-visible-close-* prefix, and the native
+  diagnostic is packaged-close-job-native-diagnostic.json. No same-source retry
+  or assertion/deadline relaxation is used.
 - Tool-only a12e932ca081b82f0a9df289938533eaa8387fae adds bounded installed-child
   stdout/stderr and exact PID/exit/signal plus journal stat observations before
   cleanup. Child spawn/error/exit cancels the journal observer as failure; a
@@ -102,7 +124,37 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   14:23:54.529Z, integration 14:28:16.080Z, full JS 14:31:38.537Z and build
   14:33:50.751Z. The safe receipt is ci-updater-relaunch-native-receipt.json.
   This native CI evidence does not erase the local full-suite failures or
-  retroactively identify the historical timeout causes. Package remains pending.
+  retroactively identify the historical timeout causes. Package job 102094060471
+  FAILS at visible-role-close after successful NSIS, updater, visible launch,
+  content Invoke/fixture click ACK and native screenshot. At 14:47:02.102Z,
+  PID 3360 remains after WindowPattern.Close and the original 300x100ms loop;
+  error: bundled Chromium role window did not close. The old harness did not
+  retain this HWND. Report directory is
+  2026-09-08T14-46-17-437Z-89340cb1-3adf-42b2-8fb0-b9346721c72d-win32-packaged-black-box.
+  Artifact 10061734788 SHA-256 is
+  bff9eb501bb5a5421f44ae60cd70c56593c1fc59c9bd00383c1178b9f96dc004.
+  Screenshot inspection confirms the visible Role surface, clicked fixture
+  button and Close Game Window chrome. Package addon SHA-256 is
+  1816aff2aa1b257a41fa6d93a21c7da6b9f3b024ec0e00335bb20b8c7718c061;
+  asar c6ef3635411b29ae2e7edc013ddbca0a4c190e743b13b88b547a4c257ce30ab1;
+  executable 373ce09ca562a701155a8fd94ca1fe59e68403a71d28ab44fc3f19ddda8eca62.
+  Black-box Job total 41/active zero is cleanup evidence, not successful close.
+  Source inspection identifies the action mismatch: chromiumRuntimeHostFactory
+  deliberately prevents non-popup native close; the visible Close Game Window
+  button enters the Rust-owned requestWindowControl lane. The foreground fix
+  passed its previous failure point, but complete black-box remains FAIL.
+  NSIS strict receipt passes with unsigned 8.5.0 installer, 101626653 bytes,
+  SHA-256 3d5c1d155b461cde31be311375d2a831ca0033fb2ec71ecc0d6f8670412d5a8d;
+  proof bd7249259988f45498a9dab4f0dc6974a3b4636ea59b7e2cb4e76501f5d82899;
+  normalized manifest 966225170e971103b333170d48b5638b1a443471e0995b1b42209d5c726c9edc;
+  only the expected uninstaller addition, no payload mutation, Job three/zero
+  active/exit zero/cleanup verified. Updater Electron 8.4.0 to 8.5.0 fixture
+  PASS is recorded at 14:45:45.492Z with manifest SHA-256
+  66391e15b9add10282d065e4477ae04651eefce9d405e6e4e7c138351f384cf0,
+  matching installer hash, preserved marker, journal ACK and cleanup; Job 88/zero
+  active, app PID 920 with children 6156/5796/2860. No Tauri-source case or
+  production terminal receipt is asserted. The prior journal timeout remains
+  unexplained despite this later fixture PASS.
 - CI 34229084549 at exact 6782222976223e1483d3678784e4aa1abcc43390
   passes both full profiles and shared JS 3898/28 platform skips. Stable report
   2026-09-08T12-59-48-928Z-win32 (clean) runs 12:59:49.315–13:14:25.897Z,

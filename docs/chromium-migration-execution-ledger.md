@@ -33,6 +33,16 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 closes the exact role
+through its visible Close Game Window action, retaining the native-close guard,
+PID/HWND fencing and original 300x100ms disappearance assertion. Adjacent tests
+pass 15/two platform skips; hygiene/typecheck/lint pass. The native test uses
+real windows and button notifications with a classified UIA-provider model;
+complete packaged Chromium black-box remains required. Windows-only CI
+34244392164 is the first dispatch of exact a48a151b. Full local JS is still
+running with observed EPERM, one native Job assertion failure and an original
+10000ms compatibility-receipt timeout; no complete local PASS is inferred.
+
 Tool-only a12e932ca081b82f0a9df289938533eaa8387fae adds bounded relaunch
 child/stream/journal observations and fails from an exact early child exit,
 preserving the original error and 120000ms journal deadline. Adjacent tests
@@ -57,7 +67,16 @@ report 2026-09-08T14-07-22-082Z-win32 (CI fixture preparation dirty), artifact
 Windows native job 102094320429 passes Rust 1673/four ignored, native integration
 16, complete Windows JS 3879/48 platform skips and Tauri build. The local full
 JS failures remain separately recorded; their causes are not inferred from
-this CI PASS. Package/updater/black-box remain pending.
+this CI PASS. Package job 102094060471 passes NSIS and Electron 8.4.0 to 8.5.0
+fixture updater (14:45:45.492Z), but black-box FAILS at visible-role-close:
+PID 3360 remains after WindowPattern.Close and its original 300x100ms wait.
+Launch, content click acknowledgement and native screenshot passed. Source
+inspection confirms the non-popup native close guard; the visible Close Game
+Window button uses the Rust-owned control lane. Artifact 10061734788 SHA-256
+bff9eb501bb5a5421f44ae60cd70c56593c1fc59c9bd00383c1178b9f96dc004 retains
+the failed stage and screenshot. The previous SetFocus failure was passed;
+complete black-box remains FAIL. NSIS/updater identity and terminal/cleanup
+boundaries are recorded in the API ledger; no production receipt is inferred.
 
 CI 34229084549 at exact 6782222976223e1483d3678784e4aa1abcc43390 passes
 shared JS 3898/28 platform skips and both complete Windows profiles (stable

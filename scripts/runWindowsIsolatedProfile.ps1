@@ -411,7 +411,10 @@ if (-not ("RionInteractiveDesktopAccess" -as [type])) {
   Add-Type -Path (Join-Path $resolvedRepository "scripts\windowsInteractiveDesktopAccess.cs")
 }
 if (-not ("RionWindowsJobRunner" -as [type])) {
-  Add-Type -Path (Join-Path $resolvedRepository "scripts\windowsJobObjectRunner.cs")
+  Add-Type -Path @(
+    (Join-Path $resolvedRepository "scripts\windowsJobObjectRunner.cs"),
+    (Join-Path $resolvedRepository "scripts\windowsJobProcessDiagnostics.cs")
+  )
 }
 
 try {
@@ -542,6 +545,16 @@ try {
   $commandExitCode = [int] $jobResult.ExitCode
   $activeProcessesAfterRootExit = [int] $jobResult.ActiveProcessesAfterRootExit
   $totalProcesses = [int] $jobResult.TotalProcesses
+  # Diagnostic-only, bounded observations: never replace Job accounting or the
+  # exact process-count, active-zero, command-exit and cleanup assertions.
+  Write-Output ("RION_WINDOWS_JOB_PROCESS_DIAGNOSTICS=" + ([ordered]@{
+    kind = "windows-job-process-observations"
+    authoritative = $false
+    totalProcesses = $totalProcesses
+    notificationError = $jobResult.ProcessNotificationError
+    truncated = $jobResult.ProcessObservationsTruncated
+    observations = @($jobResult.ProcessObservations)
+  } | ConvertTo-Json -Depth 4 -Compress))
   if ($resolvedResultPath) {
     $attestedInputsAfter = [ordered]@{
       commandExecutable = Get-AttestedArtifactIdentity `

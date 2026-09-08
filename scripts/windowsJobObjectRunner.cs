@@ -13,6 +13,9 @@ public sealed class RionWindowsJobResult
     public uint ExitCode { get; set; }
     public uint ActiveProcessesAfterRootExit { get; set; }
     public uint TotalProcesses { get; set; }
+    public RionWindowsJobProcessObservation[] ProcessObservations { get; set; }
+    public bool ProcessObservationsTruncated { get; set; }
+    public int ProcessNotificationError { get; set; }
 }
 
 public static class RionWindowsJobRunner
@@ -211,6 +214,7 @@ public static class RionWindowsJobRunner
         bool childCreated = false;
         bool childAssigned = false;
         RionWindowsJobResult result = null;
+        RionWindowsJobProcessDiagnostics processDiagnostics = null;
         Exception primaryFailure = null;
         Exception cleanupFailure = null;
         int accountingSize = Marshal.SizeOf(typeof(JobObjectBasicAccountingInformation));
@@ -231,6 +235,8 @@ public static class RionWindowsJobRunner
             {
                 throw new Win32Exception();
             }
+            // Associate while the job is empty, before any child can execute.
+            processDiagnostics = new RionWindowsJobProcessDiagnostics(job);
 
             var startup = new StartupInfo();
             startup.cb = (uint)Marshal.SizeOf(typeof(StartupInfo));
@@ -326,6 +332,16 @@ public static class RionWindowsJobRunner
                 CaptureCleanupFailure(
                     cleanupFailures,
                     () => EnsureJobStopped(job, accountingBuffer, accountingSize));
+            }
+            if (processDiagnostics != null)
+            {
+                CaptureCleanupFailure(cleanupFailures, processDiagnostics.Dispose);
+                if (result != null)
+                {
+                    result.ProcessObservations = processDiagnostics.Snapshot();
+                    result.ProcessObservationsTruncated = processDiagnostics.Truncated;
+                    result.ProcessNotificationError = processDiagnostics.NotificationError;
+                }
             }
             if (environmentBlock != IntPtr.Zero)
             {

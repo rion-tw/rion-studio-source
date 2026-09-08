@@ -487,12 +487,13 @@ function Capture-WindowSnapshot {
   }
 }
 
-function Write-FailureSnapshot {
+function Write-FailureSnapshot([string]$reason) {
   Capture-WindowSnapshot
   Write-Progress 'capturing-failure-snapshot'
   $foregroundHandle = [RionFileDialogOwnership]::GetForegroundWindow()
   $foregroundOwnerHandle = [int64][RionFileDialogOwnership]::GetWindow($foregroundHandle, 4)
   $snapshot = [ordered]@{
+    reason = $reason
     foregroundClassName = [RionFileDialogOwnership]::WindowClass($foregroundHandle)
     foregroundNativeWindowHandle = [int64]$foregroundHandle
     foregroundOwnerNativeWindowHandle = $foregroundOwnerHandle
@@ -500,6 +501,14 @@ function Write-FailureSnapshot {
     foregroundProcessId = Get-NativeWindowProcessId ([int64]$foregroundHandle)
     observedWindows = @($observedWindows.Values)
     targetProcessId = $targetPid
+    dialogControls = @(
+      foreach ($handle in [RionFileDialogOwnership]::OwnedWindows($targetPid, $true)) {
+        [ordered]@{
+          nativeWindowHandle = [int64]$handle
+          snapshot = [RionFileDialogOwnership]::DialogControlSnapshot($handle)
+        }
+      }
+    )
   }
   [IO.File]::WriteAllText($diagnosticPath, ($snapshot | ConvertTo-Json -Depth 5))
 }
@@ -513,11 +522,11 @@ do {
   $dialogs = @(Read-ExactDialogs)
   if ($dialogs.Count -eq 1) { break }
   if ($dialogs.Count -gt 1) {
-    Write-FailureSnapshot
+    Write-FailureSnapshot 'multiple exact-owner Windows file dialogs'
     throw 'multiple exact-owner Windows file dialogs'
   }
   if ([DateTime]::UtcNow -gt $expiry) {
-    Write-FailureSnapshot
+    Write-FailureSnapshot 'exact-owner Windows file dialog unavailable'
     throw 'exact-owner Windows file dialog unavailable'
   }
   Start-Sleep -Milliseconds 50
@@ -544,7 +553,7 @@ do {
   $dialogs = @(Read-ExactDialogs)
   if ($dialogs.Count -eq 0) { Write-Progress 'dialog-closed'; break }
   if ([DateTime]::UtcNow -gt $expiry) {
-    Write-FailureSnapshot
+    Write-FailureSnapshot 'Windows file dialog did not close'
     throw 'Windows file dialog did not close'
   }
   Start-Sleep -Milliseconds 50

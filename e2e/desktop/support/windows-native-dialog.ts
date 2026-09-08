@@ -45,6 +45,20 @@ ${windowsNativeEditDeclarations}
     GetClassName(hwnd, name, name.Capacity);
     return name.ToString();
   }
+  public static object DialogControlSnapshot(IntPtr dialog) {
+    var controls = new System.Collections.Generic.List<object>();
+    int inspected = 0;
+    EnumChildWindows(dialog, (hwnd, parameter) => {
+      if (++inspected > 128) return false;
+      controls.Add(new {
+        nativeWindowHandle = hwnd.ToInt64(), controlId = GetDlgCtrlID(hwnd),
+        className = WindowClass(hwnd), visible = IsWindowVisible(hwnd),
+        enabled = IsWindowEnabled(hwnd), exactChild = IsChild(dialog, hwnd)
+      });
+      return true;
+    }, IntPtr.Zero);
+    return new { truncated = inspected > 128, controls = controls.ToArray() };
+  }
   public static IntPtr[] OwnedWindows(int targetPid, bool dialogsOnly) {
     var matches = new System.Collections.Generic.List<IntPtr>();
     int inspected = 0;

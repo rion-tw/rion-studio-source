@@ -490,7 +490,7 @@ jobs:
         env:
           RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
         run: |
-          $pnpm = (Get-Command pnpm.cmd -ErrorAction Stop).Source
+          $pnpm = (Get-Command pnpm.exe -ErrorAction Stop).Source
           ./scripts/runWindowsIsolatedProfile.ps1 `
             -RepositoryRoot "$env:GITHUB_WORKSPACE" `
             -CommandPath $pnpm `
@@ -518,7 +518,7 @@ jobs:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
           RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
         run: |
-          $pnpm = (Get-Command pnpm.cmd -ErrorAction Stop).Source
+          $pnpm = (Get-Command pnpm.exe -ErrorAction Stop).Source
           ./scripts/runWindowsIsolatedProfile.ps1 `
             -RepositoryRoot "$env:GITHUB_WORKSPACE" `
             -CommandPath $pnpm `

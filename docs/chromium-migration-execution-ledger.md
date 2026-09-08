@@ -43,8 +43,21 @@ reads the expected runtime versions, but does not establish the crash cause or
 repair the failed verifier. Exact hashes and raw diagnostic receipts are in the
 API ledger. Local trusted UI remains obstructed by UAC PID 648/HWND 12648580.
 CI 34193287664 tests exact 3eff9b28 source once; shared JS completes with
-3876 PASS/10 platform skips, while Windows native/full profiles/package remain
-in progress at this checkpoint. No previous full PASS is relabeled as this source.
+3876 PASS/10 platform skips. New-source stable full passes 31 normal + three
+expected force / 40 journeys (artifact 10043390328, report
+2026-09-08T06-08-26-340Z-win32). Chromium full passes 58 normal + four expected
+force / 54 journeys (artifact 10043474025, report
+2026-09-08T06-09-04-559Z-win32). All 34/62 phases match manifest membership
+and order, every normal Chromium phase flushes and exits, and all phase exit
+codes are 0. In the corrected Web-only phase, stop starts at sequence 469,
+quit starts at 475, stop completes at 483, Core effects dispose at 490/491 and
+checked Core shutdown completes at 511. This validates the actual overlapping
+close/quit ordering in a complete profile. Visible import/restart, standby
+events and native session-end repeat successfully; actual OS sleep/sign-out
+remain unverified. Windows native job 101955717971 is SUCCESS: Rust 1673/4
+ignored, native integration 16 PASS, complete Windows JS 3834/48 platform skips
+and Tauri build. The package job is still in progress at this checkpoint. The
+API ledger retains exact hashes and terminal receipts.
 
 Newest completed Windows CI 34190968118 tests exact source
 c153c0c737fde081d6b5050e4bfe8d1fa6a507c5 (workflow head
@@ -72,8 +85,8 @@ darwin/win32 tests cover delayed terminality, failures and reentrant closure.
 Focused suite 52 PASS; hygiene, lint and corrected ES2022 typecheck PASS. The
 Windows WORKSPACE-WEB-ONLY-024 journey retains its final visible close beside
 teardown and the complete-profile normal-exit requirement. New-source local
-native/build checks pass as above; complete profiles and runtime verification
-remain open. macOS native acceptance of new
+native/build/full-profile checks pass as above; local runtime verification
+remains open. macOS native acceptance of new
 runtime changes is not inferred from prior CI and is not rerun in this takeover.
 
 The c153c0c7 NSIS attempt still fails exact total 4/expected 3. The new snapshot

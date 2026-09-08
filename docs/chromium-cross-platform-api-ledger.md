@@ -42,9 +42,9 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | CI 34190968118 at c153c0c737fde081d6b5050e4bfe8d1fa6a507c5 passes Windows Rust 1673/4 ignored, native integration 16, full Windows JS 3827/48 skips, shared JS 3869/10 skips and Tauri build. This fully validates the page/mock correction. Local historical x64 Macro timeout remains recorded. New runtime 3eff9b28 passes focused 52, typecheck/hygiene/lint and native Rust lint; full native/build/profile checks are in progress. Updater 256 rounds unchanged. Local production restoration at 129702a3 passed, but new-runtime restoration is required. |
+| 1. Native/shared/build | CI 34193287664 at 3eff9b2865f90b85908b1c71f605d64805051ddd passes Windows Rust 1673/4 ignored, native integration 16, complete Windows JS 3834/48 platform skips, shared JS 3876/10 platform skips and Tauri build. Local new-source Rust 1673/4 ignored, both production builds and E2E isolation pass. The local runtime verifier fails 0xC0000005; one instrumented diagnostic succeeds but does not establish a fix. Historical x64 Macro timeout remains recorded. Updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | Local c17f9763 stable 31+3 expected force/40 journeys and Chromium 58+4/54 remain complete evidence. Latest CI c153c0c7 stable passes 31+3/40, but Chromium FAILS after 12 phases/15 journey PASS/39 NOT_RUN: final-close native operation is still nonterminal at Core teardown. Runtime fix 3eff9b28 has 52 focused PASS; full profile remains pending. Latest complete Chromium PASS is caea487d. Local trusted UI is obstructed by UAC; extended supersets require a second display. |
+| 3. Full profiles | CI 34193287664 at exact 3eff9b28 passes stable 31+3 expected force/40 journeys and Chromium 58+4/54. Manifest membership and order match all 34/62 phases; every normal Chromium phase flushes/exits and all phase exit codes are 0. The corrected Web-only close overlaps quit and terminalizes before Core effects are disposed. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
 | 6. Install/update | CI c153c0c7 package/distribution/native NSIS preconditions PASS; installed proof FAILS total 4/expected 3, with active snapshot empty/error 0. Exact observations: two pwsh, one conhost and staged installer. Prior caea487d retained-1 failure is not repaired by this later result. No valid installed proof; updater/black-box SKIPPED. Rejected detached/hidden console-launch changes were withdrawn. Process-count, active-zero, cleanup and production-key gates remain unchanged. |
@@ -52,6 +52,62 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- Windows native job 101955717971 in CI 34193287664 is SUCCESS at exact
+  3eff9b2865f90b85908b1c71f605d64805051ddd: Rust lint, complete Rust
+  1673 PASS/4 ignored, Electron native integration 16 PASS (eight files),
+  complete Windows JS 3834 PASS/48 platform skips (470 passing/10 skipped
+  files), direct Chromium input gate and Tauri build. Shared job 101955578092
+  passes full JS 3876/10 platform skips (477 passing/three skipped files).
+  The Windows and shared counts are observed independently, not copied from
+  macOS. Latest full JS completion is 06:32:52 UTC. This is complete regression
+  evidence after the original symlink/timeout/document and navigation failures;
+  it does not imply that the non-elevated local token now supports symlinks.
+  View artifact 10043503513 (SHA-256
+  1081f098cb432fc9bc259fc37e7eabeb5f75cc3f88cf61dcae75fb6ae15a804e)
+  contains 24 received/trusted input cases, including background/hidden hosts,
+  sibling Views and held-key release after reload. Its declared scope remains
+  an isolated WebContentsView API probe, not a Role/native-adapter receipt;
+  the full Chromium journeys separately cover the managed Role/Macro path.
+  Direct-input artifact 10042987201 (SHA-256
+  df0e5b4fa5e7afc87786c05e2d66de797f53108556115339e552bb26c0ef71aa)
+  and fonts artifact 10043503893 (SHA-256
+  b44ec6387d93068e5f20f94bfaaabaa85b6d7aa186ac21e81b076d4275488296)
+  are downloaded and hash-verified in the same takeover root.
+- Complete profile reports from CI 34193287664 both verify exact source
+  3eff9b2865f90b85908b1c71f605d64805051ddd. Stable full report
+  2026-09-08T06-08-26-340Z-win32 is 31 PASS + three expected-force phases /
+  40 journey PASS, all 34 phases in manifest order, clean worktree and all
+  phase exit codes 0. Artifact 10043390328, SHA-256
+  3a551c12a9d5e6412260a284b10899d01e34cb2f29b092397ccccfd78564c20c.
+  Chromium report 2026-09-08T06-09-04-559Z-win32 is 58 PASS + four expected
+  force / 54 journey PASS, all 62 phases in manifest order, all 58 normal
+  final-flush/process-exit receipts and all phase exit codes 0. Artifact
+  10043474025, SHA-256
+  7422448631819ec15961579e39eec9a5459aca6ccb20070150342fb0b2e058cd.
+  Chromium records a dirty worktree after the workflow's ephemeral updater
+  trust/version preparation; it is CI fixture evidence, not a production-key
+  package. Expected Chromium force phases are app-recovery-force,
+  mixed-recovery-force, window-recovery-force and window-recovery-restore-force;
+  stable force phases are p1-cross-domain-topology-force, force-terminate and
+  crash-restart. Download hashes and original reports are retained in
+  ci-native-drain-stable and ci-native-drain-chromium, with manifest-derived
+  verdict.json files. No required phase or journey is missing.
+- The corrected Web-only seed contains the close/quit overlap itself, not just
+  an unrelated successful exit: embeddedTabStop:469 starts, cleanExitLifecycle
+  starts at sequence 475, stop completes at 483, Core effects dispose at
+  490/491, checked Core shutdown completes at 511 and clean exit at 513.
+  electron-final-flush.json is complete for PID 4132. Thus the new full profile
+  validates the native-control drain correction against the original ordering
+  failure without a UI wait, deadline increase or lease-guard relaxation.
+  The same full profile repeats visible import/restart for managed Role
+  6e925275-a005-4ca3-b09c-ed670be329ed, with unchanged source digest
+  30b0ffb748312b0b3b209364c9ca32325cb7b2fbaf6e4c5b25e2e7a07f24697a.
+  Chooser PID 1432/dialog 4063628/Edit 2359632 (1152)/Button 3998264 (1)
+  verifies exact owner and closure. Session-end receipt targets PID 8976/HWND
+  2031928 and acknowledges/prevents WM_QUERYENDSESSION; actualOsSignOut is
+  false. Standby suspend advances epoch 1 to 2, resume to 3, with applied
+  KeyS cleanup confirming neutrality. This remains synthetic power-event
+  coverage, not actual OS sleep or physical display acceptance.
 - Current native-control-drain candidate is
   3eff9b2865f90b85908b1c71f605d64805051ddd. Local x64 Windows
   `pnpm run lint:rust` PASS (06:03:47–06:04:05 UTC) and complete
@@ -81,9 +137,10 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
 - CI 34193287664 was dispatched once for exact source
   3eff9b2865f90b85908b1c71f605d64805051ddd, workflow head
   f85b689e47f50e91acbe596547a16c4891e8ae4e. Shared job 101955578092
-  completes with 3876 PASS/10 platform skips. Windows native 101955717971,
-  stable full 101955578152 and Chromium/package 101955578004 are still running
-  at this checkpoint; no complete-profile or installer verdict is inferred.
+  completes with 3876 PASS/10 platform skips. Stable full 101955578152 is
+  SUCCESS, Windows native 101955717971 is SUCCESS and the complete Chromium
+  report passes as above. The remaining package steps in 101955578004 are
+  still running at this checkpoint. No installer verdict is inferred.
 - CI 34190968118 checks out c153c0c737fde081d6b5050e4bfe8d1fa6a507c5
   (workflow-definition head 8bd62ff679690f59ea187807f68974646a4c9e1f) and is
   terminal FAIL overall. Windows native job 101948908937 passes Rust 1673/4

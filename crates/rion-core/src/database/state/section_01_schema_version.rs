@@ -469,6 +469,15 @@ impl StateDatabaseWorker {
         if self.join.is_none() {
             return Ok(());
         }
+        // Fixed test-only observations retain the last native boundary on a
+        // deadline failure; they never decide shutdown or alter its budget.
+        #[cfg(test)]
+        let observed_at = std::time::Instant::now();
+        #[cfg(test)]
+        eprintln!(
+            "state-worker-shutdown request worker={:?}",
+            self.join.as_ref().map(|worker| worker.thread().id())
+        );
         let (sender, receiver) = bounded(1);
         let result = match self
             .sender
@@ -488,6 +497,11 @@ impl StateDatabaseWorker {
             ))),
             Err(SendTimeoutError::Disconnected(_)) => Err(CoreError::ShuttingDown),
         };
+        #[cfg(test)]
+        eprintln!(
+            "state-worker-shutdown response elapsed_ms={} result={result:?}",
+            observed_at.elapsed().as_millis()
+        );
         join_worker_if_finished(&mut self.join);
         result
     }
@@ -645,15 +659,32 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
                 ));
             }
             Request::Shutdown(response) => {
+                #[cfg(test)]
+                let observed_at = std::time::Instant::now();
+                #[cfg(test)]
+                eprintln!(
+                    "state-worker-shutdown checkpoint-enter worker={:?}",
+                    thread::current().id()
+                );
                 let checkpoint = connection
                     .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
                     .map_err(|error| CoreError::StateDatabase(error.to_string()));
+                #[cfg(test)]
+                eprintln!(
+                    "state-worker-shutdown checkpoint-exit elapsed_ms={} result={checkpoint:?}",
+                    observed_at.elapsed().as_millis()
+                );
                 if let Err(error) = checkpoint {
                     let _ = response.send(Err(error));
                     continue;
                 }
                 match connection.close() {
                     Ok(()) => {
+                        #[cfg(test)]
+                        eprintln!(
+                            "state-worker-shutdown close-exit elapsed_ms={} result=Ok",
+                            observed_at.elapsed().as_millis()
+                        );
                         let _ = response.send(Ok(()));
                         return;
                     }

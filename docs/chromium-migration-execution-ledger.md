@@ -69,6 +69,27 @@ classification are retained in the API ledger. No production or physical gate
 is closed, and the new shared runtime source still needs native macOS evidence;
 the owner-requested Windows work does not rerun completed macOS acceptance.
 
+The newer Windows checkpoint retains additional failures instead of closing
+gates from focused success. CI 34176121361 checks out runtime
+d4993ed8cf890e6c5468447aceca3acd6c373099 (workflow head b0639dbaf29c4143b6d01d400f8dfe05b4f12476):
+native Rust 1673 PASS/4 ignored, native integration 16 PASS and Windows JS
+3813 PASS/48 skips. Chromium records 54 normal PASS plus four expected force
+terminations before an extra diagnostic stage breaks its strict collector;
+package/update do not run. E2E-only 82bb6975051f1ac949af669359f7b0b2f30f5f0c
+corrects that artifact channel and the complete tabs focused passes. Local
+consented Chrome Profile import and fresh-process restart also pass at 82bb6975,
+including native controls 1152/1, exact owner, source digest, scope and flush/exit
+receipts. Its local full Chromium attempt fails Role publication rename with
+Windows OS 5; the subsequent bounded 100-Role native diagnostic does not reproduce
+it. Local x64 Rust retains one separate 2 s Macro event failure (aggregate
+1672 PASS/1 FAIL/4 ignored). E2E-only d67d87596695b912ff8912481dbf7356ae1e9778
+waits for native tab readiness after a stable ownership claim; its rebuilt
+focused execution advances past the earlier viewport failure but fails later
+cookie checkpoint replacement (0x80070497), correctly retaining stopping/failed
+close. These exact failures and unavailable native Mac validation remain open;
+the API ledger contains identities and report/artifact paths. API count remains
+9/18, independently of the overlapping five packages/nine deliverables.
+
 This checkpoint supersedes the earlier dated foreground holds and candidate
 status snapshots below; those sections remain historical evidence. The current
 last fully macOS-verified runtime/test candidate is **85f662f4860c9af1623580510f35997256108b66** on

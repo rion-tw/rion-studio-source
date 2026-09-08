@@ -42,12 +42,12 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | ARM64 lint PASS at clean 4e5ec764; Rust 1673 PASS/4 ignored at 6aba8f505faede7bac67ccb9815e89fda4b3f3a6, including unchanged updater 256-round winner test. Complete JS 3809 PASS/48 platform skips at 45b846e451adcad89c6ab5b5749d18394cd0b44c. Tauri/Electron production build commands and isolation PASS; x64 Electron rejected the ARM64 addon, so an architecture-matched rebuild is pending. |
-| 2. Known recovery/detach failures | CI Chromium full passes the mixed-recovery and visible-tab journeys. Existing viewport/hit-test and terminal Show/raw-logical snapshot corrections inspected; local exact native replay pending. Historical failures remain failures. |
-| 3. Full profiles | CI chromium-windows-smoke: all 61 phases, 57 PASS + 4 expected force, 53 journeys PASS. All 57 normal phases have final flush/process exit/exit 0. Stable full stops after 5 PASS at smoke-seed: expected No roles yet, driver returns null despite the visible correct screenshot. Local full profiles pending. Hardware supersets require the missing second display. |
-| 4. Visible import | CI consent/import/restart journey PASS; local native chooser 1152 and visible consent chain remain pending. |
-| 5. Hardware/lifecycle | CI trusted-input/standby journeys PASS; local replay pending. No physical second display or actual OS sleep evidence. |
-| 6. Install/update | CI 34170886520 built NSIS but failed previous-version fixture startup with spawn EINVAL; downstream install/update/black-box did not run. The CI-only isolation requirement remains intact. New packaging source 6476b49d1a86d3463a26f6f15b082cf9ba0ea57b is dispatched once for Windows validation. |
+| 1. Native/shared/build | Complete local JS 3813 PASS/48 skips at b0639dbaf29c4143b6d01d400f8dfe05b4f12476. CI 34176121361 checks out runtime d4993ed8cf890e6c5468447aceca3acd6c373099: Windows Rust 1673 PASS/4 ignored, native integration 16 PASS, complete Windows JS 3813 PASS/48 skips. Local x64 Rust has one separate 2 s Macro event failure (1672 PASS/1 FAIL/4 ignored across the original and remaining-crate commands). Updater 256 rounds unchanged. Both production shells/isolation passed earlier; final restoration follows E2E. Architecture-matched x64 addon verification passes. |
+| 2. Known recovery/detach failures | Historical detach artifact 10017317351 recovered; it omits the original primary/compensation causes. Current native tabs focused fully passes at 82bb6975051f1ac949af669359f7b0b2f30f5f0c with separate pre-relaunch/survivor topology, zero shell errors, flush and exit. CI d4993ed8 passes all mixed/window recovery phases before a tabs evidence-collector failure; no full-profile PASS inferred. |
+| 3. Full profiles | Local stable full at 9f6e022d0afa3d0949c9b9d30fccb1cf66445d67: 31 PASS + 3 expected force/40 journeys. New Chromium full at 82bb6975 fails first phase after 12 created Roles: publish-role-tree rename PermissionDenied/OS 5. Current manifest requires 62 phases/54 journeys. CI d4993ed8 has 54 normal PASS + 4 expected force, then tabs collector fails; stable has 25 PASS then viewport failure. Hardware supersets require the missing second display. |
+| 4. Visible import | Local consent/cancel, native chooser 1152/1, profile/game selection, confirmation and fresh-process restart PASS at 82bb6975051f1ac949af669359f7b0b2f30f5f0c; report 2026-09-08T01-43-07-139Z-win32. Both phases flush/exit, source digest and launch-origin scope assertions pass. This is a complete focused import journey, not the complete Chromium profile. |
+| 5. Hardware/lifecycle | Exact-HWND WM_QUERYENDSESSION focused PASS; CI trusted-input/standby journeys PASS. Further local input/standby replay pending. No physical second display, actual OS sleep or actual OS sign-out evidence. |
+| 6. Install/update | spawn EINVAL and installer Electron-version fixes are committed. Later CI stops at E2E before package/install/update; no new package PASS. Existing CI-only isolation remains required; fixture trust never becomes production-key evidence. |
 | 7. Closure | API remains 9/18; five migration work packages/nine deliverables overlap this count. Production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 CI/tooling-only commit f63755f005c21b7c46c875c371bfdde5cc55c9fb adds the missing
@@ -181,8 +181,87 @@ Latest local and hosted results (2026-09-08):
   85f662f4 does not validate this new shared runtime correction; macOS native
   validation remains pending without rerunning the owner's completed acceptance.
 
-The table above is the initial checkpoint; these later exact-source results
-supersede its pending entries. API closure remains 9/18 until complete evidence
+Further Windows evidence and exact failures:
+
+- Complete local JS at b0639dbaf29c4143b6d01d400f8dfe05b4f12476 is
+  3813 PASS/48 platform skips (212.21 s, full-js-launch-cache). This documentation
+  commit has runtime content d4993ed8. Local x64 Rust lint passes at d4993ed8;
+  full workspace at clean b0639dba stops in rion-core with 981 PASS/1 FAIL/1 ignored.
+  calls_a_run_once_child_on_every_parent_loop_iteration hits the existing 2 s
+  next_browser_actions deadline. One focused backtrace-enabled execution passes
+  (0.09 s), not a repair. The preceding AppKit group has 4 PASS; explicitly running
+  the crates Cargo had not reached adds 687 PASS/3 ignored. Aggregate evidence is
+  1672 PASS/1 FAIL/4 ignored, not a green full command. Both former CI shutdown
+  failures pass locally once focused and in the complete group.
+- CI [34176121361](https://github.com/rion-tw/rion-studio-source/actions/runs/34176121361)
+  is FAILURE. Its workflow head is b0639dbaf29c4143b6d01d400f8dfe05b4f12476,
+  but inputs.ref and the checkout log prove actual source
+  d4993ed8cf890e6c5468447aceca3acd6c373099. Native job 101905849764 is SUCCESS:
+  Rust 1673 PASS/4 ignored, unchanged updater 256-round test, native integration
+  16 PASS, and complete Windows JS 3813 PASS/48 skips. Shared checks pass
+  3856/9 skips. Historical shutdown/Macro/deadline failures are not relabeled fixed.
+  Chromium artifact 10037645963/report 2026-09-08T01-18-14-936Z-win32 contains
+  54 normal PASS with flush/exit/exit 0 plus four expected force terminations and
+  49 PASS/5 NOT_RUN journeys. Tabs WDIO operations pass, but the collector rejects
+  an extra diagnostic stage before recording that phase; command exit is 1.
+  Package/install/update do not execute. Stable artifact 10037598760/report
+  2026-09-08T01-18-26-962Z-win32 has 25 PASS/1 FAIL, 33 PASS/2 FAIL/5 NOT_RUN
+  journeys: p1-cross-domain-topology-force receives viewport events before the
+  native selected-tab ready gate exposes documentViewport in its snapshot.
+- E2E-only 82bb6975051f1ac949af669359f7b0b2f30f5f0c moves the pre-relaunch
+  diagnostic to chromium-tabs-pre-relaunch-topology.json. A closed tab remains
+  persisted but not live, so this receipt belongs outside the fixed history in
+  which all persisted tabs must have live owners. No collector assertion changes.
+  Five focused tests, typecheck, ESLint and hygiene pass. Report
+  2026-09-08T01-30-20-733Z-win32 remains a collector FAIL despite its passing UI.
+  Corrected focused report 2026-09-08T01-36-03-081Z-win32 fully passes, including
+  detach and zero shell errors, flush and exit. It reuses the exact Electron E2E
+  binary built at b0639dba (runtime d4993ed8).
+- Local full report 2026-09-08T01-38-15-033Z-win32 at clean 82bb6975 fails
+  chromium-extensions-seed: the thirteenth Role precondition fails at Rust
+  publish-role-tree rename with PermissionDenied/OS 5; 12 directories persist.
+  It is 1 FAIL, not a partial full PASS. A predeclared bounded native-only
+  diagnostic creates 100 Roles through the same x64 NativeAppCore, stops on any
+  error and shuts down successfully (native-role-publish-probe.json). This does
+  not reproduce or fix the failure. The volume is healthy NTFS; current-user
+  ACL grants FullControl and Controlled Folder Access is disabled. No protection
+  setting is changed and no external lock owner is established.
+- Visible import focused report 2026-09-08T01-43-07-139Z-win32 at clean
+  82bb6975051f1ac949af669359f7b0b2f30f5f0c has two phase PASS and the exact
+  CHROMIUM-WINDOWS-CHROME-PROFILE-IMPORT-033 PASS. Native chooser receipt:
+  PID 300, dialog HWND 20383240, Edit HWND 24970516/control 1152, Select HWND
+  6030974/control 1, exactOwner=true, dialogClosed=true. Role
+  41c5e219-ebc2-461a-a897-37eaff01dd85 runs only its managed Chromium store.
+  Both normal phases flush and exit; launch-origin cookie/LocalStorage markers,
+  filtered transfer and unchanged source digest
+  9aac2423fc5f70b557135e086affe0def6f1bae5bfcbe6915e8e2a0cc48cf33e pass.
+- Historical detach report 2026-09-07T11-37-19-749Z-win32/artifact 10017317351
+  preserves windows 35ed7fba-1a4e-4c22-8776-e978af7c096d (HWND 4063698,
+  generation 39/revision 73), 7db42591-f8cb-44ff-9142-c49691f58c36 (4784512,
+  62/71) and detached 5e5438f2-b1a3-4a28-8de7-7e7686b1ac2d (852712, 72/74).
+  Their parent IDs are 3/4/5; Alpha, Delta+Beta and Gamma survive respectively.
+  The old serialized compensation error has no primary or compensation code;
+  neither is invented. Current code retains both codes on future failures.
+- E2E-only d67d87596695b912ff8912481dbf7356ae1e9778 adds the existing exact
+  native tab-ready wait after ownership claim, before the unchanged viewport
+  assertion. Initial focused preflight accidentally reused a Tauri executable
+  overwritten by cargo test (no desktop-e2e feature): the original 90000 ms
+  embedded-driver wait fails, report 2026-09-08T01-45-27-630Z-win32. Rebuilding
+  through the existing E2E build produces report 2026-09-08T01-47-52-449Z-win32:
+  seed PASS and the original viewport section advances, but later shared-role
+  claim fails. Raw logs prove ROLE_COOKIE_CHECKPOINT_WRITE_FAILED from
+  ReplaceFileW error 0x80070497 (unable to remove the replaced file), close
+  operation 52651e8f-7f54-451a-b94d-fb910c122481/effect
+  c0bbe849-42b2-4fce-bab5-f49e6d7e87da, Role
+  3f064dd0-4787-4fc2-bd12-fee1563bd7c1, window
+  c0d00000-0000-4000-8000-00000000000b/generation 3, tab
+  8a4776bb-7efc-4572-9ee8-95f6b37a010e. Native close fails and Core retains
+  stopping; a later session event never arrives. Also retain the earlier
+  WINDOWS_TAB_CHROME_ACK_TIMEOUT (revision 31, window
+  e8c4557c-f54a-4e09-b421-4b2ed76d2e91/generation 5). The phase is FAIL;
+  no deadline, close/durability assertion or session requirement is weakened.
+
+API closure remains 9/18 until complete evidence
 is reconciled. Physical dual-display, actual OS sleep, production-key transactions,
 terminal promotion and the final configuration delta remain independent gates.
 

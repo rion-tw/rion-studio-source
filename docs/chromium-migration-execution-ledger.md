@@ -33,24 +33,51 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Latest correction 68a0e92c2b3f00edc62a7fd2a30c3a2fc9581789 distinguishes
+retained process enumeration from native liveness, rereads final Job accounting
+after identity checks, and removes one unnecessary native fixture runtime startup.
+No deadline, process-count, active-zero or live-survivor assertion is relaxed.
+The native retained-enumeration replay fails before the fix; adjacent validation
+passes 51 tests/10 files and hygiene/typecheck/lint pass. Complete local JS has
+3862 PASS/11 symlink EPERM/48 platform skips, without timeout failures, and
+remains FAIL. Windows-only CI 34224123627 was dispatched once for this exact
+source at 12:05:14.430Z; App runtime remains 3eff9b28. The withdrawn
+generic exited-member experiment is not presented as a verified repair.
+Both local production shell builds and production E2E isolation pass at exact
+68a0e92c, with only ledger edits dirty. The rebuilt x64 addon loads and exposes
+none of the retired child-HWND exports; its exact hash is in the API ledger.
+
+CI 34218883892 is terminal FAIL: native Rust 1673/4 ignored and integration 16
+pass, but full Windows JS is 3870 PASS/one original 10000ms fixture timeout/48
+platform skips. NSIS payload passes exact manifest, unsigned identity, Job total
+three, active zero and cleanup checks. Updater cleanup still fails because PID
+8852 remains enumerated after taskkill/Wait-Process; black-box is skipped.
+Artifact 10054303974, hashes and original error remain in the API ledger.
+The complete local Chromium report 2026-09-08T11-08-31-880Z-win32 at documentation
+SHA 1ae51c6eca8793074b46cc083b0e5ff505816219 (built code 3c08e479) passes
+58 normal/four expected force, all 54 journeys and exact 62-phase membership,
+including final flush/exit, visible chooser 1152 and fresh import restart,
+foreground/hidden trusted input, standby listener and native session-end ingress.
+This is not actual OS sleep/sign-out or physical dual-display evidence.
+
 CI 34218883892 at exact 3c08e479117e47c2caa7ec0256efc1224202fe70 now
 passes both complete Windows profiles: stable 31+3 expected force/40 journeys,
 Chromium 58+4/54. All 34/62 phases match the manifest, all phase exits are
 zero and all normal Chromium flush/exit receipts verify. Artifacts 10053491058
 and 10053568859 are hash-verified; report identities and hashes are in the API
-ledger. Shared JS passes 3898/25 platform skips. Native/package jobs continue;
+ledger. Shared JS passes 3898/25 platform skips. Native/package failures are above;
 no package or production terminal is inferred from these full-profile passes.
 
 Windows-only CI 34218883892 is dispatched once at 11:05:51Z for exact
 3c08e479117e47c2caa7ec0256efc1224202fe70. Its local complete JS run is
 3860 PASS/11 FAIL/48 platform skips; all failures are symlink EPERM, with no
 timeout or document-reference failures. The local run remains FAIL and the
-same-source Windows CI is pending; no assertion, deadline or OS policy changes
+same-source Windows CI failure is retained; no assertion, deadline or OS policy changes
 are used to obtain a PASS. Full source/command/report evidence is in the API
 ledger. Existing macOS CI is not repeated.
 Both local production shell builds and production E2E isolation pass at exact
 3c08e479, with only ledger edits dirty; package/install/update acceptance is
-still pending in the new Windows CI run.
+still failed/pending as distinguished above.
 
 Tooling/test correction 3c08e479117e47c2caa7ec0256efc1224202fe70 awaits
 exact native process exit after taskkill acceptance and preserves primary plus

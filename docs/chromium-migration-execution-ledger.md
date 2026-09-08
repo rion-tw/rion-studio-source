@@ -190,3 +190,59 @@ E2E omission for launcher removal is `compile-only`; dialog diagnostics are
 The removed WebKit-only runbooks are archived byte-for-byte with full source SHA
 and SHA-256 in the archive manifest. CONTRIBUTING now describes the sole Electron
 commands, current native validation and existing release inputs.
+
+## Final runner cleanup and exact Windows failures — 2026-09-09
+
+Program commits after the previous checkpoint:
+
+- `cdc56e004c2a1bd87eb806ebc6ed26b0c42b3df1` adds per-monitor-aware native-dialog pointer readback, exact control
+  hit validation, acknowledged two-event SendInput submission and LastClick
+  diagnostics. Full SHA is retained in Git and the following exact-source report.
+- `e91316e88a2f0414c942ea6744e6d23938f5de4a` awaits the async pinned-signer helper
+  before reading `.sig`, and observes only a NULL native foreground transition
+  within the original shared 10-second chooser budget. A different foreground
+  HWND fails immediately; no click is replayed and no deadline is extended.
+- `18cfe8154809fdd1474175f5b7f6a3adf9920f13` removes unreachable Tauri E2E
+  validators, 14 retired prerequisite mappings and 23 retired namespace mappings.
+  Non-Electron build/shutdown drivers now fail closed. The obsolete
+  `clean-shutdown.json` disconnect-success path is removed; current Electron
+  final-flush/process-exit and four expected-force classifications remain.
+
+The native-dialog diagnostic runs all failed and are not complete-profile PASS:
+
+| Exact tested source | Artifact run | Result |
+| --- | --- | --- |
+| `329521d3692ee6157dee04e6dcadeeba355b4b9b` | `2026-09-08T21-54-02-720Z-win32` | Same foreground failure; HWND 42796306 / dialog PID 14584, owner HWND 7014482 / Rion PID 7904, foreground 0 |
+| `d6f4a9461c5d9ce3df3b5ad5b3338f8c579981e4` (full SHA in command/report receipt) | `2026-09-08T21-57-48-567Z-win32` | Pointer readback matched (1683,1589), hit control 9307954 and foreground dialog 12453736 before submission; subsequent foreground 0 |
+| `e91316e88a2f0414c942ea6744e6d23938f5de4a` | `2026-09-08T22-00-46-026Z-win32` | Foreground did not recover within the unchanged chooser budget; FAIL retained |
+
+The command was `pnpm run test:e2e:desktop:full
+--phase=chromium-workspace-web-fullscreen-seed`, including its entity-persistence
+seed/restart prerequisites. Each full SHA and clean-worktree status is bound by
+its runner report and wrapper result. The additional observations rule out a
+mismatched pointer coordinate/control in the recorded attempt; they do not
+establish the cause of the workstation foreground loss. No further unchanged
+local retry is justified. Win32 permits a NULL foreground during activation
+changes, but the failed budget is still a failure, not an accepted transition.
+
+CI 34281548249 Windows native job 102247422605 finished with Rust
+**1106 PASS / 4 ignored**, native integration **16 PASS**, and complete JS
+**3682 PASS / 1 FAIL / 48 platform skips**. The exact sole JS failure was a
+missing `artifact.bin.sig` in the pinned-signer test: the newly async helper's
+sign call lacked `await`. The fix above preserves signature verification. The
+complete adjacent signer/fullscreen-source files then passed **20/20** locally.
+This focused result does not replace the failed complete Windows JS run.
+
+Both native Chromium full E2E steps in CI 34281548249 completed successfully;
+package construction was still running. Final phase/journey counts and package
+receipts require their artifacts, so no package completion is claimed here.
+The current helper changes are Windows-only E2E control changes; no macOS native
+runtime or production renderer change was introduced after the 9c19 candidate.
+
+The runner cleanup's 63 active phase prerequisite/namespace mappings were
+compared before and after and are unchanged:
+`.desktop-e2e-artifacts/sole-entry-runner-active-graph-equivalence.json`.
+Six adjacent runner/driver/recovery test files passed **31/31**. Full hygiene and
+ESLint passed (0 errors, 23 existing warnings). Logs use the
+`sole-entry-final-runner-` prefix. The manifest and all its active journeys are
+unchanged; retired phases remain in immutable compatibility history only.

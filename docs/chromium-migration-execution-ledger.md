@@ -64,7 +64,14 @@ for it. That source consists of the verifier/test commit 9433f25b and its
 documentation. The run is active, not PASS. Scope is Windows only; no completed
 macOS acceptance was redispatched and no publication was requested.
 The dispatch receipt is `sole-entry-runtime-probe-output-ci-dispatch.json`
-under `.desktop-e2e-artifacts/`.
+under `.desktop-e2e-artifacts/`. Shared checks job 102279853600 is terminal
+SUCCESS: **3718 JS PASS / 29 platform skips** (448 passing files / 9 skipped),
+including the six new probe-output tests; portable Rust **997 PASS / 1 ignored**,
+lint 0 errors / 23 existing warnings, and complete hygiene/typecheck pass.
+Renderer build 102279853346 and sanitizer/concurrency 102279853289 are also
+SUCCESS. Windows native 102279976389 and package 102279853042 remain active.
+Selected shared-check job observations are retained in
+`ci34291837369/shared-checks-summary.log` under the local artifact root.
 
 Final verification candidate: `c52decf9d4c55888f5a0d2e979884d2387020223`
 (documentation on top of the program commits below). On the clean Windows

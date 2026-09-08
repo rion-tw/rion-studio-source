@@ -155,7 +155,7 @@ NSIS installed-payload and Rust updater steps and is running native black-box.
 ### Local retirement preservation
 
 The tracked old runtime and launch roots are absent. A final filesystem audit
-found five ignored generated JSON schemas under `src-tauri/gen/schemas`.
+found five ignored JSON schemas in the retired Tauri generation directory.
 Their exact bytes and SHA-256 were preserved, then the old local directory was
 moved to `.desktop-e2e-artifacts/retired-local-tauri-generated-20260909/`.
 `preservation.json` records the original paths and verified destination hashes.

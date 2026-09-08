@@ -246,3 +246,30 @@ Six adjacent runner/driver/recovery test files passed **31/31**. Full hygiene an
 ESLint passed (0 errors, 23 existing warnings). Logs use the
 `sole-entry-final-runner-` prefix. The manifest and all its active journeys are
 unchanged; retired phases remain in immutable compatibility history only.
+
+## Current immutable verification source — 2026-09-09
+
+Latest verified build source: `b6ea7ae8425eb1c0c43046660ca466e68233be04`
+(program commit `18cfe8154809fdd1474175f5b7f6a3adf9920f13`). On the clean Windows
+worktree, x64 Node 24.20.0 / Rust 1.98.1 ran `pnpm run build` successfully from
+2026-09-08T22:09:01.1005165Z to 22:09:19.5677020Z, followed by successful
+`pnpm run check:desktop-e2e-isolation` through 22:09:20.7264319Z. The output is
+restored to the production build. Logs and exact command/SHA receipts:
+`.desktop-e2e-artifacts/windows-takeover-4e5ec764/sole-entry-b6ea7ae8-build-x64`
+and `sole-entry-b6ea7ae8-isolation` (`.log` / `.result.json`).
+
+[Windows-scoped CI 34284338910](https://github.com/rion-tw/rion-studio-source/actions/runs/34284338910)
+validates that exact source, including the awaited signer, native-dialog
+observations and runner cleanup. The pre-dispatch exact-SHA lookup found no
+existing run; one dispatch returned HTTP 204 at 2026-09-08T22:08:26.295Z. It does
+not dispatch macOS validation. Current handles: checks 102256294174, Windows
+native 102256438416, Windows package 102256294098; renderer build already passed.
+Retain these live jobs instead of restarting when observation takes time.
+
+The earlier 9c19 CI remains live for package receipts: Windows job 102247242665
+has completed exact NSIS installed-payload verification and is executing packaged
+Rust-owned updater transactions; macOS job 102247242846 is building release
+artifacts after its complete Chromium profile passed. No production publication,
+real production transaction, credential change or removed hardware gate occurred.
+The sole-entry task remains open until the relevant complete and packaged
+results are inspected; the local foreground failure remains unresolved evidence.

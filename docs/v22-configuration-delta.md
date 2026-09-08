@@ -70,3 +70,10 @@ Observation receipt:
 The comparison finds no need for a new repository, App, environment, variable,
 secret or remote configuration change. Implementation and verification of the
 repository changes are tracked in the migration execution ledger.
+
+The remaining provisional candidate, compatibility-lineage, promotion-readiness
+and publication jobs are now disabled alongside the already retired recovery,
+updater-evidence and terminal-promotion jobs. Their historical code and security
+tests remain; they cannot request the unconfigured Electron environments or act
+as a second release entry. The existing `desktop-release-*` workflows are the
+current entry. This repository change does not alter any remote setting.

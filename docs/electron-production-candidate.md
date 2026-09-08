@@ -1,10 +1,22 @@
 # Electron Production Candidate
 
-The `Electron Production Candidate` workflow builds the Chromium v23 release
-asset set without publishing it. It is deliberately separate from the stable
-Tauri v22 release workflows and from fixture-key Electron package validation.
-Candidate construction is a manual, owner-locked operation protected by the
-`electron-production-release` GitHub environment.
+## Current release entry — 2026-09-09
+
+Electron is the sole release target. Use the existing `desktop-release-candidate.yml`
+workflow and its `desktop-release-build.yml` implementation, reached through the
+existing release orchestration. They reuse the repository's release App, updater
+credentials, endpoint, identity and asset names; no Electron-specific GitHub
+environment is required. See the [configuration delta](v22-configuration-delta.md)
+and [updater contract](updater-transaction-contract.md).
+
+The provisional candidate, compatibility-lineage, promotion-readiness, publication,
+recovery and terminal-promotion workflows are retired. Every job in those workflows
+is disabled. Their source and adjacent security tests remain available as historical
+design and evidence, not as an alternative release entry or a pending migration gate.
+No publication, merge or credential change is authorized by the cleanup task.
+
+The sections below describe the retired design. Its direct-200 endpoint and new
+GitHub environment requirements do not apply to the current release entry.
 
 ## Required immutable inputs
 

@@ -24,7 +24,7 @@ retired backlog as prerequisites.
 | Item | State | Evidence |
 | --- | --- | --- |
 | Final v22 configuration delta | Comparison complete; no new remote configuration needed | [Observed settings and required repository changes](v22-configuration-delta.md) |
-| Electron sole entry / old runtime cleanup | Implementation and verification in progress | Current migration ledger; new source-specific receipts will be recorded there |
+| Electron sole entry / old runtime cleanup | Implementation committed; final verification in progress | Migration ledger records program commits, complete Chromium profiles, Windows package/black-box proofs and the remaining source-specific CI checks |
 
 ## Historical evidence
 

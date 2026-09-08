@@ -32,7 +32,7 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Event Topology](event-topology.md) | Active | Any asynchronous production behavior or timer review |
 | [Desktop E2E Strategy](e2e-strategy.md) | Active | User-visible behavior, journey coverage, or desktop validation |
 | [Chromium Macro Cutover Parity](validation/runbooks/chromium-macro-cutover.md) | Active runbook | Paired managed Macro/input cutover phases, evidence, or platform limits |
-| [Electron Production Candidate](electron-production-candidate.md) | Active, owner-locked | Chromium production candidate inputs, updater trust, assets, or promotion boundary |
+| [Electron Production Candidate](electron-production-candidate.md) | Current entry index; retired design below | Existing Electron release entry and historical provisional workflow evidence |
 | [Validation](validation/README.md) | Active index | Native/hardware runbooks or historical evidence lookup |
 | [Windows Game Window Placement](validation/runbooks/windows-game-window-placement.md) | Active runbook | Physical Windows placement, DPI, and generation acceptance |
 

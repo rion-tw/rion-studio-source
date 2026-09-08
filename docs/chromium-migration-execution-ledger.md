@@ -11,11 +11,11 @@ cleanup. Publication, merge and credential changes remain outside this task.
 | Work package | Deliverables | Current state |
 | --- | ---: | --- |
 | Final v22 configuration delta | 1 | Read-only comparison complete: existing repository, App, updater secrets, endpoint, identity and asset names can be reused; see the configuration delta report. No remote settings changed. |
-| Sole Electron entry and old-runtime cleanup | 2 | In progress: route default and release entry points to Electron, remove Tauri/System WebView runtime and obsolete build/test paths, then verify the resulting source. Retain Rust authority, AppKit and consumed v22 data compatibility. |
+| Sole Electron entry and old-runtime cleanup | 2 | Implementation committed: default/release entry points target Electron; Tauri/System WebView and obsolete launch/E2E paths are removed; provisional release jobs are disabled. Final source-specific verification remains in progress. Rust authority, AppKit and consumed v22 data compatibility remain. |
 
 There are two scoped work packages / three deliverables, not the earlier four
-packages / seven deliverables. One comparison deliverable is complete; both
-implementation/verification deliverables remain in progress. API closure counts
+packages / seven deliverables. The comparison and implementation deliverables are
+complete; final verification remains in progress. API closure counts
 from the retired backlog are no longer used to gate this task.
 
 The [configuration delta](v22-configuration-delta.md) records exact baseline SHA,
@@ -23,6 +23,100 @@ GitHub observation time and release/asset IDs. No physical dual-monitor, actual
 OS sleep/sign-out, real production updater transaction or terminal-promotion
 execution is queued. Existing simulations and fixture evidence retain their
 actual classifications; removed work is not labeled PASS.
+
+## Published-source fixture and release-entry checkpoint — 2026-09-09
+
+Program commits:
+
+- `dc1432e181e51fed5dc1e3c66c6eadda20ce835c`: consume the pinned published
+  v22 macOS source instead of rebuilding the removed Tauri shell; accept only
+  matching POSIX file-type bits in Rust-tar headers; correct the retired runner
+  assertion and add bounded Windows Job test-stage diagnostics.
+- `e223e2f24dcf2b12a2f10a49e8f279af17fabc67`: disable the remaining provisional
+  candidate, compatibility-lineage, readiness and publication jobs. Every job in
+  all eight provisional workflows is now disabled. Existing `desktop-release-*`
+  workflows remain the release entry; no remote configuration changed.
+
+### Exact prior CI evidence
+
+[CI 34281548249](https://github.com/rion-tw/rion-studio-source/actions/runs/34281548249)
+used source `9c19a4008188a448da83e58f7fba654337200032`. The package jobs apply
+fixture version 8.5.0, so E2E reports correctly record a dirty version-adjusted
+worktree. This is fixture evidence, not production updater evidence.
+
+| Evidence | Actual result |
+| --- | --- |
+| Shared JS | 3706 PASS / 29 platform skips |
+| Windows native | Rust 1106 PASS / 4 ignored; native integration 16 PASS; JS 3682 PASS / 1 FAIL / 48 skips. Missing signer await was fixed in `e91316e88a2f0414c942ea6744e6d23938f5de4a`. |
+| macOS native | Rust 1116 PASS / 5 ignored; native integration 14 PASS / 2 platform skips |
+| Complete Windows Chromium profile | 58 PASS + 4 EXPECTED_FORCE_TERMINATION; 54 journeys PASS. Every normal phase has final flush and process exit. Report root `2026-09-08T21-38-09-149Z-win32`. |
+| Complete macOS Chromium profile | 56 PASS + 4 EXPECTED_FORCE_TERMINATION; 52 journeys PASS. Every normal phase has final flush and process exit. Report root `2026-09-08T21-37-54-373Z-darwin`. |
+| Windows package job 102247242665 | SUCCESS: NSIS installed payload matches the exact source tree; only the installer-owned uninstaller is added. Version 8.5.0; Authenticode-unsigned; installer 101628046 bytes. |
+| Windows Rust-owned packaged updater probe | PASS for manifest fail-closed and installed-layout replacement/relaunch cases, prior Electron 8.4.0 to fixture 8.5.0. The report explicitly states `authoritative: false` and `productionTerminalReceipt: false`. |
+| Windows packaged native black-box | PASS: visible OS accessibility click, bundled Chromium host, isolated temporary local-user profile, remote debugging false, exit code 0. Exact report is `2026-09-08T22-12-46-722Z-340fbfac-6d43-4d59-b12d-9954aa0375ee-win32-packaged-black-box/packaged-smoke-report.json`. |
+| macOS package job 102247242846 | FAIL at previous-version fixture construction: it attempted `pnpm exec tauri build` after Tauri retirement. Packaged updater/black-box steps did not run. Fixed source still requires native macOS CI. |
+
+Windows installer SHA-256:
+`19c34b0211b94ad87ac4d10548ca1c1aa9c8a6d1467308bdc36a90e878685911`.
+The black-box and installed-payload proofs bind the same package manifest:
+`b11ee5e66365ef3ee3861d25f392ccaa593791eef8a5e2080d8b236633f915fc`
+(79 entries, 76 regular files, 3 directories, 407337638 regular-file bytes).
+Artifact 10079004994 SHA-256:
+`13c27b498e969c94a844d07d3d8ed67787e5c800e3c46bde2b4eb3c47c011675`.
+Profile artifact IDs: Windows 10078389872, macOS 10078569440; macOS failure
+artifact 10078923541. Downloaded ZIPs and selected reports are retained under
+`.desktop-e2e-artifacts/ci34281548249/`. The black-box report was initially
+missed by a filename filter for `report.json`; inspection of the actual ZIP
+found `packaged-smoke-report.json`. No CI rerun was needed to recover it.
+
+[Windows CI 34284338910](https://github.com/rion-tw/rion-studio-source/actions/runs/34284338910)
+uses source `b6ea7ae8425eb1c0c43046660ca466e68233be04`. Shared JS completed
+with 3700 PASS / 1 FAIL / 29 skips: a stale runner-source assertion. Windows
+native job 102256438416 completed with Rust 1106 PASS / 4 ignored and native
+integration 16 PASS; Windows JS has 3676 PASS / 2 FAIL / 48 skips. Its failures
+are that same assertion and the original 10000 ms Job diagnostics deadline.
+The assertion is corrected in dc1432e1. The deadline failure is not reproduced
+locally: direct fixture 1791 ms; instrumented focused test PASS in 2.27 seconds.
+Bounded stage observations now expose compilation, exact root assignment/exit,
+Job empty notification, survivor rejection and cleanup without deciding success.
+The deadline and every native assertion remain unchanged. Package job
+102256294098 remains running at this checkpoint; do not redispatch that source.
+
+### Replacement fixture and local checks
+
+The macOS source is the immutable published v8.3.0 archive from
+`rion-tw/rion-studio`, release 377881658, asset 532406564, source
+`cde23e1201a750f1456a0d35424085e9d9f155dc`. It is 14229514 bytes with SHA-256
+`003ef23b36e592515e42e522156630cce642c1b0a6d42bfe6c1026d88ee9b9b0`.
+Download uses HTTPS only, at most two redirects, the original 10-second connect
+and 30-second total boundary, and no retry. A private create-new directory,
+exact size/hash and bounded safe extraction precede version/shape/codesign
+verification and publication of the fixture path. Signing inputs are excluded
+from download and previous-version builder subprocesses. No old runtime is
+rebuilt, relabeled, installed or launched by fixture preparation.
+
+Windows read-only extraction verified 9 entries (5 directories, 4 regular files,
+31026425 regular-file bytes, no symlinks), both plist versions 8.3.0, the real
+`rion-tauri` executable and absent `app.asar`. Native codesign verification
+remains macOS-only. The extracted source and receipt are under
+`.desktop-e2e-artifacts/published-v22-8.3.0/`.
+
+Local checks before the commits: fixture/release focused checks 14 PASS; Job
+stage test 1 PASS; retired-workflow focused checks 38 PASS; typecheck, lint
+(0 errors / 23 existing warnings) and complete hygiene PASS. Earlier complete
+safe-tar/fixture files had 28 PASS / 1 symlink EPERM FAIL / 2 existing platform
+skips; all eight new raw-mode cases passed. The promotion-readiness file likewise
+retains its local symlink EPERM failure. Neither failure is skipped or replaced
+by focused success. Logs have `sole-entry-fixture-`, `sole-entry-job-diagnostics-`,
+`sole-entry-published-v22-` and `sole-entry-retired-workflow-` prefixes under
+`.desktop-e2e-artifacts/`.
+
+These are internal-only fixture/diagnostic changes and compile-only retirement
+of obsolete workflow entry points; no product journey was removed or changed.
+Final native package and complete JS verification must identify the new exact
+source SHA. Historical local foreground/activation failures remain failures;
+CI success does not rewrite them. No removed hardware, production transaction
+or terminal-promotion gate is restored as a prerequisite.
 
 ## Evidence preservation
 

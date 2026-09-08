@@ -149,8 +149,36 @@ SHA-256 `04c53180c197da2ec473b1885947f66745fa889638fe9a737a1497882a0d8d87`.
 The ZIP and selected report are retained under `ci34286895282/`.
 This completes the previously failing macOS package path at the exact c52decf9
 runtime source; it does not establish production-key cutover or a real source
-updater fetching a production release. The paired Windows package job has passed
-NSIS installed-payload and Rust updater steps and is running native black-box.
+updater fetching a production release.
+
+### Final runtime-source Windows package
+
+Paired job 102264458843 is terminal **SUCCESS**, including complete profile,
+direct View input ownership, release build, runtime/extension isolation, package
+structure, distribution, exact NSIS installed payload, Rust updater and packaged
+native black-box. Artifact 10080836624 was downloaded and verified against
+SHA-256 `26aa0037d11054b22fa50680661f5c536fb3cb26d82e676ef2985a62a62fefd5`.
+
+The fixture 8.5.0 installer is 101626449 bytes, Authenticode-unsigned, SHA-256
+`ae1363d64e4eebee34361e79563de6f611f9e68093e727e54624158abd4cc719`.
+Its installed payload matches the source exactly, with only the root NSIS
+uninstaller added and no changed/removed files. The source, normalized installed
+payload and black-box bind the same package manifest:
+`c474f3ac369c2e54428b1c8e9e41f86a047753a37ab72444d5862cb275974559`
+(79 entries, 407337638 regular-file bytes).
+
+The two Rust updater probe cases pass for fixture 8.4.0 to 8.5.0, using that
+same installer digest and manifest digest
+`9a2d84e6fee750b0be4eb54cadcda668d82aefa2e0f7e85af3b9fb93c1a9062c`.
+They remain non-authoritative diagnostics, not production terminal receipts.
+Black-box report root
+`2026-09-08T23-13-13-882Z-4580f360-6ad4-4dc0-b9ca-670ce595a894-win32-packaged-black-box`
+records PASS, visible native interaction, bundled Chromium, isolated temporary
+Windows user profile, disabled remote debugging and exit code 0. ZIP, exact
+reports and cross-reconciled summary are under
+`.desktop-e2e-artifacts/ci34286895282/`. Both platforms' package evidence is now
+complete at runtime source c52decf9; the later Windows diagnostic-source CI is
+still pending and does not rewrite the earlier native test failure.
 
 ### Local retirement preservation
 

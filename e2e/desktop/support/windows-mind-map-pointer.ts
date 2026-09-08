@@ -63,6 +63,7 @@ export async function moveWindowsMindMapPointer(nodeId?: string): Promise<void> 
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class RionMindMapPointer {
   [StructLayout(LayoutKind.Sequential)] public struct Point { public int x, y; }
   [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left, top, right, bottom; }
@@ -75,6 +76,7 @@ public static class RionMindMapPointer {
   [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
   [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
   [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr hwnd, StringBuilder name, int capacity);
   public static void Move(uint expectedPid, int originX, int originY, int width, int height, int x, int y) {
     var hwnd = GetForegroundWindow();
     uint pid; Rect rect; var origin = new Point();
@@ -84,8 +86,18 @@ public static class RionMindMapPointer {
         rect.right - rect.left != width || rect.bottom - rect.top != height)
       throw new InvalidOperationException("Exact focused main-window geometry changed before native hover");
     var point = new Point { x = originX + x, y = originY + y };
-    if (GetAncestor(WindowFromPoint(point), 2) != hwnd)
-      throw new InvalidOperationException("Native mind map pointer target is occluded");
+    var hit = WindowFromPoint(point);
+    var hitRoot = GetAncestor(hit, 2);
+    if (hitRoot != hwnd) {
+      uint hitPid;
+      GetWindowThreadProcessId(hit, out hitPid);
+      var hitClass = new StringBuilder(256);
+      GetClassName(hit, hitClass, hitClass.Capacity);
+      throw new InvalidOperationException(String.Format(
+        "Native mind map pointer target is occluded: expectedPid={0}, foregroundHwnd={1}, point=({2},{3}), hitHwnd={4}, hitRootHwnd={5}, hitPid={6}, hitClass={7}, client=({8},{9},{10},{11})",
+        expectedPid, hwnd.ToInt64(), point.x, point.y, hit.ToInt64(), hitRoot.ToInt64(), hitPid,
+        hitClass, originX, originY, width, height));
+    }
     Point actual;
     if (!SetCursorPos(point.x, point.y) || !GetCursorPos(out actual) ||
         actual.x != point.x || actual.y != point.y || GetForegroundWindow() != hwnd ||

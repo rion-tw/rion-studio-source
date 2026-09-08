@@ -104,6 +104,9 @@ export async function verifyWorkspaceStartPage(input: {
       electron.webContents.fromId(id)?.session.webRequest.onBeforeRequest(null);
     }, identity.contentId);
     const tab = (await rendererCall("getEmbeddedRuntimeState")).tabs.find(item => item.sourceId === workspace.id);
+    // Keep the final visible close adjacent to phase teardown. Clean exit must
+    // drain its admitted native operation before disposing Core effects; a
+    // renderer-only wait here would conceal the close-to-quit lease race.
     if (tab) await closeVisibleRuntimeTab({
       ...input, tabId: tab.id, tabName: workspace.name, windowId: tab.windowId
     });

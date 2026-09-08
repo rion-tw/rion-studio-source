@@ -7,6 +7,7 @@ import type {
   RoleSessionMigrationRecord
 } from "../../shared/generated";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
+import { ChromiumNativeActionIngress } from "./chromiumNativeActionIngress";
 import {
   ChromiumRoleSessionRegistry,
   type ChromiumSessionFactoryPort
@@ -515,6 +516,7 @@ export class ChromiumRuntimeBootstrap {
   readonly #windowPlacement: WindowsRuntimeWindowPlacementController | null;
   readonly #drainPlatformEvents?: () => Promise<void>;
   readonly #closeNativeActionIngress: () => void;
+  readonly #drainNativeActionIngress: () => Promise<void>;
   readonly registration: BrowserRuntimeRegistrationRecord;
   readonly chromeProfileImportRecovery: ChromeProfileImportRecoveryResultInternal;
   readonly sessionMigrationResume: ChromiumSessionMigrationResumeStartResult;
@@ -544,6 +546,7 @@ export class ChromiumRuntimeBootstrap {
     chromeProfileImportRecovery: ChromeProfileImportRecoveryResultInternal,
     sessionMigrationResume: ChromiumSessionMigrationResumeStartResult,
     closeNativeActionIngress: () => void,
+    drainNativeActionIngress: () => Promise<void>,
     drainPlatformEvents?: () => Promise<void>
   ) {
     this.#core = core;
@@ -561,6 +564,7 @@ export class ChromiumRuntimeBootstrap {
     this.#hosts = hosts;
     this.#windowPlacement = windowPlacement;
     this.#closeNativeActionIngress = closeNativeActionIngress;
+    this.#drainNativeActionIngress = drainNativeActionIngress;
     this.#drainPlatformEvents = drainPlatformEvents;
     this.registration = Object.freeze(registration);
     this.chromeProfileImportRecovery = Object.freeze(chromeProfileImportRecovery);
@@ -587,15 +591,8 @@ export class ChromiumRuntimeBootstrap {
       input.platform,
       ownership
     );
-    const nativeActionIngress = { accepting: true };
-    const requireNativeActionIngress = (): void => {
-      if (!nativeActionIngress.accepting) {
-        throw bootstrapError(
-          "ELECTRON_CHROMIUM_NATIVE_ACTION_DRAINING",
-          "The Chromium runtime rejects native actions while preparing to exit."
-        );
-      }
-    };
+    const nativeActionIngress = new ChromiumNativeActionIngress();
+    const requireNativeActionIngress = (): void => nativeActionIngress.requireOpen();
     let executor: ChromiumRuntimeEffectExecutor | null = null;
     const windowPlacement = input.platform === "win32"
       ? new WindowsRuntimeWindowPlacementController({
@@ -629,18 +626,18 @@ export class ChromiumRuntimeBootstrap {
             runtimeDocumentPath: input.windows!.runtimeDocumentPath,
             runtimeHostPreloadPath: input.windows!.runtimeHostPreloadPath,
             onWindowControl: (windowId, action) => {
-              requireNativeActionIngress();
-              return input.windows!.onWindowControl(windowId, action);
+              return nativeActionIngress.run(() =>
+                input.windows!.onWindowControl(windowId, action));
             },
             onTabControl: (tabId, action) => {
               requireNativeActionIngress();
               const request = input.windows!.onTabControl;
-              return request
+              return nativeActionIngress.run(() => request
                 ? request(tabId, action)
                 : Promise.reject(bootstrapError(
                     "ELECTRON_CHROMIUM_TAB_CONTROL_UNAVAILABLE",
                     "The Core-owned Windows tab control lane is unavailable."
-                  ));
+                  )));
             },
             onRuntimeTabQuickAccess: (tabId) => {
               requireNativeActionIngress();
@@ -663,10 +660,10 @@ export class ChromiumRuntimeBootstrap {
             },
             onWorkspaceDividerPointer: (event) => {
               requireNativeActionIngress();
-              return input.core.invoke({
+              return nativeActionIngress.run(() => input.core.invoke({
                 type: "browserWorkspaceDividerPointer",
                 event
-              });
+              }));
             },
             onRuntimeWindowPlacement: (host) => {
               requireNativeActionIngress();
@@ -677,9 +674,9 @@ export class ChromiumRuntimeBootstrap {
             lifecycleEpoch: input.windows!.lifecycleEpoch,
             onTabReload: (fence) => {
               requireNativeActionIngress();
-              return executeControlledRuntimeTabReload(input.core, fence).then(
+              return nativeActionIngress.run(() => executeControlledRuntimeTabReload(input.core, fence).then(
                 () => undefined
-              );
+              ));
             }
           }
         : {
@@ -908,7 +905,7 @@ export class ChromiumRuntimeBootstrap {
     const onEventStreamFailure = (
       terminal: CoreEffectEventStreamFailureTerminal
     ): void => {
-      nativeActionIngress.accepting = false;
+      nativeActionIngress.close();
       heldKeyContinuity?.dispose();
       publishedRuntime?.beginFatalEventStreamFailure();
       if (!runtimePublished) {
@@ -1253,9 +1250,10 @@ export class ChromiumRuntimeBootstrap {
         chromeProfileImportRecovery,
         sessionMigrationResume,
         () => {
-          nativeActionIngress.accepting = false;
+          nativeActionIngress.close();
           heldKeyContinuity?.dispose();
         },
+        () => nativeActionIngress.closeAndDrain(),
         input.appKit?.drainEvents
       );
       await startupStreamFailure.waitFor(Promise.resolve());
@@ -1505,6 +1503,7 @@ export class ChromiumRuntimeBootstrap {
     if (this.#intakeDrainPromise) return this.#intakeDrainPromise;
     this.#closeNativeActionIngress();
     this.#intakeDrainPromise = Promise.resolve()
+      .then(() => this.#drainNativeActionIngress())
       .then(() => this.#drainPlatformEvents?.())
       .then(() => this.#windowPlacement?.drain())
       .then(() => this.#navigationFailureReporter.closeAndDrain())

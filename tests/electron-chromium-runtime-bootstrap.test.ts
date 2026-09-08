@@ -23,6 +23,7 @@ import {
 import { CHROMIUM_ROLE_OVERLAY_CHANNEL } from
   "../src/electron/ipc/chromiumRoleOverlayProtocol";
 import { RionBridgeError } from "../src/electron/ipc/errors";
+import { ChromiumNativeActionIngress } from "../src/electron/main/chromiumNativeActionIngress";
 import type { ChromiumRoleSessionPort } from
   "../src/electron/main/chromiumRoleSessionRegistry";
 import { CHROMIUM_ROLE_BROWSER_DATA_STORAGE_TYPES } from
@@ -550,6 +551,31 @@ describe("Electron Chromium runtime bootstrap", () => {
     await runtime.shutdown();
     expect(onFatalEventStreamFailure).not.toHaveBeenCalled();
     expect(core.order.filter((entry) => entry === "core-shutdown")).toHaveLength(1);
+  });
+
+  it("keeps Core effects live until the admitted native control drain completes", async () => {
+    const core = new FakeCore();
+    const nativeTerminal = deferred();
+    const nativeDrain = vi.spyOn(ChromiumNativeActionIngress.prototype, "closeAndDrain")
+      .mockReturnValue(nativeTerminal.promise);
+    const persist = vi.fn(async () => undefined);
+    const runtime = await ChromiumRuntimeBootstrap.start({
+      core, platform: "darwin", electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250",
+      rolePreloadPath: "/Rion/out/preload/role.cjs", ...emptyNativePorts(), onError: vi.fn()
+    });
+    const clean = runtime.prepareCleanExit(persist);
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(nativeDrain).toHaveBeenCalledOnce();
+      expect(core.unsubscribe).not.toHaveBeenCalled();
+      expect(persist).not.toHaveBeenCalled();
+    } finally {
+      nativeTerminal.resolve();
+      nativeDrain.mockRestore();
+      await clean;
+      await runtime.shutdown();
+    }
   });
 
   it("closes frozen native state before admitting a clean recovery journal", async () => {

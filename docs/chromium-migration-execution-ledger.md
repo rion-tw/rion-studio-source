@@ -33,6 +33,50 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Latest Windows reconciliation: local runner
+c17f9763f28409c0582a8a7730809017b004ac63 starts clean and completes stable full
+31 PASS + 3 expected force terminations / 40 journey PASS (report
+2026-09-08T02-07-16-602Z-win32), and chromium-windows-smoke 58 PASS + 4 expected
+force terminations / 54 journey PASS (2026-09-08T02-25-16-277Z-win32). All 62
+Chromium phases execute; all 58 normal phases have final flush/process exit/exit 0.
+The full run includes exact survivor topology, mixed recovery, native trusted
+foreground/hidden input, actual Electron powerMonitor listener ingress, native
+WM_QUERYENDSESSION close-drain, visible consent/cancel/native chooser 1152/1,
+launch-origin scope/source immutability and fresh-process Chrome import restart.
+Actual OS sleep/sign-out is unverified; no manual assistance is required and no
+synthetic event is called physical PASS. Only one display is present, so stable
+extended and chromium-windows-hardware-extended remain hardware-blocked.
+
+Runtime source remains d4993ed8cf890e6c5468447aceca3acd6c373099; later commits
+are E2E/tooling or documentation. CI 34178511175 checks out
+d67d87596695b912ff8912481dbf7356ae1e9778 (workflow head c17f9763), passing
+Windows Rust 1673/4 ignored, native integration 16, JS 3813/48 skips, stable
+31+3/40 and Chromium 58+4/54. Artifacts 10038386129 and 10038472885 retain the
+complete reports. Its 8.5.0 target and previous installers build, but package
+verification cannot load Microsoft.PowerShell.Security. Installed payload,
+updater transactions and packaged black-box therefore do not execute.
+Tooling/CI source ca4375cfa86a17c62cdb6140d28ba56ac2aa872e explicitly imports
+the executing Windows PowerShell Security module, preserves unsigned checks and
+retains public package/updater observations. Focused 44 tests, typecheck, lint,
+hygiene and complete local JS 3814 PASS/48 skips pass. Exactly one new Windows-only
+CI, 34182057095, is pending on this source. No completed macOS gate is rerun.
+Both production shell builds, production E2E isolation and actual x64 runtime
+verification subsequently pass at ca4375cf (Electron 43.6.0/Chromium
+150.0.7871.250/Node 24.20.0/Core 0.1.0). Final addon inventory has no retired
+child-HWND exports. Electron build/probes have only ledger edits pending;
+later E2E must rebuild its own shell because the shared outputs are production.
+
+The API ledger separately closes CP-08 and CP-10 on these unchanged input/import
+boundaries: 11/18 API items are verified. The five cutover work packages and nine
+deliverables below are unchanged and overlap the API count. This does not close
+the latest-source macOS native requirement for the changed launch coordinator,
+physical dual-display, four real production-key updater transactions, terminal
+promotion, the final v22 configuration delta, or protected runtime retirement.
+Earlier native filesystem and timeout failures remain historical FAIL evidence;
+the isolated complete-profile PASS does not establish their cause or repair.
+
+Earlier takeover checkpoints (historical sequence; latest results above prevail):
+
 Windows takeover is now active. The clean local branch safely fast-forwarded to
 4e5ec764315af1594b41fb693e65bc2abc4b2b1e with the specified ancestors verified.
 Windows ARM64 VM Rust lint passes, Rust has 1673 PASS/4 ignored, and complete JS

@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
-import { createGzip } from "node:zlib";
+import { createGzip, gunzipSync, gzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -51,6 +51,30 @@ afterEach(async () => {
 });
 
 describe("safe tar-gzip subtree extraction", () => {
+  it("accepts published Rust-tar stat modes only when their entry types match", async () => {
+    const root = await temporaryDirectory();
+    const archivePath = path.join(root, "stat-modes.tar.gz");
+    const destinationPath = path.join(root, "app");
+    await writeTarGzip(archivePath, [directory("app"), file("app/main", "native-source")]);
+    await patchRawTarModes(archivePath, [0o040755, 0o100755]);
+    await expect(extractSafeTarGzipSubtree({ archivePath, archiveRoot: "app", destinationPath }))
+      .resolves.toMatchObject({ directoryCount: 1, regularFileCount: 1, regularFileBytes: 13 });
+    expect(await readFile(path.join(destinationPath, "main"), "utf8")).toBe("native-source");
+  });
+
+  it.each([0o040755, 0o120755, 0o104755, 0o102755, 0o101755, 0o200755, 0o4755])(
+    "rejects mismatched, privileged or unknown file mode %i without publishing output", async mode => {
+      const root = await temporaryDirectory();
+      const archivePath = path.join(root, "unsafe-mode.tar.gz");
+      const destinationPath = path.join(root, "app");
+      await writeTarGzip(archivePath, [directory("app"), file("app/main", "native-source")]);
+      await patchRawTarModes(archivePath, [0o040755, mode]);
+      await expect(extractSafeTarGzipSubtree({ archivePath, archiveRoot: "app", destinationPath }))
+        .rejects.toThrow("unsafe permission mode");
+      await expect(access(destinationPath)).rejects.toThrow();
+    }
+  );
+
   it("extracts one exact archive root into a create-new destination", async () => {
     const root = await temporaryDirectory();
     const archivePath = path.join(root, "valid.tar.gz");
@@ -411,6 +435,22 @@ describe("safe tar-gzip subtree extraction", () => {
     await expect(access(destinationPath)).rejects.toThrow();
   });
 });
+
+async function patchRawTarModes(archivePath: string, modes: number[]): Promise<void> {
+  // tar-stream's writer masks stat type bits; preserve the historical raw header
+  // encoding here and recompute its checksum so parsing reaches mode validation.
+  const tar = gunzipSync(await readFile(archivePath));
+  let offset = 0;
+  for (const mode of modes) {
+    const header = tar.subarray(offset, offset + 512);
+    header.write(`${mode.toString(8).padStart(7, "0")}\0`, 100, "ascii");
+    header.fill(0x20, 148, 156);
+    const checksum = header.reduce((total, byte) => total + byte, 0);
+    header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148, "ascii");
+    offset += 512 + Math.ceil(Number.parseInt(header.toString("ascii", 124, 136), 8) / 512) * 512;
+  }
+  await writeFile(archivePath, gzipSync(tar));
+}
 
 function directory(name: string): TarFixtureEntry {
   return { body: Buffer.alloc(0), header: { mode: 0o755, name, type: "directory" } };

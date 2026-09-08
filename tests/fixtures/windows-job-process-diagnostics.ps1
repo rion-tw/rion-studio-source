@@ -1,9 +1,18 @@
 $ErrorActionPreference = "Stop"
+$taskStageClock = [Diagnostics.Stopwatch]::StartNew()
+function Write-DiagnosticStage([string] $Stage) {
+  # Bounded test-only observations; stages never determine native Job success.
+  [Console]::Error.WriteLine(('RION_JOB_DIAGNOSTIC_STAGE=' + ([ordered]@{
+    stage = $Stage; milliseconds = $taskStageClock.ElapsedMilliseconds
+  } | ConvertTo-Json -Compress)))
+}
+Write-DiagnosticStage 'powershell-started'
 $taskRepository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 Add-Type -Path @(
   (Join-Path $taskRepository "scripts\windowsJobObjectRunner.cs"),
   (Join-Path $taskRepository "scripts\windowsJobProcessDiagnostics.cs")
 )
+Write-DiagnosticStage 'production-types-compiled'
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -37,6 +46,7 @@ public static class DiagnosticTestJob {
   }
 }
 '@
+Write-DiagnosticStage 'test-types-compiled'
 $taskJob = [DiagnosticTestJob]::CreateJobObject([IntPtr]::Zero, $null)
 if ($taskJob -eq [IntPtr]::Zero) { throw "Could not create diagnostic test job." }
 $taskObserver = $null
@@ -51,6 +61,7 @@ try {
   if (-not (Test-Path -LiteralPath $taskCompiler -PathType Leaf)) { throw 'Native fixture compiler unavailable.' }
   & $taskCompiler /nologo /target:winexe "/out:$taskRootExecutable" (Join-Path $PSScriptRoot 'windows-job-diagnostic-root.cs')
   if ($LASTEXITCODE -ne 0) { throw 'GUI diagnostic root compilation failed.' }
+  Write-DiagnosticStage 'gui-root-compiled'
   $taskImage = [IO.File]::ReadAllBytes($taskRootExecutable)
   $taskPeOffset = [BitConverter]::ToInt32($taskImage, 0x3c)
   $taskRootSubsystem = [BitConverter]::ToUInt16($taskImage, $taskPeOffset + 4 + 20 + 68)
@@ -74,6 +85,7 @@ try {
   if (-not [DiagnosticTestJob]::AssignProcessToJobObject($taskJob, $taskChild.Handle)) {
     throw "Could not bind the diagnostic test process to its exact job."
   }
+  Write-DiagnosticStage 'root-assigned'
   $taskActiveBeforeRelease = @($taskObserver.SnapshotActive())
   $taskActiveSnapshotError = $taskObserver.ActiveSnapshotError
   $taskActiveSnapshotTruncated = $taskObserver.ActiveSnapshotTruncated
@@ -89,7 +101,9 @@ try {
   $taskChild.StandardInput.Close()
   if (-not $taskChild.WaitForExit(5000)) { throw "Diagnostic test child did not finish." }
   if ($taskChild.ExitCode -ne 0) { throw $taskChild.StandardError.ReadToEnd() }
+  Write-DiagnosticStage 'root-exited'
   $taskObserver.WaitForEmptyNotification(5000)
+  Write-DiagnosticStage 'empty-notification-received'
   $taskFinalActive = [DiagnosticTestJob]::ActiveProcesses($taskJob)
   $taskExitedRootCanJoin = [RionWindowsJobRunner]::CanJoinExitedRootAccounting(
     $taskJob, $taskChild.Handle, $taskChild.Id)
@@ -120,7 +134,9 @@ try {
   $taskSurvivor.StandardInput.Close()
   if (-not $taskSurvivor.WaitForExit(5000)) { throw "Accounting-fence survivor did not finish." }
   if ($taskSurvivor.ExitCode -ne 0) { throw $taskSurvivor.StandardError.ReadToEnd() }
+  Write-DiagnosticStage 'survivor-exited'
   $taskObserver.Dispose()
+  Write-DiagnosticStage 'observer-disposed'
   [ordered]@{
     platform = 'win32'
     rootProcessId = $taskChild.Id
@@ -161,4 +177,5 @@ try {
     }
     Remove-Item -LiteralPath $taskResolvedFixtureRoot -Recurse -Force
   }
+  Write-DiagnosticStage 'cleanup-complete'
 }

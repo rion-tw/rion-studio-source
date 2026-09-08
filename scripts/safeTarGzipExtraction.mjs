@@ -185,7 +185,7 @@ async function extractEntry(state, header, entryStream) {
     throw new Error("The safe-tar archive root must occur exactly once as a directory.");
   }
   assertDeclaredDirectoryAncestors(state, memberPath);
-  const mode = validateMode(header.mode, memberPath);
+  const mode = validateMode(header.mode, memberPath, type);
   const outputPath = relativePath === ""
     ? state.payloadRoot
     : path.join(state.payloadRoot, ...relativePath.split("/"));
@@ -436,13 +436,18 @@ function validateSymlinkTarget(value, memberPath, archiveRoot, maximumBytes) {
   return value;
 }
 
-function validateMode(value, memberPath) {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0o777) {
+function validateMode(value, memberPath, type) {
+  // Published v22 Rust-tar headers retain POSIX stat type bits in mode. Admit
+  // only the bits matching the separately validated tar type; never propagate
+  // type, setuid, setgid, sticky, or unknown bits to chmod.
+  const typeBits = { directory: 0o040000, file: 0o100000, symlink: 0o120000 }[type];
+  if (!Number.isSafeInteger(value) || value < 0 ||
+      (value > 0o777 && (value < typeBits || value > typeBits + 0o777))) {
     throw new Error(
       `Safe-tar member ${JSON.stringify(memberPath)} has an unsafe permission mode.`
     );
   }
-  return value;
+  return value & 0o777;
 }
 
 function containsUnsafeText(value) {

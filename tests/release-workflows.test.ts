@@ -753,8 +753,9 @@ describe("desktop shell migration workflows", () => {
     expect(workflow).toContain("if: always()");
     expect(workflow).not.toContain("continue-on-error: true");
     expect(runner).toContain(
-      "if (blocked || (result.code !== 0 && !forcedTermination && !cleanShutdown))"
+      "if (blocked || (result.code !== 0 && !forcedTermination))"
     );
+    expect(runner).not.toContain("clean-shutdown.json");
     expect(wdio).toContain("connectionRetryCount: 0");
   });
 

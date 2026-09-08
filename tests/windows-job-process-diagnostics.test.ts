@@ -6,10 +6,14 @@ import { expect, it } from "vitest";
 it.skipIf(process.platform !== "win32")(
   "observes only the exact Windows Job descendants without granting completion authority",
   async () => {
-    const { stdout } = await promisify(execFile)("pwsh.exe", [
+    const execution = promisify(execFile)("pwsh.exe", [
       "-NoLogo", "-NoProfile", "-NonInteractive", "-File",
       resolve("tests/fixtures/windows-job-process-diagnostics.ps1")
     ], { windowsHide: true, maxBuffer: 1024 * 1024 });
+    // Stream the fixed test stages so a deadline failure retains its last
+    // observed native boundary even if the command has not returned yet.
+    execution.child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
+    const { stdout } = await execution;
     const result = JSON.parse(stdout) as {
       platform: string;
       rootProcessId: number;

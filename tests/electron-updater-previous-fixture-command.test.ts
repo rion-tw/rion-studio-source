@@ -7,7 +7,51 @@ import { describe, expect, it, vi } from "vitest";
 import { buildElectronUpdaterPreviousFixtures } from
   "../scripts/buildElectronUpdaterPreviousFixtures.mjs";
 
-describe("Windows previous Electron updater fixture command", () => {
+describe("Previous updater source fixtures", () => {
+  it("rejects an unpinned macOS source version before downloading or rebuilding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion mac fixture "));
+    const githubEnvironment = join(root, "github environment");
+    await writeFile(githubEnvironment, "");
+    const executeFile = vi.fn();
+    try {
+      await expect(buildElectronUpdaterPreviousFixtures({
+        CI: "true", GITHUB_ACTIONS: "true", GITHUB_ENV: githubEnvironment,
+        RION_UPDATER_CI_FIXTURE_ROOT: root, RION_UPDATER_PRIOR_V23_VERSION: "8.4.0",
+        RION_STUDIO_ELECTRON_PACKAGE_VERSION: "8.5.0", RION_UPDATER_TAURI_V22_VERSION: "8.2.0"
+      }, { platform: "darwin", executeFile })).rejects.toThrow("pinned published v22 asset");
+      expect(executeFile).not.toHaveBeenCalled();
+      expect(await readFile(githubEnvironment, "utf8")).toBe("");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("rejects changed macOS archive bytes before extraction and withholds signing inputs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rion mac fixture "));
+    const githubEnvironment = join(root, "github environment");
+    await writeFile(githubEnvironment, "");
+    const executeFile = vi.fn(async (
+      _executable: string, args: string[], _options: { env: NodeJS.ProcessEnv }
+    ) => {
+      await writeFile(args[args.indexOf("--output") + 1], "substituted archive");
+    });
+    try {
+      await expect(buildElectronUpdaterPreviousFixtures({
+        CI: "true", GITHUB_ACTIONS: "true", GITHUB_ENV: githubEnvironment,
+        RION_UPDATER_CI_FIXTURE_ROOT: root, RION_UPDATER_PRIOR_V23_VERSION: "8.4.0",
+        RION_STUDIO_ELECTRON_PACKAGE_VERSION: "8.5.0", RION_UPDATER_TAURI_V22_VERSION: "8.3.0",
+        TAURI_SIGNING_PRIVATE_KEY: "must-not-enter-download", APPLE_PASSWORD: "must-not-enter-download"
+      }, { platform: "darwin", executeFile })).rejects.toThrow("pinned bytes or SHA-256");
+      expect(executeFile).toHaveBeenCalledExactlyOnceWith("/usr/bin/curl", expect.arrayContaining([
+        "--max-redirs", "2", "--connect-timeout", "10", "--max-time", "30",
+        "--max-filesize", "14229514",
+        "https://github.com/rion-tw/rion-studio/releases/download/v8.3.0/Rion.Studio-mac.app.tar.gz"
+      ]), expect.objectContaining({ env: expect.any(Object) }));
+      const downloadEnvironment = executeFile.mock.calls[0][2].env;
+      expect(downloadEnvironment).not.toHaveProperty("TAURI_SIGNING_PRIVATE_KEY");
+      expect(downloadEnvironment).not.toHaveProperty("APPLE_PASSWORD");
+      expect(await readFile(githubEnvironment, "utf8")).toBe("");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("executes the pinned CLI directly and retains exact spaced paths and version", async () => {
     const root = await mkdtemp(join(tmpdir(), "rion previous fixture "));
     const githubEnvironment = join(root, "github environment");

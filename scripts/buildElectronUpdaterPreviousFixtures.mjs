@@ -1,13 +1,13 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   appendFile,
   lstat,
   mkdtemp,
   realpath,
-  rm,
+  readFile,
   writeFile
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
@@ -18,6 +18,8 @@ import {
   assertSemanticVersionIsNewer,
   requiredSemanticVersion
 } from "./electronUpdaterCompatibilityReceiptIo.mjs";
+
+import { extractSafeTarGzipSubtree } from "./safeTarGzipExtraction.mjs";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -54,12 +56,13 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
     "Electron target application version"
   );
   if (platform === "darwin") {
-    return buildMacosTauriV22Fixture({
+    return prepareMacosPublishedTauriV22Fixture({
       environment,
       fixtureRoot,
       githubEnvironment,
       priorV23Version,
-      targetVersion
+      targetVersion,
+      executeFile
     });
   }
   const installers = {};
@@ -79,7 +82,7 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
     ], {
       cwd: resolve("."),
       env: {
-        ...environment,
+        ...unsignedFixtureEnvironment(environment),
         RION_STUDIO_ELECTRON_PACKAGE_VERSION: version
       },
       maxBuffer: 16 * 1024 * 1024,
@@ -99,12 +102,13 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
   return installers;
 }
 
-async function buildMacosTauriV22Fixture({
+async function prepareMacosPublishedTauriV22Fixture({
   environment,
   fixtureRoot,
   githubEnvironment,
   priorV23Version,
-  targetVersion
+  targetVersion,
+  executeFile
 }) {
   const tauriV22Version = requiredSemanticVersion(
     environment.RION_UPDATER_TAURI_V22_VERSION,
@@ -120,58 +124,47 @@ async function buildMacosTauriV22Fixture({
     tauriV22Version,
     "Electron target application version"
   );
-  const temporaryDirectory = await mkdtemp(
-    join(tmpdir(), "rion-tauri-v22-updater-fixture-")
-  );
-  const configPath = join(temporaryDirectory, "tauri.fixture.json");
-  const cargoTargetDirectory = join(fixtureRoot, "tauri-v22-target");
-  const application = join(
-    cargoTargetDirectory,
-    "release/bundle/macos/Rion Studio.app"
-  );
-  const buildEnvironment = {
-    ...environment,
-    CARGO_TARGET_DIR: cargoTargetDirectory
-  };
-  for (const name of [
-    "APPLE_API_ISSUER",
-    "APPLE_API_KEY",
-    "APPLE_API_KEY_PATH",
-    "APPLE_ID",
-    "APPLE_PASSWORD",
-    "APPLE_SIGNING_IDENTITY",
-    "APPLE_TEAM_ID",
-    "TAURI_SIGNING_PRIVATE_KEY",
-    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
-    "TAURI_SIGNING_PRIVATE_KEY_PATH"
-  ]) {
-    delete buildEnvironment[name];
+  // Immutable published source: never rebuild or relabel a retired runtime.
+  const source = Object.freeze({
+    repository: "rion-tw/rion-studio", releaseId: 377881658, assetId: 532406564,
+    sourceSha: "cde23e1201a750f1456a0d35424085e9d9f155dc",
+    version: "8.3.0", bytes: 14229514,
+    sha256: "003ef23b36e592515e42e522156630cce642c1b0a6d42bfe6c1026d88ee9b9b0",
+    url: "https://github.com/rion-tw/rion-studio/releases/download/v8.3.0/Rion.Studio-mac.app.tar.gz"
+  });
+  if (tauriV22Version !== source.version) {
+    throw new Error("The previous macOS source version must match the pinned published v22 asset.");
   }
-  await writeFile(configPath, JSON.stringify({
-    bundle: {
-      createUpdaterArtifacts: false,
-      macOS: { signingIdentity: "-" }
-    },
-    version: tauriV22Version
-  }), { encoding: "utf8", mode: 0o600 });
-  try {
-    await execFileAsync("pnpm", [
-      "exec",
-      "tauri",
-      "build",
-      "--config",
-      configPath,
-      "--bundles",
-      "app"
-    ], {
-      cwd: resolve("."),
-      env: buildEnvironment,
-      maxBuffer: 64 * 1024 * 1024
-    });
-  } finally {
-    await rm(temporaryDirectory, { force: true, recursive: true });
+  const sourceRoot = await mkdtemp(join(fixtureRoot, "published-v22-"));
+  const archivePath = join(sourceRoot, "Rion.Studio-mac.app.tar.gz");
+  const application = join(sourceRoot, "Rion Studio.app");
+  const buildEnvironment = unsignedFixtureEnvironment(environment);
+  // External asset-download boundary: fixed HTTPS source, bounded redirects,
+  // 10-second connect / 30-second total acknowledgement; no retries.
+  await executeFile("/usr/bin/curl", [
+    "--fail", "--silent", "--show-error", "--location", "--max-redirs", "2",
+    "--proto", "=https", "--proto-redir", "=https",
+    "--connect-timeout", "10", "--max-time", "30",
+    "--max-filesize", String(source.bytes), "--output", archivePath, source.url
+  ], { cwd: resolve("."), env: buildEnvironment, maxBuffer: 1024 * 1024, windowsHide: true });
+  const archive = await lstat(archivePath);
+  if (!archive.isFile() || archive.isSymbolicLink() || archive.nlink !== 1 ||
+      archive.size !== source.bytes ||
+      createHash("sha256").update(await readFile(archivePath)).digest("hex") !== source.sha256) {
+    throw new Error("The published v22 source archive differs from its pinned bytes or SHA-256.");
+  }
+  const extraction = await extractSafeTarGzipSubtree({
+    archivePath, archiveRoot: "Rion Studio.app", destinationPath: application,
+    limits: { maximumArchiveBytes: source.bytes, maximumExpandedBytes: 128 * 1024 * 1024,
+      maximumFileBytes: 64 * 1024 * 1024, maximumTotalFileBytes: 128 * 1024 * 1024 }
+  });
+  if (extraction.archiveSha256 !== source.sha256 || extraction.archiveBytes !== source.bytes) {
+    throw new Error("The published v22 archive changed during safe extraction.");
   }
   await verifyTauriV22Application(application, tauriV22Version);
+  await writeFile(join(sourceRoot, "published-source.json"), `${JSON.stringify({
+    ...source, application, extraction, sourceRuntime: "tauri-v22", installed: false
+  }, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
   await appendFile(
     githubEnvironment,
     `RION_UPDATER_PROBE_PREVIOUS_APP=${application}\n` +
@@ -223,6 +216,12 @@ async function readPlistValue(plistPath, key) {
     plistPath
   ], { encoding: "utf8" });
   return stdout.trim();
+}
+
+function unsignedFixtureEnvironment(environment) {
+  return Object.fromEntries(Object.entries(environment).filter(([name]) =>
+    !/^(?:TAURI_SIGNING_|APPLE_)/iu.test(name)
+  ));
 }
 
 function requiredAbsolutePath(value, name) {

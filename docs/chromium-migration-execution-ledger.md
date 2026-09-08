@@ -26,6 +26,24 @@ actual classifications; removed work is not labeled PASS.
 
 ## Published-source fixture and release-entry checkpoint — 2026-09-09
 
+Final verification candidate: `c52decf9d4c55888f5a0d2e979884d2387020223`
+(documentation on top of the program commits below). On the clean Windows
+worktree, `pnpm run build` passed in 11.31 seconds and
+`pnpm run check:desktop-e2e-isolation` passed. Both commands used Node 24.20.0
+x64 and Rust 1.98.1 x64; full source/runtime/time/exit receipts are
+`windows-takeover-4e5ec764/sole-entry-c52decf9-{build-x64,isolation}.result.json`
+under `.desktop-e2e-artifacts/`.
+
+[CI 34286895282](https://github.com/rion-tw/rion-studio-source/actions/runs/34286895282)
+was dispatched once for this exact source at `2026-09-08T22:38:09.507Z`, after
+checking that no existing run used it. Scope is `all`: the changed published
+macOS fixture needs the previously failing native package stage, and complete
+JS must cover the corrected runner assertion and retain Job-stage diagnostics.
+This is not a rerun of an unchanged historical source. Current job handles:
+shared checks 102264458635; macOS/Windows native 102264594395/102264594440;
+macOS/Windows package 102264458817/102264458843. Renderer build is already
+SUCCESS; the remaining jobs are running, not PASS. No publication was dispatched.
+
 Program commits:
 
 - `dc1432e181e51fed5dc1e3c66c6eadda20ce835c`: consume the pinned published

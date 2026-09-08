@@ -33,6 +33,20 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Native-harness correction 737d5a1f2a2ebc8cf7f7896c24a39faa3336514e is pending
+CI 34214207165, dispatched once at 10:12:30Z. Local native tests reproduce
+PowerShell stdin continuing after throw and reporting success (two red cases),
+and the stale Windows Dashboard selector dereferencing .Count on no result
+(four red cases, PropertyNotFoundStrict). A single script block preserves
+original exception terminality; a shared exact-PID Home-button selector uses
+explicit collection counts and retains uniqueness requirements. Final adjacent
+validation passes 75/2 existing platform skips, hygiene/typecheck/lint pass.
+These are harness corrections, not product runtime changes or full-profile
+acceptance. Diagnostic-source CI 34212812982 continues separately; no source
+or result is relabeled and no macOS run is repeated.
+Both local production builds and production E2E isolation also pass at exact
+737d5a1f, with only ledger edits present during the later checks.
+
 CI 34209380675 is terminal FAIL at exact
 0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8. Native Rust 1673/4 ignored,
 native integration 16, Windows full JS 3852/48 platform skips, shared JS

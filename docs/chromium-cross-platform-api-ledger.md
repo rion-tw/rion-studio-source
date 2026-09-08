@@ -49,7 +49,7 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | CI 34209380675 at 0c070d91 passes Rust 1673/4 ignored, native integration 16, Windows JS 3852/48 platform skips, shared JS 3888/16 platform skips and both shell builds/isolation. Local 0c070d91 production builds/isolation pass. Diagnostic-only 5cbcecfb is in CI 34212812982. App runtime remains 3eff9b28. Local runtime verifier 0xC0000005 and historical Macro/state-worker timeouts remain unresolved; subsequent PASS is not a root-cause fix. Updater 256 rounds unchanged. |
+| 1. Native/shared/build | CI 34209380675 at 0c070d91 passes Rust 1673/4 ignored, native integration 16, Windows JS 3852/48 platform skips, shared JS 3888/16 platform skips and both shell builds/isolation. Local 5cbcecfb production builds/isolation pass. Diagnostic 5cbcecfb is in CI 34212812982; native-harness correction 737d5a1f is in CI 34214207165. App runtime remains 3eff9b28. Local runtime verifier 0xC0000005 and historical Macro/state-worker timeouts remain unresolved; subsequent PASS is not a root-cause fix. Updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
 | 3. Full profiles | New 0c070d91 Chromium FAILS at shell-smoke after two PASS: native shortcut helper reaches its unchanged 30-second deadline without stage output; 59 phases remain unexecuted. All completed normal stages and the failed stage flush/exit. Exact 0c070d91 stable full passes 31+3 expected force/40 journeys/all 34 phases. Prior complete 07950a33 Chromium 58+4/54 is historical, not latest-source PASS; 57b5daf0's separate ERR_NO_BUFFER_SPACE is unresolved and not reached in this new run. Local c17f9763 remains workstation evidence; current UAC and single-display constraints remain. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
@@ -59,6 +59,34 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- Native-harness correction 737d5a1f2a2ebc8cf7f7896c24a39faa3336514e addresses
+  two locally reproduced defects while 5cbcecfb's diagnostic run continues.
+  PowerShell -Command - previously evaluated statements separately: a throw
+  followed by Write-Output executed the later statement and resolved success.
+  Two native regression cases fail before the change (one successful multiline
+  payload case passes). The complete trusted script now executes in one script
+  block, so the original exception stops subsequent native actions and finally
+  still executes. Payloads remain separate environment JSON; deadlines and
+  native inserted-count assertions do not change.
+  The Windows packaged launcher/quit selector also queried obsolete Dashboard
+  text. Current AppSidebar renders a Home button and the page has a same-name
+  heading. The empty old query's direct .Count access reproducibly throws
+  PropertyNotFoundStrict. Four native PowerShell selector cases fail before
+  correction; the shared selector now queries Home buttons on the exact PID
+  and explicitly counts a collection. No matching control, duplicate controls,
+  multiple windows, same-name headings and other process identities remain
+  distinguishable; launch/quit still require exactly one candidate.
+  Final adjacent suite passes 75/2 existing platform skips in nine files;
+  hygiene/typecheck/lint pass (23 existing warnings). The seven added cases
+  execute real Windows PowerShell; selector tests fixture only UIA enumeration,
+  not product input acceptance. This is lower-layer-covered harness work.
+  CI 34214207165 was dispatched once at 10:12:30Z for this exact correction;
+  CI 34212812982 remains responsible for the earlier diagnostic source. Neither
+  a focused PASS nor the source-local reproduction closes the full native UI
+  gate or retroactively attributes the unavailable 0c070d91 black-box error.
+  Local production Tauri/Electron builds and production E2E isolation pass at
+  exact 737d5a1f; later checks have only ledger edits dirty. App runtime remains
+  3eff9b28 and native validation totals are never copied from the Mac.
 - CI 34209380675 is terminal FAIL at source/workflow head
   0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8. Native job 102006693751 passes
   Rust 1673/4 ignored, native integration 16/8 files and Windows full JS

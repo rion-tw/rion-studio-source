@@ -49,9 +49,9 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | Latest local a12e932c full JS FAILS: 3858 PASS/21 FAIL/48 skips (11 EPERM, ten original 10000ms timeouts); adjacent 42 PASS, hygiene/typecheck/lint/Tauri build PASS. Diagnostic three-file run has 69 PASS/one EPERM and does not reproduce the ten timeouts. CI 34236090355 is pending for exact a12e932c. Prior complete Windows JS PASS remains 68a0e92c: 3873/48 skips, Rust 1673/4 ignored and native 16. App runtime remains 3eff9b28; updater 256 rounds unchanged. |
+| 1. Native/shared/build | CI 34236090355 at exact a12e932c passes Rust 1673/4 ignored, native integration 16, complete Windows JS 3879/48 platform skips and Tauri build; shared JS passes 3903/28 skips. Local full JS remains FAIL: 3858 PASS/21 FAIL/48 skips (11 EPERM, ten original 10000ms timeouts); adjacent 42 PASS, hygiene/typecheck/lint/both builds/isolation PASS. Diagnostic three-file run has 69 PASS/one EPERM and does not reproduce the ten timeouts. App runtime remains 3eff9b28; updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | CI 34229084549 at exact 67822229 passes stable 31+3 expected force/40 journeys/all 34 phases and Chromium 58+4/54/all 62 phases, all normal Chromium flush/exit verified. Local d1e539 (built code 737d5a1f) passes complete stable 31+3/40; local 1ae51c6e (built code 3c08e479) passes complete Chromium 58+4/54. Earlier native shortcut/buffer failures remain unexplained; later PASS is not a repair. |
+| 3. Full profiles | CI 34236090355 at exact a12e932c passes stable 31+3 expected force/40 journeys/all 34 phases and Chromium 58+4/54/all 62 phases, all normal Chromium flush/exit verified. Local d1e539 (built code 737d5a1f) passes complete stable 31+3/40; local 1ae51c6e (built code 3c08e479) passes complete Chromium 58+4/54. Earlier native shortcut/buffer failures remain unexplained; later PASS is not a repair. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. Best-effort simulation/native-event coverage is owner-directed; the local 12-file display/power/session-end/quit suite passes 78 tests at d1e539 (code 737d5a1f). No physical second display, actual OS sleep or actual OS sign-out evidence; no manual hardware/OS operation is required. |
 | 6. Install/update | Latest 67822229 NSIS PASS, updater journal ACK timeout FAIL, black-box skipped. Prior 68a0e92c Electron 8.4.0→8.5.0 fixture updater PASS precedes an exact UIA SetFocus black-box failure. Foreground correction 67822229 passes native tests; new relaunch diagnosis a12e932c is in CI 34236090355. No Tauri source transaction or production-key cutover is inferred. |
@@ -83,7 +83,26 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   Logs/results are retained under windows-takeover-4e5ec764 with the
   updater-relaunch-observation-* prefix. Windows-only CI 34236090355 was
   dispatched once at 14:05:59.142Z for exact a12e932c (including test-only
-  719101d7); it is pending, not a retry of the previous source.
+  719101d7); it is not a retry of the previous source. Shared job 102094060180
+  passes 3903 tests/28 platform skips (483 passing/eight skipped files), with
+  source hygiene covering 2592 tracked files. Stable full job 102094059809
+  passes: clean report 2026-09-08T14-07-21-502Z-win32, 14:07:21.605–14:23:24.845Z,
+  31 normal/three expected force, all 34 ordered phases and 40 journeys,
+  all phase exit codes zero. Artifact 10060671237 SHA-256 is
+  2dfb50d4b8f23e065b1843382136590e3547dc2d56e880e5767e5a718ff5c4d4.
+  Chromium full also passes: report 2026-09-08T14-07-22-082Z-win32,
+  14:07:22.552–14:26:03.015Z, 58 normal/four expected force, all 62 ordered
+  phases and 54 journeys, all normal final flush/process exit and phase exit
+  checks pass. Worktree dirty records the existing CI fixture preparation;
+  source commit is exact a12e932c. Artifact 10060782088 SHA-256 is
+  771792654c5128f4dab47a63845c34b37dae9b3d5f6c1ab15fb728eb23a6821f.
+  Windows native job 102094320429 also passes: Rust 1673 PASS/four ignored,
+  native integration 16/eight files, complete Windows JS 3879 PASS/48 platform
+  skips (481 passing/ten skipped files), and Tauri build. Rust finishes
+  14:23:54.529Z, integration 14:28:16.080Z, full JS 14:31:38.537Z and build
+  14:33:50.751Z. The safe receipt is ci-updater-relaunch-native-receipt.json.
+  This native CI evidence does not erase the local full-suite failures or
+  retroactively identify the historical timeout causes. Package remains pending.
 - CI 34229084549 at exact 6782222976223e1483d3678784e4aa1abcc43390
   passes both full profiles and shared JS 3898/28 platform skips. Stable report
   2026-09-08T12-59-48-928Z-win32 (clean) runs 12:59:49.315–13:14:25.897Z,

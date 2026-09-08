@@ -45,6 +45,19 @@ Windows-only CI 34236090355. No product runtime or production gate changed.
 One diagnostic run of the three failing files has 69 PASS/one symlink EPERM,
 with none of the ten timeouts reproduced; this does not replace full JS FAIL.
 Both shell builds and production E2E isolation pass at exact a12e932c.
+CI 34236090355 shared job 102094060180 passes 3903 tests/28 platform skips;
+Stable full job 102094059809 passes 31 normal/three expected force, all 34
+ordered phases and 40 journeys, all phase exits zero; clean report
+2026-09-08T14-07-21-502Z-win32, artifact 10060671237 SHA-256
+2dfb50d4b8f23e065b1843382136590e3547dc2d56e880e5767e5a718ff5c4d4.
+Chromium full passes 58 normal/four expected force, all 62 ordered phases and
+54 journeys, every normal final flush/process exit and all phase exits verified;
+report 2026-09-08T14-07-22-082Z-win32 (CI fixture preparation dirty), artifact
+10060782088 SHA-256 771792654c5128f4dab47a63845c34b37dae9b3d5f6c1ab15fb728eb23a6821f.
+Windows native job 102094320429 passes Rust 1673/four ignored, native integration
+16, complete Windows JS 3879/48 platform skips and Tauri build. The local full
+JS failures remain separately recorded; their causes are not inferred from
+this CI PASS. Package/updater/black-box remain pending.
 
 CI 34229084549 at exact 6782222976223e1483d3678784e4aa1abcc43390 passes
 shared JS 3898/28 platform skips and both complete Windows profiles (stable

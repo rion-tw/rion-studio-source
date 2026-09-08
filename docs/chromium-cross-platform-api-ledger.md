@@ -52,6 +52,38 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- Current native-control-drain candidate is
+  3eff9b2865f90b85908b1c71f605d64805051ddd. Local x64 Windows
+  `pnpm run lint:rust` PASS (06:03:47–06:04:05 UTC) and complete
+  `pnpm run test:rust` PASS, 1673/4 ignored (06:05:35–06:08:33 UTC).
+  The latter receipt lists only two documentation edits; executable source is
+  unchanged. The updater's 256 concurrent rounds remain intact. This later PASS
+  does not establish a fix for the historical original two-second Macro timeout.
+  At documentation-only head f85b689e47f50e91acbe596547a16c4891e8ae4e,
+  sequential `pnpm run build` and `pnpm run build:electron` PASS, followed by
+  `pnpm run check:desktop-e2e-isolation` PASS. Actual x64 addon SHA-256 is
+  68e96299d9810f601800c257b1b2c025942ce924c27698b32dbf9e645c032c84;
+  direct Node loading confirms NativeAppCore and no four retired child-HWND
+  exports. Receipts use the native-control-drain-* prefix in the takeover root.
+- The new local `pnpm run verify:electron-runtime` attempt FAILS with exit
+  3221225477 (0xC0000005), empty stderr and no returned contract payload.
+  No matching Application error record or crash dump was found. The original
+  failure is retained in native-control-drain-runtime-verify.result.json/log.
+  One instrumented diagnostic reaches js-entry, electron-import, app-ready and
+  addon-loaded and reads Electron 43.6.0, Chromium 150.0.7871.250, Node 24.20.0,
+  Node-API 10 and Core 0.1.0 before exiting 0. The separate Electron-as-Node
+  diagnostic also exits 0. These are diagnosis, not a corrected full verifier
+  PASS. runtime-crash-diagnostic.json retains raw stage output, isolated data
+  directory and exact executable SHA-256
+  9e1b3c401c1a1988942d5684fede8040d089b0c496ab86b899415ba9bfa0e49c.
+  The remaining UAC prompt is still PID 648/HWND 12648580; its presence is not
+  proof that it caused this crash. No repeat-until-green run is used.
+- CI 34193287664 was dispatched once for exact source
+  3eff9b2865f90b85908b1c71f605d64805051ddd, workflow head
+  f85b689e47f50e91acbe596547a16c4891e8ae4e. Shared job 101955578092
+  completes with 3876 PASS/10 platform skips. Windows native 101955717971,
+  stable full 101955578152 and Chromium/package 101955578004 are still running
+  at this checkpoint; no complete-profile or installer verdict is inferred.
 - CI 34190968118 checks out c153c0c737fde081d6b5050e4bfe8d1fa6a507c5
   (workflow-definition head 8bd62ff679690f59ea187807f68974646a4c9e1f) and is
   terminal FAIL overall. Windows native job 101948908937 passes Rust 1673/4

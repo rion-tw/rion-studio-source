@@ -33,6 +33,19 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Current candidate 3eff9b2865f90b85908b1c71f605d64805051ddd passes local Windows
+x64 Rust lint and the full native suite: 1673 PASS/4 ignored, with the updater's
+256 concurrent rounds unchanged. Documentation-only head
+f85b689e47f50e91acbe596547a16c4891e8ae4e passes both production builds and E2E
+isolation. The new local runtime verifier fails with 0xC0000005. A separate
+instrumented diagnostic reaches app-ready, loads the unchanged x64 addon and
+reads the expected runtime versions, but does not establish the crash cause or
+repair the failed verifier. Exact hashes and raw diagnostic receipts are in the
+API ledger. Local trusted UI remains obstructed by UAC PID 648/HWND 12648580.
+CI 34193287664 tests exact 3eff9b28 source once; shared JS completes with
+3876 PASS/10 platform skips, while Windows native/full profiles/package remain
+in progress at this checkpoint. No previous full PASS is relabeled as this source.
+
 Newest completed Windows CI 34190968118 tests exact source
 c153c0c737fde081d6b5050e4bfe8d1fa6a507c5 (workflow head
 8bd62ff679690f59ea187807f68974646a4c9e1f). Windows Rust 1673 PASS/4 ignored,
@@ -58,8 +71,9 @@ bootstrap ordering regression fails before wiring and passes after; six explicit
 darwin/win32 tests cover delayed terminality, failures and reentrant closure.
 Focused suite 52 PASS; hygiene, lint and corrected ES2022 typecheck PASS. The
 Windows WORKSPACE-WEB-ONLY-024 journey retains its final visible close beside
-teardown and the complete-profile normal-exit requirement. New-source full
-native/build/profile validation is pending; macOS native acceptance of new
+teardown and the complete-profile normal-exit requirement. New-source local
+native/build checks pass as above; complete profiles and runtime verification
+remain open. macOS native acceptance of new
 runtime changes is not inferred from prior CI and is not rerun in this takeover.
 
 The c153c0c7 NSIS attempt still fails exact total 4/expected 3. The new snapshot
@@ -68,14 +82,14 @@ is not retroactively fixed. Observed processes are pwsh 8660/6684, conhost 476,
 installer 10036. No valid installed proof exists; updater and packaged black-box
 remain skipped. Production-key transactions and hardware gates remain open.
 
-Latest terminal CI: 34187765250 at
+Earlier terminal CI: 34187765250 at
 caea487d93c0b6200b181c866b1a6a46ef994e8e FAILS overall. Windows Rust passes
 1673/4 ignored and native integration 16. Complete Windows JS is 3819 PASS /
 2 FAIL / 48 skips; shared JS is 3861/2/10. Both failures are the stale adjacent
 navigation mock. Stable full fails an obsolete .app-page handle. E2E-only
 129702a33e37ce8b1d80ff31e0e32b3ce72125c5 fixes current-page queries and the
 mock, retaining negative assertions and the original 10 s deadline; 18 focused
-tests PASS, full revalidation pending. Chromium full at caea487d is 58 PASS +
+tests PASS; c153c0c7 full revalidation above subsequently passes. Chromium full at caea487d is 58 PASS +
 4 expected force / 54 journey PASS, all 58 normal flush/process exits/exit 0
 (report 2026-09-08T04-41-10-400Z-win32, artifact 10041391334).
 
@@ -91,7 +105,7 @@ skips, typecheck/hygiene/lint PASS; omission reason lower-layer-covered. Failed
 hidden/detached console-launch experiments were withdrawn and preserved in the
 ignored takeover artifacts. No process-count, exit or cleanup gate is relaxed.
 
-Production restoration now passes: clean Tauri build at
+Previous production restoration passed: clean Tauri build at
 2ee06d88c1007fa0fb1335dba2ec67bbc7125bc4; Electron build, isolation and runtime
 checks at 129702a33e37ce8b1d80ff31e0e32b3ce72125c5. Actual addon inventory again
 contains no retired child-HWND exports. App runtime remains d4993ed8cf890e6c5468447aceca3acd6c373099,

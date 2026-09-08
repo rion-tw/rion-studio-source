@@ -78,6 +78,7 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).toContain("revealRoleThroughVisibleUi");
     expect(spec).toContain("button[aria-label='Open']");
     expect(spec).toContain("chromium-tabs-topology-observations.json");
+    expect(spec).toContain("chromium-tabs-pre-relaunch-topology.json");
     expect(spec).toContain('stage: "detached-with-successor"');
     expect(spec).toContain('stage: "windows-geometry"');
     const tabGeometry = await source("e2e/desktop/support/macos-native-tab-geometry.ts");

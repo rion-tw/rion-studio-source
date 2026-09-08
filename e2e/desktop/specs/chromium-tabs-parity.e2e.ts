@@ -533,6 +533,7 @@ async function revealRoleThroughVisibleUi(role: Role, tabId: string): Promise<vo
 }
 
 async function recordTopology(input: Readonly<{
+  preRelaunchDiagnostic?: boolean;
   geometry?: unknown;
   platform: Platform;
   roles: readonly Role[];
@@ -579,7 +580,7 @@ async function recordTopology(input: Readonly<{
       }))
     };
   }));
-  topologyObservations.push({
+  const observation = {
     ...(input.geometry === undefined ? {} : { geometry: input.geometry }),
     platform: input.platform,
     roleTabIds: Object.fromEntries(input.roles.map((role) => [
@@ -590,7 +591,17 @@ async function recordTopology(input: Readonly<{
     shellErrors,
     stage: input.stage,
     windows
-  });
+  };
+  if (input.preRelaunchDiagnostic) {
+    // A closed tab remains persisted but has no live owner. Keep this receipt
+    // separate from the exact stages requiring all persisted tabs to be live.
+    await writeFile(
+      resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"), "chromium-tabs-pre-relaunch-topology.json"),
+      `${JSON.stringify(observation, null, 2)}\n`
+    );
+    return;
+  }
+  topologyObservations.push(observation);
   await writeFile(
     resolve(
       required("RION_STUDIO_E2E_ARTIFACT_DIR"),
@@ -909,7 +920,8 @@ async function seedPhase(input: Readonly<{
   await recordTopology({
     platform: input.platform,
     roles,
-    stage: "latest-admission-tab-closed-before-relaunch"
+    stage: "latest-admission-tab-closed-before-relaunch",
+    preRelaunchDiagnostic: true
   });
   tabIds[2] = await launchRoleIntoWindow(roles[2]!, gameWindow);
   expect(tabIds[2]).toBe(dormantTabId);

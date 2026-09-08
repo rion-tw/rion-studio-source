@@ -443,7 +443,7 @@ jobs:
           } | ForEach-Object {
             Remove-Item -LiteralPath "Env:$($_.Name)"
           }
-          pnpm run verify:windows-nsis-process-gate
+          pnpm run verify:electron:windows-nsis-process-gate
           if ($LASTEXITCODE -ne 0) {
             throw "The native NSIS runtime-presence gate did not verify."
           }

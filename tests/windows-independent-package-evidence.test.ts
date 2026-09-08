@@ -12,7 +12,7 @@ it("retains Windows E2E failure after collecting independent package evidence", 
   );
   expect(electronChecks!.indexOf("Require complete Windows Chromium E2E after independent package evidence"))
     .toBeGreaterThan(electronChecks!.indexOf("Upload packaged Chromium Role black-box E2E diagnostics"));
-  expect(electronChecks).toContain("pnpm run verify:windows-nsis-process-gate");
-  expect(electronChecks!.indexOf("pnpm run verify:windows-nsis-process-gate"))
+  expect(electronChecks).toContain("pnpm run verify:electron:windows-nsis-process-gate");
+  expect(electronChecks!.indexOf("pnpm run verify:electron:windows-nsis-process-gate"))
     .toBeGreaterThan(electronChecks!.indexOf('Remove-Item -LiteralPath "Env:$($_.Name)"'));
 });

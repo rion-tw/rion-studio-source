@@ -491,6 +491,8 @@ jobs:
           RION_WINDOWS_PROFILE_ISOLATION_ALLOWED: ${{ runner.environment == 'github-hosted' }}
         run: |
           $pnpm = (Get-Command pnpm.exe -ErrorAction Stop).Source
+          $sourceSha = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "Failed to resolve the updater probe source SHA." }
           ./scripts/runWindowsIsolatedProfile.ps1 `
             -RepositoryRoot "$env:GITHUB_WORKSPACE" `
             -CommandPath $pnpm `
@@ -498,7 +500,9 @@ jobs:
             -AllowEphemeralUpdaterSigningEnvironment `
             -CommandArguments @(
               "run", "test:electron-updater:packaged", "--",
-              "--artifact", "$env:GITHUB_WORKSPACE\release\electron\Rion.Studio-win.exe"
+              "--artifact", "$env:GITHUB_WORKSPACE\release\electron\Rion.Studio-win.exe",
+              "--diagnostics-output", "$env:GITHUB_WORKSPACE\.desktop-e2e-artifacts\packaged-updater-probe-observations.json",
+              "--diagnostics-source-sha", $sourceSha
             )
 
       - name: Run packaged macOS AppKit Chromium Role black-box E2E

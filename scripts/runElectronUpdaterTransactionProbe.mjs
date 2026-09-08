@@ -45,6 +45,7 @@ import { readElectronUpdaterPreparedProbeInput } from
 import { createUpdaterProbeRuntimeEnvironment } from
   "./runtimeEnvironmentPolicy.mjs";
 import { signUpdaterArtifact } from "./updaterSignerEnvironment.mjs";
+import { runUpdaterProbeWithDiagnostics } from "./electronUpdaterProbeDiagnostics.mjs";
 import { resolveVerifiedWindowsProfileIsolation } from
   "./windowsIsolatedProfile.mjs";
 
@@ -935,22 +936,36 @@ function requiredHttpsManifestEndpoint(value, name) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const argumentsList = process.argv.slice(2);
   if (argumentsList[0] === "--") argumentsList.shift();
-  const result = await runElectronUpdaterTransactionProbe(argumentsList);
+  const diagnosticOptions = parseArguments(argumentsList);
+  const observations = await runUpdaterProbeWithDiagnostics({
+    outputPath: diagnosticOptions.get("diagnostics-output"),
+    sourceSha: diagnosticOptions.get("diagnostics-source-sha"),
+    platform: process.platform,
+    privateValues: [
+      process.env.TAURI_SIGNING_PRIVATE_KEY,
+      process.env.TAURI_SIGNING_PRIVATE_KEY_PATH,
+      process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    ],
+    run: async () => {
+      const result = await runElectronUpdaterTransactionProbe(argumentsList);
+      return {
+        kind: "packaged-updater-probe-observations",
+        platform: result.platform,
+        version: result.version,
+        previousVersions: {
+          tauriV22: process.env.RION_UPDATER_PREVIOUS_TAURI_V22_VERSION,
+          electronV23: process.env.RION_UPDATER_PREVIOUS_V23_VERSION
+        },
+        artifactSha256: await hashFile(result.artifact),
+        manifestSha256: await hashFile(result.manifest),
+        cases: result.cases
+      };
+    }
+  });
   console.log(
-    `Verified ${result.platform} packaged updater transaction for ${result.version}.`
+    `Verified ${observations.platform} packaged updater transaction for ${observations.version}.`
   );
   // These observations survive temporary-profile cleanup. Production terminal
   // evidence still requires the independent parent-isolation finalizer.
-  console.log(`RION_UPDATER_PROBE_OBSERVATIONS=${JSON.stringify({
-    kind: "packaged-updater-probe-observations",
-    platform: result.platform,
-    version: result.version,
-    previousVersions: {
-      tauriV22: process.env.RION_UPDATER_PREVIOUS_TAURI_V22_VERSION,
-      electronV23: process.env.RION_UPDATER_PREVIOUS_V23_VERSION
-    },
-    artifactSha256: await hashFile(result.artifact),
-    manifestSha256: await hashFile(result.manifest),
-    cases: result.cases
-  })}`);
+  console.log(`RION_UPDATER_PROBE_OBSERVATIONS=${JSON.stringify(observations)}`);
 }

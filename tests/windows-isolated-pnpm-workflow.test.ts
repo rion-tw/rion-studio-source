@@ -25,5 +25,10 @@ it("keeps isolated CI commands on the native pnpm entrypoint verified during set
     expect(start).toBeGreaterThan(nativeSetup);
     expect(step).toContain("Get-Command pnpm.exe -ErrorAction Stop");
     expect(step).toContain("-CommandPath $pnpm");
+    if (stepName.includes("updater")) {
+      expect(step).toContain("$sourceSha = (& git rev-parse HEAD).Trim()");
+      expect(step).toContain('"--diagnostics-source-sha", $sourceSha');
+      expect(step).toContain('"--diagnostics-output", "$env:GITHUB_WORKSPACE\\.desktop-e2e-artifacts\\packaged-updater-probe-observations.json"');
+    }
   }
 });

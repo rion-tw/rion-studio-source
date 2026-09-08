@@ -108,6 +108,25 @@ bb9c29d4a971714f31b9bd1b14eb6b1ff6dde637 collects independent Windows package
 evidence, then still fails the job unless the original complete Chromium E2E
 outcome is success. Focused/native compile/typecheck/lint/hygiene pass; exact
 new-source full JS and CI remain pending. No production acceptance is inferred.
+The f7e3ef95 Windows native job subsequently passes Rust 1673/4 ignored, native
+integration 16 and full JS 3815/48 skips. Run 34187072547 at
+8ed20726b69ae853fb6258f3efebe0096d89a1e0 fails the new probe's explicit
+Electron transition naming boundary; its independent stable full passes
+31+3/40 (artifact 10041217543). caea487d93c0b6200b181c866b1a6a46ef994e8e
+corrects the path/command within existing rules and passes the same local gate,
+hygiene/lint/typecheck; exact-source CI 34187765250 is pending.
+The stale primary-heading fix is E2E-only 27f8ee06c07c27c1349e05cbc9eb6cdd8f7f17f4,
+with node-project include 6a6c235cb1daeb19e9fd3114a66bff5022b306e7. Replacement
+fixtures fail before/pass after on explicit darwin/win32; the 10 s boundary and
+wrong-text failure remain. Local caea487d full passes that point but fails after
+five phases because the earlier unanswered test UAC prompt occludes native
+mind-map hover. One cd4232ec3d859f6e41f82f8cf42717d8df8efefb diagnostic replay
+identifies hit/root HWND 12648580, PID 648, Credential Dialog Xaml Host versus
+Rion PID 19980/foreground HWND 11339334. Standard cancellation is denied by
+Windows (error 5); local trusted UI waits for dismissal. The elevated JS launch
+was cancelled before tests started. Neither this focused diagnostic nor a
+Default-desktop probe substitutes for a complete local profile. Final production
+restoration is required after the later Tauri E2E build.
 Both production shell builds, production E2E isolation and actual x64 runtime
 verification subsequently pass at ca4375cf (Electron 43.6.0/Chromium
 150.0.7871.250/Node 24.20.0/Core 0.1.0). Final addon inventory has no retired

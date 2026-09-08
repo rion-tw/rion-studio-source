@@ -42,12 +42,12 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | Complete local JS 3814 PASS/48 skips at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e. CI 34182057095 at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e: Windows Rust 1673 PASS/4 ignored, native integration 16 PASS, complete Windows JS 3814 PASS/48 skips. Local x64 Rust's separate 2 s Macro event failure remains 1672 PASS/1 FAIL/4 ignored across the original and remaining-crate commands. Updater 256 rounds unchanged. Final production builds for both shells, E2E isolation and actual runtime probe PASS at ca4375cf. Architecture-matched x64 addon verification passes. |
+| 1. Native/shared/build | Complete local JS 3814 PASS/48 skips at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e. CI 34185634130 at f7e3ef9508b9a5ef344055aafbca7d99d360182c: Windows Rust 1673 PASS/4 ignored, native integration 16 PASS, complete Windows JS 3815 PASS/48 skips. Local x64 Rust's separate 2 s Macro event failure remains 1672 PASS/1 FAIL/4 ignored across the original and remaining-crate commands. Updater 256 rounds unchanged. Later local full JS was cancelled before start at unanswered UAC. Production builds/isolation/runtime probe pass at ca4375cf; subsequent Tauri E2E rebuild means final production restoration is required. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | Local clean-start c17f9763f28409c0582a8a7730809017b004ac63: stable 31 PASS + 3 expected force/40 journey PASS; Chromium 58 PASS + 4 expected force/54 journey PASS, all 62 required phases. CI d67d8759 has the same complete counts; newest ca4375cf Chromium is again 58+4/54, while newest stable fails the original native tab-chrome bootstrap deadline. Earlier OS 5 and ReplaceFileW failures remain recorded and not precisely reproduced. Hardware supersets require the missing second display. |
+| 3. Full profiles | Local clean-start c17f9763f28409c0582a8a7730809017b004ac63: stable 31 PASS + 3 expected force/40 journey PASS; Chromium 58 PASS + 4 expected force/54 journey PASS, all 62 required phases. CI ca4375cf Chromium is again 58+4/54; CI 8ed20726 stable is 31+3/40. Later caea487d local stable full passes heading navigation, then fails native hover because the cancelled test's UAC prompt occludes its exact pointer. Latest CI 34187765250 is pending. Historical bootstrap, chooser, OS 5 and ReplaceFileW failures remain recorded. Hardware supersets require the missing second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI 34182057095 at ca4375cfa86a17c62cdb6140d28ba56ac2aa872e passes target/previous fixture builds and complete package/AuthentiCode/distribution checks, then NSIS isolation fails its unchanged exact process count: 12 observed, 3 required. Updater/packaged black-box are skipped. Bounded Job process diagnostics at f7e3ef9508b9a5ef344055aafbca7d99d360182c retain the original gate. Fixture trust never becomes production-key evidence. |
+| 6. Install/update | CI ca4375cf package/AuthentiCode checks pass, then NSIS exact Job count fails (12/3), blocking updater/black-box. Native process-gate fix 9e56d430 passes local running/absent fixtures, full NSIS compilation and complete package verifier. Its explicit Electron transition scope is corrected at caea487d; installed payload/updater/black-box remain pending CI 34187765250. Expected count 3 and all production-key gates remain unchanged. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
@@ -215,6 +215,45 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   unless that original complete E2E outcome was success. Source tests preserve
   this final failure gate. Native C# compilation, focused checks, typecheck,
   lint and hygiene/coverage pass; new-source full JS/CI remain pending.
+- CI 34185634130 native job 101933441934 completes SUCCESS at f7e3ef95:
+  Rust 1673 PASS/4 ignored, native integration 16 PASS and full JS 3815 PASS/
+  48 skips. CI 34187072547 at 8ed20726b69ae853fb6258f3efebe0096d89a1e0
+  fails its migration boundary because the new probe's path/name lacks the
+  existing explicit Electron transition classification. Its independent stable
+  job 101937456724 nevertheless completes full 31 PASS + 3 expected force/
+  40 journey PASS, clean report 2026-09-08T04-29-04-076Z-win32, artifact
+  10041217543 (SHA-256
+  6b726233d4648eea6084871788f29a5a85f60c742a2f9f2f04b69452093670c0).
+  This does not repair the earlier stale heading or bootstrap failures.
+- E2E-only 27f8ee06c07c27c1349e05cbc9eb6cdd8f7f17f4 re-queries the heading
+  for every observation within the original configured 10 s boundary. The
+  f7e3ef95 native trace repeatedly reads obsolete element
+  74bb7935-74ef-4a06-8cfc-934a36dd478a and gets null while the screenshot shows
+  "No roles yet" and SQLite has no Roles. Two explicit darwin/win32 replacement
+  fixtures fail before and pass after; both wrong-heading fixtures still fail
+  as intended (four tests PASS). TS6307 is retained, then corrected by the exact
+  node-project include at 6a6c235cb1daeb19e9fd3114a66bff5022b306e7.
+- caea487d93c0b6200b181c866b1a6a46ef994e8e puts the probe and pnpm command
+  under the existing Electron transition naming rules; no boundary allowlist
+  or assertion is relaxed. Local verify:system-only, hygiene, lint and typecheck
+  pass. Windows-only CI 34187765250 checks out this exact source and is pending.
+  Complete local package verification at 8ed20726 also passes without launching
+  or installing the application (native-installer-package-verify.result.json).
+- Local caea487d stable full report 2026-09-08T04-39-15-781Z-win32 starts clean,
+  passes five phases and heading navigation, then fails smoke-seed's native
+  mind-map hover (2 journey PASS/11 FAIL/27 NOT_RUN). Diagnostic-only
+  cd4232ec3d859f6e41f82f8cf42717d8df8efefb adds exact hit identity, preserving
+  the pointer guard. One focused diagnostic replay reproduces the obstruction:
+  Rion PID 19980/foreground HWND 11339334, point (2853,1469), client
+  (1120,521,2880,1800); hit/root HWND 12648580 belongs to PID 648, class
+  Credential Dialog Xaml Host. This is the unanswered UAC prompt from the
+  attempted elevated full-JS launch, not a product-window topology mismatch.
+  The exact requesting PowerShell was cancelled before tests started, but the
+  prompt remains. Windows rejects standard WM_CLOSE with Access Denied (5).
+  No elevation setting or pointer assertion is changed; local trusted UI work
+  waits for the prompt to be dismissed. The earlier read-only Default input
+  desktop probe did not prove absence of this occluding prompt. Focused evidence
+  is not counted as a complete stable PASS.
 - Final production restoration at ca4375cf passes pnpm run build (clean start),
   pnpm run build:electron (only these two ledger edits pending),
   check:desktop-e2e-isolation and verify:electron-runtime. Actual x64 runtime is

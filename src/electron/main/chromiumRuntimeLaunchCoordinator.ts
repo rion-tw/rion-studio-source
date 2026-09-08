@@ -19,6 +19,12 @@ import type {
 } from "../../shared/types";
 import { RionBridgeError } from "../ipc/errors";
 import type { ChromiumRuntimeExecutorSnapshot } from "./chromiumRuntimeSnapshot";
+import {
+  cloneTarget,
+  sameBounds,
+  sameNormalBounds,
+  validBounds
+} from "./chromiumRuntimeLaunchGeometry";
 
 type MaybePromise<Value> = Value | Promise<Value>;
 type LaunchSourceType = "role" | "workspace";
@@ -278,24 +284,6 @@ function reconcileNativeWebSurfaces(
   return missing ? "pending" : "ready";
 }
 
-function sameBounds(
-  left: EmbeddedLaunchTargetRecord["bounds"],
-  right: EmbeddedLaunchTargetRecord["bounds"]
-): boolean {
-  return left.x === right.x && left.y === right.y &&
-    left.width === right.width && left.height === right.height;
-}
-
-function sameNormalBounds(
-  left: EmbeddedLaunchTargetRecord["bounds"],
-  right: EmbeddedLaunchTargetRecord["bounds"]
-): boolean {
-  return Math.abs(left.x - right.x) <= 1 &&
-    Math.abs(left.y - right.y) <= 1 &&
-    Math.abs(left.width - right.width) <= 1 &&
-    Math.abs(left.height - right.height) <= 1;
-}
-
 function safePositiveInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
 }
@@ -365,25 +353,6 @@ function runtimeWindowAbsent(
     !native.tabs.some((tab) => tab.windowId === windowId) &&
     !native.roles.some((role) => role.windowId === windowId) &&
     !native.webSurfaces.some((surface) => surface.windowId === windowId);
-}
-
-function validBounds(
-  bounds: EmbeddedLaunchTargetRecord["bounds"],
-  minimumWidth = 1,
-  minimumHeight = 1
-): boolean {
-  return [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isSafeInteger) &&
-    bounds.width >= minimumWidth && bounds.height >= minimumHeight &&
-    Number.isSafeInteger(bounds.x + bounds.width) &&
-    Number.isSafeInteger(bounds.y + bounds.height);
-}
-
-function cloneTarget(target: EmbeddedLaunchTargetRecord): EmbeddedLaunchTargetRecord {
-  return {
-    ...target,
-    bounds: { ...target.bounds },
-    workArea: { ...target.workArea }
-  };
 }
 
 function canonicalTopology(topology: DisplayTopologySnapshotRecord): string {
@@ -1643,10 +1612,14 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     webSurfaces: readonly LaunchWebSurfaceIdentity[]
   ): void {
     const prior = this.#targets.get(target.windowId);
+    // A new tab admission does not revoke an already reconciled host. Its
+    // optional immediate projection may still be pending, then the tab can be
+    // retired before another launch read. Preserve only the same generation
+    // with monotonic Core revision; every later reuse still reads an exact
+    // coherent Core/native projection before resolving this target.
     const remainsReconciled = prior?.state === "reconciled" &&
-      admission.completion === "completed" &&
       prior.windowGeneration === logicalWindow.windowGeneration &&
-      prior.topologyRevision === logicalWindow.revision;
+      prior.topologyRevision <= logicalWindow.revision;
     if (remainsReconciled) {
       this.#targets.set(target.windowId, {
         ...(target.persistedName === undefined

@@ -906,6 +906,11 @@ async function seedPhase(input: Readonly<{
   expect((await findWindow()).tabs.map((tab) => tab.id)).toEqual(tabIds);
 
   const dormantTabId = tabIds[2]!;
+  await recordTopology({
+    platform: input.platform,
+    roles,
+    stage: "latest-admission-tab-closed-before-relaunch"
+  });
   tabIds[2] = await launchRoleIntoWindow(roles[2]!, gameWindow);
   expect(tabIds[2]).toBe(dormantTabId);
   expect((await findWindow()).tabs.map((tab) => tab.id)).toEqual(tabIds);

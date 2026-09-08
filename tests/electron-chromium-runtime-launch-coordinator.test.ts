@@ -19,6 +19,7 @@ import type {
 import {
   ATTEMPT_ID,
   CAPTURED_AT,
+  closeRuntimeTab,
   configureWorkspaceWebLaunch,
   dualDisplayTopology,
   emptyCoreSnapshot,
@@ -470,44 +471,6 @@ function advanceWindowTopology(
       topologyRevision: logical.revision
     }))
   };
-}
-
-function closeRuntimeTab(state: LaunchHarness, tabId: string): void {
-  const runtimeTab = state.coreSnapshot.browserRuntime.tabs.find(
-    (tab) => tab.id === tabId
-  )!;
-  state.coreSnapshot.browserRuntime.tabs =
-    state.coreSnapshot.browserRuntime.tabs.filter((tab) => tab.id !== tabId);
-  state.coreSnapshot.browserRuntime.roles =
-    state.coreSnapshot.browserRuntime.roles.filter((role) => role.owner.tabId !== tabId);
-  state.coreSnapshot.browserRuntime.workspaces =
-    state.coreSnapshot.browserRuntime.workspaces.filter((item) => item.tabId !== tabId);
-  const runtimeWindow = state.coreSnapshot.browserRuntime.windows.find(
-    (window) => window.windowId === runtimeTab.windowId
-  )!;
-  runtimeWindow.tabIds = runtimeWindow.tabIds.filter((id) => id !== tabId);
-  runtimeWindow.activeTabId = runtimeWindow.tabIds.at(-1);
-  const logical = state.coreSnapshot.logicalWindows.find(
-    (window) => window.windowId === runtimeTab.windowId
-  )!;
-  logical.tabs = logical.tabs.filter((tab) => tab.id !== tabId);
-  logical.activeTabId = logical.tabs.at(-1)?.id;
-  logical.revision += 1;
-  state.nativeSnapshot = {
-    windows: state.nativeSnapshot.windows.map((window) => ({
-      ...window,
-      tabIds: window.tabIds.filter((id) => id !== tabId),
-      activeTabId: window.tabIds.filter((id) => id !== tabId).at(-1) ?? "",
-      topologyRevision: logical.revision
-    })),
-    tabs: state.nativeSnapshot.tabs.filter((tab) => tab.tabId !== tabId),
-    roles: state.nativeSnapshot.roles.filter((role) => role.tabId !== tabId),
-    webSurfaces: state.nativeSnapshot.webSurfaces.filter(
-      (surface) => surface.tabId !== tabId
-    )
-  };
-  state.coreSnapshot.revision += 1;
-  state.coreSnapshot.runtimeRevision += 1;
 }
 
 function removeRuntimeWindow(state: LaunchHarness): void {
@@ -1260,13 +1223,27 @@ describe("Electron Chromium runtime launch coordinator", () => {
     expect(launchCommands).toHaveLength(1);
   });
 
-  it("keeps a reconciled window launchable after its latest admission tab closes", async () => {
-    const { coordinator, launchCommands, state } = launchHarness();
+  it.each([
+    ["darwin", true], ["darwin", false], ["win32", true], ["win32", false]
+  ] as const)("keeps a reconciled window launchable after its latest admission tab closes (%s, immediate projection=%s)", async (platform, immediateProjection) => {
+    const { coordinator, launchCommands, state } = launchHarness({
+      onLaunch: (command, current) => {
+        if (command.type === "browserWorkspaceLaunch") {
+          current.projectionReady = immediateProjection;
+        }
+      }
+    });
+    state.topology = topology(1, platform === "win32"
+      ? { x: 0, y: 0, width: 1440, height: 860 }
+      : { x: 0, y: 24, width: 1440, height: 876 });
     await coordinator.launchRole(ROLE_ID, { kind: "new-window" });
     await coordinator.launchWorkspace(WORKSPACE_ID, {
       kind: "game-window",
       windowId: WINDOW_ID
     });
+    // Native projection completes after admission returned. No launch read
+    // occurs before the visible close removes that latest tab.
+    state.projectionReady = true;
     closeRuntimeTab(state, WORKSPACE_TAB_ID);
     expect(state.coreSnapshot.browserRuntime.tabs.map((tab) => tab.id)).toEqual([TAB_ID]);
 

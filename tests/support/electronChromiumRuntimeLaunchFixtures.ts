@@ -208,3 +208,44 @@ export function configureWorkspaceWebLaunch(
       : [{ ...exactNativeSurface, ...options.nativeSurface }]
   };
 }
+
+export function closeRuntimeTab(
+  state: { coreSnapshot: CoreAppSnapshotRecord; nativeSnapshot: ChromiumRuntimeExecutorSnapshot },
+  tabId: string
+): void {
+  const runtimeTab = state.coreSnapshot.browserRuntime.tabs.find(
+    (tab) => tab.id === tabId
+  )!;
+  state.coreSnapshot.browserRuntime.tabs =
+    state.coreSnapshot.browserRuntime.tabs.filter((tab) => tab.id !== tabId);
+  state.coreSnapshot.browserRuntime.roles =
+    state.coreSnapshot.browserRuntime.roles.filter((role) => role.owner.tabId !== tabId);
+  state.coreSnapshot.browserRuntime.workspaces =
+    state.coreSnapshot.browserRuntime.workspaces.filter((item) => item.tabId !== tabId);
+  const runtimeWindow = state.coreSnapshot.browserRuntime.windows.find(
+    (window) => window.windowId === runtimeTab.windowId
+  )!;
+  runtimeWindow.tabIds = runtimeWindow.tabIds.filter((id) => id !== tabId);
+  runtimeWindow.activeTabId = runtimeWindow.tabIds.at(-1);
+  const logical = state.coreSnapshot.logicalWindows.find(
+    (window) => window.windowId === runtimeTab.windowId
+  )!;
+  logical.tabs = logical.tabs.filter((tab) => tab.id !== tabId);
+  logical.activeTabId = logical.tabs.at(-1)?.id;
+  logical.revision += 1;
+  state.nativeSnapshot = {
+    windows: state.nativeSnapshot.windows.map((window) => ({
+      ...window,
+      tabIds: window.tabIds.filter((id) => id !== tabId),
+      activeTabId: window.tabIds.filter((id) => id !== tabId).at(-1) ?? "",
+      topologyRevision: logical.revision
+    })),
+    tabs: state.nativeSnapshot.tabs.filter((tab) => tab.tabId !== tabId),
+    roles: state.nativeSnapshot.roles.filter((role) => role.tabId !== tabId),
+    webSurfaces: state.nativeSnapshot.webSurfaces.filter(
+      (surface) => surface.tabId !== tabId
+    )
+  };
+  state.coreSnapshot.revision += 1;
+  state.coreSnapshot.runtimeRevision += 1;
+}

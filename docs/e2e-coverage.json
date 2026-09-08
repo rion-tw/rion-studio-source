@@ -2356,7 +2356,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the retained AppKit radio-tab controls, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome."
+      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the retained AppKit radio-tab controls, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host."
     },
     {
       "id": "CHROMIUM-WINDOWS-TABS-VISIBLE-ACTIVATION-019",
@@ -2372,7 +2372,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors."
+      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020",

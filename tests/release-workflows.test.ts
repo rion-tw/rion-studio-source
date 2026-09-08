@@ -13,9 +13,9 @@ describe("desktop shell migration workflows", () => {
     for (const name of retired) {
       const source = await readWorkflow(`.github/workflows/${name}`);
       const jobs = source.slice(source.indexOf("\njobs:\n"))
-        .split(/^  [\w-]+:\n/mu).slice(1);
+        .split(/^ {2}[\w-]+:\n/mu).slice(1);
       expect(jobs.length, name).toBeGreaterThan(0);
-      for (const job of jobs) expect(job, name).toMatch(/^    if: \$\{\{ false(?: |\})/mu);
+      for (const job of jobs) expect(job, name).toMatch(/^ {4}if: \$\{\{ false(?: |\})/mu);
     }
     const candidate = await readWorkflow(".github/workflows/desktop-release-candidate.yml");
     expect(candidate).toContain("uses: ./.github/workflows/desktop-release-build.yml");

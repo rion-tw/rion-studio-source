@@ -33,6 +33,14 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+CI 34218883892 at exact 3c08e479117e47c2caa7ec0256efc1224202fe70 now
+passes both complete Windows profiles: stable 31+3 expected force/40 journeys,
+Chromium 58+4/54. All 34/62 phases match the manifest, all phase exits are
+zero and all normal Chromium flush/exit receipts verify. Artifacts 10053491058
+and 10053568859 are hash-verified; report identities and hashes are in the API
+ledger. Shared JS passes 3898/25 platform skips. Native/package jobs continue;
+no package or production terminal is inferred from these full-profile passes.
+
 Windows-only CI 34218883892 is dispatched once at 11:05:51Z for exact
 3c08e479117e47c2caa7ec0256efc1224202fe70. Its local complete JS run is
 3860 PASS/11 FAIL/48 platform skips; all failures are symlink EPERM, with no

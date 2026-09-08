@@ -59,6 +59,22 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- CI 34218883892 now completes both full profiles at exact
+  3c08e479117e47c2caa7ec0256efc1224202fe70. Stable job 102037063843,
+  clean report 2026-09-08T11-07-16-604Z-win32, passes 31 normal/three expected
+  force, all 40 journeys and exact 34-phase membership/order. Artifact
+  10053491058 SHA-256 is
+  d28b726f9e0cd0f861b3780e32fdeeb67e395af039dd59299cb04e308cd964af.
+  Chromium report 2026-09-08T11-07-15-421Z-win32 passes 58 normal/four
+  expected force, all 54 journeys and exact 62-phase membership/order.
+  Artifact 10053568859 SHA-256 is
+  79cf4f25de4cd4f20f54e80d6df5197c18c616fcc7e93c96f1d7996b99f0487b.
+  All phase exit codes are zero; all 58 normal Chromium phases final-flush
+  and process-exit. worktreeDirty=true reflects ephemeral fixture preparation.
+  Shared JS passes 3898/25 platform skips, 482 PASS/seven skipped files.
+  Native and package jobs continue. Full-profile success does not imply NSIS,
+  updater, packaged black-box or production success, and it does not repair
+  the independently retained historical shortcut/buffer failures.
 - Exact 3c08e479117e47c2caa7ec0256efc1224202fe70 local full JS completes
   at 11:04:28Z on Node 24.20.0 ARM64: 3860 PASS/11 FAIL/48 platform skips,
   471 PASS/eight failed/ten skipped files (489 total). All 11 failures are

@@ -33,6 +33,38 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Latest terminal CI: 34187765250 at
+caea487d93c0b6200b181c866b1a6a46ef994e8e FAILS overall. Windows Rust passes
+1673/4 ignored and native integration 16. Complete Windows JS is 3819 PASS /
+2 FAIL / 48 skips; shared JS is 3861/2/10. Both failures are the stale adjacent
+navigation mock. Stable full fails an obsolete .app-page handle. E2E-only
+129702a33e37ce8b1d80ff31e0e32b3ce72125c5 fixes current-page queries and the
+mock, retaining negative assertions and the original 10 s deadline; 18 focused
+tests PASS, full revalidation pending. Chromium full at caea487d is 58 PASS +
+4 expected force / 54 journey PASS, all 58 normal flush/process exits/exit 0
+(report 2026-09-08T04-41-10-400Z-win32, artifact 10041391334).
+
+Package job 101939449858 passes target 8.5.0/previous 8.4.0 builds, package and
+distribution checks and native NSIS running/absent fixtures. Installed payload
+fails the unchanged Job gate: total 4/expected 3, active 1 at root exit. Exact
+creation observations are pwsh PID 2360/7956, conhost 6192 and installer 6576;
+the still-active identity was not retained and cannot be guessed. No valid
+installed proof is written; updater and packaged native black-box are skipped.
+Tooling-only c153c0c737fde081d6b5050e4bfe8d1fa6a507c5 adds one bounded active
+member snapshot before cleanup. Native/adjacent tests 28 PASS/2 existing platform
+skips, typecheck/hygiene/lint PASS; omission reason lower-layer-covered. Failed
+hidden/detached console-launch experiments were withdrawn and preserved in the
+ignored takeover artifacts. No process-count, exit or cleanup gate is relaxed.
+
+Production restoration now passes: clean Tauri build at
+2ee06d88c1007fa0fb1335dba2ec67bbc7125bc4; Electron build, isolation and runtime
+checks at 129702a33e37ce8b1d80ff31e0e32b3ce72125c5. Actual addon inventory again
+contains no retired child-HWND exports. App runtime remains d4993ed8cf890e6c5468447aceca3acd6c373099,
+installer source 9e56d430ee464f0c0ce4c511ea8badfd8661612d. Local trusted UI is
+still obstructed by UAC PID 648/HWND 12648580, not a product topology failure.
+The detailed ordered table, hashes, receipts and rejected experiments are in the
+API ledger. None of this closes production transactions or physical gates.
+
 Latest Windows reconciliation: local runner
 c17f9763f28409c0582a8a7730809017b004ac63 starts clean and completes stable full
 31 PASS + 3 expected force terminations / 40 journey PASS (report

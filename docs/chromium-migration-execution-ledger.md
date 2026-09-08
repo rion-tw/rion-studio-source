@@ -51,8 +51,11 @@ or assertions. The 12 adjacent tests, complete lint (0 errors / 23 existing
 warnings), and hygiene pass locally; logs are
 `sole-entry-retired-workflow-regex-{check,lint,hygiene}.log` under
 `.desktop-e2e-artifacts/`. The full JS result remains attributed to c52decf9,
-not to the later test-formatting commit. Sanitizer/concurrency is also SUCCESS;
-native and package jobs remain running. No publication was dispatched.
+not to the later test-formatting commit. Sanitizer/concurrency is also SUCCESS.
+macOS native job 102264594395 is terminal SUCCESS: Rust **1116 PASS / 5 ignored**,
+Electron native integration **14 PASS / 2 platform skips**, native lint and
+adapter build passed. Windows native and both package jobs remain running.
+No publication was dispatched.
 
 Program commits:
 
@@ -108,8 +111,8 @@ locally: direct fixture 1791 ms; instrumented focused test PASS in 2.27 seconds.
 Bounded stage observations now expose compilation, exact root assignment/exit,
 Job empty notification, survivor rejection and cleanup without deciding success.
 The deadline and every native assertion remain unchanged. Package job
-102256294098 completed its native/package verification steps and is finishing
-cache cleanup at this checkpoint; do not redispatch that source.
+102256294098 is now terminal **SUCCESS**, including native/package verification,
+artifact retention and cache cleanup; do not redispatch that source.
 
 The b6ea7ae8 Windows profile report was downloaded from artifact 10079464266
 (SHA-256 `bff53b3991a1931c8f3cbe4d52429c41cb9d8e71be5d3893d63e90a84b011452`).

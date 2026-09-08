@@ -23,26 +23,31 @@ to the two ledgers; binaries are not relabeled as a new runtime correction.
 
 The workstation is Windows 11 Pro 10.0.26200, ARM64, a Parallels ARM VM with four
 logical processors and 16 GiB RAM. Native Rust is
-aarch64-pc-windows-msvc 1.98.1. System Node 24.19.0 is below the repository
-requirement; validation uses locally acquired Node 24.20.0 with a process-local
-PATH and pnpm 12.3.4. Electron is pinned to 43.6.0. This ARM64 VM evidence does
+aarch64-pc-windows-msvc 1.98.1. At the owner's subsequent authorization, system
+Node was upgraded from 24.19.0 to 24.20.0 (official ARM64 MSI, verified SHA-256
+and valid OpenJS Authenticode signature); pnpm remains 12.3.4. The first MSI
+attempt lost its client after Restart Manager stopped Node, interrupting the
+first Rust test run. Recovery with Restart Manager disabled completed with exit
+0; that interrupted test is not a PASS. Electron is pinned to 43.6.0. This ARM64 VM evidence does
 not claim a physical Windows x64 workstation or physical monitor acceptance.
 
 An actual file-symlink creation probe returns EPERM. The current token lacks
-SeCreateSymbolicLinkPrivilege and Developer Mode is absent. No privilege,
-credential, display-mode, test assertion or deadline was changed. Screen inventory
+SeCreateSymbolicLinkPrivilege and Developer Mode is absent. A temporary elevated
+test process successfully created/read back a real file symlink; no persistent
+privilege policy, Developer Mode, credential, display mode, assertion or deadline
+was changed. Screen inventory
 contains only DISPLAY1, 5120x2880 (work area 5120x2784); ordinary two-display
 extended acceptance is blocked by missing hardware. Physical mixed-DPI remains
 removed by owner decision. Actual OS sleep/wake remains unverified.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | pnpm run lint:rust PASS at clean 4e5ec764 (4m58s); full Rust test is running. Full JS, both builds and production isolation are pending. The updater 256-round test is unchanged. |
-| 2. Known recovery/detach failures | Existing viewport/hit-test and terminal Show/raw-logical snapshot corrections inspected; exact native replay pending. Historical failures remain failures. |
-| 3. Full profiles | Manifest resolves chromium-windows-smoke to 61 phases, hardware superset to 62, stable full to 34 and stable extended to 35. No fresh profile PASS yet. |
-| 4. Visible import | Native chooser 1152 and the consent/cancel/import/restart chain remain pending Windows execution. |
-| 5. Hardware/lifecycle | Real foreground/hidden input, strengthened standby and close-drain pending; second physical display unavailable. |
-| 6. Install/update | Existing NSIS/updater/black-box profile isolation is explicitly restricted to an elevated GitHub-hosted runner; local code does not impersonate that environment. Windows-only CI 34170886520 is in progress, not PASS. |
+| 1. Native/shared/build | ARM64 lint PASS at clean 4e5ec764; Rust 1673 PASS/4 ignored at 6aba8f505faede7bac67ccb9815e89fda4b3f3a6, including unchanged updater 256-round winner test. Complete JS 3809 PASS/48 platform skips at 45b846e451adcad89c6ab5b5749d18394cd0b44c. Tauri/Electron production build commands and isolation PASS; x64 Electron rejected the ARM64 addon, so an architecture-matched rebuild is pending. |
+| 2. Known recovery/detach failures | CI Chromium full passes the mixed-recovery and visible-tab journeys. Existing viewport/hit-test and terminal Show/raw-logical snapshot corrections inspected; local exact native replay pending. Historical failures remain failures. |
+| 3. Full profiles | CI chromium-windows-smoke: all 61 phases, 57 PASS + 4 expected force, 53 journeys PASS. All 57 normal phases have final flush/process exit/exit 0. Stable full stops after 5 PASS at smoke-seed: expected No roles yet, driver returns null despite the visible correct screenshot. Local full profiles pending. Hardware supersets require the missing second display. |
+| 4. Visible import | CI consent/import/restart journey PASS; local native chooser 1152 and visible consent chain remain pending. |
+| 5. Hardware/lifecycle | CI trusted-input/standby journeys PASS; local replay pending. No physical second display or actual OS sleep evidence. |
+| 6. Install/update | CI 34170886520 built NSIS but failed previous-version fixture startup with spawn EINVAL; downstream install/update/black-box did not run. The CI-only isolation requirement remains intact. New packaging source 6476b49d1a86d3463a26f6f15b082cf9ba0ea57b is dispatched once for Windows validation. |
 | 7. Closure | API remains 9/18; five migration work packages/nine deliverables overlap this count. Production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 CI/tooling-only commit f63755f005c21b7c46c875c371bfdde5cc55c9fb adds the missing
@@ -57,6 +62,44 @@ No completed macOS acceptance is rerun. All new local logs and command receipts
 are under .desktop-e2e-artifacts/windows-takeover-4e5ec764; fixture secrets must
 never enter the handoff. Further results below must distinguish runtime changes
 from CI/test and documentation commits.
+
+Subsequent evidence and corrections:
+
+- 6aba8f505faede7bac67ccb9815e89fda4b3f3a6 is documentation only. Its first
+  complete JS run had 3796 PASS/13 FAIL/48 skips (11 symlink EPERM, 2 missing
+  Git Bash on the process PATH). Elevated execution with Git Bash resolved those
+  exact prerequisites: 3808 PASS/1 FAIL/48 skips; React refresh still exceeded
+  its original 10000 ms. Bounded diagnostics showed repository-wide Vite entry
+  scanning delaying transformation/close. Commit
+  45b846e451adcad89c6ab5b5749d18394cd0b44c is test only: a dedicated HTML fixture
+  bounds Vite's root while retaining real plugins, optimizer and assertions.
+  Focused PASS is followed by the complete 3809/48 result above (210.25 s).
+- CI 34170886520 at f63755f005c21b7c46c875c371bfdde5cc55c9fb independently has
+  x64 Rust 1673 PASS/4 ignored and native integration 16 PASS. Its complete JS
+  has 3807 PASS/2 FAIL/48 skips: promotion-readiness exact-candidate aggregation
+  and public-latest recovery CLI observation exceed the original 10000 ms;
+  readiness cleanup also reports ENOTEMPTY after timeout. Neither historical
+  CI timeout is claimed fixed by a later local success.
+- Chromium artifact 10036005980 contains report
+  2026-09-07T23-43-17-871Z-win32; stable artifact 10035822224 contains
+  2026-09-07T23-43-05-999Z-win32. Expected force phases are app-recovery-force,
+  mixed-recovery-force, window-recovery-force and window-recovery-restore-force
+  (each with the chromium- prefix). These reports are CI VM evidence.
+- Packaging correction 6476b49d1a86d3463a26f6f15b082cf9ba0ea57b executes the
+  pinned electron-builder CLI directly with Node instead of spawning pnpm.cmd.
+  It also binds electron-builder's version to the runtime verifier: inspection
+  found installers still used 43.4.1 while development/probes used 43.6.0.
+  Earlier package PASS must not be relabeled as a verified 43.6.0 payload.
+  Three focused files/25 tests and focused ESLint PASS; complete package
+  validation is pending. This changes packaging/tooling, not Rust runtime
+  authority, signing policy or production credentials.
+- Receipts/logs: test-rust-after-node-upgrade, full-js, full-js-elevated,
+  full-js-final-fixture, tauri-build, electron-build, production-isolation,
+  electron-runtime, packaging-fixes-focused; MSI logs under node-system-upgrade.
+  The x64 Electron/ARM64 addon mismatch is retained as a failed runtime probe.
+  Matching local validation uses portable official x64 Node 24.20.0 and the
+  installed 1.98.1-x86_64-pc-windows-msvc toolchain, without replacing system
+  ARM64 Node again.
 
 ### Previous owner steering: macOS execution / Windows workstation acceptance
 

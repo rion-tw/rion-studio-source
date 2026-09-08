@@ -17,8 +17,8 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 - Five release-cutover work packages remain before the migration can be called
   done. A failed native gate may add remediation work, but cannot remove a gate.
 - The known packages contain nine independently verifiable deliverables.
-- Within the currently authorized candidate-branch scope, implementation and
-  local validation are complete. Candidate closure requires the latest branch
+- Within the currently authorized candidate-branch scope, Windows validation
+  and remediation are in progress. Candidate closure requires the latest branch
   head to have a green exact-SHA macOS/Windows CI matrix; the hosted status is
   reported in the handoff because it can change after this ledger is committed.
 - The one later repository-mutation package is the deliberately gated sole-entry
@@ -35,11 +35,18 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 Windows takeover is now active. The clean local branch safely fast-forwarded to
 4e5ec764315af1594b41fb693e65bc2abc4b2b1e with the specified ancestors verified.
-Windows ARM64 VM Rust lint passes; the remaining local checks are in progress.
-CI/tooling-only f63755f005c21b7c46c875c371bfdde5cc55c9fb adds manual Windows-only
-diagnostics and is being validated by CI 34170886520. This does not rerun the
-completed macOS gates or change the runtime candidate. The local file-symlink
-probe still fails EPERM, and only one VM display is available. Detailed command
+Windows ARM64 VM Rust lint passes, Rust has 1673 PASS/4 ignored, and complete JS
+has 3809 PASS/48 platform skips at test-only source
+45b846e451adcad89c6ab5b5749d18394cd0b44c. An elevated process supplies verified
+real symlink capability without changing persistent privilege policy. System
+Node is now 24.20.0 under the owner's explicit authorization. CI 34170886520
+at f63755f005c21b7c46c875c371bfdde5cc55c9fb passes x64 Rust/native integration
+and all Chromium phases (57 PASS + 4 expected force, 53 journeys), but fails
+stable smoke-seed, two original JS deadlines, and the previous installer fixture
+command. Packaging source 6476b49d1a86d3463a26f6f15b082cf9ba0ea57b corrects
+the Windows command and binds installer Electron to the verified 43.6.0 runtime;
+prior packages used 43.4.1. It has a new Windows-only CI dispatch, not a package
+PASS. No completed macOS gate is rerun. Only one VM display is available. Detailed command
 receipts, full-profile results and remaining limitations belong to the latest
 Windows checkpoint in the API ledger. No gate is closed by this progress entry.
 

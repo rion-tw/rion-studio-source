@@ -996,7 +996,9 @@ async function topologyForcePhase(): Promise<void> {
         roleId: detachedRoleFixtureId
       })
     ]);
-    // Session readiness precedes the exact document viewport acknowledgement.
+    // Core/session readiness can precede the native tab's ready projection.
+    // Snapshots expose the document viewport only after that exact event.
+    await waitForActiveTabsReady();
     await waitForWindowsRoleSurfaceViewportFitsController({
       afterSequence: claimViewportCursor,
       roleId: detachedRoleId,

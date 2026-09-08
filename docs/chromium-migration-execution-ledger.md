@@ -33,6 +33,19 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Latest tooling correction 0935ac593e0630ecfc785cacce1a7f66bcf1e32c executes the
+exact attested NSIS PowerShell file in the already isolated host and removes the
+duplicate host. A native probe measures total 4 before/3 after, with real marker
+execution and original exit 7. The first expanded test exposes an active-1
+root-exit race; the parent now retains that raw observation and may join only
+the exactly revalidated same-Job system conhost within the original remaining
+deadline. Final Job active-zero, exact total 3, exit code, identity binding and
+profile/ACL cleanup remain mandatory. Unknown survivors are rejected. Native
+and adjacent checks pass 34/2 existing platform skips; hygiene/typecheck/lint
+PASS. This is lower-layer-covered tooling work; real installed-payload and
+complete regression at its exact SHA still require the next Windows CI. The
+unsupported child-side console drain was withdrawn with its failure evidence.
+
 Current candidate 3eff9b2865f90b85908b1c71f605d64805051ddd passes local Windows
 x64 Rust lint and the full native suite: 1673 PASS/4 ignored, with the updater's
 256 concurrent rounds unchanged. Documentation-only head
@@ -56,10 +69,15 @@ close/quit ordering in a complete profile. Visible import/restart, standby
 events and native session-end repeat successfully; actual OS sleep/sign-out
 remain unverified. Windows native job 101955717971 is SUCCESS: Rust 1673/4
 ignored, native integration 16 PASS, complete Windows JS 3834/48 platform skips
-and Tauri build. The package job is still in progress at this checkpoint. The
+and Tauri build. The package job is terminal FAIL: target 8.5.0/previous 8.4.0
+builds and runtime/package/distribution/native NSIS preconditions pass, but the
+installed proof still reports total 4/expected 3. Exact members are pwsh
+1244/7332, conhost 6896 and staged installer 6808; the active snapshot is empty.
+Updater and packaged black-box are skipped. No valid installed proof exists.
+Artifact 10043875557 contains earlier diagnostics, not black-box success. The
 API ledger retains exact hashes and terminal receipts.
 
-Newest completed Windows CI 34190968118 tests exact source
+Earlier completed Windows CI 34190968118 tests exact source
 c153c0c737fde081d6b5050e4bfe8d1fa6a507c5 (workflow head
 8bd62ff679690f59ea187807f68974646a4c9e1f). Windows Rust 1673 PASS/4 ignored,
 native integration 16, full Windows JS 3827/48 skips and shared JS 3869/10 skips

@@ -80,7 +80,16 @@ and prove that its installed payload equals the already black-boxed
 `win-unpacked` manifest after removing exactly the generated root uninstaller.
 The isolated runner must report root exit code zero, Job Object active-zero,
 exactly three observed processes, and verified profile/account/ACL cleanup in a
-create-new measured result. NSIS performs its runtime-presence check in-process,
+create-new measured result. The attested NSIS PowerShell file executes in the
+already isolated, noninteractive host with literal named parameter values; it
+does not create a duplicate PowerShell host. Its three Job members are the
+PowerShell host, the system console host and the installer. The parent retains
+the raw active count at root exit. If a native Job query finds only the exact
+System32 conhost.exe, it may join that process's terminal event within the
+original command's remaining deadline, then require Job active-zero. Unknown or
+multiple survivors, access/identity failures and an expired deadline remain
+failures; diagnostics never substitute for native Job accounting. Other isolated
+invocation modes retain their existing root-exit boundary. NSIS performs its runtime-presence check in-process,
 without PowerShell/cmd helpers. Both the Electron executable and rion-tauri.exe
 must be absent; lookup errors fail closed. A running application must complete
 its normal Rust-owned drain before replacement. Interactive installation offers

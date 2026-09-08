@@ -47,11 +47,51 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 | 3. Full profiles | CI 34193287664 at exact 3eff9b28 passes stable 31+3 expected force/40 journeys and Chromium 58+4/54. Manifest membership and order match all 34/62 phases; every normal Chromium phase flushes/exits and all phase exit codes are 0. The corrected Web-only close overlaps quit and terminalizes before Core effects are disposed. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI c153c0c7 package/distribution/native NSIS preconditions PASS; installed proof FAILS total 4/expected 3, with active snapshot empty/error 0. Exact observations: two pwsh, one conhost and staged installer. Prior caea487d retained-1 failure is not repaired by this later result. No valid installed proof; updater/black-box SKIPPED. Rejected detached/hidden console-launch changes were withdrawn. Process-count, active-zero, cleanup and production-key gates remain unchanged. |
+| 6. Install/update | CI 34193287664 at 3eff9b28 passes target 8.5.0/previous 8.4.0 builds, runtime/package/distribution/native NSIS preconditions, but installed proof fails total 4/expected 3; initial active snapshot is empty. Updater/black-box are SKIPPED. Tooling fix 0935ac59 removes the duplicate PowerShell host and joins only an exactly identified same-Job system console host within the original remaining deadline; focused native/adjacent checks 34 PASS/2 existing platform skips. Real installed-payload validation of this new tooling is pending. Count 3, final active-zero, cleanup and production-key gates remain required. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- Tooling-only correction 0935ac593e0630ecfc785cacce1a7f66bcf1e32c opts the
+  existing NSIS proof into executing its attested PowerShell file in the already
+  isolated host. Exact executable/file binding, noninteractive host flags and
+  literal named parameter pairs are validated; other isolated callers retain
+  their existing mode. No second PowerShell process is needed. A controlled
+  native probe observes nested host total 4 versus inline total 3, both with
+  an actual marker, original exit 7 and active-zero. The production parser and
+  invocation block pass literal/empty/quoted parameter cases, exit 0, original
+  exit 7 and script exception exit 1; six invalid invocation cases are rejected.
+  Full adjacent verification is 34 PASS/2 existing platform skips; hygiene,
+  typecheck and lint PASS (23 existing warnings). E2E omission is
+  lower-layer-covered; the new CI must still establish real installed payload,
+  complete JS and all downstream gates. App runtime remains exact 3eff9b28.
+- The first expanded inline-host test exposes raw Job active count 1 at root
+  exit (33 PASS/1 FAIL/2 skips); its original member identity was not retained.
+  The corrected parent keeps this raw count and performs one native Job identity
+  query. It joins only an opened, revalidated, same-Job System32 conhost.exe
+  handle, using the original command's remaining deadline. Native absence or
+  that exact terminal event leads to a final Job accounting check; final active
+  count must still be zero and total must still be three. A live pwsh survivor
+  is rejected in a native negative test. Nonzero root exits remain nonzero;
+  root failure plus console-drain failure preserve both errors. No polling,
+  delayed success, process exclusion, deadline increase or forced-success
+  cleanup is added. Unsupported child-side console-drain drafts were withdrawn:
+  GetConsoleWindow did not yield a distinct host identity, and a subsequent
+  child-side FreeConsole/wait attempt failed the unchanged five-second fixture
+  deadline. Rejected source and all failure logs remain in the takeover root.
+- CI 34193287664 is terminal FAIL solely at installed-payload verification in
+  package job 101955578004. Target 8.5.0, previous 8.4.0, extension isolation,
+  exact runtime (Electron 43.6.0/Chromium 150.0.7871.250/Node 24.20.0/Core 8.5.0),
+  package structure/distribution and native NSIS presence fixtures PASS. The
+  exact staged installer is
+  D:\a\_temp\rion-electron-installer-payload-d8eeeff8b53a490987c19989291c0f7b\input\Rion.Studio-win.exe,
+  PID 6808. Other observed Job members are pwsh 1244/7332 and conhost 6896.
+  Total is 4/expected 3; active snapshot is empty, error 0/not truncated. No
+  valid installed proof is emitted; updater transaction and packaged black-box
+  steps are SKIPPED. Artifact 10043875557, SHA-256
+  14536549646363bb73ea1bdea1d8345ce06f6de1e9964837fd28bac7341d408c,
+  contains prior diagnostics, not a successful packaged black-box. The later
+  tooling correction does not retroactively change this failed result.
 - Windows native job 101955717971 in CI 34193287664 is SUCCESS at exact
   3eff9b2865f90b85908b1c71f605d64805051ddd: Rust lint, complete Rust
   1673 PASS/4 ignored, Electron native integration 16 PASS (eight files),
@@ -139,8 +179,8 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   f85b689e47f50e91acbe596547a16c4891e8ae4e. Shared job 101955578092
   completes with 3876 PASS/10 platform skips. Stable full 101955578152 is
   SUCCESS, Windows native 101955717971 is SUCCESS and the complete Chromium
-  report passes as above. The remaining package steps in 101955578004 are
-  still running at this checkpoint. No installer verdict is inferred.
+  report passes as above. Package job 101955578004 subsequently fails its
+  installed-payload gate as recorded above; no updater or black-box PASS is inferred.
 - CI 34190968118 checks out c153c0c737fde081d6b5050e4bfe8d1fa6a507c5
   (workflow-definition head 8bd62ff679690f59ea187807f68974646a4c9e1f) and is
   terminal FAIL overall. Windows native job 101948908937 passes Rust 1673/4

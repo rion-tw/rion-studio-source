@@ -59,6 +59,9 @@ try {
   if (-not [DiagnosticTestJob]::AssignProcessToJobObject($taskJob, $taskChild.Handle)) {
     throw "Could not bind the diagnostic test process to its exact job."
   }
+  $taskActiveBeforeRelease = @($taskObserver.SnapshotActive())
+  $taskActiveSnapshotError = $taskObserver.ActiveSnapshotError
+  $taskActiveSnapshotTruncated = $taskObserver.ActiveSnapshotTruncated
   $taskChild.StandardInput.WriteLine('continue')
   $taskChild.StandardInput.Close()
   if (-not $taskChild.WaitForExit(5000)) { throw "Diagnostic test child did not finish." }
@@ -72,6 +75,9 @@ try {
     notificationError = $taskObserver.NotificationError
     truncated = $taskObserver.Truncated
     observations = @($taskObserver.Snapshot())
+    activeBeforeRelease = $taskActiveBeforeRelease
+    activeSnapshotError = $taskActiveSnapshotError
+    activeSnapshotTruncated = $taskActiveSnapshotTruncated
   } | ConvertTo-Json -Depth 4 -Compress
 } finally {
   [void][DiagnosticTestJob]::TerminateJobObject($taskJob, 1)

@@ -27,6 +27,8 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
     private bool disposed;
     public bool Truncated { get; private set; }
     public int NotificationError { get; private set; }
+    public int ActiveSnapshotError { get; private set; }
+    public bool ActiveSnapshotTruncated { get; private set; }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct CompletionAssociation
@@ -56,6 +58,9 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
         IntPtr process, uint flags, StringBuilder path, ref uint characters);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool QueryInformationJobObject(
+        IntPtr job, int informationClass, IntPtr information, uint length, IntPtr returnedLength);
 
     public RionWindowsJobProcessDiagnostics(IntPtr jobHandle)
     {
@@ -137,6 +142,35 @@ public sealed class RionWindowsJobProcessDiagnostics : IDisposable
     public RionWindowsJobProcessObservation[] Snapshot()
     {
         lock (observations) { return observations.ToArray(); }
+    }
+
+    public RionWindowsJobProcessObservation[] SnapshotActive()
+    {
+        // One bounded observation at root exit, before cleanup. This is not a
+        // liveness scan or a replacement for authoritative Job accounting.
+        int length = 8 + IntPtr.Size * MaximumObservations;
+        IntPtr buffer = Marshal.AllocHGlobal(length);
+        try
+        {
+            if (!QueryInformationJobObject(job, 3, buffer, (uint)length, IntPtr.Zero))
+            {
+                ActiveSnapshotError = Marshal.GetLastWin32Error();
+                ActiveSnapshotTruncated = ActiveSnapshotError == 234; // ERROR_MORE_DATA
+                return new RionWindowsJobProcessObservation[0];
+            }
+            int count = Marshal.ReadInt32(buffer, 4);
+            if (count < 0 || count > MaximumObservations)
+            {
+                ActiveSnapshotError = 13; // ERROR_INVALID_DATA
+                return new RionWindowsJobProcessObservation[0];
+            }
+            var active = new RionWindowsJobProcessObservation[count];
+            for (int index = 0; index < count; index++)
+                active[index] = ReadImage(unchecked((uint)Marshal.ReadIntPtr(
+                    buffer, 8 + IntPtr.Size * index).ToInt64()));
+            return active;
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
     }
 
     public void Dispose()

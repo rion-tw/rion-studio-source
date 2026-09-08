@@ -554,6 +554,9 @@ try {
     notificationError = $jobResult.ProcessNotificationError
     truncated = $jobResult.ProcessObservationsTruncated
     observations = @($jobResult.ProcessObservations)
+    activeAtRootExit = @($jobResult.ActiveProcessObservations)
+    activeSnapshotError = $jobResult.ActiveProcessSnapshotError
+    activeSnapshotTruncated = $jobResult.ActiveProcessSnapshotTruncated
   } | ConvertTo-Json -Depth 4 -Compress))
   if ($resolvedResultPath) {
     $attestedInputsAfter = [ordered]@{

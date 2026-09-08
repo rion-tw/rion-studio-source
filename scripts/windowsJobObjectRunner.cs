@@ -16,6 +16,9 @@ public sealed class RionWindowsJobResult
     public RionWindowsJobProcessObservation[] ProcessObservations { get; set; }
     public bool ProcessObservationsTruncated { get; set; }
     public int ProcessNotificationError { get; set; }
+    public RionWindowsJobProcessObservation[] ActiveProcessObservations { get; set; }
+    public int ActiveProcessSnapshotError { get; set; }
+    public bool ActiveProcessSnapshotTruncated { get; set; }
 }
 
 public static class RionWindowsJobRunner
@@ -299,6 +302,7 @@ public static class RionWindowsJobRunner
                 job,
                 accountingBuffer,
                 accountingSize);
+            var activeObservations = processDiagnostics.SnapshotActive();
             if (activeProcessesAfterRootExit != 0 && !TerminateJobObject(job, 1))
             {
                 throw new Win32Exception();
@@ -311,7 +315,10 @@ public static class RionWindowsJobRunner
             {
                 ExitCode = exitCode,
                 ActiveProcessesAfterRootExit = activeProcessesAfterRootExit,
-                TotalProcesses = totalProcesses
+                TotalProcesses = totalProcesses,
+                ActiveProcessObservations = activeObservations,
+                ActiveProcessSnapshotError = processDiagnostics.ActiveSnapshotError,
+                ActiveProcessSnapshotTruncated = processDiagnostics.ActiveSnapshotTruncated
             };
         }
         catch (Exception error)

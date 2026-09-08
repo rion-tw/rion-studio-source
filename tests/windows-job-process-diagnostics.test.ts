@@ -17,6 +17,9 @@ it.skipIf(process.platform !== "win32")(
       totalProcesses: number;
       notificationError: number;
       truncated: boolean;
+      activeBeforeRelease: { ProcessId: number; InJobAtObservation: boolean }[];
+      activeSnapshotError: number;
+      activeSnapshotTruncated: boolean;
       observations: {
         ProcessId: number;
         ImagePath: string | null;
@@ -27,6 +30,11 @@ it.skipIf(process.platform !== "win32")(
     expect(result.platform).toBe("win32");
     expect(result.notificationError).toBe(0);
     expect(result.truncated).toBe(false);
+    expect(result.activeSnapshotError).toBe(0);
+    expect(result.activeSnapshotTruncated).toBe(false);
+    expect(result.activeBeforeRelease).toEqual([
+      expect.objectContaining({ ProcessId: result.rootProcessId, InJobAtObservation: true })
+    ]);
     // Console hosts are OS-created descendants too; compare with the exact
     // native Job count instead of guessing from the two requested executables.
     expect(result.totalProcesses).toBeGreaterThanOrEqual(2);

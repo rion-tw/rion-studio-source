@@ -42,7 +42,17 @@ JS must cover the corrected runner assertion and retain Job-stage diagnostics.
 This is not a rerun of an unchanged historical source. Current job handles:
 shared checks 102264458635; macOS/Windows native 102264594395/102264594440;
 macOS/Windows package 102264458817/102264458843. Renderer build is already
-SUCCESS; the remaining jobs are running, not PASS. No publication was dispatched.
+SUCCESS. Shared checks completed with **3712 JS PASS / 29 platform skips**;
+the job then failed on two `no-regex-spaces` lint errors in the newly added
+workflow-retirement test. Commit `1b30cd2e1710124c4baa48d8f90f760fbbc7e6da`
+replaces literal indentation spaces with equivalent `{2}` / `{4}` counts.
+It changes only that test, not runtime, packaging, fixtures, workflow execution
+or assertions. The 12 adjacent tests, complete lint (0 errors / 23 existing
+warnings), and hygiene pass locally; logs are
+`sole-entry-retired-workflow-regex-{check,lint,hygiene}.log` under
+`.desktop-e2e-artifacts/`. The full JS result remains attributed to c52decf9,
+not to the later test-formatting commit. Sanitizer/concurrency is also SUCCESS;
+native and package jobs remain running. No publication was dispatched.
 
 Program commits:
 
@@ -98,7 +108,32 @@ locally: direct fixture 1791 ms; instrumented focused test PASS in 2.27 seconds.
 Bounded stage observations now expose compilation, exact root assignment/exit,
 Job empty notification, survivor rejection and cleanup without deciding success.
 The deadline and every native assertion remain unchanged. Package job
-102256294098 remains running at this checkpoint; do not redispatch that source.
+102256294098 completed its native/package verification steps and is finishing
+cache cleanup at this checkpoint; do not redispatch that source.
+
+The b6ea7ae8 Windows profile report was downloaded from artifact 10079464266
+(SHA-256 `bff53b3991a1931c8f3cbe4d52429c41cb9d8e71be5d3893d63e90a84b011452`).
+Its exact source manifest resolves all 62 observed phases in the same order:
+58 PASS + 4 EXPECTED_FORCE_TERMINATION, with 54 journeys PASS and no normal
+final-flush/process-exit failure. The four expected-force phases are app,
+mixed, window and window-restore recovery. Report root:
+`2026-09-08T22-10-15-177Z-win32`. Machine-readable report, summary and exact
+manifest reconciliation are retained under `.desktop-e2e-artifacts/ci34284338910/`.
+
+The same run's package artifact 10080025266 is retained there too (SHA-256
+`610bae5d32574adcf9f7f79a2c4580a4ec4d7c517d3b8d261aea3bd38375b5b5`).
+The installed-payload proof and packaged native black-box both pass for fixture
+8.5.0 and bind package manifest
+`cd234525e7c46e898003bab74810fa883a06190d1c09217abb6d7557fad9f4d9`.
+The NSIS installer is Authenticode-unsigned, 101625647 bytes, SHA-256
+`a722602fc88479bf379c79357a10dbb9b57373cf085c2dfe2c4e1c5e1d9ee6f0`.
+Installed bytes match the source tree with only the root uninstaller added.
+Black-box report root:
+`2026-09-08T22-44-59-762Z-24d7e7b4-b75b-42fd-b7b1-12e4d78db025-win32-packaged-black-box`;
+visible native interaction, temporary local-user isolation and exit code 0
+are confirmed. Both Rust updater probe cases report applied for fixture
+8.4.0 to 8.5.0, with `authoritative: false` and `productionTerminalReceipt: false`.
+These source-specific fixture results do not replace final c52decf9 validation.
 
 ### Replacement fixture and local checks
 

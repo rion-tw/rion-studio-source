@@ -33,6 +33,65 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Windows-only CI 34218883892 is dispatched once at 11:05:51Z for exact
+3c08e479117e47c2caa7ec0256efc1224202fe70. Its local complete JS run is
+3860 PASS/11 FAIL/48 platform skips; all failures are symlink EPERM, with no
+timeout or document-reference failures. The local run remains FAIL and the
+same-source Windows CI is pending; no assertion, deadline or OS policy changes
+are used to obtain a PASS. Full source/command/report evidence is in the API
+ledger. Existing macOS CI is not repeated.
+Both local production shell builds and production E2E isolation pass at exact
+3c08e479, with only ledger edits dirty; package/install/update acceptance is
+still pending in the new Windows CI run.
+
+Tooling/test correction 3c08e479117e47c2caa7ec0256efc1224202fe70 awaits
+exact native process exit after taskkill acceptance and preserves primary plus
+cleanup failures. It also fences transient Job accounting after an exact root
+or sole conhost exit: a native empty notification wakes a fresh native active
+count check, within the original remaining command deadline. Unknown/live
+members, exact process counts and active-zero/cleanup assertions stay strict.
+The local native regressions fail before these corrections; final adjacent
+validation passes 70 tests/11 files, hygiene/typecheck/lint pass. App runtime
+remains 3eff9b28. The owner-directed local simulation audit also passes 78/12
+files, without claiming actual OS sleep/sign-out or physical dual displays.
+
+CI 34214207165 at 737d5a1f is terminal FAIL solely in package validation:
+NSIS Job total three retains the already-signaled root PID 6164 in accounting,
+so no installed-payload proof is published and updater/black-box are SKIPPED.
+Native Rust/JS and both complete profiles pass. Native local adjacent testing
+independently reproduces accounting lag after exact conhost termination.
+Artifact 10052381939 and exact error/process identities remain in the API ledger.
+
+After the UAC obstruction disappears, local stable full at exact documentation
+SHA d1e539059ea45b543e867fd1a04ad556825f5983 (built code 737d5a1f) passes
+31 normal/three expected force, all 40 journeys and exact 34-phase membership
+in report 2026-09-08T10-37-02-204Z-win32. All phase exit codes are zero.
+
+Diagnostic CI 34212812982 is terminal FAIL: actual NSIS payload passes, but
+updater cleanup immediately observes PID 5192 still present after taskkill
+acceptance and fails at 10:38:22.518Z. Job total 88 eventually has active 0;
+this does not turn the failed cleanup into success. Packaged black-box is
+SKIPPED. Artifact 10051994123 and exact proof/error identities are retained in
+the API ledger. The old finally could hide an earlier probe error; none can be
+reconstructed. Correction-source 737d5a1f native validation meanwhile passes
+Rust 1673/4 ignored, native integration 16 and full Windows JS 3864/48 skips;
+its package job continues independently.
+
+The owner subsequently directs best-effort simulation/native-event coverage of
+unavailable dual-display hardware and actual OS sleep/sign-out, without hardware
+purchases, display-mode changes or manual OS operations. Evidence continues to
+distinguish simulated data, native event ingress and actual OS operations; no
+physical PASS or real production transaction is inferred from fixture results.
+
+Correction-source CI 34214207165 at exact
+737d5a1f2a2ebc8cf7f7896c24a39faa3336514e completes stable full 31+3 expected
+force/40 journeys and Chromium full 58+4/54. Exact 34/62-phase membership/order,
+all phase exit codes and all normal Chromium flush/exit verify. Shared JS passes
+3893/23 platform skips. Artifacts 10051715847 and 10051789691 are hash-verified;
+full hashes/report identities are in the API ledger. Native/package jobs continue.
+Earlier diagnostic-source 5cbcecfb native validation now passes Rust 1673/4
+ignored, native integration 16 and full Windows JS 3857/48 platform skips.
+
 Diagnostic-source CI 34212812982 at 5cbcecfb04a01a39dc6bf4c50a38b5178ead4801
 completes stable full 31+3 expected force/40 journeys and Chromium full 58+4/54.
 Exact 34/62-phase membership/order and all normal Chromium flush/exit verify.

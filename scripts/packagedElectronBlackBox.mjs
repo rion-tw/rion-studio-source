@@ -10,6 +10,7 @@ import { extractFile } from "@electron/asar";
 
 import { runEncodedPowerShellJson } from "./encodedPowerShell.mjs";
 import { WINDOWS_PACKAGED_FOREGROUND_HANDLERS } from "./packagedElectronWindowsForeground.mjs";
+import { WINDOWS_PACKAGED_CLOSE_HANDLERS } from "./packagedElectronWindowsClose.mjs";
 
 const execFileAsync = promisify(execFile);
 const UI_ACTION_DEADLINE_MS = 35_000;
@@ -809,6 +810,7 @@ throw "bundled Chromium role content did not become accessible"
 `;
 
 const windowsCloseRoleWindowScript = `${windowsUiAutomationPrelude}
+${WINDOWS_PACKAGED_CLOSE_HANDLERS}
 $targetPid = [uint32]$payload.processId
 $roleName = [string]$payload.roleName
 $buttonName = [string]$payload.buttonName
@@ -819,8 +821,7 @@ $matches = @(Rion-ExactRoleContentWindows $targetPid $roleName $buttonName)
 if ($matches.Count -ne 1) { throw "exact bundled Chromium role window unavailable" }
 $nativeWindowHandle = [int]$matches[0].Current.NativeWindowHandle
 if ($nativeWindowHandle -eq 0) { throw "exact bundled Chromium native window unavailable" }
-$pattern = $matches[0].GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
-$pattern.Close()
+Rion-CloseRoleWindow $matches[0] $targetPid
 for ($attempt = 0; $attempt -lt 300; $attempt++) {
   $remaining = 0
   foreach ($window in @(Rion-Windows $targetPid)) {
@@ -829,7 +830,7 @@ for ($attempt = 0; $attempt -lt 300; $attempt++) {
   if ($remaining -eq 0) { exit 0 }
   Start-Sleep -Milliseconds 100
 }
-throw "bundled Chromium role window did not close"
+throw "bundled Chromium role window did not close: PID $targetPid; HWND $nativeWindowHandle; remaining $remaining"
 `;
 
 const windowsQuitApplicationScript = `${windowsUiAutomationPrelude}

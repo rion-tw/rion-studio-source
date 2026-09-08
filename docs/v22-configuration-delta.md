@@ -30,6 +30,28 @@ Observed asset IDs, in table order: `534832912`, `534832791`, `534832814`,
 `534832750`, `534832832`, `534832866`, `534832884`. Private local metadata
 receipt: `.desktop-e2e-artifacts/v22-configuration-delta-metadata.json`.
 
+## Transport delta discovered during implementation
+
+On 2026-09-08T20:06:37.080Z, a read-only request to the existing endpoint
+returned 302 to the same repository's tagged `v8.4.2/latest.json`, then 302 to
+`release-assets.githubusercontent.com`, then 200 with the v8.4.2 manifest.
+The earlier Chromium transport used `Policy::none()`, so configuration reuse
+also requires a repository transport fix. This does not require a new endpoint
+or infrastructure. GitHub documents both direct and redirected asset responses
+in its [release asset API](https://docs.github.com/en/rest/releases/assets#get-a-release-asset).
+
+The cleanup adds at most two redirects, limited to the fixed Rion release path,
+the same requested asset name, HTTPS port 443, and the observed public repository
+asset namespace `1298345475`. The CDN response is terminal; foreign repositories,
+arbitrary domains, credentials, cycles and downgrade redirects remain rejected.
+Signed CDN query values are omitted from diagnostics. Existing request deadlines,
+stream limits, Minisign and SHA-256 verification remain unchanged.
+
+The four redirect-policy tests pass locally. A separate read-only probe using the
+actual Rust transport is being verified; this is not a production updater
+transaction. Observation receipt:
+`.desktop-e2e-artifacts/v22-updater-endpoint-redirect-observation.json`.
+
 ## Necessary repository changes
 
 1. Point the default development, build, package and desktop E2E commands at

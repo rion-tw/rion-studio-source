@@ -47,11 +47,55 @@ removed by owner decision. Actual OS sleep/wake remains unverified.
 | 3. Full profiles | CI 34198254073 at exact 0935ac59 passes stable 31+3 expected force/40 journeys and Chromium 58+4/54. Manifest membership and order match all 34/62 phases; every normal Chromium phase flushes/exits and all phase exit codes are 0. Prior 3eff9b28 full-profile evidence also captures the corrected Web-only close overlapping quit and terminalizing before Core effects are disposed. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI 34193287664 at 3eff9b28 passes target 8.5.0/previous 8.4.0 builds, runtime/package/distribution/native NSIS preconditions, but installed proof fails total 4/expected 3; initial active snapshot is empty. Updater/black-box are SKIPPED. Tooling fix 0935ac59 removes the duplicate PowerShell host and joins only an exactly identified same-Job system console host within the original remaining deadline; focused native/adjacent checks 34 PASS/2 existing platform skips. Real installed-payload validation of this new tooling is pending. Count 3, final active-zero, cleanup and production-key gates remain required. |
+| 6. Install/update | CI 34198254073 at 0935ac59 passes target 8.5.0/previous 8.4.0 builds, runtime/package/distribution and actual NSIS installed payload. Exact Job total 3, root/final active 0, exit 0 and profile/ACL cleanup verify; source tree is identical apart from the expected uninstaller. Updater then fails before any pnpm/Node process is observed, exit 1; black-box is SKIPPED. Tooling-only 07950a33 corrects its forced pnpm.cmd selection to the already verified pnpm.exe; new exact-source Windows CI is pending. No updater transaction or production-key cutover is inferred from installed-payload PASS. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- CI 34198254073 is terminal FAIL only at the packaged updater step in job
+  101970799154; the NSIS installed-payload correction itself passes. Exact
+  source 0935ac593e0630ecfc785cacce1a7f66bcf1e32c/version 8.5.0 produces a
+  passed windows-installer-payload-proof.json, SHA-256
+  e7a51e4d21ca0e4d4cffcef439bfd6e5d415878c584e9d1ad62f649eaee75dd0.
+  Artifact 10045973731, downloaded and hash-verified as
+  938607f06a219e20dcf7ee288840504674eec221178f95018ef4a3f43cc70f74,
+  contains this proof and earlier diagnostics; packaged black-box is SKIPPED.
+  The unsigned 101623198-byte Rion.Studio-win.exe hashes to
+  4fd878b215c87621a8e3ccbd3951a3efb348df9bfcc840bdb436dae7349eb31f.
+  Installed Rion Studio.exe is unsigned, 239067648 bytes, SHA-256
+  373ce09ca562a701155a8fd94ca1fe59e68403a71d28ab44fc3f19ddda8eca62.
+  Normalized source manifest 99c0fd4126fbb282e0e71ba9e555307faf2ef1524c8a77430848da4bc0d5cb2f
+  contains 79 entries/76 regular files/three directories/no symlinks. No source
+  path changes or removals occur; the sole addition is the expected unsigned
+  Uninstall Rion Studio.exe, SHA-256
+  46f53435353fd9d7649a3cf333e1a4c5c697595d0aad61043fbbec73e91dc40a.
+  The isolated proof has command exit 0, exact total 3, active-zero and verified
+  profile/ACL cleanup; no application launch is requested. Native observations
+  are pwsh PID 208, system conhost 6460 and staged installer 5068 under
+  D:\a\_temp\rion-electron-installer-payload-1f8c3cd51f1d4c89894c098a725c4132\input.
+  Raw root-exit active count is already 0, so no console-drain join occurs.
+  This real NSIS fixture acceptance does not attest any updater signature,
+  transaction terminality, production key or production release.
+- The subsequent isolated updater command exits 1. Observations retain pwsh
+  7724, conhost 7968 and cmd 5304, total 3/active 0; no pnpm/Node is observed.
+  The original child stderr is not retained and its precise cause cannot be
+  reconstructed from a zero active count. The workflow explicitly selects
+  pnpm.cmd despite its earlier selectWindowsPnpm.ps1 native version/child proof.
+  Tooling-only 07950a33a04bbd313e926e4a3b9077a0f18f21b8 selects pnpm.exe for
+  both updater and packaged black-box isolation, so the existing command-parent
+  ACL grant addresses the actual executable directory. No permission boundary,
+  updater assertion, deadline or production workflow is changed. A workflow
+  regression fails before correction; final adjacent tests pass 33/2 existing
+  platform skips, hygiene and lint PASS (23 existing warnings). The new test
+  is split from the near-limit workflow test file after hygiene rejects its
+  initial placement; limits and existing assertions are unchanged. The exact
+  pinned pnpm 12.3.4 native binary also executes a local Node 24.20.0 marker
+  child successfully. A local npm-generated shim probe exposes a quoting error,
+  not the original CI missing-process failure; it is not claimed as that exact
+  reproduction. New-source Windows CI is dispatched once after checking for
+  existing runs: CI 34202245777, workflow head and tested source both
+  07950a33a04bbd313e926e4a3b9077a0f18f21b8, dispatched 08:01:02 UTC.
+  App runtime remains 3eff9b28. E2E omission: lower-layer-covered.
 - Windows-only CI 34198254073 is dispatched once for exact tooling source
   0935ac593e0630ecfc785cacce1a7f66bcf1e32c, from documentation-only workflow head
   efef879adf7e2fb8e40f05cd292ddf646cf1ae2b. App runtime remains 3eff9b28.
@@ -73,7 +117,7 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   platform skips (471 passing/10 skipped files), direct input and Tauri build.
   The new in-process PowerShell fixture passes inside that complete JS suite
   in 6623 ms under the unchanged 10000 ms test deadline; JS completes at
-  07:39:25 UTC. Downstream package results remain pending at this checkpoint.
+  07:39:25 UTC. The terminal package results are recorded above.
   The same Chromium artifact also retains the isolated WebContentsView API
   probe: all 24 foreground/hidden/sibling/modifier/zoom/reload cases are received
   with trusted events on Electron 43.6.0/Chromium 150.0.7871.250. Its declared
@@ -99,8 +143,9 @@ Latest reconciliation (2026-09-08, after complete local Windows profiles):
   exit 7 and script exception exit 1; six invalid invocation cases are rejected.
   Full adjacent verification is 34 PASS/2 existing platform skips; hygiene,
   typecheck and lint PASS (23 existing warnings). E2E omission is
-  lower-layer-covered; the new CI must still establish real installed payload,
-  complete JS and all downstream gates. App runtime remains exact 3eff9b28.
+  lower-layer-covered; CI 34198254073 subsequently establishes real installed
+  payload and complete JS, while updater/black-box remain open as above.
+  App runtime remains exact 3eff9b28.
 - The first expanded inline-host test exposes raw Job active count 1 at root
   exit (33 PASS/1 FAIL/2 skips); its original member identity was not retained.
   The corrected parent keeps this raw count and performs one native Job identity
@@ -3012,7 +3057,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware and Windows local c17f9763 / CI 0935ac59 stable full 31+3/40, Chromium full 58+4/54 PASS; Windows hardware supersets need a second display | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows c153c0c7 package/distribution/native NSIS preconditions PASS, installed proof FAIL (4/3 total, active snapshot empty), updater/black-box skipped; prior retained-1 result remains unresolved; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows 0935ac59 actual NSIS payload PASS (3 total/active 0/exit 0/cleanup verified), updater fails at pnpm.cmd launch and black-box skips; 07950a33 native-entry correction pending CI; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS 85f662f4 native/full hardware/CI and Windows local c17f9763 / CI 0935ac59 complete profiles PASS; latest-source paired matrix, Windows package/physical-display and external gates remain open | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 

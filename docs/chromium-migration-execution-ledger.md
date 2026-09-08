@@ -33,6 +33,30 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+CI 34198254073 is terminal FAIL at updater launch, after real Windows NSIS
+installed-payload PASS for exact source 0935ac593e0630ecfc785cacce1a7f66bcf1e32c.
+Version 8.5.0 installs the exact source tree plus its single expected unsigned
+uninstaller. Job total 3, raw root/final active 0, command exit 0 and profile/ACL
+cleanup verify; no application launch is requested. Proof SHA-256
+e7a51e4d21ca0e4d4cffcef439bfd6e5d415878c584e9d1ad62f649eaee75dd0 is retained in
+artifact 10045973731 (ZIP SHA-256
+938607f06a219e20dcf7ee288840504674eec221178f95018ef4a3f43cc70f74).
+The API ledger retains exact installer/executable/manifest identities and native
+PIDs. This is NSIS payload evidence, not updater-signature or transaction proof.
+
+The following isolated updater exits 1 with only pwsh/conhost/cmd observed;
+original child stderr is unavailable. The workflow bypasses its verified native
+pnpm entrypoint by explicitly selecting pnpm.cmd. Tooling correction
+07950a33a04bbd313e926e4a3b9077a0f18f21b8 uses pnpm.exe for both isolated CI
+callers and preserves existing ACL/identity/cleanup/deadline gates. The workflow
+regression fails before and passes after; adjacent tests 33 PASS/2 existing
+platform skips, hygiene/lint PASS. Native pnpm 12.3.4 locally executes a Node
+24.20.0 marker child; the separate shim quoting failure is not the exact CI
+failure reproduction. Windows-only CI 34202245777 is dispatched once for this
+exact source and workflow head at 08:01:02 UTC.
+Packaged updater/black-box and production transactions remain open; no completed
+macOS CI is rerun. App runtime remains 3eff9b28.
+
 Windows-only CI 34198254073 tests exact tooling source
 0935ac593e0630ecfc785cacce1a7f66bcf1e32c from documentation-only workflow head
 efef879adf7e2fb8e40f05cd292ddf646cf1ae2b. Shared JS passes 3876/11 platform skips.
@@ -46,7 +70,7 @@ Windows native job 101970942425 is SUCCESS: Rust lint and 1673 PASS/4 ignored,
 native integration 16 PASS, complete Windows JS 3835 PASS/48 platform skips and
 Tauri build. The new PowerShell fixture passes in the complete suite at 6623 ms
 under its unchanged 10000 ms deadline. Downstream installed-payload/updater/
-black-box remain pending at this checkpoint. The API ledger retains artifact
+black-box have the terminal outcome above. The API ledger retains artifact
 hashes and native identities.
 
 Latest tooling correction 0935ac593e0630ecfc785cacce1a7f66bcf1e32c executes the
@@ -59,7 +83,7 @@ deadline. Final Job active-zero, exact total 3, exit code, identity binding and
 profile/ACL cleanup remain mandatory. Unknown survivors are rejected. Native
 and adjacent checks pass 34/2 existing platform skips; hygiene/typecheck/lint
 PASS. This is lower-layer-covered tooling work; complete regression at its exact
-SHA now passes in CI 34198254073, while real installed-payload remains pending. The
+SHA and real installed-payload now pass in CI 34198254073. The
 unsupported child-side console drain was withdrawn with its failure evidence.
 
 Current candidate 3eff9b2865f90b85908b1c71f605d64805051ddd passes local Windows

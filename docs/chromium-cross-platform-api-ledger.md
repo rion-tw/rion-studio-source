@@ -49,16 +49,77 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | CI 34204932987 at 57b5daf0 passes Rust 1673/4 ignored, native integration 16, Windows JS 3843/48 platform skips, shared JS 3883/12 platform skips and both shell builds/isolation. Local 57b5daf0 also passes full Rust and both production builds/isolation. New updater-tool source 0c070d91 is in CI 34209380675. App runtime remains 3eff9b28. Local runtime verifier 0xC0000005 and historical Macro/state-worker timeouts remain unresolved; subsequent PASS is not a root-cause fix. Updater 256 rounds unchanged. |
+| 1. Native/shared/build | CI 34209380675 at 0c070d91 passes Rust 1673/4 ignored, native integration 16, Windows JS 3852/48 platform skips, shared JS 3888/16 platform skips and both shell builds/isolation. Local 0c070d91 production builds/isolation pass. Diagnostic-only 5cbcecfb is in CI 34212812982. App runtime remains 3eff9b28. Local runtime verifier 0xC0000005 and historical Macro/state-worker timeouts remain unresolved; subsequent PASS is not a root-cause fix. Updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | New 0c070d91 Chromium FAILS at shell-smoke after two PASS: native shortcut helper reaches its unchanged 30-second deadline without stage output; 59 phases remain unexecuted. All completed normal stages and the failed stage flush/exit. Latest completed stable remains 57b5daf0 31+3 expected force/40 journeys/all 34 phases while the new stable job runs. Prior complete 07950a33 Chromium 58+4/54 is historical, not latest-source PASS; 57b5daf0's separate ERR_NO_BUFFER_SPACE is unresolved and not reached in this new run. Local c17f9763 remains workstation evidence; current UAC and single-display constraints remain. |
+| 3. Full profiles | New 0c070d91 Chromium FAILS at shell-smoke after two PASS: native shortcut helper reaches its unchanged 30-second deadline without stage output; 59 phases remain unexecuted. All completed normal stages and the failed stage flush/exit. Exact 0c070d91 stable full passes 31+3 expected force/40 journeys/all 34 phases. Prior complete 07950a33 Chromium 58+4/54 is historical, not latest-source PASS; 57b5daf0's separate ERR_NO_BUFFER_SPACE is unresolved and not reached in this new run. Local c17f9763 remains workstation evidence; current UAC and single-display constraints remain. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI 34204932987 passes actual 8.5.0 NSIS payload (Job 3/active 0/exit 0/cleanup verified). Persisted updater diagnostics identify PowerShell waiting for target installer PID 6780: exit 1, empty stdout/stderr. Exact absent-PID behavior is reproduced locally and corrected in 0c070d91; original 120-second deadline remains. New-source complete package validation is pending CI 34209380675. Black-box still skips; no successful updater transaction or production-key cutover is inferred from installed-payload PASS. |
+| 6. Install/update | CI 34209380675 at 0c070d91 passes actual 8.5.0 NSIS payload (Job 3/active 0/exit 0/cleanup verified) and the CI-fixture Electron 8.4.0 to 8.5.0 Rust-owned updater transaction, replacement/relaunch and data marker. Updater Job total 88/active 0. Packaged black-box executes but fails (Job 25/active 0); original harness error is unavailable. Diagnostic-only 5cbcecfb now persists stage/primary/cleanup errors and is pending CI 34212812982. No Tauri source transaction or production-key cutover is inferred. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- CI 34209380675 is terminal FAIL at source/workflow head
+  0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8. Native job 102006693751 passes
+  Rust 1673/4 ignored, native integration 16/8 files and Windows full JS
+  3852/48 platform skips (474 PASS/10 skipped files), including all four new
+  native process-terminal tests. The updater 256-round winner test is intact.
+  Stable full passes as recorded below; Chromium remains incomplete.
+- Package job 102006478624 passes NSIS installed-payload proof SHA-256
+  061198796a43fe169f73fa7853ffdb6fa5f1d19927f106aa73e8cb5d20b3c5cf.
+  Unsigned 8.5.0 installer is 101629204 bytes/SHA-256
+  a2d86165ddd59d62ab66cd868d7b76ae30dc16d1bb202b0681777f189a43c89d;
+  installed executable remains SHA-256
+  373ce09ca562a701155a8fd94ca1fe59e68403a71d28ab44fc3f19ddda8eca62.
+  Source and normalized installed manifests match at
+  ddc54a22a6cd9dfcec75c2458a877f88eb8df6dedb275e13487463ba1fd50e0e,
+  only the expected uninstaller is added, and Job 3/active 0/exit 0 plus cleanup
+  verify. The actual updater step then passes at 09:46:16.429Z: persisted
+  observations bind Electron-v23 8.4.0 to 8.5.0, the same installer hash and
+  updater manifest SHA-256
+  1c60c3a1888b5b68887819fad947fc001cb1d68f0a107e1d33e7d8b2861b2943.
+  Both packaged-artifact-manifest-fail-closed and
+  windows-installed-layout-replacement-and-relaunch report applied. This runs
+  the real Rust signature/hash/transaction path, verifies the installed version,
+  fresh-process journal removal and preserved user-data marker before cleanup.
+  Target installer PID 1796, old-uninstaller 3544 and installed application
+  root 2452/descendants 7660, 6188, 8276 are observed; Job total 88/active 0,
+  no observation error or truncation. These are ephemeral fixture observations,
+  explicitly authoritative=false/productionTerminalReceipt=false. There is no
+  Tauri-v22 source case and none of the four production transactions is claimed.
+- Packaged black-box now executes but FAILS. Artifact directory
+  2026-09-08T09-46-51-896Z-c29f0d80-dedb-47de-a615-113f7d7b3f7d-win32-packaged-black-box
+  contains empty packaged-stdout.log and packaged-stderr.log, no passed report
+  or screenshot. Packaged root 5984 and child PIDs 836/8472/3988 execute from
+  win-unpacked; cleanup reaches Job total 25/active 0, command exit 1.
+  The original harness error/failed substage is unavailable and is not inferred
+  from process order. Final artifact 10050138648 is downloaded/hash verified:
+  503c6bed86ff80887deebf503d184bfeedcca47cffb2d1f7df4a3390dd44f9a0.
+- Diagnostic-only 5cbcecfb04a01a39dc6bf4c50a38b5178ead4801 adds a create-new
+  packaged-smoke-failure.json on the existing failure path, with stage, exact
+  child PID, package hashes and bounded/redacted original plus cleanup errors.
+  It never writes a passing report, changes cleanup/deadlines or substitutes
+  diagnostics for native authority. The already-tested updater error serializer
+  is shared unchanged. The primary Error remains the same object when cleanup
+  and persistence succeed; failures retain original-first aggregate order.
+  Explicit darwin/win32 serialization, native-cleanup and adjacent release
+  checks pass 64/2 existing platform skips in six files; hygiene/typecheck/lint
+  pass (23 existing warnings). This is lower-layer-covered harness evidence,
+  not a product behavior change. CI 34212812982 was dispatched once at
+  09:57:05Z for this exact new source to recover the unavailable black-box
+  failure; no same-source rerun or macOS run is dispatched.
+  Local pnpm run build, build:electron and check:desktop-e2e-isolation pass at
+  exact 5cbcecfb with only these ledger edits dirty. No App runtime or Rust
+  authority implementation changed after 3eff9b28; the later Core edit is a
+  shutdown-terminal assertion in the restart test.
+- Stable job 102006478859 in CI 34209380675 completes SUCCESS at exact
+  0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8. Report
+  2026-09-08T09-21-05-931Z-win32 has clean checkout, 31 normal PASS/three
+  expected force, all 40 journeys PASS, exact 34-phase membership/order and
+  every phase exit code 0. The force phases are p1-cross-domain-topology-force,
+  force-terminate and crash-restart. Downloaded artifact 10049778400 SHA-256:
+  b52b9d1d5fdfdeacef908c7b6dd1a06d9a5313746246b27ab020d293b07e0b1d.
+  This does not change the independent incomplete Chromium verdict below.
 - In-progress CI 34209380675 at exact
   0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8 already has a failed Chromium
   report, 2026-09-08T09-21-26-718Z-win32: two phases PASS/one FAIL,
@@ -3231,8 +3292,8 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-12 | P2 / Shell | shared shell coordination implemented; macOS 85f662f4 and Windows local c17f9763 / CI 0935ac59 full shell/standby PASS; native Windows session-end drain PASS; physical display superset pending; actual sleep unobserved without manual-assistance requirement | CP-01 | Centralize command definitions, shell services, display event and exit-drain coordination where equivalent. Retain Cmd/Ctrl, AppKit, Mica/vibrancy and Windows session-end boundaries. Test cancel/close/drain/focus and paired shell journeys. |
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
-| CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware and Windows local c17f9763 / CI 07950a33 complete profiles are historical PASS; latest 0c070d91 Chromium fails native shortcut helper before completing its profile, 57b5daf0 separately failed mixed-seed load; newest stable/native gates pending; hardware supersets need a second display | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows 57b5daf0 actual NSIS payload PASS (3 total/active 0/exit 0/cleanup verified), updater fails waiting for installer PID 6780 and black-box skips; exact absent-PID PowerShell failure reproduced/corrected in 0c070d91, complete new-source package validation pending; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware and Windows local c17f9763 / CI 07950a33 complete profiles are historical PASS; 0c070d91 stable full and native pass but Chromium fails native shortcut helper before completing its profile, 57b5daf0 separately failed mixed-seed load; 5cbcecfb validation pending; hardware supersets need a second display | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
+| CP-16 | P2 / Release tooling | macOS 85f662f4 CI-fixture package/updater/black-box PASS; Windows 0c070d91 actual NSIS payload and Rust-owned 8.4.0 to 8.5.0 fixture updater replacement/relaunch PASS, packaged black-box FAIL with missing harness error; 5cbcecfb failure diagnostics pending CI; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS 85f662f4 native/full hardware/CI and Windows local c17f9763 / CI 0935ac59 complete profiles PASS; latest-source paired matrix, Windows package/physical-display and external gates remain open | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 

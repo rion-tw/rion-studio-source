@@ -33,6 +33,36 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+CI 34209380675 is terminal FAIL at exact
+0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8. Native Rust 1673/4 ignored,
+native integration 16, Windows full JS 3852/48 platform skips, shared JS
+3888/16 platform skips and stable full 31+3 expected force/40 journeys pass.
+Chromium still fails the native shortcut helper, leaving 59 phases unexecuted.
+
+Actual 8.5.0 NSIS payload and the Rust-owned Electron-v23 8.4.0 to 8.5.0 CI
+fixture updater transaction now PASS. Persisted observations bind installer
+a2d86165ddd59d62ab66cd868d7b76ae30dc16d1bb202b0681777f189a43c89d and updater
+manifest 1c60c3a1888b5b68887819fad947fc001cb1d68f0a107e1d33e7d8b2861b2943,
+with installed-version replacement, fresh-process journal removal and preserved
+data marker; updater Job total 88/active 0. This is not a Tauri-v22 transaction
+or production terminal receipt. Packaged native black-box executes but FAILS:
+root PID 5984, Job total 25/active 0, command exit 1, empty App stdout/stderr,
+no passed report and unavailable original harness error. Final artifact
+10050138648 SHA-256 is
+503c6bed86ff80887deebf503d184bfeedcca47cffb2d1f7df4a3390dd44f9a0.
+
+Diagnostic-only 5cbcecfb04a01a39dc6bf4c50a38b5178ead4801 adds a bounded,
+create-new packaged failure file with stage, child PID, package hashes, primary
+and cleanup errors, preserving the original rejection and all native checks.
+Adjacent validation passes 64/2 existing platform skips; hygiene/typecheck/lint
+pass. CI 34212812982 is pending on that exact new source to recover the missing
+black-box error. No macOS or unchanged-source rerun is dispatched, and no API
+or production gate is closed on diagnostic or fixture success.
+Local production Tauri/Electron builds and production E2E isolation pass at
+5cbcecfb with only ledger edits dirty; App runtime remains 3eff9b28.
+
+Earlier checkpoint progression (retained, superseded by the terminal result):
+
 New CI 34209380675 at 0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8 is in
 progress, but its Chromium report already FAILS after two PASS phases. The
 first native newGameWindow shortcut in shell-smoke reaches the unchanged
@@ -41,6 +71,9 @@ first native newGameWindow shortcut in shell-smoke reaches the unchanged
 reach or resolve the previous mixed-seed ERR_NO_BUFFER_SPACE failure. Shared
 JS passes 3888/16 platform skips; independent package, stable and native jobs
 continue. Exact report/artifact/source identities are retained in the API ledger.
+Stable job 102006478859 subsequently completes at that same source: clean
+report 2026-09-08T09-21-05-931Z-win32, 31 PASS/three expected force, all 40
+journeys PASS, exact 34-phase membership/order and all phase exit codes 0.
 
 Latest CI 34204932987 at 57b5daf00c7c41ba78348d42aecd099a0cc85b0e is FAIL
 in package validation. Windows native Rust 1673/4 ignored, native integration

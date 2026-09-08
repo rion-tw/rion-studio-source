@@ -33,6 +33,16 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Diagnostic-source CI 34212812982 at 5cbcecfb04a01a39dc6bf4c50a38b5178ead4801
+completes stable full 31+3 expected force/40 journeys and Chromium full 58+4/54.
+Exact 34/62-phase membership/order and all normal Chromium flush/exit verify.
+Shared JS passes 3893/16 platform skips. Native/package jobs continue. This
+later PASS does not repair the earlier helper timeout or ERR_NO_BUFFER_SPACE,
+and it does not establish acceptance for the later 737d5a1f harness correction.
+Native chooser 1152/1, unchanged import source/restart scope, standby input
+neutrality and exact-HWND WM_QUERYENDSESSION are retained in the API ledger;
+actual OS sleep/sign-out and physical secondary display remain unverified.
+
 Native-harness correction 737d5a1f2a2ebc8cf7f7896c24a39faa3336514e is pending
 CI 34214207165, dispatched once at 10:12:30Z. Local native tests reproduce
 PowerShell stdin continuing after throw and reporting success (two red cases),

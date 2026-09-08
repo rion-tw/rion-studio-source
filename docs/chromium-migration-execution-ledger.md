@@ -33,6 +33,32 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Tool-only a12e932ca081b82f0a9df289938533eaa8387fae adds bounded relaunch
+child/stream/journal observations and fails from an exact early child exit,
+preserving the original error and 120000ms journal deadline. Adjacent tests
+pass 42/five files; hygiene/typecheck/lint pass. Full local JS remains FAIL:
+3858 PASS/21 FAIL/48 skips (11 symlink EPERM plus ten original 10000ms
+timeouts, six promotion-readiness and four Macro editor cases), 394.18s,
+13:59:16.854–14:06:01.746Z. No speculative timing fix or green retry is applied.
+The new source, including Node-root fixture 719101d7, is undergoing its first
+Windows-only CI 34236090355. No product runtime or production gate changed.
+One diagnostic run of the three failing files has 69 PASS/one symlink EPERM,
+with none of the ten timeouts reproduced; this does not replace full JS FAIL.
+Both shell builds and production E2E isolation pass at exact a12e932c.
+
+CI 34229084549 at exact 6782222976223e1483d3678784e4aa1abcc43390 passes
+shared JS 3898/28 platform skips and both complete Windows profiles (stable
+31+3/40/all 34 phases; Chromium 58+4/54/all 62 phases, normal flush/exit verified).
+Native Rust 1673/four ignored and integration 16 pass, but complete Windows JS
+has 3873 PASS/one 10000ms diagnostic-fixture timeout/48 skips. Tauri build is
+skipped. NSIS passes, but updater fails its original 120000ms journal-removal
+acknowledgement at 13:42:26.219Z; black-box is skipped. Artifact 10058867820
+SHA-256 217c2a0d9775b09932b14e03d38ed593a83552c0b425e67f56092eb23d9d9580
+retains that error. Original child stdout/stderr and journal state were not
+retained before isolated-profile cleanup, so the boot cause remains unknown.
+Updater Job total 87/active zero proves cleanup only. Later test-only 719101d7
+is not this CI's source. No previous fixture PASS overrides this failure.
+
 Test-only 719101d7513bf7762d065d85c531947a486689de isolates the native Job
 fixture from PowerShell's optional conhost startup without relaxing its exact
 one-root assertion. Native/adjacent tests pass 12/five files and hygiene,

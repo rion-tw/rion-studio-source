@@ -49,16 +49,73 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | CI 34224123627 at 68a0e92c passes Rust 1673/4 ignored, native integration 16, shared JS 3898/27 skips and complete Windows JS 3873/48 skips; Tauri build passes. Latest local test-only 719101d7 complete JS has 3863 PASS/11 symlink EPERM/48 skips, with native/adjacent and hygiene/typecheck/lint PASS. CI 34229084549 validates packaged correction 67822229. Local 68a0e92c production builds/isolation pass. App runtime remains 3eff9b28; historical native errors remain separately unresolved. Updater 256 rounds unchanged. |
+| 1. Native/shared/build | Latest local a12e932c full JS FAILS: 3858 PASS/21 FAIL/48 skips (11 EPERM, ten original 10000ms timeouts); adjacent 42 PASS, hygiene/typecheck/lint/Tauri build PASS. Diagnostic three-file run has 69 PASS/one EPERM and does not reproduce the ten timeouts. CI 34236090355 is pending for exact a12e932c. Prior complete Windows JS PASS remains 68a0e92c: 3873/48 skips, Rust 1673/4 ignored and native 16. App runtime remains 3eff9b28; updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | CI 34224123627 at exact 68a0e92c passes stable 31+3 expected force/40 journeys/all 34 phases and Chromium 58+4/54/all 62 phases, all normal Chromium flush/exit verified. Local d1e539 (built code 737d5a1f) passes complete stable 31+3/40; local 1ae51c6e (built code 3c08e479) passes complete Chromium 58+4/54. Earlier native shortcut/buffer failures remain unexplained; later PASS is not a repair. |
+| 3. Full profiles | CI 34229084549 at exact 67822229 passes stable 31+3 expected force/40 journeys/all 34 phases and Chromium 58+4/54/all 62 phases, all normal Chromium flush/exit verified. Local d1e539 (built code 737d5a1f) passes complete stable 31+3/40; local 1ae51c6e (built code 3c08e479) passes complete Chromium 58+4/54. Earlier native shortcut/buffer failures remain unexplained; later PASS is not a repair. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. Best-effort simulation/native-event coverage is owner-directed; the local 12-file display/power/session-end/quit suite passes 78 tests at d1e539 (code 737d5a1f). No physical second display, actual OS sleep or actual OS sign-out evidence; no manual hardware/OS operation is required. |
-| 6. Install/update | Exact 68a0e92c NSIS payload and Rust-owned Electron 8.4.0→8.5.0 fixture updater PASS. Packaged black-box executes but fails on unsupported top-level UIA SetFocus. Correction 67822229 passes native foreground ownership/rejection tests and awaits full package verification in CI 34229084549. No Tauri source transaction or production-key cutover is inferred. |
+| 6. Install/update | Latest 67822229 NSIS PASS, updater journal ACK timeout FAIL, black-box skipped. Prior 68a0e92c Electron 8.4.0→8.5.0 fixture updater PASS precedes an exact UIA SetFocus black-box failure. Foreground correction 67822229 passes native tests; new relaunch diagnosis a12e932c is in CI 34236090355. No Tauri source transaction or production-key cutover is inferred. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- Tool-only a12e932ca081b82f0a9df289938533eaa8387fae adds bounded installed-child
+  stdout/stderr and exact PID/exit/signal plus journal stat observations before
+  cleanup. Child spawn/error/exit cancels the journal observer as failure; a
+  completed journal ACK remains terminal. It preserves the original failure as
+  cause, watcher cleanup and the unchanged 120000ms external deadline. It does
+  not identify the earlier boot cause. Adjacent Windows tests pass 42/five files;
+  hygiene/typecheck/lint pass (23 pre-existing lint warnings). E2E omission is
+  lower-layer-covered; app runtime code is unchanged.
+  Complete local JS at this exact SHA runs 13:59:16.854–14:06:01.746Z and FAILS:
+  3858 PASS/21 FAIL/48 skips, 471 passing/10 failing/10 skipped files, 394.18s.
+  Eleven failures are symlink EPERM; ten hit the unchanged 10000ms deadline:
+  six promotion-readiness cross-binding/tampering/endpoint/redirect assertions
+  and four Macro editor help/drag/modifier cases. No native Job or new relaunch
+  test fails. The cause of these additional timeouts is not established, and
+  prior focused or full PASS does not replace this result.
+  One diagnostic execution of the three failing files has 69 PASS/one symlink
+  EPERM across 70 tests in 51.43s; none of the ten timeouts reproduces in that
+  narrower run. No deadline, safety assertion or test selection in the complete
+  suite is changed. pnpm run build passes, including the native Tauri build.
+  The same exact SHA passes x64 pnpm run build:electron (14:09:58.450–14:10:26.459Z)
+  and pnpm run check:desktop-e2e-isolation (14:10:26.728–14:10:29.430Z).
+  Logs/results are retained under windows-takeover-4e5ec764 with the
+  updater-relaunch-observation-* prefix. Windows-only CI 34236090355 was
+  dispatched once at 14:05:59.142Z for exact a12e932c (including test-only
+  719101d7); it is pending, not a retry of the previous source.
+- CI 34229084549 at exact 6782222976223e1483d3678784e4aa1abcc43390
+  passes both full profiles and shared JS 3898/28 platform skips. Stable report
+  2026-09-08T12-59-48-928Z-win32 (clean) runs 12:59:49.315–13:14:25.897Z,
+  passing 31 normal/three expected force, all 40 journeys and all 34 ordered
+  phases. Artifact 10057652988 SHA-256 is
+  132434a4eb5720c56b8ddb595a67aeaa7b4c7d146226861a7540d586ad2be9d4.
+  Chromium report 2026-09-08T12-59-06-754Z-win32 runs
+  12:59:07.208–13:19:40.749Z, passing 58 normal/four expected force, all 54
+  journeys and all 62 ordered phases; all normal flush/exit and phase exit
+  checks pass. Artifact 10057868876 SHA-256 is
+  d29ed4e1df68d970203eef99423c50488995df844687d1e828337473764e6eed.
+  Native job 102070644781 FAILS solely on the old PowerShell-root diagnostic
+  fixture's 10000ms timeout: Rust 1673 PASS/four ignored, native integration 16
+  PASS and Windows JS 3873 PASS/one FAIL/48 platform skips. The later Node-root
+  fixture correction is not part of this CI source. Tauri build is skipped;
+  package validation also fails as recorded below. No timeout repair is inferred from
+  a previous successful run of the old fixture.
+- The same CI's package job 102070394405 passes NSIS but fails updater journal
+  acknowledgement at 13:42:26.219Z; packaged black-box is skipped. Artifact
+  10058867820 SHA-256 217c2a0d9775b09932b14e03d38ed593a83552c0b425e67f56092eb23d9d9580
+  retains the original 120000ms timeout for the isolated user's
+  app-update-install-journal.json. The probe discarded child stdout/stderr and
+  removed its isolated profile, so the original boot/journal cause is unavailable.
+  Job accounting ends at 87 total/zero active, with observed installed app PIDs
+  3600/8556/3448; successful cleanup does not establish update success.
+  Strict NSIS receipt reconciliation passes: unsigned 8.5.0 installer, 101626309
+  bytes, SHA-256 2267974f62961eaaa95f4f3ef12804d91aa7d41403cfcf180c42dc9afffa15ab;
+  proof digest 2936c1f37a870ea602002b8f19bead2ad25a3fda816968d0996df68d4d42836e;
+  normalized manifest a7423e215d9a819ec4d14122dccdae2374aae50facfac1c22e5d90b838984fd7;
+  only the expected uninstaller is added, no payload mutation, exact Job total
+  three/active zero/exit zero/cleanup verified. The prior 68a0e92c updater PASS
+  does not override this failure or validate the pending foreground correction.
 - Test-fixture-only correction 719101d7513bf7762d065d85c531947a486689de
   passes 12 native/adjacent tests in five files, source hygiene/typecheck/lint,
   and completes full local JS at 13:10:57.806Z with 3863 PASS/11 symlink
@@ -3675,7 +3732,7 @@ Owners are responsible subsystems, not assignments to unavailable people.
 | CP-13 | P1 / Diagnostics + settings | verified; paired retired-settings and persistence acceptance at 718dc83a | CP-02 | Owner-directed removal of high-refresh UI, shared settings and WKWebView feature writes. Ignore retired persisted/imported fields without losing other preferences. Preserve unrelated WebGL policy and AppKit hosting. |
 | CP-14 | P2 / Platform data | retained adapters verified; both native Rust gates passed at 280027d7 | CP-01 | Record exact retained boundaries for file identity/ACL/atomic replacement/locks, Chrome discovery/quit/decryption and transfer encryption. Keep legacy migration distinct from ongoing consented Chrome import. Audit callers and both cfg targets; no safeStorage format assumption. |
 | CP-15 | P1 / Desktop E2E | macOS 85f662f4 full hardware passes; Windows CI 68a0e92c completes stable 31+3/40 and Chromium 58+4/54, local d1e539/1ae51c6e also complete stable/Chromium; native CI 34224123627 passes; package remains pending; earlier shortcut timeout and mixed-seed load failure remain unexplained; owner directs best-effort simulation for unavailable hardware | CP-01; alongside behavior tasks | Share fixtures, seed/restart scenarios and receipt assertions; retain native UI drivers. Upload must still click the remote file input and native chooser. Preserve all coverage targets and run paired smoke/hardware profiles where relevant. |
-| CP-16 | P2 / Release tooling | macOS 85f662f4 fixture package/updater/black-box PASS; Windows 68a0e92c NSIS payload and 8.4.0→8.5.0 fixture updater PASS, black-box fails on exact UIA root SetFocus; correction 67822229 native foreground tests pass and CI 34229084549 is pending; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
+| CP-16 | P2 / Release tooling | macOS 85f662f4 fixture package/updater/black-box PASS; Windows 68a0e92c NSIS payload and 8.4.0→8.5.0 fixture updater PASS, black-box fails on exact UIA root SetFocus; correction 67822229 native tests pass, its NSIS passes but updater ACK times out and black-box is skipped; diagnostic a12e932c CI 34236090355 pending; production gates open | CP-01 | Share manifest/version/hash/signature/job coordination; retain native installer and locked verification. Reuse v22 release environment in final delta audit. No new credentials/infrastructure, no autoUpdater, and no publication inferred from this task. |
 | CP-17 | P1 / Migration | gated | existing migration execution gates | Make Electron the sole production entry only after exact-candidate native parity, update transactions and release gates. Remove Tauri/System WebView-only code/dependencies/tests, retain AppKit and required data import/upgrade compatibility. Never waive existing gates. |
 | CP-18 | P1 / Validation | macOS 85f662f4 native/full hardware/CI and Windows local c17f9763 / CI 0935ac59 complete profiles PASS; latest-source paired matrix, Windows package/physical-display and external gates remain open | all applicable tasks | Prevent duplicated mechanisms from returning using focused behavior tests and dependency-boundary checks. Record actual macOS/Windows runs and remaining exceptions per task; branch count zero is not the goal. |
 

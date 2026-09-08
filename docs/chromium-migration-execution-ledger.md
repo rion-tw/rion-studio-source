@@ -26,6 +26,37 @@ actual classifications; removed work is not labeled PASS.
 
 ## Published-source fixture and release-entry checkpoint — 2026-09-09
 
+Latest verifier change: `9433f25b1cf0875aa9ada98cc1b531593937129a`.
+The 373880b8 Windows package job 102270917982 is terminal **FAIL**, after
+release artifact build, previous-version fixture preparation and extension
+seed/restart all passed. At `2026-09-08T23:35:18.2339793Z`, the next runtime
+probe exited with decimal `3221225477` (`0xC0000005`, Windows access violation),
+without retained child stderr. Package structure, NSIS installed payload, updater
+and black-box steps after it did not execute. Failure bundle 10081435766 has
+SHA-256 `2c4862569a0210861f3df4a66ded8372d21d3eee7c3f97859d38652271e07816`;
+it is not a successful package receipt. Selected original job-log lines are
+`ci34288948657/windows-runtime-probe-failure.log` under the local artifact root.
+
+One unchanged-source local x64 `pnpm run verify:electron-runtime` on clean
+`a08cf27fec6e86be42e8e4308a0264d18f432491` passed with Electron 43.6.0 and
+Rust Core 0.1.0; it did not reproduce the crash in the CI 8.5.0 fixture context.
+Receipt prefix: `windows-takeover-4e5ec764/sole-entry-a08cf27f-runtime-access-violation-focused`.
+The prior verifier collected streams at process `exit` rather than pipe `close`
+and omitted stdout on a nonzero exit. Consequently the original failure cannot
+show whether its version payload had already been written before the crash.
+
+Commit 9433f25b corrects that observation boundary, retains the last 16384
+characters of each stream on failure, and writes fixed synchronous probe stages
+before Electron import, at readiness, around addon loading and after the contract
+write. Nonzero exit remains failure even with a valid payload; no retry, timer,
+deadline or product runtime change was added. Six new explicitly darwin/win32
+tests cover data arriving after exit, a payload followed by a crash, and bounded
+native noise. The two adjacent files pass **13 tests / 1 existing platform skip**;
+typecheck, full lint (0 errors / 23 existing warnings), source hygiene and the
+changed local x64 runtime probe pass. This is `internal-only` verifier work with
+no changed product journey; the access violation remains unreproduced, not fixed.
+Final package verification of the changed verifier is pending.
+
 Final verification candidate: `c52decf9d4c55888f5a0d2e979884d2387020223`
 (documentation on top of the program commits below). On the clean Windows
 worktree, `pnpm run build` passed in 11.31 seconds and
@@ -106,7 +137,8 @@ Neither the earlier 3-second SQLite teardown failure nor the earlier 10-second
 Job-test timeout is reproduced; later success does not establish a causal fix.
 Selected immutable-job log observations are retained as
 `ci34288948657/windows-native-summary.log` under `.desktop-e2e-artifacts/`.
-The package job remains active, not PASS.
+The package job later failed at its runtime probe as recorded above; its later
+package/install/updater/black-box steps did not execute.
 
 The complete Windows profile on this same 373880b8 source is also verified:
 report root `2026-09-08T23-05-45-983Z-win32`, **58 PASS + 4

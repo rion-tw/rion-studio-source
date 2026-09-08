@@ -5,6 +5,7 @@
 import process from "node:process";
 
 import { ELECTRON_RENDERER_DOCUMENTS } from "./scripts/verifyElectronRendererBundle.mjs";
+import { EXPECTED_ELECTRON_RUNTIME } from "./scripts/verifyElectronRuntime.mjs";
 
 export const ELECTRON_PACKAGE_OUTPUT = "release/electron";
 export { ELECTRON_RENDERER_DOCUMENTS };
@@ -29,7 +30,7 @@ if (
 const electronBuilderConfiguration = {
   appId: "com.rionstudio.launcher",
   productName: "Rion Studio",
-  electronVersion: "43.4.1",
+  electronVersion: EXPECTED_ELECTRON_RUNTIME.electron,
   directories: {
     buildResources: "build",
     output: ELECTRON_PACKAGE_OUTPUT

@@ -8,6 +8,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { isAbsolute, join, resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -19,12 +20,16 @@ import {
 } from "./electronUpdaterCompatibilityReceiptIo.mjs";
 
 const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
 
-export async function buildElectronUpdaterPreviousFixtures(environment = process.env) {
+export async function buildElectronUpdaterPreviousFixtures(environment = process.env, {
+  platform = process.platform,
+  executeFile = execFileAsync
+} = {}) {
   if (
     environment.CI !== "true" ||
     environment.GITHUB_ACTIONS !== "true" ||
-    (process.platform !== "darwin" && process.platform !== "win32")
+    (platform !== "darwin" && platform !== "win32")
   ) {
     throw new Error(
       "Previous updater fixtures are restricted to macOS or Windows GitHub CI."
@@ -48,7 +53,7 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
     priorV23Version,
     "Electron target application version"
   );
-  if (process.platform === "darwin") {
+  if (platform === "darwin") {
     return buildMacosTauriV22Fixture({
       environment,
       fixtureRoot,
@@ -60,9 +65,10 @@ export async function buildElectronUpdaterPreviousFixtures(environment = process
   const installers = {};
   for (const [label, version] of [["V23", priorV23Version]]) {
     const output = join(fixtureRoot, `previous-${version}`);
-    await execFileAsync("pnpm.cmd", [
-      "exec",
-      "electron-builder",
+    // Execute the pinned CLI with Node: .cmd shims cannot be spawned directly
+    // on Windows, and shell interpolation would corrupt fixture paths.
+    await executeFile(process.execPath, [
+      require.resolve("electron-builder/cli.js"),
       "--config",
       "electron-builder.config.mjs",
       "--win",

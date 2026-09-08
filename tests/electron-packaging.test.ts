@@ -56,6 +56,8 @@ describe("Electron packaging contract", () => {
     const packagePreparation = packageJson.scripts?.["package:electron:prepare"] ?? "";
     expect(packageJson.devDependencies?.["@electron/asar"]).toBe("4.3.0");
     expect(packageJson.devDependencies?.["@electron/fuses"]).toBe("2.1.3");
+    expect(electronBuilderConfiguration.electronVersion)
+      .toBe(packageJson.devDependencies?.electron);
     expect(packageJson.scripts?.package).toBe("node scripts/packageTauri.mjs");
     expect(packageJson.scripts?.dist).toBe("node scripts/buildTauriRelease.mjs");
     expect(packagePreparation).toContain("build:electron:rust:release");

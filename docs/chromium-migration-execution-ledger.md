@@ -61,7 +61,8 @@ at `behavior_21_session_migration_launch_gate.rs:1211`, with
 `StateDatabase("state worker shutdown timed out after 3 seconds")` during checked
 Chromium teardown. Later native/Windows JS steps did not run. The automatically
 invoked loader diagnostic also exited 1, but this was an executed Rust test
-failure, not a test-executable loader failure. Both package jobs remain running.
+failure, not a test-executable loader failure. Both package jobs later completed
+as SUCCESS; their exact-source evidence is recorded below.
 No publication was dispatched.
 
 The exact import-teardown test passed once locally on clean source
@@ -90,12 +91,33 @@ was dispatched once at `2026-09-08T23:04:20.199Z` for exact source
 for it. This source includes both test-diagnostic changes, the equivalent regex
 lint fix and documentation. Production runtime/package code remains identical
 to c52decf9. Scope is Windows only, to obtain the native integration and complete
-Windows JS results that the prior Rust failure prevented. Existing macOS jobs
-continue on c52decf9; no macOS acceptance was redispatched. The new Windows run
+Windows JS results that the prior Rust failure prevented. macOS jobs completed
+on c52decf9; no macOS acceptance was redispatched. The new Windows run
 has completed shared checks as SUCCESS: **3712 JS PASS / 29 platform skips**,
 lint 0 errors / 23 existing warnings, portable Rust 997 PASS / 1 ignored,
-renderer build and sanitizer/concurrency SUCCESS. Windows native/package jobs
-remain active, not PASS.
+renderer build and sanitizer/concurrency SUCCESS. Windows native job
+102271073604 is terminal SUCCESS: Rust **1106 PASS / 4 ignored**, Electron
+native integration **16 PASS**, and complete Windows JS **3689 PASS / 48 platform
+skips** (446 passing files / 10 skipped files). Rust lint and native adapter build
+also pass. The exact import-teardown case and the unchanged 256-round concurrent
+updater test pass in this full suite. Windows Job diagnostics reach every stage,
+including cleanup at 5705 ms, within the original 10000 ms test budget.
+Neither the earlier 3-second SQLite teardown failure nor the earlier 10-second
+Job-test timeout is reproduced; later success does not establish a causal fix.
+Selected immutable-job log observations are retained as
+`ci34288948657/windows-native-summary.log` under `.desktop-e2e-artifacts/`.
+The package job remains active, not PASS.
+
+The complete Windows profile on this same 373880b8 source is also verified:
+report root `2026-09-08T23-05-45-983Z-win32`, **58 PASS + 4
+EXPECTED_FORCE_TERMINATION / 54 journeys PASS**. Artifact 10081108347 matches
+SHA-256 `a401fb70ba30149aaf5d46af8da9de631edc504f0e3a82cc98439f0f75b37696`.
+The exact source manifest, phase order, derived journey verdicts, four expected
+force phases, and all normal final-flush/process-exit results were reconciled.
+The report ran from `2026-09-08T23:05:46.272Z` to `2026-09-08T23:23:22.174Z`;
+fixture version application accounts for the dirty worktree flag. ZIP, report,
+reconciliation script and summary are retained under `ci34288948657/` in the
+local artifact root.
 
 ### Final runtime-source complete profiles
 
@@ -123,7 +145,8 @@ verification results.
 
 Job 102264458817 is terminal **SUCCESS**. It verified Electron 43.6.0,
 Chromium 150.0.7871.250, Node 24.20.0, Node-API 10 and Rust Core 8.5.0 on
-darwin-arm64; app structure, ad-hoc signing, DMG and updater distribution all
+darwin-arm64. Host: macOS 26.6.2 (25G83), runner image `macos-26-arm64`
+`20260831.0337.3`; app structure, ad-hoc signing, DMG and updater distribution all
 passed. The fixed published v8.3.0 source passed native fixture preparation,
 including its pinned bytes/hash, plist versions and strict codesign verification.
 
@@ -158,6 +181,10 @@ direct View input ownership, release build, runtime/extension isolation, package
 structure, distribution, exact NSIS installed payload, Rust updater and packaged
 native black-box. Artifact 10080836624 was downloaded and verified against
 SHA-256 `26aa0037d11054b22fa50680661f5c536fb3cb26d82e676ef2985a62a62fefd5`.
+Host: Windows Server 2025 Datacenter 10.0.26100, runner image
+`windows-2025-vs2026` `20260824.214.3`. Runtime verification confirms Electron
+43.6.0, Chromium 150.0.7871.250, Node 24.20.0, Node-API 10 and Rust Core 8.5.0
+on win32-x64. This hosted runner is distinct from the local Windows ARM64 VM.
 
 The fixture 8.5.0 installer is 101626449 bytes, Authenticode-unsigned, SHA-256
 `ae1363d64e4eebee34361e79563de6f611f9e68093e727e54624158abd4cc719`.

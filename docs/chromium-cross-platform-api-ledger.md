@@ -49,16 +49,80 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | Latest CI 34202245777 at 07950a33 fails Core 981/1/1 ignored after a three-second state-worker shutdown timeout; later native/Windows JS/build skip. Prior complete CI 0935ac59 remains Rust 1673/4 ignored, native integration 16, Windows JS 3835/48 skips. Local 57b5daf0 passes full Rust 1673/4 ignored, both production builds and E2E isolation; exact-source CI 34204932987 is pending. App runtime remains 3eff9b28. Local runtime verifier 0xC0000005 and historical Macro/state-worker timeouts remain unresolved. Updater 256 rounds unchanged. |
+| 1. Native/shared/build | CI 34204932987 at 57b5daf0 passes Rust 1673/4 ignored, native integration 16, Windows JS 3843/48 platform skips, shared JS 3883/12 platform skips and both shell builds/isolation. Local 57b5daf0 also passes full Rust and both production builds/isolation. New updater-tool source 0c070d91 is in CI 34209380675. App runtime remains 3eff9b28. Local runtime verifier 0xC0000005 and historical Macro/state-worker timeouts remain unresolved; subsequent PASS is not a root-cause fix. Updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | CI 34202245777 at exact 07950a33 passes stable 31+3 expected force/40 journeys and Chromium 58+4/54. Manifest membership and order match all 34/62 phases; every normal Chromium phase flushes/exits and all phase exit codes are 0. Prior 3eff9b28 full-profile evidence also captures the corrected Web-only close overlapping quit and terminalizing before Core effects are disposed. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
+| 3. Full profiles | Latest 57b5daf0 passes stable 31+3 expected force/40 journeys/all 34 phases. Chromium FAILS at mixed-recovery-seed after 49 PASS + one expected force: Workspace Role main-frame load reports ERR_NO_BUFFER_SPACE (-176), 11 phases remain unexecuted. Every completed normal phase and the failed phase flush/exit. Prior complete 07950a33 Chromium 58+4/54 is historical, not latest-source PASS. Local c17f9763 remains workstation evidence; latest local trusted UI is obstructed by UAC and extended supersets require a second display. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. All normal Chromium phases flush and exit. No physical second display, actual OS sleep or actual OS sign-out evidence; synthetic listener events are not physical sleep acceptance. |
-| 6. Install/update | CI 34202245777 at 07950a33 passes target 8.5.0/previous 8.4.0 builds, runtime/package/distribution and actual NSIS payload (Job 3/active 0/exit 0/cleanup verified). Native pnpm, Node, Rust probe and actual updater installer/uninstaller now execute, but the command exits 1; original child stderr is unavailable and black-box skips. CI 34204932987 at 57b5daf0 includes persisted probe diagnostics and is pending. No updater transaction or production-key cutover is inferred from installed-payload PASS. |
+| 6. Install/update | CI 34204932987 passes actual 8.5.0 NSIS payload (Job 3/active 0/exit 0/cleanup verified). Persisted updater diagnostics identify PowerShell waiting for target installer PID 6780: exit 1, empty stdout/stderr. Exact absent-PID behavior is reproduced locally and corrected in 0c070d91; original 120-second deadline remains. New-source complete package validation is pending CI 34209380675. Black-box still skips; no successful updater transaction or production-key cutover is inferred from installed-payload PASS. |
 | 7. Closure | API is now 11/18: CP-08 and CP-10 close on the boundary-specific evidence below. Five migration work packages/nine deliverables overlap this count. Exact-candidate paired-platform evidence, physical display, production transactions, promotion, configuration delta and protected runtime retirement remain open. |
 
 Latest reconciliation (2026-09-08, after complete local Windows profiles):
 
+- Latest complete CI 34204932987, source/workflow head
+  57b5daf00c7c41ba78348d42aecd099a0cc85b0e, is FAIL in package validation.
+  Native job 101992287013 passes Rust 1673/4 ignored (including unchanged
+  updater concurrency coverage), native integration 16/8 files and Windows
+  JS 3843/48 platform skips (473 PASS/10 skipped files). Shared job
+  101992110464 passes 3883/12 platform skips (479 PASS/4 skipped files).
+  Stable job 101992110291, report 2026-09-08T08-32-43-303Z-win32, is complete:
+  31 normal + three expected force, 40 journeys, exact 34-phase order/membership,
+  all phase exit codes 0. Artifact 10048018643 SHA-256 is
+  8978cb6b2ebdb56682d38c058bb70b7c7b07ca8fb6ac9d0cea06823668d57649.
+  These are Windows Server 2025 x64 CI observations, separate from this ARM64 VM.
+- Chromium report 2026-09-08T08-32-38-959Z-win32 at that SHA FAILS:
+  49 normal PASS, one expected force (chromium-app-recovery-force), one FAIL;
+  47 journeys PASS/one FAIL/six NOT_RUN. Eleven phases after mixed-recovery-seed
+  do not execute. Artifact 10047972329 SHA-256 is
+  3a70de8f98886f3cd48aec176fd80d304b3ac347fcd48d36c6247b4f9c01f01d.
+  All completed normal phases flush/exit; the failed phase also flushes/exits
+  (PID 7892) with runner exit 1. The normalized continue-on-error step does not
+  establish PASS; the final complete-profile guard fails as intended.
+  At 08:47:58.217Z, Workspace Role da271b5b-cccc-4c3a-ad1f-a2724adfe622,
+  WebContents 4, emits did-fail-provisional-load then did-fail-load with
+  ERR_NO_BUFFER_SPACE (-176), main frame, fixture origin 127.0.0.1:59935.
+  Attachment had resolved to parent native host 2/generation 1. Core ack sequence
+  270 retains ELECTRON_ROLE_SURFACE_LOAD_FAILED for operation
+  7fef851c-7aa9-4a3d-9d96-e1cab8085566/effect
+  9f10ff46-51a4-416e-b786-9c57805f9b3a; cleanExitRoleSurface completes at 269
+  and the exact failed WebContents is destroyed. No compensation error is recorded.
+  Survivor window b825c6d2-97b3-4c20-bdff-095fb19eaefe retains Role tab
+  3b64934e-bee3-4a8d-9727-1c3e072eaf16 and Workspace tab
+  56796fe5-2e0e-4c60-8eba-4c018ddd189e; the standalone Role remains running.
+  This seed fails before native pointer assertions; trusted-input diagnostics
+  are empty and no successful hit or missing HWND identity is invented.
+  The exact resource-exhaustion cause is unknown. It is distinct from the old
+  WebElement-origin correction and is not fixed by unrelated updater work.
+- Package job 101992110203 independently passes runtime/package/distribution
+  and actual NSIS payload. Proof SHA-256 is
+  c6d654cf1c1e3ea6bd4970f356b6b947f900b88b11d6a9e02e653f1ab7e325c2;
+  unsigned 8.5.0 installer is 101627764 bytes, SHA-256
+  a6617744c5b51311ef4b71498fc3a1a8eb7ced515e2251e09cae745e785b6bbf.
+  Normalized installed/source manifest SHA-256 is
+  5586be49b171f96f9419fbd95d9e5c1fbcf5f48d295e7f2c8efae93f1d9bce63;
+  installed executable SHA-256 remains
+  373ce09ca562a701155a8fd94ca1fe59e68403a71d28ab44fc3f19ddda8eca62.
+  Only the expected uninstaller is added; Job total 3/active 0/exit 0 and cleanup
+  are verified. Updater subsequently executes installer PID 6780 and old
+  uninstaller 8280 but fails at waitForWindowsProcess with empty stdout/stderr
+  and exit 1, captured in packaged-updater-probe-observations.json. Job total
+  79/active 0, no diagnostic error/truncation. Black-box is SKIPPED.
+  Artifact 10048722199 is downloaded/hash verified as
+  4428bbf7594d5564c59aa6ac55cafee61cddd042b7502309cf9eaa65d3f7b718.
+- Updater tool correction 0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8 follows
+  three locally red native tests: Get-Process -ErrorAction SilentlyContinue
+  leaves PowerShell's command status failed when an exact PID is already absent,
+  causing the same empty-output exit 1 during both wait and cleanup. The new
+  query catches only NoProcessFoundForGivenId, rethrows every other lookup error,
+  retains Wait-Process -Timeout 120 and verifies absence after tree cleanup.
+  No unconditional exit-success, retry, deadline increase or installer success
+  inference is added. Final adjacent suite is 33 PASS/5 files; hygiene, typecheck
+  and lint pass (23 existing warnings). This is lower-layer-covered tooling,
+  not a product journey change. Complete Windows CI 34209380675 was dispatched
+  once at 09:19:43Z for that exact new source; no macOS run was dispatched.
+  Local pnpm run build, build:electron and check:desktop-e2e-isolation all pass
+  at 0c070d91 with Node 24.20.0 x64 and Rust 1.98.1 x64; the isolated full-JS
+  native gate remains CI evidence while the workstation UAC prompt is present.
 - CI 34202245777 is terminal FAIL in native and package jobs. Package job
   101983499285 passes runtime/package/distribution and actual 8.5.0 NSIS payload:
   proof SHA-256 88b3c995a23a224f464bf5113bafe8b36394bea1777edaf6bf3a78a4f52a0fd6,

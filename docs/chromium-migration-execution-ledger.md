@@ -33,6 +33,41 @@ tasks do not waive or replace the release-cutover gates in this ledger.
 
 ## 2026-09-08 workstation acceptance checkpoint
 
+Latest CI 34204932987 at 57b5daf00c7c41ba78348d42aecd099a0cc85b0e is FAIL
+in package validation. Windows native Rust 1673/4 ignored, native integration
+16, Windows JS 3843/48 platform skips, shared JS 3883/12 platform skips and
+stable full 31+3 expected force/40 journeys/all 34 phases pass. Chromium report
+2026-09-08T08-32-38-959Z-win32 fails mixed-recovery-seed after 49 PASS/one
+expected force: Workspace Role main-frame ERR_NO_BUFFER_SPACE (-176), then
+Core ELECTRON_ROLE_SURFACE_LOAD_FAILED. Eleven phases remain unexecuted;
+completed normal stages and the failed stage flush/exit. Prior complete
+07950a33 Chromium evidence does not establish latest-source PASS. The resource
+failure is not attributed to the previous WebElement-origin issue or fixed by
+updater changes. Exact topology, original error and artifact hashes are in the
+API ledger; this seed has no completed trusted-pointer assertions.
+
+Actual 8.5.0 NSIS installed payload passes with exact Job 3/active 0/exit 0 and
+verified cleanup, proof SHA-256
+c6d654cf1c1e3ea6bd4970f356b6b947f900b88b11d6a9e02e653f1ab7e325c2.
+The new persisted updater diagnostic identifies the failing PowerShell wait
+for installer PID 6780: exit 1, empty stdout/stderr. Job total 79/active 0;
+packaged black-box skips. This remains fixture evidence, not a completed
+transaction or production-key cutover.
+
+Tool-only 0c070d9126b7bedbf3c2a66f15cc8031c4d3a4c8 corrects the locally
+reproduced absent-PID PowerShell status error in both wait and cleanup. Only
+the exact native NoProcessFoundForGivenId result becomes absence; unknown
+errors still fail, the 120-second wait and target-survival assertion remain.
+Three native regression cases fail before the correction; final adjacent
+suite passes 33 tests/5 files, hygiene/typecheck/lint pass. Complete Windows
+CI 34209380675 is pending for this exact new source. No macOS run is repeated.
+No API or production gate is closed on this focused evidence.
+Both local production builds and production E2E isolation also pass at exact
+0c070d91 with Node 24.20.0 x64/Rust 1.98.1 x64. The full-JS Windows gate is CI
+evidence while the workstation's UAC prompt continues to obstruct local UI.
+
+Earlier source reconciliation (retained, superseded by the latest result above):
+
 CI 34202245777 is terminal FAIL in native and package jobs. The package job
 101983499285 passes actual 8.5.0 NSIS payload with exact Job 3/active 0/exit 0
 and verified cleanup. Proof SHA-256

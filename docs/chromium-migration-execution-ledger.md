@@ -70,7 +70,46 @@ display, real OS sleep/sign-out, four production transactions, terminal
 promotion or v22 configuration delta is inferred. API remains 11/18 and the
 overlapping five-work-package/nine-deliverable counts do not change.
 
-Harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 closes the exact role
+CI 34249936184 native job 102141670409 stops before Rust/complete JS because
+FinalizeArtifact returns HTTP 403 Forbidden at 16:17:04.256Z while uploading
+the passing direct Chromium input probe. This external upload failure leaves
+the exact-source native gate pending; no same-source retry or workflow waiver
+is used. The other jobs continue independently.
+Shared checks pass 3911 tests/29 platform skips at this exact source. The local
+complete JS run keeps runtime/test source 81b0343c while document-only aed95556
+and later ledger edits proceed; it is not an immutable-document snapshot.
+Complete local JS FAILS: 3810 PASS/78 FAIL/48 skips, 1180.52s; command
+16:11:29.538–16:32:12.943Z. Ten symlink EPERM, 66 original 10000ms deadlines
+and two font UI lookup failures are reconciled to 78 unique tests; six of
+those tests additionally report ENOTEMPTY cleanup failures (84 error entries).
+The GUI Job fixture still times out. Raw log SHA-256 is
+fe5cce2837834e1c61e62c62f4d6a3cc763a4f06fba7de3387ceff14a35104db.
+An observed CPU-contention sample is retained in the API ledger
+without claiming it proves all timeout causes or changing user processes.
+At exact 81b0343c, CI Chromium full report 2026-09-08T16-17-01-407Z-win32 passes
+58 normal/four expected force, 54 journeys/all 62 ordered phases, normal
+flush/exit and phase exits verified. Artifact 10066249270 SHA-256
+400c688e8df88f9201cfd0d2b64fcea9aa27536b5f40945352115de27f034515 is retained.
+A fresh local stable full, including E2E build, starts after full JS completes;
+document HEAD is aed95556 with ledger-only edits and runtime/test source 81b0343c.
+Its E2E native build succeeds (Cargo dev build 5m11s), but local full report
+2026-09-08T16-32-43-999Z-win32 fails before workspace creation: one PASS/one
+FAIL/32 missing phases, one FAIL/39 NOT_RUN journeys, 16:32:44.961–16:44:04.044Z.
+First-phase final flush is recorded. Restart shows a product startup failure;
+the authoritative receipt is PID 24740/main generation 2/epoch 0,
+native-presentation-5, renderer-ready, failed/nativeOperationQueuedTimeout/
+NATIVE_OPERATION_DEADLINE_EXCEEDED after 5030ms against the unchanged 5000ms
+deadline. Concurrent Role prewarm takes 9727ms, but the blocking operation and
+original HWND are not retained. This is a distinct local admission failure,
+not a workspace-helper verdict; no speculative runtime or deadline fix is made.
+Exact 81b0343c CI stable full also passes: clean report
+2026-09-08T16-17-06-470Z-win32, 16:17:06.745–16:34:20.735Z, 31 normal/three
+expected force, all 34 ordered phases/40 journeys and all phase exits verified.
+Artifact 10066300259 SHA-256
+6ed67618e41aacee3a8a77e6bfd416c6aab0da3a5b3b0415edc418e93f49a15f is retained.
+
+Earlier dispatch-time checkpoint (superseded by the terminal outcomes above):
+harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 closes the exact role
 through its visible Close Game Window action, retaining the native-close guard,
 PID/HWND fencing and original 300x100ms disappearance assertion. Adjacent tests
 pass 15/two platform skips; hygiene/typecheck/lint pass. The native test uses

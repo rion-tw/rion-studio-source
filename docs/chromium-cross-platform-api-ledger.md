@@ -49,9 +49,9 @@ mode or topology is changed to satisfy a removed mixed-DPI requirement.
 
 | Ordered gate | Current Windows evidence |
 | --- | --- |
-| 1. Native/shared/build | Latest CI 34244392164 at a48a151b: Rust 1673/4 ignored and native integration 16 PASS; Windows JS 3879 PASS/one Job-fixture timeout/48 skips FAIL, Tauri build skipped; shared 3903/29 skips PASS. Local full a48a151b JS 3867 PASS/13 FAIL/48 skips. New test/E2E candidate 81b0343c has 12 adjacent PASS and typecheck/hygiene/lint/coverage PASS; full local JS and new Windows CI pending. Latest both-shell builds/isolation PASS belong to a12e932c. Runtime implementation remains 3eff9b28; updater 256 rounds unchanged. |
+| 1. Native/shared/build | Candidate 81b0343c: 12 adjacent and typecheck/hygiene/lint/coverage PASS; shared CI 3911/29 skips PASS. Local full JS FAIL: 3810 PASS/78 FAIL/48 skips. Native CI stops at artifact FinalizeArtifact HTTP 403 before Rust/full JS; no native verdict is inferred. Previous a48a151b Rust 1673/4 ignored and native integration 16 PASS remain historical evidence. Latest production both-shell builds/isolation PASS belong to a12e932c; local stable E2E build at aed95556 completes. Runtime implementation remains 3eff9b28; updater 256 rounds unchanged. |
 | 2. Known recovery/detach failures | Mixed recovery and tabs pass in complete local and CI profiles. Local c17f9763 has separate pre-relaunch/survivor topology, exact native/logical identities and zero shell errors. Historical detach artifact 10017317351 omits its original primary/compensation causes; the old failure is not retroactively fixed. |
-| 3. Full profiles | Latest a48a151b Chromium full PASS: 58+4 expected force/54 journeys/all 62 ordered phases/normal flush and exit. Stable FAIL: three PASS/one FAIL, 30 missing phases, two PASS/two FAIL/36 NOT_RUN journeys; current-action refetch candidate 81b0343c still needs full profiles. Prior a12e932c stable full and prior complete local profiles remain historical PASS. Earlier shortcut/buffer causes remain unexplained. |
+| 3. Full profiles | Exact 81b0343c CI passes complete stable 31+3 expected force/40 journeys/all 34 phases and Chromium 58+4/54/all 62 phases, with normal Chromium flush/exit and all phase exits verified. Fresh local stable FAILS before workspace creation: one PASS/one FAIL/32 missing phases, exact main-window queued-deadline receipt retained below. Original create-button/shortcut/buffer failures remain separately retained; later PASS does not reconstruct missing observations. |
 | 4. Visible import | Consent/cancel, native chooser 1152/1, profile/game selection, confirmation, unchanged source and launch-origin cookie/LocalStorage scope pass in focused and complete local profiles, including fresh-process restart. Full-profile chooser PID 14968/dialog HWND 8193720, exact owner and dialog closure verified. |
 | 5. Hardware/lifecycle | Local full trusted input, standby recovery and exact-HWND WM_QUERYENDSESSION drain PASS. Best-effort simulation/native-event coverage is owner-directed; the local 12-file display/power/session-end/quit suite passes 78 tests at d1e539 (code 737d5a1f). No physical second display, actual OS sleep or actual OS sign-out evidence; no manual hardware/OS operation is required. |
 | 6. Install/update | Exact a48a151b CI NSIS, Electron 8.4.0→8.5.0 fixture updater and packaged native black-box PASS. SHA-verified artifact 10065038342 retains installed proof, updater observations and passed black-box report; all three isolated Jobs end active zero. No Tauri source transaction or production-key cutover is inferred; the older updater ACK timeout cause remains unexplained. |
@@ -82,8 +82,61 @@ Latest reconciliation (2026-09-09 Asia/Taipei; command timestamps below are UTC)
   requirements are unchanged. Typecheck, full hygiene, lint (23 existing warnings) and coverage pass; full
   local JS is running at this exact SHA. Windows-only CI 34249936184 was first
   dispatched at 16:15:26.192Z with matching workflow/checkout source SHA.
-  Complete stable and corresponding
-  Chromium profiles remain required. Logs use workspace-gui-* and
+  Its native job 102141670409 fails before Rust/complete JS at artifact upload:
+  the direct Chromium input probe passes one test, then FinalizeArtifact returns
+  HTTP 403 Forbidden at 16:17:04.256Z. This is an external evidence-upload
+  failure, not a native runtime/test verdict. No same-source rerun or workflow
+  relaxation is dispatched; remaining native validation stays pending.
+  Shared job 102141487519 passes 3911 tests/29 platform skips (484 passing/nine
+  skipped files); this does not replace the interrupted Windows native job.
+  Local full JS began before document-only aed95556f9d0de83941e812d9027bd223b01db7e
+  and subsequent ledger updates; runtime/test source remains 81b0343c, but this
+  is not a clean immutable-document snapshot. The complete local run FAILS:
+  3810 PASS/78 FAIL/48 skips, 467 passing/16 failing/ten skipped files, 1180.52s
+  Vitest duration; command 16:11:29.538–16:32:12.943Z. Exact failure reconciliation
+  gives ten symlink EPERM, 66 original 10000ms deadlines and two font UI lookup
+  failures. Six tests also report ENOTEMPTY cleanup errors, yielding 84 error
+  entries for 78 unique failed tests. The GUI Job test still times out; the
+  new workspace helper tests pass. Raw log SHA-256 is
+  fe5cce2837834e1c61e62c62f4d6a3cc763a4f06fba7de3387ceff14a35104db;
+  workspace-gui-full-js-failures-reconciled.json retains exact names and primary
+  plus secondary errors. There is no same-source full-JS retry. One native CPU
+  sample shows ChatGPT PID 7148 at
+  226 percent processor time and four Node workers at 35/35/28/7 percent on
+  this four-core VM. This records contention, not a proven cause for every
+  failure. No user process, test deadline or system setting was changed.
+  The corresponding complete Chromium profile now passes in this CI: report
+  2026-09-08T16-17-01-407Z-win32, 16:17:01.577–16:33:06.448Z, 58 normal/four
+  expected force, all 62 ordered phases/54 journeys, every normal flush/exit
+  and all phase exits verified. Artifact 10066249270 SHA-256
+  400c688e8df88f9201cfd0d2b64fcea9aa27536b5f40945352115de27f034515 is retained
+  in ci-workspace-gui-chromium; dirty state is CI fixture preparation. Complete
+  stable also passes: clean report 2026-09-08T16-17-06-470Z-win32,
+  16:17:06.745–16:34:20.735Z, 31 normal/three expected force, all 34 ordered
+  phases/40 journeys and every phase exit verified. Artifact 10066300259 SHA-256
+  6ed67618e41aacee3a8a77e6bfd416c6aab0da3a5b3b0415edc418e93f49a15f is retained
+  in ci-workspace-gui-stable. A fresh local full run (including E2E build) began
+  after full JS finished, under document HEAD aed95556 with ledger-only edits
+  and unchanged runtime/test source 81b0343c. Its native E2E build completes
+  successfully (Cargo dev build 5m11s), but local full FAILS at restart before
+  workspace creation: report 2026-09-08T16-32-43-999Z-win32,
+  16:32:44.961–16:44:04.044Z, one phase PASS/one FAIL/32 missing; one journey
+  FAIL/39 NOT_RUN. The first phase has an authoritative final flush; restart
+  displays the product startup-failure screen. The generic UI readiness error
+  follows the actual Rust receipt: application PID 24740, logical main window,
+  generation 2/lifecycle epoch 0, operation native-presentation-5, renderer-ready
+  accepted 16:43:14.4162348Z, terminal 16:43:19.4464175Z after 5030ms, status
+  failed/stage nativeOperationQueuedTimeout/code NATIVE_OPERATION_DEADLINE_EXCEEDED,
+  unchanged 5000ms deadline. The transcript and selected receipt are retained in
+  the report user-data/fullscreen-toolbar-lifecycle/desktop-e2e/events.ndjson and
+  workspace-create-local-startup-terminal.json. WebView prewarm for Role
+  e9a73da7-e774-4194-b662-551c3ced45b7 takes 9727ms during this interval; the
+  exact blocking operation and original HWND are not retained, so causality is
+  not established and no speculative startup-order/deadline change is made.
+  This does not fail inside the workspace helper or replace the full CI PASS.
+  The raw event transcript SHA-256 is
+  2576aec88cbb31295e64c6bf53fe54344cedda2ad383057599feb66f79d48f0b.
+  Logs use workspace-gui-* and
   workspace-create-refetch-*; app runtime implementation remains 3eff9b28.
 - CI 34244392164 is terminal FAIL at exact
   a48a151b65ed09b55f3540c6c90e5b262ac5f2b3. Shared JS passes 3903/29 platform
@@ -137,7 +190,8 @@ Latest reconciliation (2026-09-09 Asia/Taipei; command timestamps below are UTC)
   fixture black-box failure at visible-role-close, not production-key cutover
   or the earlier unexplained updater ACK timeout. API remains 11/18.
 
-- Harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 invokes the exact
+- Earlier dispatch-time checkpoint (superseded by the terminal outcomes above):
+  harness-only a48a151b65ed09b55f3540c6c90e5b262ac5f2b3 invokes the exact
   visible Close Game Window button instead of guarded WindowPattern.Close.
   It rejects wrong PID/zero HWND, duplicate, disabled or offscreen controls,
   and preserves the original exact-HWND disappearance check (300x100ms), now

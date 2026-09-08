@@ -26,3 +26,10 @@ export function assertElectronRuntimeProbe(
 ): void;
 
 export function verifyElectronRuntime(): Promise<void>;
+
+export function runElectronRuntimeProbe(
+  electronExecutable: string,
+  probePath: string,
+  addonPath: string,
+  isolatedUserData: string
+): Promise<ElectronRuntimeProbe>;

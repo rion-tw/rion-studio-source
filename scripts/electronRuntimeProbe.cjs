@@ -1,6 +1,8 @@
 const { writeSync } = require("node:fs");
 
+writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=script-started\n");
 const { app } = require("electron");
+writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=electron-imported\n");
 
 const PROBE_PREFIX = "RION_ELECTRON_RUNTIME_PROBE=";
 
@@ -13,8 +15,11 @@ void (async () => {
     }
     app.setPath("userData", userDataDirectory);
     await app.whenReady();
+    writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=app-ready\n");
 
+    writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=addon-load-started\n");
     const addon = require(addonPath);
+    writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=addon-loaded\n");
     for (const exportName of [
       "additionalBrowserArguments",
       "appKitRuntimeAbiVersion",
@@ -37,6 +42,7 @@ void (async () => {
       node: process.versions.node,
       platform: process.platform
     })}\n`);
+    writeSync(2, "RION_ELECTRON_RUNTIME_STAGE=contract-written\n");
     app.exit(0);
   } catch (error) {
     writeSync(2, `${error instanceof Error ? error.message : String(error)}\n`);

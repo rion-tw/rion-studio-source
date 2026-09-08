@@ -7,6 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const PROBE_PREFIX = "RION_ELECTRON_RUNTIME_PROBE=";
+const MAX_PROBE_OUTPUT_CHARACTERS = 16 * 1024;
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
 export const EXPECTED_ELECTRON_RUNTIME = Object.freeze({
@@ -80,7 +81,7 @@ export async function verifyElectronRuntime() {
   const probePath = join(repositoryRoot, "scripts", "electronRuntimeProbe.cjs");
   const isolatedUserData = await mkdtemp(join(tmpdir(), "rion-electron-runtime-probe-"));
   try {
-    const probe = await runProbe(electronExecutable, probePath, addonPath, isolatedUserData);
+    const probe = await runElectronRuntimeProbe(electronExecutable, probePath, addonPath, isolatedUserData);
     assertElectronRuntimeProbe(
       probe,
       packageJson.devDependencies?.electron,
@@ -94,7 +95,7 @@ export async function verifyElectronRuntime() {
   }
 }
 
-async function runProbe(electronExecutable, probePath, addonPath, isolatedUserData) {
+export async function runElectronRuntimeProbe(electronExecutable, probePath, addonPath, isolatedUserData) {
   const { code, signal, stderr, stdout } = await new Promise((resolvePromise, reject) => {
     const child = spawn(electronExecutable, [probePath], {
       cwd: repositoryRoot,
@@ -111,15 +112,22 @@ async function runProbe(electronExecutable, probePath, addonPath, isolatedUserDa
     let stderr = "";
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.stdout.on("data", (chunk) => {
+      stdout = (stdout + chunk).slice(-MAX_PROBE_OUTPUT_CHARACTERS);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk).slice(-MAX_PROBE_OUTPUT_CHARACTERS);
+    });
     child.once("error", reject);
-    child.once("exit", (code, signal) => resolvePromise({ code, signal, stderr, stdout }));
+    // Process exit can precede the last pipe data. The close event owns the
+    // complete bounded observation, including a payload written before a crash.
+    child.once("close", (code, signal) => resolvePromise({ code, signal, stderr, stdout }));
   });
   if (code !== 0) {
+    const output = `stdout (last ${MAX_PROBE_OUTPUT_CHARACTERS} characters):\n${stdout}\nstderr (last ${MAX_PROBE_OUTPUT_CHARACTERS} characters):\n${stderr}`;
     throw new Error(signal
-      ? `Electron runtime probe was terminated by ${signal}.\n${stderr}`
-      : `Electron runtime probe exited with code ${code ?? "unknown"}.\n${stderr}`);
+      ? `Electron runtime probe was terminated by ${signal}.\n${output}`
+      : `Electron runtime probe exited with code ${code ?? "unknown"}.\n${output}`);
   }
   const probeLine = stdout
     .split(/\r?\n/u)

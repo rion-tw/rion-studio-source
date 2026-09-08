@@ -8,5 +8,6 @@ export interface UpdaterJournalObservationOperations {
 export function waitForUpdaterJournalRemoval(
   path: string,
   timeoutMilliseconds: number,
-  operations?: UpdaterJournalObservationOperations
+  operations?: UpdaterJournalObservationOperations,
+  signal?: AbortSignal
 ): Promise<void>;

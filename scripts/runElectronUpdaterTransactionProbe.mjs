@@ -1,4 +1,4 @@
-import { waitForUpdaterJournalRemoval } from "./electronUpdaterJournalAcknowledgement.mjs";
+import { observeUpdaterRelaunch } from "./electronUpdaterRelaunchObservation.mjs";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -433,11 +433,12 @@ async function runWindowsProbe(
     }
     const launched = spawn(installedExecutable, [], {
       env: caseEnvironment,
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
     });
     await withUpdaterProbeCleanup(async () => {
-      await waitForUpdaterJournalRemoval(
+      await observeUpdaterRelaunch(
+        launched,
         join(userData, "app-update-install-journal.json"),
         EXTERNAL_ACK_DEADLINE_MS
       );

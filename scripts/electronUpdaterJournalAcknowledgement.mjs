@@ -3,7 +3,7 @@ import { access } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 
 /** Subscribe before readback so journal removal cannot fall between them. */
-export function waitForUpdaterJournalRemoval(path, timeoutMilliseconds, operations = { access, watch }) {
+export function waitForUpdaterJournalRemoval(path, timeoutMilliseconds, operations = { access, watch }, signal) {
   if (!Number.isSafeInteger(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
     return Promise.reject(new Error("Updater acknowledgement requires a positive deadline."));
   }
@@ -16,11 +16,13 @@ export function waitForUpdaterJournalRemoval(path, timeoutMilliseconds, operatio
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
+      signal?.removeEventListener("abort", cancelled);
       watcher?.close();
       fileWatcher?.close();
       if (error) reject(error);
       else resolve();
     };
+    const cancelled = () => finish(signal.reason);
     const inspect = async () => {
       try {
         await operations.access(path);
@@ -64,6 +66,8 @@ export function waitForUpdaterJournalRemoval(path, timeoutMilliseconds, operatio
       if (!settled) void inspect();
     };
     try {
+      signal?.addEventListener("abort", cancelled, { once: true });
+      if (signal?.aborted) { cancelled(); return; }
       watcher = operations.watch(dirname(path), (_event, filename) => {
         if (settled || (filename && String(filename) !== basename(path))) return;
         observeChange();

@@ -35,6 +35,38 @@ function observation() {
 afterEach(() => vi.useRealTimers());
 
 describe("updater journal acknowledgement", () => {
+  it("cancels from an authoritative child failure and closes both streams without waiting", async () => {
+    vi.useFakeTimers();
+    const io = observation();
+    const controller = new AbortController();
+    const error = new Error("child exited");
+    const pending = waitForUpdaterJournalRemoval("/fixture/journal", 1000, io, controller.signal);
+    controller.abort(error);
+    await expect(pending).rejects.toBe(error);
+    expect(io.watcher.close).toHaveBeenCalledOnce();
+    expect(io.fileWatchers[0]!.close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects prior cancellation even when the journal is absent", async () => {
+    const io = observation();
+    const controller = new AbortController();
+    const error = new Error("spawn failed");
+    controller.abort(error);
+    await expect(waitForUpdaterJournalRemoval("/fixture/journal", 1000, io, controller.signal)).rejects.toBe(error);
+    expect(io.watch).not.toHaveBeenCalled();
+  });
+
+  it("keeps an acknowledged removal terminal when the child exits later", async () => {
+    const io = observation();
+    io.access.mockRejectedValue(missing());
+    const controller = new AbortController();
+    const pending = waitForUpdaterJournalRemoval("/fixture/journal", 1000, io, controller.signal);
+    await expect(pending).resolves.toBeUndefined();
+    controller.abort(new Error("later child exit"));
+    await expect(pending).resolves.toBeUndefined();
+  });
+
   it("subscribes before the initial read, including removal during that read", async () => {
     const io = observation();
     io.access.mockImplementation(async () => {

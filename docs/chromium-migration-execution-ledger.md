@@ -69,9 +69,16 @@ SUCCESS: **3718 JS PASS / 29 platform skips** (448 passing files / 9 skipped),
 including the six new probe-output tests; portable Rust **997 PASS / 1 ignored**,
 lint 0 errors / 23 existing warnings, and complete hygiene/typecheck pass.
 Renderer build 102279853346 and sanitizer/concurrency 102279853289 are also
-SUCCESS. Windows native 102279976389 and package 102279853042 remain active.
+SUCCESS. Windows native 102279976389 is terminal SUCCESS: **1106 Rust PASS /
+4 ignored**, **16 Electron native integration PASS**, and complete Windows JS
+**3695 PASS / 48 platform skips** (447 passing files / 10 skipped). Native lint
+and adapter build pass. The import-teardown case and unchanged 256-round updater
+test pass, and every Windows Job diagnostic stage is observed through cleanup
+at 7081 ms within its original 10000 ms budget. Package 102279853042 remains
+active; its later installer/updater/black-box checks are not yet PASS.
 Selected shared-check job observations are retained in
-`ci34291837369/shared-checks-summary.log` under the local artifact root.
+`ci34291837369/shared-checks-summary.log`; native observations are in
+`ci34291837369/windows-native-summary.log` under the local artifact root.
 
 Final verification candidate: `c52decf9d4c55888f5a0d2e979884d2387020223`
 (documentation on top of the program commits below). On the clean Windows

@@ -80,6 +80,18 @@ Selected shared-check job observations are retained in
 `ci34291837369/shared-checks-summary.log`; native observations are in
 `ci34291837369/windows-native-summary.log` under the local artifact root.
 
+The complete Windows profile on exact source 40e21d19 has also passed:
+report root `2026-09-08T23-44-32-268Z-win32`, **58 PASS + 4
+EXPECTED_FORCE_TERMINATION / 54 journeys PASS**. It ran from
+`2026-09-08T23:44:32.414Z` to `2026-09-09T00:03:04.492Z`; its fixture version
+application is the expected dirty worktree flag. Artifact 10082164316 matches
+SHA-256 `909ab2bcef635d3463bbbee4c707f071345ad5464819d87835d1c0d7da79b55e`.
+The downloaded report matches the exact source manifest's complete phase order,
+derived journey verdicts and the four expected-force phases, with no normal
+final-flush/process-exit failures. ZIP, report and reconciliation output remain
+under `ci34291837369/` in the local artifact root. The package job has advanced
+to release artifact build; package completion remains pending.
+
 Final verification candidate: `c52decf9d4c55888f5a0d2e979884d2387020223`
 (documentation on top of the program commits below). On the clean Windows
 worktree, `pnpm run build` passed in 11.31 seconds and

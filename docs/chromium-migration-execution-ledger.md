@@ -11,18 +11,86 @@ cleanup. Publication, merge and credential changes remain outside this task.
 | Work package | Deliverables | Current state |
 | --- | ---: | --- |
 | Final v22 configuration delta | 1 | Read-only comparison complete: existing repository, App, updater secrets, endpoint, identity and asset names can be reused; see the configuration delta report. No remote settings changed. |
-| Sole Electron entry and old-runtime cleanup | 2 | Implementation committed: default/release entry points target Electron; Tauri/System WebView and obsolete launch/E2E paths are removed; provisional release jobs are disabled. Final source-specific verification remains in progress. Rust authority, AppKit and consumed v22 data compatibility remain. |
+| Sole Electron entry and old-runtime cleanup | 2 | Complete: default/release entry points target Electron; Tauri/System WebView and obsolete launch/E2E paths are removed; provisional release jobs are disabled. Complete native, profile and package verification is bound below. Rust authority, AppKit and consumed v22 data compatibility remain. |
 
 There are two scoped work packages / three deliverables, not the earlier four
-packages / seven deliverables. The comparison and implementation deliverables are
-complete; final verification remains in progress. API closure counts
-from the retired backlog are no longer used to gate this task.
+packages / seven deliverables. All three deliverables are complete, with no
+remaining task-scoped gate. API closure counts from the retired backlog are no
+longer used to gate this task.
 
 The [configuration delta](v22-configuration-delta.md) records exact baseline SHA,
 GitHub observation time and release/asset IDs. No physical dual-monitor, actual
 OS sleep/sign-out, real production updater transaction or terminal-promotion
 execution is queued. Existing simulations and fixture evidence retain their
 actual classifications; removed work is not labeled PASS.
+
+## Completion checkpoint — 2026-09-09
+
+The final Windows validation source is
+`40e21d19070a21d4f2cbe78f1e2ff7cc2aa17b75`.
+[CI 34291837369](https://github.com/rion-tw/rion-studio-source/actions/runs/34291837369)
+is terminal **SUCCESS in all five jobs**. Later commits change documentation
+only. Program/verifier changes and documentation were committed separately;
+the last verifier change is `9433f25b1cf0875aa9ada98cc1b531593937129a`.
+
+| Deliverable / invariant | Completion evidence |
+| --- | --- |
+| Final v22 configuration delta | Read-only settings/asset comparison and actual Rust endpoint fetch in the configuration delta report; existing repository, release App, keys, endpoint, identity and asset names are reused. No remote configuration or credential change. |
+| Sole Electron entry / retired runtime | Default dev/build/package/dist and existing release workflows target Electron. Tauri shell, WebView2/WKWebView engine code and obsolete launch/E2E paths are absent. Source/dependency/renderer-boundary and complete hygiene checks pass. Five ignored local generated schemas were preserved with matching bytes/hashes. |
+| Native and shared regression | Windows: Rust 1106 PASS / 4 ignored, native integration 16 PASS, full JS 3695 PASS / 48 platform skips. Shared CI: JS 3718 PASS / 29 platform skips, lint/typecheck/hygiene and sanitizer/concurrency pass. The 256-round updater concurrency assertion remains intact. |
+| Complete Chromium journeys | Windows 58 PASS + 4 expected force / 54 journeys PASS; macOS 56 PASS + 4 expected force / 52 journeys PASS. Both reports match their exact-source manifests, and every normal phase has final flush and process exit. |
+| Package / updater / native black-box | Windows final-source NSIS installed payload, Rust updater fixtures, package identity and visible native black-box all pass. Retained macOS package, published-v22-source fixture and AppKit black-box all pass at the exact source below. |
+| Rust / AppKit / legacy compatibility | Rust remains the data/topology/terminality/Macro authority; the typed bridge, retained AppKit host and consumed v22 data/updater compatibility remain. No second runnable shell, user Chrome profile runtime or renderer Node/Tauri fallback. |
+
+The retained macOS runtime evidence is from
+`c52decf9d4c55888f5a0d2e979884d2387020223`, CI 34286895282: native job
+102264594395 has **1116 Rust PASS / 5 ignored** and **14 native integration PASS /
+2 platform skips**, while package job 102264458817 is SUCCESS. Differences
+after that runtime source are test-only Rust shutdown observations, equivalent
+test regex formatting, verifier pipe-drain diagnostics/tests and documentation;
+they do not change the distributed runtime or native ownership. The new verifier
+observations have explicit darwin/win32 unit coverage; no later macOS native run
+is claimed, and completed macOS acceptance was not redispatched.
+
+Historical Windows SQLite teardown, Job diagnostic timeout, runtime-probe access
+violation and local VM input/symlink failures retain their exact failure records.
+The historical Darwin malformed process-group row also remains unreproduced.
+Later success does not prove a causal fix for those historical observations.
+No physical/production requirement was converted to PASS, no publication or merge
+was performed, and no release infrastructure or credential was introduced.
+
+### Final Windows package identity
+
+Package job 102279853042 is terminal SUCCESS on Windows Server 2025 Datacenter
+10.0.26100, image `windows-2025-vs2026` `20260824.214.3`. It verifies Electron
+43.6.0, Chromium 150.0.7871.250, Node 24.20.0, Node-API 10 and Rust Core 8.5.0
+on win32-x64, including the runtime probe that previously crashed.
+
+Artifact 10082607888 was downloaded and SHA-256 verified:
+`9dd2ab84f173e4fb217853084266bca0318f2f7b421d0cac0ccec9def91bbaaa`.
+The fixture 8.5.0 NSIS installer is 101625818 bytes, Authenticode-unsigned,
+SHA-256 `601f06ec9607b1e6354a09854442048b7dfac03c9299680e44bf2100ea8c43fa`.
+The source and normalized installed manifests are identical, adding only the
+root NSIS uninstaller and changing/removing no source files. The source,
+normalized install and black-box all bind package manifest
+`e73299c8de0c4839fc0479427bb82b98b6ea42996889120384a4c1e018f3bf29`
+(79 entries, 407337638 regular-file bytes).
+
+Both Rust updater fixture cases pass for 8.4.0 to 8.5.0, using that installer
+digest and manifest digest
+`8f9a87676e92f3ac144491df3256fb532458838683ca29b6bbabf2b72a91a486`.
+Their observations remain non-authoritative and are not production terminal
+receipts. Packaged black-box root
+`2026-09-09T00-19-16-687Z-e689d63e-e8a9-4cd6-ba61-6b8ad612c017-win32-packaged-black-box`
+is PASS: visible OS accessibility click, bundled Chromium host, temporary local
+Windows profile, no remote debugging and exit code 0. Its executable, app.asar
+and native-addon digests match the corresponding installed-source entries.
+ZIP, selected reports, job observations and both reconciliation scripts/results
+are retained under `.desktop-e2e-artifacts/ci34291837369/`.
+
+The following checkpoints retain the state observed at their respective times;
+their earlier pending states and failed candidates are historical, not queued
+work. This completion checkpoint is the current scope/status authority.
 
 ## Published-source fixture and release-entry checkpoint — 2026-09-09
 
@@ -55,13 +123,14 @@ native noise. The two adjacent files pass **13 tests / 1 existing platform skip*
 typecheck, full lint (0 errors / 23 existing warnings), source hygiene and the
 changed local x64 runtime probe pass. This is `internal-only` verifier work with
 no changed product journey; the access violation remains unreproduced, not fixed.
-Final package verification of the changed verifier is pending.
+Final package verification of the changed verifier subsequently completed in
+the exact-source run below.
 
 [Windows CI 34291837369](https://github.com/rion-tw/rion-studio-source/actions/runs/34291837369)
 was dispatched once at `2026-09-08T23:42:26.460Z` for exact source
 `40e21d19070a21d4f2cbe78f1e2ff7cc2aa17b75`, after finding zero existing runs
 for it. That source consists of the verifier/test commit 9433f25b and its
-documentation. The run is active, not PASS. Scope is Windows only; no completed
+documentation. All five jobs are terminal SUCCESS. Scope is Windows only; no completed
 macOS acceptance was redispatched and no publication was requested.
 The dispatch receipt is `sole-entry-runtime-probe-output-ci-dispatch.json`
 under `.desktop-e2e-artifacts/`. Shared checks job 102279853600 is terminal
@@ -74,8 +143,8 @@ SUCCESS. Windows native 102279976389 is terminal SUCCESS: **1106 Rust PASS /
 **3695 PASS / 48 platform skips** (447 passing files / 10 skipped). Native lint
 and adapter build pass. The import-teardown case and unchanged 256-round updater
 test pass, and every Windows Job diagnostic stage is observed through cleanup
-at 7081 ms within its original 10000 ms budget. Package 102279853042 remains
-active; its later installer/updater/black-box checks are not yet PASS.
+at 7081 ms within its original 10000 ms budget. Package 102279853042 is also
+terminal SUCCESS; its installer/updater/black-box identities are bound above.
 Selected shared-check job observations are retained in
 `ci34291837369/shared-checks-summary.log`; native observations are in
 `ci34291837369/windows-native-summary.log` under the local artifact root.
@@ -89,8 +158,8 @@ SHA-256 `909ab2bcef635d3463bbbee4c707f071345ad5464819d87835d1c0d7da79b55e`.
 The downloaded report matches the exact source manifest's complete phase order,
 derived journey verdicts and the four expected-force phases, with no normal
 final-flush/process-exit failures. ZIP, report and reconciliation output remain
-under `ci34291837369/` in the local artifact root. The package job has advanced
-to release artifact build; package completion remains pending.
+under `ci34291837369/` in the local artifact root. The package job subsequently
+completed every stage as recorded in the completion checkpoint.
 
 Final verification candidate: `c52decf9d4c55888f5a0d2e979884d2387020223`
 (documentation on top of the program commits below). On the clean Windows

@@ -3,9 +3,9 @@
 ## Status and scope
 
 The owner authorized Electron as the sole repository runtime and retirement of
-Tauri/System WebView on 2026-09-09. The final configuration delta and this cleanup
-are the remaining work; the former acceptance backlog is retired, not marked
-PASS. See [the current execution ledger](chromium-migration-execution-ledger.md).
+Tauri/System WebView on 2026-09-09. The final configuration delta and cleanup
+are complete; the former acceptance backlog is retired, not marked PASS.
+See [the exact-source completion evidence](chromium-migration-execution-ledger.md).
 No publication, merge, credential change, or new release infrastructure is part
 of the cleanup. Historical migration evidence remains in immutable Git history.
 

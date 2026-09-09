@@ -24,7 +24,12 @@ retired backlog as prerequisites.
 | Item | State | Evidence |
 | --- | --- | --- |
 | Final v22 configuration delta | Comparison complete; no new remote configuration needed | [Observed settings and required repository changes](v22-configuration-delta.md) |
-| Electron sole entry / old runtime cleanup | Implementation committed; final verification in progress | Migration ledger records program commits, complete Chromium profiles, Windows package/black-box proofs and the remaining source-specific CI checks |
+| Electron sole entry / old runtime cleanup | Complete, including final verification | Migration ledger binds the complete Windows CI at 40e21d19 and the retained macOS native/profile/package evidence at c52decf9; exact SHAs and package identities are recorded there |
+
+Both owner-scoped work packages / all three deliverables are complete. No item
+from the retired API backlog remains queued. Historical failures retain their
+observed verdicts; completion does not assert that unreproduced failures were
+causally fixed or that removed physical/production requirements passed.
 
 ## Historical evidence
 

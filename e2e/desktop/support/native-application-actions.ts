@@ -513,6 +513,232 @@ if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
   }
 }
 
+async function activateVisibleMacosDockQuickMenu(processId: number): Promise<void> {
+  const script = String.raw`
+on firstMatchingLabel(itemNames, candidates)
+  repeat with candidate in candidates
+    if itemNames contains (candidate as text) then return candidate as text
+  end repeat
+  error "localized Rion Quick Menu label unavailable; items=" & itemNames
+end firstMatchingLabel
+
+on run argv
+  set targetPid to (item 1 of argv) as integer
+  set openLabels to {"Open Rion Studio", "開啟 Rion Studio", "打开 Rion Studio", "Rion Studio を開く"}
+  set roleLabels to {"Roles", "角色", "ロール"}
+  set workspaceLabels to {"Workspaces", "工作區", "工作区", "ワークスペース"}
+  set windowLabels to {"Windows", "視窗", "窗口", "ウインドウ"}
+  set appKitWindowPrefix to "com.rionstudio.runtime.appkit-window.v1:"
+  tell application "System Events"
+    set matchingProcesses to application processes whose unix id is targetPid
+    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
+    set targetProcess to a reference to (first application process whose unix id is targetPid)
+    set launcherWindows to {}
+    repeat with appWindow in windows of targetProcess
+      set appWindowIdentifier to ""
+      try
+        set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
+      end try
+      if appWindowIdentifier does not start with appKitWindowPrefix then
+        if value of attribute "AXRole" of appWindow is "AXWindow" then
+          set end of launcherWindows to appWindow
+        end if
+      end if
+    end repeat
+    if (count of launcherWindows) is not 1 then error "exact Rion launcher AXWindow unavailable"
+    set launcherWindow to item 1 of launcherWindows
+    set frontmost of targetProcess to true
+
+    tell process "Dock"
+      set rionDockItemCount to 0
+      set electronDockItemCount to 0
+      set rionDockItemIndex to 0
+      set electronDockItemIndex to 0
+      set dockItemCount to count of UI elements of list 1
+      repeat with dockItemIndex from 1 to dockItemCount
+        set candidate to UI element dockItemIndex of list 1
+        if role description of candidate is "application dock item" then
+          if name of candidate is "Rion Studio" then
+            set rionDockItemCount to rionDockItemCount + 1
+            set rionDockItemIndex to dockItemIndex
+          else if name of candidate is "Electron" then
+            set electronDockItemCount to electronDockItemCount + 1
+            set electronDockItemIndex to dockItemIndex
+          end if
+        end if
+      end repeat
+      if rionDockItemCount is 1 then
+        set targetDockItemIndex to rionDockItemIndex
+      else if rionDockItemCount is 0 and electronDockItemCount is 1 then
+        set targetDockItemIndex to electronDockItemIndex
+      else
+        error "Rion Dock isolation unavailable; Rion=" & rionDockItemCount & "; Electron=" & electronDockItemCount
+      end if
+      set dockItem to UI element targetDockItemIndex of list 1
+      perform action "AXShowMenu" of dockItem
+      set menuExpiry to (current date) + 10
+      set shownMenu to missing value
+      repeat while shownMenu is missing value
+        try
+          set shownMenu to value of attribute "AXShownMenuUIElement" of dockItem
+        end try
+        if (current date) is greater than menuExpiry then error "Rion Dock Quick Menu unavailable"
+        delay 0.05
+      end repeat
+      set itemNames to name of every menu item of shownMenu
+      set openLabel to my firstMatchingLabel(itemNames, openLabels)
+      my firstMatchingLabel(itemNames, roleLabels)
+      my firstMatchingLabel(itemNames, workspaceLabels)
+      my firstMatchingLabel(itemNames, windowLabels)
+      click menu item openLabel of shownMenu
+    end tell
+  end tell
+end run`;
+  await executeFile("/usr/bin/osascript", [
+    "-e",
+    script,
+    "--",
+    String(processId)
+  ], { encoding: "utf8", timeout: 20_000 });
+}
+
+async function activateVisibleWindowsTrayQuickMenu(processId: number): Promise<void> {
+  const script = String.raw`
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class RionQuickMenuInput {
+  public delegate bool EnumProc(IntPtr hwnd, IntPtr value);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr value);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hwnd, int command);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+  public static void RightClick(int x, int y) {
+    if (!SetCursorPos(x, y)) throw new InvalidOperationException("tray pointer placement failed");
+    mouse_event(0x0008, 0, 0, 0, UIntPtr.Zero);
+    mouse_event(0x0010, 0, 0, 0, UIntPtr.Zero);
+  }
+  public static void LeftClick(int x, int y) {
+    if (!SetCursorPos(x, y)) throw new InvalidOperationException("menu pointer placement failed");
+    mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+    mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+  }
+}
+'@
+function Find-NamedElement([string[]]$names, [System.Windows.Automation.ControlType]$type) {
+  $all = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      $type
+    )
+  )
+  foreach ($element in $all) {
+    if ($names -contains $element.Current.Name -and -not $element.Current.IsOffscreen) {
+      return $element
+    }
+  }
+  return $null
+}
+function Click-Center($element, [bool]$right) {
+  $bounds = $element.Current.BoundingRectangle
+  if ($bounds.IsEmpty -or $bounds.Width -le 0 -or $bounds.Height -le 0) {
+    throw 'native Quick Menu element has no visible bounds'
+  }
+  $x = [int][Math]::Round($bounds.Left + ($bounds.Width / 2))
+  $y = [int][Math]::Round($bounds.Top + ($bounds.Height / 2))
+  if ($right) { [RionQuickMenuInput]::RightClick($x, $y) }
+  else { [RionQuickMenuInput]::LeftClick($x, $y) }
+}
+$targetPid = [uint32]$payload.processId
+$matches = [System.Collections.Generic.List[System.IntPtr]]::new()
+[RionQuickMenuInput]::EnumWindows({
+  param($hwnd, $value)
+  $candidatePid = [uint32]0
+  [RionQuickMenuInput]::GetWindowThreadProcessId($hwnd, [ref]$candidatePid) | Out-Null
+  if ($candidatePid -eq $targetPid -and [RionQuickMenuInput]::IsWindowVisible($hwnd)) {
+    $matches.Add($hwnd)
+  }
+  return $true
+}, [IntPtr]::Zero) | Out-Null
+if ($matches.Count -ne 1) { throw 'exact visible Rion launcher HWND unavailable' }
+[RionQuickMenuInput]::ShowWindowAsync($matches[0], 6) | Out-Null
+
+$trayIcon = Find-NamedElement @('Rion Studio') ([System.Windows.Automation.ControlType]::Button)
+if (-not $trayIcon) {
+  $chevrons = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Button
+    )
+  )
+  foreach ($candidate in $chevrons) {
+    $automationId = $candidate.Current.AutomationId
+    $name = $candidate.Current.Name
+    if (-not $candidate.Current.IsOffscreen -and
+        ($automationId -eq 'SystemTrayIcon' -or
+         @('Show hidden icons', '顯示隱藏的圖示', '显示隐藏的图标') -contains $name)) {
+      Click-Center $candidate $false
+      break
+    }
+  }
+  $expiry = [DateTime]::UtcNow.AddSeconds(10)
+  do {
+    $trayIcon = Find-NamedElement @('Rion Studio') ([System.Windows.Automation.ControlType]::Button)
+    if ($trayIcon) { break }
+    if ([DateTime]::UtcNow -gt $expiry) { throw 'Rion Studio notification-area icon unavailable' }
+    Start-Sleep -Milliseconds 50
+  } while ($true)
+}
+Click-Center $trayIcon $true
+
+$openLabels = @('Open Rion Studio', '開啟 Rion Studio', '打开 Rion Studio', 'Rion Studio を開く')
+$roleLabels = @('Roles', '角色', 'ロール')
+$workspaceLabels = @('Workspaces', '工作區', '工作区', 'ワークスペース')
+$windowLabels = @('Windows', '視窗', '窗口', 'ウインドウ')
+$expiry = [DateTime]::UtcNow.AddSeconds(10)
+do {
+  $openItem = Find-NamedElement $openLabels ([System.Windows.Automation.ControlType]::MenuItem)
+  $roleItem = Find-NamedElement $roleLabels ([System.Windows.Automation.ControlType]::MenuItem)
+  $workspaceItem = Find-NamedElement $workspaceLabels ([System.Windows.Automation.ControlType]::MenuItem)
+  $windowItem = Find-NamedElement $windowLabels ([System.Windows.Automation.ControlType]::MenuItem)
+  if ($openItem -and $roleItem -and $workspaceItem -and $windowItem) { break }
+  if ([DateTime]::UtcNow -gt $expiry) { throw 'complete Rion Studio Tray Quick Menu unavailable' }
+  Start-Sleep -Milliseconds 50
+} while ($true)
+Click-Center $openItem $false
+`;
+  await runEncodedPowerShellJson(script, { processId }, {
+    timeoutMilliseconds: 30_000
+  });
+}
+
+/** Opens the real Dock/notification-area menu and invokes its visible Open item. */
+export async function activateVisibleNativeQuickMenu(input: Readonly<{
+  platform: "macos" | "windows";
+  processId: number;
+}>): Promise<void> {
+  if (!validProcessId(input.processId)) {
+    throw new Error("The native Quick Menu requires one exact app PID");
+  }
+  if (input.platform === "macos") {
+    if (process.platform !== "darwin") {
+      throw new Error("The macOS Dock Quick Menu requires a macOS host");
+    }
+    await activateVisibleMacosDockQuickMenu(input.processId);
+    return;
+  }
+  if (process.platform !== "win32") {
+    throw new Error("The Windows Tray Quick Menu requires a Windows host");
+  }
+  await activateVisibleWindowsTrayQuickMenu(input.processId);
+}
+
 /**
  * Presses the platform's real native application-quit accelerator. The
  * desktop-E2E bridge is used only to identify the exact process that receives

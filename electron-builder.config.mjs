@@ -72,10 +72,16 @@ const electronBuilderConfiguration = {
       { target: "tar.gz", arch: ["arm64"] }
     ],
     artifactName: "Rion.Studio-mac.app.${ext}",
-    extraResources: [{
-      from: "build/native/darwin-arm64/rion-core.node",
-      to: "native/rion-core.node"
-    }],
+    extraResources: [
+      {
+        from: "build/native/darwin-arm64/rion-core.node",
+        to: "native/rion-core.node"
+      },
+      {
+        from: "build/icon.png",
+        to: "icons/rion-studio.png"
+      }
+    ],
     icon: "build/icon.icns",
     identity: "-",
     hardenedRuntime: false,
@@ -91,10 +97,16 @@ const electronBuilderConfiguration = {
   win: {
     target: [{ target: "nsis", arch: ["x64"] }],
     artifactName: "Rion.Studio-win.${ext}",
-    extraResources: [{
-      from: "build/native/win32-x64/rion-core.node",
-      to: "native/rion-core.node"
-    }],
+    extraResources: [
+      {
+        from: "build/native/win32-x64/rion-core.node",
+        to: "native/rion-core.node"
+      },
+      {
+        from: "build/icon.ico",
+        to: "icons/rion-studio.ico"
+      }
+    ],
     icon: "build/icon.ico",
     requestedExecutionLevel: "asInvoker",
     signExecutable: false,

@@ -20,7 +20,8 @@ const identity: RendererIdentity = {
 };
 
 function harness(runtimeActions?: ElectronChromiumRuntimeActionPort,
-  systemFonts?: (owner: RendererIdentity) => Promise<string[]>) {
+  systemFonts?: (owner: RendererIdentity) => Promise<string[]>,
+  onOverlayLanguageChanged?: (language: "en" | "zh-TW" | "zh-CN" | "ja") => void) {
   const coreInvoke = vi.fn(async (command: CoreCommand) => {
     if (command.type === "logsStatus") return { marker: "log-status" };
     return { command };
@@ -46,7 +47,8 @@ function harness(runtimeActions?: ElectronChromiumRuntimeActionPort,
       fallback,
       launches,
       runtimeActions,
-      systemFonts
+      systemFonts,
+      onOverlayLanguageChanged
     ),
     fallbackInvoke,
     launchRole,
@@ -93,6 +95,17 @@ function runtimeActionHarness() {
 }
 
 describe("Electron Core-backed API dispatcher", () => {
+  it("refreshes the native Quick Menu after Core accepts a language change", async () => {
+    const onOverlayLanguageChanged = vi.fn();
+    const h = harness(undefined, undefined, onOverlayLanguageChanged);
+    await h.dispatcher.invoke(identity, "setOverlayLanguage", ["zh-TW"]);
+    expect(h.coreInvoke).toHaveBeenCalledWith({
+      type: "overlayLanguageSet",
+      language: "zh-TW"
+    });
+    expect(onOverlayLanguageChanged).toHaveBeenCalledWith("zh-TW");
+  });
+
   it("passes the authenticated Chromium font inventory to Rust", async () => {
     const fonts = vi.fn(async () => ["Arial", "PingFang TC"]);
     const h = harness(undefined, fonts);

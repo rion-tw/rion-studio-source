@@ -21,6 +21,7 @@ import {
   ipcMain,
   Menu,
   MenuItem,
+  nativeImage,
   powerMonitor,
   screen,
   session,
@@ -101,8 +102,8 @@ import { CoreRendererEventBridge } from "./coreRendererEventBridge";
 import { createElectronCoreApiDispatcher } from "./coreApiDispatcher";
 import { createChromiumRoleFontApiDispatcher } from
   "./chromiumRoleFontApiDispatcher";
-import { ElectronDisplayTopologyController } from
-  "./electronDisplayTopologyController";
+import { ElectronDisplayTopologyController } from "./electronDisplayTopologyController";
+import { startElectronDisplayTopology } from "./electronDisplayTopologyStartup";
 import { preserveWebDriverUserDataDirectory } from "./electronUserDataPolicy";
 import { ElectronMainLifecycle, type ElectronAppLifecyclePort } from "./lifecycle";
 import { prepareElectronCleanExit, terminateAfterCleanExitFailure } from "./cleanExitCoordinator";
@@ -127,6 +128,13 @@ import { ElectronWindowsSessionEndCoordinator } from
   "./windowsSessionEndCoordinator";
 import { installWindowsApplicationMenu } from "./windowsApplicationMenu";
 import { installMacosApplicationMenu } from "./macosApplicationMenu";
+import {
+  initializeElectronApplicationIcon as initializeIcon
+} from "./electronApplicationIcon";
+import {
+  installElectronQuickMenu,
+  type ElectronQuickMenuComposition
+} from "./electronQuickMenuComposition";
 import {
   buildMainRendererWebPreferences,
   installMainRendererContentSecurityPolicy
@@ -191,6 +199,8 @@ let overlayShellEffects: ElectronOverlayShellEffects | null = null;
 let chromiumUpdater: ElectronChromiumUpdater | null = null;
 let fatalTermination: ElectronFatalTerminationCoordinator | null = null;
 let fatalEventStreamDetected = false;
+let applicationIcon: ReturnType<typeof initializeIcon> | null = null;
+let quickMenu: ElectronQuickMenuComposition | null = null;
 const identities = new RendererIdentityRegistry((contents) =>
   BrowserWindow.fromWebContents(contents as Electron.WebContents)
 );
@@ -468,6 +478,7 @@ function revealShellError(error: ReturnType<typeof normalizeRionBridgeError>): v
   if (mainIdentity) ipcBridge?.publish(mainIdentity, "onShellError", error);
 }
 async function disposeShellAfterFatalTermination(): Promise<void> {
+  quickMenu?.dispose(); quickMenu = null;
   graphicsHost?.dispose();
   chromiumUpdater?.dispose();
   unsubscribeDisplayTopology?.(); unsubscribeDisplayTopology = null;
@@ -512,7 +523,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     buildMainRendererWebPreferences({
       preloadPath: join(import.meta.dirname, "../preload/index.cjs"),
       devTools: !app.isPackaged
-    })
+    }),
+    applicationIcon?.path
   ));
   revealElectronMainWindowOnStartupReady(window);
   mainWindow = window;
@@ -711,33 +723,12 @@ async function bootstrapReadyPhase(
   startupQuitFence: ElectronStartupQuitFence
 ): Promise<void> {
   applyElectronAccessibilityStartupRequest(app);
+  const runtimePlatform = platform();
+  applicationIcon = initializeIcon(
+    app, nativeImage, runtimePlatform, process.resourcesPath
+  );
   installChromiumCertificatePolicy(app);
-  displayTopology = new ElectronDisplayTopologyController({
-    capture: () => ({
-      displays: screen.getAllDisplays(),
-      primaryDisplayId: screen.getPrimaryDisplay().id
-    }),
-    onListenerError: (error) => revealShellError(normalizeRionBridgeError(
-      error,
-      "ELECTRON_DISPLAY_TOPOLOGY_LISTENER_FAILED"
-    ))
-  });
-  displayTopology.refresh("electron-initial");
-  const refreshDisplayTopology = (cause: string): void => {
-    try {
-      activeDisplayTopology().refresh(cause);
-    } catch (error) {
-      revealShellError(normalizeRionBridgeError(
-        error,
-        "ELECTRON_DISPLAY_TOPOLOGY_REFRESH_FAILED"
-      ));
-    }
-  };
-  screen.on("display-added", () => refreshDisplayTopology("screen-display-added"));
-  screen.on("display-removed", () => refreshDisplayTopology("screen-display-removed"));
-  screen.on("display-metrics-changed", () => {
-    refreshDisplayTopology("screen-display-metrics-changed");
-  });
+  displayTopology = startElectronDisplayTopology(screen, revealShellError);
   core = await createCore(userDataDirectory);
   graphicsHost?.attach(core);
   runtimeRestoreSession = new ChromiumRuntimeRestoreSessionCoordinator({ core });
@@ -748,7 +739,6 @@ async function bootstrapReadyPhase(
       ? ipcBridge?.publish(mainIdentity, "onMacroPageRequested", request) ?? false
       : false
   });
-  const runtimePlatform = platform();
   if (!nativeAddon) {
     throw new RionBridgeError({
       code: "ELECTRON_NATIVE_RUNTIME_UNAVAILABLE",
@@ -817,6 +807,7 @@ async function bootstrapReadyPhase(
     startupSignal: startupQuitFence.signal,
     onNativeProjectionChanged: () => {
       coreRendererEvents?.observeNativeProjectionChanged();
+      quickMenu?.observeNativeProjectionChanged();
     },
     webChromeShell: {
       documentPath: join(
@@ -902,7 +893,10 @@ async function bootstrapReadyPhase(
           windows: {
             browserWindows: {
               create: (options: Electron.BrowserWindowConstructorOptions) =>
-                new BrowserWindow(options) as unknown as WindowsRuntimeHostWindowPort
+                new BrowserWindow({
+                  ...options,
+                  ...(applicationIcon ? { icon: applicationIcon.path } : {})
+                }) as unknown as WindowsRuntimeHostWindowPort
             },
             displays: {
               displayMatching: (bounds) => {
@@ -1485,7 +1479,8 @@ async function bootstrapReadyPhase(
           message: "The application font owner is no longer available." });
       }
       return systemFontProvider.list();
-    }
+    },
+    (language) => quickMenu?.setLanguage(language)
   );
   const fontAwareDispatcher = createChromiumRoleFontApiDispatcher(
     coreDispatcher,
@@ -1557,6 +1552,8 @@ async function bootstrapReadyPhase(
     platform: platform(),
     core: {
       shutdown: async () => {
+        quickMenu?.dispose();
+        quickMenu = null;
         chromiumUpdater?.dispose();
         unsubscribeDisplayTopology?.();
         unsubscribeDisplayTopology = null;
@@ -1584,6 +1581,21 @@ async function bootstrapReadyPhase(
     ),
     requestRendererQuitConfirmation: () => mainRendererQuitHandshake.requestConfirmation(),
     onError: revealShellError
+  });
+  if (!applicationIcon) {
+    throw new RionBridgeError({
+      code: "ELECTRON_APPLICATION_ICON_UNAVAILABLE",
+      message: "The Rion Studio application icon was not initialized."
+    });
+  }
+  quickMenu = installElectronQuickMenu({
+    core: activeCore(),
+    icon: applicationIcon.image,
+    launches: launchCoordinator,
+    lifecycle: activeLifecycle(),
+    onError: revealShellError,
+    platform: runtimePlatform,
+    runtimeActions: runtimeActionServices
   });
   app.on("second-instance", () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;

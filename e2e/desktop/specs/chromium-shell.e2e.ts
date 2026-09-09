@@ -13,6 +13,7 @@ import {
   waitForElectronDesktopE2eTerminalNativeQuit
 } from "../support/electron-terminal-native-quit";
 import {
+  activateVisibleNativeQuickMenu,
   focusVisibleMacosAppKitRuntime,
   pressVisibleMacosApplicationShortcut,
   pressVisibleWindowsApplicationShortcut
@@ -33,6 +34,8 @@ import {
 // [journey:CHROMIUM-WINDOWS-SHELL-001]
 // [journey:CHROMIUM-MACOS-APPKIT-APPLICATION-SHORTCUTS-030]
 // [journey:CHROMIUM-WINDOWS-APPLICATION-SHORTCUTS-030]
+// [journey:CHROMIUM-MACOS-APPKIT-QUICK-MENU-033]
+// [journey:CHROMIUM-WINDOWS-QUICK-MENU-033]
 
 interface ChromiumShellProbe {
   gestureMode?: string;
@@ -480,6 +483,24 @@ describe("Chromium desktop shell", () => {
     await expect(root).toExist();
     await installRuntimeTabShellErrorJournal();
     const desktop = await electronDesktopE2eProbe();
+    if (desktop.platform === "macos") {
+      const labels = await browser.electron.execute((electron) =>
+        electron.app.dock?.getMenu()?.items.map((item) => item.label) ?? []
+      );
+      expect(labels.filter((label) => label.length > 0).length)
+        .toBeGreaterThanOrEqual(4);
+    }
+    await activateVisibleNativeQuickMenu({
+      platform: desktop.platform,
+      processId: desktop.processId
+    });
+    await browser.waitUntil(
+      async () => browser.execute(() => document.hasFocus()),
+      {
+        timeout: 10_000,
+        timeoutMsg: "The native Quick Menu did not present the launcher window"
+      }
+    );
     await verifyFocusedApplicationShortcuts({
       platform: desktop.platform,
       processId: desktop.processId

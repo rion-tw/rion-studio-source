@@ -127,6 +127,8 @@ class RestoreHarness {
       case "runtimeRestoreSessionReplace":
         this.session = structuredClone(command.session);
         return structuredClone(this.session);
+      case "embeddedWindowsShow":
+        return { status: "applied" };
       default:
         throw new Error("Unexpected Core command: " + command.type);
     }
@@ -159,6 +161,20 @@ class RestoreHarness {
 }
 
 describe("Chromium saved Game Window restore controller", () => {
+  it("restores then shows a dormant window through one ordered native action", async () => {
+    const saved = savedWindow(WINDOW_ONE);
+    const harness = new RestoreHarness([saved]);
+
+    await harness.controller().show(WINDOW_ONE);
+
+    expect(harness.launches).toHaveBeenCalledWith(saved);
+    expect(harness.commands.at(-1)).toEqual({
+      type: "embeddedWindowsShow",
+      windowId: WINDOW_ONE
+    });
+    expect(harness.session.liveWindowIds).toEqual([WINDOW_ONE]);
+  });
+
   it("persists only v2 in-progress evidence before restoring a nonempty window", async () => {
     const sharedRole = "shared-role";
     const saved = savedWindow(WINDOW_ONE, 2);

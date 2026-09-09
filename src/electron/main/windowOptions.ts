@@ -4,7 +4,8 @@ export type ElectronDesktopPlatform = "darwin" | "win32";
 
 export function buildMainWindowOptions(
   platform: ElectronDesktopPlatform,
-  webPreferences: WebPreferences
+  webPreferences: WebPreferences,
+  applicationIconPath?: string
 ): BrowserWindowConstructorOptions {
   const platformOptions: BrowserWindowConstructorOptions = platform === "darwin"
     ? {
@@ -19,7 +20,10 @@ export function buildMainWindowOptions(
         frame: false,
         transparent: true,
         backgroundMaterial: "mica",
-        autoHideMenuBar: true
+        autoHideMenuBar: true,
+        ...(applicationIconPath === undefined
+          ? {}
+          : { icon: applicationIconPath })
       };
 
   return {

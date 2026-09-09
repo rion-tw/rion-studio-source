@@ -195,11 +195,29 @@ class BackendHarness {
     _hosts: readonly AppKitRuntimeHostObservationRecord[],
     _visible: boolean
   ) => this.appKitReceipt());
-  readonly openEmptySavedWindow = vi.fn(async () => {
+  readonly openEmptySavedWindow = vi.fn(async (_windowId: string) => {
     this.#restoreExactWindow();
   });
-  readonly restoreSavedWindows = vi.fn(async () => {
+  readonly restoreSavedWindows = vi.fn(async (
+    _input: { scope: "window"; windowId: string } |
+      { scope: "all" | "last-visible" }
+  ) => {
     this.#restoreExactWindow();
+  });
+  readonly showSavedWindow = vi.fn(async (windowId: string) => {
+    const snapshot = await this.invoke({ type: "appSnapshot" }) as
+      CoreAppSnapshotRecord;
+    if (!snapshot.logicalWindows.some((window) => window.windowId === windowId)) {
+      const dormant = snapshot.state.gameWindows.find(
+        (window) => window.id === windowId
+      );
+      if (dormant?.tabs.length === 0) {
+        await this.openEmptySavedWindow(windowId);
+      } else if (dormant) {
+        await this.restoreSavedWindows({ scope: "window", windowId });
+      }
+    }
+    await this.invoke({ type: "embeddedWindowsShow", windowId });
   });
   readonly discardSavedWindows = vi.fn(async () => undefined);
 
@@ -345,6 +363,7 @@ class BackendHarness {
       core: { invoke: this.invoke } as unknown as ElectronCoreCommandPort,
       readNativeSnapshot: () => structuredClone(this.native),
       savedWindows: {
+        show: this.showSavedWindow,
         openEmpty: this.openEmptySavedWindow,
         restore: this.restoreSavedWindows,
         discard: this.discardSavedWindows

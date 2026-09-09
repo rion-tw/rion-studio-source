@@ -46,36 +46,36 @@ implements ChromiumSavedWindowActionPort {
     this.#input = input;
   }
 
+  show(windowId: string): Promise<void> {
+    return this.#enqueue(async () => {
+      const snapshot = await this.#input.core.invoke({ type: "appSnapshot" });
+      if (!snapshot.logicalWindows.some((window) => window.windowId === windowId)) {
+        const dormant = snapshot.state.gameWindows.find(
+          (window) => window.id === windowId
+        );
+        if (dormant) {
+          if (dormant.tabs.length === 0) {
+            await this.#openEmpty(snapshot, windowId);
+          } else {
+            await this.#restore(snapshot, { scope: "window", windowId });
+          }
+        }
+      }
+      await this.#input.core.invoke({ type: "embeddedWindowsShow", windowId });
+    });
+  }
+
   openEmpty(windowId: string): Promise<void> {
     return this.#enqueue(async () => {
       const snapshot = await this.#input.core.invoke({ type: "appSnapshot" });
-      const window = snapshot.state.gameWindows.find(
-        (candidate) => candidate.id === windowId
-      );
-      if (
-        !window || window.tabs.length !== 0 ||
-        snapshot.logicalWindows.some((candidate) => candidate.windowId === windowId)
-      ) {
-        throw restoreError(
-          "ELECTRON_CHROMIUM_EMPTY_SAVED_WINDOW_UNAVAILABLE",
-          "The requested empty saved Game Window is unavailable or already live."
-        );
-      }
-      await this.#input.launches.openEmptySavedGameWindow(window);
+      await this.#openEmpty(snapshot, windowId);
     });
   }
 
   restore(input: RestoreSavedGameWindowsInput): Promise<void> {
     return this.#enqueue(async () => {
       const snapshot = await this.#input.core.invoke({ type: "appSnapshot" });
-      const session = await this.#input.restoreSession.inspect();
-      const windows = this.#selectWindows(snapshot, session, input);
-      for (const window of windows) {
-        await this.#markRestoring(session, window);
-        // Failure deliberately leaves the persisted in-progress identity for resume.
-        await this.#input.launches.restoreSavedGameWindow(window);
-        await this.#markRestored(window.id);
-      }
+      await this.#restore(snapshot, input);
     });
   }
 
@@ -134,6 +134,39 @@ implements ChromiumSavedWindowActionPort {
         await this.#markRestored(windowId);
       }
     });
+  }
+
+  async #openEmpty(
+    snapshot: CoreAppSnapshotRecord,
+    windowId: string
+  ): Promise<void> {
+    const window = snapshot.state.gameWindows.find(
+      (candidate) => candidate.id === windowId
+    );
+    if (
+      !window || window.tabs.length !== 0 ||
+      snapshot.logicalWindows.some((candidate) => candidate.windowId === windowId)
+    ) {
+      throw restoreError(
+        "ELECTRON_CHROMIUM_EMPTY_SAVED_WINDOW_UNAVAILABLE",
+        "The requested empty saved Game Window is unavailable or already live."
+      );
+    }
+    await this.#input.launches.openEmptySavedGameWindow(window);
+  }
+
+  async #restore(
+    snapshot: CoreAppSnapshotRecord,
+    input: RestoreSavedGameWindowsInput
+  ): Promise<void> {
+    const session = await this.#input.restoreSession.inspect();
+    const windows = this.#selectWindows(snapshot, session, input);
+    for (const window of windows) {
+      await this.#markRestoring(session, window);
+      // Failure deliberately leaves the persisted in-progress identity for resume.
+      await this.#input.launches.restoreSavedGameWindow(window);
+      await this.#markRestored(window.id);
+    }
   }
 
   #selectWindows(

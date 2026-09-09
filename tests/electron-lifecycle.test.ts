@@ -124,6 +124,30 @@ describe("Electron main lifecycle", () => {
     expect(window.focus).toHaveBeenCalledTimes(2);
   });
 
+  it("recreates and presents the main window for native Dock or Tray activation", async () => {
+    const { app } = createApp();
+    let destroyed = false;
+    const first = createWindow(() => destroyed);
+    const second = createWindow();
+    const createMainWindow = vi.fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second);
+    const lifecycle = new ElectronMainLifecycle({
+      app,
+      platform: "darwin",
+      core: { shutdown: vi.fn(async () => undefined) },
+      createMainWindow,
+      requestRendererQuitConfirmation: vi.fn(() => true),
+      onError: vi.fn()
+    });
+    await lifecycle.start();
+    destroyed = true;
+    await lifecycle.presentMainWindow();
+    expect(createMainWindow).toHaveBeenCalledTimes(2);
+    expect(second.show).toHaveBeenCalledOnce();
+    expect(second.focus).toHaveBeenCalledOnce();
+  });
+
   it("keeps the macOS app alive after its last window closes", async () => {
     const { app, listeners } = createApp();
     const shutdown = vi.fn(async () => undefined);

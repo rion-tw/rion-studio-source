@@ -620,6 +620,50 @@
       "description": "Drive real Windows Ctrl+N through exact-PID OS input to create one empty bundled-Chromium Game Window, use visible Quick Access to launch a fixture Role into it, then send Ctrl+Plus, Ctrl+0, and F11 only to the exact foreground HWND. Prove monotonic exact Core zoom receipts, Core/native/Role-surface factor readback, unchanged main-window zoom/fullscreen state, and stable bundled-host identity through zoom, reset, and fullscreen enter/exit. The adjacent real native addon shortcut probe checks cancellation of a held F11 capture when the exact owner deactivates, hides, or retires, including an extra key-up after focus returns."
     },
     {
+      "id": "CHROMIUM-MACOS-APPKIT-QUICK-MENU-033",
+      "coverageGroup": "chromium-v23-quick-menu",
+      "feature": "app-shell",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-shell-smoke"
+      ],
+      "spec": "e2e/desktop/specs/chromium-shell.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Open the isolated Rion Studio Dock item through macOS accessibility, require the complete localized Roles, Workspaces, and Windows Quick Menu sections, invoke its visible Open Rion Studio item, and prove that the exact-PID Electron launcher becomes frontmost again."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-QUICK-MENU-033",
+      "coverageGroup": "chromium-v23-quick-menu",
+      "feature": "app-shell",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-shell-smoke"
+      ],
+      "spec": "e2e/desktop/specs/chromium-shell.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Find the visible Rion Studio notification-area icon through Windows UI Automation, require the complete localized Roles, Workspaces, and Windows Tray menu sections, invoke its visible Open Rion Studio item, and prove that the minimized exact-PID Electron launcher becomes foreground again."
+    },
+    {
       "id": "CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009",
       "feature": "macros",
       "priority": "P2",

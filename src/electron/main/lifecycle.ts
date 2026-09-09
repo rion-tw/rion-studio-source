@@ -105,6 +105,12 @@ export class ElectronMainLifecycle {
     return this.#startPromise;
   }
 
+  /** Presents or recreates the main window for native Dock/Tray activation. */
+  presentMainWindow(): Promise<void> {
+    if (this.#stopped) return Promise.resolve();
+    return this.#ensureWindow().then((window) => this.#presentWindow(window));
+  }
+
   prepareQuit(): Promise<void> {
     if (this.#shutdownPromise) return this.#shutdownPromise;
     this.#shutdownPromise = Promise.resolve()

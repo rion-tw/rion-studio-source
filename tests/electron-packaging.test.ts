@@ -141,15 +141,21 @@ describe("Electron packaging contract", () => {
     }
   });
 
-  it("places exactly one platform-native addon outside ASAR", () => {
-    expect(electronBuilderConfiguration.mac?.extraResources).toEqual([{
-      from: "build/native/darwin-arm64/rion-core.node",
-      to: "native/rion-core.node"
-    }]);
-    expect(electronBuilderConfiguration.win?.extraResources).toEqual([{
-      from: "build/native/win32-x64/rion-core.node",
-      to: "native/rion-core.node"
-    }]);
+  it("places the native addon and runtime application icon outside ASAR", () => {
+    expect(electronBuilderConfiguration.mac?.extraResources).toEqual([
+      {
+        from: "build/native/darwin-arm64/rion-core.node",
+        to: "native/rion-core.node"
+      },
+      { from: "build/icon.png", to: "icons/rion-studio.png" }
+    ]);
+    expect(electronBuilderConfiguration.win?.extraResources).toEqual([
+      {
+        from: "build/native/win32-x64/rion-core.node",
+        to: "native/rion-core.node"
+      },
+      { from: "build/icon.ico", to: "icons/rion-studio.ico" }
+    ]);
     expect(electronBuilderConfiguration.asarUnpack).toBeUndefined();
   });
 

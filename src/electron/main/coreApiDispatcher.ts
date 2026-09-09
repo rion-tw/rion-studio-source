@@ -13,6 +13,7 @@ import type {
   CoreCommand,
   CoreCommandResult
 } from "../../shared/generated";
+import type { AppLanguage } from "../../shared/types";
 import type {
   RionApiArgs,
   RionApiDispatchMethod,
@@ -65,7 +66,8 @@ export function createElectronCoreApiDispatcher(
   fallback: RionApiDispatcher,
   launches: ElectronRuntimeLaunchPort,
   runtimeActions?: ElectronChromiumRuntimeActionPort,
-  systemFonts?: (identity: RendererIdentity) => Promise<string[]>
+  systemFonts?: (identity: RendererIdentity) => Promise<string[]>,
+  onOverlayLanguageChanged?: (language: AppLanguage) => void
 ): RionApiDispatcher {
   return {
     async invoke<Method extends RionApiDispatchMethod>(
@@ -80,7 +82,8 @@ export function createElectronCoreApiDispatcher(
         identity,
         method,
         args,
-        systemFonts
+        systemFonts,
+        onOverlayLanguageChanged
       );
       if (value === CORE_API_UNHANDLED) {
         return fallback.invoke(identity, method, args);
@@ -97,7 +100,8 @@ async function invokeCoreBackedMethod<Method extends RionApiDispatchMethod>(
   identity: RendererIdentity,
   method: Method,
   args: RionApiArgs<Method>,
-  systemFonts: ((identity: RendererIdentity) => Promise<string[]>) | undefined
+  systemFonts: ((identity: RendererIdentity) => Promise<string[]>) | undefined,
+  onOverlayLanguageChanged: ((language: AppLanguage) => void) | undefined
 ): Promise<unknown | typeof CORE_API_UNHANDLED> {
   if (!runtimeActions && RUNTIME_ACTION_METHODS.has(method)) {
     throw new RionBridgeError({
@@ -451,6 +455,7 @@ async function invokeCoreBackedMethod<Method extends RionApiDispatchMethod>(
       const [language] = typedArgs<"setOverlayLanguage">(args);
       await core.invoke({ type: "overlayLanguageSet", language });
       updateWorkspaceStartAppearance({ language });
+      onOverlayLanguageChanged?.(language);
       return undefined;
     }
     case "setRuntimeTheme": {

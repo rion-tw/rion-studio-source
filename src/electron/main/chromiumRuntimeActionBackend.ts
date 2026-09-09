@@ -31,6 +31,7 @@ import type { ChromiumRuntimeWindowPreferencesProjectionPort } from
 const MAX_RETAINED_ACTION_RECEIPTS = 512;
 
 export interface ChromiumSavedWindowActionPort {
+  show: (windowId: string) => Promise<void>;
   openEmpty: (windowId: string) => Promise<void>;
   restore: (
     input: Extract<
@@ -398,23 +399,7 @@ implements ChromiumRuntimeActionBackend {
   }
 
   async #showWindow(windowId: string): Promise<ChromiumRuntimeActionStatus> {
-    const snapshot = await this.#input.core.invoke({ type: "appSnapshot" });
-    if (!snapshot.logicalWindows.some((window) => window.windowId === windowId)) {
-      const dormant = snapshot.state.gameWindows.find(
-        (window) => window.id === windowId
-      );
-      if (dormant) {
-        if (dormant.tabs.length === 0) {
-          await this.#input.savedWindows.openEmpty(windowId);
-        } else {
-          await this.#input.savedWindows.restore({ scope: "window", windowId });
-        }
-      }
-    }
-    await this.#input.core.invoke({
-      type: "embeddedWindowsShow",
-      windowId
-    });
+    await this.#input.savedWindows.show(windowId);
     return "applied";
   }
 

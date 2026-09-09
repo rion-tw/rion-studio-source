@@ -37,12 +37,17 @@ describe("Electron main-window options", () => {
   });
 
   it("uses the renderer-owned caption controls and Mica material on Windows", () => {
-    expect(buildMainWindowOptions("win32", webPreferences)).toMatchObject({
+    expect(buildMainWindowOptions(
+      "win32",
+      webPreferences,
+      "C:\\Rion Studio\\rion-studio.ico"
+    )).toMatchObject({
       title: "Rion Studio",
       frame: false,
       transparent: true,
       backgroundMaterial: "mica",
-      autoHideMenuBar: true
+      autoHideMenuBar: true,
+      icon: "C:\\Rion Studio\\rion-studio.ico"
     });
   });
 });

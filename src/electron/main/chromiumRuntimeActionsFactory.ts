@@ -71,6 +71,7 @@ export interface ChromiumRuntimeActionsServices {
     tabId: string
   ) => QuickAccessPresentationRequest;
   readonly resumeInterruptedSavedWindows: () => Promise<void>;
+  readonly showGameWindow: (windowId: string) => Promise<void>;
   readonly requestRuntimeWindowControl: (
     windowId: string,
     action: "closeWindow" | "toggleMaximizeWindow"
@@ -148,6 +149,7 @@ export function createCoreOwnedChromiumRuntimeActions(
     beginRuntimeTabQuickAccess: (tabId: string) =>
       quickAccess.beginRuntimeTabRequest(tabId),
     resumeInterruptedSavedWindows: () => savedWindows.resumeInterrupted(),
+    showGameWindow: (windowId: string) => savedWindows.show(windowId),
     requestRuntimeWindowControl: (
       windowId: string,
       action: "closeWindow" | "toggleMaximizeWindow"

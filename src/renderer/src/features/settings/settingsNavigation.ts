@@ -2,6 +2,7 @@ import { getEditorParentPath } from "../../app/editorNavigation";
 
 export const settingsSectionIds = [
   "preferences",
+  "graphics",
   "interface",
   "macros",
   "data",
@@ -18,6 +19,7 @@ export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
   interface: "interface",
   macros: "macros",
   preferences: "preferences",
+  graphics: "graphics",
   updates: "updates",
   diagnostics: "diagnostics"
 };

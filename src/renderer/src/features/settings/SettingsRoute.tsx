@@ -1,3 +1,4 @@
+import { GraphicsSettingsSection } from "./GraphicsSettingsSection";
 import { Download, FileJson, FileText, Laptop, Moon, RefreshCw, RotateCcw, Sun, Upload } from "lucide-react";
 
 import { type JSX, useState } from "react";
@@ -329,6 +330,7 @@ function SettingsViewBase({
       </header>
 
       <div className="grid gap-8">
+        {activeSection === "graphics" ? <GraphicsSettingsSection t={t} onError={onError} /> : null}
         {activeSection === "preferences" ? (
           <>
             <SettingsSection>

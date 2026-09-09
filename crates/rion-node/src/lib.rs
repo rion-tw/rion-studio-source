@@ -10,6 +10,15 @@ use std::{
 
 use napi::{Status, bindgen_prelude::*, threadsafe_function::ThreadsafeFunctionCallMode};
 use napi_derive::napi;
+
+#[napi(js_name = "readGraphicsSettingsAtStartup")]
+pub fn read_graphics_settings_at_startup(user_data_dir: String) -> napi::Result<String> {
+    let settings =
+        rion_core::read_graphics_settings_at_startup(std::path::Path::new(&user_data_dir))
+            .map_err(to_napi_error)?;
+    serde_json::to_string(&settings).map_err(|error| napi::Error::from_reason(error.to_string()))
+}
+
 use rion_core::{
     AppCore, AppCoreOptions as CoreOptions, CHROME_PROFILE_IMPORT_MAX_PLAINTEXT_BYTES,
     CHROMIUM_RUNTIME_CONTRACT_VERSION, CoreCommand, CoreEffectResult, CoreError, CoreEvent,

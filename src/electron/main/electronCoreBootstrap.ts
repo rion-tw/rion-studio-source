@@ -1,3 +1,4 @@
+import { RionBridgeError } from "../ipc/errors";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
@@ -32,6 +33,7 @@ export interface LoadedRionNodeAddon
     WindowsRuntimeShortcutOwnerDiagnosticPort {
   /** Same clock domain as Core Macro scheduledAtMs and deadlineMs. */
   macroInputEpochMillis: () => number;
+  readGraphicsSettingsAtStartup: (userDataDir: string) => string;
 }
 
 interface ElectronCoreBootstrapOptions {
@@ -76,4 +78,12 @@ export async function createElectronCore(
     ? {}
     : { helperApplicationPath: join(import.meta.dirname, "index.js") });
   return { addon, core };
+}
+
+export function electronPlatform(): "darwin" | "win32" {
+  if (process.platform === "darwin" || process.platform === "win32") return process.platform;
+  throw new RionBridgeError({
+    code: "ELECTRON_PLATFORM_UNSUPPORTED",
+    message: "Rion Studio supports only macOS and Windows."
+  });
 }

@@ -1,3 +1,4 @@
+import { installGraphicsSettingsViewport } from "./graphicsSettingsViewport";
 import { installElectronDesktopE2eViewInputObservationObserver } from "./viewInputObservationObserver";
 import { installElectronDesktopE2eTrustedInputDiagnostics } from "./trustedInputDiagnosticsObserver";
 import { app, BrowserWindow, ipcMain, powerMonitor } from "electron";
@@ -117,6 +118,7 @@ import type { WindowsRuntimeShortcutOwnerDiagnostic } from
   "../main/windowsRuntimeHostNativePorts";
 
 authorizeDesktopE2eChromiumCommandLine();
+installGraphicsSettingsViewport(app, process.env.RION_STUDIO_E2E_PHASE);
 app.commandLine.appendSwitch("force-renderer-accessibility");
 
 interface NativeAppCoreOptions {

@@ -7,6 +7,7 @@ import {
 
 const EVENT_TYPES = new Set<CoreEvent["type"]>([
   "extensionsChanged",
+  "graphicsSettingsChanged",
   "ready",
   "stateChanged",
   "logsChanged",
@@ -109,6 +110,15 @@ const chromeProfileImportProgress = (value: unknown): boolean => check.closed(va
 
 function isClosedCriticalEvent(event: Record<string, unknown>): boolean {
   switch (event.type) {
+    case "graphicsSettingsChanged":
+      return check.closed(event, { type: check.oneOf("graphicsSettingsChanged"), snapshot: (value) => check.closed(value, {
+        revision: check.nonnegativeInteger,
+        settings: (settings) => check.closed(settings, {
+          hardwareAcceleration: check.bool,
+          rasterization: check.oneOf("auto", "enabled", "disabled"),
+          videoDecode: check.oneOf("auto", "disabled")
+        })
+      }) });
     case "extensionsChanged":
       return check.closed(event, { type: check.oneOf("extensionsChanged"), snapshot: extensionSnapshot });
     case "ready":

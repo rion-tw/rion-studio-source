@@ -361,7 +361,6 @@ for (const retiredGraphicsArgument of [
 }
 for (const [path, retiredContract] of [
   ["src/shared/api.ts", "getGraphicsDiagnostics"],
-  ["src/shared/api.ts", "restartApplication"],
   ["src/shared/generated/CoreCommand.ts", "graphicsDiagnosticsAssemble"],
   ["src/shared/generated/EngineCapabilitySnapshotRecord.ts", "graphicsTuning"]
 ]) {

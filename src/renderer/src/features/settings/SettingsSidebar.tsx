@@ -1,5 +1,5 @@
-import { ArrowLeft, Download, FileJson, Info, Keyboard, Palette, ScrollText, Settings2, type LucideIcon } from "lucide-react";
-import { type JSX } from "react";
+import { ArrowLeft, Download, FileJson, Info, Keyboard, Monitor, Palette, ScrollText, Settings2, type LucideIcon } from "lucide-react";
+import { type JSX, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { WindowDragHandle } from "../../components/WindowDragHandle";
@@ -21,6 +21,7 @@ interface SettingsSidebarProps {
 
 const generalSectionItems = [
   { icon: Settings2, labelKey: "settings.preferences", value: "preferences" },
+  { icon: Monitor, labelKey: "settings.graphics.title", value: "graphics" },
   { icon: Palette, labelKey: "settings.interface", value: "interface" },
   { icon: Keyboard, labelKey: "settings.macros", value: "macros" }
 ] as const satisfies ReadonlyArray<{
@@ -41,6 +42,17 @@ const systemSectionItems = [
 }>;
 
 export function SettingsSidebar({ shortcutLabel = "Ctrl+K", t, onOpenQuickAccess = () => undefined }: SettingsSidebarProps): JSX.Element {
+  const [graphicsAvailable, setGraphicsAvailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    const api = window.rionStudio;
+    if (api?.getGraphicsStatus) {
+      void api.getGraphicsStatus().then((status) => {
+        if (active) setGraphicsAvailable(status.supported);
+      }).catch(() => { if (active) setGraphicsAvailable(false); });
+    }
+    return () => { active = false; };
+  }, []);
   const location = useLocation();
   const navigate = useNavigate();
   const activeSection = readSettingsSection(new URLSearchParams(location.search).get("section"));
@@ -72,7 +84,7 @@ export function SettingsSidebar({ shortcutLabel = "Ctrl+K", t, onOpenQuickAccess
         {t("settings.general")}
       </p>
       <nav className="app-no-drag grid gap-1" aria-label={t("settings.general")}>
-        {generalSectionItems.map((item) => (
+        {generalSectionItems.filter((item) => item.value !== "graphics" || graphicsAvailable).map((item) => (
           <NavItem
             key={item.value}
             active={activeSection === item.value}

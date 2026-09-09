@@ -80,6 +80,7 @@ const chromiumAppCrudFocusedDependencies = [
   "chromium-macro-native-effect"
 ];
 const focusedPhaseDependencies = new Map([
+  ["chromium-graphics-settings-restart", ["chromium-graphics-settings-seed"]],
   [
     "chromium-app-crud-mutations",
     chromiumAppCrudFocusedDependencies
@@ -130,6 +131,8 @@ const phases = withChromiumMacroCutoverNativePrerequisites({
     : configuredPhases
 });
 const phaseNamespaces = new Map([
+  ["chromium-graphics-settings-seed", "chromium-graphics-settings-lifecycle"],
+  ["chromium-graphics-settings-restart", "chromium-graphics-settings-lifecycle"],
   ["chromium-app-crud-mutations", "chromium-entity-persistence-lifecycle"],
   ["chromium-app-crud-cleanup", "chromium-entity-persistence-lifecycle"],
   ["chromium-app-crud-final-restart", "chromium-entity-persistence-lifecycle"],
@@ -881,6 +884,13 @@ async function captureSqlite(phase, userDataDir, validateEvidence) {
       || phase === "chromium-app-crud-final-restart"
     ) {
       return validateChromiumAppCrudCleanupSqliteEvidence(phase, entities);
+    }
+    if (phase === "chromium-graphics-settings-seed" || phase === "chromium-graphics-settings-restart") {
+      const graphics = settings.find((setting) => setting.key === "graphicsSettings")?.payload;
+      if (graphics?.settings?.hardwareAcceleration !== false || graphics.settings.rasterization !== "enabled" || graphics.settings.videoDecode !== "disabled") {
+        throw new Error(`${phase}: persisted graphics settings do not match visible selections`);
+      }
+      return { graphicsSettings: graphics };
     }
     if (phase === "chromium-system-settings") {
       return validateChromiumSystemSettingsSqliteEvidence(phase, settings);

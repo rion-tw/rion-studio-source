@@ -443,7 +443,7 @@ pub(super) fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
         read_payloads(connection, "game_windows")?,
     );
     let mut statement = connection
-        .prepare("SELECT key, payload_json FROM settings ORDER BY key")
+        .prepare("SELECT key, payload_json FROM settings WHERE key != 'graphicsSettings' ORDER BY key")
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     let rows = statement
         .query_map([], |row| {
@@ -480,6 +480,7 @@ fn read_scalar(connection: &Connection, key: &str) -> CoreResult<Option<Value>> 
     } else if matches!(
         key,
         "gameBrowserSettings"
+            | "graphicsSettings"
             | "extensions"
             | "macroSettings"
             | "runtimeWindowPreferences"
@@ -593,6 +594,7 @@ fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreR
     if !matches!(
         key,
         "gameBrowserSettings"
+            | "graphicsSettings"
             | "extensions"
             | "macroSettings"
             | "runtimeWindowPreferences"
@@ -651,7 +653,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
             DELETE FROM roles;
             DELETE FROM game_images;
             DELETE FROM games;
-            DELETE FROM settings;
+            DELETE FROM settings WHERE key != 'graphicsSettings';
             DELETE FROM legal_acceptance;
             ",
         )

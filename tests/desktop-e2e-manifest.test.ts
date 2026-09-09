@@ -85,19 +85,19 @@ describe("desktop E2E manifest resolution", () => {
     ) as DesktopE2eManifest;
     {
       const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended");
-      expect(extended.phases).toHaveLength(61);
-      expect(extended.phases).toEqual(expect.arrayContaining([
-        "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
-      ]));
-      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended")).toHaveLength(54);
-    }
-    {
-      const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended");
       expect(extended.phases).toHaveLength(63);
       expect(extended.phases).toEqual(expect.arrayContaining([
         "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
       ]));
-      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended")).toHaveLength(56);
+      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended")).toHaveLength(55);
+    }
+    {
+      const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended");
+      expect(extended.phases).toHaveLength(65);
+      expect(extended.phases).toEqual(expect.arrayContaining([
+        "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
+      ]));
+      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended")).toHaveLength(57);
     }
 
     for (const profileName of [

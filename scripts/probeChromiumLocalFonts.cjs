@@ -95,7 +95,7 @@ async function probe() {
     );
     core = await addon.createAppCore({ userDataDir: resolve(userData, "chromium-core"),
       platform: process.platform, appVersion: "23.0.0-font-probe",
-      packaged: false, runtimeContractVersion: 23 });
+      packaged: false, runtimeContractVersion: 24 });
     core.subscribeCoreEvents(() => {}, () => {});
     const productionFamilies = JSON.parse(await core.invoke(JSON.stringify({
       type: "systemFontsList", families: productionNames

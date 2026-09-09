@@ -92,7 +92,7 @@ impl AppCore {
         input.validate()?;
         let registration = self.browser_runtime_registration()?;
         let capability_available = self.platform == rion_platform::Platform::Windows
-            && self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            && self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
             && registration.available
             && registration.engine == crate::model::ResolvedBrowserEngine::Chromium
             && registration.capabilities.trusted_input

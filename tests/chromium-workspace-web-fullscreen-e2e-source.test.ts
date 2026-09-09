@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-import { validPopupParentRevisionSequence, validateChromiumWorkspaceWebPopupLifecycleEvidence } from
+import { validPopupParentRevisionSequence, validSecurityPolicyInspection,
+  validateChromiumWorkspaceWebPopupLifecycleEvidence } from
   "../scripts/desktopE2eChromiumWorkspaceWebFullscreenEvidence.mjs";
 
 async function source(path: string): Promise<string> {
@@ -59,6 +60,23 @@ function popupEvidenceObservation(input: Record<string, unknown>) {
 }
 
 describe("Chromium Workspace Web contained-fullscreen exact replacement", () => {
+  it.each(["macos", "windows"])("validates version 2 DRM evidence on %s", (platform) => {
+    const path = platform === "macos" ? "/web/chromium" : "C:\\web\\chromium";
+    const decision = {
+      allowed: true, kind: "drm-permission", stage: "check", permission: "mediaKeySystem",
+      origin: "https://rion-drm.fixture.test", embeddingOrigin: "https://rion-drm.fixture.test",
+      reason: "https-web-app", sequence: 1
+    };
+    const inspection = { contentProfilePath: path, sessionStoragePath: path,
+      generation: 1, surfaceId: "web-1", windowId: POPUP_EVIDENCE_WINDOW_ID,
+      policyVersion: 2, observations: [decision] };
+    expect(validSecurityPolicyInspection(inspection)).toBe(true);
+    expect(validSecurityPolicyInspection({ ...inspection, policyVersion: 1 })).toBe(false);
+    expect(validSecurityPolicyInspection({ ...inspection,
+      observations: [{ ...decision, allowed: false }] })).toBe(false);
+    expect(validSecurityPolicyInspection({ ...inspection,
+      observations: [{ ...decision, origin: "http://rion-drm.fixture.test" }] })).toBe(false);
+  });
   it.each([
     { platform: "windows", revisions: [8, 8, 8] },
     { platform: "macos", revisions: [8, 9, 10] }

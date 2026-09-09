@@ -227,6 +227,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     #contained-fullscreen-controls { padding: 18px; border: 1px solid #5eead4; border-radius: 12px; background: #0e1522; }
     #contained-fullscreen-controls[hidden] { display: none; }
     #contained-fullscreen-controls button, #contained-fullscreen-controls a { position: static; transform: none; }
+    #contained-fullscreen-controls #permission-drm,
     #contained-fullscreen-controls #permission-geolocation,
     #contained-fullscreen-controls #blocked-download,
     #contained-fullscreen-controls #file-upload { position: relative; z-index: 3; }
@@ -251,6 +252,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       <button id="contained-fullscreen-enter" type="button">Enter contained fullscreen</button>
       <button id="contained-fullscreen-exit" type="button">Exit contained fullscreen</button>
       <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="_blank" rel="noopener" hidden>Open fullscreen popup</a>
+      <button id="permission-drm" type="button" hidden>Request DRM playback capability</button>
       <button id="permission-geolocation" type="button" hidden>Request denied geolocation</button>
       <a id="blocked-download" href="/download/${roleId}" download hidden>Attempt blocked download</a>
       <input id="file-upload" type="file" accept="text/plain" aria-label="Choose upload fixture" hidden>
@@ -375,6 +377,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       let containedFullscreenExitCount = 0;
       containedFullscreenControls.hidden = false;
       const popupButton = document.querySelector("#contained-fullscreen-popup");
+      const drmButton = document.querySelector("#permission-drm");
       const permissionButton = document.querySelector("#permission-geolocation");
       const downloadLink = document.querySelector("#blocked-download");
       const fileUpload = document.querySelector("#file-upload");
@@ -382,10 +385,36 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       popupButton.hidden = roleId !== "e2e-workspace-web"
         && roleId !== "chromium-workspace-web-fullscreen"
         && roleId !== "chromium-controlled-role-reload";
+      drmButton.hidden = roleId !== "e2e-workspace-popup";
+      if (securityPolicyEnabled) {
+        popupButton.href = "https://rion-drm.fixture.test/role/e2e-workspace-popup";
+      }
+      drmButton.addEventListener("click", async (event) => {
+        await record("drm-requested", {
+          isTrusted: event.isTrusted, targetId: event.currentTarget.id
+        });
+        try {
+          await navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{
+            initDataTypes: ["cenc"],
+            videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
+            distinctiveIdentifier: "optional", persistentState: "optional",
+            sessionTypes: ["temporary"]
+          }]);
+          await record("drm-result", { errorCode: "key-system-access-granted" });
+        } catch (error) {
+          await record("drm-result", { errorCode: error.name });
+        }
+      });
       permissionButton.hidden = !securityPolicyEnabled;
       downloadLink.hidden = !securityPolicyEnabled;
       fileUpload.hidden = !securityPolicyEnabled;
+      let popupRequestCount = 0;
       popupButton.addEventListener("click", (event) => {
+        popupRequestCount += 1;
+        // Keep the later gated-navigation cancellation on Chromium's native HTTP transport.
+        if (securityPolicyEnabled && popupRequestCount > 1) {
+          popupButton.href = "/role/e2e-workspace-popup";
+        }
         record("contained-popup-requested", { isTrusted: event.isTrusted });
       });
       permissionButton.addEventListener("click", (event) => {

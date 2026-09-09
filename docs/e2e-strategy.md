@@ -460,3 +460,18 @@ chooser item cannot be found; it excludes remote Web content and exits with a
 failure status instead of raising a Swift fatal error. This diagnostic does not
 replace a visible file-input click, native chooser selection or page file-digest
 verification, and does not authorize handling system permission prompts.
+
+## Web App DRM permission evidence
+
+The `WORKSPACE-WEB-SECURITY-POLICY-027` journeys on both Chromium profiles
+exercise a visible DRM capability button in an E2E-only HTTPS fixture served
+through the exact global-Web Session protocol handler. The fixture forwards only
+its reserved local test origin to the local fixture server; production builds
+install neither this handler nor certificate exceptions. Policy version 2
+records native DRM decisions independently of the EME promise. Stock Electron
+may reject an unavailable key system before any permission callback; that must
+be recorded as `NotSupportedError`, never playback success. Platform-explicit
+unit tests cover allowed HTTPS origins, rejected origins and isolated sessions.
+Real iq.com video playback, account entitlement, codecs and license acceptance
+remain separate manual evidence. No CDM or alternate Electron build is installed
+by these journeys.

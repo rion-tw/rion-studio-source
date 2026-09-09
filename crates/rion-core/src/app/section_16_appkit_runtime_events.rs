@@ -17,7 +17,7 @@ impl AppCore {
         &self,
         tab: &EmbeddedTabEffectRecord,
     ) -> CoreResult<Option<(u64, u64)>> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Ok(None);
         }
         let snapshot = self.browser_runtime.snapshot()?;
@@ -491,7 +491,7 @@ impl AppCore {
 fn validate_appkit_runtime_event_platform(core: &AppCore) -> CoreResult<()> {
     let registration = core.browser_runtime_registration()?;
     if core.platform != rion_platform::Platform::Macos
-        || core.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION
+        || core.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
         || registration.platform != "macos"
         || registration.engine != crate::model::ResolvedBrowserEngine::Chromium
     {

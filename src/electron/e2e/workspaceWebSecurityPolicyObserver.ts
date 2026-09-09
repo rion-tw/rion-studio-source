@@ -1,3 +1,5 @@
+import type { Session } from "electron";
+import { installWorkspaceWebDrmFixture } from "./workspaceWebDrmFixture";
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
@@ -41,6 +43,7 @@ export function installWorkspaceWebSecurityPolicyObserver(
   const originalReleaseSurface = sessions.releaseSurface;
   sessions.acquireSurface = function (surfaceId, generation, profile) {
     const lease = originalAcquireSurface.call(this, surfaceId, generation, profile);
+    installWorkspaceWebDrmFixture(lease.session as Session);
     owners.set(surfaceId, Object.freeze({ generation, session: lease.session }));
     return lease;
   };

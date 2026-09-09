@@ -128,7 +128,7 @@ impl AppCore {
     ) -> CoreResult<crate::model::WindowsRuntimeWindowPlacementReceiptRecord> {
         let registration = self.browser_runtime_registration()?;
         if self.platform != rion_platform::Platform::Windows
-            || self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION
+            || self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
             || registration.platform != "windows"
             || registration.engine != crate::model::ResolvedBrowserEngine::Chromium
         {

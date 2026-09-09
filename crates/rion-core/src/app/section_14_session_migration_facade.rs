@@ -83,7 +83,7 @@ impl AppCore {
         &self,
         input: crate::RoleSessionMigrationTransitionInput,
     ) -> CoreResult<crate::RoleSessionMigrationRecord> {
-        if self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(role_session_target_generic_transition_forbidden());
         }
         let expected_platform = self.require_exact_v22_source_runtime()?;
@@ -119,7 +119,7 @@ impl AppCore {
         &self,
         input: crate::RoleSessionMigrationTargetTransitionInput,
     ) -> CoreResult<crate::RoleSessionMigrationRecord> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(role_session_target_runtime_required());
         }
         let expected_platform = self.expected_role_session_migration_platform();
@@ -170,7 +170,7 @@ impl AppCore {
     /// Chromium store mutation before failing or crashing.
     fn mark_role_session_launch_admitted(&self, role_ids: &[String]) -> CoreResult<()> {
         let expected_platform = self.expected_role_session_migration_platform();
-        if self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             for role_id in role_ids {
                 let current = self
                     .role_session_migration(role_id.clone())?
@@ -183,7 +183,7 @@ impl AppCore {
         for role_id in role_ids {
             self.ensure_role_session_recovery_complete(role_id)?;
         }
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Ok(());
         }
         let occurred_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);

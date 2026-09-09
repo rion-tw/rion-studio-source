@@ -605,7 +605,10 @@ impl AppCore {
                 .payload
                 .get("runtimeContractVersion")
                 .and_then(Value::as_u64)
-                == Some(u64::from(CHROMIUM_RUNTIME_CONTRACT_VERSION));
+                .is_some_and(|version| {
+                    version >= u64::from(CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION)
+                        && version <= u64::from(CHROMIUM_RUNTIME_CONTRACT_VERSION)
+                });
             let transaction_identity = if v23_chromium {
                 match crate::chrome_profile_import_contract::resolve_transaction_identity(
                     &self.user_data_dir,

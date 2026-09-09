@@ -550,7 +550,7 @@ impl AppCore {
         &self,
         mut registration: SystemWebViewRuntimeRegistrationRecord,
     ) -> CoreResult<SystemWebViewRuntimeRegistrationRecord> {
-        if self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(CoreError::InvalidInput(
                 "system WebView registration is not valid for the Chromium runtime contract"
                     .to_owned(),
@@ -653,7 +653,7 @@ impl AppCore {
                 "browser runtime availability and failure reason are inconsistent".to_owned(),
             ));
         }
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
             && registration.available
         {
             let probe = rion_platform::probe_system_webview(self.platform);
@@ -715,7 +715,7 @@ impl AppCore {
             rion_platform::Platform::Macos => "macos",
             rion_platform::Platform::Windows => "windows",
         };
-        if self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return (
                 platform,
                 crate::model::ResolvedBrowserEngine::Chromium,
@@ -818,7 +818,7 @@ impl AppCore {
         if !runtime.available {
             return Ok((false, runtime.failure_reason));
         }
-        if self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+        if self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
             && !self.role_session_launch_evidence_ready(&role.id)?
         {
             return Ok((

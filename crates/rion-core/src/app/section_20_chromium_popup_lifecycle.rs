@@ -3,7 +3,7 @@ impl AppCore {
         &self,
         request: crate::model::ChromiumPopupOpenRequestRecord,
     ) -> CoreResult<crate::model::ChromiumPopupAdmissionRecord> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(CoreError::Domain {
                 code: "CHROMIUM_POPUP_RUNTIME_UNAVAILABLE",
                 message: "Controlled Chromium popups require runtime contract v23.".to_owned(),
@@ -32,7 +32,7 @@ impl AppCore {
         &self,
         event: crate::model::ChromiumPopupLifecycleEventRecord,
     ) -> CoreResult<crate::model::ChromiumPopupLifecycleReceiptRecord> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(CoreError::Domain {
                 code: "CHROMIUM_POPUP_RUNTIME_UNAVAILABLE",
                 message: "Controlled Chromium popups require runtime contract v23.".to_owned(),

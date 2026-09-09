@@ -460,6 +460,16 @@ function validSecurityPolicyObservation(observation, priorSequence) {
       observation.sequence <= priorSequence || typeof observation.origin !== "string") {
     return false;
   }
+  if (observation.kind === "drm-permission") {
+    return exactKeys(observation, [
+      "allowed", "kind", "stage", "permission", "origin", "embeddingOrigin",
+      "reason", "sequence"
+    ]) && observation.allowed === true && observation.permission === "mediaKeySystem" &&
+      (observation.stage === "check" || observation.stage === "request") &&
+      observation.origin === "https://rion-drm.fixture.test" &&
+      observation.embeddingOrigin === observation.origin &&
+      observation.reason === "https-web-app";
+  }
   if (observation.kind === "permission-request") {
     return exactKeys(observation, [
       "callback", "kind", "origin", "permission", "sequence"
@@ -470,11 +480,11 @@ function validSecurityPolicyObservation(observation, priorSequence) {
   ]) && observation.defaultPrevented === true && typeof observation.url === "string";
 }
 
-function validSecurityPolicyInspection(observation) {
+export function validSecurityPolicyInspection(observation) {
   if (!exactKeys(observation, [
     "contentProfilePath", "generation", "observations", "policyVersion",
     "sessionStoragePath", "surfaceId", "windowId"
-  ]) || observation.policyVersion !== 1 ||
+  ]) || observation.policyVersion !== 2 ||
       observation.contentProfilePath !== observation.sessionStoragePath ||
       typeof observation.contentProfilePath !== "string" ||
       !Number.isSafeInteger(observation.generation) || observation.generation < 1 ||

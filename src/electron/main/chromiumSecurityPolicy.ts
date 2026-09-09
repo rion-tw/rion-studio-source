@@ -1,4 +1,5 @@
 import type { App, Session } from "electron";
+import { decideChromiumDrmPermission, type ChromiumDrmDecision } from "./chromiumDrmPermission";
 
 export type ChromiumSecuritySessionPort = Pick<
   Session,
@@ -12,6 +13,12 @@ export type ChromiumSecuritySessionPort = Pick<
 >;
 
 export type ChromiumSessionSecurityPolicyObservation =
+  | Readonly<ChromiumDrmDecision & {
+      kind: "drm-permission";
+      stage: "check" | "request";
+      permission: "mediaKeySystem";
+      sequence: number;
+    }>
   | Readonly<{
       callback: false;
       kind: "permission-request";
@@ -29,7 +36,7 @@ export type ChromiumSessionSecurityPolicyObservation =
 
 export interface ChromiumSessionSecurityPolicyJournal {
   readonly observations: readonly ChromiumSessionSecurityPolicyObservation[];
-  readonly policyVersion: 1;
+  readonly policyVersion: 2;
   readonly sessionStoragePath: string | null;
 }
 
@@ -37,14 +44,16 @@ export interface ChromiumSessionSecurityPolicyOptions {
   /**
    * Global-Web content may use a user-activated main-frame Fullscreen API
    * request. Its WebContents preference keeps the transition inside the
-   * existing native viewport; every other permission remains denied.
+   * existing native viewport; DRM is a separate opt-in; other permissions remain denied.
    */
   readonly allowMainFrameHtmlFullscreen?: boolean;
+  readonly allowWebAppDrm?: boolean;
 }
 
 export type ChromiumCertificatePolicyAppPort = Pick<App, "on">;
 
-const securedSessions = new WeakMap<object, boolean>();
+type SessionPolicy = Readonly<Required<ChromiumSessionSecurityPolicyOptions>>;
+const securedSessions = new WeakMap<object, SessionPolicy>();
 const securedApplications = new WeakSet<object>();
 const sessionJournals = new WeakMap<object, {
   readonly observations: ChromiumSessionSecurityPolicyObservation[];
@@ -100,16 +109,32 @@ function isMainFramePermission(details: unknown): boolean {
 
 function installPermissionPolicy(
   session: ChromiumSecuritySessionPort,
-  allowMainFrameHtmlFullscreen: boolean
+  policy: SessionPolicy
 ): void {
   const allowed = (permission: string, details: unknown): boolean =>
-    allowMainFrameHtmlFullscreen && permission === "fullscreen" &&
+    policy.allowMainFrameHtmlFullscreen && permission === "fullscreen" &&
       isMainFramePermission(details);
+  const drm = (stage: "check" | "request", contents: unknown,
+    requestingOrigin: unknown, details: unknown): boolean => {
+    const decision = decideChromiumDrmPermission(
+      policy.allowWebAppDrm, contents, requestingOrigin, details
+    );
+    recordSessionObservation(session, {
+      ...decision, kind: "drm-permission", stage, permission: "mediaKeySystem"
+    });
+    return decision.allowed;
+  };
   session.setPermissionCheckHandler(
-    (_contents, permission, _requestingOrigin, details) =>
-      allowed(permission, details)
+    (contents, permission, requestingOrigin, details) =>
+      permission === "mediaKeySystem"
+        ? drm("check", contents, requestingOrigin, details)
+        : allowed(permission, details)
   );
   session.setPermissionRequestHandler((contents, permission, callback, details) => {
+    if (permission === "mediaKeySystem") {
+      callback(drm("request", contents, undefined, details));
+      return;
+    }
     if (allowed(permission, details)) {
       callback(true);
       return;
@@ -142,7 +167,7 @@ function recordSessionObservation(
 
 /**
  * Returns a detached, read-only snapshot for one exact native Session object.
- * The journal observes deny decisions only and cannot mutate the policy.
+ * The journal observes permission decisions and cannot mutate the policy.
  */
 export function readChromiumSessionSecurityPolicyJournal(
   session: ChromiumSecuritySessionPort
@@ -151,7 +176,7 @@ export function readChromiumSessionSecurityPolicyJournal(
   if (!journal) return null;
   return Object.freeze({
     observations: Object.freeze([...journal.observations]),
-    policyVersion: 1,
+    policyVersion: 2,
     sessionStoragePath: journal.sessionStoragePath
   });
 }
@@ -159,19 +184,24 @@ export function readChromiumSessionSecurityPolicyJournal(
 /**
  * Installs the process-lifetime policy shared by renderer, managed-role, and
  * global Web sessions. Electron reuses Session objects by partition/path, so a
- * WeakSet prevents duplicate will-download listeners without weakening later
+ * policy record prevents duplicate will-download listeners without weakening later
  * ownership leases.
  */
 export function installChromiumSessionSecurityPolicy(
   session: ChromiumSecuritySessionPort,
   options: ChromiumSessionSecurityPolicyOptions = {}
 ): void {
-  const allowMainFrameHtmlFullscreen =
-    options.allowMainFrameHtmlFullscreen === true;
-  if (securedSessions.has(session)) {
-    if (allowMainFrameHtmlFullscreen && securedSessions.get(session) === false) {
-      installPermissionPolicy(session, true);
-      securedSessions.set(session, true);
+  const prior = securedSessions.get(session);
+  const policy: SessionPolicy = Object.freeze({
+    allowMainFrameHtmlFullscreen: prior?.allowMainFrameHtmlFullscreen === true ||
+      options.allowMainFrameHtmlFullscreen === true,
+    allowWebAppDrm: prior?.allowWebAppDrm === true || options.allowWebAppDrm === true
+  });
+  if (prior) {
+    if (prior.allowMainFrameHtmlFullscreen !== policy.allowMainFrameHtmlFullscreen ||
+        prior.allowWebAppDrm !== policy.allowWebAppDrm) {
+      installPermissionPolicy(session, policy);
+      securedSessions.set(session, policy);
     }
     return;
   }
@@ -180,7 +210,7 @@ export function installChromiumSessionSecurityPolicy(
     nextSequence: 1,
     sessionStoragePath: session.storagePath
   });
-  installPermissionPolicy(session, allowMainFrameHtmlFullscreen);
+  installPermissionPolicy(session, policy);
   session.setDevicePermissionHandler(() => false);
   session.setDisplayMediaRequestHandler((_request, callback) => callback({}));
   session.setBluetoothPairingHandler((_details, callback) => {
@@ -195,7 +225,7 @@ export function installChromiumSessionSecurityPolicy(
       url: webContentsUrl(item)
     });
   });
-  securedSessions.set(session, allowMainFrameHtmlFullscreen);
+  securedSessions.set(session, policy);
 }
 
 /** Rejects invalid server certificates and implicit client-certificate use. */

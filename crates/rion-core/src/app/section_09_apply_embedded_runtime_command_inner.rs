@@ -173,7 +173,7 @@ impl AppCore {
         window_id: Option<&str>,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Ok(());
         }
         let Some(window_id) = window_id else {

@@ -269,7 +269,7 @@ fn unavailable_browser_runtime_registration(
             rion_platform::Platform::Windows => "windows",
         }
         .to_owned(),
-        engine: if contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        engine: if contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             crate::model::ResolvedBrowserEngine::Chromium
         } else {
             match platform {

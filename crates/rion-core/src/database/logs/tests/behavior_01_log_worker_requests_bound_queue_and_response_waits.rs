@@ -186,6 +186,14 @@ use serde_json::json;
             .unwrap();
 
         create_schema(&connection, false).unwrap();
+        // This tests schema compatibility, not retention. Keep the legacy row
+        // inside the retention window regardless of the date the test runs.
+        connection
+            .execute(
+                "UPDATE log_entries SET timestamp = ?1 WHERE id = 'legacy'",
+                [Utc::now().to_rfc3339()],
+            )
+            .unwrap();
         let legacy = query_entries(&connection, &LogQuery::default())
             .unwrap()
             .entries

@@ -62,7 +62,9 @@ const LAUNCH_COMPLETION_QUEUE_CAPACITY: usize = 64;
 const LAUNCH_COMPLETION_CONCURRENCY: usize = 4;
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
 const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 23;
+// Version 23 introduced Chromium data/effect semantics; 24 adds Web App DRM policy.
+pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 24;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.

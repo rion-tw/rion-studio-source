@@ -287,7 +287,7 @@ const workspaceWebSecurityPolicyInspection = Object.freeze({
       url: "http://127.0.0.1:3210/download/chromium-workspace-web"
     })
   ]),
-  policyVersion: 1 as const,
+  policyVersion: 2 as const,
   sessionStoragePath: workspaceWebInspection.web.contentProfilePath,
   surfaceId: workspaceWebInspection.web.surfaceId,
   windowId: WINDOW_ID

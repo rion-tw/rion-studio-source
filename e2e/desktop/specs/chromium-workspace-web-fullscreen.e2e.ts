@@ -85,7 +85,7 @@ function configuredWebUrl(): string {
 function popupUrl(): string {
   return new URL(
     `/role/${POPUP_FIXTURE_ID}`,
-    required("RION_STUDIO_E2E_FIXTURE_ORIGIN")
+    "https://rion-drm.fixture.test"
   ).href;
 }
 
@@ -435,7 +435,7 @@ async function exerciseDeniedPermissionAndDownload(input: Readonly<{
   expect(before).toEqual(expect.objectContaining({
     contentProfilePath: input.inspection.web.contentProfilePath,
     generation: input.inspection.web.generation,
-    policyVersion: 1,
+    policyVersion: 2,
     sessionStoragePath: input.inspection.web.contentSessionStoragePath,
     surfaceId: input.inspection.web.surfaceId,
     windowId: input.inspection.windowId
@@ -470,7 +470,7 @@ async function exerciseDeniedPermissionAndDownload(input: Readonly<{
   )).toEqual([expect.objectContaining({
     callback: false,
     kind: "permission-request",
-    origin: required("RION_STUDIO_E2E_FIXTURE_ORIGIN"),
+    origin: new URL(configuredWebUrl()).origin,
     permission: "geolocation"
   })]);
 
@@ -508,7 +508,7 @@ async function exerciseDeniedPermissionAndDownload(input: Readonly<{
   )).toEqual([expect.objectContaining({
     defaultPrevented: true,
     kind: "will-download",
-    origin: required("RION_STUDIO_E2E_FIXTURE_ORIGIN"),
+    origin: new URL(configuredWebUrl()).origin,
     url: downloadUrl()
   })]);
   expect(afterDownload).toEqual(expect.objectContaining({
@@ -580,6 +580,35 @@ async function exerciseVisibleFileUpload(input: Readonly<{
     await restoreElectronMainWindowTarget(input.mainWindowHandle);
   }
   return probe.processId;
+}
+
+async function exerciseDrmPermission(input: Readonly<{
+  inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection;
+  mainWindowHandle: string;
+}>): Promise<void> {
+  const before = await electronDesktopE2eWorkspaceWebSecurityPolicy(input.inspection.windowId);
+  const priorSequence = before.observations.at(-1)?.sequence ?? 0;
+  const drmCursor = await fixtureCursor();
+  await clickVisibleElectronPageElement(popupUrl(), input.mainWindowHandle,
+    "#permission-drm");
+  expect(await waitFixtureEvent({ afterSequence: drmCursor, kind: "drm-requested",
+    roleId: POPUP_FIXTURE_ID })).toEqual(expect.objectContaining({ isTrusted: true }));
+  const drmResult = await waitFixtureEvent({ afterSequence: drmCursor,
+    kind: "drm-result", roleId: POPUP_FIXTURE_ID });
+  expect(["key-system-access-granted", "NotSupportedError", "NotAllowedError"])
+    .toContain(drmResult.errorCode);
+  const drmPolicy = await electronDesktopE2eWorkspaceWebSecurityPolicy(input.inspection.windowId);
+  const drmDecisions = drmPolicy.observations.filter((entry) =>
+    entry.sequence > priorSequence && entry.kind === "drm-permission");
+  for (const decision of drmDecisions) {
+    expect(decision).toEqual(expect.objectContaining({
+      allowed: true, origin: new URL(popupUrl()).origin,
+      embeddingOrigin: new URL(popupUrl()).origin, reason: "https-web-app"
+    }));
+  }
+  // Stock Electron can reject the absent key system before invoking permissions.
+  // That outcome is recorded separately, never counted as DRM playback success.
+  if (drmDecisions.length === 0) expect(drmResult.errorCode).toBe("NotSupportedError");
 }
 
 async function exerciseContainedFullscreen(input: Readonly<{
@@ -712,6 +741,8 @@ async function exerciseContainedFullscreen(input: Readonly<{
   } else {
     expect(popupBefore!.popups[0]!.appKitIdentity).toBeNull();
   }
+
+  await exerciseDrmPermission({ inspection: popupBefore!, mainWindowHandle });
 
   const popupEnterAfter = await fixtureCursor();
   await clickVisibleElectronPageElement(

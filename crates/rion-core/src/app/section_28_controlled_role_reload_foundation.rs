@@ -248,9 +248,9 @@ impl AppCore {
         let registration = self.browser_runtime_registration()?;
         let expected_platform = controlled_role_reload_platform(self.platform);
         Ok(
-            self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
                 && registration.available
-                && registration.contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+                && registration.contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
                 && registration.platform == expected_platform
                 && registration.engine == crate::model::ResolvedBrowserEngine::Chromium
                 && system_capability_available(registration.capabilities.navigation),

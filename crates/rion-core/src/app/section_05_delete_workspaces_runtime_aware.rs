@@ -523,7 +523,7 @@ impl AppCore {
             }
         };
         let explicit_reset = (|| -> CoreResult<_> {
-            if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+            if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
                 return Ok(None);
             }
             let receipt = parse_chromium_role_clear_receipt(&effect, &role_id)?;

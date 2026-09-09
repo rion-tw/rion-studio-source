@@ -374,7 +374,8 @@ export class ChromiumGlobalWebSessionRegistry {
       session
     );
     installChromiumSessionSecurityPolicy(session, {
-      allowMainFrameHtmlFullscreen: true
+      allowMainFrameHtmlFullscreen: true,
+      allowWebAppDrm: true
     });
     installWorkspaceStartProtocol(session);
     const handle = Object.freeze({

@@ -791,14 +791,14 @@ describe("Electron Chromium runtime bootstrap", () => {
     await runtime.shutdown();
   });
 
-  it("registers the exact conservative v23 capability fixtures", () => {
+  it("registers the exact conservative v24 capability fixtures", () => {
     const versions = { electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250" };
-    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(23);
+    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(24);
     expect(buildChromiumRuntimeRegistration({
       platform: "win32",
       ...versions
     })).toEqual({
-      contractVersion: 23,
+      contractVersion: 24,
       platform: "windows",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -826,7 +826,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       platform: "darwin",
       ...versions
     })).toEqual({
-      contractVersion: 23,
+      contractVersion: 24,
       platform: "macos",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -865,14 +865,14 @@ describe("Electron Chromium runtime bootstrap", () => {
     });
   });
 
-  it("pins every Electron AppCore creation to runtime contract v23", () => {
+  it("pins every Electron AppCore creation to runtime contract v24", () => {
     const options = withElectronChromiumRuntimeContract({
       userDataDir: "/RionData",
       runtimeContractVersion: 22
     });
     expect(options).toEqual({
       userDataDir: "/RionData",
-      runtimeContractVersion: 23
+      runtimeContractVersion: 24
     });
     expect(Object.isFrozen(options)).toBe(true);
   });

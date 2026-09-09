@@ -89,7 +89,7 @@ impl AppCore {
             .as_ref()
             .map(|role| role.id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let v23_chromium = self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION;
+        let v23_chromium = self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION;
         if v23_chromium && replace_existing {
             self.require_role_session_launch_evidence(&role_id)?;
         }

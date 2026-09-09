@@ -1,6 +1,6 @@
 impl AppCore {
     async fn clear_global_web_profile(self: &Arc<Self>) -> CoreResult<Value> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(CoreError::Domain {
                 code: "GLOBAL_WEB_PROFILE_RUNTIME_UNAVAILABLE",
                 message:

@@ -547,7 +547,7 @@ impl AppCore {
         // load. Only a fresh foreground launch receives reveal/focus intent; restore hydration
         // consumes the same ownership fence while preserving the current key window.
         let ownership_projection = (self.runtime_contract_version
-            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
             && resolved_engine == crate::model::ResolvedBrowserEngine::Chromium)
             .then(|| {
                 self.embedded_runtime_window_projections().map(|windows| {

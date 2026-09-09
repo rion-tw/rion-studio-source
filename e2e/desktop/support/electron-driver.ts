@@ -429,6 +429,17 @@ export interface ElectronDesktopE2eWorkspaceWebRuntimeInspection {
 
 export type ElectronDesktopE2eWorkspaceWebSecurityPolicyObservation =
   | Readonly<{
+      allowed: boolean;
+      kind: "drm-permission";
+      stage: "check" | "request";
+      permission: "mediaKeySystem";
+      origin: string;
+      embeddingOrigin: string;
+      reason: "https-web-app" | "drm-disabled" | "invalid-requesting-origin" |
+        "invalid-embedding-origin";
+      sequence: number;
+    }>
+  | Readonly<{
       callback: false;
       kind: "permission-request";
       origin: string;
@@ -447,7 +458,7 @@ export interface ElectronDesktopE2eWorkspaceWebSecurityPolicyInspection {
   contentProfilePath: string;
   generation: number;
   observations: readonly ElectronDesktopE2eWorkspaceWebSecurityPolicyObservation[];
-  policyVersion: 1;
+  policyVersion: 2;
   sessionStoragePath: string;
   surfaceId: string;
   windowId: string;

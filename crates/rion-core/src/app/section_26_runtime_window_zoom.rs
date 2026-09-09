@@ -263,7 +263,7 @@ impl AppCore {
             rion_platform::Platform::Macos => "macos",
             rion_platform::Platform::Windows => "windows",
         };
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
             || !registration.available
             || registration.platform != expected_platform
             || registration.engine != crate::model::ResolvedBrowserEngine::Chromium

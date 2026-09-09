@@ -123,11 +123,11 @@ describe("Chromium global Web session registry", () => {
     expect(registry.activeSurfaceCount).toBe(2);
   });
 
-  it("allows only contained fullscreen and denies device, media, and page permissions", () => {
-    const paths = profile("darwin");
+  it.each(["darwin", "win32"] as const)("allows HTTPS DRM and contained fullscreen on %s", (platform) => {
+    const paths = profile(platform);
     const native = createNativeSession(paths.chromiumUserDataDir);
     const { factory } = createFactory(() => native.session);
-    const registry = new ChromiumGlobalWebSessionRegistry(factory, "darwin");
+    const registry = new ChromiumGlobalWebSessionRegistry(factory, platform);
     registry.acquireSurface("web-tab-1-1", 1, paths);
 
     expect((native.handlers.permissionCheck as () => false)()).toBe(false);
@@ -137,6 +137,8 @@ describe("Chromium global Web session registry", () => {
       requestingOrigin: string,
       details: { isMainFrame: boolean }
     ) => boolean;
+    expect(permissionCheck({ getURL: () => "https://fixture.test/" },
+      "mediaKeySystem", "https://fixture.test", { isMainFrame: true })).toBe(true);
     expect(permissionCheck({}, "fullscreen", "https://fixture.test", {
       isMainFrame: true
     })).toBe(true);

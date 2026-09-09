@@ -1143,7 +1143,12 @@ mod tests {
             );
         }
 
-        for claimed in [None, Some(22), Some(24)] {
+        for claimed in [
+            None,
+            Some(22),
+            Some(CHROMIUM_RUNTIME_CONTRACT_VERSION - 1),
+            Some(CHROMIUM_RUNTIME_CONTRACT_VERSION + 1),
+        ] {
             assert_eq!(
                 options("darwin", claimed)
                     .into_attested_core_options(

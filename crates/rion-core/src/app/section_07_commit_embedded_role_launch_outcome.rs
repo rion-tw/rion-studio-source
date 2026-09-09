@@ -325,7 +325,7 @@ impl AppCore {
         require_browser_runtime_resolution(&workspace_resolution)?;
         let workspace_resolved_engine = workspace_resolution.resolved_engine;
         let global_web_profile = if self.runtime_contract_version
-            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
             && workspace.slots.iter().any(|slot| slot.web.is_some())
         {
             Some(crate::global_web_profile::ensure(&self.user_data_dir)?)

@@ -234,3 +234,21 @@ fn registered_v23_launch_statuses_and_effects_retain_platform_chromium_hosts() {
         core.shutdown();
     }
 }
+
+#[test]
+fn current_drm_contract_rejects_stale_registration_on_both_platforms() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_runtime_contract(platform, CHROMIUM_RUNTIME_CONTRACT_VERSION);
+        assert_eq!(CHROMIUM_RUNTIME_CONTRACT_VERSION, 24);
+        let mut registration = chromium_registration(platform, true);
+        assert!(core.invoke(CoreCommand::BrowserRuntimeRegister {
+            registration: registration.clone(),
+        }).is_err());
+        registration.contract_version = CHROMIUM_RUNTIME_CONTRACT_VERSION;
+        core.invoke(CoreCommand::BrowserRuntimeRegister {
+            registration: registration.clone(),
+        }).unwrap();
+        assert_eq!(core.browser_runtime_registration().unwrap(), registration);
+        core.shutdown();
+    }
+}

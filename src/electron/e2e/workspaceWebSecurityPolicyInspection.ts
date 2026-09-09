@@ -1,5 +1,16 @@
 export type ElectronDesktopE2eWorkspaceWebSecurityPolicyObservation =
   | Readonly<{
+      allowed: boolean;
+      kind: "drm-permission";
+      stage: "check" | "request";
+      permission: "mediaKeySystem";
+      origin: string;
+      embeddingOrigin: string;
+      reason: "https-web-app" | "drm-disabled" | "invalid-requesting-origin" |
+        "invalid-embedding-origin";
+      sequence: number;
+    }>
+  | Readonly<{
       callback: false;
       kind: "permission-request";
       origin: string;
@@ -19,7 +30,7 @@ export interface ElectronDesktopE2eWorkspaceWebSecurityPolicyInspection {
   readonly generation: number;
   readonly observations:
     readonly ElectronDesktopE2eWorkspaceWebSecurityPolicyObservation[];
-  readonly policyVersion: 1;
+  readonly policyVersion: 2;
   readonly sessionStoragePath: string;
   readonly surfaceId: string;
   readonly windowId: string;
@@ -63,9 +74,27 @@ function observation(
   priorSequence: number
 ): value is ElectronDesktopE2eWorkspaceWebSecurityPolicyObservation {
   if (!record(value) || !Number.isSafeInteger(value.sequence) ||
-      Number(value.sequence) <= priorSequence || !canonicalOrigin(value.origin)) {
+      Number(value.sequence) <= priorSequence) {
     return false;
   }
+  if (value.kind === "drm-permission") {
+    const https = (origin: unknown): boolean => canonicalOrigin(origin) &&
+      origin.startsWith("https:");
+    const originValid = https(value.origin);
+    const embeddingValid = https(value.embeddingOrigin);
+    return exact(value, ["allowed", "kind", "stage", "permission", "origin",
+      "embeddingOrigin", "reason", "sequence"]) &&
+      (value.stage === "check" || value.stage === "request") &&
+      value.permission === "mediaKeySystem" &&
+      (originValid || value.origin === "null") &&
+      (embeddingValid || value.embeddingOrigin === "null") &&
+      ((value.allowed === true && value.reason === "https-web-app" &&
+        originValid && embeddingValid) ||
+       (value.allowed === false && (value.reason === "drm-disabled" ||
+        (value.reason === "invalid-requesting-origin" && !originValid) ||
+        (value.reason === "invalid-embedding-origin" && originValid && !embeddingValid))));
+  }
+  if (!canonicalOrigin(value.origin)) return false;
   if (value.kind === "permission-request") {
     return exact(value, [
       "callback", "kind", "origin", "permission", "sequence"
@@ -92,7 +121,7 @@ export function parseElectronDesktopE2eWorkspaceWebSecurityPolicyInspection(
       value.contentProfilePath.length === 0 ||
       value.sessionStoragePath !== value.contentProfilePath ||
       !Number.isSafeInteger(value.generation) || Number(value.generation) < 1 ||
-      value.policyVersion !== 1 || typeof value.surfaceId !== "string" ||
+      value.policyVersion !== 2 || typeof value.surfaceId !== "string" ||
       value.surfaceId.length === 0 || typeof value.windowId !== "string" ||
       !IDENTIFIER.test(value.windowId) || !Array.isArray(value.observations)) {
     throw new Error(

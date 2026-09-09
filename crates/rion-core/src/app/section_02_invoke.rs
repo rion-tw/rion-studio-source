@@ -71,7 +71,7 @@ impl AppCore {
                 self.read_state_record("roles", "id", &id, "ROLE_NOT_FOUND", "Role not found.")
             }
             CoreCommand::RoleCreate { input } => {
-                if self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION {
+                if self.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
                     let _guard = self.state_mutation_guard()?;
                     let role_id = uuid::Uuid::new_v4().to_string();
                     let initialization = crate::v23_role_initialization::new_evidence(
@@ -163,7 +163,7 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::GlobalWebProfilePathsResolve => {
-                if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+                if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
                     return Err(CoreError::Domain {
                         code: "GLOBAL_WEB_PROFILE_RUNTIME_UNAVAILABLE",
                         message: "The global Web Chromium profile is unavailable before runtime contract v23."

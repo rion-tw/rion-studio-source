@@ -249,14 +249,14 @@ impl AppCore {
             .as_deref()
             .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
         let runtime_registration_key = if self.runtime_contract_version
-            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
         {
             "browserRuntime"
         } else {
             "systemRuntime"
         };
         let runtime_registration_value = if self.runtime_contract_version
-            >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION
         {
             serde_json::to_value(&browser_runtime_registration)
         } else {

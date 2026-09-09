@@ -94,7 +94,7 @@ describe("Chromium process security policy", () => {
           url: "http://127.0.0.1:41739/download/security"
         }
       ],
-      policyVersion: 1,
+      policyVersion: 2,
       sessionStoragePath: "/profiles/global-web/chromium"
     });
     expect(Object.isFrozen(journal)).toBe(true);

@@ -20,7 +20,7 @@ impl AppCore {
             ExtensionCommand as Command, ExtensionResultRecord, ExtensionRoleRecord,
         };
         use std::sync::atomic::Ordering;
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(CoreError::Domain {
                 code: "EXTENSIONS_UNSUPPORTED",
                 message: "Extensions require Chromium.".to_owned(),

@@ -90,7 +90,7 @@ impl AppCore {
         tab_id: &str,
         loaded_role_ids: &[String],
     ) -> CoreResult<bool> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Ok(false);
         }
         let topology_changed = {
@@ -186,7 +186,7 @@ impl AppCore {
         window_id: &str,
         owner_generation: u64,
     ) -> CoreResult<bool> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Ok(false);
         }
         let snapshot = self.browser_runtime.snapshot()?;
@@ -236,7 +236,7 @@ impl AppCore {
         &self,
         input: ChromiumWorkspaceWebSurfaceFailureInput,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Err(chromium_launch_window_context_error(
                 "CHROMIUM_WORKSPACE_WEB_FAILURE_UNAVAILABLE",
                 "Workspace Web failure authority requires Chromium runtime contract v23.",

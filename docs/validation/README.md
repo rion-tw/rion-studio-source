@@ -6,6 +6,8 @@ be treated as current evidence.
 
 ## Active runbooks
 
+- [Web App DRM](runbooks/web-app-drm.md): permission evidence, key-system
+  classification and real iq.com playback acceptance.
 - [Windows Game Window Placement](runbooks/windows-game-window-placement.md):
   W1-W11 placement, persistence, display, DPI, and generation-fence acceptance.
 

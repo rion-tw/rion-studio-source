@@ -83,14 +83,28 @@ Every application renderer and embedded game page uses context isolation and a
 sandbox. Node integration is disabled. A process-lifetime policy is installed
 once for every exact Chromium `Session` identity before that session can own a
 surface. Permission checks and requests, device access, display capture,
-Bluetooth pairing, and downloads are denied synchronously. The only permission
-exception is a user-activated main-frame `fullscreen` request in the dedicated
-global-Web Session; `disableHtmlFullscreenWindowResize` contains it to the exact
+Bluetooth pairing, and downloads are denied synchronously. The permission
+exceptions are HTTPS `mediaKeySystem` access and a user-activated main-frame
+`fullscreen` request in the dedicated global-Web Session; `disableHtmlFullscreenWindowResize` contains it to the exact
 native viewport and the owner-fenced Chromium events drive its projection. The application
 rejects invalid server certificates and implicit client-certificate selection;
 remote pages cannot turn either failure into an interactive bypass. Chromium
 safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
+
+
+The active runtime contract is version 24. Version 23 remains the first
+Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
+names and updater runtime-family labels are not rewritten by the policy update.
+The global-Web policy explicitly enables DRM for HTTPS requesting and embedding
+origins, including controlled popups. Request/check handlers share the same
+origin decision and retain Chromium encrypted-media Permissions Policy. Missing,
+opaque or non-HTTPS origins are denied, including null-WebContents callbacks
+without complete native origin metadata. Roles and local shell sessions retain
+the default deny policy. Journal policy version 2 records bounded DRM decisions
+with origins and reasons, never license payloads or credentials. This permission
+exception does not claim a CDM is installed or that a streaming service accepts
+this runtime; permissions capability remains degraded.
 
 Capability registration describes evidence, not Electron API availability.
 Navigation, persistent sessions, audio mute, macOS and Windows

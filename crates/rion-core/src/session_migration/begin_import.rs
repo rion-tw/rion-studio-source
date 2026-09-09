@@ -47,7 +47,7 @@ pub(crate) fn begin_role_session_migration_import(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(database_error)?;
-    if runtime_contract_version < crate::app::CHROMIUM_RUNTIME_CONTRACT_VERSION {
+    if runtime_contract_version < crate::app::CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
         return Err(domain_error(
             "ROLE_SESSION_MIGRATION_IMPORT_ADMISSION_UNAVAILABLE",
             "Role session import admission requires runtime contract v23 or later.",

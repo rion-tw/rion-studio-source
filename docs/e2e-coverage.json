@@ -2253,7 +2253,7 @@
         "failure",
         "restart"
       ],
-      "description": "From the visible remote global-Web page inside the retained AppKit host, request geolocation and an attachment download. The exact persistent Chromium Session journal must bind the fixture origin and geolocation permission to callback=false, bind will-download to defaultPrevented=true, and the fixture must observe cancellation of the held attachment transport. Capabilities intentionally remain permissions=degraded and downloads=disabled, matching the stable v22 deny-policy semantics; this journey makes no file-upload parity claim."
+      "description": "From the visible remote global-Web page inside the retained AppKit host, request geolocation and an attachment download. The exact persistent Chromium Session journal must bind the fixture origin and geolocation permission to callback=false, bind will-download to defaultPrevented=true, and the fixture must observe cancellation of the held attachment transport. Capabilities intentionally remain permissions=degraded and downloads=disabled, matching the stable v22 deny-policy semantics; this journey makes no file-upload parity claim. The HTTPS local-only DRM fixture additionally requests com.widevine.alpha through a visible trusted click and records EME completion separately from policy-version-2 permission decisions. Any observed DRM decision must allow the exact HTTPS origins; absence of a callback is accepted only with NotSupportedError and is not playback evidence. Origin rejection and session isolation are covered by platform-explicit permission unit tests."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FILE-UPLOAD-028",
@@ -2403,7 +2403,7 @@
         "failure",
         "restart"
       ],
-      "description": "From the same visible remote global-Web page in the bundled Windows Chromium host, request geolocation and an attachment download. The exact persistent Chromium Session journal must bind the fixture origin and geolocation permission to callback=false, bind will-download to defaultPrevented=true, and the fixture must observe cancellation of the held attachment transport. Capabilities intentionally remain permissions=degraded and downloads=disabled, matching the stable v22 deny-policy semantics; this journey makes no file-upload parity claim and Windows retains an independent CI verdict."
+      "description": "From the same visible remote global-Web page in the bundled Windows Chromium host, request geolocation and an attachment download. The exact persistent Chromium Session journal must bind the fixture origin and geolocation permission to callback=false, bind will-download to defaultPrevented=true, and the fixture must observe cancellation of the held attachment transport. Capabilities intentionally remain permissions=degraded and downloads=disabled, matching the stable v22 deny-policy semantics; this journey makes no file-upload parity claim and Windows retains an independent CI verdict. The HTTPS local-only DRM fixture additionally requests com.widevine.alpha through a visible trusted click and records EME completion separately from policy-version-2 permission decisions. Any observed DRM decision must allow the exact HTTPS origins; absence of a callback is accepted only with NotSupportedError and is not playback evidence. Origin rejection and session isolation are covered by platform-explicit permission unit tests."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-FILE-UPLOAD-028",

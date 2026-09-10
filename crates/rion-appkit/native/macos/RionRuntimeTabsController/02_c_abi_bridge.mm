@@ -1238,6 +1238,8 @@ bool rion_runtime_tabs_macro_fallback_event_self_test(void) {
 
 @property(nonatomic, weak, nullable)
     RionRuntimeTabGroupView *tabAccessibilityGroup;
+@property(nonatomic, weak, nullable)
+    RionRuntimeAddButton *launcherAccessibilityChild;
 @property(nonatomic, weak) RionRuntimeTabsController *tabsController;
 @property(nonatomic, copy)
     NSArray<NSView *> *workspaceDividerAccessibilityChildren;

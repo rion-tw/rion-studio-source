@@ -49,15 +49,28 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (nullable NSArray *)accessibilityChildren {
-  // The tab group already belongs to the retained AppKit view hierarchy.
-  // Normalizing AppKit's children exposes it through ignored glass/scroll
-  // wrappers without inserting a second semantic path to the same controls.
+  // Normalize AppKit's ignored glass/scroll wrappers first, then publish the
+  // semantic titlebar controls explicitly. A titlebar accessory can otherwise
+  // omit an image-only NSButton from its external AX tree even though the
+  // button remains visible and clickable.
+  NSArray *inherited = [super accessibilityChildren] ?: @[];
   NSMutableArray *children =
-      [[super accessibilityChildren] mutableCopy] ?: [NSMutableArray array];
+      [NSAccessibilityUnignoredChildren(inherited) mutableCopy] ?:
+          [NSMutableArray array];
+  RionRuntimeTabGroupView *tabGroup = self.tabAccessibilityGroup;
+  if (tabGroup && !tabGroup.isHiddenOrHasHiddenAncestor &&
+      ![children containsObject:tabGroup]) {
+    [children addObject:tabGroup];
+  }
+  RionRuntimeAddButton *launcher = self.launcherAccessibilityChild;
+  if (launcher && !launcher.isHiddenOrHasHiddenAncestor &&
+      ![children containsObject:launcher]) {
+    [children addObject:launcher];
+  }
   for (NSView *divider in self.workspaceDividerAccessibilityChildren) {
     if (![children containsObject:divider]) [children addObject:divider];
   }
-  return NSAccessibilityUnignoredChildren(children);
+  return children;
 }
 
 - (nullable NSArray *)accessibilityChildrenInNavigationOrder {
@@ -499,6 +512,8 @@ NS_ASSUME_NONNULL_BEGIN
                                               action:@selector(openLauncher:)];
   _addButton.bordered = NO;
   _addButton.tag = kRionAddButtonTag;
+  _addButton.accessibilityElement = YES;
+  _addButton.accessibilityRole = NSAccessibilityButtonRole;
   _addButton.accessibilityIdentifier =
       @"com.rionstudio.runtime.appkit-launcher.v1";
   _addButton.imageScaling = NSImageScaleProportionallyDown;
@@ -516,6 +531,7 @@ NS_ASSUME_NONNULL_BEGIN
                    relativeTo:_tabScrollView];
   [root addSubview:_windowNameField positioned:NSWindowAbove relativeTo:nil];
   [root addSubview:_addSurface positioned:NSWindowAbove relativeTo:nil];
+  root.launcherAccessibilityChild = _addButton;
 
   __weak RionRuntimeTabsController *weakScrollSelf = self;
   id scrollObserver = [NSNotificationCenter.defaultCenter

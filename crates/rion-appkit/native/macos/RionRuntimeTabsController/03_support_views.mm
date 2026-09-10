@@ -221,6 +221,7 @@ bool rion_runtime_tabs_accessibility_hierarchy_self_test(void) {
     RionRuntimeTabsRootView *root =
         [[RionRuntimeTabsRootView alloc] initWithFrame:NSMakeRect(0, 0, 640, 40)];
     NSView *glassWrapper = [[NSView alloc] initWithFrame:root.bounds];
+    NSView *launcherWrapper = [[NSView alloc] initWithFrame:NSZeroRect];
     RionRuntimeTabGroupView *tabGroup =
         [[RionRuntimeTabGroupView alloc] initWithFrame:root.bounds];
     NSView *firstSurface = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -229,6 +230,13 @@ bool rion_runtime_tabs_accessibility_hierarchy_self_test(void) {
         [[RionRuntimeAccessibilityTabItemProbe alloc] initWithFrame:NSZeroRect];
     RionRuntimeAccessibilityTabItemProbe *second =
         [[RionRuntimeAccessibilityTabItemProbe alloc] initWithFrame:NSZeroRect];
+    RionRuntimeAddButton *launcher =
+        [[RionRuntimeAddButton alloc] initWithFrame:NSZeroRect];
+    launcher.accessibilityElement = YES;
+    launcher.accessibilityRole = NSAccessibilityButtonRole;
+    launcher.accessibilityIdentifier =
+        @"com.rionstudio.runtime.appkit-launcher.v1";
+    launcher.accessibilityLabel = @"Open launcher";
     RionRuntimeWorkspaceDividerView *divider =
         [[RionRuntimeWorkspaceDividerView alloc]
             initWithProjectionKey:@"divider-probe"
@@ -244,12 +252,15 @@ bool rion_runtime_tabs_accessibility_hierarchy_self_test(void) {
       @"visible" : @YES
     } localFrame:NSMakeRect(320, 40, 4, 600)];
     [root addSubview:glassWrapper];
+    [root addSubview:launcherWrapper];
     [glassWrapper addSubview:tabGroup];
     [tabGroup addSubview:firstSurface];
     [tabGroup addSubview:secondSurface];
     [firstSurface addSubview:first];
     [secondSurface addSubview:second];
+    [launcherWrapper addSubview:launcher];
     root.tabAccessibilityGroup = tabGroup;
+    root.launcherAccessibilityChild = launcher;
     tabGroup.titlebarAccessibilityParent = root;
     tabGroup.tabAccessibilityChildren =
         (NSArray<RionRuntimeTabItemView *> *)(NSArray *)@[ first, second ];
@@ -264,7 +275,13 @@ bool rion_runtime_tabs_accessibility_hierarchy_self_test(void) {
         [root.accessibilityIdentifier
             isEqualToString:@"com.rionstudio.runtime.appkit-root.v1"] &&
         [rootChildren containsObject:tabGroup] &&
+        [rootChildren containsObject:launcher] &&
         [rootChildren containsObject:divider] &&
+        launcher.isAccessibilityElement &&
+        [launcher.accessibilityRole isEqualToString:NSAccessibilityButtonRole] &&
+        [launcher.accessibilityIdentifier
+            isEqualToString:@"com.rionstudio.runtime.appkit-launcher.v1"] &&
+        [launcher.accessibilityLabel isEqualToString:@"Open launcher"] &&
         tabGroup.isAccessibilityElement &&
         [tabGroup conformsToProtocol:@protocol(NSAccessibilityGroup)] &&
         [tabGroup.accessibilityRole
@@ -293,6 +310,12 @@ bool rion_runtime_tabs_accessibility_hierarchy_self_test(void) {
     NSArray *reorderedChildren = tabGroup.accessibilityChildren;
     BOOL reordered = reorderedChildren.count == 2 &&
         reorderedChildren[0] == second && reorderedChildren[1] == first;
+    launcherWrapper.hidden = YES;
+    BOOL hiddenLauncherRemoved =
+        ![root.accessibilityChildren containsObject:launcher];
+    launcherWrapper.hidden = NO;
+    BOOL visibleLauncherRestored =
+        [root.accessibilityChildren containsObject:launcher];
     tabGroup.tabAccessibilityChildren =
         (NSArray<RionRuntimeTabItemView *> *)(NSArray *)@[ second ];
     NSArray *removedChildren = tabGroup.accessibilityChildren;
@@ -300,7 +323,8 @@ bool rion_runtime_tabs_accessibility_hierarchy_self_test(void) {
         removedChildren[0] == second &&
         first.tabAccessibilityParent == nil &&
         second.accessibilityParent == tabGroup;
-    return initialHierarchy && reordered && removed;
+    return initialHierarchy && reordered && hiddenLauncherRemoved &&
+        visibleLauncherRestored && removed;
   }
 }
 

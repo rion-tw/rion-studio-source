@@ -101,8 +101,14 @@ guard buttons.count == 1, enabled(buttons[0]),
     guard text(element, kAXRoleAttribute as CFString) == "AXButton" else {
       return nil
     }
-    return text(element, kAXIdentifierAttribute as CFString) + ":" +
-      text(element, kAXDescriptionAttribute as CFString)
+    return [
+      text(element, kAXSubroleAttribute as CFString),
+      text(element, kAXIdentifierAttribute as CFString),
+      text(element, kAXTitleAttribute as CFString),
+      text(element, kAXDescriptionAttribute as CFString),
+      text(element, kAXHelpAttribute as CFString),
+      enabled(element) ? "enabled" : "disabled"
+    ].joined(separator: ":")
   }
   fail("exact AppKit launcher button is unavailable; observed=" +
     diagnostics.joined(separator: "|"))

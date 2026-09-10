@@ -5,6 +5,7 @@ import type {
   CoreAppSnapshotRecord,
   DisplayTopologySnapshotRecord
 } from "../src/shared/generated";
+import type { AppLanguage } from "../src/shared/types";
 import {
   MacosAppKitRuntimeLauncherMenuController
 } from "../src/electron/main/macosAppKitRuntimeLauncherMenu";
@@ -178,6 +179,77 @@ function menuItem(
 }
 
 describe("macOS retained AppKit scoped launcher menu", () => {
+  it.each([
+    ["en", "Save as New Game Window", "Roles", "Workspaces"],
+    ["zh-TW", "儲存為新遊戲視窗", "角色", "工作區"],
+    ["zh-CN", "保存为新游戏窗口", "角色", "工作区"],
+    ["ja", "新しいゲームウインドウとして保存", "ロール", "ワークスペース"]
+  ] as const)(
+    "uses the selected %s application language for the native launcher",
+    async (language, saveWindowLabel, rolesLabel, workspacesLabel) => {
+      const { core, display, host, native } = fixtures();
+      const popup = vi.fn();
+      const controller = new MacosAppKitRuntimeLauncherMenuController({
+        actions: {
+          activateTab: vi.fn(async () => undefined),
+          launchRole: vi.fn(async () => undefined),
+          launchWorkspace: vi.fn(async () => undefined),
+          saveWindow: vi.fn(async () => undefined)
+        },
+        language: () => language,
+        lifecycleEpoch: () => 12,
+        nativeMenu: { popup },
+        onError: vi.fn(),
+        readCoreSnapshot: async () => core,
+        readDisplayTopology: () => display,
+        readNativeSnapshot: () => native
+      });
+
+      await controller.open({ hosts: [host], identity });
+      const items = popup.mock.calls[0]![0]
+        .items as readonly MacosAppKitRuntimeTabMenuItem[];
+      expect(menuItem(items, "runtime-launcher-save-window").label)
+        .toBe(saveWindowLabel);
+      expect(items.filter((candidate) => candidate.type === "submenu")
+        .map((candidate) => candidate.label))
+        .toEqual([rolesLabel, workspacesLabel]);
+    }
+  );
+
+  it("uses the latest application language when the launcher is reopened", async () => {
+    const { core, display, host, native } = fixtures();
+    const popup = vi.fn();
+    let language: AppLanguage = "en";
+    const controller = new MacosAppKitRuntimeLauncherMenuController({
+      actions: {
+        activateTab: vi.fn(async () => undefined),
+        launchRole: vi.fn(async () => undefined),
+        launchWorkspace: vi.fn(async () => undefined),
+        saveWindow: vi.fn(async () => undefined)
+      },
+      language: () => language,
+      lifecycleEpoch: () => 12,
+      nativeMenu: { popup },
+      onError: vi.fn(),
+      readCoreSnapshot: async () => core,
+      readDisplayTopology: () => display,
+      readNativeSnapshot: () => native
+    });
+
+    await controller.open({ hosts: [host], identity });
+    language = "ja";
+    await controller.open({ hosts: [host], identity });
+
+    const first = popup.mock.calls[0]![0]
+      .items as readonly MacosAppKitRuntimeTabMenuItem[];
+    const second = popup.mock.calls[1]![0]
+      .items as readonly MacosAppKitRuntimeTabMenuItem[];
+    expect(menuItem(first, "runtime-launcher-save-window").label)
+      .toBe("Save as New Game Window");
+    expect(menuItem(second, "runtime-launcher-save-window").label)
+      .toBe("新しいゲームウインドウとして保存");
+  });
+
   it("restores the transient-window save, Role, and Workspace actions from v8.4", async () => {
     const { core, display, host, native } = fixtures();
     const popup = vi.fn();

@@ -197,6 +197,11 @@ describe("Chromium native tab exact replacements", () => {
     expect(main).toContain("runtimeActionServices.requestRuntimeTabControl");
     expect(main).toContain("activeRuntimeRestoreSession()");
     expect(main).toContain("createMacosAppKitRuntimeMenus");
+    expect(main).toContain(
+      "let menuLanguage = macosRuntimeTabMenuLanguage(app.getLocale())"
+    );
+    expect(main).toContain("language: () => menuLanguage");
+    expect(main).toContain("menuLanguage = language");
     expect(main).toContain("BaseWindow.fromId(parentNativeHostId)");
     expect(menu).toContain('id: "runtime-tab-menu-reload"');
     expect(menu).toContain('type: "reload"');

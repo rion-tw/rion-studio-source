@@ -4,9 +4,11 @@ import { electronDesktopE2eRuntimeTabReload } from "../support/electron-driver";
 import { selectMacosVisibleRuntimeTabMenuAction } from "../support/macos-appkit-ui";
 import { selectVisibleWindowsRuntimeTabMenuAction } from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
+import type { AppLanguage } from "../../../src/shared/types";
 
 /** Primary actions use visible menus; inspection only reads Core/native evidence. */
 export async function verifyVisibleChromiumTabAudio(input: Readonly<{
+  language?: AppLanguage;
   muted: boolean;
   mainWindowHandle: string;
   platform: "macos" | "windows";

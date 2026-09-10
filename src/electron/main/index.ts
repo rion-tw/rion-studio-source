@@ -1402,12 +1402,13 @@ async function bootstrapReadyPhase(
       executeNativeQuickAccessShortcut
     );
   }
+  let menuLanguage = macosRuntimeTabMenuLanguage(app.getLocale());
   if (runtimePlatform === "darwin") {
     const runtimeMenus = createMacosAppKitRuntimeMenus({
       applyWindowName: (identity, name) =>
         appKit!.hostFactory.applyWindowName(identity, name),
       core: activeCore(),
-      language: () => macosRuntimeTabMenuLanguage(app.getLocale()),
+      language: () => menuLanguage,
       launches: launchCoordinator,
       lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
       nativeMenu: {
@@ -1491,7 +1492,10 @@ async function bootstrapReadyPhase(
       }
       return systemFontProvider.list();
     },
-    (language) => quickMenu?.setLanguage(language)
+    (language) => {
+      menuLanguage = language;
+      quickMenu?.setLanguage(language);
+    }
   );
   const fontAwareDispatcher = createChromiumRoleFontApiDispatcher(
     coreDispatcher,

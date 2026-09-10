@@ -1,4 +1,4 @@
-import { browser, expect } from "@wdio/globals";
+import { $, browser, expect } from "@wdio/globals";
 
 import {
   electronDesktopE2eRolePlaceholderRuntime,
@@ -18,6 +18,7 @@ import {
   createCutoverRoleWorkspace,
   cutoverFixtureUrl,
   openCutoverWorkspace,
+  openCutoverSection,
   prepareWorkspaceCutover,
   requiredCutoverEnvironment,
   waitCutoverWorkspaceTab
@@ -25,6 +26,7 @@ import {
 import { verifyVisibleChromiumTabAudio } from "./chromium-tab-audio-support";
 import { selectMacosVisibleRuntimeLauncherRole } from
   "../support/macos-appkit-ui";
+import { waitForRoute } from "../support/ui";
 
 // [journey:CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025]
 // [journey:CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025]
@@ -38,6 +40,37 @@ const WORKSPACE_B_NAME = "Chromium Shared Workspace B";
 const SHARED_FIXTURE = "chromium-workspace-shared-role";
 const UNIQUE_A_FIXTURE = "chromium-workspace-shared-unique-a";
 const UNIQUE_B_FIXTURE = "chromium-workspace-shared-unique-b";
+
+async function openVisibleLanguagePreferences(): Promise<void> {
+  await openCutoverSection("Settings", "/settings");
+  const sidebar = await $(".settings-mode-sidebar");
+  await sidebar.waitForDisplayed({ timeout: 10_000 });
+  await sidebar.$("button=Preferences").click();
+  await waitForRoute("/settings?section=preferences");
+}
+
+async function selectVisibleApplicationLanguage(input: Readonly<{
+  optionLabel: "English" | "繁體中文";
+  resultTriggerLabel: "Language" | "語言";
+  triggerLabel: "Language" | "語言";
+}>): Promise<void> {
+  const trigger = await $(`button[aria-label='${input.triggerLabel}']`);
+  await trigger.waitForClickable({ timeout: 10_000 });
+  await trigger.click();
+  const option = await $(`[role='option']=${input.optionLabel}`);
+  await option.waitForClickable({ timeout: 10_000 });
+  await option.click();
+  await browser.waitUntil(async () => {
+    const selected = await $(
+      `button[aria-label='${input.resultTriggerLabel}']`
+    );
+    return await selected.isDisplayed() &&
+      (await selected.getText()).includes(input.optionLabel);
+  }, {
+    timeout: 10_000,
+    timeoutMsg: `Application language did not visibly become ${input.optionLabel}`
+  });
+}
 
 function expectPlatformHost(
   hostKind: "appkit-chromium" | "bundled-chromium",
@@ -115,7 +148,17 @@ describe("Chromium shared Workspace Role exact replacement", () => {
     expect((await rendererCall("listGameWindows")).some(
       (window) => window.id === tabA.windowId
     )).toBe(false);
+    if (input.platform === "macos") {
+      await browser.switchToWindow(input.mainWindowHandle);
+      await openVisibleLanguagePreferences();
+      await selectVisibleApplicationLanguage({
+        optionLabel: "繁體中文",
+        resultTriggerLabel: "語言",
+        triggerLabel: "Language"
+      });
+    }
     await verifyVisibleChromiumTabAudio({
+      ...(input.platform === "macos" ? { language: "zh-TW" as const } : {}),
       mainWindowHandle: input.mainWindowHandle,
       muted: true,
       platform: input.platform,
@@ -124,6 +167,7 @@ describe("Chromium shared Workspace Role exact replacement", () => {
       windowId: tabA.windowId
     });
     await verifyVisibleChromiumTabAudio({
+      ...(input.platform === "macos" ? { language: "zh-TW" as const } : {}),
       mainWindowHandle: input.mainWindowHandle,
       muted: false,
       platform: input.platform,
@@ -133,9 +177,20 @@ describe("Chromium shared Workspace Role exact replacement", () => {
     });
     if (input.platform === "macos") {
       await selectMacosVisibleRuntimeLauncherRole({
+        language: "zh-TW",
         roleName: uniqueA.name,
         windowId: tabA.windowId
       });
+      await browser.switchToWindow(input.mainWindowHandle);
+      await selectVisibleApplicationLanguage({
+        optionLabel: "English",
+        resultTriggerLabel: "Language",
+        triggerLabel: "語言"
+      });
+      const back = await $("button=Back to app");
+      await back.waitForClickable({ timeout: 10_000 });
+      await back.click();
+      await waitForRoute("/dashboard");
     }
     expect(await runtimeTabShellErrors()).toEqual([]);
     await openCutoverWorkspace(workspaceB, "new-window");

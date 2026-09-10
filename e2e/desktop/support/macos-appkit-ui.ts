@@ -9,6 +9,7 @@ import {
   electronDesktopE2eGameWindowRuntime,
   electronDesktopE2eProbe
 } from "./electron-driver";
+import type { AppLanguage } from "../../../src/shared/types";
 import type { VisibleElectronPagePoint } from "./electron-role-surface";
 
 const executeFile = promisify(execFile);
@@ -616,33 +617,49 @@ CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
 }
 
 const TAB_MENU_LABELS = Object.freeze({
-  mute: Object.freeze(["Mute Tab", "將分頁靜音", "将标签页静音", "タブをミュート"]),
-  unmute: Object.freeze(["Unmute Tab", "取消分頁靜音", "取消标签页静音", "タブのミュートを解除"]),
-  hide: Object.freeze([
-    "Hide tab (keeps running)",
-    "隱藏分頁（保持運行）",
-    "隐藏标签页（保持运行）",
-    "タブを非表示（実行を継続）"
-  ]),
-  move: Object.freeze([
-    "Move to Game Window",
-    "移至遊戲視窗",
-    "移至游戏窗口",
-    "ゲームウィンドウへ移動"
-  ]),
-  reload: Object.freeze([
-    "Reload",
-    "重新整理",
-    "重新加载",
-    "再読み込み"
-  ]),
-  moveToNewWindow: Object.freeze([
-    "Move to New Game Window",
-    "移至新遊戲視窗",
-    "移至新游戏窗口",
-    "新しいゲームウィンドウへ移動"
-  ])
-});
+  en: Object.freeze({
+    hide: "Hide tab (keeps running)",
+    move: "Move to Game Window",
+    moveToNewWindow: "Move to New Game Window",
+    mute: "Mute Tab",
+    reload: "Reload",
+    unmute: "Unmute Tab"
+  }),
+  "zh-TW": Object.freeze({
+    hide: "隱藏分頁（保持運行）",
+    move: "移至遊戲視窗",
+    moveToNewWindow: "移至新遊戲視窗",
+    mute: "將分頁靜音",
+    reload: "重新整理",
+    unmute: "取消分頁靜音"
+  }),
+  "zh-CN": Object.freeze({
+    hide: "隐藏标签页（保持运行）",
+    move: "移至游戏窗口",
+    moveToNewWindow: "移至新游戏窗口",
+    mute: "将标签页静音",
+    reload: "重新加载",
+    unmute: "取消标签页静音"
+  }),
+  ja: Object.freeze({
+    hide: "タブを非表示（実行を継続）",
+    move: "ゲームウィンドウへ移動",
+    moveToNewWindow: "新しいゲームウィンドウへ移動",
+    mute: "タブをミュート",
+    reload: "再読み込み",
+    unmute: "タブのミュートを解除"
+  })
+} satisfies Readonly<Record<AppLanguage, Readonly<Record<
+  "hide" | "move" | "moveToNewWindow" | "mute" | "reload" | "unmute",
+  string
+>>>>);
+
+const LAUNCHER_ROLE_LABELS = Object.freeze({
+  en: "Roles",
+  "zh-TW": "角色",
+  "zh-CN": "角色",
+  ja: "ロール"
+} satisfies Readonly<Record<AppLanguage, string>>);
 
 const APPKIT_LAUNCHER_LABELS = Object.freeze([
   "Open role or workspace",
@@ -667,6 +684,7 @@ export async function readMacosVisibleRuntimeTabPoint(input: Readonly<{
 /** Opens the visible native NSMenu and selects one of its real menu items. */
 export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
   action: "hide" | "move" | "moveToNewWindow" | "reload" | "mute" | "unmute";
+  language?: AppLanguage;
   tabId: string;
   tabName: string;
   targetWindowName?: string;
@@ -695,10 +713,11 @@ CGEvent(mouseEventSource: source, mouseType: .rightMouseUp,
     encoding: "utf8",
     timeout: 30_000
   });
+  const labels = TAB_MENU_LABELS[input.language ?? "en"];
   const selectionInput = JSON.stringify({
-    actionLabels: TAB_MENU_LABELS[input.action],
-    hideLabels: TAB_MENU_LABELS.hide,
-    moveToNewWindowLabels: TAB_MENU_LABELS.moveToNewWindow,
+    actionLabels: [labels[input.action]],
+    hideLabels: [labels.hide],
+    moveToNewWindowLabels: [labels.moveToNewWindow],
     processId: Number(processId),
     targetWindowName: input.targetWindowName ?? null
   });
@@ -711,6 +730,7 @@ CGEvent(mouseEventSource: source, mouseType: .rightMouseUp,
 
 /** Presses the retained AppKit `+` control and selects one scoped source. */
 export async function selectMacosVisibleRuntimeLauncherRole(input: Readonly<{
+  language?: AppLanguage;
   roleName: string;
   windowId: string;
 }>): Promise<void> {
@@ -727,7 +747,7 @@ export async function selectMacosVisibleRuntimeLauncherRole(input: Readonly<{
     resolve(import.meta.dirname, "macos-appkit-launcher-menu.swift"),
     JSON.stringify({
       actionLabel: input.roleName,
-      groupLabel: "Roles",
+      groupLabel: LAUNCHER_ROLE_LABELS[input.language ?? "en"],
       launcherLabels: APPKIT_LAUNCHER_LABELS,
       processId,
       windowId: input.windowId

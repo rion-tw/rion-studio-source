@@ -4,6 +4,7 @@ import type {
   AppKitRuntimeHostObservationRecord,
   CoreAppSnapshotRecord
 } from "../src/shared/generated";
+import type { AppLanguage } from "../src/shared/types";
 import {
   MacosAppKitRuntimeTabMenuController,
   type MacosAppKitRuntimeTabMenuItem
@@ -210,6 +211,75 @@ function item(
 }
 
 describe("macOS retained AppKit runtime tab menu", () => {
+  it.each([
+    ["en", "Reload", "Mute Tab", "Hide tab (keeps running)",
+      "Move to Game Window", "Move to New Game Window", "Stop and Close"],
+    ["zh-TW", "重新整理", "將分頁靜音", "隱藏分頁（保持運行）",
+      "移至遊戲視窗", "移至新遊戲視窗", "停止並關閉"],
+    ["zh-CN", "重新加载", "将标签页静音", "隐藏标签页（保持运行）",
+      "移至游戏窗口", "移至新游戏窗口", "停止并关闭"],
+    ["ja", "再読み込み", "タブをミュート", "タブを非表示（実行を継続）",
+      "ゲームウィンドウへ移動", "新しいゲームウィンドウへ移動",
+      "停止して閉じる"]
+  ] as const)(
+    "uses the selected %s application language for every native tab action",
+    async (language, reload, mute, hide, move, moveNew, stop) => {
+      const { core, host, lifecycleEpoch, native } = fixtures();
+      const popup = vi.fn();
+      const controller = new MacosAppKitRuntimeTabMenuController({
+        actions: { execute: vi.fn(async () => undefined) },
+        language: () => language,
+        lifecycleEpoch,
+        nativeMenu: { popup },
+        onError: vi.fn(),
+        readCoreSnapshot: async () => core,
+        readNativeSnapshot: () => native
+      });
+
+      await controller.open({
+        hosts: [host], identity: sourceIdentity, tabId: "tab-1"
+      });
+      const items = popup.mock.calls[0]![0]
+        .items as readonly MacosAppKitRuntimeTabMenuItem[];
+      expect(item(items, "runtime-tab-menu-reload").label).toBe(reload);
+      expect(item(items, "runtime-tab-menu-mute").label).toBe(mute);
+      expect(item(items, "runtime-tab-menu-hide").label).toBe(hide);
+      expect(item(items, "runtime-tab-menu-move").label).toBe(move);
+      expect(item(items, "runtime-tab-menu-move-new").label).toBe(moveNew);
+      expect(item(items, "runtime-tab-menu-stop").label).toBe(stop);
+    }
+  );
+
+  it("uses the latest application language when the menu is reopened", async () => {
+    const { core, host, lifecycleEpoch, native } = fixtures();
+    const popup = vi.fn();
+    let language: AppLanguage = "en";
+    const controller = new MacosAppKitRuntimeTabMenuController({
+      actions: { execute: vi.fn(async () => undefined) },
+      language: () => language,
+      lifecycleEpoch,
+      nativeMenu: { popup },
+      onError: vi.fn(),
+      readCoreSnapshot: async () => core,
+      readNativeSnapshot: () => native
+    });
+
+    await controller.open({
+      hosts: [host], identity: sourceIdentity, tabId: "tab-1"
+    });
+    language = "zh-TW";
+    await controller.open({
+      hosts: [host], identity: sourceIdentity, tabId: "tab-1"
+    });
+
+    const first = popup.mock.calls[0]![0]
+      .items as readonly MacosAppKitRuntimeTabMenuItem[];
+    const second = popup.mock.calls[1]![0]
+      .items as readonly MacosAppKitRuntimeTabMenuItem[];
+    expect(item(first, "runtime-tab-menu-reload").label).toBe("Reload");
+    expect(item(second, "runtime-tab-menu-reload").label).toBe("重新整理");
+  });
+
   it("anchors a native menu to the exact AppKit parent and submits fenced actions", async () => {
     const { core, host, lifecycleEpoch, native } = fixtures();
     const execute = vi.fn(async () => undefined);

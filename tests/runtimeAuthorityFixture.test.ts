@@ -231,18 +231,19 @@ describe("runtime authority fixture launch gates", () => {
       port: Number(new URL(origin).port)
     });
     expect((await post(origin, "/api/gate", { roleId: "test-role" })).ok).toBe(true);
-    let roleResolved = false;
-    const role = fetch(`${origin}/role/test-role?mode=seed&marker=gated-marker`).then((response) => {
-      roleResolved = true;
-      return response;
+    let roleBodyResolved = false;
+    const role = fetch(`${origin}/role/test-role?mode=seed&marker=gated-marker`);
+    const roleBody = role.then((response) => response.text()).then((source) => {
+      roleBodyResolved = true;
+      return source;
     });
     const waiting = await fetch(`${origin}/api/gates/test-role/waiting`);
     expect(await waiting.json()).toEqual({ roleId: "test-role", waiterCount: 1 });
-    expect(roleResolved).toBe(false);
+    expect(roleBodyResolved).toBe(false);
     expect((await post(origin, "/api/release", { roleId: "test-role" })).ok).toBe(true);
     const released = await role;
     expect(released.status).toBe(200);
-    const source = await released.text();
+    const source = await roleBody;
     expect(source).toContain('const sessionMode = "seed"');
     expect(source).toContain('const sessionMarker = "gated-marker"');
   });
@@ -254,7 +255,7 @@ describe("runtime authority fixture launch gates", () => {
     const controller = new AbortController();
     const navigation = fetch(`${origin}/role/cancelled-role`, {
       signal: controller.signal
-    }).then(() => false, () => true);
+    }).then((response) => response.text()).then(() => false, () => true);
     const waiting = await fetch(`${origin}/api/gates/cancelled-role/waiting`);
     expect(await waiting.json()).toEqual({
       roleId: "cancelled-role",

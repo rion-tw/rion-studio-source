@@ -80,6 +80,16 @@ function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function sameCoreSlotTopology(left, right) {
+  const topology = (slots) => slots.map((slot) => ({
+    id: slot.id,
+    rect: slot.rect,
+    roleId: slot.roleId,
+    web: slot.web === null ? null : {}
+  }));
+  return sameValue(topology(left), topology(right));
+}
+
 function validBounds(bounds, allowNegativeOrigin = false) {
   return exactKeys(bounds, ["height", "width", "x", "y"]) &&
     [bounds.height, bounds.width, bounds.x, bounds.y].every(Number.isSafeInteger) &&
@@ -118,9 +128,9 @@ function validAppKitIdentity(identity, windowId, launchGeneration) {
 
 function validPopup(popup, platform, hostKind) {
   if (!exactKeys(popup, [
-    "appKitIdentity", "bounds", "hostKind", "logicalWindowId", "nativeHostId",
-    "openOperationId", "popupId", "presentation", "topologyRevision",
-    "visible", "windowGeneration"
+    "appKitChrome", "appKitIdentity", "bounds", "hostKind", "logicalWindowId",
+    "nativeHostId", "openOperationId", "popupId", "presentation",
+    "topologyRevision", "visible", "windowGeneration"
   ]) || !validBounds(popup.bounds, true) || popup.hostKind !== hostKind ||
       !Number.isSafeInteger(popup.nativeHostId) || popup.nativeHostId < 1 ||
       typeof popup.openOperationId !== "string" || !IDENTIFIER.test(popup.popupId) ||
@@ -129,13 +139,22 @@ function validPopup(popup, platform, hostKind) {
       popup.topologyRevision !== 1 || popup.windowGeneration !== 1) {
     return false;
   }
+  const validAppKitChrome = exactKeys(popup.appKitChrome, [
+    "addButtonOnScreen", "tabStripOnScreen", "visibleTrafficLightCount",
+    "windowNameOnScreen"
+  ]) && typeof popup.appKitChrome.addButtonOnScreen === "boolean" &&
+    typeof popup.appKitChrome.tabStripOnScreen === "boolean" &&
+    Number.isSafeInteger(popup.appKitChrome.visibleTrafficLightCount) &&
+    popup.appKitChrome.visibleTrafficLightCount >= 0 &&
+    popup.appKitChrome.visibleTrafficLightCount <= 3 &&
+    typeof popup.appKitChrome.windowNameOnScreen === "boolean";
   return platform === "macos"
     ? validAppKitIdentity(
         popup.appKitIdentity,
         popup.logicalWindowId,
         popup.openOperationId
-      )
-    : popup.appKitIdentity === null;
+      ) && validAppKitChrome
+    : popup.appKitIdentity === null && popup.appKitChrome === null;
 }
 
 function positiveInteger(value) {
@@ -574,7 +593,7 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
     observation.windowGeneration === first.windowGeneration &&
     observation.presentation === first.presentation &&
     sameValue(observation.windowBounds, first.windowBounds) &&
-    sameValue(observation.coreSlots, first.coreSlots) &&
+    sameCoreSlotTopology(observation.coreSlots, first.coreSlots) &&
     sameValue(observation.role, first.role) &&
     sameValue(observation.web.slotBounds, first.web.slotBounds) &&
     sameValue(observation.web.chromeBounds, first.web.chromeBounds)
@@ -594,9 +613,12 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
   const firstPopupIndex = observations.findIndex(
     (observation) => observation.popups.length === 1
   );
+  const lastPopupIndex = observations.findLastIndex(
+    (observation) => observation.popups.length === 1
+  );
   const mainFullscreenObservations = firstMainFullscreenIndex > 0 &&
-      firstPopupIndex > firstMainFullscreenIndex
-    ? observations.slice(firstMainFullscreenIndex - 1, firstPopupIndex)
+      firstMainFullscreenIndex > lastPopupIndex
+    ? observations.slice(firstMainFullscreenIndex - 1)
     : [];
   const mainTopologyRevision = mainFullscreenObservations[0]?.topologyRevision;
   const popupTopologyRevision = popupObservations[0]?.topologyRevision;
@@ -612,7 +634,7 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
         observation.topologyRevision === mainTopologyRevision &&
         observation.focused === true && observation.popups.length === 0
       ) && validPopupParentRevisionSequence(
-        mainTopologyRevision, popupTopologyRevision, last.topologyRevision
+        popupTopologyRevision, mainTopologyRevision, last.topologyRevision
       ) &&
       revisions.every((revision, index) => index === 0 || revision >= revisions[index - 1]) &&
       Math.max(...revisions) >= 4 && contained.length >= 2 &&
@@ -625,7 +647,7 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
   );
   const popupRetirement = validateChromiumWorkspaceWebPopupLifecycleEvidence(
     popupLifecycle,
-    mainFullscreenObservations.at(-1),
+    observations[firstPopupIndex - 1],
     popupObservations[0].popups[0]
   );
   requireRuntime(
@@ -652,7 +674,14 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
   const downloadDenials = securityAdded.filter(
     (observation) => observation.kind === "will-download"
   );
-  const securityOrigin = new URL(first.web.contentUrl).origin;
+  const configuredWeb = observations.find((observation) =>
+    expectedWebUrl(observation.web.contentUrl)
+  );
+  requireRuntime(
+    configuredWeb !== undefined,
+    `${phase}: configured Workspace Web URL was not observed`
+  );
+  const securityOrigin = new URL(configuredWeb.web.contentUrl).origin;
   requireRuntime(
     securityInvariant && securityFirst.windowId === first.windowId &&
       securityFirst.surfaceId === first.web.surfaceId &&

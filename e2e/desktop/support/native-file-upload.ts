@@ -4,12 +4,16 @@ import { link, mkdtemp, rmdir, stat, unlink, writeFile } from "node:fs/promises"
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 
 import { windowsNativeDialogDeclarations } from "./windows-native-dialog";
 
 const executeFile = promisify(execFile);
+const macosNativeFilePanelScript = fileURLToPath(
+  new URL("./macos-native-file-panel.swift", import.meta.url)
+);
 
 const FIXTURE_FILE_NAME = "rion-e2e.txt";
 const FIXTURE_SOURCE = "Rion Studio Chromium visible file-upload parity fixture.\n";
@@ -123,6 +127,19 @@ async function selectMacosFile(
     await unlink(stagedFixturePath);
     await rmdir(stagingDirectory);
   };
+  try {
+    await executeFile("/usr/bin/xcrun", [
+      "swift",
+      macosNativeFilePanelScript,
+      String(processId),
+      "select-directory",
+      stagedFixturePath
+    ], { encoding: "utf8", timeout: 15_000 });
+    return Object.freeze({ cleanup });
+  } catch {
+    // Older AppKit accessibility trees can omit the Go to Folder sheet. The
+    // exact-owner hierarchy traversal below remains the compatibility path.
+  }
   const panelScript = String.raw`
 using terms from application "System Events"
 on filePanels(targetProcess)

@@ -715,16 +715,35 @@ function rolePage(roleId, sessionMode, sessionMarker) {
 </html>`;
 }
 
-function sendRolePage(response, roleId, sessionMode = "observe", sessionMarker = roleId) {
+function rolePageResponse(roleId, sessionMode = "observe", sessionMarker = roleId) {
   const body = rolePage(roleId, sessionMode, sessionMarker);
-  response.writeHead(200, {
-    "cache-control": "no-store",
-    "content-length": Buffer.byteLength(body),
-    "content-security-policy": `default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src http://localhost:${activePort}`,
-    "content-type": "text/html; charset=utf-8",
-    "x-content-type-options": "nosniff"
-  });
-  response.end(body);
+  return {
+    body,
+    headers: {
+      "cache-control": "no-store",
+      "content-length": Buffer.byteLength(body),
+      "content-security-policy": `default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src http://localhost:${activePort}`,
+      "content-type": "text/html; charset=utf-8",
+      "x-content-type-options": "nosniff"
+    }
+  };
+}
+
+function sendRolePage(response, roleId, sessionMode = "observe", sessionMarker = roleId) {
+  const page = rolePageResponse(roleId, sessionMode, sessionMarker);
+  if (!response.headersSent) response.writeHead(200, page.headers);
+  response.end(page.body);
+}
+
+function beginGatedRolePage(
+  response,
+  roleId,
+  sessionMode = "observe",
+  sessionMarker = roleId
+) {
+  const page = rolePageResponse(roleId, sessionMode, sessionMarker);
+  response.writeHead(200, page.headers);
+  response.flushHeaders();
 }
 
 function sendChallengePage(response, roleId) {
@@ -1151,6 +1170,9 @@ const server = createServer(async (request, response) => {
         return;
       }
       const waiter = { marker, response, sessionMode };
+      // EventBound: expose the response stream to Chromium while retaining the
+      // body. Closing the exact consumer can then cancel the real transport.
+      beginGatedRolePage(response, roleId, sessionMode, marker);
       gate.waiters.add(waiter);
       notifyGateObservers(roleId, gate);
       response.once("close", () => {

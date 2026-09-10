@@ -88,7 +88,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(validPopupParentRevisionSequence(8, undefined, 9)).toBe(false);
   });
   it("shares visible main and popup actions across exact platform journeys", async () => {
-    const [spec, pageSurface, fixture, nativeUpload, layout] = await Promise.all([
+    const [spec, pageSurface, fixture, nativeUpload, layout, nativeTabs] = await Promise.all([
       source("e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts"),
       source("e2e/desktop/support/electron-role-surface.ts"),
       source("scripts/runtimeAuthorityFixtureServer.mjs"),
@@ -96,7 +96,8 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
         source("e2e/desktop/support/native-file-upload.ts"),
         source("e2e/desktop/support/windows-native-dialog.ts")
       ]).then(parts => parts.join("\n")),
-      source("e2e/desktop/support/ui.ts")
+      source("e2e/desktop/support/ui.ts"),
+      source("e2e/desktop/support/native-runtime-tabs.ts")
     ]);
 
     for (const marker of [
@@ -114,7 +115,10 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "button[aria-label='Open workspace']",
       "clickVisibleElectronPageElement",
       "clickVisibleElectronPageElementWithWindowOpenModifier",
-      "clickVisibleElectronPageElementWithWindowOpenModifierKeepingTarget",
+      "readVisibleElectronPageElementPoint",
+      "focusVisibleMacosAppKitRuntime",
+      "popupParentBeforeOpen",
+      "shiftClickVisibleMacosScreenPoint",
       "clickVisibleElectronPageElementWithPointerKeepingTarget",
       "restoreElectronMainWindowTarget",
       "submitElectronPageEscape",
@@ -146,6 +150,27 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     ]) {
       expect(spec).toContain(marker);
     }
+    const nativePointer = spec.indexOf(
+      "await shiftClickVisibleMacosScreenPoint("
+    );
+    const nativeReady = spec.indexOf("const nativeReady =", nativePointer);
+    const deferredClose = spec.indexOf(
+      "deferMacosRendererVerification: true",
+      nativeReady
+    );
+    const transportCancellation = spec.indexOf(
+      'kind: "gated-navigation-transport-cancelled"',
+      deferredClose
+    );
+    const nativeTerminal = spec.indexOf('action: "nativeClosed"', deferredClose);
+    expect(nativePointer).toBeGreaterThan(-1);
+    expect(nativeReady).toBeGreaterThan(nativePointer);
+    expect(deferredClose).toBeGreaterThan(nativeReady);
+    expect(nativeTerminal).toBeGreaterThan(deferredClose);
+    expect(transportCancellation).toBeGreaterThan(nativeTerminal);
+    expect(spec).toContain("popupParentBeforeOpen = await electronDesktopE2eWorkspaceWebRuntime(");
+    expect(nativeTabs).toContain("let flags: CGEventFlags = ${shift");
+    expect(nativeTabs).toContain("[.maskShift]");
     expect(nativeUpload).not.toContain("System.Windows.Automation");
     expect(spec).toContain("isTrusted: true");
     expect(spec).toContain('"shift"');
@@ -182,6 +207,8 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       'perform action "AXRaise"',
       'resolve(homedir(), "RionE2E-")',
       "await link(fixturePath, stagedFixturePath)",
+      'new URL("./macos-native-file-panel.swift", import.meta.url)',
+      '"select-directory"',
       'actionNames(current).contains("AXOpen")',
       'AXUIElementPerformAction(target, "AXOpen" as CFString)',
       "RionFileDialogOwnership",
@@ -328,6 +355,9 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "validateChromiumWorkspaceWebFullscreenRuntimeEvidence(input)"
     );
     expect(evidence).toContain("topologyRevisionsAreMonotonic");
+    expect(evidence).toContain("sameCoreSlotTopology(");
+    expect(evidence).toContain('"appKitChrome", "appKitIdentity"');
+    expect(evidence).toContain("validAppKitChrome");
     expect(evidence).toContain(
       "web.contentBounds.height === web.slotBounds.height"
     );

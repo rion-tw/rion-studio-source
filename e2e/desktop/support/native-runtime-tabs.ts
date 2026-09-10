@@ -137,7 +137,11 @@ async function readAppKitAction(
   return result.stdout.trim();
 }
 
-async function clickMacosScreenPoint(x: number, y: number): Promise<void> {
+async function clickMacosScreenPoint(
+  x: number,
+  y: number,
+  shift = false
+): Promise<void> {
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     throw new Error("The exact AppKit click point is invalid");
   }
@@ -148,19 +152,35 @@ guard let source = CGEventSource(stateID: .hidSystemState) else {
   fatalError("system pointer source unavailable")
 }
 let point = CGPoint(x: ${x}, y: ${y})
-CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+let flags: CGEventFlags = ${shift ? "[.maskShift]" : "[]"}
+func post(_ event: CGEvent?) {
+  event?.flags = flags
+  event?.post(tap: .cghidEventTap)
+}
+post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
+  mouseCursorPosition: point, mouseButton: .left))
 usleep(50_000)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+post(CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
+  mouseCursorPosition: point, mouseButton: .left))
+post(CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
+  mouseCursorPosition: point, mouseButton: .left))
 usleep(100_000)
 `;
   await executeFile("/usr/bin/xcrun", ["swift", "-e", script], {
     encoding: "utf8",
     timeout: 30_000
   });
+}
+
+/** Shift-clicks one visible screen point after its AppKit owner was focused. */
+export async function shiftClickVisibleMacosScreenPoint(input: Readonly<{
+  x: number;
+  y: number;
+}>): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("The retained AppKit Shift-click is macOS-only");
+  }
+  await clickMacosScreenPoint(input.x, input.y, true);
 }
 
 async function clickMacosAppKitTab(tabId: string, tabName: string): Promise<void> {

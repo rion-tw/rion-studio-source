@@ -12,6 +12,10 @@
     "e2e/desktop/specs/*.e2e.ts",
     "scripts/*.mjs",
     "scripts/migrationDiagnostics/helperEntry.ts",
+    // Runbook and Vite-built diagnostic entry points invoked without static imports.
+    "scripts/migrationDiagnostics/inspectLocalStorage.ts",
+    "scripts/migrationDiagnostics/retained.mjs",
+    "scripts/migrationDiagnostics/testMissingRepair.mjs",
     "tests/**/*.{ts,tsx}"
   ],
   "project": [

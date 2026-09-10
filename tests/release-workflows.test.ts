@@ -863,6 +863,13 @@ describe("desktop shell migration workflows", () => {
     expect(build).not.toContain("pnpm run verify:system-only");
     expect(build).not.toContain("pnpm run test");
     expect(build).not.toContain("pnpm run lint");
+    expect(build).toContain("Select and verify native pnpm on Windows");
+    expect(build).toContain("if: runner.os == 'Windows'");
+    expect(build).toContain("run: ./scripts/selectWindowsPnpm.ps1");
+    expect(build.indexOf("Select and verify native pnpm on Windows"))
+      .toBeLessThan(build.indexOf("Setup Node"));
+    expect(build.indexOf("Select and verify native pnpm on Windows"))
+      .toBeLessThan(build.indexOf("Install dependencies"));
     expect(buildWorkflow).toContain("  manifest:");
     expect(buildWorkflow).toContain("needs.build.result == 'success'");
     expect(buildWorkflow).toContain("release_artifact_name: ${{ steps.artifact.outputs.name }}");

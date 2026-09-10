@@ -3,6 +3,17 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use fs2::FileExt;
 use std::fs;
 
+fn migration_output_tempdir() -> tempfile::TempDir {
+    #[cfg(windows)]
+    {
+        // Windows' default temp directory is inside LOCALAPPDATA, which the
+        // production migration boundary deliberately rejects as an output root.
+        return tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+    }
+    #[cfg(not(windows))]
+    tempfile::tempdir().unwrap()
+}
+
 fn encoded_string(text: &[u16]) -> Vec<u8> {
     let mut bytes = (text.len() as u32).to_le_bytes().to_vec();
     bytes.push(0);
@@ -113,7 +124,7 @@ fn webkit_origin_rejects_cross_site_partition_and_trailing_bytes() {
 
 #[test]
 fn output_is_new_disjoint_and_cannot_overwrite_an_existing_run() {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = migration_output_tempdir();
     let root = fs::canonicalize(temporary.path()).unwrap();
     let source = root.join("source");
     fs::create_dir(&source).unwrap();
@@ -190,7 +201,7 @@ fn binary_cookie_structural_reader_does_not_accept_corrupt_page_tables() {
 #[cfg(any(target_os = "macos", windows))]
 #[test]
 fn real_inventory_never_promotes_missing_or_ambiguous_roles() {
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = migration_output_tempdir();
     let root = fs::canonicalize(temporary.path()).unwrap();
     let data = root.join("data");
     fs::create_dir(&data).unwrap();
@@ -313,7 +324,7 @@ fn replacing_an_open_source_file_invalidates_native_identity() {
 #[cfg(any(target_os = "macos", windows))]
 #[test]
 fn exported_package_assessment_authenticates_identity_platform_and_ciphertext() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = migration_output_tempdir();
     let root = fs::canonicalize(temp.path()).unwrap().join("fixture");
     let fixture = synthetic::prepare(&root, synthetic(None, false).unwrap()).unwrap();
     let role = fixture["journal"]["roleId"].as_str().unwrap();

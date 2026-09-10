@@ -804,9 +804,15 @@ async function exerciseContainedFullscreen(input: Readonly<{
 
   expect(await exerciseVisibleFileUpload({ mainWindowHandle, platform }))
     .toBe(processId);
+  const mainFullscreenBaseline = await electronDesktopE2eWorkspaceWebRuntime(
+    before.windowId
+  );
+  expectMainHostGeometryInvariant(restoredParent!, mainFullscreenBaseline);
+  expect(mainFullscreenBaseline.topologyRevision)
+    .toBeGreaterThanOrEqual(restoredParent!.topologyRevision);
 
   const entered = await clickAndObserveFullscreen({
-    afterRevision: before.web.containedFullscreenRevision,
+    afterRevision: mainFullscreenBaseline.web.containedFullscreenRevision,
     contained: true,
     expectedUrl: configuredWebUrl(),
     mainWindowHandle,
@@ -814,7 +820,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
     selector: "#contained-fullscreen-enter",
     windowId: before.windowId
   });
-  expectMainHostInvariant(before, entered);
+  expectMainHostInvariant(mainFullscreenBaseline, entered);
   expect(entered.web.chromeVisible).toBe(false);
   expect(entered.web.contentVisible).toBe(true);
   expect(entered.web.contentBounds).toEqual(entered.web.slotBounds);
@@ -828,7 +834,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
     selector: "#contained-fullscreen-exit",
     windowId: before.windowId
   });
-  expectMainHostInvariant(before, siteRestored);
+  expectMainHostInvariant(mainFullscreenBaseline, siteRestored);
   expectNormalPairedProjection(siteRestored);
 
   const reentered = await clickAndObserveFullscreen({
@@ -850,7 +856,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
     runtimeTabName: WORKSPACE_NAME,
     windowId: before.windowId
   });
-  expectMainHostInvariant(before, escapeRestored);
+  expectMainHostInvariant(mainFullscreenBaseline, escapeRestored);
   expectNormalPairedProjection(escapeRestored);
 
   const popupJournalBaseline = await electronDesktopE2ePopupLifecycleJournal(

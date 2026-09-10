@@ -141,7 +141,8 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "#file-upload",
       "prepareNativeFileUploadFixture",
       "selectVisibleNativeUploadFile",
-      "writeVisibleFileUploadEvidence"
+      "writeVisibleFileUploadEvidence",
+      "mainFullscreenBaseline"
     ]) {
       expect(spec).toContain(marker);
     }

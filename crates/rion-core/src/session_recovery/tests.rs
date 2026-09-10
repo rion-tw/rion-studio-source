@@ -1,7 +1,10 @@
 use super::*;
+#[cfg(target_os = "macos")]
 use crate::{session_migration::*, session_transfer::*};
+#[cfg(target_os = "macos")]
 use rusqlite::Connection;
 
+#[cfg(target_os = "macos")]
 fn envelope(role: &str) -> RoleSessionTransferEnvelopeRecord {
     RoleSessionTransferEnvelopeRecord {
         metadata: RoleSessionTransferMetadataRecord {
@@ -31,6 +34,7 @@ fn envelope(role: &str) -> RoleSessionTransferEnvelopeRecord {
         },
     }
 }
+#[cfg(target_os = "macos")]
 fn database(role: &str) -> Connection {
     let connection = Connection::open_in_memory().unwrap();
     connection

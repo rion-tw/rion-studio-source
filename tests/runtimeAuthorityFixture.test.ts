@@ -364,6 +364,7 @@ describe("runtime authority fixture launch gates", () => {
       'id="workspace-open-background" target="_blank"',
       'id="workspace-open-middle" target="_blank"',
       'record("workspace-window-open-requested"',
+      "qaTarget.hidden = true",
       "event.isTrusted",
       "event.button",
       "event.metaKey",
@@ -375,7 +376,23 @@ describe("runtime authority fixture launch gates", () => {
     expect(ordinary).toContain(
       'roleId === "chromium-workspace-web-slot"'
     );
+    expect(workspace).toContain("#qa-target[hidden] { display: none; }");
     expect(ordinary).toContain("windowOpenControls.hidden = false");
+
+    const recorded = await post(origin, "/api/event", {
+      button: 1,
+      eventType: "auxclick",
+      isTrusted: true,
+      kind: "workspace-window-open-requested",
+      roleId: "chromium-workspace-web-slot",
+      targetId: "workspace-open-middle"
+    });
+    expect((await recorded.json()).event).toMatchObject({
+      button: 1,
+      eventType: "auxclick",
+      isTrusted: true,
+      targetId: "workspace-open-middle"
+    });
   });
 
   it("holds attachment transport until the exact client cancellation event", async () => {

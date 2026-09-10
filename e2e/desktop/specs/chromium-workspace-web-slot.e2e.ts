@@ -410,7 +410,7 @@ async function exerciseWindowOpenNavigation(input: Readonly<{
       click: () => clickVisibleElectronPageElement(
         configuredWebUrl(), input.mainWindowHandle, "#workspace-open-foreground"
       ),
-      evidence: { button: 0, eventType: "click", modifiers: {
+      evidence: { button: 0, buttons: 0, modifiers: {
         alt: false, control: false, meta: false, shift: false
       } }
     },
@@ -421,7 +421,7 @@ async function exerciseWindowOpenNavigation(input: Readonly<{
         configuredWebUrl(), input.mainWindowHandle, "#workspace-open-background",
         "primary", input.platform
       ),
-      evidence: { button: 0, eventType: "click", modifiers: {
+      evidence: { button: 0, buttons: 0, modifiers: {
         alt: false,
         control: input.platform === "windows",
         meta: input.platform === "macos",
@@ -434,7 +434,7 @@ async function exerciseWindowOpenNavigation(input: Readonly<{
       click: () => middleClickVisibleElectronPageElement(
         configuredWebUrl(), input.mainWindowHandle, "#workspace-open-middle"
       ),
-      evidence: { button: 1, eventType: "auxclick", modifiers: {
+      evidence: { button: 1, buttons: 0, modifiers: {
         alt: false, control: false, meta: false, shift: false
       } }
     }
@@ -443,7 +443,9 @@ async function exerciseWindowOpenNavigation(input: Readonly<{
     await request.click();
     expect(await waitFixtureEvent({
       afterSequence,
-      kind: "workspace-window-open-requested",
+      // The authoritative popup interception can replace the source document
+      // before its later click/auxclick; mouseup precedes that navigation.
+      kind: "mouseup",
       roleId: WEB_FIXTURE_ID
     })).toEqual(expect.objectContaining({
       isTrusted: true,

@@ -20,6 +20,7 @@ export interface FixtureEvent {
   defaultPrevented?: boolean;
   errorCode?: string;
   errorMessage?: string;
+  eventType?: "auxclick" | "click";
   fileUpload?: {
     bytes: number;
     fileName: string;

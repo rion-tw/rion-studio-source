@@ -115,6 +115,9 @@ function recordFixtureEvent(input) {
       : undefined,
     errorCode: typeof input.errorCode === "string" ? input.errorCode : undefined,
     errorMessage: typeof input.errorMessage === "string" ? input.errorMessage : undefined,
+    eventType: input.eventType === "click" || input.eventType === "auxclick"
+      ? input.eventType
+      : undefined,
     fileUpload: normalizedFileUpload(input.fileUpload),
     hidden: typeof input.hidden === "boolean" ? input.hidden : undefined,
     isTrusted: typeof input.isTrusted === "boolean" ? input.isTrusted : undefined,
@@ -232,6 +235,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     #font-evidence[hidden] { display: none; }
     #font-evidence:not([hidden]) { position: fixed; right: 16px; top: 16px; z-index: 3; margin: 0; }
     #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
+    #qa-target[hidden] { display: none; }
     #qa-target.contained-fullscreen-layout { position: static; transform: none; }
     #active-navigation-failure { position: fixed; left: 50%; bottom: 24px; z-index: 3; height: 56px; margin: 0; transform: translateX(-50%); line-height: normal; }
     #active-navigation-failure[hidden] { display: none; }
@@ -331,6 +335,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const qaTarget = document.querySelector("#qa-target");
     const windowOpenControls = document.querySelector("#workspace-window-open-controls");
     if (workspaceWindowOpenEnabled) {
+      qaTarget.hidden = true;
       windowOpenControls.hidden = false;
       for (const [id, destination] of [
         ["workspace-open-foreground", "foreground"],

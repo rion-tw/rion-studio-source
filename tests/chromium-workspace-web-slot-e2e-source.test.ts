@@ -29,6 +29,7 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
       "#workspace-open-foreground",
       "#workspace-open-background",
       "#workspace-open-middle",
+      'kind: "mouseup"',
       "popups.length === 0",
       '"#back"',
       "data-workspace-role-id",

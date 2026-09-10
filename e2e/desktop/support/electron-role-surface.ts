@@ -4,6 +4,7 @@ import { fixtureCursor, waitFixtureEvent } from "./fixture";
 import { sendChromiumEscapeKey } from "./chromium-escape-key";
 import { visibleCanvasPoint } from "./visible-canvas-point";
 import { scrollLayoutControlIntoView } from "./ui";
+import { displayWorkspaceWebUrl } from "../../../src/shared/workspaceWebAddress";
 
 import {
   electronDesktopE2eProbe,
@@ -60,7 +61,8 @@ async function currentDocumentUrl(): Promise<string> {
 
 async function rolePageTargetHandle(
   expectedUrl: string,
-  mainWindowHandle: string
+  mainWindowHandle: string,
+  matchesDocument: () => Promise<boolean> = async () => true
 ): Promise<string> {
   const canonicalExpected = new URL(expectedUrl).href;
   let targetHandle: string | undefined;
@@ -70,7 +72,8 @@ async function rolePageTargetHandle(
       if (handle === mainWindowHandle) continue;
       try {
         await switchTrackedWindow(handle);
-        if (new URL(await currentDocumentUrl()).href === canonicalExpected) {
+        if (new URL(await currentDocumentUrl()).href === canonicalExpected &&
+            await matchesDocument()) {
           targetHandle = handle;
           return true;
         }
@@ -104,6 +107,34 @@ export async function withRolePageTarget<Value>(
     return await action();
   } finally {
     if (restoreMainWindow) await switchTrackedWindow(mainWindowHandle);
+  }
+}
+
+/** Selects one exact Rion-owned chrome shell when several share the same file URL. */
+export async function withWorkspaceWebChromeTarget<Value>(
+  chromeShellUrl: string,
+  contentUrl: string,
+  mainWindowHandle: string,
+  action: () => Promise<Value>
+): Promise<Value> {
+  const expectedAddresses = new Set([
+    contentUrl,
+    displayWorkspaceWebUrl(contentUrl)
+  ]);
+  const targetHandle = await rolePageTargetHandle(
+    chromeShellUrl,
+    mainWindowHandle,
+    async () => {
+      const location = await $("#location");
+      return await location.isExisting() &&
+        expectedAddresses.has(await location.getValue());
+    }
+  );
+  await switchTrackedWindow(targetHandle);
+  try {
+    return await action();
+  } finally {
+    await switchTrackedWindow(mainWindowHandle);
   }
 }
 

@@ -82,7 +82,11 @@ function validAppKitIdentity(identity, observation, platform) {
     Number.isSafeInteger(identity.nativeGeneration) && identity.nativeGeneration > 0;
 }
 
-function validWebOnlyObservation(observation, platform) {
+function validWebOnlyObservation(
+  observation,
+  platform,
+  allowVisibleAuxiliaryActivation = false
+) {
   if (!exactKeys(observation, [
     "appKitIdentity", "attemptGeneration", "coreSlots", "focused", "hostKind",
     "parentNativeHostId", "phase", "popups", "presentation", "role", "tabId",
@@ -134,7 +138,8 @@ function validWebOnlyObservation(observation, platform) {
       observation.phase === "degraded" &&
       web.contentUrl === "http://127.0.0.1:1/rion-navigation-failure") &&
     web.isolatedSessions === true && (
-      observation.phase !== "activating" && observation.visible === true &&
+      (observation.phase !== "activating" || allowVisibleAuxiliaryActivation) &&
+        observation.visible === true &&
         web.visible === true &&
         web.chromeVisible === true && web.contentVisible === true ||
       ["activating", "ready"].includes(observation.phase) &&
@@ -221,22 +226,34 @@ async function readObservations(phaseDirectory, fileName) {
 
 function validateWebOnlyHistory(phase, observations, platform) {
   requireRuntime(
-    Array.isArray(observations) && observations.length >= 1 &&
-      observations.every((observation) => validWebOnlyObservation(observation, platform)),
-    `${phase}: malformed Core/native Web-only history`
+    Array.isArray(observations) && observations.length >= 1,
+    `${phase}: missing Core/native Web-only history`
   );
   const targetTabIds = new Set(observations.filter((observation) =>
-    expectedUrl(observation.web.contentUrl, "chromium-workspace-web-only") ||
-    expectedUrl(
-      observation.coreSlots[0].web.lastUrl,
-      "chromium-workspace-web-only"
-    )
+    observation !== null && typeof observation === "object" &&
+    observation.web !== null && typeof observation.web === "object" &&
+    Array.isArray(observation.coreSlots) &&
+    observation.coreSlots[0]?.web !== null &&
+    typeof observation.coreSlots[0]?.web === "object" && (
+      expectedUrl(observation.web.contentUrl, "chromium-workspace-web-only") ||
+      expectedUrl(
+        observation.coreSlots[0].web.lastUrl,
+        "chromium-workspace-web-only"
+      ))
   ).map((observation) => observation.tabId));
   requireRuntime(
     targetTabIds.size === 1,
     `${phase}: exact Web-only journey tab is missing or ambiguous`
   );
   const targetTabId = targetTabIds.values().next().value;
+  requireRuntime(
+    observations.every((observation) => validWebOnlyObservation(
+      observation,
+      platform,
+      observation.tabId !== targetTabId
+    )),
+    `${phase}: malformed Core/native Web-only history`
+  );
   const targetObservations = observations.filter(
     (observation) => observation.tabId === targetTabId
   );

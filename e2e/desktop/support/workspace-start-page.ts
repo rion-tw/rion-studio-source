@@ -2,7 +2,11 @@ import { $, browser, expect } from "@wdio/globals";
 
 import type { LaunchWorkspace } from "../../../src/shared/types";
 import { electronDesktopE2eWorkspaceWebRuntime } from "./electron-driver";
-import { switchTrackedWindow, withRolePageTarget } from "./electron-role-surface";
+import {
+  switchTrackedWindow,
+  withRolePageTarget,
+  withWorkspaceWebChromeTarget
+} from "./electron-role-surface";
 import { openCutoverWorkspace } from "./chromium-workspace-cutover";
 import { rendererCall } from "./renderer-bridge";
 import { closeVisibleRuntimeTab } from "./native-runtime-tabs";
@@ -155,8 +159,9 @@ export async function verifyWorkspaceStartPage(input: {
   }
 
   expect(runtime.inspection.web.contentUrl).toBe(input.fixtureUrl);
-  await withRolePageTarget(
+  await withWorkspaceWebChromeTarget(
     runtime.inspection.web.chromeShellUrl,
+    runtime.inspection.web.contentUrl,
     input.mainWindowHandle,
     async () => {
       await $("#home").click();

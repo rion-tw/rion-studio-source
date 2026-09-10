@@ -101,6 +101,49 @@ fn mixed_workspace_slot_replacement_is_atomic_revision_fenced_and_zoom_synchroni
 }
 
 #[test]
+fn workspace_web_continuation_metadata_does_not_advance_topology_revision() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(topology(
+            "seed-workspace-web-continuation",
+            "window-a",
+            vec![("window-a", 1, vec![mixed_workspace_tab("tab-a", "role-a")])],
+        ))
+        .unwrap();
+    let before = kernel.snapshot().unwrap();
+    let mut workspace_slots = before.windows["window-a"].tabs[0].workspace_slots.clone();
+    workspace_slots[1].web.as_mut().unwrap().last_url =
+        Some("https://continued.example.test/path".to_owned());
+
+    let commit = kernel
+        .apply(RuntimeIntent::ReplaceTabWorkspaceSlots {
+            expected_revision: Some(before.windows["window-a"].revision),
+            operation_id: "update-workspace-web-continuation".to_owned(),
+            tab_id: "tab-a".to_owned(),
+            window_id: "window-a".to_owned(),
+            workspace_slots,
+        })
+        .unwrap();
+
+    let after = kernel.snapshot().unwrap();
+    assert_eq!(commit.status, RuntimeCommitStatus::Applied);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(
+        after.windows["window-a"].revision,
+        before.windows["window-a"].revision
+    );
+    assert_eq!(
+        after.windows["window-a"].tabs[0].workspace_slots[1]
+            .web
+            .as_ref()
+            .unwrap()
+            .last_url
+            .as_deref(),
+        Some("https://continued.example.test/path")
+    );
+}
+
+#[test]
 fn mixed_workspace_slot_replacement_rejects_content_conflicts_without_mutation() {
     let kernel = RuntimeKernel::default();
     kernel

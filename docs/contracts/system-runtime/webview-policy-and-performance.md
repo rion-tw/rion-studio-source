@@ -74,9 +74,11 @@ dispositions synchronously deny creation of another WebContents and enter an
 ordered same-surface navigation lane. The lane accepts only canonical HTTP(S),
 an unnamed or `_blank` target, and no POST body; successful main-frame navigation
 creates ordinary Back history and updates `lastUrl`. `new-window` alone remains
-eligible for the controlled popup lifecycle. Unsupported dispositions and
-targets fail closed. This policy applies only to Workspace Websites; Role popup
-semantics do not change.
+eligible for the controlled popup lifecycle. That path preserves a bounded
+URL-encoded or multipart POST envelope, referrer, and exact global-Web Session;
+its payload exists only in Electron memory and is cleared after initial load.
+Unsupported dispositions and targets fail closed. This policy applies only to
+Workspace Websites; Role popup semantics do not change.
 
 All Workspace Websites and their controlled HTTP(S) popups share the single
 Rion-owned `global-web` session rooted at

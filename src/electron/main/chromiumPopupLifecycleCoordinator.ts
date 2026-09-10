@@ -15,11 +15,15 @@ import type {
   EmbeddedLaunchTargetRecord
 } from "../../shared/generated";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
-import { hasChromiumWindowOpenPostBody } from "./chromiumPopupPorts";
+import {
+  clearChromiumPopupPostBody,
+  normalizeChromiumWindowOpenPostBody
+} from "./chromiumPopupPorts";
 import type {
   ChromiumPopupHostLifecycleObserver,
   ChromiumPopupOwnerLifecyclePort,
   ChromiumPopupOwnerSource,
+  ChromiumPopupPostBody,
   ChromiumWindowOpenDetails
 } from "./chromiumPopupPorts";
 import type {
@@ -125,6 +129,7 @@ interface PopupRecord {
   readonly ownerKey: string;
   readonly source: ChromiumPopupOwnerSource;
   readonly terminal: Deferred<void>;
+  postBody: ChromiumPopupPostBody | undefined;
   host: ChromiumRuntimeHostPort | null;
   view: ChromiumRoleWebContentsViewPort | null;
   contents: ChromiumRoleSurfaceWebContentsPort | null;
@@ -381,7 +386,8 @@ export function resolveChromiumPopupParent(
 
 function openRequest(
   details: ChromiumWindowOpenDetails,
-  resolution: ChromiumPopupParentResolution
+  resolution: ChromiumPopupParentResolution,
+  hasPostBody: boolean
 ): ChromiumPopupOpenRequestRecord {
   const referrerUrl = details.referrer?.url || undefined;
   const referrerPolicy = details.referrer?.policy || undefined;
@@ -396,8 +402,29 @@ function openRequest(
     ...(referrerUrl ? { referrerUrl } : {}),
     ...(referrerPolicy ? { referrerPolicy } : {}),
     rawFeatures: details.features ?? "",
-    hasPostBody: hasChromiumWindowOpenPostBody(details)
+    hasPostBody
   });
+}
+
+function popupLoadOptions(
+  admission: ChromiumPopupAdmissionRecord,
+  postBody: ChromiumPopupPostBody | undefined
+): Parameters<ChromiumRoleSurfaceWebContentsPort["loadURL"]>[1] {
+  const httpReferrer = admission.referrerUrl
+    ? {
+        url: admission.referrerUrl,
+        policy: admission.referrerPolicy ?? "default"
+      }
+    : undefined;
+  if (!postBody) return httpReferrer ? { httpReferrer } : undefined;
+  const contentType = postBody.contentType === "multipart/form-data"
+    ? `${postBody.contentType}; boundary=${postBody.boundary!}`
+    : postBody.contentType;
+  return {
+    ...(httpReferrer ? { httpReferrer } : {}),
+    extraHeaders: `Content-Type: ${contentType}`,
+    postData: [...postBody.data]
+  };
 }
 
 /** Event-bound owner for controlled Chromium popup native projections. */
@@ -589,6 +616,14 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
       !supportedWindowOpen(details) ||
       this.#records.size + this.#admissionFlights.size >= MAX_POPUPS
     ) return;
+    const postBody = normalizeChromiumWindowOpenPostBody(details);
+    if (postBody === null) {
+      this.#input.onError(normalizeRionBridgeError(popupError(
+        "ELECTRON_CHROMIUM_POPUP_POST_BODY_INVALID",
+        "The popup POST envelope is malformed or exceeds Rion's bounded transfer policy."
+      )));
+      return;
+    }
     const resolution = resolveChromiumPopupParent(
       this.#input.runtimeSnapshot(),
       source,
@@ -597,14 +632,18 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     if (
       !resolution ||
       this.#windowZoomAdmissionLeases.has(resolution.parent.parentWindowId)
-    ) return;
+    ) {
+      clearChromiumPopupPostBody(postBody);
+      return;
+    }
     const flight: AdmissionFlight = {
       ownerKey: key,
       windowId: resolution.parent.parentWindowId,
       promise: Promise.resolve()
     };
     this.#admissionFlights.add(flight);
-    const terminal = this.#admitAndOpen(source, details, resolution);
+    const request = openRequest(details, resolution, postBody !== undefined);
+    const terminal = this.#admitAndOpen(source, request, resolution, postBody);
     flight.promise = terminal;
     void terminal.catch((error: unknown) => {
       this.#input.onError(normalizeRionBridgeError(
@@ -755,76 +794,84 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
 
   async #admitAndOpen(
     source: ChromiumPopupOwnerSource,
-    details: ChromiumWindowOpenDetails,
-    resolution: ChromiumPopupParentResolution
+    request: ChromiumPopupOpenRequestRecord,
+    resolution: ChromiumPopupParentResolution,
+    postBody: ChromiumPopupPostBody | undefined
   ): Promise<void> {
     const key = ownerKey(source);
-    if (this.#state !== "open" || this.#ownerAdmissionFenced(key)) return;
-    const request = openRequest(details, resolution);
-    const admission = await this.#input.core.invoke({
-      type: "browserPopupOpenAdmit",
-      request
-    });
-    if (
-      admission.requestId !== request.requestId ||
-      admission.lifecycleRevision !== 1 ||
-      admission.creationUrl !== "about:blank" ||
-      admission.targetUrl !== request.targetUrl ||
-      admission.openerPolicy !== "isolatedNoopener"
-    ) {
-      throw popupError(
-        "ELECTRON_CHROMIUM_POPUP_ADMISSION_MISMATCH",
-        "Core returned a mismatched Chromium popup admission."
+    let ownsPostBody = true;
+    try {
+      if (this.#state !== "open" || this.#ownerAdmissionFenced(key)) return;
+      const admission = await this.#input.core.invoke({
+        type: "browserPopupOpenAdmit",
+        request
+      });
+      if (
+        admission.requestId !== request.requestId ||
+        admission.lifecycleRevision !== 1 ||
+        admission.creationUrl !== "about:blank" ||
+        admission.targetUrl !== request.targetUrl ||
+        admission.openerPolicy !== "isolatedNoopener" ||
+        admission.hasPostBody !== request.hasPostBody
+      ) {
+        throw popupError(
+          "ELECTRON_CHROMIUM_POPUP_ADMISSION_MISMATCH",
+          "Core returned a mismatched Chromium popup admission."
+        );
+      }
+      if (this.#state !== "open" || this.#ownerAdmissionFenced(key)) {
+        await this.#cancelAdmission(
+          admission,
+          this.#state === "open"
+            ? this.#ownerReloadAdmissionLeases.has(key)
+              ? "CHROMIUM_POPUP_RELOAD_FENCED"
+              : "CHROMIUM_POPUP_OWNER_RETIRED"
+            : "CHROMIUM_POPUP_APPLICATION_DRAINING"
+        );
+        return;
+      }
+      const current = resolveChromiumPopupParent(
+        this.#input.runtimeSnapshot(),
+        source,
+        this.#input.platform
       );
-    }
-    if (this.#state !== "open" || this.#ownerAdmissionFenced(key)) {
-      await this.#cancelAdmission(
+      if (!current || !exactParentResolutionEqual(resolution, current)) {
+        await this.#cancelAdmission(
+          admission,
+          "CHROMIUM_POPUP_PARENT_SUPERSEDED"
+        );
+        return;
+      }
+      const record: PopupRecord = {
         admission,
-        this.#state === "open"
-          ? this.#ownerReloadAdmissionLeases.has(key)
-            ? "CHROMIUM_POPUP_RELOAD_FENCED"
-            : "CHROMIUM_POPUP_OWNER_RETIRED"
-          : "CHROMIUM_POPUP_APPLICATION_DRAINING"
-      );
-      return;
+        ownerKey: ownerKey(source),
+        source,
+        terminal: deferred<void>(),
+        postBody,
+        host: null,
+        view: null,
+        contents: null,
+        listeners: null,
+        revision: 1,
+        state: "opening",
+        sequence: Promise.resolve(),
+        viewAttached: false,
+        viewDestroyed: null,
+        containedFullscreen: false,
+        containedFullscreenHostProjection: null,
+        closeReason: null
+      };
+      ownsPostBody = false;
+      void record.terminal.promise.catch(() => undefined);
+      this.#records.set(admission.popupId, record);
+      const ownerPopups = this.#popupIdsByOwner.get(record.ownerKey) ?? new Set();
+      ownerPopups.add(admission.popupId);
+      this.#popupIdsByOwner.set(record.ownerKey, ownerPopups);
+      record.sequence = this.#materialize(record).catch((error: unknown) =>
+        this.#failRecord(record, error));
+    } finally {
+      if (ownsPostBody) clearChromiumPopupPostBody(postBody);
     }
-    const current = resolveChromiumPopupParent(
-      this.#input.runtimeSnapshot(),
-      source,
-      this.#input.platform
-    );
-    if (!current || !exactParentResolutionEqual(resolution, current)) {
-      await this.#cancelAdmission(
-        admission,
-        "CHROMIUM_POPUP_PARENT_SUPERSEDED"
-      );
-      return;
-    }
-    const record: PopupRecord = {
-      admission,
-      ownerKey: ownerKey(source),
-      source,
-      terminal: deferred<void>(),
-      host: null,
-      view: null,
-      contents: null,
-      listeners: null,
-      revision: 1,
-      state: "opening",
-      sequence: Promise.resolve(),
-      viewAttached: false,
-      viewDestroyed: null,
-      containedFullscreen: false,
-      containedFullscreenHostProjection: null,
-      closeReason: null
-    };
-    void record.terminal.promise.catch(() => undefined);
-    this.#records.set(admission.popupId, record);
-    const ownerPopups = this.#popupIdsByOwner.get(record.ownerKey) ?? new Set();
-    ownerPopups.add(admission.popupId);
-    this.#popupIdsByOwner.set(record.ownerKey, ownerPopups);
-    record.sequence = this.#materialize(record).catch((error: unknown) =>
-      this.#failRecord(record, error));
   }
 
   async #materialize(record: PopupRecord): Promise<void> {
@@ -924,18 +971,12 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     try {
       const load = contents.loadURL(
         record.admission.targetUrl,
-        record.admission.referrerUrl
-          ? {
-              httpReferrer: {
-                url: record.admission.referrerUrl,
-                policy: record.admission.referrerPolicy ?? "default"
-              }
-            }
-          : undefined
+        popupLoadOptions(record.admission, record.postBody)
       );
       // EventBound: did-finish-load/did-fail-load is authoritative.
-      void load.catch(() => undefined);
+      void load.catch(() => undefined).finally(() => this.#clearPostBody(record));
     } catch (error) {
+      this.#clearPostBody(record);
       await this.#requestClose(record, "loadFailed");
       throw error;
     }
@@ -1402,10 +1443,16 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
   }
 
   #removeRecord(record: PopupRecord): void {
+    this.#clearPostBody(record);
     this.#records.delete(record.admission.popupId);
     const ownerPopups = this.#popupIdsByOwner.get(record.ownerKey);
     ownerPopups?.delete(record.admission.popupId);
     if (ownerPopups?.size === 0) this.#popupIdsByOwner.delete(record.ownerKey);
+  }
+
+  #clearPostBody(record: PopupRecord): void {
+    clearChromiumPopupPostBody(record.postBody);
+    record.postBody = undefined;
   }
 
   #removeViewListeners(

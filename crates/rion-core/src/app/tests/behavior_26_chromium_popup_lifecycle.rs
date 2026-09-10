@@ -206,6 +206,7 @@ fn chromium_popup_admission_is_capability_and_parent_fenced_on_both_platforms() 
         .unwrap();
         assert_eq!(admission.creation_url, "about:blank");
         assert_eq!(admission.target_url, request.target_url);
+        assert!(!admission.has_post_body);
         assert_eq!(admission.lifecycle_revision, 1);
         assert!(admission.target.window_id.starts_with("popup-"));
         let replay: crate::model::ChromiumPopupAdmissionRecord = serde_json::from_value(
@@ -229,12 +230,13 @@ fn chromium_popup_admission_is_capability_and_parent_fenced_on_both_platforms() 
         );
         let mut post = popup_open_request(parent.clone());
         post.has_post_body = true;
-        assert_eq!(
-            core.invoke(CoreCommand::BrowserPopupOpenAdmit { request: post })
-                .unwrap_err()
-                .code(),
-            "CHROMIUM_POPUP_PARENT_FENCE_INVALID"
-        );
+        let post_admission: crate::model::ChromiumPopupAdmissionRecord =
+            serde_json::from_value(
+                core.invoke(CoreCommand::BrowserPopupOpenAdmit { request: post })
+                    .unwrap(),
+            )
+            .unwrap();
+        assert!(post_admission.has_post_body);
         let mut external = popup_open_request(parent);
         external.target_url = "mailto:blocked@example.test".to_owned();
         assert_eq!(

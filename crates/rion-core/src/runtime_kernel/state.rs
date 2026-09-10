@@ -386,9 +386,11 @@ fn apply_to_candidate(
             {
                 return Ok(superseded_commit(state, operation_id, vec![window_id]));
             }
+            let topology_changed = tab.role_slots != role_slots
+                || !workspace_slot_topology_equal(&tab.workspace_slots, &workspace_slots);
             let changed = tab.workspace_slots != workspace_slots || tab.role_slots != role_slots;
             if changed {
-                let revision = next_revision(state);
+                let revision = topology_changed.then(|| next_revision(state));
                 let window = state
                     .windows
                     .get_mut(&window_id)
@@ -400,7 +402,9 @@ fn apply_to_candidate(
                     .expect("workspace slot tab was validated");
                 tab.role_slots = role_slots;
                 tab.workspace_slots = workspace_slots;
-                window.revision = revision;
+                if let Some(revision) = revision {
+                    window.revision = revision;
+                }
             }
             basic_commit(state, false, vec![window_id])
         }
@@ -1525,6 +1529,20 @@ fn basic_commit(
         window_ids,
         browser_result: None,
     }
+}
+
+fn workspace_slot_topology_equal(
+    left: &[crate::model::StateWorkspaceSlotRecord],
+    right: &[crate::model::StateWorkspaceSlotRecord],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.id == right.id
+                && left.role_id == right.role_id
+                && left.browser_zoom_percent == right.browser_zoom_percent
+                && left.rect == right.rect
+                && left.web.is_some() == right.web.is_some()
+        })
 }
 
 fn next_revision(state: &mut RuntimeKernelState) -> u64 {

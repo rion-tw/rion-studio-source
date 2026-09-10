@@ -131,6 +131,7 @@ impl ChromiumPopupLifecycleRuntime {
             opener_policy: request.opener_policy,
             referrer_url: request.referrer_url.clone(),
             referrer_policy: request.referrer_policy.clone(),
+            has_post_body: request.has_post_body,
         };
         self.popups.insert(
             popup_id,
@@ -550,11 +551,10 @@ fn validate_open_request(request: &ChromiumPopupOpenRequestRecord) -> CoreResult
         || request.parent.parent_window_generation < 1
         || request.parent.parent_topology_revision < 1
         || request.parent.parent_native_host_id < 1
-        || request.has_post_body
     {
         return Err(domain(
             "CHROMIUM_POPUP_PARENT_FENCE_INVALID",
-            "The popup request is missing an exact parent fence or contains unsupported POST data.",
+            "The popup request is missing an exact parent fence.",
         ));
     }
     if request

@@ -96,6 +96,9 @@ function normalizedFileUpload(input) {
 
 function recordFixtureEvent(input) {
   const event = {
+    bodyBytes: Number.isSafeInteger(input.bodyBytes) && input.bodyBytes >= 0
+      ? input.bodyBytes
+      : undefined,
     button: Number.isInteger(input.button) && input.button >= 0 && input.button <= 2
       ? input.button
       : undefined,
@@ -104,6 +107,8 @@ function recordFixtureEvent(input) {
       : undefined,
     caret: normalizedCaretSnapshot(input.caret),
     code: typeof input.code === "string" ? input.code : undefined,
+    contentType: typeof input.contentType === "string" ? input.contentType : undefined,
+    contract: typeof input.contract === "string" ? input.contract : undefined,
     coordinates: input.coordinates,
     defaultPrevented: typeof input.defaultPrevented === "boolean"
       ? input.defaultPrevented
@@ -115,10 +120,12 @@ function recordFixtureEvent(input) {
     isTrusted: typeof input.isTrusted === "boolean" ? input.isTrusted : undefined,
     key: typeof input.key === "string" ? input.key : undefined,
     kind: input.kind,
+    method: typeof input.method === "string" ? input.method : undefined,
     modifiers: input.modifiers,
     repeat: typeof input.repeat === "boolean" ? input.repeat : undefined,
     fullscreen: input.fullscreen,
     roleId: input.roleId,
+    rionAction: typeof input.rionAction === "string" ? input.rionAction : undefined,
     sequence: nextEventSequence++,
     session: input.session,
     targetId: typeof input.targetId === "string" ? input.targetId : undefined,
@@ -180,7 +187,7 @@ function localRequest(request) {
   return host === "127.0.0.1" || host === "localhost" || host === "[::1]";
 }
 
-async function requestBody(request) {
+async function requestBytes(request) {
   const chunks = [];
   let length = 0;
   for await (const chunk of request) {
@@ -188,7 +195,11 @@ async function requestBody(request) {
     if (length > 16_384) throw new Error("fixture request is too large");
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  return Buffer.concat(chunks);
+}
+
+async function requestBody(request) {
+  return JSON.parse((await requestBytes(request)).toString("utf8") || "{}");
 }
 
 function rolePage(roleId, sessionMode, sessionMarker) {
@@ -226,7 +237,9 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     #active-navigation-failure[hidden] { display: none; }
     #contained-fullscreen-controls { padding: 18px; border: 1px solid #5eead4; border-radius: 12px; background: #0e1522; }
     #contained-fullscreen-controls[hidden] { display: none; }
-    #workspace-window-open-controls[hidden] { display: none; }
+    #workspace-window-open-controls[hidden], #contained-fullscreen-post-popup-form[hidden] { display: none; }
+    #contained-fullscreen-post-popup-form:not([hidden]) { position: fixed; right: 24px; bottom: 24px; z-index: 5; padding: 0; background: transparent; }
+    #contained-fullscreen-post-popup-form button { margin: 0; }
     #contained-fullscreen-controls button, #contained-fullscreen-controls a { position: static; transform: none; }
     #contained-fullscreen-controls #permission-drm,
     #contained-fullscreen-controls #permission-geolocation,
@@ -250,6 +263,11 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       <button id="contained-fullscreen-enter" type="button">Enter contained fullscreen</button>
       <button id="contained-fullscreen-exit" type="button">Exit contained fullscreen</button>
       <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="_blank" rel="noopener" hidden>Open fullscreen popup</a>
+      <form id="contained-fullscreen-post-popup-form" method="post" target="_blank" hidden>
+        <input name="rionAction" type="hidden" value="resume">
+        <input name="contract" type="hidden" value="workspace-popup-post-v27">
+        <button id="contained-fullscreen-post-popup" type="submit">Open POST popup</button>
+      </form>
       <button id="permission-drm" type="button" hidden>Request DRM playback capability</button>
       <button id="permission-geolocation" type="button" hidden>Request denied geolocation</button>
       <a id="blocked-download" href="/download/${roleId}" download hidden>Attempt blocked download</a>
@@ -409,6 +427,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       let containedFullscreenExitCount = 0;
       containedFullscreenControls.hidden = false;
       const popupButton = document.querySelector("#contained-fullscreen-popup");
+      const postPopupForm = document.querySelector("#contained-fullscreen-post-popup-form");
+      const postPopupButton = document.querySelector("#contained-fullscreen-post-popup");
       const drmButton = document.querySelector("#permission-drm");
       const permissionButton = document.querySelector("#permission-geolocation");
       const downloadLink = document.querySelector("#blocked-download");
@@ -417,9 +437,11 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       popupButton.hidden = roleId !== "e2e-workspace-web"
         && roleId !== "chromium-workspace-web-fullscreen"
         && roleId !== "chromium-controlled-role-reload";
+      postPopupForm.hidden = !securityPolicyEnabled;
       drmButton.hidden = roleId !== "e2e-workspace-popup";
       if (securityPolicyEnabled) {
         popupButton.href = "https://rion-drm.fixture.test/role/e2e-workspace-popup";
+        postPopupForm.action = popupButton.href;
       }
       drmButton.addEventListener("click", async (event) => {
         await record("drm-requested", {
@@ -448,6 +470,18 @@ function rolePage(roleId, sessionMode, sessionMarker) {
           popupButton.href = "/role/e2e-workspace-popup";
         }
         record("contained-popup-requested", {
+          button: event.button,
+          isTrusted: event.isTrusted,
+          modifiers: {
+            alt: event.altKey,
+            control: event.ctrlKey,
+            meta: event.metaKey,
+            shift: event.shiftKey
+          }
+        });
+      });
+      postPopupButton.addEventListener("click", (event) => {
+        record("contained-popup-post-requested", {
           button: event.button,
           isTrusted: event.isTrusted,
           modifiers: {
@@ -1051,6 +1085,34 @@ const server = createServer(async (request, response) => {
       }
       const { event, state } = recordFixtureEvent(body);
       json(response, 200, { event, state });
+      return;
+    }
+    const postRoleMatch = request.method === "POST"
+      && url.pathname.match(/^\/role\/([a-z0-9-]+)$/);
+    if (postRoleMatch) {
+      const roleId = postRoleMatch[1];
+      const contentType = String(request.headers["content-type"] ?? "");
+      const body = await requestBytes(request);
+      const fields = new URLSearchParams(body.toString("utf8"));
+      if (
+        roleId !== "e2e-workspace-popup" ||
+        !contentType.startsWith("application/x-www-form-urlencoded") ||
+        fields.get("rionAction") !== "resume" ||
+        fields.get("contract") !== "workspace-popup-post-v27"
+      ) {
+        json(response, 400, { error: "invalid fixture popup POST" });
+        return;
+      }
+      recordFixtureEvent({
+        bodyBytes: body.byteLength,
+        contentType,
+        contract: fields.get("contract"),
+        kind: "contained-popup-post-received",
+        method: request.method,
+        rionAction: fields.get("rionAction"),
+        roleId
+      });
+      sendRolePage(response, roleId);
       return;
     }
     const roleMatch = request.method === "GET" && url.pathname.match(/^\/role\/([a-z0-9-]+)$/);

@@ -443,7 +443,8 @@ function popupAdmission(): ChromiumPopupAdmissionRecord {
     creationUrl: "about:blank",
     targetUrl: "https://popup.example.test/path",
     disposition: "newWindow",
-    openerPolicy: "isolatedNoopener"
+    openerPolicy: "isolatedNoopener",
+    hasPostBody: false
   };
 }
 

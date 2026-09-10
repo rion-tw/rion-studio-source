@@ -108,6 +108,7 @@ pub struct ChromiumPopupAdmissionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub referrer_policy: Option<String>,
+    pub has_post_body: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]

@@ -1,4 +1,9 @@
-import type { KeyboardInputEvent, MouseInputEvent } from "electron";
+import type {
+  KeyboardInputEvent,
+  MouseInputEvent,
+  UploadFile,
+  UploadRawData
+} from "electron";
 import type { RolePathsRecord } from "../../shared/generated";
 import type {
   ChromiumRoleSessionHandle,
@@ -102,7 +107,9 @@ export interface ChromiumRoleSurfaceWebContentsPort {
   isCurrentlyAudible: () => boolean;
   isDestroyed: () => boolean;
   loadURL: (url: string, options?: Readonly<{
+    extraHeaders?: string;
     httpReferrer?: Readonly<{ url: string; policy: string }>;
+    postData?: Array<UploadRawData | UploadFile>;
   }>) => Promise<void>;
   reload: () => void;
   on: <EventName extends keyof ChromiumRoleSurfaceEventMap>(

@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 import { describe, expect, it, vi } from "vitest";
 
 import type {
@@ -102,7 +104,8 @@ class FakeCore {
       disposition: "newWindow",
       openerPolicy: "isolatedNoopener",
       referrerUrl: request.referrerUrl,
-      referrerPolicy: request.referrerPolicy
+      referrerPolicy: request.referrerPolicy,
+      hasPostBody: request.hasPostBody
     };
   }
 
@@ -191,7 +194,10 @@ class FakeView {
     this.destroyed = true;
     this.emit("destroyed");
   });
-  readonly loadURL = vi.fn(async () => undefined);
+  readonly loadURL = vi.fn(async (
+    _url: string,
+    _options?: Parameters<ChromiumRoleSurfaceWebContentsPort["loadURL"]>[1]
+  ) => undefined);
   readonly setBounds = vi.fn((bounds: Readonly<{
     x: number;
     y: number;
@@ -592,6 +598,98 @@ describe("ChromiumPopupLifecycleCoordinator", () => {
     expect(Object.isFrozen(journal.observations[0]?.parent)).toBe(true);
     expect(host.removeChildView).toHaveBeenCalledWith(view.port);
     expect(view.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+  });
+
+  it("forwards an exact bounded POST envelope in the parent Session", async () => {
+    const { core, coordinator, host, source, view } = harness();
+    const sourceBytes = Buffer.from("return_to=%2Fdashboard&token=fixture");
+    let submittedBytes: Buffer | undefined;
+    let submittedOwnedBuffer: Buffer | undefined;
+    view.loadURL.mockImplementationOnce(async (_url, options) => {
+      const entry = options?.postData?.[0];
+      if (entry?.type === "rawData") {
+        submittedBytes = Buffer.from(entry.bytes);
+        submittedOwnedBuffer = entry.bytes;
+      }
+    });
+
+    coordinator.requestOpen(source, {
+      url: "https://popup.example.test/post",
+      disposition: "new-window",
+      frameName: "_blank",
+      referrer: {
+        url: "https://parent.example.test/",
+        policy: "strict-origin-when-cross-origin"
+      },
+      postBody: {
+        contentType: "application/x-www-form-urlencoded",
+        data: [{ type: "rawData", bytes: sourceBytes }]
+      }
+    });
+
+    await eventually(() => host.observer !== null && submittedBytes !== undefined);
+    expect(core.commands[0]).toMatchObject({
+      request: { hasPostBody: true },
+      type: "browserPopupOpenAdmit"
+    });
+    expect(view.webContents.session).toBe(source.session);
+    expect(view.loadURL).toHaveBeenCalledWith(
+      "https://popup.example.test/post",
+      {
+        extraHeaders: "Content-Type: application/x-www-form-urlencoded",
+        httpReferrer: {
+          url: "https://parent.example.test/",
+          policy: "strict-origin-when-cross-origin"
+        },
+        postData: [expect.objectContaining({ type: "rawData" })]
+      }
+    );
+    expect(submittedBytes?.toString("utf8")).toBe(sourceBytes.toString("utf8"));
+    expect(sourceBytes.toString("utf8")).toContain("token=fixture");
+    await eventually(() => submittedOwnedBuffer?.every((byte) => byte === 0) === true);
+    await coordinator.dispose();
+  });
+
+  it("preserves a multipart boundary and rejects unsafe POST envelopes", async () => {
+    const accepted = harness();
+    let submittedHeader: string | undefined;
+    accepted.view.loadURL.mockImplementationOnce(async (_url, options) => {
+      submittedHeader = options?.extraHeaders;
+    });
+    accepted.coordinator.requestOpen(accepted.source, {
+      url: "https://popup.example.test/multipart",
+      disposition: "new-window",
+      frameName: "_blank",
+      postBody: {
+        boundary: "----RionFixtureBoundary",
+        contentType: "multipart/form-data",
+        data: [{ type: "rawData", bytes: Buffer.from("fixture multipart") }]
+      }
+    });
+    await eventually(() => submittedHeader !== undefined);
+    expect(submittedHeader).toBe(
+      "Content-Type: multipart/form-data; boundary=----RionFixtureBoundary"
+    );
+    await accepted.coordinator.dispose();
+
+    const rejected = harness();
+    rejected.coordinator.requestOpen(rejected.source, {
+      url: "https://popup.example.test/unsafe",
+      disposition: "new-window",
+      frameName: "_blank",
+      postBody: {
+        boundary: "unsafe\r\nboundary",
+        contentType: "multipart/form-data",
+        data: []
+      }
+    });
+    await Promise.resolve();
+    expect(rejected.core.commands).toEqual([]);
+    expect(rejected.hostCreate).not.toHaveBeenCalled();
+    expect(rejected.onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_CHROMIUM_POPUP_POST_BODY_INVALID"
+    }));
+    await rejected.coordinator.dispose();
   });
 
   it("retains only the latest 256 exact Core lifecycle receipts", async () => {

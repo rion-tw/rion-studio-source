@@ -64,9 +64,9 @@ const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
 const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // Version 23 introduced Chromium data/effect semantics; 24 added Website DRM policy;
 // 25 requires production-publisher CRX3 verification; 26 fixes Workspace Website
-// tab dispositions to navigate their owning surface.
+// tab dispositions; 27 admits bounded exact POST envelopes for controlled popups.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 26;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 27;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.

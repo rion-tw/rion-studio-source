@@ -1,6 +1,7 @@
 import { requireEnvironment } from "./control";
 
 export interface FixtureEvent {
+  bodyBytes?: number;
   button?: number;
   buttons?: number;
   caret?: {
@@ -13,6 +14,8 @@ export interface FixtureEvent {
     valueLength: number;
   };
   code?: string;
+  contentType?: string;
+  contract?: string;
   coordinates?: { x: number; y: number };
   defaultPrevented?: boolean;
   errorCode?: string;
@@ -26,6 +29,7 @@ export interface FixtureEvent {
   isTrusted?: boolean;
   key?: string;
   kind: string;
+  method?: string;
   fullscreen?: {
     active: boolean;
     rect: { height: number; width: number; x: number; y: number };
@@ -37,6 +41,7 @@ export interface FixtureEvent {
   modifiers?: { alt: boolean; control: boolean; meta: boolean; shift: boolean };
   repeat?: boolean;
   roleId: string;
+  rionAction?: string;
   sequence: number;
   session?: {
     after: { cookie: string | null; localStorage: string | null };

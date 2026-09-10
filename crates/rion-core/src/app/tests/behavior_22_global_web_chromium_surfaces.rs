@@ -607,6 +607,7 @@ fn workspace_web_navigation_commit_persists_per_slot_clears_home_and_supersedes_
         let attempt_generation = tab.attempt_generation.clone().unwrap();
         let runtime = core.browser_runtime.snapshot().unwrap();
         let window_generation = runtime.windows[&window_id].window_generation;
+        let topology_revision = runtime.windows[&window_id].revision;
         let surface_generation = 1;
         let before: crate::model::CoreStateSnapshotRecord =
             serde_json::from_value(core.invoke(CoreCommand::StateSnapshot).unwrap()).unwrap();
@@ -649,6 +650,11 @@ fn workspace_web_navigation_commit_persists_per_slot_clears_home_and_supersedes_
             .unwrap();
         assert_eq!(applied.status, "applied", "{platform}");
         assert!(applied.durable, "{platform}");
+        assert_eq!(
+            core.browser_runtime.snapshot().unwrap().windows[&window_id].revision,
+            topology_revision,
+            "navigation continuation metadata must not mutate topology on {platform}"
+        );
         let after: crate::model::CoreStateSnapshotRecord =
             serde_json::from_value(core.invoke(CoreCommand::StateSnapshot).unwrap()).unwrap();
         let workspace = after

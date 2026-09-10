@@ -614,7 +614,9 @@ async function exerciseContainedFullscreen(input: Readonly<{
     inspection: launched,
     mainWindowHandle
   });
-  const processId = await exerciseVisibleFileUpload({ mainWindowHandle, platform });
+  const runtimeProbe = await electronDesktopE2eProbe();
+  expect(runtimeProbe.platform).toBe(platform);
+  const processId = runtimeProbe.processId;
   let restoredHost: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
     const candidate = await electronDesktopE2eWorkspaceWebRuntime(
@@ -626,76 +628,39 @@ async function exerciseContainedFullscreen(input: Readonly<{
   }, {
     interval: 100,
     timeout: 20_000,
-    timeoutMsg: "The AppKit/Windows host did not restore focus after native upload"
+    timeoutMsg: "The AppKit/Windows host did not restore focus after security exercises"
   });
   const before = restoredHost!;
   expectMainHostGeometryInvariant(launched, before);
-
-  const entered = await clickAndObserveFullscreen({
-    afterRevision: before.web.containedFullscreenRevision,
-    contained: true,
-    expectedUrl: configuredWebUrl(),
-    mainWindowHandle,
-    roleId: WEB_FIXTURE_ID,
-    selector: "#contained-fullscreen-enter",
-    windowId: before.windowId
-  });
-  expectMainHostInvariant(before, entered);
-  expect(entered.web.chromeVisible).toBe(false);
-  expect(entered.web.contentVisible).toBe(true);
-  expect(entered.web.contentBounds).toEqual(entered.web.slotBounds);
-
-  const siteRestored = await clickAndObserveFullscreen({
-    afterRevision: entered.web.containedFullscreenRevision,
-    contained: false,
-    expectedUrl: configuredWebUrl(),
-    mainWindowHandle,
-    roleId: WEB_FIXTURE_ID,
-    selector: "#contained-fullscreen-exit",
-    windowId: before.windowId
-  });
-  expectMainHostInvariant(before, siteRestored);
-  expectNormalPairedProjection(siteRestored);
-
-  const reentered = await clickAndObserveFullscreen({
-    afterRevision: siteRestored.web.containedFullscreenRevision,
-    contained: true,
-    expectedUrl: configuredWebUrl(),
-    mainWindowHandle,
-    roleId: WEB_FIXTURE_ID,
-    selector: "#contained-fullscreen-enter",
-    windowId: before.windowId
-  });
-  const escapeRestored = await escapeAndObserveFullscreen({
-    afterRevision: reentered.web.containedFullscreenRevision,
-    expectedUrl: configuredWebUrl(),
-    mainWindowHandle,
-    platform,
-    processId,
-    roleId: WEB_FIXTURE_ID,
-    runtimeTabName: WORKSPACE_NAME,
-    windowId: before.windowId
-  });
-  expectMainHostInvariant(before, escapeRestored);
-  expectNormalPairedProjection(escapeRestored);
 
   const popupReadyAfter = await fixtureCursor();
   await clickVisibleElectronPageElementWithWindowOpenModifier(
     configuredWebUrl(),
     mainWindowHandle,
-    "#contained-fullscreen-popup",
+    "#contained-fullscreen-post-popup",
     "shift",
     platform
   );
   const popupRequest = await waitFixtureEvent({
     afterSequence: popupReadyAfter,
-    kind: "contained-popup-requested",
+    kind: "contained-popup-post-requested",
     roleId: WEB_FIXTURE_ID
   });
   expect(popupRequest).toEqual(expect.objectContaining({
     button: 0,
     isTrusted: true,
     modifiers: { alt: false, control: false, meta: false, shift: true }
+  }));
+  expect(await waitFixtureEvent({
+    afterSequence: popupReadyAfter,
+    kind: "contained-popup-post-received",
+    roleId: POPUP_FIXTURE_ID
+  })).toEqual(expect.objectContaining({
+    bodyBytes: 51,
+    contentType: expect.stringContaining("application/x-www-form-urlencoded"),
+    contract: "workspace-popup-post-v27",
+    method: "POST",
+    rionAction: "resume"
   }));
   await waitFixtureEvent({
     afterSequence: popupReadyAfter,
@@ -829,6 +794,57 @@ async function exerciseContainedFullscreen(input: Readonly<{
     phase: "closed",
     status: "applied"
   }));
+
+  expect(await exerciseVisibleFileUpload({ mainWindowHandle, platform }))
+    .toBe(processId);
+
+  const entered = await clickAndObserveFullscreen({
+    afterRevision: before.web.containedFullscreenRevision,
+    contained: true,
+    expectedUrl: configuredWebUrl(),
+    mainWindowHandle,
+    roleId: WEB_FIXTURE_ID,
+    selector: "#contained-fullscreen-enter",
+    windowId: before.windowId
+  });
+  expectMainHostInvariant(before, entered);
+  expect(entered.web.chromeVisible).toBe(false);
+  expect(entered.web.contentVisible).toBe(true);
+  expect(entered.web.contentBounds).toEqual(entered.web.slotBounds);
+
+  const siteRestored = await clickAndObserveFullscreen({
+    afterRevision: entered.web.containedFullscreenRevision,
+    contained: false,
+    expectedUrl: configuredWebUrl(),
+    mainWindowHandle,
+    roleId: WEB_FIXTURE_ID,
+    selector: "#contained-fullscreen-exit",
+    windowId: before.windowId
+  });
+  expectMainHostInvariant(before, siteRestored);
+  expectNormalPairedProjection(siteRestored);
+
+  const reentered = await clickAndObserveFullscreen({
+    afterRevision: siteRestored.web.containedFullscreenRevision,
+    contained: true,
+    expectedUrl: configuredWebUrl(),
+    mainWindowHandle,
+    roleId: WEB_FIXTURE_ID,
+    selector: "#contained-fullscreen-enter",
+    windowId: before.windowId
+  });
+  const escapeRestored = await escapeAndObserveFullscreen({
+    afterRevision: reentered.web.containedFullscreenRevision,
+    expectedUrl: configuredWebUrl(),
+    mainWindowHandle,
+    platform,
+    processId,
+    roleId: WEB_FIXTURE_ID,
+    runtimeTabName: WORKSPACE_NAME,
+    windowId: before.windowId
+  });
+  expectMainHostInvariant(before, escapeRestored);
+  expectNormalPairedProjection(escapeRestored);
 
   const popupJournalBaseline = await electronDesktopE2ePopupLifecycleJournal(
     before.windowId

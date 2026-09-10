@@ -93,7 +93,7 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 26. Version 23 remains the first
+The active runtime contract is version 27. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -103,6 +103,15 @@ Version 26 changes only Workspace Website window-open disposition: `default`,
 `foreground-tab`, and `background-tab` are denied as new native contents and
 navigate the owning Website slot, while `new-window` remains eligible for the
 controlled popup lifecycle. Role popup behavior remains unchanged.
+Version 27 admits a bounded, structurally validated POST envelope for that
+controlled popup lifecycle. Core validates and echoes the `hasPostBody` policy
+bit under the exact parent fence; Electron retains the body only in memory,
+loads it with its original form content type and multipart boundary in the exact
+parent Session, then clears its private raw-data copy. Body bytes and upload
+paths never enter Core, logs, SQLite, portable data, or diagnostics.
+Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
+not advance the window topology revision, so ordinary browsing cannot stale the
+exact parent fence used by a later controlled popup.
 The global-Web policy explicitly enables DRM for HTTPS requesting and embedding
 origins, including controlled popups. Request/check handlers share the same
 origin decision and retain Chromium encrypted-media Permissions Policy. Missing,
@@ -190,11 +199,15 @@ existing admission policy. A Workspace Website sends only the explicit
 `foreground-tab`, and `background-tab` navigate the same Website surface through
 an ordered EventBound lane. Core alone allocates popup/open-operation identity,
 admits the canonical HTTP(S) target, and owns lifecycle revision plus terminal
-receipt. Admission rejects POST bodies, nested popups, uncontrolled frame names
-or dispositions, unsupported window features, stale parent window/tab/surface
-generations, and external schemes. `about:blank` is only the hidden native-host
-creation transition; it is never an admitted final destination. The popup uses
-the exact parent role or global-Web `Session`, with isolated/noopener semantics.
+receipt. A controlled popup accepts Electron's exact URL-encoded or multipart
+POST envelope after bounded structural validation; malformed content types,
+unsafe boundaries, excessive raw bytes or entry counts fail closed before Core
+admission. Core admits the `hasPostBody` policy bit but never receives the body.
+Nested popups, uncontrolled frame names or dispositions, unsupported window
+features, stale parent window/tab/surface generations, and external schemes are
+rejected. `about:blank` is only the hidden native-host creation transition; it
+is never an admitted final destination. The popup uses the exact parent role or
+global-Web `Session`, with isolated/noopener semantics.
 
 Windows projects the admitted popup into its exact Electron native host. macOS
 creates a hidden `BaseWindow` only as the Chromium surface carrier and attaches

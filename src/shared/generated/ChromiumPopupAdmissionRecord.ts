@@ -4,4 +4,4 @@ import type { ChromiumPopupOpenerPolicy } from "./ChromiumPopupOpenerPolicy";
 import type { ChromiumPopupParentFenceRecord } from "./ChromiumPopupParentFenceRecord";
 import type { EmbeddedLaunchTargetRecord } from "./EmbeddedLaunchTargetRecord";
 
-export type ChromiumPopupAdmissionRecord = { requestId: string, popupId: string, openOperationId: string, lifecycleRevision: number, parent: ChromiumPopupParentFenceRecord, target: EmbeddedLaunchTargetRecord, title: string, creationUrl: "about:blank", targetUrl: string, disposition: ChromiumPopupDisposition, openerPolicy: ChromiumPopupOpenerPolicy, referrerUrl?: string, referrerPolicy?: string, };
+export type ChromiumPopupAdmissionRecord = { requestId: string, popupId: string, openOperationId: string, lifecycleRevision: number, parent: ChromiumPopupParentFenceRecord, target: EmbeddedLaunchTargetRecord, title: string, creationUrl: "about:blank", targetUrl: string, disposition: ChromiumPopupDisposition, openerPolicy: ChromiumPopupOpenerPolicy, referrerUrl?: string, referrerPolicy?: string, hasPostBody: boolean, };

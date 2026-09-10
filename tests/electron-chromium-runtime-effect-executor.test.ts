@@ -494,6 +494,12 @@ describe("Electron Chromium runtime effect executor", () => {
       "web-surface-1",
       1
     );
+    subject.isWebCurrentlyAudible.mockClear();
+    subject.closeWebSurface.mockImplementationOnce(async () => {
+      expect(subject.executor.snapshot().tabs[0]?.audible).toBe(false);
+      expect(subject.isWebCurrentlyAudible).not.toHaveBeenCalled();
+      return true;
+    });
     await subject.executor.execute(effect(specification.tabId, {
       type: "embeddedDestroyTab",
       tabId: specification.tabId,

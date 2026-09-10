@@ -36,7 +36,10 @@ pub(crate) fn open_file(path: &Path) -> Result<File> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        options.share_mode(0);
+        // Permit identity verification to reopen the same source for reading while this
+        // handle continues to exclude writers and deleters for the snapshot lifetime.
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        options.share_mode(FILE_SHARE_READ);
     }
     let file = options.open(path).map_err(|_| "SOURCE_FILE_IN_USE")?;
     rion_platform::verify_open_file_identity(path, &file).map_err(|_| "SOURCE_IDENTITY_CHANGED")?;
@@ -228,4 +231,25 @@ fn assess_webkit(root: &Path) -> Result<Value> {
         "cookieRecordsStructurallyReadable": cookies, "cookieStructuresWithElapsedExpiry": expired_cookie_structures,
         "cookieRawFlagsObserved": cookie_flags, "errors": errors, "canonicalExportEligible": false}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read;
+
+    use super::open_file;
+
+    #[test]
+    fn open_file_retains_a_verified_source_handle() {
+        let temporary = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        let path = temporary.path().join("source.bin");
+        std::fs::write(&path, b"verified source").unwrap();
+
+        let mut opened = open_file(&path).unwrap();
+        rion_platform::verify_open_file_identity(&path, &opened).unwrap();
+        let mut contents = Vec::new();
+        opened.read_to_end(&mut contents).unwrap();
+
+        assert_eq!(contents, b"verified source");
+    }
 }

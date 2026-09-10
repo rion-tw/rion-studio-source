@@ -119,6 +119,8 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #openingRoles = new Map<string, RuntimeRoleRecord>();
   readonly #webSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
   readonly #openingWebSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
+  readonly #closingRoleGenerations = new Map<string, number>();
+  readonly #closingWebSurfaceGenerations = new Map<string, number>();
   readonly #rolePaths = new Map<string, RolePathsRecord>();
   readonly #lastGenerationByRole = new Map<string, number>();
   readonly #lastGenerationByWebSurface = new Map<string, number>();
@@ -177,10 +179,13 @@ export class ChromiumRuntimeEffectExecutor {
           windowId: record.windowId,
           audioMuted: record.audioMuted,
           audible: [...this.#roles.values()]
-            .filter((role) => role.tabId === tabId)
+            .filter((role) => role.tabId === tabId &&
+              this.#closingRoleGenerations.get(role.roleId) !== role.generation)
             .some((role) => this.#input.surfaces.isCurrentlyAudible(
               role.roleId, role.generation)) || [...this.#webSurfaces.values()]
-            .filter((surface) => surface.tabId === tabId)
+            .filter((surface) => surface.tabId === tabId &&
+              this.#closingWebSurfaceGenerations.get(surface.surfaceId) !==
+                surface.generation)
             .some((surface) => this.#input.webSurfaces.isCurrentlyAudible(
               surface.surfaceId, surface.generation)),
           attemptGeneration: requireIdentifier(
@@ -1359,11 +1364,15 @@ export class ChromiumRuntimeEffectExecutor {
     requireIdentifier(roleId, "role");
     const role = this.#roles.get(roleId) ?? this.#openingRoles.get(roleId);
     if (!role) return false;
+    this.#closingRoleGenerations.set(role.roleId, role.generation);
     const closed = await this.#retireInputAndCloseRole(role);
     if (closed) {
       this.#input.overlays?.retire(roleId, role.generation);
       if (this.#roles.get(roleId) === role) this.#roles.delete(roleId);
       if (this.#openingRoles.get(roleId) === role) this.#openingRoles.delete(roleId);
+      if (this.#closingRoleGenerations.get(roleId) === role.generation) {
+        this.#closingRoleGenerations.delete(roleId);
+      }
     }
     return closed;
   }
@@ -1432,6 +1441,15 @@ export class ChromiumRuntimeEffectExecutor {
       .filter((role) => role.tabId === tabId);
     const ownedWebSurfaces = [...this.#webSurfaces.values(), ...this.#openingWebSurfaces.values()]
       .filter((surface) => surface.tabId === tabId);
+    for (const role of ownedRoles) {
+      this.#closingRoleGenerations.set(role.roleId, role.generation);
+    }
+    for (const surface of ownedWebSurfaces) {
+      this.#closingWebSurfaceGenerations.set(
+        surface.surfaceId,
+        surface.generation
+      );
+    }
     const [roleCloses, webCloses] = await Promise.all([
       Promise.allSettled(ownedRoles.map((role) =>
         this.#retireInputAndCloseRole(role)
@@ -1449,6 +1467,9 @@ export class ChromiumRuntimeEffectExecutor {
       this.#input.overlays?.retire(role.roleId, role.generation);
       if (this.#roles.get(role.roleId) === role) this.#roles.delete(role.roleId);
       if (this.#openingRoles.get(role.roleId) === role) this.#openingRoles.delete(role.roleId);
+      if (this.#closingRoleGenerations.get(role.roleId) === role.generation) {
+        this.#closingRoleGenerations.delete(role.roleId);
+      }
     }
     for (const [index, result] of webCloses.entries()) {
       const surface = ownedWebSurfaces[index]!;
@@ -1458,6 +1479,10 @@ export class ChromiumRuntimeEffectExecutor {
       }
       if (this.#openingWebSurfaces.get(surface.surfaceId) === surface) {
         this.#openingWebSurfaces.delete(surface.surfaceId);
+      }
+      if (this.#closingWebSurfaceGenerations.get(surface.surfaceId) ===
+          surface.generation) {
+        this.#closingWebSurfaceGenerations.delete(surface.surfaceId);
       }
     }
     const closeFailure = [...roleCloses, ...webCloses].find(

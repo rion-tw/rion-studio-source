@@ -481,18 +481,36 @@ void (async () => {
         [popupTab],
         popupTab.tabId
       );
-      const popupAccessibilityPressEvent = await runAccessibilityAction(
-        () => nativeHost.desktopE2eAccessibilityPress(identity, popupTab.tabId),
-        "activate",
-        popupTab.tabId
+      const popupChrome = await waitForDiagnosticSnapshot(
+        () => nativeHost.desktopE2eFullscreenToolbarState(identity),
+        (state) => state.valid && state.accessoryOnScreen &&
+          !state.addButtonOnScreen && !state.tabStripOnScreen &&
+          state.tabCloseButtonEnabledCount === 0 &&
+          state.visibleTrafficLightCount === 3 && state.windowNameOnScreen,
+        "the controlled popup single-page native chrome"
       );
-      const popupAccessibilityCloseEvent = await runAccessibilityAction(
-        () => nativeHost.desktopE2eAccessibilityClose(identity, popupTab.tabId),
-        "stop",
-        popupTab.tabId
+      const popupAccessibilityHierarchy = await inspectMacosAccessibilityTabs(
+        process.pid,
+        [popupTab.name]
       );
-      if (JSON.stringify(popupAccessibilityCloseEvent.action.orderedTabIds) !== "[]") {
-        throw new Error("The AppKit popup close action retained a foreign tab owner.");
+      if (popupAccessibilityHierarchy.matchingRadioCount !== 0 ||
+          popupAccessibilityHierarchy.tabGroupCount !== 0) {
+        throw new Error(
+          `The controlled popup exposed forbidden tab accessibility: ${JSON.stringify(popupAccessibilityHierarchy)}.`
+        );
+      }
+      const popupActionEventCount = events.length;
+      const popupAccessibilityActions = {
+        close: nativeHost.desktopE2eAccessibilityClose(identity, popupTab.tabId),
+        press: nativeHost.desktopE2eAccessibilityPress(identity, popupTab.tabId),
+        showMenu: nativeHost.desktopE2eAccessibilityShowMenu(
+          identity,
+          popupTab.tabId
+        )
+      };
+      if (Object.values(popupAccessibilityActions).some(Boolean) ||
+          events.length !== popupActionEventCount) {
+        throw new Error("The controlled popup accepted a forbidden tab action.");
       }
       const reconciledProjection = nativeHost.applyTabProjection(
         identity,
@@ -563,8 +581,9 @@ void (async () => {
         closeButtonsHidden,
         fullscreenEntered,
         fullscreenExited,
-        popupAccessibilityCloseEvent,
-        popupAccessibilityPressEvent,
+        popupAccessibilityActions,
+        popupAccessibilityHierarchy,
+        popupChrome,
         popupProjection,
         reconciledProjection,
         singleRoleProjection,

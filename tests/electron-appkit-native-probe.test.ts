@@ -46,9 +46,12 @@ describe("Electron retained AppKit native probe contract", () => {
     expect(source).toContain("desktopE2eAccessibilityShowMenu");
     expect(source).toContain('"openTabMenu"');
     expect(source).toContain('tabType: "popup"');
-    expect(source).toContain("popupAccessibilityPressEvent");
-    expect(source).toContain("popupAccessibilityCloseEvent");
-    expect(source).toContain("The AppKit popup close action retained a foreign tab owner");
+    expect(source).toContain("popupAccessibilityActions");
+    expect(source).toContain("popupAccessibilityHierarchy");
+    expect(source).toContain("popupChrome");
+    expect(source).toContain("!state.addButtonOnScreen");
+    expect(source).toContain("!state.tabStripOnScreen");
+    expect(source).toContain("The controlled popup accepted a forbidden tab action");
     expect(source).toContain("backgroundFocusAfter");
     expect(source).toContain('window.once("enter-full-screen"');
     expect(source).toContain('window.once("leave-full-screen"');

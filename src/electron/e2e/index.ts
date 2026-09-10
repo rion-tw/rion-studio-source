@@ -1071,18 +1071,30 @@ async function readWorkspaceWebRuntime(
     )
     .map(({ admission, host, receipt }) => {
       const projection = host.readProjection();
+      const appKitChrome = receipt.platform === "macos"
+        ? host.readFullscreenToolbar?.().appKit
+        : undefined;
       if (
         host.id !== receipt.nativeHostId ||
         host.logicalWindowId !== receipt.logicalWindowId ||
         receipt.logicalWindowId !== admission.target.windowId ||
         JSON.stringify(host.appKitIdentity ?? null) !==
-          JSON.stringify(receipt.appkitIdentity ?? null)
+        JSON.stringify(receipt.appkitIdentity ?? null) ||
+        (receipt.platform === "macos" && !appKitChrome)
       ) {
         throw new Error(
           `Workspace Web popup ${admission.popupId} lost its native ownership fence.`
         );
       }
       return Object.freeze({
+        appKitChrome: appKitChrome
+          ? Object.freeze({
+              addButtonOnScreen: appKitChrome.addButtonOnScreen,
+              tabStripOnScreen: appKitChrome.tabStripOnScreen,
+              visibleTrafficLightCount: appKitChrome.visibleTrafficLightCount,
+              windowNameOnScreen: appKitChrome.windowNameOnScreen
+            })
+          : null,
         appKitIdentity: receipt.appkitIdentity
           ? Object.freeze({ ...receipt.appkitIdentity })
           : null,

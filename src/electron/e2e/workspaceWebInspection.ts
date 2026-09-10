@@ -20,6 +20,12 @@ export interface ElectronDesktopE2eWorkspaceWebInspection {
   readonly phase: "activating" | "attaching" | "degraded" | "dormant" |
     "failed" | "loading" | "ready";
   readonly popups: readonly Readonly<{
+    appKitChrome: Readonly<{
+      addButtonOnScreen: boolean;
+      tabStripOnScreen: boolean;
+      visibleTrafficLightCount: number;
+      windowNameOnScreen: boolean;
+    }> | null;
     appKitIdentity: Readonly<{
       launchGeneration: string;
       logicalWindowId: string;
@@ -207,9 +213,9 @@ function popup(
   platform: "appkit-chromium" | "bundled-chromium"
 ): value is ElectronDesktopE2eWorkspaceWebInspection["popups"][number] {
   if (!record(value) || !exact(value, [
-    "appKitIdentity", "bounds", "hostKind", "logicalWindowId", "nativeHostId",
-    "openOperationId", "popupId", "presentation", "topologyRevision",
-    "visible", "windowGeneration"
+    "appKitChrome", "appKitIdentity", "bounds", "hostKind", "logicalWindowId",
+    "nativeHostId", "openOperationId", "popupId", "presentation",
+    "topologyRevision", "visible", "windowGeneration"
   ]) || !nativeBounds(value.bounds) || value.hostKind !== platform ||
       !positiveInteger(value.nativeHostId) || !identifier(value.openOperationId) ||
       !identifier(value.popupId) ||
@@ -219,9 +225,22 @@ function popup(
       !positiveInteger(value.windowGeneration)) {
     return false;
   }
+  const validAppKitChrome = record(value.appKitChrome) && exact(
+    value.appKitChrome,
+    [
+      "addButtonOnScreen", "tabStripOnScreen", "visibleTrafficLightCount",
+      "windowNameOnScreen"
+    ]
+  ) && typeof value.appKitChrome.addButtonOnScreen === "boolean" &&
+    typeof value.appKitChrome.tabStripOnScreen === "boolean" &&
+    Number.isSafeInteger(value.appKitChrome.visibleTrafficLightCount) &&
+    Number(value.appKitChrome.visibleTrafficLightCount) >= 0 &&
+    Number(value.appKitChrome.visibleTrafficLightCount) <= 3 &&
+    typeof value.appKitChrome.windowNameOnScreen === "boolean";
   return platform === "appkit-chromium"
-    ? appKitIdentity(value.appKitIdentity, value.logicalWindowId, value.openOperationId)
-    : value.appKitIdentity === null;
+    ? appKitIdentity(value.appKitIdentity, value.logicalWindowId, value.openOperationId) &&
+      validAppKitChrome
+    : value.appKitIdentity === null && value.appKitChrome === null;
 }
 
 function workspaceWeb(

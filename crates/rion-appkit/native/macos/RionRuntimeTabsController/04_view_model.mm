@@ -86,6 +86,9 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+  if (self.tabsController.usesPopupOnlyPresentation) {
+    return NSDragOperationNone;
+  }
   if (![[sender draggingPasteboard]
           availableTypeFromArray:@[ RionRuntimeTabPasteboardType ]]) {
     return NSDragOperationNone;
@@ -164,6 +167,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  if (self.tabsController.usesPopupOnlyPresentation) return NO;
   NSString *payload = [[sender draggingPasteboard]
       stringForType:RionRuntimeTabPasteboardType];
   NSArray<NSString *> *parts = RionRuntimeTabDragPayloadParts(payload);

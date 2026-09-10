@@ -34,6 +34,14 @@ const electronApplication = packaged
       ],
       appBinaryPath: entryPoint
     }
+  : process.platform === "darwin"
+    ? {
+        appArgs: [
+          `--app=${entryPoint}`,
+          `--user-data-dir=${userDataDir}`
+        ],
+        appBinaryPath: required("RION_STUDIO_E2E_ELECTRON_EXEC_PATH")
+      }
   : {
       appArgs: [`--user-data-dir=${userDataDir}`],
       appEntryPoint: entryPoint

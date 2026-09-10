@@ -69,6 +69,7 @@ export interface ChromiumRuntimeFullscreenToolbarObservation {
   readonly windowGeneration: number;
   readonly windowId: string;
   readonly appKit?: Readonly<{
+    addButtonOnScreen: boolean;
     accessoryOnScreen: boolean;
     accessoryVisibleHeight: number;
     fullscreenHostReady: boolean;
@@ -91,6 +92,7 @@ export interface ChromiumRuntimeFullscreenToolbarObservation {
     tabStripOnScreen: boolean;
     toolbarPinned: boolean;
     visibleTrafficLightCount: number;
+    windowNameOnScreen: boolean;
   }>;
 }
 

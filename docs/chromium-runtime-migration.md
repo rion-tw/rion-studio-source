@@ -93,7 +93,7 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 27. Version 23 remains the first
+The active runtime contract is version 28. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -109,6 +109,11 @@ bit under the exact parent fence; Electron retains the body only in memory,
 loads it with its original form content type and multipart boundary in the exact
 parent Session, then clears its private raw-data copy. Body bytes and upload
 paths never enter Core, logs, SQLite, portable data, or diagnostics.
+Version 28 changes only the retained macOS controlled-popup presentation. An
+exact single `popup` projection uses AppKit single-page chrome: the window title
+and traffic lights remain native, while the tab strip, tab menu, tab dragging,
+tab close control, and launcher button are absent. Windows retains its existing
+single-page native popup presentation.
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the
 exact parent fence used by a later controlled popup.
@@ -211,8 +216,11 @@ global-Web `Session`, with isolated/noopener semantics.
 
 Windows projects the admitted popup into its exact Electron native host. macOS
 creates a hidden `BaseWindow` only as the Chromium surface carrier and attaches
-the retained Rust/N-API AppKit controller; the controller owns the popup tab,
-window chrome, layout, close action, and native identity receipt. There is no
+the retained Rust/N-API AppKit controller; the controller owns single-page popup
+chrome, layout, close action, and native identity receipt. Its exact one-popup
+projection exposes the admitted hostname title and traffic lights but no tab
+strip, tab menu, tab drag destination, tab close control, or launcher button.
+There is no
 macOS BrowserWindow/HTML-chrome fallback. Parent retirement, cancellation,
 failed navigation/load, unexpected native destruction, and application drain
 all terminalize the original unfinished open operation before owned Views and

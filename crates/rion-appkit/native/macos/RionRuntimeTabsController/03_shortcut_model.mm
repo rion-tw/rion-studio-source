@@ -67,6 +67,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (CGFloat)dragPreviewScreenOriginY;
 - (void)updateTabScrollButtonState;
 - (void)updateTabEdgeFadeMasks;
+- (BOOL)usesPopupOnlyPresentation;
 - (BOOL)controlRowContainsTopLeftScreenPoint:(NSPoint)point;
 - (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
                        grabRatioX:(CGFloat)grabRatioX

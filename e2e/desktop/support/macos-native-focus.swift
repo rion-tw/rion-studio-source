@@ -78,13 +78,15 @@ while true {
     let focusedWindowIdentifier = text(focusedWindow, "AXIdentifier")
     let mainWindowIdentifier = text(mainWindow, "AXIdentifier")
     let exactIdentity = mode == "shortcut"
-      ? focusedWindowIdentifier.hasPrefix(appKitPrefix)
+      ? (expectedWindowIdentifier.isEmpty
+          ? focusedWindowIdentifier.hasPrefix(appKitPrefix)
+          : focusedWindowIdentifier == expectedWindowIdentifier)
       : candidates.count == 1 && focusedWindowIdentifier == expectedWindowIdentifier
     if foreground(), exactIdentity, mainWindowIdentifier == focusedWindowIdentifier,
        text(focusedWindow, "AXRole") == "AXWindow", boolean(focusedWindow, "AXMain") {
       let restoringFullscreen = mode == "shortcut" && command == "toggleFullscreen" && boolean(focusedWindow, "AXFullScreen")
-      if mode == "shortcut" && !restoringFullscreen && runtimeTabName.isEmpty {
-        fail("exact focused runtime tab name is required")
+      if mode == "shortcut" && !restoringFullscreen && runtimeTabName.isEmpty && expectedWindowIdentifier.isEmpty {
+        fail("exact focused runtime tab name or window identifier is required")
       }
       if !restoringFullscreen && !runtimeTabName.isEmpty {
         let tabs = descendants(focusedWindow).filter {

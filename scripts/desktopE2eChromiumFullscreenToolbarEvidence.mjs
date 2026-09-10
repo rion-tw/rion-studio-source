@@ -95,9 +95,10 @@ function isHidden(observation, platform) {
       : [])
   ];
   return exactKeys(appKit, [
-    "accessoryOnScreen", "accessoryVisibleHeight", "fullscreenHostReady",
-    "presentationAutoHideToolbar", "revealLocked", "tabCloseButtonEnabledCount",
-    "tabStripOnScreen", "toolbarPinned", "visibleTrafficLightCount",
+    "accessoryOnScreen", "accessoryVisibleHeight", "addButtonOnScreen",
+    "fullscreenHostReady", "presentationAutoHideToolbar", "revealLocked",
+    "tabCloseButtonEnabledCount", "tabStripOnScreen", "toolbarPinned",
+    "visibleTrafficLightCount", "windowNameOnScreen",
     ...geometryKeys
   ]) && appKit.fullscreenHostReady && appKit.presentationAutoHideToolbar &&
     !appKit.accessoryOnScreen && !appKit.tabStripOnScreen &&

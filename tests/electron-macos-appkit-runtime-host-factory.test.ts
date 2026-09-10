@@ -47,6 +47,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     }]);
     expect(fixture.addon.controllers[0]!.verifiedProjectionActiveTabId)
       .toBe(admission.popupId);
+    expect(fixture.addon.controllers[0]!.windowName).toBe(admission.title);
     expect(created.host.isVisible()).toBe(false);
 
     const observer = {
@@ -85,12 +86,33 @@ describe("macOS AppKit Chromium runtime host", () => {
         sourceWindowId: identity.logicalWindowId
       }
     });
+    fixture.addon.emit(0, {
+      type: "action",
+      identity,
+      action: {
+        type: "openLauncher",
+        sourceWindowId: identity.logicalWindowId
+      }
+    });
+    fixture.addon.emit(0, {
+      type: "action",
+      identity,
+      action: {
+        type: "openTabMenu",
+        sourceWindowId: identity.logicalWindowId,
+        tabId: admission.popupId
+      }
+    });
     expect(observer.closeRequested).not.toHaveBeenCalled();
     expect(fixture.onError).not.toHaveBeenCalled();
     fixture.addon.emit(0, {
       type: "action",
       identity,
-      action: { type: "stop", tabId: admission.popupId }
+      action: {
+        type: "stop",
+        sourceWindowId: identity.logicalWindowId,
+        tabId: admission.popupId
+      }
     });
     expect(observer.closeRequested).toHaveBeenCalledOnce();
     expect(fixture.onAction).not.toHaveBeenCalled();

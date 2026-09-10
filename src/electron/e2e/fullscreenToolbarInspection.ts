@@ -4,6 +4,7 @@ export interface ElectronDesktopE2eFullscreenToolbarInspection {
   readonly native: Readonly<{
     alwaysShowToolbarInFullScreen: boolean;
     appKit?: Readonly<{
+      addButtonOnScreen: boolean;
       accessoryOnScreen: boolean;
       accessoryVisibleHeight: number;
       fullscreenHostReady: boolean;
@@ -26,6 +27,7 @@ export interface ElectronDesktopE2eFullscreenToolbarInspection {
       tabStripOnScreen: boolean;
       toolbarPinned: boolean;
       visibleTrafficLightCount: number;
+      windowNameOnScreen: boolean;
     }>;
     fullscreen: boolean;
     nativeControlsVisible: boolean;
@@ -115,10 +117,10 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
   if (hasAppKit) {
     const appKit = native.appKit;
     const appKitKeys = [
-      "accessoryOnScreen", "accessoryVisibleHeight", "fullscreenHostReady",
-      "presentationAutoHideToolbar", "revealLocked",
+      "accessoryOnScreen", "accessoryVisibleHeight", "addButtonOnScreen",
+      "fullscreenHostReady", "presentationAutoHideToolbar", "revealLocked",
       "tabCloseButtonEnabledCount", "tabStripOnScreen", "toolbarPinned",
-      "visibleTrafficLightCount"
+      "visibleTrafficLightCount", "windowNameOnScreen"
     ];
     const hasTabScreenBounds = record(appKit) && "tabScreenBounds" in appKit;
     const hasFullscreenControlBounds = record(appKit) &&
@@ -137,9 +139,11 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
       Number(appKit.visibleTrafficLightCount) > 3 ||
       !Number.isSafeInteger(appKit.tabCloseButtonEnabledCount) ||
       Number(appKit.tabCloseButtonEnabledCount) < 0 ||
-      ["accessoryOnScreen", "fullscreenHostReady",
+      ["accessoryOnScreen", "addButtonOnScreen", "fullscreenHostReady",
         "presentationAutoHideToolbar", "revealLocked", "tabStripOnScreen",
-        "toolbarPinned"].some((key) => typeof appKit[key] !== "boolean") ||
+        "toolbarPinned", "windowNameOnScreen"].some(
+        (key) => typeof appKit[key] !== "boolean"
+      ) ||
       native.toolbarVisible !== (
         appKit.accessoryOnScreen && appKit.tabStripOnScreen
       ) || native.nativeWindowControlCount !== appKit.visibleTrafficLightCount) {

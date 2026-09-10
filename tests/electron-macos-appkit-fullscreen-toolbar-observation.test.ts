@@ -14,6 +14,7 @@ function state() {
   return {
     accessoryOnScreen: true,
     accessoryVisibleHeight: 40,
+    addButtonOnScreen: true,
     alwaysHideTabCloseButton: false,
     alwaysShowInFullScreen: false,
     fullscreen: true,
@@ -24,7 +25,8 @@ function state() {
     tabStripOnScreen: true,
     toolbarPinned: false,
     valid: true,
-    visibleTrafficLightCount: 3
+    visibleTrafficLightCount: 3,
+    windowNameOnScreen: true
   };
 }
 
@@ -122,6 +124,37 @@ describe("retained AppKit fullscreen-toolbar observation", () => {
       windowGeneration: 2
     });
 
+    expect(observation.appKit).not.toHaveProperty("tabScreenBounds");
+  });
+
+  it("observes single-page popup chrome without requiring tab geometry", () => {
+    const readTitlebarGeometry = vi.fn(() => titlebarGeometry());
+    const observation = readMacosAppKitFullscreenToolbar({
+      identity,
+      nativeFullscreen: false,
+      nativeProjectionRevision: 8,
+      read: () => ({
+        ...state(),
+        addButtonOnScreen: false,
+        tabCloseButtonEnabledCount: 0,
+        tabStripOnScreen: false,
+        windowNameOnScreen: true
+      }),
+      readTitlebarGeometry,
+      tabIds: [tabId],
+      topologyRevision: 7,
+      windowGeneration: 2
+    });
+
+    expect(readTitlebarGeometry).not.toHaveBeenCalled();
+    expect(observation.toolbarVisible).toBe(false);
+    expect(observation.nativeControlsVisible).toBe(true);
+    expect(observation.appKit).toEqual(expect.objectContaining({
+      addButtonOnScreen: false,
+      tabStripOnScreen: false,
+      visibleTrafficLightCount: 3,
+      windowNameOnScreen: true
+    }));
     expect(observation.appKit).not.toHaveProperty("tabScreenBounds");
   });
 

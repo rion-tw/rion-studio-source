@@ -4,6 +4,8 @@
 
 import process from "node:process";
 
+import { MACOS_GAME_MODE_CATEGORY } from
+  "./scripts/electronMacosGameModeBundle.mjs";
 import { ELECTRON_RENDERER_DOCUMENTS } from "./scripts/verifyElectronRendererBundle.mjs";
 import { EXPECTED_ELECTRON_RUNTIME } from "./scripts/verifyElectronRuntime.mjs";
 
@@ -67,6 +69,10 @@ const electronBuilderConfiguration = {
   electronFuses: PRODUCTION_ELECTRON_FUSES,
   publish: null,
   mac: {
+    category: MACOS_GAME_MODE_CATEGORY,
+    extendInfo: {
+      LSSupportsGameMode: true
+    },
     target: [
       { target: "dmg", arch: ["arm64"] },
       { target: "tar.gz", arch: ["arm64"] }

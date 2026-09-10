@@ -493,14 +493,16 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 }
 
 - (BOOL)performAccessibilityPressForTabIdentifier:(NSString *)tabIdentifier {
-  if (_destroyed || tabIdentifier.length == 0) return NO;
+  if (_destroyed || [self usesPopupOnlyPresentation] ||
+      tabIdentifier.length == 0) return NO;
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   if (!item || item.hidden || item.window != _window) return NO;
   return [item accessibilityPerformPress];
 }
 
 - (BOOL)performAccessibilityCloseForTabIdentifier:(NSString *)tabIdentifier {
-  if (_destroyed || tabIdentifier.length == 0) return NO;
+  if (_destroyed || [self usesPopupOnlyPresentation] ||
+      tabIdentifier.length == 0) return NO;
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   if (!item || item.hidden || item.window != _window) return NO;
   return [item performAccessibilityClose];
@@ -516,6 +518,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   NSView *accessory = _accessoryController.view;
   state->accessoryVisibleHeight =
       RionVisibleScreenHeightForView(accessory);
+  state->addButtonOnScreen =
+      RionVisibleScreenHeightForView(_addSurface) > 0.5;
   state->alwaysHideTabCloseButton = _alwaysHideTabCloseButton;
   state->alwaysShowInFullScreen = self.alwaysShowInFullScreen;
   state->accessoryOnScreen = state->accessoryVisibleHeight > 0.5;
@@ -532,7 +536,7 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   state->toolbarPinned = RionShouldPinFullscreenToolbar(
       self.alwaysShowInFullScreen, self.revealLocked);
   for (RionRuntimeTabItemView *item in _tabItems) {
-    if (!item.tabCloseButtonHidden) {
+    if (!item.hidden && !item.surfaceView.hidden && !item.tabCloseButtonHidden) {
       state->tabCloseButtonEnabledCount += 1;
     }
   }
@@ -566,6 +570,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   }
   state->presentationAutoHideToolbar =
       (options & NSApplicationPresentationAutoHideToolbar) != 0;
+  state->windowNameOnScreen =
+      RionVisibleScreenHeightForView(_windowNameField) > 0.5;
   state->valid = YES;
   return YES;
 }
@@ -656,7 +662,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 }
 
 - (BOOL)performAccessibilityShowMenuForTabIdentifier:(NSString *)tabIdentifier {
-  if (_destroyed || tabIdentifier.length == 0) return NO;
+  if (_destroyed || [self usesPopupOnlyPresentation] ||
+      tabIdentifier.length == 0) return NO;
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   if (!item || item.hidden) return NO;
   RionRuntimeSurfaceView *surface = item.surfaceView;
@@ -675,7 +682,9 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 - (BOOL)performDesktopE2EDragForTabIdentifier:(NSString *)tabIdentifier
                              targetController:(RionRuntimeTabsController *)targetController
                            beforeTabIdentifier:(NSString *)beforeTabIdentifier {
-  if (_destroyed || targetController->_destroyed || tabIdentifier.length == 0 ||
+  if (_destroyed || targetController->_destroyed ||
+      [self usesPopupOnlyPresentation] ||
+      [targetController usesPopupOnlyPresentation] || tabIdentifier.length == 0 ||
       beforeTabIdentifier.length == 0) return NO;
   RionRuntimeTabItemView *sourceItem = _tabItemsByIdentifier[tabIdentifier];
   RionRuntimeTabItemView *targetItem =
@@ -1037,7 +1046,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 
 - (BOOL)moveTabIdentifier:(NSString *)tabIdentifier
     byAccessibilityOffset:(NSInteger)offset {
-  if (tabIdentifier.length == 0 || offset == 0 || !_actionHandler) return NO;
+  if ([self usesPopupOnlyPresentation] || tabIdentifier.length == 0 ||
+      offset == 0 || !_actionHandler) return NO;
   NSUInteger currentIndex = [_tabItems indexOfObjectPassingTest:
       ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
     (void)index;
@@ -1112,7 +1122,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 }
 
 - (void)showTabMenu:(NSString *)tabIdentifier {
-  if (_actionHandler && tabIdentifier.length > 0) {
+  if (![self usesPopupOnlyPresentation] && _actionHandler &&
+      tabIdentifier.length > 0) {
     _actionHandler(@{ @"type" : @"openTabMenu", @"tabId" : tabIdentifier,
                       @"sourceWindowId" : _windowID });
   }
@@ -1120,13 +1131,14 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 
 - (void)openLauncher:(id)sender {
   (void)sender;
-  if (_actionHandler) {
+  if (![self usesPopupOnlyPresentation] && _actionHandler) {
     _actionHandler(@{ @"type" : @"openLauncher",
                       @"sourceWindowId" : _windowID });
   }
 }
 
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event {
+  if ([self usesPopupOnlyPresentation]) return;
   [self hideInsertionIndicator];
   [self hideExternalDragGhost];
   [self resetTabDragInsertionState];

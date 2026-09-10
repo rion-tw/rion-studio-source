@@ -7,12 +7,25 @@ import { preserveWebDriverUserDataDirectory } from
 
 describe("Electron user-data policy", () => {
   it("launches non-packaged WebDriver Chromium with the same isolated user-data directory as Core", async () => {
-    const config = await readFile("e2e/desktop/wdio.electron.conf.ts", "utf8");
+    const [config, runner] = await Promise.all([
+      readFile("e2e/desktop/wdio.electron.conf.ts", "utf8"),
+      readFile("scripts/runDesktopE2e.mjs", "utf8")
+    ]);
     const nonPackagedApplication = config.slice(config.indexOf(": {\n      appArgs"));
 
     expect(config).toContain("const userDataDir = packaged");
     expect(nonPackagedApplication).toContain("appArgs: [`--user-data-dir=${userDataDir}`]");
     expect(nonPackagedApplication).toContain("appEntryPoint: entryPoint");
+    expect(config).toContain("`--app=${entryPoint}`");
+    expect(config).toContain(
+      'appBinaryPath: required("RION_STUDIO_E2E_ELECTRON_EXEC_PATH")'
+    );
+    expect(config.indexOf("process.platform === \"darwin\""))
+      .toBeLessThan(config.indexOf("appEntryPoint: entryPoint"));
+    expect(runner).toContain("createMacosGameModeDevelopmentBundle");
+    expect(runner).toContain("requireFromRepository(\"electron\")");
+    expect(runner).toContain("RION_STUDIO_E2E_ELECTRON_EXEC_PATH");
+    expect(runner).toContain("await macosGameModeBundle.cleanup()");
   });
 
   it("does not send DELETE to an Electron session after the app-owned clean close", async () => {
@@ -32,6 +45,7 @@ describe("Electron user-data policy", () => {
     expect(config).toContain("completed its authoritative final flush");
     expect(runner).toContain("awaitElectronProcessExit");
     expect(runner).toContain("process.kill(marker.pid, 0)");
+    expect(runner).toContain('state.startsWith("Z")');
     expect(runner).toContain('error?.code === "ESRCH"');
     expect(runner).toContain("Date.now() + 45_000");
     expect(runner).toContain("$target.HasExited");

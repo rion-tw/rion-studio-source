@@ -88,17 +88,33 @@ export type MacosPopupAction = "focus" | "close" | "layout" | "ignore" | "reject
 
 export function classifyMacosPopupAction(
   popupId: string,
+  logicalWindowId: string,
   action: Readonly<Record<string, unknown>>
 ): MacosPopupAction {
-  if (action.type === "activate" && action.tabId === popupId) return "focus";
+  const exactSource = action.sourceWindowId === logicalWindowId;
   if (
-    action.type === "stop" && action.tabId === popupId ||
+    action.type === "activate" && action.tabId === popupId && exactSource
+  ) return "focus";
+  if (
+    action.type === "stop" && action.tabId === popupId && exactSource ||
     action.type === "closeWindow"
   ) return "close";
   if (
     action.type === "layout" || action.type === "windowState" ||
-    action.type === "windowPlacementChanged"
+    action.type === "windowPlacementChanged" && exactSource
   ) return "layout";
-  if (action.type === "windowFocusChanged") return "ignore";
+  if (action.type === "windowFocusChanged" && exactSource) return "ignore";
+  if (action.type === "openLauncher" && exactSource) return "ignore";
+  if (
+    action.type === "openTabMenu" && action.tabId === popupId && exactSource
+  ) return "ignore";
+  if (
+    action.type === "tabDragStart" && action.tabId === popupId && exactSource ||
+    (action.type === "tabDragMove" || action.type === "tabDragEnd") &&
+      exactSource ||
+    (action.type === "tabDragHover" || action.type === "tabDragDrop") &&
+      action.tabId === popupId && exactSource &&
+      action.targetWindowId === logicalWindowId
+  ) return "ignore";
   return "reject";
 }

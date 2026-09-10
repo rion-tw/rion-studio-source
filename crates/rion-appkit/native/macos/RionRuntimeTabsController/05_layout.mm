@@ -653,6 +653,15 @@ NS_ASSUME_NONNULL_BEGIN
   return _windowNameField.hidden ? nil : _windowNameField.stringValue;
 }
 
+- (BOOL)usesPopupOnlyPresentation {
+  if (_destroyed || _tabItems.count != 1 || _tabModelsByIdentifier.count != 1) {
+    return NO;
+  }
+  RionRuntimeTabItemView *item = _tabItems.firstObject;
+  RionRuntimeTabModel *model = _tabModelsByIdentifier[item.tabIdentifier];
+  return model && [model.type isEqualToString:@"popup"];
+}
+
 - (void)layoutTitlebarContent {
   if (_destroyed || !_window) return;
   NSView *root = _accessoryController.view;
@@ -672,6 +681,40 @@ NS_ASSUME_NONNULL_BEGIN
     leadingInset += windowNameWidth + kRionWindowNameTrailingSpacing;
   } else {
     _windowNameField.frame = NSZeroRect;
+  }
+  BOOL popupOnly = [self usesPopupOnlyPresentation];
+  _clusterContainer.hidden = popupOnly;
+  _tabScrollView.hidden = popupOnly;
+  _tabCanvas.accessibilityElement = !popupOnly;
+  ((RionRuntimeTabsRootView *)root).tabAccessibilityGroup =
+      popupOnly ? nil : _tabCanvas;
+  _addSurface.hidden = popupOnly;
+  _addButton.enabled = !popupOnly;
+  _addButton.accessibilityElement = !popupOnly;
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    item.hidden = popupOnly;
+    item.accessibilityElement = !popupOnly;
+  }
+  for (RionRuntimeSurfaceView *surface in _tabSurfaces) {
+    surface.hidden = popupOnly;
+  }
+  if (popupOnly) {
+    _clusterContainer.frame = NSZeroRect;
+    _clusterEffectContainer.frame = NSZeroRect;
+    _clusterContent.frame = NSZeroRect;
+    _tabScrollView.frame = NSZeroRect;
+    _tabCanvas.frame = NSZeroRect;
+    _scrollLeftSurface.hidden = YES;
+    _scrollLeftSurface.frame = NSZeroRect;
+    _scrollRightSurface.hidden = YES;
+    _scrollRightSurface.frame = NSZeroRect;
+    _addSurface.frame = NSZeroRect;
+    _tabCanvas.tabAccessibilityChildren = @[];
+    [self hideInsertionIndicator];
+    [self hideExternalDragGhost];
+    [self resetTabDragInsertionState];
+    [self stopTabDragEdgeScroll];
+    return;
   }
   CGFloat availableWithoutScrollControls = MAX(
       0,

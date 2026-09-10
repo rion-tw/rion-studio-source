@@ -216,6 +216,7 @@ pub struct RuntimeTabsDesktopE2ETabAnchor {
 #[repr(C)]
 pub struct RuntimeTabsDesktopE2EFullscreenToolbarState {
     pub accessory_visible_height: f64,
+    pub add_button_on_screen: bool,
     pub always_hide_tab_close_button: bool,
     pub always_show_in_full_screen: bool,
     pub accessory_on_screen: bool,
@@ -227,6 +228,7 @@ pub struct RuntimeTabsDesktopE2EFullscreenToolbarState {
     pub toolbar_pinned: bool,
     pub tab_close_button_enabled_count: u32,
     pub visible_traffic_light_count: u32,
+    pub window_name_on_screen: bool,
     pub valid: bool,
 }
 

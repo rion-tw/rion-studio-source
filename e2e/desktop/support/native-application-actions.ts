@@ -164,6 +164,7 @@ export async function pressVisibleMacosApplicationShortcut(input: Readonly<{
   command: VisibleMacosApplicationShortcut;
   processId: number;
   runtimeTabName?: string;
+  runtimeWindowId?: string;
   targetMode?: VisibleApplicationShortcutTargetMode;
 }>): Promise<void> {
   if (process.platform !== "darwin" || !validProcessId(input.processId)) {
@@ -171,13 +172,21 @@ export async function pressVisibleMacosApplicationShortcut(input: Readonly<{
   }
   if (
     input.targetMode === "focused-runtime" &&
-    (!input.runtimeTabName || input.runtimeTabName.trim() !== input.runtimeTabName)
+    ((!input.runtimeTabName && !input.runtimeWindowId) ||
+      (input.runtimeTabName !== undefined &&
+        input.runtimeTabName.trim() !== input.runtimeTabName) ||
+      (input.runtimeWindowId !== undefined &&
+        (input.runtimeWindowId.length === 0 ||
+          input.runtimeWindowId.trim() !== input.runtimeWindowId)))
   ) {
-    throw new Error("The focused macOS runtime shortcut requires one exact AppKit tab");
+    throw new Error("The focused macOS runtime shortcut requires one exact AppKit tab or window");
   }
   if (input.targetMode === "focused-runtime") {
+    const expectedWindowIdentifier = input.runtimeWindowId
+      ? `com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}`
+      : "";
     await executeFile("/usr/bin/xcrun", [
-      "swift", nativeFocusScript, String(input.processId), "",
+      "swift", nativeFocusScript, String(input.processId), expectedWindowIdentifier,
       input.runtimeTabName ?? "", "shortcut", input.command
     ], { encoding: "utf8", timeout: 15_000 });
     return;
@@ -565,7 +574,7 @@ on run argv
       repeat with dockItemIndex from 1 to dockItemCount
         set candidate to UI element dockItemIndex of list 1
         if role description of candidate is "application dock item" then
-          if name of candidate is "Rion Studio" then
+          if name of candidate is "Rion Studio" or name of candidate is "Rion Studio Dev" then
             set rionDockItemCount to rionDockItemCount + 1
             set rionDockItemIndex to dockItemIndex
           else if name of candidate is "Electron" then

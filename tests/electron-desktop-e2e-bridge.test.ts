@@ -236,13 +236,15 @@ const fullscreenToolbarInspection = Object.freeze({
     appKit: Object.freeze({
       accessoryOnScreen: true,
       accessoryVisibleHeight: 38,
+      addButtonOnScreen: true,
       fullscreenHostReady: true,
       presentationAutoHideToolbar: false,
       revealLocked: false,
       tabCloseButtonEnabledCount: 1,
       tabStripOnScreen: true,
       toolbarPinned: true,
-      visibleTrafficLightCount: 3
+      visibleTrafficLightCount: 3,
+      windowNameOnScreen: true
     }),
     fullscreen: true,
     nativeControlsVisible: true,
@@ -1135,6 +1137,12 @@ describe("Electron desktop E2E-only bridge", () => {
   it("accepts exact popup logical ownership and rejects a mismatched popup scope", async () => {
     const logicalWindowId = `popup-${POPUP_ID}`;
     const popup = Object.freeze({
+      appKitChrome: Object.freeze({
+        addButtonOnScreen: false,
+        tabStripOnScreen: false,
+        visibleTrafficLightCount: 3,
+        windowNameOnScreen: true
+      }),
       appKitIdentity: Object.freeze({
         launchGeneration: POPUP_OPEN_OPERATION_ID,
         logicalWindowId,

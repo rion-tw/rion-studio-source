@@ -16,6 +16,8 @@ import {
   verifyMacosAdHocBundleSignature,
   verifyMacosChromiumAddonLinkage
 } from "./verifyElectronNativeAddon.mjs";
+import { MACOS_GAME_MODE_CATEGORY } from
+  "./electronMacosGameModeBundle.mjs";
 import {
   assertElectronRendererSources,
   ELECTRON_RENDERER_DOCUMENTS,
@@ -273,6 +275,8 @@ export function assertMacosElectronBundleInfo(info, expectedVersion) {
     CFBundlePackageType: "APPL",
     CFBundleShortVersionString: expectedVersion,
     CFBundleVersion: expectedVersion,
+    LSApplicationCategoryType: MACOS_GAME_MODE_CATEGORY,
+    LSSupportsGameMode: true,
     LSMinimumSystemVersion: MINIMUM_MACOS_VERSION
   });
   const failures = Object.entries(expected).flatMap(([name, value]) =>

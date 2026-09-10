@@ -245,7 +245,7 @@ fn current_drm_contract_rejects_stale_registration_on_both_platforms() {
     for platform in ["darwin", "win32"] {
         let (_directory, core) =
             core_for_runtime_contract(platform, CHROMIUM_RUNTIME_CONTRACT_VERSION);
-        assert_eq!(CHROMIUM_RUNTIME_CONTRACT_VERSION, 27);
+        assert_eq!(CHROMIUM_RUNTIME_CONTRACT_VERSION, 28);
         let mut registration = chromium_registration(platform, true);
         assert!(
             core.invoke(CoreCommand::BrowserRuntimeRegister {

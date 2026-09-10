@@ -622,6 +622,7 @@ pub(super) fn desktop_e2e_fullscreen_toolbar_state(
             .map_err(native_controller_error)?;
     Ok(AppKitDesktopE2EFullscreenToolbarState {
         accessory_visible_height: state.accessory_visible_height,
+        add_button_on_screen: state.add_button_on_screen,
         always_hide_tab_close_button: state.always_hide_tab_close_button,
         always_show_in_full_screen: state.always_show_in_full_screen,
         accessory_on_screen: state.accessory_on_screen,
@@ -633,6 +634,7 @@ pub(super) fn desktop_e2e_fullscreen_toolbar_state(
         toolbar_pinned: state.toolbar_pinned,
         tab_close_button_enabled_count: state.tab_close_button_enabled_count,
         visible_traffic_light_count: state.visible_traffic_light_count,
+        window_name_on_screen: state.window_name_on_screen,
         valid: state.valid,
     })
 }

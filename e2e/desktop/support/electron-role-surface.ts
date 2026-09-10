@@ -392,7 +392,8 @@ export async function submitElectronPageEscape(
   input: Readonly<{
     platform: "macos" | "windows";
     processId: number;
-    runtimeTabName: string;
+    runtimeTabName?: string;
+    runtimeWindowId?: string;
   }>
 ): Promise<void> {
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
@@ -405,6 +406,7 @@ export async function submitElectronPageEscape(
         command: "escape",
         processId: input.processId,
         runtimeTabName: input.runtimeTabName,
+        runtimeWindowId: input.runtimeWindowId,
         targetMode: "focused-runtime"
       });
     } else {

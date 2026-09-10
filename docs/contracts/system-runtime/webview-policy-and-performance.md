@@ -130,6 +130,15 @@ registration. Popup resource and subframe activity never participates in the
 role input-fence transaction. Failure at any stage closes the provisional window
 and records a failed receipt.
 
+On macOS, an exact native projection containing one `popup` tab uses the
+retained AppKit controller in single-page mode. The admitted hostname is shown
+beside the native traffic lights; the tab group, tab close control, context menu,
+drag source/destination, scrolling controls, and launcher button are hidden and
+removed from accessibility navigation. Presentation-only actions already queued
+before that projection may be ignored only when their popup, window, and drag
+identity remain exact. Foreign or topology-mutating actions fail closed. Windows
+keeps its existing standalone single-page popup chrome.
+
 `capabilityEvidence` reports each capability's runtime probe, policy mode,
 evidence stage, and failure reason. `supported`, `degraded`, `unsupported`, and
 `disabled` are explicit states; no feature may infer support solely from the

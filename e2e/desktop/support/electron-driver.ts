@@ -310,6 +310,7 @@ export interface ElectronDesktopE2eFullscreenToolbarRuntimeInspection {
   native: {
     alwaysShowToolbarInFullScreen: boolean;
     appKit?: {
+      addButtonOnScreen: boolean;
       accessoryOnScreen: boolean;
       accessoryVisibleHeight: number;
       fullscreenHostReady: boolean;
@@ -327,6 +328,7 @@ export interface ElectronDesktopE2eFullscreenToolbarRuntimeInspection {
       tabStripOnScreen: boolean;
       toolbarPinned: boolean;
       visibleTrafficLightCount: number;
+      windowNameOnScreen: boolean;
     };
     fullscreen: boolean;
     nativeControlsVisible: boolean;
@@ -372,6 +374,12 @@ export interface ElectronDesktopE2eWorkspaceWebRuntimeInspection {
   phase: "activating" | "attaching" | "degraded" | "dormant" |
     "failed" | "loading" | "ready";
   popups: readonly {
+    appKitChrome: {
+      addButtonOnScreen: boolean;
+      tabStripOnScreen: boolean;
+      visibleTrafficLightCount: number;
+      windowNameOnScreen: boolean;
+    } | null;
     appKitIdentity: {
       launchGeneration: string;
       logicalWindowId: string;

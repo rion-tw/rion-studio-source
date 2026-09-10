@@ -91,6 +91,10 @@ describe("native application shortcut target modes", () => {
     expect(nativeFocus).toContain('text($0, "AXDescription") == runtimeTabName');
     expect(nativeFocus).toContain('tabs.count <= 1');
     expect(nativeFocus).toContain('if let tab = tabs.first, let owner = object(tab, "AXWindow")');
+    expect(nativeFocus).toContain('focusedWindowIdentifier == expectedWindowIdentifier');
+    expect(nativeFocus).toContain('runtimeTabName.isEmpty && expectedWindowIdentifier.isEmpty');
+    expect(source).toContain('input.runtimeWindowId');
+    expect(source).toContain('com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}');
     expect(nativeFocus).toContain('mode == "focus", let target');
     expect(nativeFocus).toContain('mode == "shortcut" ? 0 : 10');
     expect(nativeFocus).toContain('text($0, "AXTitle") == "Toggle Full Screen"');

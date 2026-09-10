@@ -452,7 +452,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       record.controllerIdentityValidated = true;
       record.controller.setWindowName(
         record.identity,
-        target.persistedName ?? "Rion Studio"
+        popupAdmission?.title ?? target.persistedName ?? "Rion Studio"
       );
       record.controller.setFullscreenPolicy(
         record.identity,
@@ -1185,7 +1185,11 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
           );
         }
         if (record.popupId) {
-          switch (classifyMacosPopupAction(record.popupId, action)) {
+          switch (classifyMacosPopupAction(
+            record.popupId,
+            record.identity.logicalWindowId,
+            action
+          )) {
             case "focus": record.native.focus(); break;
             case "close": record.popupObserver?.closeRequested(); break;
             case "layout": this.#refreshLayout(record); break;

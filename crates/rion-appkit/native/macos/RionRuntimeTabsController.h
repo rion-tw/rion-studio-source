@@ -103,6 +103,7 @@ typedef struct {
 
 typedef struct {
   double accessoryVisibleHeight;
+  bool addButtonOnScreen;
   bool alwaysHideTabCloseButton;
   bool alwaysShowInFullScreen;
   bool accessoryOnScreen;
@@ -114,6 +115,7 @@ typedef struct {
   bool toolbarPinned;
   uint32_t tabCloseButtonEnabledCount;
   uint32_t visibleTrafficLightCount;
+  bool windowNameOnScreen;
   bool valid;
 } RionRuntimeTabsDesktopE2EFullscreenToolbarState;
 #endif

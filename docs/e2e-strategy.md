@@ -230,8 +230,9 @@ chrome hidden while remote content exactly fills its existing slot, with the
 Core revision, sibling Role bounds, window bounds, and window presentation
 unchanged. The same visible flow repeats inside a Core-admitted controlled
 popup opened by a real Shift+left click; macOS additionally proves the exact
-retained AppKit identities for both
-the parent and popup hosts. Both website exit and Escape restore the paired
+retained AppKit identities for both the parent and popup hosts, plus native
+single-page popup chrome with its title and traffic lights visible and its tab
+strip and launcher absent. Both website exit and Escape restore the paired
 projection, and the restart phase proves this transient presentation never
 became durable state. Windows retains a separate CI verdict.
 
@@ -323,8 +324,9 @@ journey; stable Tauri v22 intentionally has no controlled-reload UI or command.
 adapter probe, not a Chromium product-journey verdict. With
 `RION_STUDIO_DESKTOP_E2E_BUILD=1`, it attaches a sandboxed Chromium
 `WebContentsView` to an Electron `BaseWindow` and reads back retained AppKit tab,
-traffic-light, accessibility-action, background-focus, close-button, and
-fullscreen-toolbar evidence. Without that exact build flag, the same probe
+traffic-light, accessibility-action, background-focus, close-button,
+single-page popup suppression, and fullscreen-toolbar evidence. Without that
+exact build flag, the same probe
 fails if any desktop-E2E N-API method is present, establishing production-addon
 surface isolation. Neither result substitutes for a full Game Window journey
 through the renderer, Core topology, session owner, and runtime host.

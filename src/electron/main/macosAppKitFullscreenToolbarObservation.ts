@@ -9,6 +9,7 @@ import type { RawAppKitDesktopE2ETabAnchor } from
 
 export interface RawAppKitFullscreenToolbarState {
   readonly accessoryVisibleHeight: number;
+  readonly addButtonOnScreen: boolean;
   readonly alwaysHideTabCloseButton: boolean;
   readonly alwaysShowInFullScreen: boolean;
   readonly accessoryOnScreen: boolean;
@@ -20,6 +21,7 @@ export interface RawAppKitFullscreenToolbarState {
   readonly toolbarPinned: boolean;
   readonly tabCloseButtonEnabledCount: number;
   readonly visibleTrafficLightCount: number;
+  readonly windowNameOnScreen: boolean;
   readonly valid: boolean;
 }
 
@@ -66,7 +68,10 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
   }
   const toolbarVisible = state.accessoryOnScreen && state.tabStripOnScreen;
   let geometry: RawAppKitDesktopE2ETitlebarGeometry | undefined;
-  if (!state.fullscreen || (state.fullscreenHostReady && toolbarVisible)) {
+  if (
+    state.tabStripOnScreen &&
+    (!state.fullscreen || state.fullscreenHostReady && toolbarVisible)
+  ) {
     try {
       geometry = input.readTitlebarGeometry?.(input.identity);
     } catch (error) {
@@ -122,6 +127,7 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
     windowGeneration: input.windowGeneration,
     windowId: input.identity.logicalWindowId,
     appKit: Object.freeze({
+      addButtonOnScreen: state.addButtonOnScreen,
       accessoryOnScreen: state.accessoryOnScreen,
       accessoryVisibleHeight: state.accessoryVisibleHeight,
       fullscreenHostReady: state.fullscreenHostReady,
@@ -147,7 +153,8 @@ export function readMacosAppKitFullscreenToolbar(input: Readonly<{
       ...(tabAnchors ? { tabAnchors: Object.freeze(tabAnchors) } : {}),
       tabStripOnScreen: state.tabStripOnScreen,
       toolbarPinned: state.toolbarPinned,
-      visibleTrafficLightCount: state.visibleTrafficLightCount
+      visibleTrafficLightCount: state.visibleTrafficLightCount,
+      windowNameOnScreen: state.windowNameOnScreen
     })
   });
 }

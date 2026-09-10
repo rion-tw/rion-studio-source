@@ -206,7 +206,7 @@ export function popupAdmission(): ChromiumPopupAdmissionRecord {
     },
     target: target({
       windowId: `popup-${popupId}`,
-      persistedName: "popup.example.test",
+      persistedName: "Popup",
       bounds: { x: 120, y: 100, width: 800, height: 600 }
     }),
     title: "popup.example.test",
@@ -436,6 +436,7 @@ export class FakeNativeHost implements RawNativeAppKitRuntimeHost {
     return {
       accessoryOnScreen: true,
       accessoryVisibleHeight: 40,
+      addButtonOnScreen: true,
       alwaysHideTabCloseButton: false,
       alwaysShowInFullScreen: false,
       fullscreen: false,
@@ -446,7 +447,8 @@ export class FakeNativeHost implements RawNativeAppKitRuntimeHost {
       tabStripOnScreen: true,
       toolbarPinned: false,
       valid: true,
-      visibleTrafficLightCount: 3
+      visibleTrafficLightCount: 3,
+      windowNameOnScreen: true
     };
   }
 

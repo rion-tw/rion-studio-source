@@ -31,6 +31,8 @@ beforeEach(() => {
   for (const [name, value] of Object.entries({
     RION_STUDIO_E2E_ARTIFACT_DIR: "/tmp/rion-service-order",
     RION_STUDIO_E2E_APP_BINARY: "/tmp/rion/main.js",
+    RION_STUDIO_E2E_ELECTRON_EXEC_PATH:
+      "/tmp/Rion Studio Dev.app/Contents/MacOS/Electron",
     RION_STUDIO_E2E_PHASE: "chromium-extensions-seed",
     RION_STUDIO_E2E_RUNTIME_TARGET: "chromium-v23-macos-appkit",
     RION_STUDIO_E2E_SESSION_TOKEN: "service-order-fixture",

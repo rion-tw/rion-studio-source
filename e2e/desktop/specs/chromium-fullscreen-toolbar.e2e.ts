@@ -1,5 +1,11 @@
 import { $, browser, expect } from "@wdio/globals";
 
+import {
+  inspectMacosGameModeExecutable,
+  MACOS_GAME_MODE_CATEGORY,
+  MACOS_GAME_MODE_DEVELOPMENT_BUNDLE_ID,
+  MACOS_GAME_MODE_DEVELOPMENT_NAME
+} from "../../../scripts/electronMacosGameModeBundle.mjs";
 import type { Role, RoleStatus } from "../../../src/shared/types";
 import {
   electronDesktopE2eArmApplicationShortcutFullscreenExit,
@@ -399,6 +405,19 @@ describe("Chromium fullscreen Game Window toolbar parity", () => {
   it("uses paired visible native actions and restores the persisted auto-hide baseline", async () => {
     const probe = await electronDesktopE2eProbe();
     expect(probe.runtimeTarget).toBe(required("RION_STUDIO_E2E_RUNTIME_TARGET"));
+    if (probe.platform === "macos") {
+      const { info } = await inspectMacosGameModeExecutable(
+        required("RION_STUDIO_E2E_ELECTRON_EXEC_PATH"),
+        { development: true }
+      );
+      expect(info).toEqual(expect.objectContaining({
+        CFBundleDisplayName: MACOS_GAME_MODE_DEVELOPMENT_NAME,
+        CFBundleIdentifier: MACOS_GAME_MODE_DEVELOPMENT_BUNDLE_ID,
+        CFBundleName: MACOS_GAME_MODE_DEVELOPMENT_NAME,
+        LSApplicationCategoryType: MACOS_GAME_MODE_CATEGORY,
+        LSSupportsGameMode: true
+      }));
+    }
     await ensureEnglishUi();
     await acceptLegalAndSkipFirstRun();
     const mainWindowHandle = await browser.getWindowHandle();

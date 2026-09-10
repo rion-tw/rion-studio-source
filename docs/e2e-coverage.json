@@ -708,7 +708,7 @@
         "failure",
         "cancel"
       ],
-      "description": "From a visible global-Web fixture form, use a real Shift+left click to request an explicit POST new window, preserve its URL-encoded body in one admitted HTTP(S) popup with the exact parent Session, prove isolated/noopener final navigation plus retained AppKit popup tab/window identity and layout receipts, visibly close the exact native popup tab, then gate a second GET popup and retire its visible parent tab to prove cancellation and terminal teardown. Lower-layer gates reject malformed POST envelopes, nested, external-scheme, stale-parent, and unsupported-disposition requests without a BrowserWindow or HTML-chrome fallback."
+      "description": "From a visible global-Web fixture form, use a real Shift+left click to request an explicit POST new window, preserve its URL-encoded body in one admitted HTTP(S) popup with the exact parent Session, and prove isolated/noopener final navigation plus retained AppKit window identity and layout receipts. Native evidence requires the admitted hostname and all three traffic lights while the tab strip and launcher button remain absent. Visibly close the exact native popup window, then gate a second GET popup and retire its visible parent tab to prove cancellation and terminal teardown. Lower-layer gates reject malformed POST envelopes, nested, external-scheme, stale-parent, and unsupported-disposition requests without a BrowserWindow or HTML-chrome fallback."
     },
     {
       "id": "CHROMIUM-WINDOWS-POPUP-012",
@@ -732,7 +732,7 @@
         "failure",
         "cancel"
       ],
-      "description": "From a visible global-Web fixture form, use a real Shift+left click to request an explicit POST new window, preserve its URL-encoded body in one admitted HTTP(S) popup with the exact parent Session, prove isolated/noopener final navigation on the exact bundled Chromium native host, visibly close the exact native popup tab, then gate a second GET popup and retire its visible parent tab to prove cancellation and terminal teardown. Lower-layer gates reject malformed POST envelopes, nested, external-scheme, stale-parent, and unsupported-disposition requests."
+      "description": "From a visible global-Web fixture form, use a real Shift+left click to request an explicit POST new window, preserve its URL-encoded body in one admitted HTTP(S) popup with the exact parent Session, prove isolated/noopener final navigation on the existing standalone bundled Chromium native host, visibly close the exact native popup window, then gate a second GET popup and retire its visible parent tab to prove cancellation and terminal teardown. Lower-layer gates reject malformed POST envelopes, nested, external-scheme, stale-parent, and unsupported-disposition requests."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-CRUD-002",
@@ -2290,7 +2290,7 @@
         "success",
         "restart"
       ],
-      "description": "Create the setting-free Rion Website + Role Workspace, open the Rion entrance, navigate through the visible address control, then use real remote-page controls and Escape to prove main HTML fullscreen remains inside its exact slot. A real Shift+left click submits a visible POST form into the sole controlled popup, proves the exact body reached the fixture in the parent Session, then validates its fullscreen envelope, retained AppKit identity, close flow, parent retirement, and transient persistence behavior."
+      "description": "Create the setting-free Rion Website + Role Workspace, open the Rion entrance, navigate through the visible address control, then use real remote-page controls and Escape to prove main HTML fullscreen remains inside its exact slot. A real Shift+left click submits a visible POST form into the sole controlled popup and proves the exact body reached the fixture in the parent Session. The popup keeps its fullscreen envelope and retained AppKit identity while native evidence requires single-page hostname/traffic-light chrome with no tab strip or launcher button; visible close, parent retirement, and transient persistence remain covered."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SECURITY-POLICY-027",
@@ -2362,7 +2362,7 @@
         "success",
         "restart"
       ],
-      "description": "Toggle the Core-owned fullscreen-toolbar preference through the real macOS View menu, enter and leave through the visible retained AppKit traffic-light control, and use real pointer movement at the screen edge to prove live Chromium Role content expands under the offscreen native tab row, reveals the native traffic lights, pins immediately in both preference directions, and restores auto-hide after restart."
+      "description": "Start the non-packaged Chromium runtime from the verified Rion Studio Dev bundle whose Info.plist declares the dedicated development bundle identity, games category, and LSSupportsGameMode=true. Then toggle the Core-owned fullscreen-toolbar preference through the real macOS View menu, enter and leave through the visible retained AppKit traffic-light control, and use real pointer movement at the screen edge to prove live Chromium Role content expands under the offscreen native tab row, reveals the native traffic lights, pins immediately in both preference directions, and restores auto-hide after restart."
     },
     {
       "id": "CHROMIUM-WINDOWS-GAME-WINDOW-UI-016",
@@ -2440,7 +2440,7 @@
         "success",
         "restart"
       ],
-      "description": "Run the identical setting-free Rion Website contained-fullscreen journey in the bundled Windows Chromium host, including entrance-to-address navigation and per-slot last-URL restart continuation. Real remote-page clicks and Escape keep main content inside its exact envelope; a real Shift+left click submits a visible POST form into the sole controlled popup, proves exact body delivery in the parent Session, and continues through fullscreen, close, and parent-retirement checks. Windows retains an independent CI verdict."
+      "description": "Run the identical setting-free Rion Website contained-fullscreen journey in the bundled Windows Chromium host, including entrance-to-address navigation and per-slot last-URL restart continuation. Real remote-page clicks and Escape keep main content inside its exact envelope; a real Shift+left click submits a visible POST form into the existing standalone single-page popup, proves exact body delivery in the parent Session, and continues through fullscreen, close, and parent-retirement checks. Windows retains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-SECURITY-POLICY-027",

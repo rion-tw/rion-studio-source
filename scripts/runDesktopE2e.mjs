@@ -2,10 +2,13 @@ import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { access, copyFile, mkdir, readFile, watch, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { observeElectronPhaseShutdown } from "./desktopE2eElectronShutdown.mjs";
 import { resolveDesktopE2eFocusedPhases } from "./desktopE2eFocusedPhases.mjs";
+import { createMacosGameModeDevelopmentBundle } from
+  "./electronMacosGameModeBundle.mjs";
 
 import {
   aggregateDesktopE2eJourneyVerdicts,
@@ -30,6 +33,7 @@ import { resolveDesktopE2eProfileName, resolveDesktopE2eRuntimeTarget } from "./
 import { verifyDesktopE2eBuild } from "./verifyDesktopE2eBuild.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const requireFromRepository = createRequire(resolve(root, "package.json"));
 const runId = new Date().toISOString().replaceAll(/[:.]/gu, "-");
 const artifactRoot = resolve(
   process.env.RION_STUDIO_E2E_ARTIFACT_ROOT ?? resolve(root, ".desktop-e2e-artifacts"),
@@ -995,6 +999,20 @@ async function awaitElectronProcessExit(marker, phase) {
         if (error?.code === "ESRCH") return;
         throw error;
       }
+      try {
+        const state = execFileSync(
+          "/bin/ps",
+          ["-p", String(marker.pid), "-o", "state="],
+          { encoding: "utf8" }
+        ).trim();
+        // Direct appBinaryPath launches remain ChromeDriver children. Once the
+        // exact process is a zombie it has exited and cannot own runtime state,
+        // even if ChromeDriver has not yet reaped its process-table entry.
+        if (state.startsWith("Z")) return;
+      } catch (error) {
+        if (error?.status === 1) return;
+        throw error;
+      }
       if (Date.now() >= deadline) {
         throw new Error(
           `Electron phase ${phase} did not release its exact macOS process boundary`
@@ -1041,6 +1059,7 @@ const report = {
 };
 let fixture;
 let failure;
+let macosGameModeBundle;
 try {
   if (requestedCommit && requestedCommit.toLowerCase() !== checkoutCommit.toLowerCase()) {
     throw new Error(
@@ -1059,6 +1078,11 @@ try {
     driver: executionPlan.driver,
     repositoryRoot: root
   });
+  if (process.platform === "darwin") {
+    macosGameModeBundle = await createMacosGameModeDevelopmentBundle(
+      requireFromRepository("electron")
+    );
+  }
   fixture = await startFixture();
   for (const phase of phases) {
     const phaseDir = resolve(artifactRoot, "phases", phase);
@@ -1073,6 +1097,12 @@ try {
         RION_STUDIO_E2E_PHASE: phase,
         RION_STUDIO_E2E_RUNTIME_TARGET: executionPlan.runtimeTargetName,
         RION_STUDIO_E2E_SESSION_TOKEN: token,
+        ...(macosGameModeBundle
+          ? {
+              RION_STUDIO_E2E_ELECTRON_EXEC_PATH:
+                macosGameModeBundle.executablePath
+            }
+          : {}),
         ...desktopE2eForcedTerminationEnvironment(phase),
         RION_STUDIO_USER_DATA_DIR: userDataDir
       },
@@ -1144,6 +1174,13 @@ try {
   failure = error;
 } finally {
   if (fixture) await fixture.close();
+  if (macosGameModeBundle) {
+    try {
+      await macosGameModeBundle.cleanup();
+    } catch (error) {
+      failure ??= error;
+    }
+  }
   report.journeys = aggregateDesktopE2eJourneyVerdicts(
     coverageManifest,
     profile,

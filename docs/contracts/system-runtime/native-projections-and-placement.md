@@ -41,6 +41,12 @@ active tab before acknowledgement. WKWebView/AppKit remains the product referenc
 for observable order and selection, while Windows is required to converge to
 that behavior through its renderer protocol.
 
+An exact one-item `popup` projection is a presentation specialization, not a new
+topology owner. macOS retains the AppKit titlebar, traffic lights, layout and
+native identity while suppressing all tab-strip and launcher interaction; the
+admitted popup title is the only page label. Returning to a non-popup projection
+restores the ordinary complete tab chrome from that projection.
+
 ## Destructive tab stop boundary
 
 Stop first removes the live tab and creates an idempotent tombstone containing

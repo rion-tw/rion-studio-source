@@ -15,6 +15,9 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
 
     expect(spec).toContain("[journey:CHROMIUM-MACOS-APPKIT-FULLSCREEN-TOOLBAR-012]");
     expect(spec).toContain("[journey:CHROMIUM-WINDOWS-FULLSCREEN-TOOLBAR-012]");
+    expect(spec).toContain("inspectMacosGameModeExecutable");
+    expect(spec).toContain("MACOS_GAME_MODE_DEVELOPMENT_BUNDLE_ID");
+    expect(spec).toContain("LSSupportsGameMode: true");
     expect(spec).toContain("clickMacosFullscreenToolbarViewMenuItem");
     expect(spec).toContain("clickMacosVisibleFullscreenControl");
     expect(spec).toContain("pressVisibleMacosApplicationShortcut");
@@ -59,6 +62,10 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
         "chromium-fullscreen-toolbar-seed",
         "chromium-fullscreen-toolbar-restart"
       ]);
+      if (id.startsWith("CHROMIUM-MACOS")) {
+        expect(entry.description).toContain("LSSupportsGameMode=true");
+        expect(entry.description).toContain("visible retained AppKit traffic-light control");
+      }
     }
   });
 

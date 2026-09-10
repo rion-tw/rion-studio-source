@@ -227,6 +227,10 @@ describe("Electron packaging contract", () => {
   it("preserves the normalized cross-platform artifact names and owner signing policy", () => {
     expect(electronBuilderConfiguration.mac).toMatchObject({
       artifactName: "Rion.Studio-mac.app.${ext}",
+      category: "public.app-category.games",
+      extendInfo: {
+        LSSupportsGameMode: true
+      },
       identity: "-",
       hardenedRuntime: false,
       minimumSystemVersion: "14.0",
@@ -359,6 +363,8 @@ describe("Electron packaging contract", () => {
       CFBundlePackageType: "APPL",
       CFBundleShortVersionString: "23.4.5",
       CFBundleVersion: "23.4.5",
+      LSApplicationCategoryType: "public.app-category.games",
+      LSSupportsGameMode: true,
       LSMinimumSystemVersion: "14.0"
     };
     expect(() => assertMacosElectronBundleInfo(info, "23.4.5"))
@@ -379,6 +385,30 @@ describe("Electron packaging contract", () => {
       ...info,
       LSMinimumSystemVersion: "13.0"
     }, "23.4.5")).toThrow("LSMinimumSystemVersion");
+    expect(() => assertMacosElectronBundleInfo({
+      ...info,
+      LSApplicationCategoryType: undefined
+    }, "23.4.5")).toThrow("LSApplicationCategoryType");
+    expect(() => assertMacosElectronBundleInfo({
+      ...info,
+      LSApplicationCategoryType: "public.app-category.developer-tools"
+    }, "23.4.5")).toThrow("LSApplicationCategoryType");
+    expect(() => assertMacosElectronBundleInfo({
+      ...info,
+      LSApplicationCategoryType: true
+    }, "23.4.5")).toThrow("LSApplicationCategoryType");
+    expect(() => assertMacosElectronBundleInfo({
+      ...info,
+      LSSupportsGameMode: undefined
+    }, "23.4.5")).toThrow("LSSupportsGameMode");
+    expect(() => assertMacosElectronBundleInfo({
+      ...info,
+      LSSupportsGameMode: "true"
+    }, "23.4.5")).toThrow("LSSupportsGameMode");
+    expect(() => assertMacosElectronBundleInfo({
+      ...info,
+      LSSupportsGameMode: false
+    }, "23.4.5")).toThrow("LSSupportsGameMode");
     expect(() => assertMacosElectronBundleInfo(info, "not-semver"))
       .toThrow("requires a semantic version");
   });

@@ -695,8 +695,15 @@ async function exerciseContainedFullscreen(input: Readonly<{
       logicalWindowId: popupBefore!.popups[0]!.logicalWindowId,
       nativeGeneration: popupBefore!.popups[0]!.appKitIdentity?.nativeGeneration
     });
+    expect(popupBefore!.popups[0]!.appKitChrome).toEqual({
+      addButtonOnScreen: false,
+      tabStripOnScreen: false,
+      visibleTrafficLightCount: 3,
+      windowNameOnScreen: true
+    });
   } else {
     expect(popupBefore!.popups[0]!.appKitIdentity).toBeNull();
+    expect(popupBefore!.popups[0]!.appKitChrome).toBeNull();
   }
 
   await exerciseDrmPermission({ inspection: popupBefore!, mainWindowHandle });
@@ -748,7 +755,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
   await submitElectronPageEscape(popupUrl(), mainWindowHandle, {
     platform,
     processId,
-    runtimeTabName: new URL(popupUrl()).hostname
+    runtimeWindowId: popupBefore!.popups[0]!.logicalWindowId
   });
   expectFixtureFullscreen(await waitFixtureEvent({
     afterSequence: popupEscapeAfter,

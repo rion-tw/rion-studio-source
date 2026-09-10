@@ -230,6 +230,7 @@ describe("Chromium Workspace cutover paired replacements", () => {
       "ownerGeneration",
       "electronDesktopE2eRolePlaceholderRuntime",
       "verifyVisibleChromiumTabAudio",
+      "selectMacosVisibleRuntimeLauncherRole",
       'rendererCall("listGameWindows")',
       "runtimeTabShellErrors",
       "muted: true",

@@ -101,6 +101,7 @@ export type VisibleWindowsApplicationShortcut =
 
 export type VisibleMacosApplicationShortcut =
   | "escape"
+  | "nextTab"
   | "newGameWindow"
   | "quickAccess"
   | "toggleFullscreen"
@@ -114,6 +115,7 @@ export type VisibleApplicationShortcutTargetMode =
 async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   activate: boolean;
   processId: number;
+  requireActiveTab?: boolean;
   runtimeTabName?: string;
   windowId: string;
 }>): Promise<void> {
@@ -130,7 +132,8 @@ async function settleMacosAppKitRuntimeFocus(input: Readonly<{
     `com.rionstudio.runtime.appkit-window.v1:${input.windowId}`;
   await executeFile("/usr/bin/xcrun", [
     "swift", nativeFocusScript, String(input.processId), expectedWindowIdentifier,
-    input.runtimeTabName ?? "", input.activate ? "focus" : "observe", ""
+    input.runtimeTabName ?? "", input.activate ? "focus" : "observe",
+    input.requireActiveTab ? "active" : ""
   ], { encoding: "utf8", timeout: 15_000 });
 }
 
@@ -140,7 +143,11 @@ export function waitForFocusedMacosAppKitRuntime(input: Readonly<{
   runtimeTabName?: string;
   windowId: string;
 }>): Promise<void> {
-  return settleMacosAppKitRuntimeFocus({ ...input, activate: false });
+  return settleMacosAppKitRuntimeFocus({
+    ...input,
+    activate: false,
+    requireActiveTab: input.runtimeTabName !== undefined
+  });
 }
 
 /** Restores the exact visible AppKit host after a diagnostic launcher read. */

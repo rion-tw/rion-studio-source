@@ -23,6 +23,8 @@ import {
   waitCutoverWorkspaceTab
 } from "../support/chromium-workspace-cutover";
 import { verifyVisibleChromiumTabAudio } from "./chromium-tab-audio-support";
+import { selectMacosVisibleRuntimeLauncherRole } from
+  "../support/macos-appkit-ui";
 
 // [journey:CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025]
 // [journey:CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025]
@@ -129,6 +131,12 @@ describe("Chromium shared Workspace Role exact replacement", () => {
       tabName: tabA.name,
       windowId: tabA.windowId
     });
+    if (input.platform === "macos") {
+      await selectMacosVisibleRuntimeLauncherRole({
+        roleName: uniqueA.name,
+        windowId: tabA.windowId
+      });
+    }
     expect(await runtimeTabShellErrors()).toEqual([]);
     await openCutoverWorkspace(workspaceB, "new-window");
     const tabB = await waitCutoverWorkspaceTab(workspaceB, [
@@ -245,5 +253,6 @@ describe("Chromium shared Workspace Role exact replacement", () => {
       kind: "click",
       roleId: SHARED_FIXTURE
     })).toEqual(expect.objectContaining({ isTrusted: true }));
+    expect(await runtimeTabShellErrors()).toEqual([]);
   });
 });

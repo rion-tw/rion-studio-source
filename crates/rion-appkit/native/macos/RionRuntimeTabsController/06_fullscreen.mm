@@ -752,20 +752,16 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   RionRuntimeTabItemView *nextItem = tabIdentifier.length > 0
       ? _tabItemsByIdentifier[tabIdentifier]
       : nil;
-  RionRuntimeTabItemView *previousItem = _activeTabItem;
-  if (previousItem != nextItem) {
-    if (previousItem) {
-      previousItem.activeTab = NO;
-      previousItem.accessibilityValue = @NO;
-      [previousItem updateVisualStateAnimated:NO];
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    BOOL active = item == nextItem;
+    if (item.activeTab != active ||
+        ![item.accessibilityValue isEqualToNumber:@(active)]) {
+      item.activeTab = active;
+      item.accessibilityValue = @(active);
+      [item updateVisualStateAnimated:NO];
     }
-    if (nextItem) {
-      nextItem.activeTab = YES;
-      nextItem.accessibilityValue = @YES;
-      [nextItem updateVisualStateAnimated:NO];
-    }
-    _activeTabItem = nextItem;
   }
+  _activeTabItem = nextItem;
   [self scrollActiveTabIntoView];
   [self updateStatusForActiveTab];
 }
@@ -776,7 +772,9 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   for (NSUInteger index = 0; index < tabIdentifiers.count; ++index) {
     NSString *expected = tabIdentifiers[index];
     if (![expected isKindOfClass:NSString.class] ||
-        ![_tabItems[index].tabIdentifier isEqualToString:expected]) {
+        ![_tabItems[index].tabIdentifier isEqualToString:expected] ||
+        _tabItems[index].activeTab !=
+            [_tabItems[index].tabIdentifier isEqualToString:activeTabIdentifier]) {
       return NO;
     }
   }

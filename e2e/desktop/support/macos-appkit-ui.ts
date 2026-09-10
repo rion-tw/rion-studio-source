@@ -644,6 +644,13 @@ const TAB_MENU_LABELS = Object.freeze({
   ])
 });
 
+const APPKIT_LAUNCHER_LABELS = Object.freeze([
+  "Open role or workspace",
+  "開啟角色或工作區",
+  "打开角色或工作区",
+  "ロールまたはワークスペースを開く"
+]);
+
 /** Reads the exact retained AppKit tab centre; it never submits an action. */
 export async function readMacosVisibleRuntimeTabPoint(input: Readonly<{
   tabId: string;
@@ -700,4 +707,30 @@ CGEvent(mouseEventSource: source, mouseType: .rightMouseUp,
     resolve(import.meta.dirname, "macos-appkit-menu.swift"),
     selectionInput
   ], { encoding: "utf8", timeout: 10_000 });
+}
+
+/** Presses the retained AppKit `+` control and selects one scoped source. */
+export async function selectMacosVisibleRuntimeLauncherRole(input: Readonly<{
+  roleName: string;
+  windowId: string;
+}>): Promise<void> {
+  if (!input.roleName || !input.windowId) {
+    throw new Error("The exact AppKit launcher Role input is invalid");
+  }
+  const processId = (await electronDesktopE2eProbe()).processId;
+  await focusVisibleMacosAppKitRuntime({
+    processId,
+    windowId: input.windowId
+  });
+  await executeFile("/usr/bin/xcrun", [
+    "swift",
+    resolve(import.meta.dirname, "macos-appkit-launcher-menu.swift"),
+    JSON.stringify({
+      actionLabel: input.roleName,
+      groupLabel: "Roles",
+      launcherLabels: APPKIT_LAUNCHER_LABELS,
+      processId,
+      windowId: input.windowId
+    })
+  ], { encoding: "utf8", timeout: 15_000 });
 }

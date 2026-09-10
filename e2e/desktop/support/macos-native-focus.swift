@@ -91,12 +91,17 @@ while true {
           text($0, "AXRole") == "AXRadioButton" && text($0, "AXDescription") == runtimeTabName
         }
         guard tabs.count <= 1 else { fail("ambiguous exact AppKit runtime tab") }
+        let requiresActiveTab = command == "active" ||
+          (mode == "shortcut" && command == "nextTab")
         if let tab = tabs.first, let owner = object(tab, "AXWindow"),
            text(owner, "AXRole") == "AXWindow",
-           text(owner, "AXIdentifier") == focusedWindowIdentifier {
+           text(owner, "AXIdentifier") == focusedWindowIdentifier,
+           !requiresActiveTab || boolean(tab, "AXValue") {
           break
         }
-        diagnostic = "exact runtime tab or its AXWindow owner unavailable"
+        diagnostic = requiresActiveTab
+          ? "exact runtime tab is not the active AppKit visual owner"
+          : "exact runtime tab or its AXWindow owner unavailable"
       } else { break }
     } else {
       diagnostic = "focused=\(focusedWindowIdentifier); main=\(mainWindowIdentifier); foreground=\(foreground())"
@@ -118,6 +123,7 @@ if mode == "shortcut" {
   let flags: CGEventFlags
   switch command {
   case "escape": key = 53; flags = []
+  case "nextTab": key = 48; flags = [.maskControl]
   case "newGameWindow": key = 45; flags = [.maskCommand]
   case "quickAccess": key = 40; flags = [.maskCommand]
   case "toggleFullscreen": key = 3; flags = [.maskCommand, .maskControl]
@@ -132,9 +138,23 @@ if mode == "shortcut" {
   }
   down.flags = flags
   up.flags = flags
-  down.post(tap: .cghidEventTap)
-  usleep(20_000)
-  up.post(tap: .cghidEventTap)
+  if command == "nextTab" {
+    guard let controlDown = CGEvent(
+      keyboardEventSource: source, virtualKey: 59, keyDown: true
+    ), let controlUp = CGEvent(
+      keyboardEventSource: source, virtualKey: 59, keyDown: false
+    ) else { fail("native Control modifier events unavailable") }
+    controlDown.flags = [.maskControl]
+    controlUp.flags = []
+    for event in [controlDown, down, up, controlUp] {
+      event.post(tap: .cghidEventTap)
+      usleep(20_000)
+    }
+  } else {
+    down.post(tap: .cghidEventTap)
+    usleep(20_000)
+    up.post(tap: .cghidEventTap)
+  }
   // PresentationOnly: keep WebDriver outside the Space animation; the caller
   // still requires the exact Core/AppKit terminal presentation event.
   if command == "toggleFullscreen" { usleep(2_000_000) }

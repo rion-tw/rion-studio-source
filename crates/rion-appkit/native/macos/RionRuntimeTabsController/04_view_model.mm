@@ -495,6 +495,8 @@ NS_ASSUME_NONNULL_BEGIN
                                               action:@selector(openLauncher:)];
   _addButton.bordered = NO;
   _addButton.tag = kRionAddButtonTag;
+  _addButton.accessibilityIdentifier =
+      @"com.rionstudio.runtime.appkit-launcher.v1";
   _addButton.imageScaling = NSImageScaleProportionallyDown;
   _addButton.contentTintColor = NSColor.secondaryLabelColor;
   _addSurface = [[RionRuntimeSurfaceView alloc] initWithContentView:_addButton

@@ -26,6 +26,10 @@ import {
   selectMacosVisibleRuntimeTabMenuAction
 } from "../support/macos-appkit-ui";
 import {
+  pressVisibleMacosApplicationShortcut,
+  waitForFocusedMacosAppKitRuntime
+} from "../support/native-application-actions";
+import {
   clickVisibleRuntimeWindowControl,
   clickVisibleRuntimeTab,
   closeVisibleRuntimeTab,
@@ -830,6 +834,45 @@ async function activateAndFocusEveryTab(input: Readonly<{
   }
 }
 
+async function activateNextTabThroughMacosControlTab(input: Readonly<{
+  gameWindow: GameWindow;
+  orderedTabIds: readonly [string, string];
+  processId: number;
+  roles: readonly [Role, Role];
+}>): Promise<void> {
+  await waitForFocusedMacosAppKitRuntime({
+    processId: input.processId,
+    runtimeTabName: input.roles[1].name,
+    windowId: input.gameWindow.id
+  });
+  await pressVisibleMacosApplicationShortcut({
+    command: "nextTab",
+    processId: input.processId,
+    runtimeTabName: input.roles[1].name,
+    targetMode: "focused-runtime"
+  });
+  await browser.waitUntil(async () => (
+    await currentRuntime(input.gameWindow.id)
+  ).windows.find((window) => window.id === input.gameWindow.id)
+    ?.activeTabId === input.orderedTabIds[0], {
+    interval: 100,
+    timeout: 55_000,
+    timeoutMsg: "Physical AppKit Control+Tab did not commit its next tab"
+  });
+  await waitForFocusedMacosAppKitRuntime({
+    processId: input.processId,
+    runtimeTabName: input.roles[0].name,
+    windowId: input.gameWindow.id
+  });
+  await expectExactNativeTopology({
+    activeTabId: input.orderedTabIds[0],
+    gameWindow: input.gameWindow,
+    orderedTabIds: input.orderedTabIds,
+    platform: "macos"
+  });
+  expect(await runtimeTabShellErrors()).toEqual([]);
+}
+
 async function waitForDormantWindow(windowId: string): Promise<void> {
   await browser.waitUntil(async () => (
     await electronDesktopE2eGameWindowRuntime(windowId)
@@ -881,6 +924,7 @@ async function closeAndReopenSavedWindow(input: Readonly<{
 async function seedPhase(input: Readonly<{
   mainWindowHandle: string;
   platform: Platform;
+  processId: number;
 }>): Promise<void> {
   await fixtureRequest("/api/reset", {});
   const { gameWindow, roles, targetWindow } = await createEntitiesThroughVisibleUi();
@@ -892,7 +936,16 @@ async function seedPhase(input: Readonly<{
       gameWindow,
       index === 0 ? input : undefined
     ));
+    if (input.platform === "macos" && index === 1) {
+      await activateNextTabThroughMacosControlTab({
+        gameWindow,
+        orderedTabIds: [tabIds[0]!, tabIds[1]!],
+        processId: input.processId,
+        roles: [sourceRoles[0]!, sourceRoles[1]!]
+      });
+    }
   }
+  expect(await runtimeTabShellErrors()).toEqual([]);
 
   await activateAndFocusEveryTab({
     gameWindow,
@@ -1226,7 +1279,11 @@ describe("Chromium native tab lifecycle parity", () => {
     await installRuntimeTabShellErrorJournal();
     const mainWindowHandle = await browser.getWindowHandle();
     const phase = required("RION_STUDIO_E2E_PHASE");
-    const input = { mainWindowHandle, platform: probe.platform };
+    const input = {
+      mainWindowHandle,
+      platform: probe.platform,
+      processId: probe.processId
+    };
     if (phase === "chromium-tabs-visible-seed") await seedPhase(input);
     else if (phase === "chromium-tabs-visible-restart") await restartPhase(input);
     else throw new Error(`Unexpected Chromium tabs phase ${phase}`);

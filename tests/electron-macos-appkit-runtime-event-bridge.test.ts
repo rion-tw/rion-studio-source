@@ -302,6 +302,72 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     }));
   });
 
+  it("accepts the exact Control+Tab modifier handoff as passive diagnostics", async () => {
+    const invoke = vi.fn(async (command: CoreCommand) => {
+      if (command.type !== "logsCapture") {
+        throw new Error("Unexpected command " + command.type);
+      }
+      return [] as never;
+    });
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError
+    });
+
+    for (const type of [
+      "modifierHandoffStarted",
+      "modifierHandoffCompleted"
+    ] as const) {
+      bridge.receiveAction({
+        identity,
+        hosts: [primaryObservation()],
+        action: { type, sourceWindowId: "window-1", tabId: "tab-1" }
+      });
+    }
+    await bridge.dispose();
+
+    expect(invoke.mock.calls.map(([command]) =>
+      command.type === "logsCapture" ? command.entries[0]?.event : command.type
+    )).toEqual([
+      "input.tab-shortcut-modifier-handoff-started",
+      "input.tab-shortcut-modifier-handoff-completed"
+    ]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported Control+Tab handoff fields before diagnostic capture", async () => {
+    const invoke = vi.fn();
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: {
+        type: "modifierHandoffStarted",
+        sourceWindowId: "window-1",
+        tabId: "tab-1",
+        modifierCount: 1
+      }
+    });
+    await bridge.dispose();
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_MACOS_APPKIT_MODIFIER_HANDOFF_INVALID"
+    }));
+  });
+
   it("does not turn modifier-focus logging failure into a shell error", async () => {
     const onError = vi.fn();
     const bridge = new MacosAppKitRuntimeEventBridge({
@@ -957,6 +1023,97 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("routes the retained AppKit launcher and failed-tab retry through privileged handlers", async () => {
+    const onOpenLauncher = vi.fn(async () => undefined);
+    const onRetryFailed = vi.fn(async () => undefined);
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: vi.fn(),
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError,
+      onOpenLauncher,
+      onRetryFailed
+    });
+    const hosts = [primaryObservation()];
+
+    bridge.receiveAction({
+      identity,
+      hosts,
+      action: { type: "openLauncher", sourceWindowId: "window-1" }
+    });
+    bridge.receiveAction({
+      identity,
+      hosts,
+      action: {
+        type: "retryFailed",
+        sourceWindowId: "window-1",
+        tabId: "tab-1",
+        statusIdentity: {
+          attemptId: "attempt-1",
+          phase: "failed",
+          tabId: "tab-1",
+          windowGeneration: 3,
+          windowId: "window-1"
+        }
+      }
+    });
+    await vi.waitFor(() => expect(onRetryFailed).toHaveBeenCalledOnce());
+    await bridge.dispose();
+
+    expect(onOpenLauncher).toHaveBeenCalledWith({ hosts, identity });
+    expect(onRetryFailed).toHaveBeenCalledWith({
+      hosts,
+      identity,
+      statusIdentity: {
+        attemptId: "attempt-1",
+        phase: "failed",
+        tabId: "tab-1",
+        windowGeneration: 3,
+        windowId: "window-1"
+      },
+      tabId: "tab-1"
+    });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("rejects a failed-tab retry whose status identity no longer owns the host", async () => {
+    const onRetryFailed = vi.fn();
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: vi.fn(),
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError,
+      onRetryFailed
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: {
+        type: "retryFailed",
+        sourceWindowId: "window-1",
+        tabId: "tab-1",
+        statusIdentity: {
+          attemptId: "attempt-1",
+          phase: "failed",
+          tabId: "tab-1",
+          windowGeneration: 2,
+          windowId: "window-1"
+        }
+      }
+    });
+    await bridge.dispose();
+
+    expect(onRetryFailed).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_MACOS_APPKIT_RETRY_IDENTITY_STALE"
+    }));
+  });
+
   it("fails closed when the retained-AppKit tab menu handler is unavailable", async () => {
     const onError = vi.fn();
     const bridge = new MacosAppKitRuntimeEventBridge({
@@ -983,7 +1140,7 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     }));
   });
 
-  it("fails closed for unsupported actions and stale callbacks after dispose", async () => {
+  it("fails closed for unknown actions and stale callbacks after dispose", async () => {
     const invoke = vi.fn();
     const onError = vi.fn();
     const bridge = new MacosAppKitRuntimeEventBridge({
@@ -999,7 +1156,7 @@ describe("macOS AppKit privileged runtime event bridge", () => {
       identity,
       hosts,
       action: {
-        type: "openLauncher",
+        type: "unknownNativeAction",
         sourceWindowId: "window-1"
       }
     });

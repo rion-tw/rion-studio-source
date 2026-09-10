@@ -8,7 +8,8 @@ import type {
   BrowserWorkspaceDividerPointerPhase,
   BrowserWorkspaceDividerPointerRecord,
   CoreEffectRequest,
-  CoreEvent
+  CoreEvent,
+  RuntimeTabStatusIdentityRecord
 } from "../../shared/generated";
 import { RionBridgeError, normalizeRionBridgeError } from "../ipc/errors";
 import type { ElectronCoreCommandPort } from "./coreApiDispatcher";
@@ -21,6 +22,10 @@ import { isExactWorkspaceDividerReceipt } from "./workspaceDividerReceipt";
 
 type BridgeState = "open" | "draining" | "disposed";
 type ModifierFocusAction = "modifierFocusNeutralized" | "modifierFocusReasserted";
+type ModifierHandoffAction =
+  | "modifierHandoffStarted"
+  | "modifierHandoffCompleted"
+  | "modifierHandoffAbandoned";
 
 const MAX_MOMENTARY_MODIFIER_COUNT = 8;
 
@@ -37,6 +42,20 @@ export interface MacosAppKitRuntimeEventBridgeInput {
     event: Readonly<{
       hosts: readonly AppKitRuntimeHostObservationRecord[];
       identity: AppKitRuntimeHostIdentity;
+      tabId: string;
+    }>
+  ) => Promise<void> | void;
+  readonly onOpenLauncher?: (
+    event: Readonly<{
+      hosts: readonly AppKitRuntimeHostObservationRecord[];
+      identity: AppKitRuntimeHostIdentity;
+    }>
+  ) => Promise<void> | void;
+  readonly onRetryFailed?: (
+    event: Readonly<{
+      hosts: readonly AppKitRuntimeHostObservationRecord[];
+      identity: AppKitRuntimeHostIdentity;
+      statusIdentity: RuntimeTabStatusIdentityRecord;
       tabId: string;
     }>
   ) => Promise<void> | void;
@@ -214,6 +233,58 @@ function requireModifierFocusTransition(
   return Object.freeze({
     modifierCount: modifierCount as number,
     ...(hasTabId ? { tabId: requireIdentifier(action.tabId, "tab") } : {})
+  });
+}
+
+function requireModifierHandoffTransition(
+  action: Readonly<Record<string, unknown>>
+): Readonly<{ tabId?: string }> {
+  const hasTabId = Object.hasOwn(action, "tabId");
+  if (!exactKeys(
+    action,
+    hasTabId ? ["type", "sourceWindowId", "tabId"] : ["type", "sourceWindowId"]
+  )) {
+    throw bridgeError(
+      "ELECTRON_MACOS_APPKIT_MODIFIER_HANDOFF_INVALID",
+      "The AppKit tab-shortcut modifier handoff contains unsupported fields."
+    );
+  }
+  return Object.freeze(hasTabId
+    ? { tabId: requireIdentifier(action.tabId, "tab") }
+    : {});
+}
+
+function requireFailedStatusIdentity(
+  value: unknown,
+  sourceWindowId: string,
+  tabId: string,
+  windowGeneration: number
+): RuntimeTabStatusIdentityRecord {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "attemptId",
+      "phase",
+      "tabId",
+      "windowGeneration",
+      "windowId"
+    ]) ||
+    value.phase !== "failed" ||
+    value.windowId !== sourceWindowId ||
+    value.tabId !== tabId ||
+    value.windowGeneration !== windowGeneration
+  ) {
+    throw bridgeError(
+      "ELECTRON_MACOS_APPKIT_RETRY_IDENTITY_STALE",
+      "The AppKit retry action lost its exact failed-tab identity."
+    );
+  }
+  return Object.freeze({
+    attemptId: requireIdentifier(value.attemptId, "retry attempt"),
+    phase: "failed",
+    tabId,
+    windowGeneration,
+    windowId: sourceWindowId
   });
 }
 
@@ -702,6 +773,25 @@ implements MacosAppKitRendererActionPort {
             : { beforeTabId: optionalIdentifier(event.action.beforeTabId, "before tab") })
         });
         return;
+      case "openLauncher": {
+        if (!this.#input.onOpenLauncher) {
+          throw bridgeError(
+            "ELECTRON_MACOS_APPKIT_LAUNCHER_UNAVAILABLE",
+            "The retained AppKit launcher has no privileged native handler."
+          );
+        }
+        const request = Promise.resolve(this.#input.onOpenLauncher(Object.freeze({
+          hosts,
+          identity: event.identity
+        })));
+        void request.catch((error: unknown) => {
+          this.#input.onError(normalizeRionBridgeError(
+            error,
+            "ELECTRON_MACOS_APPKIT_LAUNCHER_FAILED"
+          ));
+        });
+        return;
+      }
       case "openTabMenu": {
         if (!this.#input.onOpenTabMenu) {
           throw bridgeError(
@@ -718,6 +808,34 @@ implements MacosAppKitRendererActionPort {
           this.#input.onError(normalizeRionBridgeError(
             error,
             "ELECTRON_MACOS_APPKIT_TAB_MENU_FAILED"
+          ));
+        });
+        return;
+      }
+      case "retryFailed": {
+        if (!this.#input.onRetryFailed) {
+          throw bridgeError(
+            "ELECTRON_MACOS_APPKIT_RETRY_UNAVAILABLE",
+            "The retained AppKit failure status has no privileged retry handler."
+          );
+        }
+        const tabId = requireIdentifier(event.action.tabId, "retry tab");
+        const statusIdentity = requireFailedStatusIdentity(
+          event.action.statusIdentity,
+          sourceWindowId,
+          tabId,
+          hosts[0]!.windowGeneration
+        );
+        const request = Promise.resolve(this.#input.onRetryFailed(Object.freeze({
+          hosts,
+          identity: event.identity,
+          statusIdentity,
+          tabId
+        })));
+        void request.catch((error: unknown) => {
+          this.#input.onError(normalizeRionBridgeError(
+            error,
+            "ELECTRON_MACOS_APPKIT_RETRY_FAILED"
           ));
         });
         return;
@@ -743,6 +861,11 @@ implements MacosAppKitRendererActionPort {
       case "modifierFocusNeutralized":
       case "modifierFocusReasserted":
         this.#recordModifierFocusTransition(event, actionType, sourceWindowId);
+        return;
+      case "modifierHandoffStarted":
+      case "modifierHandoffCompleted":
+      case "modifierHandoffAbandoned":
+        this.#recordModifierHandoffTransition(event, actionType, sourceWindowId);
         return;
       case "windowPlacementChanged":
       case "windowFocusChanged":
@@ -783,6 +906,36 @@ implements MacosAppKitRendererActionPort {
           : "Game Window modifiers were neutralized before focus left.",
         contextRawJson: JSON.stringify({
           modifierCount: transition.modifierCount,
+          platform: "macos",
+          tabId: transition.tabId ?? null,
+          windowId: sourceWindowId
+        })
+      }]
+    }));
+    this.#terminalResults.add(capture);
+    void capture.then(
+      () => this.#terminalResults.delete(capture),
+      () => this.#terminalResults.delete(capture)
+    );
+  }
+
+  #recordModifierHandoffTransition(
+    event: AppKitRuntimeActionEvent,
+    actionType: ModifierHandoffAction,
+    sourceWindowId: string
+  ): void {
+    const transition = requireModifierHandoffTransition(event.action);
+    const phase = actionType === "modifierHandoffStarted"
+      ? "started"
+      : actionType === "modifierHandoffCompleted" ? "completed" : "abandoned";
+    const capture = Promise.resolve().then(() => this.#input.core.invoke({
+      type: "logsCapture",
+      entries: [{
+        level: "debug",
+        source: "browser",
+        event: `input.tab-shortcut-modifier-handoff-${phase}`,
+        message: `The Game Window tab-shortcut modifier handoff ${phase}.`,
+        contextRawJson: JSON.stringify({
           platform: "macos",
           tabId: transition.tabId ?? null,
           windowId: sourceWindowId

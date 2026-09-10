@@ -190,6 +190,77 @@ fn native_exports_retain_the_bounded_callback_boundary_in_test_builds() {
     assert_eq!(identity.json()["nativeGeneration"], 1);
 }
 
+#[test]
+fn native_action_serialization_retains_only_fields_owned_by_the_action_type() {
+    let dense = || {
+        serde_json::json!({
+            "type": "modifierFocusNeutralized",
+            "sessionId": null,
+            "tabId": "tab-1",
+            "sourceWindowId": "window-1",
+            "targetWindowId": null,
+            "beforeTabId": null,
+            "orderedTabIds": null,
+            "statusIdentity": null,
+            "screenX": null,
+            "screenY": null,
+            "grabRatioX": null,
+            "grabRatioY": null,
+            "tabWidth": null,
+            "tabHeight": null,
+            "modifierCount": 2,
+            "cancelled": false,
+            "focused": false,
+            "minimized": false,
+            "visible": false
+        })
+        .as_object()
+        .cloned()
+        .unwrap()
+    };
+
+    let mut modifier = dense();
+    retain_native_action_fields("modifierFocusNeutralized", &mut modifier);
+    assert_eq!(
+        serde_json::Value::Object(modifier),
+        serde_json::json!({
+            "type": "modifierFocusNeutralized",
+            "tabId": "tab-1",
+            "sourceWindowId": "window-1",
+            "modifierCount": 2
+        })
+    );
+
+    let mut launcher = dense();
+    launcher.insert(
+        "type".to_owned(),
+        serde_json::Value::String("openLauncher".to_owned()),
+    );
+    retain_native_action_fields("openLauncher", &mut launcher);
+    assert_eq!(
+        serde_json::Value::Object(launcher),
+        serde_json::json!({
+            "type": "openLauncher",
+            "sourceWindowId": "window-1"
+        })
+    );
+
+    let mut handoff = dense();
+    handoff.insert(
+        "type".to_owned(),
+        serde_json::Value::String("modifierHandoffStarted".to_owned()),
+    );
+    retain_native_action_fields("modifierHandoffStarted", &mut handoff);
+    assert_eq!(
+        serde_json::Value::Object(handoff),
+        serde_json::json!({
+            "type": "modifierHandoffStarted",
+            "tabId": "tab-1",
+            "sourceWindowId": "window-1"
+        })
+    );
+}
+
 #[cfg(feature = "desktop-e2e")]
 #[test]
 fn desktop_e2e_show_menu_export_is_identity_and_tab_fenced() {

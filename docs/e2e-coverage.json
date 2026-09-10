@@ -2641,7 +2641,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the retained AppKit radio-tab controls, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host."
+      "description": "Create two ready Chromium Role tabs through visible UI, send a physical Control+Tab through the retained AppKit host, require its exact source identity, modifier handoff, Core selection, native AXValue active style, and empty shell-error journal, then launch the third Role through the same still-current host. Activate and focus every tab through the retained AppKit radio controls, close and relaunch one tab through native chrome, and preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host."
     },
     {
       "id": "CHROMIUM-WINDOWS-TABS-VISIBLE-ACTIVATION-019",
@@ -2799,7 +2799,7 @@
         "failure",
         "restart"
       ],
-      "description": "Use real CoreGraphics drag and retained AppKit NSMenu actions to reorder, move to an existing window, detach to a new window, hide, and visibly reveal Role tabs; prove selected detach leaves the exact source successor, every Core/native/AppKit generation, topology revision, and parent fence agrees, and the distributed topology persists across restart before visible consolidation. Mute/unmute and Stop remain native menu actions through the Core-owned lane; controlled Reload is covered independently by journey 031."
+      "description": "Use physical Control+Tab, real CoreGraphics drag, and retained AppKit NSMenu actions to activate, reorder, move to an existing window, detach to a new window, hide, and visibly reveal Role tabs. Control+Tab must preserve its exact source-window and modifier-handoff identities, commit the selected tab and native AXValue active state without poisoning the host, and admit a subsequent Role launch through the same generation. Prove selected detach leaves the exact source successor, every Core/native/AppKit generation, topology revision, and parent fence agrees, and the distributed topology persists across restart before visible consolidation. Mute/unmute and Stop remain native menu actions through the Core-owned lane; controlled Reload is covered independently by journey 031."
     },
     {
       "id": "CHROMIUM-WINDOWS-RUNTIME-TAB-TOPOLOGY-009",
@@ -3037,7 +3037,7 @@
         "success",
         "failure"
       ],
-      "description": "Launch two visible Workspaces into separate transient retained AppKit Game Windows with one shared Role and independent siblings. Before the ownership transfer, prove the first live window is absent from the saved Game Window catalog and use its real AppKit NSMenu to mute and unmute the Workspace tab with exact Core/Chromium audio readback and no shell error. Then prove the blocked slot is a sandboxed memory-only local placeholder attached to the target AppKit content host and press its visible Claim control. The Core terminal owner generation advances before projection, the old host becomes the exact placeholder, the new AppKit host owns the Chromium Role, and both unrelated Roles retain their original owner fences."
+      "description": "Launch two visible Workspaces into separate transient retained AppKit Game Windows with one shared Role and independent siblings. Before the ownership transfer, prove the first live window is absent from the saved Game Window catalog, use its real AppKit NSMenu to mute and unmute the Workspace tab, then press the retained AppKit + control and select an exact scoped Role from its native launcher without a shell error. Then prove the blocked slot is a sandboxed memory-only local placeholder attached to the target AppKit content host and press its visible Claim control. The Core terminal owner generation advances before projection, the old host becomes the exact placeholder, the new AppKit host owns the Chromium Role, and both unrelated Roles retain their original owner fences."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025",

@@ -743,6 +743,7 @@ static void RionRuntimeTabsActionScopeProbeCallback(
       static_cast<RionRuntimeTabsActionScopeProbe *>(context);
   probe->called = type && (strcmp(type, "openLauncher") == 0 ||
                            strcmp(type, "move") == 0 ||
+                           strcmp(type, "modifierHandoffStarted") == 0 ||
                            strcmp(type, "modifierFocusNeutralized") == 0 ||
                            strcmp(type, "windowFocusChanged") == 0);
   probe->sourceWindowID = sourceWindowID ?: "";
@@ -774,6 +775,13 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
            @"sourceWindowId" : @"window-a",
            @"modifierCount" : @3 },
         &modifierProbe, RionRuntimeTabsActionScopeProbeCallback);
+    RionRuntimeTabsActionScopeProbe handoffProbe = {
+        "", "", 0, false, false, false, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"modifierHandoffStarted",
+           @"tabId" : @"tab-a",
+           @"sourceWindowId" : @"window-a" },
+        &handoffProbe, RionRuntimeTabsActionScopeProbeCallback);
     RionRuntimeTabsActionScopeProbe focusProbe = {
         "", "", 0, false, false, false, false};
     RionForwardRuntimeTabsAction(
@@ -787,7 +795,8 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
            launcherProbe.targetWindowID.empty() && moveProbe.called &&
            moveProbe.sourceWindowID == "window-a" &&
            moveProbe.targetWindowID == "window-b" && modifierProbe.called &&
-           modifierProbe.modifierCount == 3 && focusProbe.called &&
+           modifierProbe.modifierCount == 3 && handoffProbe.called &&
+           handoffProbe.sourceWindowID == "window-a" && focusProbe.called &&
            focusProbe.focused &&
            !focusProbe.minimized && focusProbe.visible;
   }

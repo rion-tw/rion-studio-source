@@ -49,6 +49,18 @@ describe("Chromium native tab exact replacements", () => {
     expect(helper).toContain(".leftMouseDown");
     expect(helper).toContain(".leftMouseUp");
     expect(helper).toContain("waitForFocusedMacosAppKitRuntime({ processId, windowId, runtimeTabName: tabName })");
+    const nativeFocus = await source(
+      "e2e/desktop/support/macos-native-focus.swift"
+    );
+    expect(nativeFocus).toContain('mode == "shortcut" && command == "nextTab"');
+    expect(nativeFocus).toContain('case "nextTab": key = 48; flags = [.maskControl]');
+    expect(nativeFocus).toContain("for event in [controlDown, down, up, controlUp]");
+    expect(nativeFocus).toContain(
+      "exact runtime tab is not the active AppKit visual owner"
+    );
+    expect(spec).toContain("activateNextTabThroughMacosControlTab");
+    expect(spec).toContain('command: "nextTab"');
+    expect(spec).toContain("expect(await runtimeTabShellErrors()).toEqual([])");
     expect(helper).toContain("const appKit = toolbar.native.appKit");
     expect(helper).toContain("appKit?.tabAnchors?.[input.tabId]");
     expect(helper).toContain("bounds.x + anchor.x - 18");
@@ -113,7 +125,8 @@ describe("Chromium native tab exact replacements", () => {
   });
 
   it("projects authoritative phase through retained AppKit native chrome", async () => {
-    const [core, model, node, platform, header, native, factory, follower] = await Promise.all([
+    const [core, model, node, platform, header, native, factory, follower,
+      eventBridge] = await Promise.all([
       source("crates/rion-core/src/app/section_16_appkit_runtime_events.rs"),
       source("crates/rion-core/src/model/section_10_appkit_runtime.rs"),
       source("crates/rion-node/src/appkit_runtime_host.rs"),
@@ -121,19 +134,26 @@ describe("Chromium native tab exact replacements", () => {
       source("crates/rion-appkit/native/macos/RionRuntimeTabsController.h"),
       source("crates/rion-appkit/native/macos/RionRuntimeTabsController/06_fullscreen.mm"),
       source("src/electron/main/macosAppKitRuntimeHostFactory.ts"),
-      source("src/electron/main/chromiumRuntimeOwnershipFollower.ts")
+      source("src/electron/main/chromiumRuntimeOwnershipFollower.ts"),
+      source("src/electron/main/macosAppKitRuntimeEventBridge.ts")
     ]);
     expect(model).toContain("pub phase: RuntimeTabActivationPhaseRecord");
     expect(core).toContain(".tab_activations");
     expect(node).toContain("phase_c: CString");
     expect(node).toContain("phases_match(controller, &phases_json)");
+    expect(node).toContain('"modifierHandoffStarted" | "modifierHandoffCompleted"');
+    expect(node).toContain('&["type", "tabId", "sourceWindowId"]');
     expect(platform).toContain("&tab.phase_c");
     expect(header).toContain("phase:(NSString *)phase");
     expect(native).toContain("tab.phase = phase.length > 0 ? phase");
     expect(native).toContain("[item configureWithTab:tab");
     expect(native).toContain("if (tab.active) [self updateStatusForActiveTab]");
+    expect(native).toContain("_tabItems[index].activeTab !=");
+    expect(native).toContain("item.activeTab = active");
     expect(factory).toContain("phase: tab.phase");
     expect(factory).toContain("RION_APPKIT_RUNTIME_ABI_VERSION = 6");
+    expect(eventBridge).toContain('case "modifierHandoffStarted":');
+    expect(eventBridge).toContain("#recordModifierHandoffTransition");
     expect(factory).toContain("#applyPhaseProjection");
     expect(factory).toContain("restoreLastVerifiedTabProjection");
     expect(factory).toContain("previousNativeProjectionRevision");
@@ -143,7 +163,8 @@ describe("Chromium native tab exact replacements", () => {
   });
 
   it("routes Windows visible tab buttons through one fenced Core native-action lane", async () => {
-    const [shared, renderer, controller, native, factory, bootstrap, main, menu] =
+    const [shared, renderer, controller, native, factory, bootstrap, main, menu,
+      launcher, menuComposition] =
       await Promise.all([
         source("src/shared/windowsRuntimeHost.ts"),
         source("src/renderer/src/runtime-windows-host.ts"),
@@ -152,7 +173,9 @@ describe("Chromium native tab exact replacements", () => {
         source("src/electron/main/chromiumRuntimeHostFactory.ts"),
         source("src/electron/main/chromiumRuntimeBootstrap.ts"),
         source("src/electron/main/index.ts"),
-        source("src/electron/main/macosAppKitRuntimeTabMenu.ts")
+        source("src/electron/main/macosAppKitRuntimeTabMenu.ts"),
+        source("src/electron/main/macosAppKitRuntimeLauncherMenu.ts"),
+        source("src/electron/main/macosAppKitRuntimeMenus.ts")
       ]);
     expect(shared).toContain('type: "activateTab"');
     expect(shared).toContain('type: "closeTab"');
@@ -173,13 +196,19 @@ describe("Chromium native tab exact replacements", () => {
     expect(bootstrap).toContain("input.windows!.onTabControl");
     expect(main).toContain("runtimeActionServices.requestRuntimeTabControl");
     expect(main).toContain("activeRuntimeRestoreSession()");
-    expect(main).toContain("MacosAppKitRuntimeTabMenuController");
+    expect(main).toContain("createMacosAppKitRuntimeMenus");
     expect(main).toContain("BaseWindow.fromId(parentNativeHostId)");
     expect(menu).toContain('id: "runtime-tab-menu-reload"');
     expect(menu).toContain('type: "reload"');
     expect(menu).toContain("lifecycleEpoch");
     expect(menu).toContain('id: "runtime-tab-menu-mute"');
     expect(menu).toContain('id: "runtime-tab-menu-stop"');
+    expect(launcher).toContain('id: "runtime-launcher-save-window"');
+    expect(launcher).toContain("launchWorkspace(");
+    expect(launcher).toContain("ELECTRON_MACOS_APPKIT_LAUNCHER_FENCE_STALE");
+    expect(menuComposition).toContain("MacosAppKitRuntimeTabMenuController");
+    expect(menuComposition).toContain("MacosAppKitRuntimeLauncherMenuController");
+    expect(menuComposition).toContain('{ kind: "game-window", windowId }');
   });
 
   it("keeps separate exact macOS and Windows verdicts for both legacy journeys", async () => {

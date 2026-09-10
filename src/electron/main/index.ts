@@ -76,13 +76,17 @@ import type {
 import { MacosAppKitChromiumRuntimeHostFactory,
   RION_APPKIT_RUNTIME_ABI_VERSION } from
   "./macosAppKitRuntimeHostFactory";
-import { MacosAppKitRuntimeEventBridge } from "./macosAppKitRuntimeEventBridge";
-import { executeControlledRuntimeTabReload } from
-  "./controlledRuntimeTabReload";
 import {
-  MacosAppKitRuntimeTabMenuController,
+  MacosAppKitRuntimeEventBridge,
+  type MacosAppKitRuntimeEventBridgeInput
+} from "./macosAppKitRuntimeEventBridge";
+import {
   type MacosAppKitRuntimeTabMenuOpenRequest
 } from "./macosAppKitRuntimeTabMenu";
+import {
+  type MacosAppKitRuntimeLauncherMenuOpenRequest
+} from "./macosAppKitRuntimeLauncherMenu";
+import { createMacosAppKitRuntimeMenus } from "./macosAppKitRuntimeMenus";
 import {
   macosRuntimeTabMenuLanguage,
   macosRuntimeTabMenuTemplate
@@ -227,9 +231,11 @@ function loadNativeAddon(): LoadedRionNodeAddon {
 function createMacosAppKitAdapter(
   addon: LoadedRionNodeAddon,
   coreClient: CoreAddonClient,
-  onOpenTabMenu: (
-    request: MacosAppKitRuntimeTabMenuOpenRequest
-  ) => Promise<void>
+  callbacks: Readonly<{
+    onOpenLauncher: MacosAppKitRuntimeEventBridgeInput["onOpenLauncher"];
+    onOpenTabMenu: MacosAppKitRuntimeEventBridgeInput["onOpenTabMenu"];
+    onRetryFailed: MacosAppKitRuntimeEventBridgeInput["onRetryFailed"];
+  }>
 ): MacosAppKitRuntimeBootstrapAdapter {
   try {
     let hostFactory: MacosAppKitChromiumRuntimeHostFactory | null = null;
@@ -247,7 +253,7 @@ function createMacosAppKitAdapter(
           (host) => host.identity.logicalWindowId
         ));
       },
-      onOpenTabMenu,
+      ...callbacks,
       onError: revealShellError
     });
     let attachments: MacosAppKitInputSurfaceAttachmentCoordinator | null = null;
@@ -757,16 +763,42 @@ async function bootstrapReadyPhase(
   let openMacosRuntimeTabMenu: ((
     request: MacosAppKitRuntimeTabMenuOpenRequest
   ) => Promise<void>) | null = null;
+  let openMacosRuntimeLauncherMenu: ((
+    request: MacosAppKitRuntimeLauncherMenuOpenRequest
+  ) => Promise<void>) | null = null;
+  let retryMacosRuntimeTab: ((tabId: string) => Promise<void>) | null = null;
   const appKit = runtimePlatform === "darwin" && nativeAddon
-    ? createMacosAppKitAdapter(nativeAddon, core, async (request) => {
-        const open = openMacosRuntimeTabMenu;
-        if (!open) {
-          throw new RionBridgeError({
-            code: "ELECTRON_MACOS_APPKIT_TAB_MENU_NOT_READY",
-            message: "The retained AppKit tab menu action lane is not ready."
-          });
+    ? createMacosAppKitAdapter(nativeAddon, core, {
+        onOpenLauncher: async (request) => {
+          const open = openMacosRuntimeLauncherMenu;
+          if (!open) {
+            throw new RionBridgeError({
+              code: "ELECTRON_MACOS_APPKIT_LAUNCHER_NOT_READY",
+              message: "The retained AppKit launcher action lane is not ready."
+            });
+          }
+          await open(request);
+        },
+        onOpenTabMenu: async (request) => {
+          const open = openMacosRuntimeTabMenu;
+          if (!open) {
+            throw new RionBridgeError({
+              code: "ELECTRON_MACOS_APPKIT_TAB_MENU_NOT_READY",
+              message: "The retained AppKit tab menu action lane is not ready."
+            });
+          }
+          await open(request);
+        },
+        onRetryFailed: async ({ tabId }) => {
+          const retry = retryMacosRuntimeTab;
+          if (!retry) {
+            throw new RionBridgeError({
+              code: "ELECTRON_MACOS_APPKIT_RETRY_NOT_READY",
+              message: "The retained AppKit retry action lane is not ready."
+            });
+          }
+          await retry(tabId);
         }
-        await open(request);
       })
     : undefined;
   if (runtimePlatform === "darwin" && !appKit) {
@@ -1371,60 +1403,20 @@ async function bootstrapReadyPhase(
     );
   }
   if (runtimePlatform === "darwin") {
-    const tabMenu = new MacosAppKitRuntimeTabMenuController({
-      actions: {
-        execute: async ({ action, source }) => {
-          switch (action.type) {
-            case "hide":
-              await runtimeActionServices.requestRuntimeTabControl(
-                action.tabId,
-                { type: "hideTab" }
-              );
-              return;
-            case "move":
-              await runtimeActionServices.requestRuntimeTabControl(
-                action.tabId,
-                { type: "moveTab", targetWindowId: action.windowId }
-              );
-              return;
-            case "moveToNewWindow":
-              await runtimeActionServices.requestRuntimeTabControl(
-                action.tabId,
-                { type: "moveTabToNewWindow" }
-              );
-              return;
-            case "reload":
-              await executeControlledRuntimeTabReload(activeCore(), {
-                lifecycleEpoch: source.lifecycleEpoch,
-                tabId: action.tabId,
-                topologyRevision: source.topologyRevision,
-                windowGeneration: source.windowGeneration,
-                windowId: source.windowId
-              });
-              return;
-            case "setMuted":
-              await runtimeActionServices.requestRuntimeTabControl(
-                action.tabId,
-                { muted: action.muted, type: "setTabMuted" }
-              );
-              return;
-            case "stop":
-              await runtimeActionServices.requestRuntimeTabControl(
-                action.tabId,
-                { type: "closeTab" }
-              );
-          }
-        }
-      },
+    const runtimeMenus = createMacosAppKitRuntimeMenus({
+      applyWindowName: (identity, name) =>
+        appKit!.hostFactory.applyWindowName(identity, name),
+      core: activeCore(),
       language: () => macosRuntimeTabMenuLanguage(app.getLocale()),
+      launches: launchCoordinator,
       lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
       nativeMenu: {
         popup: ({ items, parentNativeHostId }) => {
           const parent = BaseWindow.fromId(parentNativeHostId);
           if (!parent || parent.isDestroyed()) {
             throw new RionBridgeError({
-              code: "ELECTRON_MACOS_APPKIT_TAB_MENU_PARENT_STALE",
-              message: "The retained AppKit tab menu lost its exact native parent."
+              code: "ELECTRON_MACOS_APPKIT_MENU_PARENT_STALE",
+              message: "The retained AppKit menu lost its exact native parent."
             });
           }
           Menu.buildFromTemplate(macosRuntimeTabMenuTemplate(items)).popup({
@@ -1434,12 +1426,17 @@ async function bootstrapReadyPhase(
       },
       onError: (error) => revealShellError(normalizeRionBridgeError(
         error,
-        "ELECTRON_MACOS_APPKIT_TAB_MENU_FAILED"
+        "ELECTRON_MACOS_APPKIT_MENU_FAILED"
       )),
       readCoreSnapshot: () => activeCore().invoke({ type: "appSnapshot" }),
-      readNativeSnapshot: readChromiumRuntimeSnapshot
+      readDisplayTopology: () => activeDisplayTopology().snapshot(),
+      readNativeSnapshot: readChromiumRuntimeSnapshot,
+      requestRuntimeTabControl: (tabId, action) =>
+        runtimeActionServices.requestRuntimeTabControl(tabId, action)
     });
-    openMacosRuntimeTabMenu = (request) => tabMenu.open(request);
+    openMacosRuntimeLauncherMenu = runtimeMenus.openLauncher;
+    openMacosRuntimeTabMenu = runtimeMenus.openTabMenu;
+    retryMacosRuntimeTab = runtimeMenus.retryFailed;
   }
   beginRuntimeTabQuickAccess = runtimeActionServices
     ? (tabId) => { runtimeActionServices.beginRuntimeTabQuickAccess(tabId); }

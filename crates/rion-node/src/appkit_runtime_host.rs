@@ -1504,7 +1504,7 @@ unsafe extern "C" fn appkit_action_callback(
             // SAFETY: every string pointer comes from the native controller and
             // remains valid for this synchronous callback only.
             let action_type = unsafe { required_native_string(action_type) }?;
-            Ok::<_, ()>(serde_json::json!({
+            let mut event = serde_json::json!({
                 "type": "action",
                 "identity": context.identity.json(),
                 "action": {
@@ -1534,7 +1534,13 @@ unsafe extern "C" fn appkit_action_callback(
                     "minimized": minimized,
                     "visible": visible,
                 },
-            }))
+            });
+            let action = event
+                .get_mut("action")
+                .and_then(serde_json::Value::as_object_mut)
+                .ok_or(())?;
+            retain_native_action_fields(&action_type, action);
+            Ok::<_, ()>(event)
         })();
         match event {
             Ok(event) => context.emit(event),
@@ -1544,6 +1550,71 @@ unsafe extern "C" fn appkit_action_callback(
     if emitted.is_err() {
         context.fail(CallbackFailure::PanicContained);
     }
+}
+
+fn retain_native_action_fields(
+    action_type: &str,
+    action: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    let fields: &[&str] = match action_type {
+        "activate" => &["type", "tabId", "sourceWindowId"],
+        "retryFailed" => &["type", "tabId", "sourceWindowId", "statusIdentity"],
+        "stop" => &["type", "tabId", "sourceWindowId", "orderedTabIds"],
+        "openTabMenu" => &["type", "tabId", "sourceWindowId"],
+        "openLauncher" => &["type", "sourceWindowId"],
+        "reorder" => &["type", "tabId", "sourceWindowId", "beforeTabId"],
+        "tabDragStart" => &[
+            "type",
+            "sessionId",
+            "tabId",
+            "sourceWindowId",
+            "screenX",
+            "screenY",
+            "grabRatioX",
+            "grabRatioY",
+            "tabWidth",
+            "tabHeight",
+        ],
+        "tabDragMove" => &["type", "sessionId", "sourceWindowId", "screenX", "screenY"],
+        "tabDragHover" | "tabDragDrop" => &[
+            "type",
+            "sessionId",
+            "tabId",
+            "sourceWindowId",
+            "targetWindowId",
+            "beforeTabId",
+            "orderedTabIds",
+            "screenX",
+            "screenY",
+            "tabWidth",
+            "tabHeight",
+        ],
+        "tabDragEnd" => &[
+            "type",
+            "sessionId",
+            "sourceWindowId",
+            "screenX",
+            "screenY",
+            "cancelled",
+        ],
+        "workspaceDividerPointer" => &[
+            "type",
+            "sessionId",
+            "tabId",
+            "sourceWindowId",
+            "statusIdentity",
+        ],
+        "modifierFocusNeutralized" | "modifierFocusReasserted" => {
+            &["type", "tabId", "sourceWindowId", "modifierCount"]
+        }
+        "modifierHandoffStarted" | "modifierHandoffCompleted" | "modifierHandoffAbandoned" => {
+            &["type", "tabId", "sourceWindowId"]
+        }
+        "windowPlacementChanged" => &["type", "sourceWindowId"],
+        "windowFocusChanged" => &["type", "sourceWindowId", "focused", "minimized", "visible"],
+        _ => &["type"],
+    };
+    action.retain(|field, value| fields.contains(&field.as_str()) && !value.is_null());
 }
 
 unsafe fn callback_context<'a>(raw_context: *mut c_void) -> Option<&'a AppKitCallbackContext> {

@@ -8,19 +8,19 @@ pub(crate) fn existing(path: &Path) -> Result<PathBuf> {
     if !path.is_absolute() {
         return Err("ABSOLUTE_PATH_REQUIRED");
     }
-    let mut cursor = PathBuf::new();
     for part in path.components() {
         if matches!(part, Component::ParentDir | Component::CurDir) {
             return Err("PATH_TRAVERSAL");
         }
-        cursor.push(part);
-        // A Windows drive prefix such as `C:` is not itself an absolute path:
-        // querying it resolves against the process drive-relative directory.
-        // Begin identity checks at the rooted `C:\\` component instead.
-        if !cursor.is_absolute() {
-            continue;
-        }
-        let info = fs::symlink_metadata(&cursor).map_err(|_| "SOURCE_PATH_UNAVAILABLE")?;
+    }
+    // Walk complete ancestors instead of rebuilding the path one component at
+    // a time. On Windows, rebuilding a verbatim drive path can transiently
+    // produce a drive-relative `C:` cursor; `ancestors()` retains the rooted
+    // `C:\\` or UNC prefix for every filesystem lookup. The root itself cannot
+    // be a symlinked descendant, so start with its first child.
+    let ancestors = path.ancestors().collect::<Vec<_>>();
+    for cursor in ancestors.into_iter().rev().skip(1) {
+        let info = fs::symlink_metadata(cursor).map_err(|_| "SOURCE_PATH_UNAVAILABLE")?;
         if info.file_type().is_symlink() {
             return Err("SYMLINK_FORBIDDEN");
         }
@@ -120,4 +120,19 @@ pub(crate) fn files(root: &Path) -> Result<Vec<PathBuf>> {
     visit(root, 0, &mut result)?;
     result.sort();
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn existing_accepts_a_native_temporary_descendant() {
+        let parent = std::env::temp_dir().canonicalize().unwrap();
+        let temporary = tempfile::tempdir_in(parent).unwrap();
+        assert_eq!(
+            existing(temporary.path()).unwrap(),
+            temporary.path().canonicalize().unwrap()
+        );
+    }
 }

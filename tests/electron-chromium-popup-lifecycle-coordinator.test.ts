@@ -425,7 +425,8 @@ function open(coordinator: ChromiumPopupLifecycleCoordinator, source: ChromiumPo
     referrer: {
       url: "https://parent.example.test/",
       policy: "strict-origin-when-cross-origin"
-    }
+    },
+    postBody: null
   });
 }
 
@@ -523,6 +524,10 @@ describe("ChromiumPopupLifecycleCoordinator", () => {
     open(coordinator, source);
     await eventually(() => host.observer !== null && view.loadURL.mock.calls.length === 1);
     expect(view.webContents.session).toBe(source.session);
+    expect(core.commands[0]).toMatchObject({
+      request: { hasPostBody: false },
+      type: "browserPopupOpenAdmit"
+    });
     expect(viewPreferences[0]).toMatchObject({
       disableHtmlFullscreenWindowResize: true,
       sandbox: true,

@@ -13,6 +13,13 @@ export interface ChromiumWindowOpenDetails {
   readonly postBody?: unknown;
 }
 
+/** Electron reports a missing popup POST payload as either null or undefined. */
+export function hasChromiumWindowOpenPostBody(
+  details: ChromiumWindowOpenDetails
+): boolean {
+  return details.postBody !== null && details.postBody !== undefined;
+}
+
 export type ChromiumPopupOwnerSource = Readonly<{
   ownerKind: "role" | "globalWeb";
   ownerId: string;

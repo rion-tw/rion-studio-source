@@ -15,6 +15,7 @@ import type {
   ChromiumWebContentsViewFactoryPort
 } from "./chromiumRoleSurfacePorts";
 import { buildUnprivilegedRemoteContentWebPreferences } from "./security";
+import { hasChromiumWindowOpenPostBody } from "./chromiumPopupPorts";
 import type {
   ChromiumPopupOwnerLifecyclePort,
   ChromiumWindowOpenDetails
@@ -361,7 +362,7 @@ function classifyWorkspaceWindowOpen(
     return Object.freeze({ action: "deny" });
   }
   if (
-    details.postBody !== undefined ||
+    hasChromiumWindowOpenPostBody(details) ||
     (details.frameName !== undefined && details.frameName !== "" &&
       details.frameName !== "_blank")
   ) {

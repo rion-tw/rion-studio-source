@@ -15,6 +15,7 @@ import type {
   EmbeddedLaunchTargetRecord
 } from "../../shared/generated";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
+import { hasChromiumWindowOpenPostBody } from "./chromiumPopupPorts";
 import type {
   ChromiumPopupHostLifecycleObserver,
   ChromiumPopupOwnerLifecyclePort,
@@ -395,7 +396,7 @@ function openRequest(
     ...(referrerUrl ? { referrerUrl } : {}),
     ...(referrerPolicy ? { referrerPolicy } : {}),
     rawFeatures: details.features ?? "",
-    hasPostBody: details.postBody !== undefined
+    hasPostBody: hasChromiumWindowOpenPostBody(details)
   });
 }
 

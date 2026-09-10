@@ -516,7 +516,8 @@ describe("Electron Chromium global Web surface registry", () => {
         referrer: {
           url: "https://web-tab-1-1.example.test/start",
           policy: "strict-origin-when-cross-origin"
-        }
+        },
+        postBody: null
       })).toEqual({ action: "deny" });
       await vi.waitFor(() => {
         expect(contents.loadedUrls).toHaveLength(2);
@@ -553,7 +554,8 @@ describe("Electron Chromium global Web surface registry", () => {
       url: "https://popup.example.test/path",
       disposition: "new-window",
       frameName: "_blank",
-      features: "noopener"
+      features: "noopener",
+      postBody: null
     };
 
     expect(contents.windowOpenHandler?.(details)).toEqual({ action: "deny" });

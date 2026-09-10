@@ -65,7 +65,14 @@ fn session_recovery_closed_command_rejects_paths_values_and_success_flags() {
         assert!(serde_json::from_value::<types::RoleSessionRecoveryCommand>(command).is_err());
     }
     assert!(uuid("../role-b").is_err());
-    assert!(!source::native_support(rion_platform::Platform::Windows));
+    assert_eq!(
+        source::native_support(rion_platform::Platform::Macos),
+        cfg!(target_os = "macos")
+    );
+    assert_eq!(
+        source::native_support(rion_platform::Platform::Windows),
+        cfg!(windows)
+    );
 }
 #[test]
 fn session_recovery_target_conflict_never_clears_either_role() {

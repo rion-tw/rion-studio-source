@@ -87,8 +87,13 @@ fn signed_package_entries(entries: &[(&str, &[u8])], options: PackageOptions) ->
 
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for (name, data) in entries {
-        zip.start_file(*name, zip::write::SimpleFileOptions::default())
-            .unwrap();
+        // CRX signatures cover the byte-exact ZIP archive. Pin the creator
+        // system so this fixture is identical on macOS and Windows.
+        zip.start_file(
+            *name,
+            zip::write::SimpleFileOptions::default().system(zip::System::Unix),
+        )
+        .unwrap();
         zip.write_all(data).unwrap();
     }
     let archive = zip.finish().unwrap().into_inner();

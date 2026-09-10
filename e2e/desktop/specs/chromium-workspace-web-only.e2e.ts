@@ -364,11 +364,13 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
     timeout: 15_000,
     timeoutMsg: "The recovered Web-only tab was not committed to its saved window"
   });
+  const persistedWorkspace = await findWorkspace();
+  expect(persistedWorkspace.slots[0]?.web).toEqual({ lastUrl: webUrl() });
   expect(saved!.tabs).toEqual([expect.objectContaining({
     id: reopened.id,
     roleSlots: [],
-    sourceId: workspace.id,
-    workspaceSlots: workspace.slots
+    sourceId: persistedWorkspace.id,
+    workspaceSlots: persistedWorkspace.slots
   })]);
 }
 

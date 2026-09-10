@@ -363,7 +363,10 @@ jobs:
         timeout-minutes: 90
         run: pnpm run test:e2e:desktop:chromium:windows
         env:
+          # Keep the unpacked Chrome extension below Win32's legacy path
+          # ceiling while preserving diagnostics in the checkout artifact root.
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+          RION_STUDIO_E2E_USER_DATA_ROOT: ${{ runner.temp }}/rion-e2e-data
 
       - name: Probe direct View ownership with the Windows E2E addon
         if: ${{ !cancelled() && runner.os == 'Windows' && steps.chromium_windows_smoke.outcome != 'skipped' }}

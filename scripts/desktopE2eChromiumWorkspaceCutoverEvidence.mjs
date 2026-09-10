@@ -68,6 +68,11 @@ function expectedUrl(value, fixtureId) {
   }
 }
 
+function expectedWebOnlyUrl(value) {
+  return expectedUrl(value, "chromium-workspace-web-only") ||
+    expectedUrl(value, "website-entrance");
+}
+
 function validAppKitIdentity(identity, observation, platform) {
   if (platform === "windows") return identity === null;
   return exactKeys(identity, [
@@ -105,7 +110,7 @@ function validWebOnlyObservation(observation, platform) {
   const continuationMatches =
     web.contentUrl === "rion-start://home/" && exactKeys(slot.web, []) ||
     exactKeys(slot.web, ["lastUrl"]) &&
-      expectedUrl(slot.web.lastUrl, "chromium-workspace-web-only");
+      expectedWebOnlyUrl(slot.web.lastUrl);
   return exactKeys(slot, ["id", "rect", "roleId", "web"]) &&
     slot.roleId === null && validRect(slot.rect) &&
     continuationMatches &&
@@ -125,7 +130,7 @@ function validWebOnlyObservation(observation, platform) {
       .endsWith("/web-profiles/global-web/chromium") &&
     web.chromeShellUrl.endsWith("/runtime-web-chrome-electron.html") &&
     (web.contentUrl === "rion-start://home/" ||
-      expectedUrl(web.contentUrl, "chromium-workspace-web-only") ||
+      expectedWebOnlyUrl(web.contentUrl) ||
       observation.phase === "degraded" &&
       web.contentUrl === "http://127.0.0.1:1/rion-navigation-failure") &&
     web.isolatedSessions === true && (
@@ -220,42 +225,59 @@ function validateWebOnlyHistory(phase, observations, platform) {
       observations.every((observation) => validWebOnlyObservation(observation, platform)),
     `${phase}: malformed Core/native Web-only history`
   );
-  const ready = observations.findIndex(
+  const targetTabIds = new Set(observations.filter((observation) =>
+    expectedUrl(observation.web.contentUrl, "chromium-workspace-web-only") ||
+    expectedUrl(
+      observation.coreSlots[0].web.lastUrl,
+      "chromium-workspace-web-only"
+    )
+  ).map((observation) => observation.tabId));
+  requireRuntime(
+    targetTabIds.size === 1,
+    `${phase}: exact Web-only journey tab is missing or ambiguous`
+  );
+  const targetTabId = targetTabIds.values().next().value;
+  const targetObservations = observations.filter(
+    (observation) => observation.tabId === targetTabId
+  );
+  const ready = targetObservations.findIndex(
     (observation) => observation.phase === "ready" && observation.visible
   );
-  const degraded = observations.findIndex(
+  const degraded = targetObservations.findIndex(
     (observation, index) => index > ready && observation.phase === "degraded"
   );
-  const recovered = observations.findIndex(
+  const recovered = targetObservations.findIndex(
     (observation, index) => index > degraded && observation.phase === "ready" &&
       observation.visible
   );
-  const activating = observations.filter(
+  const activating = targetObservations.filter(
     (observation) => observation.phase === "activating"
   );
-  const terminal = observations.at(-1);
+  const terminal = targetObservations.at(-1);
   if (phase.endsWith("-seed")) {
     requireRuntime(
       ready >= 0 && degraded > ready && recovered > degraded &&
         terminal.phase === "ready" && terminal.visible === true &&
-        observations.every((observation, index) =>
+        targetObservations.every((observation, index) =>
           observation.phase !== "activating" ||
           index > degraded && index < recovered &&
-          observation.tabId === observations[ready].tabId &&
-          observation.web.generation > observations[degraded].web.generation &&
-          observation.web.generation === observations[recovered].web.generation &&
-          observation.attemptGeneration === observations[recovered].attemptGeneration
+          observation.web.generation > targetObservations[degraded].web.generation &&
+          observation.web.generation === targetObservations[recovered].web.generation &&
+          observation.attemptGeneration === targetObservations[recovered].attemptGeneration
         ) && activating.length <= 1 &&
-        observations[degraded].tabId === observations[ready].tabId &&
-        observations[recovered].tabId === observations[ready].tabId &&
-        observations[recovered].web.generation > observations[degraded].web.generation,
+        targetObservations[degraded].tabId === targetObservations[ready].tabId &&
+        targetObservations[recovered].tabId === targetObservations[ready].tabId &&
+        targetObservations[recovered].web.generation >
+          targetObservations[degraded].web.generation,
       `${phase}: ready/degraded/visible-reopen ordering or generation is incomplete`
     );
   } else {
-    const firstReady = observations.findIndex((observation) => observation.phase === "ready");
+    const firstReady = targetObservations.findIndex(
+      (observation) => observation.phase === "ready"
+    );
     requireRuntime(
       ready >= 0 && terminal.phase === "ready" && terminal.visible === true &&
-        observations.every((observation, index) =>
+        targetObservations.every((observation, index) =>
           observation.phase === (index < firstReady ? "activating" : "ready") &&
           observation.tabId === terminal.tabId &&
           observation.windowId === terminal.windowId &&

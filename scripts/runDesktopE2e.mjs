@@ -39,6 +39,9 @@ const artifactRoot = resolve(
   process.env.RION_STUDIO_E2E_ARTIFACT_ROOT ?? resolve(root, ".desktop-e2e-artifacts"),
   `${runId}-${process.platform}`
 );
+const userDataRoot = resolve(
+  process.env.RION_STUDIO_E2E_USER_DATA_ROOT ?? resolve(artifactRoot, "user-data")
+);
 const token = randomBytes(32).toString("hex");
 const node = process.execPath;
 const wdio = resolve(root, "node_modules", "@wdio", "cli", "bin", "wdio.js");
@@ -169,7 +172,7 @@ phaseNamespaces.set("chromium-extensions-restart", "chromium-extensions");
 
 function userDataDirForPhase(phase) {
   const namespace = phaseNamespaces.get(phase) ?? phase;
-  return resolve(artifactRoot, "user-data", namespace);
+  return resolve(userDataRoot, namespace);
 }
 const checkoutCommit = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: root,

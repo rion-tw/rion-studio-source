@@ -14,6 +14,12 @@ pub(crate) fn existing(path: &Path) -> Result<PathBuf> {
             return Err("PATH_TRAVERSAL");
         }
         cursor.push(part);
+        // A Windows drive prefix such as `C:` is not itself an absolute path:
+        // querying it resolves against the process drive-relative directory.
+        // Begin identity checks at the rooted `C:\\` component instead.
+        if !cursor.is_absolute() {
+            continue;
+        }
         let info = fs::symlink_metadata(&cursor).map_err(|_| "SOURCE_PATH_UNAVAILABLE")?;
         if info.file_type().is_symlink() {
             return Err("SYMLINK_FORBIDDEN");

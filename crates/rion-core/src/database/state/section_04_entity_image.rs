@@ -154,15 +154,15 @@ fn insert_workspaces(transaction: &Transaction<'_>, values: &[Value]) -> CoreRes
             transaction
                 .execute(
                     "INSERT INTO workspace_slots(
-                       workspace_id, ordinal, role_id, content_kind, web_name, web_start_url, payload_json
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                       workspace_id, ordinal, role_id, content_kind, web_last_url, payload_json
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
                         id,
                         slot_ordinal as i64,
                         role_id,
                         content_kind,
-                        web.and_then(|value| value.get("name")).and_then(Value::as_str),
-                        web.and_then(|value| value.get("startUrl")).and_then(Value::as_str),
+                        web.and_then(|value| value.get("lastUrl"))
+                            .and_then(Value::as_str),
                         serialize_payload(slot)?
                     ],
                 )
@@ -329,15 +329,15 @@ fn upsert_workspace(
         transaction
             .execute(
                 "INSERT INTO workspace_slots(
-                   workspace_id, ordinal, role_id, content_kind, web_name, web_start_url, payload_json
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                   workspace_id, ordinal, role_id, content_kind, web_last_url, payload_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     id,
                     slot_ordinal as i64,
                     role_id,
                     content_kind,
-                    web.and_then(|value| value.get("name")).and_then(Value::as_str),
-                    web.and_then(|value| value.get("startUrl")).and_then(Value::as_str),
+                    web.and_then(|value| value.get("lastUrl"))
+                        .and_then(Value::as_str),
                     serialize_payload(slot)?
                 ],
             )

@@ -43,7 +43,7 @@ use crate::session_migration::{
     V23RoleInitializationEvidence,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 29;
+pub(crate) const SCHEMA_VERSION: u32 = 30;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -100,7 +100,10 @@ enum Request {
         RoleSessionMigrationStartInput,
         Sender<CoreResult<RoleSessionMigrationRecord>>,
     ),
-    RoleSessionRecoveryAdmit(Box<crate::session_recovery::commit::Admission>, Sender<CoreResult<RoleSessionMigrationRecord>>),
+    RoleSessionRecoveryAdmit(
+        Box<crate::session_recovery::commit::Admission>,
+        Sender<CoreResult<RoleSessionMigrationRecord>>,
+    ),
     RoleSessionMigrationImportBegin(
         crate::RoleSessionMigrationPlatform,
         u32,
@@ -198,6 +201,13 @@ pub(crate) enum StateMutation {
         role_id: String,
         browser_zoom_percent: f64,
     },
+    WorkspaceWebNavigationCommit {
+        workspace_id: String,
+        slot_id: String,
+        window_id: String,
+        tab_id: String,
+        last_url: Option<String>,
+    },
     GameWindowCreate(GameWindowCreateInputRecord),
     GameWindowSaveRuntime(GameWindowSaveRuntimeInputRecord),
     GameWindowUpdate {
@@ -268,6 +278,9 @@ impl StateMutation {
             | Self::WorkspacesDelete { .. }
             | Self::WorkspaceClearRole { .. }
             | Self::WorkspaceSetRoleBrowserZoom { .. } => vec![LaunchWorkspaces],
+            Self::WorkspaceWebNavigationCommit { .. } => {
+                vec![LaunchWorkspaces, GameWindows]
+            }
             Self::GameWindowCreate(_)
             | Self::GameWindowSaveRuntime(_)
             | Self::GameWindowUpdate { .. }
@@ -426,8 +439,13 @@ impl StateDatabaseWorker {
         })
     }
 
-    pub(crate) fn admit_role_session_recovery(&self, input: crate::session_recovery::commit::Admission) -> CoreResult<RoleSessionMigrationRecord> {
-        request(&self.sender, |response| Request::RoleSessionRecoveryAdmit(Box::new(input), response))
+    pub(crate) fn admit_role_session_recovery(
+        &self,
+        input: crate::session_recovery::commit::Admission,
+    ) -> CoreResult<RoleSessionMigrationRecord> {
+        request(&self.sender, |response| {
+            Request::RoleSessionRecoveryAdmit(Box::new(input), response)
+        })
     }
 
     pub(crate) fn begin_role_session_migration_import(
@@ -641,8 +659,11 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
             Request::RoleSessionMigrationStart(input, response) => {
                 let _ = response.send(crate::session_migration::start(&mut connection, input));
             }
-            Request::RoleSessionRecoveryAdmit(input,response) => {
-                let _ = response.send(crate::session_recovery::commit::admit(&mut connection,*input));
+            Request::RoleSessionRecoveryAdmit(input, response) => {
+                let _ = response.send(crate::session_recovery::commit::admit(
+                    &mut connection,
+                    *input,
+                ));
             }
             Request::RoleSessionMigrationImportBegin(
                 expected_platform,

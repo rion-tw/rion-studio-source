@@ -12,7 +12,7 @@ export interface ElectronDesktopE2eWorkspaceWebInspection {
     id: string;
     rect: Readonly<{ height: number; width: number; x: number; y: number }>;
     roleId: string | null;
-    web: Readonly<{ name: string; startUrl: string }> | null;
+    web: Readonly<{ lastUrl?: string }> | null;
   }>[];
   readonly focused: boolean;
   readonly hostKind: "appkit-chromium" | "bundled-chromium";
@@ -168,9 +168,10 @@ function coreSlot(value: unknown): value is ElectronDesktopE2eWorkspaceWebInspec
     return false;
   }
   const validWeb = value.web === null || (
-    record(value.web) && exact(value.web, ["name", "startUrl"]) &&
-    typeof value.web.name === "string" && value.web.name.length > 0 &&
-    (value.web.startUrl === "" || canonicalUrl(value.web.startUrl, ["http:", "https:"]))
+    record(value.web) &&
+    exact(value.web, Object.hasOwn(value.web, "lastUrl") ? ["lastUrl"] : []) &&
+    (!Object.hasOwn(value.web, "lastUrl") ||
+      canonicalUrl(value.web.lastUrl, ["http:", "https:"]))
   );
   return validWeb && (value.roleId === null) !== (value.web === null);
 }

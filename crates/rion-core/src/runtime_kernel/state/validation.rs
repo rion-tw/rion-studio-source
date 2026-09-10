@@ -157,7 +157,11 @@ fn validate_workspace_slots(
             || !slot_ids.insert(slot.id.as_str())
             || role_id.is_some_and(str::is_empty)
             || (role_id.is_some() && web.is_some())
-            || web.is_some_and(|web| web.name.trim().is_empty())
+            || web.is_some_and(|web| {
+                web.last_url.as_deref().is_some_and(|url| {
+                    crate::domain::normalize_workspace_web_last_url(url).is_err()
+                })
+            })
             || [rect.x, rect.y, rect.width, rect.height]
                 .iter()
                 .any(|value| !value.is_finite())

@@ -84,7 +84,7 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
     slots: [
       { roleId: shared.id },
       { roleId: roleB.id },
-      { web: { name: "Chromium Macro Web", startUrl: macroFixtureUrl(WEB_FIXTURE) } }
+      { web: { lastUrl: macroFixtureUrl(WEB_FIXTURE) } }
     ],
     template: "three_columns"
   });

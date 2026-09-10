@@ -1,4 +1,48 @@
+fn extension_package_core_error(error: crate::extensions::ExtensionPackageError) -> CoreError {
+    CoreError::Domain {
+        code: error.code(),
+        message: error.to_string(),
+    }
+}
+
 impl AppCore {
+    fn migrate_extension_package_metadata(&self) -> CoreResult<Vec<Value>> {
+        let value =
+            self.with_runtime(|runtime| runtime.state.read_scalar("extensions".to_owned()))?;
+        let Some(value) = value else {
+            return Ok(Vec::new());
+        };
+        let mut snapshot: crate::model::ExtensionSnapshotRecord = serde_json::from_value(value)
+            .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let mut changed = false;
+        let mut warnings = Vec::new();
+        for package in &mut snapshot.installed {
+            match crate::extensions::backfill_metadata(&self.user_data_dir, package) {
+                Ok(package_changed) => changed |= package_changed,
+                Err(error) if warnings.len() < 32 => warnings.push(json!({
+                    "id": package.id,
+                    "code": error.code(),
+                })),
+                Err(_) => {}
+            }
+        }
+        if changed {
+            snapshot.roles.clear();
+            snapshot.revision = snapshot
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| CoreError::Internal("Extension revision overflow".to_owned()))?;
+            self.with_runtime(|runtime| {
+                runtime.state.replace_scalar(
+                    "extensions".to_owned(),
+                    serde_json::to_value(snapshot)
+                        .map_err(|error| CoreError::Internal(error.to_string()))?,
+                )
+            })?;
+        }
+        Ok(warnings)
+    }
+
     fn extensions_snapshot(
         &self,
         runtime: &crate::extensions::ExtensionRuntime,
@@ -67,10 +111,7 @@ impl AppCore {
                     message: "Extension installation cancelled.".to_owned(),
                 });
             }
-            let (prepared, directory) = prepared.map_err(|e| CoreError::Domain {
-                code: "EXTENSIONS_PACKAGE_FAILED",
-                message: e.to_string(),
-            })?;
+            let (prepared, directory) = prepared.map_err(extension_package_core_error)?;
             runtime
                 .prepared
                 .insert(operation_id.clone(), (prepared.clone(), directory));
@@ -177,7 +218,11 @@ impl AppCore {
                 persisted = true;
                 changed = true;
             }
-            Command::Configure { id, role_ids, apply_to_all_roles } => {
+            Command::Configure {
+                id,
+                role_ids,
+                apply_to_all_roles,
+            } => {
                 let role_ids = if apply_to_all_roles { vec![] } else { role_ids };
                 validate_roles(&role_ids)?;
                 let package = snapshot
@@ -213,7 +258,10 @@ impl AppCore {
                     extension_ids: snapshot
                         .installed
                         .iter()
-                        .filter(|p| !p.removed && (p.apply_to_all_roles || p.enabled_role_ids.contains(&role_id)))
+                        .filter(|p| {
+                            !p.removed
+                                && (p.apply_to_all_roles || p.enabled_role_ids.contains(&role_id))
+                        })
                         .map(|p| p.id.clone())
                         .collect(),
                     status: "loading".to_owned(),

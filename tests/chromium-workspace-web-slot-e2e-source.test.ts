@@ -21,9 +21,9 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     for (const marker of [
       "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016",
       "CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016",
-      "selectGroupedDramaWebsite",
-      "workspace-web-name",
-      "workspace-web-url",
+      "web: {}",
+      "rion-start://home/",
+      "navigateVisibleElectronWorkspaceWebChrome",
       "data-workspace-role-id",
       "quick-access-destination-option-window-",
       "button=New game window",
@@ -36,12 +36,9 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     ]) {
       expect(spec).toContain(marker);
     }
-    const menu = await source("e2e/desktop/support/workspace-web-groups.ts");
-    expect(menu).toContain("data-workspace-web-preset-select");
-    expect(menu).toContain("data-workspace-web-category");
-    expect(menu).toContain("data-workspace-web-preset='iqiyi'");
-    expect(menu).toContain("await drama.click()");
-    expect(menu).not.toContain("rendererCall(");
+    expect(spec).not.toContain("workspace-web-name");
+    expect(spec).not.toContain("workspace-web-url");
+    expect(spec).not.toContain("workspace-web-preset");
     expect(spec).not.toContain("runtimeUiAction(");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("fullscreen");

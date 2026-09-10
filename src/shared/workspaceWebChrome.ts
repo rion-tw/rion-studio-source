@@ -52,7 +52,8 @@ function validIdentifier(value: unknown): value is string {
 export function canonicalWorkspaceWebUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  if (!trimmed || /\s/u.test(trimmed)) return null;
+  if (!trimmed || new TextEncoder().encode(trimmed).byteLength > 2_048 ||
+      /\s/u.test(trimmed)) return null;
   const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
   try {
     const parsed = new URL(candidate);

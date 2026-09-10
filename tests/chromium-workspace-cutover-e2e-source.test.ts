@@ -46,8 +46,7 @@ function webOnlyObservation(input: Readonly<{
       rect: { height: 1, width: 1, x: 0, y: 0 },
       roleId: null,
       web: {
-        name: "Chromium Web Only App",
-        startUrl: "https://fixture.invalid/role/chromium-workspace-web-only"
+        lastUrl: "https://fixture.invalid/role/chromium-workspace-web-only"
       }
     }],
     focused: input.visible,
@@ -341,8 +340,7 @@ describe("Chromium Workspace cutover paired replacements", () => {
       games: [], gameWindows: [], macros: [], roles: [],
       workspaces: [{ id: "web-workspace", name: "Chromium Web Only Workspace",
         payload: { slots: [{ id: "web-slot", rect, roleId: null, web: {
-          name: "Chromium Web Only App",
-          startUrl: "https://127.0.0.1/role/chromium-workspace-web-only"
+          lastUrl: "https://127.0.0.1/role/chromium-workspace-web-only"
         } }] } }]
     };
     expect(validateChromiumWorkspaceCutoverSqliteEvidence(

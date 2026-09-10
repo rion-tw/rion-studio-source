@@ -66,6 +66,47 @@ function createIpcMain() {
 }
 
 describe("Electron main IPC bridge", () => {
+  it("observes invocation failures with only an allowlisted method and stable code", async () => {
+    const ipc = createIpcMain();
+    const renderer = createWindow();
+    const identities = new RendererIdentityRegistry(() => renderer.window);
+    identities.registerMainWindow(renderer.window, 1);
+    const onInvocationError = vi.fn();
+    registerRionIpcBridge({
+      ipcMain: ipc.port,
+      identities,
+      dispatcher: {
+        invoke: vi.fn(async () => {
+          throw Object.assign(new Error("private argument was rejected"), {
+            code: "ELECTRON_TEST_FAILED"
+          });
+        })
+      } as unknown as RionApiDispatcher,
+      onInvocationError
+    });
+    const handler = ipc.invokeListeners.get(RION_IPC_CHANNELS.invoke)!;
+
+    await handler(
+      { sender: renderer.contents },
+      { method: "getAppVersion", args: [] }
+    );
+    await handler(
+      { sender: renderer.contents },
+      { method: "not-allowlisted", args: ["private-value"] }
+    );
+
+    expect(onInvocationError).toHaveBeenNthCalledWith(
+      1,
+      "getAppVersion",
+      "ELECTRON_TEST_FAILED"
+    );
+    expect(onInvocationError.mock.calls[1][0]).toBeUndefined();
+    expect(onInvocationError.mock.calls[1][1]).toBe(
+      "ELECTRON_IPC_METHOD_NOT_ALLOWED"
+    );
+    expect(JSON.stringify(onInvocationError.mock.calls)).not.toContain("private-value");
+  });
+
   it("registers only the fixed invoke and notification channels", () => {
     const ipc = createIpcMain();
     const identities = new RendererIdentityRegistry(() => null);

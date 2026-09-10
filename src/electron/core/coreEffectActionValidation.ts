@@ -60,7 +60,7 @@ const stateRole: Check = (value) => closed(value, {
   coverImageDataUrl: text,
   coverImageDominantColor: text
 });
-const webContent: Check = (value) => closed(value, { name: text, startUrl: text });
+const webContent: Check = (value) => closed(value, {}, { lastUrl: text });
 const workspaceSlot: Check = (value) => closed(value, {
   id: identity,
   rect: normalizedRect

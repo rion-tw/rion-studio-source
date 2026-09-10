@@ -9,6 +9,7 @@ include!("state/section_03_game_window_role_slot_migration.rs");
 include!("state/section_03_game_window_workspace_slot_migration.rs");
 include!("state/section_03_quick_access_shortcut_migration.rs");
 include!("state/section_03_workspace_web_slot_migration.rs");
+include!("state/section_03_workspace_web_navigation_migration.rs");
 include!("state/section_03_read_overlay_configuration.rs");
 include!("state/section_04_entity_image.rs");
 include!("state/section_04_quick_access.rs");

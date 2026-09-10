@@ -93,9 +93,12 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 24. Version 23 remains the first
+The active runtime contract is version 25. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
+Version 25 adds the production-publisher CRX3 verification requirement for new
+Chrome Web Store extension prepares; already-installed extension directories are
+not reverified or migrated.
 The global-Web policy explicitly enables DRM for HTTPS requesting and embedding
 origins, including controlled popups. Request/check handlers share the same
 origin decision and retain Chromium encrypted-media Permissions Policy. Missing,
@@ -277,8 +280,9 @@ consumer accepts that tuple without creating a saved window or surfacing a
 shell error. Other persistence failures remain errors. The paired
 `CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016` and
 `CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016` journeys use the same visible creation,
-popular-site override, and launch spec while producing independent native
-pointer and restart verdicts. Workspace contained fullscreen remains a separate
+setting-free Rion Website selection, visible address navigation, and launch
+spec while producing independent native pointer, per-slot continuation, and
+restart verdicts. Workspace contained fullscreen remains a separate
 journey and is not inferred from this layout evidence.
 
 Contained fullscreen is a Chromium document event, not a logical-window state

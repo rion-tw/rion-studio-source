@@ -14,6 +14,14 @@ store URL while retaining its path and other search parameters; resizing or
 reopening in the same language does not reset navigation.
 The sidebar displays the catalogue count, including zero and pending-removal
 entries until cleanup, and follows revision-fenced Core events on every route.
+At the supported 960 px minimum window, installed packages appear as an
+equal-height three-column card grid; a defensive content-width fallback below
+660 px uses one column, and the grid never grows beyond three. Each card keeps
+the existing version, assignment summary, state badges, and explicit management
+action while adding a transparent, background-free 48 px package icon, a two-line description, localized
+logical installed size, and a compact ID whose tooltip exposes the full value.
+Invalid or unavailable metadata falls back to the Puzzle icon and localized
+missing-description or unavailable-size text without disabling management.
 Successful installation returns to the unfiltered catalogue; cancelling confirmation
 returns to the store. Empty and no-match states offer add and clear-search actions. The store is
 an isolated, unprivileged native WebContentsView. A Rion-owned install button
@@ -35,8 +43,18 @@ all current roles (independent of search), and clear selection. Switching modes
 preserves the current draft; switching a saved All roles rule to Selected roles
 starts with all current roles selected. No-role installations remain supported.
 Dialogs keep their actions visible while the contents scroll. Removal has a
-separate confirmation step; cancellation restores the management draft. The first implementation accepts Manifest V3 packages with a
-matching RSA publisher proof. Background workers and content scripts depend on
+separate confirmation step; cancellation restores the management draft. New
+preparations accept Manifest V3 packages only after every RSA and P-256 ECDSA
+CRX3 proof verifies. The signed-header ID, requested store ID, and developer-key
+derived ID must match, and a proof whose SPKI SHA-256 matches Chromium's
+production Chrome Web Store publisher key is mandatory. A matching 1024-bit
+legacy RSA developer proof is accepted only when that production publisher
+proof is valid; every other RSA proof requires at least 2048 bits. The verified
+developer SPKI is written to manifest `key` so Electron retains the same ID.
+Existing installed directories are not reverified. Their display metadata is
+backfilled from the already-managed files as described below; package identity
+and executable contents are not migrated. Background
+workers and content scripts depend on
 the bundled Chromium API subset. Loading a package does not prove every API it
 uses is compatible. Popups, extension settings pages, global-Web assignment,
 automatic updates, authenticated store purchases, and Chrome-profile import
@@ -65,6 +83,20 @@ directories belong to the app's `extensions` root. The original CRX digest is
 recorded, and the verified publisher key is retained in the unpacked manifest
 to preserve the store ID independently of its filesystem path.
 
+After verified unpacking and the manifest publisher-key rewrite, Rust resolves
+literal or `__MSG_*__` descriptions through `default_locale` and bounds display
+text to 400 characters. It prefers the manifest's 48 px management icon, then
+the nearest larger or largest smaller supported raster source. Unsafe paths,
+symlinks, SVG/WebP sources, unreadable files, and icons over 512 KiB are ignored.
+The recorded installed size is the deterministic sum of extracted regular-file
+bytes, including the rewritten manifest—not download bytes or allocation blocks.
+
+Before Core publishes `Ready`, a bounded one-time catalogue pass backfills
+missing metadata only from canonically contained package directories. Recovered
+records are atomically persisted with one catalogue revision increment. A
+missing, unreadable, or invalid legacy directory preserves its original record,
+emits a bounded warning, and never prevents startup or extension management.
+
 The typed `extensions` Core command separates renderer-allowed operations from
 privileged acquire/complete/release commands. Core publishes revisioned
 `extensionsChanged` snapshots. Electron owns only native Sessions and handles,
@@ -73,30 +105,65 @@ matching lease. Release waits for exact `extension-unloaded` events. Old leases
 cannot terminalize a replacement. A load failure blocks that role launch.
 
 HTTP has a 10-second connection and 60-second overall external deadline; failure
-does not install anything. Local operations and native callbacks are
+does not install anything. Both declared `Content-Length` and bytes actually
+read are limited to 128 MiB. Before writing any file, the ZIP central directory's
+cumulative declared unpacked size is limited to 512 MiB; extraction also checks
+every file's actual byte count. Download chunks and ZIP entries observe explicit
+cancellation, and the staging `TempDir` owns complete cleanup on every failure.
+The HTTPS-only store and redirect allowlist remains bounded to Google delivery
+hosts. Local operations and native callbacks are
 event-bound. Explicit cancellation and shutdown cancel staged preparation.
 There is no installation retry loop, profile scan, remote debugger, or extension
 injection into the application renderer or store Session.
+
+This follows Chromium's [CRX verifier](https://chromium.googlesource.com/chromium/src/+/HEAD/components/crx_file/crx_verifier.h)
+and [CRX3 proof format](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/components/crx_file/crx3.proto)
+without adopting the [Chrome Web Store's broader 2 GiB publishing ceiling](https://developer.chrome.com/docs/webstore/publish).
+The
+128/512 MiB limits are deliberate Rion product bounds.
+
+Package failures cross the existing typed Core bridge with stable codes for
+temporary store unavailability, compressed and unpacked limits, invalid
+signatures, unsupported manifests, cancellation, and generic package failure.
+The renderer localizes those outcomes in all four app languages. Only temporary
+store unavailability asks the user to retry; permanent size, signature, and
+manifest failures are reported as unsupported.
 
 ## Validation and release gate
 
 - `cargo test -p rion-core extensions` covers signed and tampered packages,
   cross-platform path safety, frozen role leases, removal, and v22 exclusion.
-- `cargo test -p rion-core live_store_download_and_signature -- --ignored`
-  exercises the optional external official-store boundary.
+- `cargo test -p rion-core live_adblock_download_signature_and_unpack -- --ignored`
+  downloads the current official AdBlock package and exercises CRX3 identity,
+  production publisher proof, Manifest V3, bounded unpacking, and manifest ID.
 - `pnpm run verify:electron-extensions` launches two fresh Electron processes
   with isolated profiles and checks stable IDs, content scripts, background
   replies, storage isolation, unload/reload, and persistence. CI runs it on both
   supported native hosts. The committed signing key is a throwaway test fixture,
   never a production trust anchor.
 - `CHROMIUM-MACOS-APPKIT-EXTENSIONS-001` and
-  `CHROMIUM-WINDOWS-EXTENSIONS-001` cover visible installation, role assignment,
+  `CHROMIUM-WINDOWS-EXTENSIONS-001` cover visible AdBlock installation, role assignment,
   actual role loading, application restart, disabling, and cancel/confirm removal in their existing
   Chromium smoke profiles. These journeys explicitly depend on live store
   availability; external failure fails the journey.
 
 Production eligibility requires both native platforms. Local macOS evidence
 does not satisfy Windows or the broader Chromium cutover gates.
+
+## AdBlock publisher verification (2026-09-10)
+
+The focused Rust package suite passed 14 deterministic tests plus the explicit
+live AdBlock test. The live package was AdBlock 6.45.5 with ID
+`gighmmpiobklfepjocnamgkkbiglidom`; production publisher proof verification,
+the legacy 1024-bit developer proof, MV3 unpacking, and manifest ID retention
+all passed. Its installed logical size was 329,611,180 bytes, above the retired
+256 MiB limit and below the 512 MiB product limit.
+
+The Electron two-process extension probe passed, and the focused macOS
+`chromium-extensions-seed` and `chromium-extensions-restart` phases both passed
+with visible AdBlock confirmation, All roles assignment, the exact extension
+ID, role-load acknowledgement, restart persistence, and removal. The matching
+Windows native profile remains a required CI gate.
 
 ## Implementation verification (2026-09-07)
 
@@ -160,3 +227,19 @@ lint, source hygiene, and coverage checks. The `chromium-macos-appkit-smoke`
 seed/restart phases verified counts 0 → 1 → 1 after restart → 0 after removal
 for `CHROMIUM-MACOS-APPKIT-EXTENSIONS-001`; the matching
 `CHROMIUM-WINDOWS-EXTENSIONS-001` assertions are updated and await Windows CI.
+
+## Extension metadata cards (2026-09-10)
+
+Installed Extensions now use equal-height three-column cards at the 960×640
+supported minimum. Verified package metadata supplies a transparent,
+background-free icon, localized description, deterministic logical installed
+size, and full ID tooltip; legacy catalogues receive the bounded startup
+backfill described above.
+
+The focused macOS `chromium-extensions-seed` and
+`chromium-extensions-restart` phases passed with a live official-store package.
+They asserted three computed tracks, no horizontal overflow, rendered metadata,
+exact ID, and persisted metadata in light and dark views. Focused Rust metadata
+and migration tests, generated bindings, Renderer/Event Vitest, Rust lint, and
+the two-process Electron Extension probe also passed. The matching Windows
+journey and native validation remain required CI gates.

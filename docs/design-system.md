@@ -99,15 +99,18 @@ cannot be expressed consistently across screens.
 
 ## Theme and runtime
 
-Workspace Website slots with an empty start URL open the packaged website
-entrance. Its script-free document uses the shared tokens, four-locale copy,
+Workspace Website slots without a saved `lastUrl` open the packaged Rion
+entrance. Selecting Website in the Workspace editor creates `web: {}` directly;
+there is no preset, display-name, or start-URL configuration. The script-free
+entrance document uses the shared tokens, four-locale copy,
 and `src/shared/workspaceWebCatalog.json`; run `pnpm run generate:workspace-start`
 after changing the catalog, brand assets, translations, tokens, or entrance CSS.
 The generated HTML is shared by both desktop shells and performs no network
-requests until a card is activated. The slot's URL remains empty after browsing.
-The preset menu and entrance share the Media, Live, Social and Other category
-order in `src/shared/workspaceWebCategories.json`, with 26 curated destinations.
-Menu groups use accessible Select labels; the entrance renders expanded sections
+requests until a card is activated. Successful main-frame navigation saves the
+last HTTP(S) URL per slot, while Home returns to the entrance and clears it. The
+entrance uses the Media, Live, Social and Other category order in
+`src/shared/workspaceWebCategories.json`, with 26 curated destinations, and
+renders expanded sections
 with 32px gaps, 12px heading gaps, and independent 1–4-column card grids. New
 service icons and their source record are bundled under the workspace-web assets;
 no runtime favicon service is used.

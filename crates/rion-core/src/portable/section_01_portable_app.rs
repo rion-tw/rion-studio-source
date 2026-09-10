@@ -12,9 +12,8 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        is_reserved_macro_trigger, macro_shortcut_source_role_ids,
-        normalize_game_browser_settings, normalize_macro_settings, validate_game_browser_settings,
-        validate_macro_settings,
+        is_reserved_macro_trigger, macro_shortcut_source_role_ids, normalize_game_browser_settings,
+        normalize_macro_settings, validate_game_browser_settings, validate_macro_settings,
     },
     error::{CoreError, CoreResult},
     layout::normalize_rect_edges,
@@ -22,20 +21,19 @@ use crate::{
     model::{
         CoreStateSnapshotRecord, GameBrowserSettingsRecord, GameWindowTabRecord, LayoutRect,
         MacroSettingsRecord, MacroShortcutSourceScope, MacroStepDefinition, MacroTrigger,
-        PortableDataRecord,
-        PortableDataSelectionRecord, PortableExportResultRecord, PortableGameRecord,
-        PortableGameWindowRecord, PortableImportOperationsRecord, PortableImportPreviewRecord,
-        PortableImportResultRecord, PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
-        PortableMacroConflictCandidateRecord, PortableMacroConflictRecord,
-        PortableMacroConflictResolutionRecord, PortableMacroRecord, PortablePreferencesRecord,
-        PortableRoleRecord, StateCollection, StateGameRecord, StateGameWindowRecord,
-        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
-        StateWorkspaceSlotRecord,
+        PortableDataRecord, PortableDataSelectionRecord, PortableExportResultRecord,
+        PortableGameRecord, PortableGameWindowRecord, PortableImportOperationsRecord,
+        PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
+        PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
+        PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
+        PortablePreferencesRecord, PortableRoleRecord, StateCollection, StateGameRecord,
+        StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
     },
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 21;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 22;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -102,7 +100,7 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
         .iter()
         .map(|value| normalize_game(value, schema))
         .collect::<CoreResult<Vec<_>>>()?;
-    let workspaces = normalize_workspaces(object)?;
+    let workspaces = normalize_workspaces(object, schema)?;
     let (games, recovered_roles) = recover_games(input_games, roles)?;
     roles = recovered_roles;
     let macros = normalize_macros(object, true, schema)?;
@@ -246,7 +244,17 @@ fn normalize_role(value: &Value) -> CoreResult<Value> {
 }
 
 fn normalize_game_window(value: &Value, schema: u64, workspaces: &[Value]) -> CoreResult<Value> {
-    let mut window = serde_json::from_value::<PortableGameWindowRecord>(value.clone())
+    let mut value = value.clone();
+    if let Some(tabs) = value.get_mut("tabs").and_then(Value::as_array_mut) {
+        for tab in tabs {
+            if let Some(slots) = tab.get_mut("workspaceSlots").and_then(Value::as_array_mut) {
+                for slot in slots {
+                    normalize_portable_web_slot(slot, schema)?;
+                }
+            }
+        }
+    }
+    let mut window = serde_json::from_value::<PortableGameWindowRecord>(value)
         .map_err(|error| invalid(format!("portable game window is invalid: {error}")))?;
     window.id = window.id.trim().to_owned();
     window.name = window.name.trim().to_owned();
@@ -394,15 +402,18 @@ fn recover_games(mut games: Vec<Value>, roles: Vec<Value>) -> CoreResult<(Vec<Va
     Ok((games, recovered_roles))
 }
 
-fn normalize_workspaces(object: &Map<String, Value>) -> CoreResult<Vec<Value>> {
+fn normalize_workspaces(object: &Map<String, Value>, schema: u64) -> CoreResult<Vec<Value>> {
     let values = object
         .get("launchWorkspaces")
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("portable launchWorkspaces must be an array"))?;
-    values.iter().map(normalize_workspace).collect()
+    values
+        .iter()
+        .map(|value| normalize_workspace(value, schema))
+        .collect()
 }
 
-fn normalize_workspace(value: &Value) -> CoreResult<Value> {
+fn normalize_workspace(value: &Value, schema: u64) -> CoreResult<Value> {
     let source = object(value, "workspace")?;
     let template = required_string(source, "template", "workspace")?;
     if !matches!(
@@ -432,7 +443,7 @@ fn normalize_workspace(value: &Value) -> CoreResult<Value> {
     let slots = slots
         .iter()
         .enumerate()
-        .map(|(index, slot)| normalize_slot(slot, index, &mut role_ids))
+        .map(|(index, slot)| normalize_slot(slot, index, &mut role_ids, schema))
         .collect::<CoreResult<Vec<_>>>()?;
     Ok(json!({
         "id": required_string(source, "id", "workspace")?,
@@ -446,26 +457,14 @@ fn normalize_slot(
     value: &Value,
     index: usize,
     role_ids: &mut HashSet<String>,
+    schema: u64,
 ) -> CoreResult<Value> {
     let source = object(value, "workspace slot")?;
     let role_id = optional_string(source.get("roleId"));
-    let web = source.get("web").map(|value| {
-        let web = object(value, "workspace web slot")?;
-        let name = required_string(web, "name", "workspace web slot")?;
-        if name.chars().count() > 80 {
-            return Err(invalid("portable workspace web slot name is too long"));
-        }
-        let start_url = web.get("startUrl").and_then(Value::as_str)
-            .ok_or_else(|| invalid("portable workspace web slot URL must be a string"))?.trim();
-        let start_url = if start_url.is_empty() {
-            String::new()
-        } else {
-            Url::parse(start_url).ok()
-                .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
-                .ok_or_else(|| invalid("portable workspace web slot URL is invalid"))?.to_string()
-        };
-        Ok(json!({ "name": name, "startUrl": start_url }))
-    }).transpose()?;
+    let web = source
+        .get("web")
+        .map(|value| normalize_portable_web(value, schema))
+        .transpose()?;
     if role_id.is_some() && web.is_some() {
         return Err(invalid(
             "portable workspace slot cannot contain both a role and a web app",
@@ -526,6 +525,45 @@ fn normalize_slot(
         json!({ "x": x, "y": y, "width": width, "height": height }),
     );
     Ok(Value::Object(slot))
+}
+
+fn normalize_portable_web_slot(slot: &mut Value, schema: u64) -> CoreResult<()> {
+    let Some(slot) = slot.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(web) = slot.get("web") else {
+        return Ok(());
+    };
+    slot.insert("web".to_owned(), normalize_portable_web(web, schema)?);
+    Ok(())
+}
+
+fn normalize_portable_web(value: &Value, schema: u64) -> CoreResult<Value> {
+    let web = object(value, "workspace web slot")?;
+    if schema <= 21 {
+        return Ok(json!({}));
+    }
+    let Some(last_url) = web.get("lastUrl") else {
+        return Ok(json!({}));
+    };
+    let last_url = last_url
+        .as_str()
+        .ok_or_else(|| invalid("portable workspace web slot last URL must be a string"))?
+        .trim();
+    if last_url.is_empty() || last_url.len() > 2_048 {
+        return Err(invalid("portable workspace web slot last URL is invalid"));
+    }
+    let last_url = Url::parse(last_url)
+        .ok()
+        .filter(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+        })
+        .ok_or_else(|| invalid("portable workspace web slot last URL is invalid"))?
+        .to_string();
+    Ok(json!({ "lastUrl": last_url }))
 }
 
 fn normalize_macros(
@@ -614,19 +652,27 @@ fn normalize_macro(value: &Value, supports_modifiers: bool, schema: u64) -> Core
         json!(required_string(source, "name", "macro")?),
     );
     macro_value.insert("roleIds".to_owned(), json!(role_ids));
-    let execution_mode = source.get("executionMode").map(|value| value.as_str().ok_or_else(|| invalid("portable macro executionMode is invalid"))).transpose()?.unwrap_or("selected_roles");
-    if !matches!(execution_mode, "source_role" | "selected_roles") { return Err(invalid("portable macro executionMode is invalid")); }
-    if source.contains_key("executionMode") { macro_value.insert("executionMode".to_owned(), json!(execution_mode)); }
-    if execution_mode == "source_role" { macro_value.insert("roleIds".to_owned(), json!([])); }
-    let shortcut_source_scope = normalize_portable_macro_shortcut_source_scope(
-        source,
-        schema,
-        trigger.is_some(),
-    )?;
-    macro_value.insert(
-        "shortcutSourceScope".to_owned(),
-        shortcut_source_scope,
-    );
+    let execution_mode = source
+        .get("executionMode")
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| invalid("portable macro executionMode is invalid"))
+        })
+        .transpose()?
+        .unwrap_or("selected_roles");
+    if !matches!(execution_mode, "source_role" | "selected_roles") {
+        return Err(invalid("portable macro executionMode is invalid"));
+    }
+    if source.contains_key("executionMode") {
+        macro_value.insert("executionMode".to_owned(), json!(execution_mode));
+    }
+    if execution_mode == "source_role" {
+        macro_value.insert("roleIds".to_owned(), json!([]));
+    }
+    let shortcut_source_scope =
+        normalize_portable_macro_shortcut_source_scope(source, schema, trigger.is_some())?;
+    macro_value.insert("shortcutSourceScope".to_owned(), shortcut_source_scope);
     if let Some(trigger) = trigger {
         macro_value.insert("trigger".to_owned(), trigger);
     }
@@ -640,7 +686,9 @@ fn normalize_portable_macro_shortcut_source_scope(
     schema: u64,
     has_trigger: bool,
 ) -> CoreResult<Value> {
-    if (!has_trigger && source.get("executionMode").and_then(Value::as_str) != Some("source_role")) || schema < 15 {
+    if (!has_trigger && source.get("executionMode").and_then(Value::as_str) != Some("source_role"))
+        || schema < 15
+    {
         return Ok(json!({ "type": "all_execution_roles" }));
     }
     let scope = source
@@ -648,7 +696,11 @@ fn normalize_portable_macro_shortcut_source_scope(
         .and_then(Value::as_object)
         .ok_or_else(|| invalid("portable macro shortcutSourceScope is invalid"))?;
     match scope.get("type").and_then(Value::as_str) {
-        Some("all_roles") if source.get("executionMode").and_then(Value::as_str) == Some("source_role") => Ok(json!({ "type": "all_roles" })),
+        Some("all_roles")
+            if source.get("executionMode").and_then(Value::as_str) == Some("source_role") =>
+        {
+            Ok(json!({ "type": "all_roles" }))
+        }
         Some("all_execution_roles") => Ok(json!({ "type": "all_execution_roles" })),
         Some("selected_roles") => {
             let role_ids = scope
@@ -664,7 +716,9 @@ fn normalize_portable_macro_shortcut_source_scope(
                         .ok_or_else(|| invalid("portable macro shortcut source roleId is invalid"))
                 })
                 .collect::<CoreResult<Vec<_>>>()?;
-            if (role_ids.is_empty() && (has_trigger || source.get("executionMode").and_then(Value::as_str) != Some("source_role")))
+            if (role_ids.is_empty()
+                && (has_trigger
+                    || source.get("executionMode").and_then(Value::as_str) != Some("source_role")))
                 || role_ids.iter().collect::<HashSet<_>>().len() != role_ids.len()
             {
                 return Err(invalid(

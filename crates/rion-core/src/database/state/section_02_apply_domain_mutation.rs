@@ -5,6 +5,7 @@ fn apply_domain_mutation(
     let transaction = connection
         .transaction()
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+    let mut state_changed = true;
     let result = match mutation {
         StateMutation::GameCreate(input) => {
             let mut games = read_typed_collection::<StateGameRecord>(&transaction, "games")?;
@@ -459,6 +460,66 @@ fn apply_domain_mutation(
             }
             serde_json::to_value(workspace)
         }
+        StateMutation::WorkspaceWebNavigationCommit {
+            workspace_id,
+            slot_id,
+            window_id,
+            tab_id,
+            last_url,
+        } => {
+            state_changed = false;
+            let mut workspaces = read_typed_collection::<StateLaunchWorkspaceRecord>(
+                &transaction,
+                "launchWorkspaces",
+            )?;
+            let workspace_ordinal = workspaces
+                .iter()
+                .position(|workspace| workspace.id == workspace_id)
+                .ok_or_else(|| CoreError::Domain {
+                    code: "WORKSPACE_WEB_NAVIGATION_STALE",
+                    message: "The Workspace Web source no longer exists.".to_owned(),
+                })?;
+            let workspace = &mut workspaces[workspace_ordinal];
+            let slot = workspace.slots.iter_mut().find(|slot| slot.id == slot_id)
+                .filter(|slot| slot.web.is_some())
+                .ok_or_else(|| CoreError::Domain {
+                    code: "WORKSPACE_WEB_NAVIGATION_STALE",
+                    message: "The Workspace Web slot no longer exists.".to_owned(),
+                })?;
+            if slot.web.as_ref().and_then(|web| web.last_url.as_ref()) != last_url.as_ref() {
+                slot.web.as_mut().expect("validated Web slot").last_url = last_url.clone();
+                upsert_workspace(
+                    &transaction,
+                    &json_value(workspace)?,
+                    workspace_ordinal,
+                )?;
+                state_changed = true;
+            }
+
+            let mut game_windows = read_typed_collection::<StateGameWindowRecord>(
+                &transaction,
+                "gameWindows",
+            )?;
+            if let Some(window_ordinal) = game_windows.iter().position(|window| window.id == window_id) {
+                let window = &mut game_windows[window_ordinal];
+                if let Some(saved_slot) = window.tabs.iter_mut()
+                    .find(|tab| tab.id == tab_id && tab.tab_type == "workspace" && tab.source_id == workspace_id)
+                    .and_then(|tab| tab.workspace_slots.iter_mut().find(|slot| slot.id == slot_id))
+                    .filter(|slot| slot.web.is_some())
+                    && saved_slot.web.as_ref().and_then(|web| web.last_url.as_ref()) != last_url.as_ref()
+                {
+                    saved_slot.web.as_mut().expect("validated saved Web slot").last_url = last_url.clone();
+                    upsert_game_window(&transaction, &json_value(window)?, window_ordinal)?;
+                    state_changed = true;
+                }
+            }
+            Ok(json!({
+                "status": if state_changed { "applied" } else { "unchanged" },
+                "workspaceId": workspace_id,
+                "slotId": slot_id,
+                "lastUrl": last_url,
+            }))
+        }
         StateMutation::GameWindowCreate(input) => {
             let mut game_windows =
                 read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
@@ -673,11 +734,15 @@ fn apply_domain_mutation(
         }
     }
     .map_err(|error| CoreError::Internal(error.to_string()))?;
-    let revision = increment_revision(&transaction)?;
+    let revision = if state_changed {
+        increment_revision(&transaction)?
+    } else {
+        read_revision(&transaction)?
+    };
     transaction
         .commit()
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-    Ok(json!({ "revision": revision, "value": result }))
+    Ok(json!({ "revision": revision, "changed": state_changed, "value": result }))
 }
 
 fn merge_runtime_restore_snapshot(
@@ -868,14 +933,12 @@ fn commit_chrome_profile_import_metadata_journal(
     Ok(())
 }
 
-const CHROME_PROFILE_IMPORT_MIGRATION_EVIDENCE_CREATED_KEY: &str =
-    "migrationEvidenceCreated";
+const CHROME_PROFILE_IMPORT_MIGRATION_EVIDENCE_CREATED_KEY: &str = "migrationEvidenceCreated";
 
 fn chrome_profile_import_metadata_commit_fence_error() -> CoreError {
     CoreError::Domain {
         code: "CHROME_PROFILE_IMPORT_FENCE_MISMATCH",
-        message: "The Chrome profile import transaction changed before metadata commit."
-            .to_owned(),
+        message: "The Chrome profile import transaction changed before metadata commit.".to_owned(),
     }
 }
 

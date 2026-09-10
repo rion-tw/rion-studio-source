@@ -226,7 +226,10 @@ describe("desktop E2E coverage policy", () => {
     expect(journeys.every((journey) =>
       journey.replaces?.length === 1
         && journey.replaces[0] === "SETTINGS-SYSTEM-001"
-        && JSON.stringify(journey.phases) === JSON.stringify(["chromium-system-settings"])
+        && JSON.stringify(journey.phases) === JSON.stringify([
+          "chromium-system-settings",
+          "chromium-system-settings-restart"
+        ])
     )).toBe(true);
   });
 

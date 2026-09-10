@@ -137,13 +137,19 @@ function validObservation(observation, platform) {
   }
   const webSlots = observation.coreSlots.filter((slot) =>
     exactKeys(slot, ["id", "rect", "roleId", "web"]) && slot.web !== null &&
-    validRect(slot.rect) && expectedWebUrl(slot.web?.startUrl)
+    validRect(slot.rect) && (exactKeys(slot.web, []) ||
+      exactKeys(slot.web, ["lastUrl"]) && expectedWebUrl(slot.web.lastUrl))
   );
   const roleSlots = observation.coreSlots.filter((slot) =>
     exactKeys(slot, ["id", "rect", "roleId", "web"]) &&
     typeof slot.roleId === "string" && slot.web === null && validRect(slot.rect)
   );
   const web = observation.web;
+  const continuationMatches = webSlots.length === 1 && (
+    web.contentUrl === "rion-start://home/" && exactKeys(webSlots[0].web, []) ||
+    expectedWebUrl(web.contentUrl) && exactKeys(webSlots[0].web, ["lastUrl"]) &&
+      webSlots[0].web.lastUrl === web.contentUrl
+  );
   if (webSlots.length !== 1 || roleSlots.length !== 1 || !exactKeys(web, [
     "canGoBack", "canGoForward", "chromeBounds", "chromeShellSession",
     "chromeShellStoragePath", "chromeShellUrl", "chromeVisible", "contentBounds",
@@ -160,7 +166,7 @@ function validObservation(observation, platform) {
       !web.contentProfilePath.replaceAll("\\", "/").toLowerCase()
         .endsWith("/web-profiles/global-web/chromium") ||
       !web.chromeShellUrl.endsWith("/runtime-web-chrome-electron.html") ||
-      !expectedWebUrl(web.contentUrl) || web.isolatedSessions !== true ||
+      !continuationMatches || web.isolatedSessions !== true ||
       web.visible !== true || web.chromeVisible !== true ||
       web.contentVisible !== true || web.containedFullscreen !== false ||
       web.containedFullscreenRevision !== 0 || web.slotId !== webSlots[0].id ||
@@ -256,17 +262,18 @@ export function validateChromiumWorkspaceWebSqliteEvidence(phase, entities, sett
   requireSqlite(roles.length === 1, `${phase}: dependency Role is missing`);
   const workspace = workspaces[0];
   const slots = workspace.payload?.slots;
-  const templateWebSlots = slots?.filter((slot) => expectedWebUrl(slot.web?.startUrl)) ?? [];
+  const templateWebSlots = slots?.filter((slot) =>
+    exactKeys(slot.web, ["lastUrl"]) && expectedWebUrl(slot.web.lastUrl)
+  ) ?? [];
   const templateRoleSlots = slots?.filter((slot) => slot.roleId === roles[0].id) ?? [];
   requireSqlite(
     slots?.length === 2 && templateWebSlots.length === 1 &&
       templateRoleSlots.length === 1 &&
-      templateWebSlots[0].web.name === "Chromium Workspace Web fixture" &&
       validRect(templateWebSlots[0].rect) &&
       Math.abs(templateWebSlots[0].rect.width - 0.5) < 1e-12 &&
       validRect(templateRoleSlots[0].rect) &&
       Math.abs(templateRoleSlots[0].rect.width - 0.5) < 1e-12,
-    `${phase}: mixed Web App + Role Workspace template or configured start URL was not durable`
+    `${phase}: mixed Rion Web + Role Workspace template or continuation URL was not durable`
   );
   const gameWindow = windows[0];
   const workspaceTabs = gameWindow.payload?.tabs?.filter((tab) =>
@@ -275,7 +282,7 @@ export function validateChromiumWorkspaceWebSqliteEvidence(phase, entities, sett
   const workspaceTab = workspaceTabs[0];
   const persistedSlots = workspaceTab?.workspaceSlots;
   const persistedWebSlots = persistedSlots?.filter(
-    (slot) => expectedWebUrl(slot.web?.startUrl)
+    (slot) => exactKeys(slot.web, ["lastUrl"]) && expectedWebUrl(slot.web.lastUrl)
   ) ?? [];
   const persistedRoleSlots = persistedSlots?.filter(
     (slot) => slot.roleId === roles[0].id
@@ -285,7 +292,6 @@ export function validateChromiumWorkspaceWebSqliteEvidence(phase, entities, sett
       gameWindow.payload.activeTabId === workspaceTab.id &&
       persistedSlots?.length === 2 && persistedWebSlots.length === 1 &&
       persistedRoleSlots.length === 1 &&
-      persistedWebSlots[0].web.name === "Chromium Workspace Web fixture" &&
       validRect(persistedWebSlots[0].rect) &&
       persistedWebSlots[0].rect.width > 0.53 &&
       validRect(persistedRoleSlots[0].rect) &&

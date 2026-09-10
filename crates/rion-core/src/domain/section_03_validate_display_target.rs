@@ -116,17 +116,39 @@ fn normalize_workspace_web(
     web: WorkspaceWebContentRecord,
 ) -> CoreResult<WorkspaceWebContentRecord> {
     Ok(WorkspaceWebContentRecord {
-        name: normalize_name(
-            &web.name,
-            "WORKSPACE_WEB_NAME_REQUIRED",
-            "WORKSPACE_WEB_NAME_TOO_LONG",
-        )?,
-        start_url: if web.start_url.trim().is_empty() {
-            String::new()
-        } else {
-            normalize_http_url(&web.start_url, "WORKSPACE_WEB_URL_INVALID")?
-        },
+        last_url: web
+            .last_url
+            .as_deref()
+            .map(normalize_workspace_web_last_url)
+            .transpose()?,
     })
+}
+
+pub(crate) fn normalize_workspace_web_last_url(value: &str) -> CoreResult<String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 2_048 {
+        return Err(domain(
+            "WORKSPACE_WEB_URL_INVALID",
+            "Workspace Web URL must use HTTP or HTTPS.",
+        ));
+    }
+    let url = Url::parse(value).map_err(|_| {
+        domain(
+            "WORKSPACE_WEB_URL_INVALID",
+            "Workspace Web URL must use HTTP or HTTPS.",
+        )
+    })?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(domain(
+            "WORKSPACE_WEB_URL_INVALID",
+            "Workspace Web URL must use credential-free HTTP or HTTPS.",
+        ));
+    }
+    Ok(url.to_string())
 }
 
 fn normalize_workspace_slot_zoom(value: f64) -> CoreResult<f64> {
@@ -370,9 +392,16 @@ fn normalize_macro_shortcut_source_scope(
         return Ok(MacroShortcutSourceScope::AllExecutionRoles);
     }
     match scope.unwrap_or_default() {
-        MacroShortcutSourceScope::AllRoles if uses_source_role => Ok(MacroShortcutSourceScope::AllRoles),
-        MacroShortcutSourceScope::AllRoles => Err(domain("MACRO_SOURCE_SCOPE_INVALID", "All roles requires source-role execution.")),
-        MacroShortcutSourceScope::AllExecutionRoles if uses_source_role => Ok(MacroShortcutSourceScope::AllRoles),
+        MacroShortcutSourceScope::AllRoles if uses_source_role => {
+            Ok(MacroShortcutSourceScope::AllRoles)
+        }
+        MacroShortcutSourceScope::AllRoles => Err(domain(
+            "MACRO_SOURCE_SCOPE_INVALID",
+            "All roles requires source-role execution.",
+        )),
+        MacroShortcutSourceScope::AllExecutionRoles if uses_source_role => {
+            Ok(MacroShortcutSourceScope::AllRoles)
+        }
         MacroShortcutSourceScope::AllExecutionRoles => {
             Ok(MacroShortcutSourceScope::AllExecutionRoles)
         }
@@ -405,9 +434,10 @@ pub(crate) fn macro_shortcut_source_contains(
     execution_role_ids: &[String],
     role_id: &str,
 ) -> bool {
-    matches!(scope, MacroShortcutSourceScope::AllRoles) || macro_shortcut_source_role_ids(scope, execution_role_ids)
-        .iter()
-        .any(|candidate| candidate == role_id)
+    matches!(scope, MacroShortcutSourceScope::AllRoles)
+        || macro_shortcut_source_role_ids(scope, execution_role_ids)
+            .iter()
+            .any(|candidate| candidate == role_id)
 }
 
 fn normalize_macro_trigger(trigger: MacroTrigger) -> CoreResult<MacroTrigger> {
@@ -809,17 +839,21 @@ fn validate_macro_candidate(
                 &candidate.shortcut_source_scope,
                 &candidate.role_ids,
             );
-            let item_source_role_ids = macro_shortcut_source_role_ids(
-                &item.shortcut_source_scope,
-                &item.role_ids,
-            );
+            let item_source_role_ids =
+                macro_shortcut_source_role_ids(&item.shortcut_source_scope, &item.role_ids);
             Some(item.id.as_str()) != current_id
                 && item.trigger.as_ref().is_some_and(|other| {
                     serde_json::to_value(other).ok() == serde_json::to_value(trigger).ok()
                 })
-                && (matches!(candidate.shortcut_source_scope, MacroShortcutSourceScope::AllRoles)
-                    || matches!(item.shortcut_source_scope, MacroShortcutSourceScope::AllRoles)
-                    || item_source_role_ids.iter().any(|id| candidate_source_role_ids.contains(id)))
+                && (matches!(
+                    candidate.shortcut_source_scope,
+                    MacroShortcutSourceScope::AllRoles
+                ) || matches!(
+                    item.shortcut_source_scope,
+                    MacroShortcutSourceScope::AllRoles
+                ) || item_source_role_ids
+                    .iter()
+                    .any(|id| candidate_source_role_ids.contains(id)))
         })
     {
         return Err(domain(

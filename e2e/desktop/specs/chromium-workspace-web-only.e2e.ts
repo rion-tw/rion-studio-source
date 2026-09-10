@@ -10,17 +10,12 @@ import {
 } from "../support/electron-driver";
 import { navigateVisibleElectronWorkspaceWebChrome } from
   "../support/electron-role-surface";
-import { fixtureCursor, fixtureRequest, waitFixtureEvent } from
+import { fixtureCursor, waitFixtureEvent } from
   "../support/fixture";
 import {
   clickVisibleRuntimeTab,
-  closeVisibleRuntimeTab,
-  visibleRuntimeTabPhase
+  closeVisibleRuntimeTab
 } from "../support/native-runtime-tabs";
-import {
-  readWindowsRuntimeTabCloseEvidence,
-  readWindowsRuntimeTabLoadingEvidence
-} from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   installRendererEventJournal,
@@ -41,7 +36,6 @@ import {
 // [journey:CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024]
 
 const WORKSPACE_NAME = "Chromium Web Only Workspace";
-const WEB_NAME = "Chromium Web Only App";
 const FIXTURE_ID = "chromium-workspace-web-only";
 const SESSION_MARKER = "chromium-workspace-web-only-session";
 const TERMINAL_NAVIGATION_FAILURE_URL = "http://127.0.0.1:1/rion-navigation-failure";
@@ -107,8 +101,6 @@ async function createWorkspace(): Promise<LaunchWorkspace> {
   await $("[data-workspace-layout-option='single']").click();
   await $("#workspace-slot-content").click();
   await $("[role='option']=Website").click();
-  await setInputValue("#workspace-web-name", WEB_NAME);
-  await setInputValue("#workspace-web-url", webUrl());
   await submitEditor("/workspaces");
   const workspace = await findWorkspace();
   expect(workspace).toEqual(expect.objectContaining({
@@ -117,7 +109,7 @@ async function createWorkspace(): Promise<LaunchWorkspace> {
   }));
   expect(workspace.slots).toHaveLength(1);
   expect(workspace.slots[0]).toEqual(expect.objectContaining({
-    web: { name: WEB_NAME, startUrl: webUrl() }
+    web: {}
   }));
   expect(workspace.slots[0]).not.toHaveProperty("roleId");
   return workspace;
@@ -207,14 +199,6 @@ async function runtimeTab(
   return tab!;
 }
 
-async function waitFixturePath(path: string): Promise<void> {
-  const response = await fetch(
-    `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}${path}`,
-    { signal: AbortSignal.timeout(55_000) }
-  );
-  if (!response.ok) throw new Error(`Fixture path ${path} failed with ${response.status}`);
-}
-
 async function waitInspectionPhase(
   windowId: string,
   phase: "degraded" | "ready"
@@ -250,7 +234,7 @@ function expectExactWebOnly(
   }));
   expect(inspection.coreSlots).toEqual([expect.objectContaining({
     roleId: null,
-    web: { name: WEB_NAME, startUrl: webUrl() }
+    web: { lastUrl: webUrl() }
   })]);
   expect(inspection.web).toEqual(expect.objectContaining({
     chromeShellSession: "rion-web-chrome-shell:memory",
@@ -278,43 +262,17 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
   const workspace = await createWorkspace();
   const gameWindow = await createSavedWindow();
   const sessionCursor = await fixtureCursor();
-  await fixtureRequest("/api/gate", { roleId: FIXTURE_ID });
-  let nativeLoading: Awaited<ReturnType<typeof readWindowsRuntimeTabLoadingEvidence>> | undefined;
-  const pendingTab = await (async () => {
-    try {
-      await openWorkspace(workspace, gameWindow);
-      await waitFixturePath(`/api/gates/${FIXTURE_ID}/waiting`);
-      if (input.platform === "windows") {
-        nativeLoading = await readWindowsRuntimeTabLoadingEvidence({
-          processId: input.processId, tabName: workspace.name
-        });
-        return undefined;
-      }
-      const pendingTab = await runtimeTab(workspace, gameWindow.id);
-      expect(pendingTab.roleIds).toEqual([]);
-      expect(pendingTab.slots).toEqual([]);
-      expect(await visibleRuntimeTabPhase({
-        mainWindowHandle: input.mainWindowHandle,
-        platform: input.platform,
-        tabId: pendingTab.id,
-        tabName: workspace.name,
-        windowId: pendingTab.windowId
-      })).toBe("loading");
-      return pendingTab;
-    } finally {
-      await fixtureRequest("/api/release", { roleId: FIXTURE_ID });
-    }
-  })();
-  const tab = pendingTab ?? await runtimeTab(workspace, gameWindow.id);
+  await openWorkspace(workspace, gameWindow);
+  const tab = await runtimeTab(workspace, gameWindow.id);
   expect(tab.roleIds).toEqual([]);
   expect(tab.slots).toEqual([]);
-  if (nativeLoading) {
-    const readyControl = await readWindowsRuntimeTabCloseEvidence({
-      processId: input.processId, tabId: tab.id, windowId: tab.windowId,
-      controlName: nativeLoading.controlName
-    });
-    expect(readyControl.nativeHandle).toBe(nativeLoading.nativeHandle);
-  }
+  const entrance = await waitInspectionPhase(tab.windowId, "ready");
+  expect(entrance.web.contentUrl).toBe("rion-start://home/");
+  await navigateVisibleElectronWorkspaceWebChrome(
+    entrance.web.chromeShellUrl,
+    input.mainWindowHandle,
+    webUrl()
+  );
   const session = await waitFixtureEvent({
     afterSequence: sessionCursor,
     kind: "session",
@@ -325,7 +283,16 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
     marker: SESSION_MARKER,
     mode: "seed"
   });
-  const ready = await waitInspectionPhase(tab.windowId, "ready");
+  let ready = await waitInspectionPhase(tab.windowId, "ready");
+  await browser.waitUntil(async () => {
+    ready = await electronDesktopE2eWorkspaceWebRuntime(tab.windowId);
+    return ready.web.contentUrl === webUrl() &&
+      (await findWorkspace()).slots.some((slot) => slot.web?.lastUrl === webUrl());
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The Web-only visible navigation was not committed"
+  });
   expectExactWebOnly(ready, input.platform);
   expect(await rendererCall("listRoleStatuses")).toEqual([]);
 

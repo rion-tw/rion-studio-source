@@ -9,11 +9,9 @@ import { cn } from "../../lib/utils";
 
 import type { LaunchWorkspaceSlot, NormalizedRect, Role, WorkspaceLayoutTemplate } from "../../../../shared/types";
 
-import { createWorkspaceSlotBackground, getWorkspaceHorizontalResizeHandles, getWorkspaceSplits, getWorkspaceVerticalResizeHandles, rectToPreviewStyle, type WorkspaceSplitAxis } from "./workspaceLayoutUtils";
+import { createWorkspaceSlotBackground, getWorkspaceHorizontalResizeHandles, getWorkspaceSplits, getWorkspaceVerticalResizeHandles, rectToPreviewStyle, workspaceWebLastLocation, type WorkspaceSplitAxis } from "./workspaceLayoutUtils";
 
 import type { WorkspaceActiveResize } from "./WorkspaceModal";
-
-import { resolveWorkspaceWebPreset } from "./workspaceWebPresets";
 
 export function WorkspaceHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
   return (
@@ -56,14 +54,6 @@ export function WorkspaceSlotDropZone({
   t
 }: WorkspaceSlotDropZoneProps): JSX.Element {
   const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
-  const webPreset = web ? resolveWorkspaceWebPreset(web.startUrl) : undefined;
-  const webPresetBackground = webPreset ? {
-    backgroundColor: "hsl(var(--media-black))",
-    backgroundImage: `url("${webPreset.brandImageUrl}")`,
-    backgroundPosition: "center",
-    backgroundRepeat: "no-repeat",
-    backgroundSize: webPreset.brandImagePresentation === "cover" ? "cover" : "min(40%, 8rem) auto"
-  } : {};
   const slotInsetStyle = {
     top: rect.y > 0 ? 10 : 0,
     right: rect.x + rect.width < 0.999 ? 10 : 0,
@@ -89,18 +79,16 @@ export function WorkspaceSlotDropZone({
         type="button"
         aria-pressed={isSelected}
         data-workspace-assigned-role-id={role?.id ?? ""}
-        data-workspace-web-preset-id={webPreset?.id ?? ""}
-        data-workspace-web-url={web?.startUrl ?? ""}
+        data-workspace-web-url={web?.lastUrl ?? ""}
         data-workspace-slot-index={index}
         disabled={isSaving}
         style={{
           ...slotInsetStyle,
-          ...createWorkspaceSlotBackground(role),
-          ...webPresetBackground
+          ...createWorkspaceSlotBackground(role)
         }}
         onClick={onClick}
       >
-        {role?.coverImageDataUrl || webPreset ? (
+        {role?.coverImageDataUrl ? (
           <div className="absolute inset-0 bg-gradient-to-t from-media-black/35 via-media-black/5 to-media-black/10" />
         ) : null}
         {resizeIndicator ? (
@@ -142,17 +130,11 @@ export function WorkspaceSlotDropZone({
         ) : web ? (
           <div className="workspace-slot-caption">
             <p className="workspace-slot-name-chip flex min-w-0 items-center gap-2 text-sm font-semibold">
-              {webPreset ? null : <Globe2 className="size-4 shrink-0" aria-hidden="true" />}
+              <Globe2 className="size-4 shrink-0" aria-hidden="true" />
               <span className="workspace-role-chip-text">
-                <span className="min-w-0 truncate">{web.name}</span>
+                <span className="min-w-0 truncate">{t("workspaces.rionPortal")}</span>
                 <span className="workspace-role-game-label min-w-0 truncate">
-                  {(() => {
-                    try {
-                      return new URL(web.startUrl).origin;
-                    } catch {
-                      return web.startUrl || t("workspaces.webStartPage");
-                    }
-                  })()}
+                  {workspaceWebLastLocation(web, t)}
                 </span>
               </span>
             </p>

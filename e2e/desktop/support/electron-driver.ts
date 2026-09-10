@@ -364,7 +364,7 @@ export interface ElectronDesktopE2eWorkspaceWebRuntimeInspection {
     id: string;
     rect: { height: number; width: number; x: number; y: number };
     roleId: string | null;
-    web: { name: string; startUrl: string } | null;
+    web: { lastUrl?: string } | null;
   }[];
   focused: boolean;
   hostKind: "appkit-chromium" | "bundled-chromium";

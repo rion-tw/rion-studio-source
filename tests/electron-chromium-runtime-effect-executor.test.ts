@@ -909,7 +909,7 @@ describe("Electron Chromium runtime effect executor", () => {
           slotId: specification.slots.find(
             (slot) => slot.role.id === role.role.id
           )!.slotId,
-          url: role.web!.startUrl,
+          url: role.web!.lastUrl!,
           zoomFactor: role.zoomFactor,
           resolvedEngine: "chromium" as const
         }))

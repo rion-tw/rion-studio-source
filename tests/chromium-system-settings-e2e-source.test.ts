@@ -16,7 +16,11 @@ describe("Chromium system-settings desktop E2E boundary", () => {
 
     const rendererMethods = [...source.matchAll(/rendererCall\("([^"]+)"/gu)]
       .map((match) => match[1]);
-    expect(new Set(rendererMethods)).toEqual(new Set(["getGameBrowserSettings"]));
+    expect(new Set(rendererMethods)).toEqual(new Set([
+      "getGameBrowserSettings",
+      "getLogStatus",
+      "queryLogs"
+    ]));
 
     const readonlyRendererInspections = source.match(/browser\.execute\(/gu) ?? [];
     expect(readonlyRendererInspections).toHaveLength(2);
@@ -29,6 +33,9 @@ describe("Chromium system-settings desktop E2E boundary", () => {
       "Data transfer",
       "App update",
       "Diagnostics & logs",
+      "Application session is ready.",
+      "Core state changed.",
+      "Recording level",
       "About & Legal",
       "Export JSON",
       "Export diagnostics",

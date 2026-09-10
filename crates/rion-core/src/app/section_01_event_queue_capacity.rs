@@ -62,9 +62,10 @@ const LAUNCH_COMPLETION_QUEUE_CAPACITY: usize = 64;
 const LAUNCH_COMPLETION_CONCURRENCY: usize = 4;
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
 const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
-// Version 23 introduced Chromium data/effect semantics; 24 adds Web App DRM policy.
+// Version 23 introduced Chromium data/effect semantics; 24 added Web App DRM policy;
+// 25 requires the production-publisher CRX3 verification policy.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 24;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 25;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.
@@ -394,8 +395,7 @@ pub struct AppCore {
     popup_lifecycle: Mutex<crate::popup_lifecycle::ChromiumPopupLifecycleRuntime>,
     role_browser_data_clear_commands: Arc<RoleBrowserDataClearCommandCoordinator>,
     #[cfg(test)]
-    role_browser_data_clear_before_domain_terminal_hook:
-        Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    role_browser_data_clear_before_domain_terminal_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     runtime: RwLock<Option<Runtime>>,
     runtime_restore_session_mutations: RuntimeRestoreSessionMutationCoordinator,
     shutdown_started: AtomicBool,
@@ -595,8 +595,7 @@ impl AppCore {
                 logs,
                 scheduler,
             })),
-            runtime_restore_session_mutations:
-                RuntimeRestoreSessionMutationCoordinator::default(),
+            runtime_restore_session_mutations: RuntimeRestoreSessionMutationCoordinator::default(),
             shutdown_started: AtomicBool::new(false),
             embedded_runtime_sequence: Arc::new(
                 crate::runtime_sequence::RuntimeOperationSequence::default(),
@@ -615,19 +614,35 @@ impl AppCore {
             )),
             user_data_dir,
         };
-        if !retired_local_storage_replay_warnings.is_empty() {
+        let extension_metadata_warnings =
+            if core.runtime_contract_version >= CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
+                match core.migrate_extension_package_metadata() {
+                    Ok(warnings) => warnings,
+                    Err(error) => vec![json!({
+                        "code": "EXTENSIONS_METADATA_BACKFILL_FAILED",
+                        "message": error.to_string().chars().take(400).collect::<String>(),
+                    })],
+                }
+            } else {
+                Vec::new()
+            };
+        if !extension_metadata_warnings.is_empty() {
             let _ = core.capture_logs(vec![LogCaptureRecord {
                 level: LogLevel::Warn,
                 source: crate::model::LogSource::Main,
-                event: "storage.retired-local-storage-replay-cleanup-failed".to_owned(),
-                message: "Retired role LocalStorage replay cleanup will retry on the next startup."
-                    .to_owned(),
+                event: "extensions.metadata-backfill-failed".to_owned(),
+                message: "Some installed extension metadata could not be recovered.".to_owned(),
                 context_raw_json: serde_json::to_string(&json!({
-                    "errors": retired_local_storage_replay_warnings,
+                    "failures": extension_metadata_warnings,
                 }))
                 .ok(),
                 error: None,
             }]);
+        }
+        if !retired_local_storage_replay_warnings.is_empty() {
+            core.capture_retired_local_storage_cleanup_warning(
+                retired_local_storage_replay_warnings.len(),
+            )?;
         }
         core.emit(vec![CoreEvent::Ready {
             schema_version: SCHEMA_VERSION,

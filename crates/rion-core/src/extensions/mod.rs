@@ -1,17 +1,15 @@
 //! Rust-owned extension packages and per-role desired configuration.
 mod crx;
+mod error;
 mod package;
 
-use crate::model::{ExtensionPreparedRecord, ExtensionRoleRecord};
+use crate::model::{ExtensionPackageRecord, ExtensionPreparedRecord, ExtensionRoleRecord};
+pub(crate) use error::ExtensionPackageError;
+use error::Result;
 use std::{
     collections::{HashMap, HashSet},
-    io,
     sync::{Arc, atomic::AtomicBool},
 };
-type Result<T> = std::result::Result<T, io::Error>;
-fn failure(message: &str) -> io::Error {
-    io::Error::other(message)
-}
 
 #[derive(Default)]
 pub(crate) struct ExtensionRuntime {
@@ -29,12 +27,22 @@ pub(crate) fn prepare(
     cancelled: &AtomicBool,
 ) -> Result<(ExtensionPreparedRecord, tempfile::TempDir)> {
     let bytes = package::download(id, cancelled)?;
+    prepare_downloaded(root, id, operation, cancelled, &bytes)
+}
+
+fn prepare_downloaded(
+    root: &std::path::Path,
+    id: &str,
+    operation: &str,
+    cancelled: &AtomicBool,
+    bytes: &[u8],
+) -> Result<(ExtensionPreparedRecord, tempfile::TempDir)> {
     let base = root.join("extensions");
     std::fs::create_dir_all(&base)?;
     let directory = tempfile::Builder::new()
         .prefix("staging-")
         .tempdir_in(base)?;
-    let (manifest, sha256) = package::unpack(&bytes, id, directory.path())?;
+    let (manifest, sha256, metadata) = package::unpack(bytes, id, directory.path(), cancelled)?;
     let mut permissions: Vec<String> = [
         "permissions",
         "host_permissions",
@@ -64,6 +72,9 @@ pub(crate) fn prepare(
                 id: id.to_owned(),
                 name: package::display_name(&manifest, directory.path(), id),
                 version: manifest["version"].as_str().unwrap().to_owned(),
+                description: Some(metadata.description),
+                icon_data_url: metadata.icon_data_url,
+                size_bytes: Some(metadata.size_bytes),
                 permissions,
                 sha256,
                 directory: directory.path().to_string_lossy().into_owned(),
@@ -74,6 +85,35 @@ pub(crate) fn prepare(
         },
         directory,
     ))
+}
+
+pub(crate) fn backfill_metadata(
+    user_data_dir: &std::path::Path,
+    record: &mut ExtensionPackageRecord,
+) -> Result<bool> {
+    if record.description.is_some() && record.size_bytes.is_some() {
+        return Ok(false);
+    }
+    let managed_root = std::fs::canonicalize(user_data_dir.join("extensions"))?;
+    let directory = std::fs::canonicalize(&record.directory)?;
+    if directory.parent() != Some(managed_root.as_path()) {
+        return Err(ExtensionPackageError::PackageInvalid);
+    }
+    let metadata = package::installed_metadata(&directory)?;
+    let mut changed = false;
+    if record.description.is_none() {
+        record.description = Some(metadata.description);
+        changed = true;
+    }
+    if record.icon_data_url.is_none() {
+        record.icon_data_url = metadata.icon_data_url;
+        changed |= record.icon_data_url.is_some();
+    }
+    if record.size_bytes.is_none() {
+        record.size_bytes = Some(metadata.size_bytes);
+        changed = true;
+    }
+    Ok(changed)
 }
 
 #[cfg(test)]

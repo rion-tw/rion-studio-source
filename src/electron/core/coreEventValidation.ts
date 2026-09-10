@@ -225,6 +225,8 @@ export function parseCoreEvents(eventsJson: string): CoreEvent[] {
 const extensionPackage = (value: unknown): boolean => check.closed(value, {
   id: check.identity, name: check.text, version: check.text, permissions: check.arrayOf(check.text),
   sha256: check.text, directory: check.text, enabledRoleIds: check.arrayOf(check.identity), applyToAllRoles: (v: unknown) => typeof v === "boolean", removed: (v: unknown) => typeof v === "boolean"
+}, {
+  description: check.text, iconDataUrl: check.text, sizeBytes: check.nonnegativeInteger
 });
 const extensionRole = (value: unknown): boolean => check.closed(value, {
   roleId: check.identity, leaseId: check.identity, extensionIds: check.arrayOf(check.identity), status: check.oneOf("loading", "loaded", "failed")

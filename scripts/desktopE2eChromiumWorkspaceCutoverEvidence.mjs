@@ -102,11 +102,13 @@ function validWebOnlyObservation(observation, platform) {
   }
   const slot = observation.coreSlots[0];
   const web = observation.web;
+  const continuationMatches =
+    web.contentUrl === "rion-start://home/" && exactKeys(slot.web, []) ||
+    exactKeys(slot.web, ["lastUrl"]) &&
+      expectedUrl(slot.web.lastUrl, "chromium-workspace-web-only");
   return exactKeys(slot, ["id", "rect", "roleId", "web"]) &&
     slot.roleId === null && validRect(slot.rect) &&
-    exactKeys(slot.web, ["name", "startUrl"]) &&
-    slot.web.name === "Chromium Web Only App" &&
-    expectedUrl(slot.web.startUrl, "chromium-workspace-web-only") &&
+    continuationMatches &&
     exactKeys(web, [
       "canGoBack", "canGoForward", "chromeBounds", "chromeShellSession",
       "chromeShellStoragePath", "chromeShellUrl", "chromeVisible", "contentBounds",
@@ -122,7 +124,8 @@ function validWebOnlyObservation(observation, platform) {
     web.contentProfilePath.replaceAll("\\", "/").toLowerCase()
       .endsWith("/web-profiles/global-web/chromium") &&
     web.chromeShellUrl.endsWith("/runtime-web-chrome-electron.html") &&
-    (expectedUrl(web.contentUrl, "chromium-workspace-web-only") ||
+    (web.contentUrl === "rion-start://home/" ||
+      expectedUrl(web.contentUrl, "chromium-workspace-web-only") ||
       observation.phase === "degraded" &&
       web.contentUrl === "http://127.0.0.1:1/rion-navigation-failure") &&
     web.isolatedSessions === true && (
@@ -420,8 +423,8 @@ function validateWebOnlySqlite(phase, entities, settings) {
   const slots = workspace.payload?.slots;
   requireSqlite(
     Array.isArray(slots) && slots.length === 1 && slots[0].roleId == null &&
-      slots[0].web?.name === "Chromium Web Only App" &&
-      expectedUrl(slots[0].web?.startUrl, "chromium-workspace-web-only") &&
+      exactKeys(slots[0].web, ["lastUrl"]) &&
+      expectedUrl(slots[0].web.lastUrl, "chromium-workspace-web-only") &&
       validRect(slots[0].rect),
     `${phase}: exact empty-Role Web-only Workspace was not durable`
   );

@@ -395,7 +395,7 @@ describe("list editor navigation", () => {
       slots: [{
         id: "slot-1",
         rect: { x: 0, y: 0, width: 1, height: 1 },
-        web: { name: "Watch", startUrl: "https://studio.youtube.com/channel/test" }
+        web: { lastUrl: "https://studio.youtube.com/channel/test" }
       }]
     };
     const customWorkspace = {
@@ -403,7 +403,7 @@ describe("list editor navigation", () => {
       slots: [{
         id: "slot-2",
         rect: { x: 0, y: 0, width: 1, height: 1 },
-        web: { name: "Custom", startUrl: "https://custom.example.test/" }
+        web: { lastUrl: "https://custom.example.test/" }
       }]
     };
     const onLaunchWorkspace = vi.fn();
@@ -431,21 +431,20 @@ describe("list editor navigation", () => {
     );
 
     const knownPreview = container.querySelector<HTMLElement>(
-      "[data-workspace-reorder-id='workspace-1'] [data-workspace-preview-web-preset-id]"
+      "[data-workspace-reorder-id='workspace-1'] [data-workspace-preview-web-url]"
     );
     const customPreview = container.querySelector<HTMLElement>(
-      "[data-workspace-reorder-id='workspace-2'] [data-workspace-preview-web-preset-id]"
+      "[data-workspace-reorder-id='workspace-2'] [data-workspace-preview-web-url]"
     );
     if (!knownPreview || !customPreview) throw new Error("Expected workspace Website previews.");
 
-    const brandImage = knownPreview.querySelector<HTMLImageElement>("[data-workspace-web-brand-image]");
-    expect(knownPreview.getAttribute("data-workspace-preview-web-preset-id")).toBe("youtube");
-    expect(brandImage).not.toBeNull();
-    expect(brandImage?.getAttribute("loading")).toBe("lazy");
-    expect(brandImage?.getAttribute("decoding")).toBe("async");
-    expect(knownPreview.querySelector(".workspace-slot-caption svg")).toBeNull();
-
-    expect(customPreview.getAttribute("data-workspace-preview-web-preset-id")).toBe("");
+    expect(knownPreview.getAttribute("data-workspace-preview-web-url"))
+      .toBe("https://studio.youtube.com/channel/test");
+    expect(knownPreview.textContent).toContain("workspaces.rionPortal");
+    expect(knownPreview.textContent).toContain("studio.youtube.com");
+    expect(knownPreview.querySelector(".workspace-slot-caption svg")).not.toBeNull();
+    expect(customPreview.getAttribute("data-workspace-preview-web-url"))
+      .toBe("https://custom.example.test/");
     expect(customPreview.querySelector("[data-workspace-web-brand-image]")).toBeNull();
     expect(customPreview.querySelector(".workspace-slot-caption svg")).not.toBeNull();
 
@@ -477,7 +476,7 @@ describe("list editor navigation", () => {
         },
         {
           id: "slot-web",
-          web: { name: "Watch", startUrl: "https://example.test/watch" },
+          web: { lastUrl: "https://example.test/watch" },
           rect: { x: 0.5, y: 0, width: 0.5, height: 1 }
         }
       ]

@@ -70,7 +70,7 @@ pub struct LogStatus {
 enum Request {
     Append(Vec<LogEntry>, Sender<CoreResult<usize>>),
     Query(LogQuery, Sender<CoreResult<LogPageRecord>>),
-    Clear(Sender<CoreResult<()>>),
+    ClearAndAppend(Vec<LogEntry>, Sender<CoreResult<usize>>),
     Status(Sender<CoreResult<LogStatus>>),
     ExportTo(PathBuf, Sender<CoreResult<()>>),
     Shutdown(Sender<CoreResult<()>>),
@@ -122,8 +122,10 @@ impl LogDatabaseWorker {
         request(&self.sender, |response| Request::Query(query, response))
     }
 
-    pub fn clear(&self) -> CoreResult<()> {
-        request(&self.sender, Request::Clear)
+    pub fn clear_and_append(&self, entries: Vec<LogEntry>) -> CoreResult<usize> {
+        request(&self.sender, |response| {
+            Request::ClearAndAppend(entries, response)
+        })
     }
 
     pub fn status(&self) -> CoreResult<LogStatus> {
@@ -278,9 +280,9 @@ fn run_worker(path: PathBuf, receiver: Receiver<Request>, ready: Sender<CoreResu
                 last_flush = Instant::now();
                 let _ = response.send(result);
             }
-            Request::Clear(response) => {
+            Request::ClearAndAppend(entries, response) => {
                 let result = flush_pending(&mut connection, &mut pending, &mut pending_appends)
-                    .and_then(|_| clear_entries(&connection));
+                    .and_then(|_| clear_and_append_entries(&mut connection, &entries));
                 last_flush = Instant::now();
                 let _ = response.send(result);
             }
@@ -656,11 +658,30 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
     })
 }
 
-fn clear_entries(connection: &Connection) -> CoreResult<()> {
-    connection
+fn clear_and_append_entries(
+    connection: &mut Connection,
+    entries: &[LogEntry],
+) -> CoreResult<usize> {
+    if entries.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "clear-and-append requires an audit entry".to_owned(),
+        ));
+    }
+    entries.iter().try_for_each(validate_entry)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    transaction
         .execute("DELETE FROM log_entries", [])
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
-    reclaim_unused_space(connection)
+    let mut inserted = 0;
+    for entry in entries {
+        inserted += insert_entry(&transaction, entry)?;
+    }
+    transaction
+        .commit()
+        .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    Ok(inserted)
 }
 
 fn read_status(connection: &Connection, path: &Path) -> CoreResult<LogStatus> {

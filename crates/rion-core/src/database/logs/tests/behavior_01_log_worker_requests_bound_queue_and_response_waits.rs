@@ -466,13 +466,14 @@ use serde_json::json;
                     .event,
                 "visible"
             );
-            clear_entries(&connection).unwrap();
-            assert!(
-                query_entries(&connection, &LogQuery::default())
-                    .unwrap()
-                    .entries
-                    .is_empty()
-            );
+            let mut audit = entry("clear-audit", "Application logs were cleared.");
+            audit.event = "logs_cleared".to_owned();
+            clear_and_append_entries(&mut connection, &[audit]).unwrap();
+            let entries = query_entries(&connection, &LogQuery::default())
+                .unwrap()
+                .entries;
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].event, "logs_cleared");
         };
 
         {
@@ -576,6 +577,34 @@ use serde_json::json;
                 .unwrap(),
             1
         );
+    }
+
+    #[test]
+    fn clear_and_append_is_atomic_and_leaves_only_the_audit_entry() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("logs.sqlite3");
+        let mut worker = LogDatabaseWorker::start(path).unwrap();
+        worker
+            .append(vec![entry("old-1", "old one"), entry("old-2", "old two")])
+            .unwrap();
+
+        let mut invalid = entry("invalid", "invalid audit");
+        invalid.message.clear();
+        assert!(worker.clear_and_append(vec![invalid]).is_err());
+        assert_eq!(
+            worker.query(LogQuery::default()).unwrap().entries.len(),
+            2,
+            "validation must fail before the clear transaction starts"
+        );
+
+        let mut audit = entry("audit", "Application logs were cleared.");
+        audit.event = "logs_cleared".to_owned();
+        assert_eq!(worker.clear_and_append(vec![audit]).unwrap(), 1);
+        let entries = worker.query(LogQuery::default()).unwrap().entries;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].event, "logs_cleared");
+        assert_eq!(worker.status().unwrap().entry_count, 1);
+        worker.shutdown().unwrap();
     }
 
     #[test]

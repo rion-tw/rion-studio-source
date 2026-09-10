@@ -217,6 +217,34 @@ impl AppCore {
         Ok(self.log_capture()?.capture(entries))
     }
 
+    fn capture_logs_unfiltered(
+        &self,
+        entries: Vec<LogCaptureRecord>,
+    ) -> CoreResult<Vec<crate::model::LogEntry>> {
+        Ok(self.log_capture()?.capture_unfiltered(entries))
+    }
+
+    fn capture_retired_local_storage_cleanup_warning(
+        &self,
+        error_count: usize,
+    ) -> CoreResult<()> {
+        self.invoke(CoreCommand::LogsCapture {
+            entries: vec![LogCaptureRecord {
+                level: LogLevel::Warn,
+                source: crate::model::LogSource::Main,
+                event: "storage.retired-local-storage-replay-cleanup-failed".to_owned(),
+                message: "Retired role LocalStorage replay cleanup will retry on the next startup."
+                    .to_owned(),
+                context_raw_json: serde_json::to_string(&json!({
+                    "errorCount": error_count,
+                }))
+                .ok(),
+                error: None,
+            }],
+        })?;
+        Ok(())
+    }
+
     fn log_capture(
         &self,
     ) -> CoreResult<std::sync::MutexGuard<'_, crate::log_capture::LogCaptureRuntime>> {

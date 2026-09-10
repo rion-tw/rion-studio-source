@@ -30,8 +30,6 @@ export function projectWorkspaceContent(
 
     if (slot.web) {
       webCount += 1;
-      const webName = slot.web.name.trim();
-      if (webName) names.push(webName);
     }
   }
 

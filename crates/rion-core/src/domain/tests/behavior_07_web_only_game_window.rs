@@ -30,8 +30,7 @@ fn game_window_save_and_restore_preserve_web_only_and_legacy_role_subsets() {
         "workspaceSlots": [{
             "id": "web-slot",
             "web": {
-                "name": "Rion Docs",
-                "startUrl": "https://example.test/docs"
+                "lastUrl": "https://example.test/docs"
             },
             "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}
         }],
@@ -50,8 +49,9 @@ fn game_window_save_and_restore_preserve_web_only_and_legacy_role_subsets() {
             .web
             .as_ref()
             .unwrap()
-            .start_url,
-        "https://example.test/docs"
+            .last_url
+            .as_deref(),
+        Some("https://example.test/docs")
     );
 
     let restored: StateGameWindowRecord =

@@ -1,4 +1,3 @@
-import { selectGroupedDramaWebsite } from "../support/workspace-web-groups";
 import { clickWorkspaceSlot } from "../support/ui";
 import { $, browser, expect } from "@wdio/globals";
 
@@ -16,8 +15,10 @@ import {
   electronDesktopE2eWorkspaceWebRuntime,
   type ElectronDesktopE2eWorkspaceWebRuntimeInspection
 } from "../support/electron-driver";
-import { dragWindowsVisibleWorkspaceDivider } from
-  "../support/electron-role-surface";
+import {
+  dragWindowsVisibleWorkspaceDivider,
+  navigateVisibleElectronWorkspaceWebChrome
+} from "../support/electron-role-surface";
 import { fixtureEvents, waitFixtureEvent } from "../support/fixture";
 import { dragMacosVisibleWorkspaceDivider } from
   "../support/macos-appkit-ui";
@@ -47,7 +48,6 @@ import {
 const ROLE_NAME = "Chromium Entity Role Edited";
 const WORKSPACE_NAME = "Chromium Workspace Web Slot";
 const WINDOW_NAME = "Chromium Workspace Web Window";
-const WEB_NAME = "Chromium Workspace Web fixture";
 const WEB_FIXTURE_ID = "chromium-workspace-web-slot";
 const WEB_SESSION_MARKER = "chromium-workspace-web-slot-marker";
 
@@ -161,9 +161,6 @@ async function createWorkspaceThroughVisibleSlotControls(
 
   await $("#workspace-slot-content").click();
   await $("[role='option']=Website").click();
-  await selectGroupedDramaWebsite();
-  await setInputValue("#workspace-web-name", WEB_NAME);
-  await setInputValue("#workspace-web-url", configuredWebUrl());
 
   await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
@@ -173,7 +170,7 @@ async function createWorkspaceThroughVisibleSlotControls(
   const workspace = await findWorkspace();
   expect(workspace.slots).toHaveLength(2);
   expect(workspace.slots).toEqual(expect.arrayContaining([
-    expect.objectContaining({ web: { name: WEB_NAME, startUrl: configuredWebUrl() } }),
+    expect.objectContaining({ web: {} }),
     expect.objectContaining({ roleId: role.id })
   ]));
   return workspace;
@@ -324,7 +321,7 @@ async function expectExactSessionsAndLayout(input: Readonly<{
   expect(inspection.coreSlots).toEqual(expect.arrayContaining([
     expect.objectContaining({
       id: inspection.web.slotId,
-      web: { name: WEB_NAME, startUrl: configuredWebUrl() }
+      web: { lastUrl: configuredWebUrl() }
     }),
     expect.objectContaining({ roleId: role.id, web: null })
   ]));
@@ -436,8 +433,7 @@ async function waitForPersistedGameWindowLayout(
             Math.abs(authoritative.rect.width - persisted.rect.width) <= 1e-12 &&
             Math.abs(authoritative.rect.height - persisted.rect.height) <= 1e-12 &&
             authoritative.roleId === (persisted.roleId ?? null) &&
-            authoritative.web?.name === persisted.web?.name &&
-            authoritative.web?.startUrl === persisted.web?.startUrl;
+            authoritative.web?.lastUrl === persisted.web?.lastUrl;
         });
     }, {
       interval: 100,
@@ -459,7 +455,7 @@ async function waitForPersistedGameWindowLayout(
 
 async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   const role = await findRole();
-  const workspace = await createWorkspaceThroughVisibleSlotControls(role);
+  let workspace = await createWorkspaceThroughVisibleSlotControls(role);
   const mainWindowHandle = await browser.getWindowHandle();
   const savedWindowIds = (await rendererCall("listGameWindows"))
     .map((window) => window.id)
@@ -470,18 +466,37 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     roleId: role.id,
     state: "running"
   }]);
-  await waitForWebSession(null);
-  const transientBefore = await electronDesktopE2eWorkspaceWebRuntime(
+  const entrance = await electronDesktopE2eWorkspaceWebRuntime(
     transientTab.windowId
   );
+  expect(entrance.web.contentUrl).toBe("rion-start://home/");
+  await navigateVisibleElectronWorkspaceWebChrome(
+    entrance.web.chromeShellUrl,
+    mainWindowHandle,
+    configuredWebUrl()
+  );
+  await waitForWebSession(null);
+  let transientBefore: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
+  await browser.waitUntil(async () => {
+    workspace = await findWorkspace();
+    transientBefore = await electronDesktopE2eWorkspaceWebRuntime(
+      transientTab.windowId
+    );
+    return transientBefore.web.contentUrl === configuredWebUrl() &&
+      workspace.slots.some((slot) => slot.web?.lastUrl === configuredWebUrl());
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The visible Web navigation was not committed to its Workspace slot"
+  });
   await expectExactSessionsAndLayout({
-    inspection: transientBefore,
+    inspection: transientBefore!,
     platform,
     role,
     slots: workspace.slots
   });
   const transientAfter = await dragVisibleNativeDivider({
-    before: transientBefore,
+    before: transientBefore!,
     mainWindowHandle,
     platform
   });
@@ -532,7 +547,7 @@ async function restartPhase(platform: "macos" | "windows"): Promise<void> {
   );
   const persistedSlots = persistedTab?.workspaceSlots;
   const webSlot = persistedSlots?.find((slot) => slot.web !== undefined);
-  expect(webSlot?.web).toEqual({ name: WEB_NAME, startUrl: configuredWebUrl() });
+  expect(webSlot?.web).toEqual({ lastUrl: configuredWebUrl() });
   expect(webSlot?.rect.width).toBeGreaterThan(0.53);
   expect(persistedTab?.id).toBeTruthy();
   const launched = await showSavedWorkspaceThroughVisibleUi(

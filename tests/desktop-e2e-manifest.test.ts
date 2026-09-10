@@ -46,9 +46,14 @@ describe("desktop E2E manifest resolution", () => {
     }
   });
 
-  it("routes the shared Chromium system-settings phase to its visible-UI spec", () => {
-    expect(desktopE2eSpecForPhase("chromium-system-settings"))
-      .toBe("e2e/desktop/specs/chromium-system-settings.e2e.ts");
+  it("routes both shared Chromium system-settings phases to its visible-UI spec", () => {
+    for (const phase of [
+      "chromium-system-settings",
+      "chromium-system-settings-restart"
+    ]) {
+      expect(desktopE2eSpecForPhase(phase))
+        .toBe("e2e/desktop/specs/chromium-system-settings.e2e.ts");
+    }
   });
 
   it("routes both Chromium Game Window continuity phases to one visible-UI spec", () => {
@@ -85,7 +90,7 @@ describe("desktop E2E manifest resolution", () => {
     ) as DesktopE2eManifest;
     {
       const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended");
-      expect(extended.phases).toHaveLength(66);
+      expect(extended.phases).toHaveLength(67);
       expect(extended.phases).toEqual(expect.arrayContaining([
         "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
       ]));
@@ -93,7 +98,7 @@ describe("desktop E2E manifest resolution", () => {
     }
     {
       const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended");
-      expect(extended.phases).toHaveLength(68);
+      expect(extended.phases).toHaveLength(69);
       expect(extended.phases).toEqual(expect.arrayContaining([
         "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
       ]));
@@ -114,6 +119,7 @@ describe("desktop E2E manifest resolution", () => {
         "chromium-workspace-web-slot-seed",
         "chromium-workspace-web-slot-restart",
         "chromium-system-settings",
+        "chromium-system-settings-restart",
         "chromium-role-session-isolation-seed",
         "chromium-role-session-isolation-restart",
         "chromium-role-session-reset-seed",

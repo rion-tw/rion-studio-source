@@ -1,8 +1,8 @@
-/** Logical target; never persisted in a user's startUrl or accepted as address input. */
+/** Logical target represented durably by an absent Workspace Web lastUrl. */
 export const WORKSPACE_START_URL = "rion-start://home/";
 
-export function workspaceWebLaunchUrl(startUrl: string): string {
-  return startUrl.trim() || WORKSPACE_START_URL;
+export function workspaceWebLaunchUrl(lastUrl?: string): string {
+  return lastUrl?.trim() || WORKSPACE_START_URL;
 }
 
 export function isWorkspaceStartUrl(url: string): boolean {

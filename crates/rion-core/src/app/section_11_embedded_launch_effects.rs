@@ -182,9 +182,7 @@ fn embedded_web_surface_load_plan(
             || !slot_ids.insert(slot.slot_id.as_str())
             || !surface_ids.insert(slot.role.id.as_str())
             || view.web.as_ref() != Some(web)
-            || view.role.name != web.name
             || view.role.launch_url != web.launch_url()
-            || slot.role.name != web.name
             || slot.role.launch_url != web.launch_url()
             || view.rect != slot.rect
             || view.zoom_factor != slot.zoom_factor
@@ -242,7 +240,7 @@ fn workspace_web_surface_role(
     StateRoleRecord {
         id: workspace_web_surface_id(tab_id, slot_index),
         game_id: "workspace-web".to_owned(),
-        name: web.name.clone(),
+        name: "Rion Web".to_owned(),
         launch_url: web.launch_url().to_owned(),
         notes: String::new(),
         cover_image_data_url: None,

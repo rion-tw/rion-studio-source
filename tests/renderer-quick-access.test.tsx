@@ -150,7 +150,7 @@ describe("quick access model", () => {
     expect(webItem).toMatchObject({ disabled: false, subtitle: "1 Website" });
     expect(emptyItem).toMatchObject({ disabled: true, subtitle: "Not configured" });
     expect(
-      filterQuickAccessItems(catalog, "Video room").some((item) => item.key === webItem?.key)
+      filterQuickAccessItems(catalog, "Web Workspace").some((item) => item.key === webItem?.key)
     ).toBe(true);
   });
 });
@@ -405,7 +405,7 @@ function webOnlyWorkspace(): LaunchWorkspace {
     template: "single",
     slots: [{
       id: "slot-web",
-      web: { name: "Video room", startUrl: "https://example.test/watch" },
+      web: { lastUrl: "https://example.test/watch" },
       rect: { x: 0, y: 0, width: 1, height: 1 }
     }],
     createdAt: "2026-01-01T00:00:00Z",

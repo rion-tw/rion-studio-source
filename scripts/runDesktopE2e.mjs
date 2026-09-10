@@ -120,6 +120,7 @@ const focusedPhaseDependencies = new Map([
   ["chromium-role-session-isolation-restart", ["chromium-role-session-isolation-seed"]],
   ["chromium-role-session-reset-restart", ["chromium-role-session-reset-seed"]],
   ["chromium-role-session-upgrade-restart", ["chromium-role-session-upgrade-seed"]],
+  ["chromium-system-settings-restart", ["chromium-system-settings"]],
   ["chromium-chrome-profile-import-restart", ["chromium-chrome-profile-import-seed"]]
 ]);
 focusedPhaseDependencies.set("chromium-extensions-restart", ["chromium-extensions-seed"]);
@@ -154,6 +155,8 @@ const phaseNamespaces = new Map([
   ["chromium-role-session-upgrade-restart", "chromium-role-session-upgrade-lifecycle"],
   ["chromium-role-session-reset-seed", "chromium-role-session-reset-lifecycle"],
   ["chromium-role-session-reset-restart", "chromium-role-session-reset-lifecycle"],
+  ["chromium-system-settings", "chromium-system-settings-lifecycle"],
+  ["chromium-system-settings-restart", "chromium-system-settings-lifecycle"],
   ["chromium-chrome-profile-import-seed", "chromium-chrome-profile-import-lifecycle"],
   ["chromium-chrome-profile-import-restart", "chromium-chrome-profile-import-lifecycle"]
 ]);
@@ -895,7 +898,10 @@ async function captureSqlite(phase, userDataDir, validateEvidence) {
       }
       return { graphicsSettings: graphics };
     }
-    if (phase === "chromium-system-settings") {
+    if (
+      phase === "chromium-system-settings"
+      || phase === "chromium-system-settings-restart"
+    ) {
       return validateChromiumSystemSettingsSqliteEvidence(phase, settings);
     }
     if (

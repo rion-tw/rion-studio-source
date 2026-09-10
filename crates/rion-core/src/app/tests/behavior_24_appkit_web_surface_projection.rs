@@ -27,16 +27,9 @@ fn appkit_web_projection(
         .unwrap()
 }
 
-fn launch_appkit_web_workspace(
-    core: Arc<AppCore>,
-    workspace_id: &str,
-    window_id: &str,
-) -> String {
-    let (result, actions) = drive_command(
-        core,
-        web_workspace_launch(workspace_id, window_id),
-        None,
-    );
+fn launch_appkit_web_workspace(core: Arc<AppCore>, workspace_id: &str, window_id: &str) -> String {
+    let (result, actions) =
+        drive_command(core, web_workspace_launch(workspace_id, window_id), None);
     result.unwrap_or_else(|error| panic!("{window_id}: {error:?}"));
     actions
         .iter()
@@ -67,7 +60,7 @@ fn appkit_projects_web_only_mixed_and_multi_web_layouts_without_managed_ownershi
                     },
                     {
                         "id": "web-right",
-                        "web": {"name": "Right", "startUrl": "https://right.example.test"},
+                        "web": {"lastUrl": "https://right.example.test"},
                         "rect": workspace_rect(1, 2)
                     }
                 ]
@@ -86,12 +79,12 @@ fn appkit_projects_web_only_mixed_and_multi_web_layouts_without_managed_ownershi
                 "slots": [
                     {
                         "id": "web-left",
-                        "web": {"name": "Left", "startUrl": "https://left.example.test"},
+                        "web": {"lastUrl": "https://left.example.test"},
                         "rect": workspace_rect(0, 2)
                     },
                     {
                         "id": "web-right",
-                        "web": {"name": "Right", "startUrl": "https://right.example.test"},
+                        "web": {"lastUrl": "https://right.example.test"},
                         "rect": workspace_rect(1, 2)
                     }
                 ]
@@ -102,15 +95,10 @@ fn appkit_projects_web_only_mixed_and_multi_web_layouts_without_managed_ownershi
         .unwrap()
         .to_owned();
 
-    let web_only_tab = launch_appkit_web_workspace(
-        Arc::clone(&core),
-        &web_only,
-        "appkit-web-only-window",
-    );
-    let mixed_tab =
-        launch_appkit_web_workspace(Arc::clone(&core), &mixed, "appkit-mixed-window");
-    let multi_tab =
-        launch_appkit_web_workspace(Arc::clone(&core), &multi, "appkit-multi-window");
+    let web_only_tab =
+        launch_appkit_web_workspace(Arc::clone(&core), &web_only, "appkit-web-only-window");
+    let mixed_tab = launch_appkit_web_workspace(Arc::clone(&core), &mixed, "appkit-mixed-window");
+    let multi_tab = launch_appkit_web_workspace(Arc::clone(&core), &multi, "appkit-multi-window");
 
     let web_only_projection =
         appkit_web_projection(&core, "appkit-web-only-window", 900, 600, false);
@@ -119,8 +107,7 @@ fn appkit_projects_web_only_mixed_and_multi_web_layouts_without_managed_ownershi
     assert_eq!(web_only_projection.web_surfaces[0].tab_id, web_only_tab);
     assert!(web_only_projection.web_surfaces[0].visible);
 
-    let mixed_projection =
-        appkit_web_projection(&core, "appkit-mixed-window", 1000, 600, false);
+    let mixed_projection = appkit_web_projection(&core, "appkit-mixed-window", 1000, 600, false);
     assert_eq!(mixed_projection.roles.len(), 1);
     assert_eq!(mixed_projection.roles[0].role_id, role_id);
     assert_eq!(mixed_projection.web_surfaces.len(), 1);
@@ -132,10 +119,12 @@ fn appkit_projects_web_only_mixed_and_multi_web_layouts_without_managed_ownershi
     let before_resize = appkit_web_projection(&core, "appkit-multi-window", 800, 500, false);
     assert!(before_resize.roles.is_empty());
     assert_eq!(before_resize.web_surfaces.len(), 2);
-    assert!(before_resize
-        .web_surfaces
-        .iter()
-        .all(|surface| surface.tab_id == multi_tab && surface.visible));
+    assert!(
+        before_resize
+            .web_surfaces
+            .iter()
+            .all(|surface| surface.tab_id == multi_tab && surface.visible)
+    );
     assert_eq!(
         before_resize
             .web_surfaces
@@ -149,22 +138,34 @@ fn appkit_projects_web_only_mixed_and_multi_web_layouts_without_managed_ownershi
         before_resize.web_surfaces[0].attempt_generation,
         after_resize.web_surfaces[0].attempt_generation
     );
-    assert_eq!(before_resize.window_generation, after_resize.window_generation);
-    assert_eq!(before_resize.topology_revision, after_resize.topology_revision);
-    assert!(
-        after_resize.web_surfaces[0].bounds.width
-            > before_resize.web_surfaces[0].bounds.width
+    assert_eq!(
+        before_resize.window_generation,
+        after_resize.window_generation
     );
+    assert_eq!(
+        before_resize.topology_revision,
+        after_resize.topology_revision
+    );
+    assert!(after_resize.web_surfaces[0].bounds.width > before_resize.web_surfaces[0].bounds.width);
     assert!(
-        after_resize.web_surfaces[0].bounds.height
-            > before_resize.web_surfaces[0].bounds.height
+        after_resize.web_surfaces[0].bounds.height > before_resize.web_surfaces[0].bounds.height
     );
     let minimized = appkit_web_projection(&core, "appkit-multi-window", 1200, 800, true);
-    assert!(minimized.web_surfaces.iter().all(|surface| !surface.visible));
+    assert!(
+        minimized
+            .web_surfaces
+            .iter()
+            .all(|surface| !surface.visible)
+    );
 
     let runtime = core.browser_runtime_snapshot().unwrap();
     assert_eq!(runtime.roles.len(), 1);
-    assert!(runtime.roles.iter().all(|role| role.role_id != web_only_tab));
+    assert!(
+        runtime
+            .roles
+            .iter()
+            .all(|role| role.role_id != web_only_tab)
+    );
     assert_eq!(core.browser_statuses().unwrap().len(), 1);
     core.shutdown();
 }
@@ -174,16 +175,10 @@ fn appkit_cross_window_move_reparents_exact_web_surface_attempt_and_generation_f
     let (_directory, core) = chromium_web_core("darwin");
     let source_workspace = create_web_only_workspace(&core, "Move Source Web");
     let target_workspace = create_web_only_workspace(&core, "Move Target Web");
-    let source_tab = launch_appkit_web_workspace(
-        Arc::clone(&core),
-        &source_workspace,
-        "appkit-source-window",
-    );
-    let target_tab = launch_appkit_web_workspace(
-        Arc::clone(&core),
-        &target_workspace,
-        "appkit-target-window",
-    );
+    let source_tab =
+        launch_appkit_web_workspace(Arc::clone(&core), &source_workspace, "appkit-source-window");
+    let target_tab =
+        launch_appkit_web_workspace(Arc::clone(&core), &target_workspace, "appkit-target-window");
     let before = appkit_web_projection(&core, "appkit-source-window", 900, 600, false);
     let moved_identity = before.web_surfaces[0].clone();
     let snapshot = core.browser_runtime.snapshot().unwrap();
@@ -216,7 +211,10 @@ fn appkit_cross_window_move_reparents_exact_web_surface_attempt_and_generation_f
     );
     let receipt: crate::model::AppKitRuntimeEventReceiptRecord =
         serde_json::from_value(result.unwrap()).unwrap();
-    assert_eq!(receipt.status, crate::model::SystemRuntimeOperationStatus::Applied);
+    assert_eq!(
+        receipt.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
     let projection = actions
         .iter()
         .find_map(|action| match action {
@@ -280,14 +278,20 @@ fn appkit_workspace_stop_projects_surviving_membership_and_reports_native_failur
             adapter_sequence: 1,
             hosts: vec![observation],
             action: crate::model::AppKitRuntimeEventActionRecord::Stop {
-                tab_id: closing.clone(), ordered_tab_ids: vec![survivor.clone()],
+                tab_id: closing.clone(),
+                ordered_tab_ids: vec![survivor.clone()],
             },
         };
         let event_id = event.event_id.clone();
-        let (result, actions, _) = drive_async_command_with(Arc::clone(&core),
-            CoreCommand::BrowserAppKitRuntimeEvent { event }, |effect| {
-                let reject_projection = fail_projection && matches!(
-                    effect.action, CoreEffectAction::EmbeddedApplyAppKitProjection { .. });
+        let (result, actions, _) = drive_async_command_with(
+            Arc::clone(&core),
+            CoreCommand::BrowserAppKitRuntimeEvent { event },
+            |effect| {
+                let reject_projection = fail_projection
+                    && matches!(
+                        effect.action,
+                        CoreEffectAction::EmbeddedApplyAppKitProjection { .. }
+                    );
                 let mut receipt = effect_result(effect, None);
                 if reject_projection {
                     receipt.ok = false;
@@ -297,27 +301,49 @@ fn appkit_workspace_stop_projects_surviving_membership_and_reports_native_failur
                     });
                 }
                 receipt
-            });
+            },
+        );
         let receipt: crate::model::AppKitRuntimeEventReceiptRecord =
             serde_json::from_value(result.unwrap()).unwrap();
-        assert_eq!(receipt.status, if fail_projection {
-            crate::model::SystemRuntimeOperationStatus::Degraded
-        } else { crate::model::SystemRuntimeOperationStatus::Applied });
+        assert_eq!(
+            receipt.status,
+            if fail_projection {
+                crate::model::SystemRuntimeOperationStatus::Degraded
+            } else {
+                crate::model::SystemRuntimeOperationStatus::Applied
+            }
+        );
         assert!(receipt.topology_committed);
         assert_eq!(receipt.native_applied, !fail_projection);
-        assert!(!actions.iter().any(|action| matches!(action,
-            CoreEffectAction::EmbeddedFollowRoleOwnership { .. })));
-        let destroy_index = actions.iter().position(|action| matches!(action,
-            CoreEffectAction::EmbeddedDestroyTab { tab_id, .. } if tab_id == &closing)).unwrap();
-        let projection_index = actions.iter().position(|action| matches!(action,
+        assert!(
+            !actions.iter().any(|action| matches!(
+                action,
+                CoreEffectAction::EmbeddedFollowRoleOwnership { .. }
+            ))
+        );
+        let destroy_index = actions
+            .iter()
+            .position(|action| {
+                matches!(action,
+            CoreEffectAction::EmbeddedDestroyTab { tab_id, .. } if tab_id == &closing)
+            })
+            .unwrap();
+        let projection_index = actions
+            .iter()
+            .position(|action| {
+                matches!(action,
             CoreEffectAction::EmbeddedApplyAppKitProjection { projection }
                 if projection.event_id == event_id
                     && projection.windows[0].logical_tab_ids == vec![survivor.clone()]
                     && projection.windows[0].active_tab_id.as_ref() == Some(&survivor)
-                    && projection.windows[0].topology_revision > prior_revision)).unwrap();
+                    && projection.windows[0].topology_revision > prior_revision)
+            })
+            .unwrap();
         assert!(destroy_index < projection_index);
-        assert_eq!(core.browser_runtime.snapshot().unwrap().windows["appkit-stop"].all_tab_ids(),
-            vec![survivor]);
+        assert_eq!(
+            core.browser_runtime.snapshot().unwrap().windows["appkit-stop"].all_tab_ids(),
+            vec![survivor]
+        );
         core.shutdown();
     }
 }

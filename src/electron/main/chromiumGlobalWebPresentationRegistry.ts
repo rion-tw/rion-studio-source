@@ -1,11 +1,10 @@
-import { isWorkspaceStartUrl } from "../../shared/workspaceStartPage";
+import { WORKSPACE_START_URL } from "../../shared/workspaceStartPage";
 import { pathToFileURL } from "node:url";
 
 import {
   WORKSPACE_WEB_CHROME_ACTION_CHANNEL,
   WORKSPACE_WEB_CHROME_SHELL_SESSION,
   WORKSPACE_WEB_CHROME_STATE_CHANNEL,
-  canonicalWorkspaceWebUrl,
   parseWorkspaceWebChromeAction,
   type WorkspaceWebChromeAction
 } from "../../shared/workspaceWebChrome";
@@ -146,18 +145,6 @@ function validIdentifier(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 256 &&
     value === value.trim() && !value.includes("/") && !value.includes("\\") &&
     ![...value].some((character) => character.codePointAt(0)! <= 0x1f);
-}
-
-function canonicalWebUrl(value: unknown): string {
-  const canonical = typeof value === "string" && isWorkspaceStartUrl(value)
-    ? value : canonicalWorkspaceWebUrl(value);
-  if (!canonical) {
-    fail(
-      "ELECTRON_WORKSPACE_WEB_CHROME_URL_INVALID",
-      "Workspace Web navigation requires a canonical HTTP(S) URL."
-    );
-  }
-  return canonical;
 }
 
 function validateBounds(bounds: ChromiumRoleSurfaceBounds): void {
@@ -630,7 +617,7 @@ export class ChromiumGlobalWebPresentationRegistry {
       chromeSurfaceId: `${input.surfaceId}:rion-web-chrome`,
       slotId: input.slotId,
       generation: input.generation,
-      homeUrl: canonicalWebUrl(input.url),
+      homeUrl: WORKSPACE_START_URL,
       view,
       contents,
       destroyed,

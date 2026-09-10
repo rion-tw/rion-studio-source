@@ -1,7 +1,9 @@
 impl AppCore {
     pub fn invoke(&self, command: CoreCommand) -> CoreResult<Value> {
         match command {
-            CoreCommand::RoleSessionRecovery { command } => self.session_recovery_read_command(command),
+            CoreCommand::RoleSessionRecovery { command } => {
+                self.session_recovery_read_command(command)
+            }
             CoreCommand::Extensions { command } => self.extensions_command(command),
             CoreCommand::Health => self.with_runtime(|runtime| {
                 Ok(json!({
@@ -307,15 +309,27 @@ impl AppCore {
             }
             CoreCommand::GraphicsSettingsReplace { settings } => {
                 let _guard = self.state_mutation_guard()?;
-                let previous = self.read_optional_scalar_state::<crate::model::GraphicsSettingsSnapshotRecord>("graphicsSettings")?.unwrap_or_default();
-                let snapshot = if previous.settings == settings { previous } else {
-                    let revision = previous.revision.checked_add(1).ok_or_else(|| CoreError::Internal("graphics revision exhausted".to_owned()))?;
-                    let snapshot = crate::model::GraphicsSettingsSnapshotRecord { revision, settings };
+                let previous = self
+                    .read_optional_scalar_state::<crate::model::GraphicsSettingsSnapshotRecord>(
+                        "graphicsSettings",
+                    )?
+                    .unwrap_or_default();
+                let snapshot = if previous.settings == settings {
+                    previous
+                } else {
+                    let revision = previous.revision.checked_add(1).ok_or_else(|| {
+                        CoreError::Internal("graphics revision exhausted".to_owned())
+                    })?;
+                    let snapshot =
+                        crate::model::GraphicsSettingsSnapshotRecord { revision, settings };
                     self.replace_scalar_state_under_guard("graphicsSettings", snapshot.clone())?;
-                    self.emit(vec![CoreEvent::GraphicsSettingsChanged { snapshot: snapshot.clone() }]);
+                    self.emit(vec![CoreEvent::GraphicsSettingsChanged {
+                        snapshot: snapshot.clone(),
+                    }]);
                     snapshot
                 };
-                serde_json::to_value(snapshot).map_err(|error| CoreError::Internal(error.to_string()))
+                serde_json::to_value(snapshot)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::GameBrowserSettingsGet => {
                 serde_json::to_value(self.read_scalar_state::<GameBrowserSettingsRecord>(
@@ -577,11 +591,24 @@ impl AppCore {
                 serde_json::to_value(runtime.logs.query(query)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }),
-            CoreCommand::LogsClear => self.with_runtime(|runtime| {
-                runtime.logs.clear()?;
-                self.emit(vec![CoreEvent::LogsChanged]);
-                Ok(json!({ "cleared": true }))
-            }),
+            CoreCommand::LogsClear => {
+                let entries = self.capture_logs_unfiltered(vec![LogCaptureRecord {
+                    level: LogLevel::Info,
+                    source: crate::model::LogSource::Main,
+                    event: "logs_cleared".to_owned(),
+                    message: "Application logs were cleared.".to_owned(),
+                    context_raw_json: None,
+                    error: None,
+                }])?;
+                self.with_runtime(|runtime| {
+                    runtime.logs.clear_and_append(entries.clone())?;
+                    self.emit(vec![
+                        CoreEvent::LogEntriesCaptured { entries },
+                        CoreEvent::LogsChanged,
+                    ]);
+                    Ok(json!({ "cleared": true }))
+                })
+            }
             CoreCommand::LogsStatus => {
                 let current_level = self.log_capture()?.current_level();
                 self.with_runtime(|runtime| {
@@ -668,9 +695,20 @@ impl AppCore {
                     });
                 }
                 if macro_definition.uses_source_role() {
-                    if !crate::domain::macro_shortcut_source_contains(&macro_definition.shortcut_source_scope, &macro_definition.role_ids, &source_role_id) { return Err(CoreError::InvalidInput("macro source role is not allowed".to_owned())); }
-                    self.macro_runtime.stop_source_macro_from_role(&macro_id, &source_role_id)?;
-                } else { self.macro_runtime.stop_macro(&macro_id)?; }
+                    if !crate::domain::macro_shortcut_source_contains(
+                        &macro_definition.shortcut_source_scope,
+                        &macro_definition.role_ids,
+                        &source_role_id,
+                    ) {
+                        return Err(CoreError::InvalidInput(
+                            "macro source role is not allowed".to_owned(),
+                        ));
+                    }
+                    self.macro_runtime
+                        .stop_source_macro_from_role(&macro_id, &source_role_id)?;
+                } else {
+                    self.macro_runtime.stop_macro(&macro_id)?;
+                }
                 Ok(json!({ "stopped": true }))
             }
             CoreCommand::MacroStopRole { role_id } => {
@@ -808,7 +846,7 @@ impl AppCore {
             }
             CoreCommand::EmbeddedWindowRegister { target } => {
                 serde_json::to_value(self.register_embedded_window(target)?)
-                .map_err(|error| CoreError::Internal(error.to_string()))
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedWindowDelete { window_id: _ } => {
                 serde_json::to_value(self.apply_embedded_runtime_command(
@@ -982,11 +1020,11 @@ impl AppCore {
                 suspended,
                 lifecycle_epoch,
             } => {
-                let reload_admission = self
-                    .supersede_all_controlled_role_reloads("applicationLifecycle")?;
+                let reload_admission =
+                    self.supersede_all_controlled_role_reloads("applicationLifecycle")?;
                 let current_epoch = self.application_lifecycle_epoch.load(Ordering::Acquire);
-                let next_epoch = lifecycle_epoch
-                    .unwrap_or_else(|| current_epoch.saturating_add(1).max(1));
+                let next_epoch =
+                    lifecycle_epoch.unwrap_or_else(|| current_epoch.saturating_add(1).max(1));
                 if next_epoch < current_epoch {
                     return Err(CoreError::Domain {
                         code: "SYSTEM_LIFECYCLE_EPOCH_STALE",
@@ -1030,6 +1068,7 @@ impl AppCore {
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleSlotClaim { .. }
             | CoreCommand::BrowserWorkspaceWebSurfaceFailed { .. }
+            | CoreCommand::BrowserWorkspaceWebNavigationCommitted { .. }
             | CoreCommand::BrowserTabAudioMute { .. }
             | CoreCommand::BrowserRuntimeTabReload { .. }
             | CoreCommand::BrowserRoleStop { .. }

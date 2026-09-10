@@ -3,7 +3,11 @@ import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import ExtensionsRoute from "../src/renderer/src/features/extensions/ExtensionsRoute";
+import { formatExtensionBytes } from "../src/renderer/src/features/extensions/extensionSize";
 import en from "../src/renderer/src/i18n/en.json";
+import ja from "../src/renderer/src/i18n/ja.json";
+import zhCN from "../src/renderer/src/i18n/zh-CN.json";
+import zhTW from "../src/renderer/src/i18n/zh-TW.json";
 import type { Translator } from "../src/renderer/src/i18n";
 import type { RionStudioApi } from "../src/shared/api";
 import type { ExtensionSnapshotRecord } from "../src/shared/generated";
@@ -12,8 +16,40 @@ import type { Role } from "../src/shared/types";
 const t: Translator = key => en[key];
 const id = "a".repeat(32);
 const role = { id: "role", name: "Role A" } as Role;
-const original: ExtensionSnapshotRecord = { revision: 3, installed: [{ id, name: "Fixture", version: "1.0", sha256: "0".repeat(64), directory: "/managed", permissions: ["https://example.com/*"], enabledRoleIds: [role.id], applyToAllRoles: false, removed: false }], roles: [{ roleId: role.id, leaseId: "lease", extensionIds: [id], status: "loaded" }] };
+const original: ExtensionSnapshotRecord = {
+  revision: 3,
+  installed: [{
+    id,
+    name: "Fixture",
+    version: "1.0",
+    description: "A useful fixture extension.",
+    iconDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+    sizeBytes: 2_048,
+    sha256: "0".repeat(64),
+    directory: "/managed",
+    permissions: ["https://example.com/*"],
+    enabledRoleIds: [role.id],
+    applyToAllRoles: false,
+    removed: false
+  }],
+  roles: [{ roleId: role.id, leaseId: "lease", extensionIds: [id], status: "loaded" }]
+};
 afterEach(cleanup);
+
+it("defines permanent and transient package failures in all four languages", () => {
+  const permanentKeys = [
+    "extensions.packageTooLarge",
+    "extensions.unpackedTooLarge",
+    "extensions.signatureInvalid",
+    "extensions.manifestUnsupported"
+  ] as const;
+  for (const messages of [en, zhTW, zhCN, ja]) {
+    expect(messages["extensions.storeUnavailable"]).toMatch(/try again|請重試|请重试|もう一度/);
+    for (const key of permanentKeys) {
+      expect(messages[key]).not.toMatch(/try again|請重試|请重试|もう一度/);
+    }
+  }
+});
 
 it("distinguishes pending configuration from the live lease and ignores stale snapshots", async () => {
   let publish!: (snapshot: ExtensionSnapshotRecord) => void;
@@ -72,6 +108,55 @@ it("searches normalized names and IDs and distinguishes no matches from an empty
   expect(screen.getByText("No matching extensions")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Clear search" }));
   expect(screen.getByText("Fixture")).toBeTruthy();
+});
+
+it("renders installed metadata in equal-height three-column cards with graceful fallbacks", async () => {
+  const fallbackId = "b".repeat(32);
+  const snapshot: ExtensionSnapshotRecord = {
+    ...original,
+    roles: [{ ...original.roles[0], status: "failed" }],
+    installed: [
+      original.installed[0],
+      { ...original.installed[0], id: fallbackId, name: "Legacy fixture", description: undefined, iconDataUrl: undefined, sizeBytes: undefined },
+      { ...original.installed[0], id: "c".repeat(32), name: "Long fixture name that must remain contained inside its card" }
+    ]
+  };
+  fixture(snapshot);
+  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
+
+  const list = await screen.findByRole("list", { name: "Installed" });
+  expect(list.className).toContain("collection-grid-extensions");
+  expect(list.className).toContain("auto-rows-fr");
+  const cards = list.querySelectorAll("[data-extension-id]");
+  expect(cards).toHaveLength(3);
+
+  const metadataCard = cards[0] as HTMLElement;
+  expect(metadataCard.firstElementChild?.className).toContain("h-full");
+  expect(within(metadataCard).getByText("A useful fixture extension.")).toBeTruthy();
+  expect(within(metadataCard).getByText("2 KB")).toBeTruthy();
+  expect(within(metadataCard).getByText(id).getAttribute("title")).toBe(id);
+  expect(within(metadataCard).getByText("Load failed")).toBeTruthy();
+  expect(metadataCard.querySelector("img")?.getAttribute("src")).toBe(original.installed[0].iconDataUrl);
+  expect(metadataCard.querySelector("img")?.className).toContain("object-contain");
+  expect(metadataCard.querySelector("img")?.parentElement?.className).not.toContain("glass-control");
+
+  const fallbackCard = cards[1] as HTMLElement;
+  expect(within(fallbackCard).getByText("No description provided.")).toBeTruthy();
+  expect(within(fallbackCard).getByText("Unavailable")).toBeTruthy();
+  expect(fallbackCard.querySelector("img")).toBeNull();
+  expect(within(fallbackCard).getByRole("button", { name: "Manage" })).toBeTruthy();
+
+  const longContentCard = cards[2] as HTMLElement;
+  expect(longContentCard.querySelector("h2")?.className).toContain("truncate");
+  expect(longContentCard.querySelector("[data-extension-description]")?.className).toContain("line-clamp-2");
+  expect(longContentCard.querySelector("[data-extension-record-id]")?.className).toContain("truncate");
+});
+
+it("formats installed bytes as localized tabular B, KB, and MB values", () => {
+  expect(formatExtensionBytes(512, "en")).toBe("512 B");
+  expect(formatExtensionBytes(1_536, "en")).toBe("1.5 KB");
+  expect(formatExtensionBytes(2 * 1_024 ** 2, "en")).toBe("2 MB");
+  expect(formatExtensionBytes(1_536, "zh-TW")).toBe("1.5 KB");
 });
 
 it("preserves selected-role drafts across scope changes and applies select-all beyond the search filter", async () => {
@@ -148,6 +233,46 @@ it("shows loading and initial failure without a false empty state", async () => 
   await act(async () => reject(new Error("offline")));
   expect(screen.getByRole("alert")).toBeTruthy();
   expect(screen.queryByText("No extensions installed yet.")).toBeNull();
+});
+
+it.each([
+  ["EXTENSIONS_PACKAGE_TOO_LARGE", "128 MiB download limit"],
+  ["EXTENSIONS_UNPACKED_TOO_LARGE", "512 MiB unpacked limit"],
+  ["EXTENSIONS_SIGNATURE_INVALID", "signature"],
+  ["EXTENSIONS_MANIFEST_UNSUPPORTED", "manifest is not supported"],
+  ["EXTENSIONS_PACKAGE_FAILED", "operation failed"],
+  ["EXTENSIONS_CANCELLED", "installation was cancelled"]
+])("localizes %s without retry guidance", async (code, expected) => {
+  const f = fixture({ revision: 3, installed: [], roles: [] });
+  const user = userEvent.setup();
+  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  await screen.findByText("No extensions installed yet.");
+  await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
+  await act(async () => f.showStore());
+  f.invoke.mockRejectedValueOnce({
+    code,
+    message: "internal package detail"
+  });
+  await user.click(screen.getByRole("button", { name: "Install this extension" }));
+  expect(screen.getByRole("alert").textContent).toContain(expected);
+  expect(screen.getByRole("alert").textContent).not.toMatch(/try again/i);
+});
+
+it("offers retry only for a transient store failure", async () => {
+  const f = fixture({ revision: 3, installed: [], roles: [] });
+  const user = userEvent.setup();
+  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  await screen.findByText("No extensions installed yet.");
+  await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
+  await act(async () => f.showStore());
+  f.invoke.mockRejectedValueOnce({
+    code: "EXTENSIONS_STORE_UNAVAILABLE",
+    message: "internal store detail"
+  });
+  await user.click(screen.getByRole("button", { name: "Install this extension" }));
+  expect(screen.getByRole("alert").textContent).toBe(
+    "The Chrome Web Store is temporarily unavailable. Please try again."
+  );
 });
 
 it("cancels preparation and ignores its late result while preserving the list search", async () => {

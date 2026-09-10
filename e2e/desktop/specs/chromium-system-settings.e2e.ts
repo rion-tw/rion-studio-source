@@ -106,11 +106,50 @@ async function verifyUpdateBoundary(): Promise<void> {
   await expect($("button*=Check updates")).toBeDisabled();
 }
 
-async function verifyDiagnosticsControls(): Promise<void> {
+async function verifyDiagnosticsLogs(
+  phase: "chromium-system-settings" | "chromium-system-settings-restart"
+): Promise<void> {
   await openSettingsSection("Diagnostics & logs", "diagnostics");
   await expect($("button=Export diagnostics")).toBeDisplayed();
   await expect($("button=Measure presentation FPS")).not.toExist();
   await expect($("button=Cancel measurement")).not.toExist();
+  await browser.waitUntil(async () => (await rendererCall("getLogStatus")).entryCount > 0, {
+    timeout: 10_000,
+    timeoutMsg: "A clean Electron startup did not persist structured log entries"
+  });
+  const sessionReady = await $("summary*=Application session is ready.");
+  await sessionReady.waitForDisplayed({ timeout: 10_000 });
+
+  if (phase === "chromium-system-settings") {
+    const levelRow = await $(
+      "//*[normalize-space(.)='Recording level']/ancestor::div[contains(@class,'settings-row')][1]"
+    );
+    const level = await levelRow.$("button[role='combobox']");
+    await level.waitForClickable({ timeout: 10_000 });
+    await level.click();
+    const info = await $("[role='option']=Info");
+    await info.waitForClickable({ timeout: 10_000 });
+    await info.click();
+    await $("summary*=Core state changed.").waitForDisplayed({ timeout: 10_000 });
+    return;
+  }
+
+  const persistedEntries = (await rendererCall("queryLogs", { limit: 100 })).entries;
+  const currentSessionId = persistedEntries.find(
+    (entry) => entry.event === "electron_ready"
+  )?.sessionId;
+  expect(currentSessionId).toBeTruthy();
+  if (!persistedEntries.some((entry) =>
+    entry.event === "core_state_changed" && entry.sessionId !== currentSessionId
+  )) {
+    throw new Error(`No prior-session Core state log was restored: ${JSON.stringify({
+      currentSessionId,
+      entries: persistedEntries.map((entry) => ({
+        event: entry.event,
+        sessionId: entry.sessionId
+      }))
+    })}`);
+  }
 }
 
 async function verifyNativeDiagnosticsExportCancel(input: Readonly<{
@@ -160,21 +199,34 @@ async function verifyLegalCancelBoundary(): Promise<void> {
 
 describe("Chromium system settings boundaries", () => {
   it("uses visible UI for platform settings and non-destructive cancellation", async () => {
-    expect(required("RION_STUDIO_E2E_PHASE")).toBe("chromium-system-settings");
+    const phase = required("RION_STUDIO_E2E_PHASE");
+    if (
+      phase !== "chromium-system-settings"
+      && phase !== "chromium-system-settings-restart"
+    ) {
+      throw new Error(`Unexpected Chromium settings phase ${phase}`);
+    }
     const runtimeTarget = required("RION_STUDIO_E2E_RUNTIME_TARGET");
     const probe = await electronDesktopE2eProbe();
     expect(probe.runtimeTarget).toBe(runtimeTarget);
     expect(probe.driver).toBe("electron");
     expect(probe.packaged).toBe(false);
 
+    if (phase === "chromium-system-settings-restart") {
+      await openSettingsThroughVisibleUi();
+      await verifyDiagnosticsLogs(phase);
+      return;
+    }
+
     const fontRole = await prepareChromiumFontRole();
     await openSettingsThroughVisibleUi();
     await verifyPreferences(probe.platform);
+    await verifyDiagnosticsLogs(phase);
     await verifyInterface();
     await verifyChromiumFontApplication(fontRole);
     await verifyDataCancelBoundary();
     await verifyUpdateBoundary();
-    await verifyDiagnosticsControls();
+    await openSettingsSection("Diagnostics & logs", "diagnostics");
     await verifyNativeDiagnosticsExportCancel(probe);
     await verifyLegalCancelBoundary();
   });

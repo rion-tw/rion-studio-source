@@ -12,6 +12,8 @@ import {
   electronDesktopE2eRoleSessionRuntime,
   electronDesktopE2eWorkspaceWebRuntime
 } from "../support/electron-driver";
+import { navigateVisibleElectronWorkspaceWebChrome } from
+  "../support/electron-role-surface";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { clickVisibleRuntimeTab } from "../support/native-runtime-tabs";
 import { forceTerminateProcessTree } from "../support/process";
@@ -22,7 +24,6 @@ import {
   ensureEnglishUi,
   navigate,
   setEditorName,
-  setInputValue,
   submitEditor,
   waitForRoute
 } from "../support/ui";
@@ -35,7 +36,6 @@ const ROLE_TAB_NAME = "Chromium Mixed Recovery Role tab";
 const ROLE_WORKSPACE_NAME = "Chromium Mixed Recovery Workspace role";
 const WORKSPACE_NAME = "Chromium Mixed Recovery Workspace";
 const WINDOW_NAME = "Chromium Mixed Recovery Window";
-const WEB_NAME = "Chromium Mixed Recovery Web";
 const ROLE_TAB_FIXTURE = "chromium-mixed-recovery-role-tab";
 const ROLE_WORKSPACE_FIXTURE = "chromium-mixed-recovery-role-workspace";
 const WEB_FIXTURE = "chromium-mixed-recovery-web";
@@ -138,8 +138,6 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await setEditorName(WORKSPACE_NAME);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Website").click();
-  await setInputValue("#workspace-web-name", WEB_NAME);
-  await setInputValue("#workspace-web-url", fixtureUrl(WEB_FIXTURE, MARKERS.web));
   await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
@@ -269,10 +267,23 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   await waitSession(cursor, ROLE_TAB_FIXTURE, MARKERS.roleTab, false);
   cursor = await fixtureCursor();
   await quickAccessLaunch(workspace, "workspace", gameWindow.id);
-  await Promise.all([
-    waitSession(cursor, ROLE_WORKSPACE_FIXTURE, MARKERS.roleWorkspace, false),
-    waitSession(cursor, WEB_FIXTURE, MARKERS.web, false)
-  ]);
+  await waitSession(cursor, ROLE_WORKSPACE_FIXTURE, MARKERS.roleWorkspace, false);
+  const entrance = await electronDesktopE2eWorkspaceWebRuntime(gameWindow.id);
+  expect(entrance.web.contentUrl).toBe("rion-start://home/");
+  await navigateVisibleElectronWorkspaceWebChrome(
+    entrance.web.chromeShellUrl,
+    await browser.getWindowHandle(),
+    fixtureUrl(WEB_FIXTURE, MARKERS.web)
+  );
+  await waitSession(cursor, WEB_FIXTURE, MARKERS.web, false);
+  await browser.waitUntil(async () => (await rendererCall("listLaunchWorkspaces"))
+    .find(({ id }) => id === workspace.id)?.slots
+    .some((slot) => slot.web?.lastUrl === fixtureUrl(WEB_FIXTURE, MARKERS.web)) ?? false,
+  {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "Mixed recovery Web navigation was not durably committed"
+  });
   const runtime = await rendererCall("getEmbeddedRuntimeState");
   const roleTabState = runtime.tabs.find(({ sourceId }) => sourceId === roleTab.id)!;
   const workspaceTab = runtime.tabs.find(({ sourceId }) => sourceId === workspace.id)!;

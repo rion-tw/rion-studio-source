@@ -50,21 +50,19 @@ shutdown result.
 
 ## Shared subsystem semantics
 
-Workspace Website entrance: an empty persisted `web.startUrl` resolves in Core
-to the exact internal target `rion-start://home/`. Windows System WebView uses
-the corresponding `http://rion-start.home/` custom-protocol transport. Only
-workspace website surfaces may launch this target; address submission and Role
-URL validation remain HTTP(S)-only. The handler serves one packaged,
-script-free document with embedded images and no application bridge. Page
-readiness, failure, cancellation, and history use the same exact native events
-as external website navigation, including native completion on WebView2.
-Theme and language updates are presentation-only followers of accepted settings.
-WKWebView cache restoration follows a trusted persisted `pageshow` event in an
-isolated content world. The native observer requires the current main-frame URL
-and live surface lease, then feeds the existing generation-bound page events;
-page scripts cannot call this observer or obtain application permissions.
-Portable schema 21 adds the empty start-URL representation while preserving
-imports of supported older schemas and existing explicit URLs.
+Workspace Website continuation: missing persisted `web.lastUrl` resolves in
+Core to the exact internal target `rion-start://home/`. Only Workspace Website
+surfaces may launch this target; address submission and Role URL validation
+remain HTTP(S)-only. The handler serves one packaged, script-free document with
+embedded images and no application bridge. Electron main-frame `did-navigate`
+and `did-navigate-in-page` events enter an ordered EventBound reporter carrying
+the exact window, tab, attempt, surface, slot, and generation fences. Core
+revalidates ownership and persists a canonical HTTP(S) `lastUrl` in the
+Workspace and saved-window slot in one transaction without changing Workspace
+`updatedAt`; duplicate URLs do not advance state revision. A commit of
+`rion-start://home/` clears `lastUrl`. Failed loads, subframes, and popups never
+update continuation state. Portable schema 22 preserves valid `lastUrl` values;
+imports from schema 21 or earlier discard legacy `name`/`startUrl` data.
 
 | Subsystem | Shared guarantee | Native mechanism |
 | --- | --- | --- |

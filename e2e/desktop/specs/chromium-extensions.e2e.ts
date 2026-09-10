@@ -7,7 +7,7 @@ import { acceptLegalAndSkipFirstRun, ensureEnglishUi, setEditorName, setInputVal
 
 // [journey:CHROMIUM-MACOS-APPKIT-EXTENSIONS-001]
 // [journey:CHROMIUM-WINDOWS-EXTENSIONS-001]
-const EXTENSION_ID = "ddkjiahejlhfcafbddmgiahcphecmpfh";
+const EXTENSION_ID = "gighmmpiobklfepjocnamgkkbiglidom";
 
 describe("Extensions store and per-role configuration", () => {
   it("installs through visible Rion confirmation and manages persisted role assignments", async () => {
@@ -57,19 +57,20 @@ describe("Extensions store and per-role configuration", () => {
       await expect(chromePromotion).not.toBeDisplayed();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-store-width.png"));
       // Select a known public package as a navigation precondition; installation stays in Rion UI.
-      await browser.url(`https://chromewebstore.google.com/detail/ublock-origin-lite/${EXTENSION_ID}`);
+      await browser.url(`https://chromewebstore.google.com/detail/adblock-%E2%80%94-block-ads-acros/${EXTENSION_ID}`);
       await browser.switchToWindow(main);
       const install = await $("button=Install this extension");
       await install.waitForEnabled({ timeout: 30000 });
       await install.click();
       const confirm = await $("button=Confirm installation");
       // DeadlineBound test boundary: external store failure is a failed journey.
-      await confirm.waitForDisplayed({ timeout: 75000 });
+      await confirm.waitForDisplayed({ timeout: 150000 });
       await $('[role="dialog"]').$("button=All roles").click();
       await expectDialogFits();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-confirm.png"));
       await confirm.click();
       await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && p.applyToAllRoles), { timeout: 15000 });
+      await expectInstalledCardMetadata();
       await expect($("button=Manage")).toBeDisplayed();
       await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*1$/);
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-installed.png"));
@@ -99,6 +100,11 @@ describe("Extensions store and per-role configuration", () => {
       const installed = snapshot.installed.find(p => p.id === EXTENSION_ID && !p.removed);
       expect(installed?.applyToAllRoles).toBe(true);
       expect(installed?.enabledRoleIds).toHaveLength(0);
+      expect(installed?.description?.trim().length).toBeGreaterThan(0);
+      expect(installed?.iconDataUrl?.startsWith("data:image/")).toBe(true);
+      expect(installed?.sizeBytes).toBeGreaterThan(0);
+      await expectInstalledCardMetadata();
+      await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-installed-dark.png"));
       await $("button=Manage").click();
       await $('[role="dialog"]').$("button=Selected roles").click();
       const checkbox = await $("label*=Extensions journey role").$("[role=checkbox]");
@@ -120,6 +126,44 @@ describe("Extensions store and per-role configuration", () => {
     } else throw new Error(`Unexpected Extensions phase: ${phase}`);
   });
 });
+
+async function expectInstalledCardMetadata(): Promise<void> {
+  const observe = () => browser.execute((extensionId) => {
+    const card = document.querySelector<HTMLElement>(`[data-extension-id="${extensionId}"]`);
+    const list = card?.closest<HTMLElement>(".collection-grid-extensions");
+    const icon = card?.querySelector<HTMLImageElement>("img");
+    const description = card?.querySelector<HTMLElement>("[data-extension-description]");
+    const size = card?.querySelector<HTMLElement>("[data-extension-size]");
+    const id = card?.querySelector<HTMLElement>("[data-extension-record-id]");
+    const bounds = list?.getBoundingClientRect();
+    return {
+      present: !!card && !!list,
+      gridTracks: list ? getComputedStyle(list).gridTemplateColumns.split(/\s+/).filter(Boolean).length : 0,
+      noHorizontalOverflow: !!list && list.scrollWidth <= list.clientWidth
+        && !!bounds && bounds.left >= 0 && bounds.right <= document.documentElement.clientWidth,
+      iconRendered: !!icon && icon.complete && icon.naturalWidth > 0,
+      description: description?.textContent?.trim() ?? "",
+      size: size?.textContent?.trim() ?? "",
+      id: id?.textContent?.trim() ?? "",
+      idTitle: id?.title ?? ""
+    };
+  }, EXTENSION_ID);
+  await browser.waitUntil(async () => {
+    const current = await observe();
+    return current.present && current.gridTracks === 3 && current.iconRendered;
+  }, { timeout: 10000, timeoutMsg: "Installed extension metadata card did not finish rendering" });
+  const observation = await observe();
+
+  expect(observation.present).toBe(true);
+  expect(observation.gridTracks).toBe(3);
+  expect(observation.noHorizontalOverflow).toBe(true);
+  expect(observation.iconRendered).toBe(true);
+  expect(observation.description).not.toBe("");
+  expect(observation.description).not.toBe("No description provided.");
+  expect(observation.size).toMatch(/^\d+(?:\.\d)? (?:B|KB|MB)$/);
+  expect(observation.id).toBe(EXTENSION_ID);
+  expect(observation.idTitle).toBe(EXTENSION_ID);
+}
 
 async function expectDialogFits(): Promise<void> {
   expect(await browser.execute(() => {

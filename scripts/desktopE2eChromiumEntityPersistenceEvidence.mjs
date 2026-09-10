@@ -40,8 +40,7 @@ export function validateChromiumEntityPersistenceSqliteEvidence(phase, entities)
   );
   requireEvidence(
     resolved.workspaces.payload?.slots?.some((slot) =>
-      slot.web?.name === "Chromium fixture"
-        && slot.web.startUrl?.endsWith("/role/chromium-workspace-web")
+      slot.web?.lastUrl?.endsWith("/role/chromium-workspace-web")
     ),
     `${phase}: persisted Chromium Workspace lost its Web slot identity`
   );

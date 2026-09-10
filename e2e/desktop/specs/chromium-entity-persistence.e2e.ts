@@ -12,8 +12,11 @@ import type {
 } from "../../../src/shared/types";
 import {
   electronDesktopE2eProbe,
-  electronDesktopE2eRoleSessionRuntime
+  electronDesktopE2eRoleSessionRuntime,
+  electronDesktopE2eWorkspaceWebRuntime
 } from "../support/electron-driver";
+import { navigateVisibleElectronWorkspaceWebChrome } from
+  "../support/electron-role-surface";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { rendererCall } from "../support/renderer-bridge";
 import {
@@ -22,7 +25,6 @@ import {
   ensureEnglishUi,
   navigate,
   setEditorName,
-  setInputValue,
   submitEditor,
   waitForRoute
 } from "../support/ui";
@@ -193,6 +195,7 @@ async function launchWorkspaceThroughVisibleUi(
   workspace: LaunchWorkspace,
   role: Role
 ): Promise<void> {
+  const mainWindowHandle = await browser.getWindowHandle();
   const afterSequence = await fixtureCursor();
   await openSection("Workspaces", "/workspaces");
   const card = await $(`[data-selection-id='${workspace.id}']`);
@@ -215,18 +218,6 @@ async function launchWorkspaceThroughVisibleUi(
     marker: ROLE_FIXTURE_ID,
     mode: "observe"
   });
-  const webSession = await waitFixtureEvent({
-    afterSequence,
-    kind: "session",
-    roleId: WEB_FIXTURE_ID
-  });
-  expect(webSession.session).toEqual({
-    after: { cookie: null, localStorage: null },
-    before: { cookie: null, localStorage: null },
-    marker: WEB_FIXTURE_ID,
-    mode: "observe"
-  });
-
   let status: RoleStatus | undefined;
   let runtime: EmbeddedRuntimeState | undefined;
   await browser.waitUntil(async () => {
@@ -261,6 +252,28 @@ async function launchWorkspaceThroughVisibleUi(
   await expectNativeRoleOwnership(role, runtime!, {
     sourceId: workspace.id,
     type: "workspace"
+  });
+  const tab = runtime!.tabs.find((candidate) => candidate.sourceId === workspace.id)!;
+  const webUrl = `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}`;
+  if (!workspace.slots.some((slot) => slot.web?.lastUrl === webUrl)) {
+    const inspection = await electronDesktopE2eWorkspaceWebRuntime(tab.windowId);
+    expect(inspection.web.contentUrl).toBe("rion-start://home/");
+    await navigateVisibleElectronWorkspaceWebChrome(
+      inspection.web.chromeShellUrl,
+      mainWindowHandle,
+      webUrl
+    );
+  }
+  const webSession = await waitFixtureEvent({
+    afterSequence,
+    kind: "session",
+    roleId: WEB_FIXTURE_ID
+  });
+  expect(webSession.session).toEqual({
+    after: { cookie: null, localStorage: null },
+    before: { cookie: null, localStorage: null },
+    marker: WEB_FIXTURE_ID,
+    mode: "observe"
   });
 
   await rendererCall("stopLaunchWorkspace", workspace.id);
@@ -369,10 +382,6 @@ async function createAndEditWorkspace(role: Role): Promise<LaunchWorkspace> {
 
   await $("#workspace-slot-content").click();
   await $("[role='option']=Website").click();
-  await setInputValue("#workspace-web-name", "Chromium fixture");
-  await setInputValue("#workspace-web-url",
-    `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/chromium-workspace-web`
-  );
   await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
   await $("[role='option']=Role").click();
@@ -441,7 +450,7 @@ async function seedPhase(): Promise<void> {
   const workspace = await createAndEditWorkspace(role);
   const macro = await createAndEditMacro(role);
   expect(workspace.slots.some((slot) => slot.roleId === role.id)).toBe(true);
-  expect(workspace.slots.some((slot) => slot.web?.name === "Chromium fixture")).toBe(true);
+  expect(workspace.slots.some((slot) => slot.web !== undefined)).toBe(true);
   expect(macro.roleIds).toContain(role.id);
   await launchWorkspaceThroughVisibleUi(workspace, role);
   await launchRoleThroughQuickAccess(role);
@@ -455,8 +464,7 @@ async function restartPhase(): Promise<void> {
   expect(role.gameId).toBe(game.id);
   expect(workspace.slots.some((slot) => slot.roleId === role.id)).toBe(true);
   expect(workspace.slots.some((slot) =>
-    slot.web?.name === "Chromium fixture"
-      && slot.web.startUrl.endsWith("/role/chromium-workspace-web")
+    slot.web?.lastUrl?.endsWith("/role/chromium-workspace-web")
   )).toBe(true);
   expect(macro.roleIds).toContain(role.id);
   for (const [label, route, entityId] of [

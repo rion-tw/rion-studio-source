@@ -1054,7 +1054,7 @@ describe("Electron desktop E2E-only bridge", () => {
       {
         ...workspaceWebInspection,
         coreSlots: workspaceWebInspection.coreSlots.map((slot) =>
-          slot.web ? { ...slot, web: { ...slot.web, startUrl: "file:///forged" } } : slot
+          slot.web ? { ...slot, web: { ...slot.web, lastUrl: "file:///forged" } } : slot
         )
       },
       {

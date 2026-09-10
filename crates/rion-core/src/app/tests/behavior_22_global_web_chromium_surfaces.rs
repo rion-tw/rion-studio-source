@@ -25,8 +25,7 @@ fn malformed_web_effect_tab(
     include_view: bool,
 ) -> EmbeddedTabEffectRecord {
     let web = crate::model::WorkspaceWebContentRecord {
-        name: "Malformed Web".to_owned(),
-        start_url: "https://malformed.example.test/".to_owned(),
+        last_url: Some("https://malformed.example.test/".to_owned()),
     };
     let rect = full_window_rect();
     let role = workspace_web_surface_role(tab_id, 0, &web);
@@ -265,8 +264,7 @@ fn v23_mixed_workspace_loads_managed_roles_before_explicit_web_surfaces() {
                         {
                             "id": "web-slot",
                             "web": {
-                                "name": "Status",
-                                "startUrl": "https://status.example.test/app"
+                                "lastUrl": "https://status.example.test/app"
                             },
                             "browserZoomPercent": 150,
                             "rect": workspace_rect(1, 2)
@@ -378,12 +376,12 @@ fn v23_multiple_web_slots_share_one_profile_and_retain_exact_surface_slot_identi
                     "slots": [
                         {
                             "id": "web-left",
-                            "web": {"name": "Left", "startUrl": "https://left.example.test"},
+                            "web": {"lastUrl": "https://left.example.test"},
                             "rect": workspace_rect(0, 2)
                         },
                         {
                             "id": "web-right",
-                            "web": {"name": "Right", "startUrl": "https://right.example.test"},
+                            "web": {"lastUrl": "https://right.example.test"},
                             "browserZoomPercent": 175,
                             "rect": workspace_rect(1, 2)
                         }
@@ -574,6 +572,152 @@ fn active_workspace_web_failure_is_generation_fenced_and_projected_as_degraded()
             "{platform}"
         );
         assert!(stale_actions.is_empty(), "{platform}");
+        core.shutdown();
+    }
+}
+
+#[test]
+fn workspace_web_navigation_commit_persists_per_slot_clears_home_and_supersedes_stale_generation() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_runtime_contract(
+            platform,
+            CHROMIUM_RUNTIME_CONTRACT_VERSION,
+        );
+        let mut registration = chromium_registration(platform, true);
+        registration.contract_version = CHROMIUM_RUNTIME_CONTRACT_VERSION;
+        core.invoke(CoreCommand::BrowserRuntimeRegister { registration })
+        .unwrap();
+        let workspace_id = create_web_only_workspace(&core, &format!("Resume Web {platform}"));
+        let (_launch, actions) = drive_command(
+            Arc::clone(&core),
+            web_workspace_launch(&workspace_id, &format!("resume-web-window-{platform}")),
+            None,
+        );
+        let tab = actions
+            .iter()
+            .find_map(|action| match action {
+                CoreEffectAction::EmbeddedCreateTab { tab } => Some(tab),
+                _ => None,
+            })
+            .expect("Web launch creates an exact tab");
+        let surface_id = tab.roles[0].role.id.clone();
+        let slot_id = tab.workspace_slots[0].id.clone();
+        let tab_id = tab.tab_id.clone();
+        let window_id = tab.target.window_id.clone();
+        let attempt_generation = tab.attempt_generation.clone().unwrap();
+        let runtime = core.browser_runtime.snapshot().unwrap();
+        let window_generation = runtime.windows[&window_id].window_generation;
+        let surface_generation = 1;
+        let before: crate::model::CoreStateSnapshotRecord =
+            serde_json::from_value(core.invoke(CoreCommand::StateSnapshot).unwrap()).unwrap();
+        let updated_at = before
+            .launch_workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)
+            .unwrap()
+            .updated_at
+            .clone();
+
+        let navigation = |operation_id: String, url: &str, attempt: String| {
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserWorkspaceWebNavigationCommitted {
+                    operation_id,
+                    surface_id: surface_id.clone(),
+                    surface_generation,
+                    slot_id: slot_id.clone(),
+                    tab_id: tab_id.clone(),
+                    window_id: window_id.clone(),
+                    expected_attempt_generation: attempt,
+                    expected_window_generation: window_generation,
+                    url: url.to_owned(),
+                },
+                None,
+            )
+            .0
+        };
+
+        let applied: crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord =
+            serde_json::from_value(
+                navigation(
+                    format!("workspace-web-navigation-{platform}"),
+                    "https://example.test/path?q=1#part",
+                    attempt_generation.clone(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(applied.status, "applied", "{platform}");
+        assert!(applied.durable, "{platform}");
+        let after: crate::model::CoreStateSnapshotRecord =
+            serde_json::from_value(core.invoke(CoreCommand::StateSnapshot).unwrap()).unwrap();
+        let workspace = after
+            .launch_workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)
+            .unwrap();
+        assert_eq!(workspace.updated_at, updated_at, "{platform}");
+        assert_eq!(
+            workspace.slots[0].web.as_ref().unwrap().last_url.as_deref(),
+            Some("https://example.test/path?q=1#part"),
+            "{platform}"
+        );
+
+        let duplicate: crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord =
+            serde_json::from_value(
+                navigation(
+                    format!("workspace-web-navigation-duplicate-{platform}"),
+                    "https://example.test/path?q=1#part",
+                    attempt_generation.clone(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(duplicate.status, "unchanged", "{platform}");
+        let duplicate_state: crate::model::CoreStateSnapshotRecord =
+            serde_json::from_value(core.invoke(CoreCommand::StateSnapshot).unwrap()).unwrap();
+        assert_eq!(duplicate_state.revision, after.revision, "{platform}");
+
+        let stale: crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord =
+            serde_json::from_value(
+                navigation(
+                    format!("workspace-web-navigation-stale-{platform}"),
+                    "https://stale.example.test/",
+                    format!("stale-{attempt_generation}"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(stale.status, "superseded", "{platform}");
+        assert!(!stale.durable, "{platform}");
+
+        let home: crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord =
+            serde_json::from_value(
+                navigation(
+                    format!("workspace-web-navigation-home-{platform}"),
+                    "rion-start://home/",
+                    attempt_generation.clone(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(home.status, "applied", "{platform}");
+        let home_state: crate::model::CoreStateSnapshotRecord =
+            serde_json::from_value(core.invoke(CoreCommand::StateSnapshot).unwrap()).unwrap();
+        assert!(
+            home_state
+                .launch_workspaces
+                .iter()
+                .find(|workspace| workspace.id == workspace_id)
+                .unwrap()
+                .slots[0]
+                .web
+                .as_ref()
+                .unwrap()
+                .last_url
+                .is_none(),
+            "{platform}"
+        );
         core.shutdown();
     }
 }

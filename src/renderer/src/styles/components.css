@@ -100,6 +100,10 @@
   }
 
   @container app-content (min-width: 660px) {
+    .collection-grid-extensions {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
     .dashboard-panels-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }

@@ -65,7 +65,8 @@ describe("Chromium recovery parity replacement source", () => {
     }
     expect(windows).toContain("button=Discard");
     expect(mixed).toContain("electronDesktopE2eWorkspaceWebRuntime");
-    expect(mixed).toContain("Chromium Mixed Recovery Web");
+    expect(mixed).toContain("navigateVisibleElectronWorkspaceWebChrome");
+    expect(mixed).toContain("rion-start://home/");
     expect(windows).toContain("CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-UI-022");
     expect(windows).toContain("CHROMIUM-WINDOWS-WINDOW-RECOVERY-UI-022");
     expect(windows).toContain("waitForSavedRoleTopology(roles, targets)");

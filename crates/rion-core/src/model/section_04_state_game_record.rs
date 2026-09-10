@@ -339,18 +339,35 @@ pub struct GameWindowDisplayRemapRecord {
     pub input: GameWindowUpdateInputRecord,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct WorkspaceWebContentRecord {
-    pub name: String,
-    pub start_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
+    pub last_url: Option<String>,
 }
 
 impl WorkspaceWebContentRecord {
     pub fn launch_url(&self) -> &str {
-        if self.start_url.is_empty() { "rion-start://home/" } else { &self.start_url }
+        self.last_url.as_deref().unwrap_or("rion-start://home/")
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserWorkspaceWebNavigationCommitReceiptRecord {
+    pub operation_id: String,
+    #[ts(type = "\"applied\" | \"unchanged\" | \"superseded\"")]
+    pub status: String,
+    pub durable: bool,
+    pub window_id: String,
+    pub tab_id: String,
+    pub slot_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "string")]
+    pub last_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
@@ -473,14 +490,20 @@ pub struct CoreStateSnapshotRecord {
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreEvent {
-    RoleSessionRecoveryChanged { record: crate::RoleSessionRecoveryRecord },
-    ExtensionsChanged { snapshot: ExtensionSnapshotRecord },
+    RoleSessionRecoveryChanged {
+        record: crate::RoleSessionRecoveryRecord,
+    },
+    ExtensionsChanged {
+        snapshot: ExtensionSnapshotRecord,
+    },
     Ready {
         #[serde(rename = "schemaVersion")]
         #[ts(rename = "schemaVersion")]
         schema_version: u32,
     },
-    GraphicsSettingsChanged { snapshot: GraphicsSettingsSnapshotRecord },
+    GraphicsSettingsChanged {
+        snapshot: GraphicsSettingsSnapshotRecord,
+    },
     StateChanged {
         #[ts(type = "number")]
         revision: u64,

@@ -80,12 +80,12 @@ function webView(
   rect = { x: 0, y: 0, width: 1, height: 1 },
   zoomFactor = 1.25
 ): EmbeddedRoleViewEffectRecord {
-  const web = { name: `Web ${surfaceId}`, startUrl };
+  const web = { lastUrl: startUrl };
   return {
     role: {
       id: surfaceId,
       gameId: "workspace-web",
-      name: web.name,
+      name: "Rion Web",
       launchUrl: startUrl,
       notes: "",
       createdAt: "",

@@ -9,6 +9,7 @@ import {
   type ChromiumGlobalWebActiveMainFrameFailurePort,
   type ChromiumGlobalWebNativeAttachmentInput,
   type ChromiumGlobalWebNativeAttachmentPort,
+  type ChromiumWorkspaceWebNavigationCommitPort,
   type CreateChromiumGlobalWebSurfaceInput
 } from "../src/electron/main/chromiumGlobalWebSurfaceRegistry";
 import type {
@@ -147,6 +148,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
 
   finish(url: string): void {
     this.currentUrl = url;
+    this.emit("did-navigate", {}, url, 200, "OK");
     this.emit("did-finish-load");
   }
 
@@ -266,7 +268,8 @@ function fakeSession(path = profile().chromiumUserDataDir) {
 function harness(
   nativeAttachments: ChromiumGlobalWebNativeAttachmentPort | null = null,
   activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null =
-    null
+    null,
+  navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null = null
 ) {
   const nativeSession = fakeSession();
   const fromPath = vi.fn(() => nativeSession.session);
@@ -288,7 +291,8 @@ function harness(
     },
     nativeAttachments,
     null,
-    activeMainFrameFailures
+    activeMainFrameFailures,
+    navigationCommits
   );
   const parent = new FakeParent();
   const input = (
@@ -353,6 +357,70 @@ function fakeNativeAttachments(
 }
 
 describe("Electron Chromium global Web surface registry", () => {
+  it("commits the final URL when the initial request redirects", async () => {
+    const commits: unknown[] = [];
+    const subject = harness(null, null, {
+      report: (commit) => commits.push(commit),
+      drain: async () => undefined
+    });
+    const creating = subject.surfaces.create(subject.input());
+
+    subject.views[0]!.webContents.finish("https://redirected.example.test/final");
+    await creating;
+
+    expect(commits).toEqual([
+      expect.objectContaining({
+        surfaceId: "web-tab-1-1",
+        url: "https://redirected.example.test/final"
+      })
+    ]);
+  });
+
+  it("reports successful full and main-frame in-page navigation only", async () => {
+    const commits: unknown[] = [];
+    const subject = harness(null, null, {
+      report: (commit) => commits.push(commit),
+      drain: async () => undefined
+    });
+    const creating = subject.surfaces.create(subject.input());
+    const contents = subject.views[0]!.webContents;
+    contents.finish("https://web-tab-1-1.example.test/start");
+    await creating;
+
+    contents.finish("https://example.test/redirected?q=1#top");
+    contents.currentUrl = "https://example.test/redirected?q=1#details";
+    contents.emit("did-navigate-in-page", {}, contents.currentUrl, true, 1, 1);
+    contents.emit(
+      "did-navigate-in-page",
+      {},
+      "https://subframe.example.test/ignored",
+      false,
+      2,
+      2
+    );
+    contents.emit(
+      "did-fail-load",
+      {},
+      -105,
+      "offline",
+      "https://failed.example.test/",
+      true,
+      1,
+      1
+    );
+
+    expect(commits).toEqual([
+      expect.objectContaining({
+        surfaceId: "web-tab-1-1",
+        slotId: "slot-web-tab-1-1",
+        url: "https://example.test/redirected?q=1#top"
+      }),
+      expect.objectContaining({
+        url: "https://example.test/redirected?q=1#details"
+      })
+    ]);
+  });
+
   it("shares one exact session while giving remote Web pages no preload bridge", async () => {
     const subject = harness();
     const first = subject.surfaces.create(subject.input("web-one"));

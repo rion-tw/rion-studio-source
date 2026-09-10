@@ -6,9 +6,13 @@
 )]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum CoreCommand {
-    RoleSessionRecovery { command: crate::RoleSessionRecoveryCommand },
+    RoleSessionRecovery {
+        command: crate::RoleSessionRecoveryCommand,
+    },
     Health,
-    Extensions { command: ExtensionCommand },
+    Extensions {
+        command: ExtensionCommand,
+    },
     SystemWebViewProbe,
     SystemWebViewRuntimeRegister {
         registration: SystemWebViewRuntimeRegistrationRecord,
@@ -190,7 +194,9 @@ pub enum CoreCommand {
         role_id: String,
     },
     GraphicsSettingsGet,
-    GraphicsSettingsReplace { settings: GraphicsSettingsRecord },
+    GraphicsSettingsReplace {
+        settings: GraphicsSettingsRecord,
+    },
     GameBrowserSettingsGet,
     GameBrowserSettingsReplace {
         settings: GameBrowserSettingsRecord,
@@ -683,6 +689,25 @@ pub enum CoreCommand {
         #[ts(rename = "expectedWindowGeneration", type = "number")]
         expected_window_generation: u64,
     },
+    BrowserWorkspaceWebNavigationCommitted {
+        #[ts(rename = "operationId")]
+        operation_id: String,
+        #[ts(rename = "surfaceId")]
+        surface_id: String,
+        #[ts(rename = "surfaceGeneration", type = "number")]
+        surface_generation: u64,
+        #[ts(rename = "slotId")]
+        slot_id: String,
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "windowId")]
+        window_id: String,
+        #[ts(rename = "expectedAttemptGeneration")]
+        expected_attempt_generation: String,
+        #[ts(rename = "expectedWindowGeneration", type = "number")]
+        expected_window_generation: u64,
+        url: String,
+    },
     BrowserTabAudioMute {
         #[ts(rename = "tabId")]
         tab_id: String,
@@ -747,7 +772,7 @@ impl CoreCommand {
         matches!(
             self,
             Self::RoleSessionRecovery { .. }
-            | Self::GameDelete { .. }
+                | Self::GameDelete { .. }
                 | Self::GamesDelete { .. }
                 | Self::RoleCreate { .. }
                 | Self::RoleUpdate { .. }
@@ -771,6 +796,7 @@ impl CoreCommand {
                 | Self::BrowserWorkspaceLaunch { .. }
                 | Self::BrowserRoleSlotClaim { .. }
                 | Self::BrowserWorkspaceWebSurfaceFailed { .. }
+                | Self::BrowserWorkspaceWebNavigationCommitted { .. }
                 | Self::BrowserTabAudioMute { .. }
                 | Self::BrowserRuntimeTabReload { .. }
                 | Self::BrowserAppKitRuntimeEvent { .. }

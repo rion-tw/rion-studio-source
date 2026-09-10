@@ -24,6 +24,7 @@ export type { BrowserWorkspaceDividerPlatform } from "./BrowserWorkspaceDividerP
 export type { BrowserWorkspaceDividerPointerPhase } from "./BrowserWorkspaceDividerPointerPhase";
 export type { BrowserWorkspaceDividerPointerRecord } from "./BrowserWorkspaceDividerPointerRecord";
 export type { BrowserWorkspaceDividerPointerReceiptRecord } from "./BrowserWorkspaceDividerPointerReceiptRecord";
+export type { BrowserWorkspaceWebNavigationCommitReceiptRecord } from "./BrowserWorkspaceWebNavigationCommitReceiptRecord";
 export type { MacroInputEpochRecord } from "./MacroInputEpochRecord";
 export type { MacroInputRecoveryCompletionReceiptRecord } from "./MacroInputRecoveryCompletionReceiptRecord";
 export type { MacroInputRecoveryFailureReceiptRecord } from "./MacroInputRecoveryFailureReceiptRecord";

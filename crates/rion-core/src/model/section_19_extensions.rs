@@ -15,6 +15,15 @@ pub struct ExtensionPackageRecord {
     pub id: String,
     pub name: String,
     pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, rename = "iconDataUrl")]
+    pub icon_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, rename = "sizeBytes", type = "number")]
+    pub size_bytes: Option<u64>,
     pub permissions: Vec<String>,
     pub sha256: String,
     pub directory: String,

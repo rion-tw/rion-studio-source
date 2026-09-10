@@ -132,8 +132,7 @@ export function configureWorkspaceWebLaunch(
   const webSlot = {
     id: WEB_SLOT_ID,
     web: {
-      name: "Workspace Web",
-      startUrl: "https://workspace-web.example.test/"
+      lastUrl: "https://workspace-web.example.test/"
     },
     browserZoomPercent: 100,
     rect: options.mixed ? WEB_RECT : RECT

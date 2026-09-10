@@ -28,7 +28,7 @@ interface WorkspaceVerticalResizeHandle {
   y: number;
 }
 
-export function mergeWorkspaceRoleZoomOverrides(
+export function mergeWorkspaceRuntimeOverrides(
   currentSlots: LaunchWorkspaceSlot[],
   previousPersistedSlots: LaunchWorkspaceSlot[],
   nextPersistedSlots: LaunchWorkspaceSlot[]
@@ -40,24 +40,49 @@ export function mergeWorkspaceRoleZoomOverrides(
     nextPersistedSlots.flatMap((slot) => slot.roleId ? [[slot.roleId, slot] as const] : [])
   );
 
-  return currentSlots.map((slot) => {
-    if (!slot.roleId) {
-      return slot;
-    }
-    const previous = previousByRoleId.get(slot.roleId);
-    const next = nextByRoleId.get(slot.roleId);
-    if (!previous || !next || slot.browserZoomPercent !== previous.browserZoomPercent) {
-      return slot;
-    }
+  const previousBySlotId = new Map(previousPersistedSlots.map((slot) => [slot.id, slot]));
+  const nextBySlotId = new Map(nextPersistedSlots.map((slot) => [slot.id, slot]));
 
-    const { browserZoomPercent: _browserZoomPercent, ...rest } = slot;
-    return {
-      ...rest,
-      ...(next.browserZoomPercent === undefined
-        ? {}
-        : { browserZoomPercent: next.browserZoomPercent })
-    };
+  return currentSlots.map((slot) => {
+    let merged = slot;
+    if (slot.roleId) {
+      const previous = previousByRoleId.get(slot.roleId);
+      const next = nextByRoleId.get(slot.roleId);
+      if (previous && next && slot.browserZoomPercent === previous.browserZoomPercent) {
+        const { browserZoomPercent: _browserZoomPercent, ...rest } = merged;
+        merged = {
+          ...rest,
+          ...(next.browserZoomPercent === undefined
+            ? {}
+            : { browserZoomPercent: next.browserZoomPercent })
+        };
+      }
+    }
+    const previous = previousBySlotId.get(slot.id);
+    const next = nextBySlotId.get(slot.id);
+    if (
+      merged.web && previous?.web && next?.web &&
+      merged.web.lastUrl === previous.web.lastUrl
+    ) {
+      merged = {
+        ...merged,
+        web: next.web.lastUrl === undefined ? {} : { lastUrl: next.web.lastUrl }
+      };
+    }
+    return merged;
   });
+}
+
+export function workspaceWebLastLocation(
+  web: NonNullable<LaunchWorkspaceSlot["web"]>,
+  t: Translator
+): string {
+  if (!web.lastUrl) return t("workspaces.webAtEntrance");
+  try {
+    return new URL(web.lastUrl).hostname;
+  } catch {
+    return t("workspaces.webAtEntrance");
+  }
 }
 
 export type WorkspaceSplitAxis = keyof WorkspaceSplits;

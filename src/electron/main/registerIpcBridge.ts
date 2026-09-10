@@ -44,6 +44,10 @@ export interface RegisterRionIpcBridgeInput {
   ipcMain: ElectronIpcMainPort;
   identities: RendererIdentityRegistry;
   dispatcher: RionApiDispatcher;
+  onInvocationError?: (
+    method: RionApiDispatchMethod | undefined,
+    errorCode: string
+  ) => void;
   onNotificationError?: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
 }
 
@@ -111,18 +115,33 @@ export function registerRionIpcBridge(
       message: "The renderer command bridge is closed for application shutdown."
     });
   };
+  const observeInvocationError = (
+    method: RionApiDispatchMethod | undefined,
+    error: unknown
+  ): ReturnType<typeof normalizeRionBridgeError> => {
+    const normalized = normalizeRionBridgeError(error);
+    try {
+      input.onInvocationError?.(method, normalized.code);
+    } catch {
+      // Invocation logging is observational and cannot alter the IPC terminal.
+    }
+    return normalized;
+  };
   const invokeListener: ElectronIpcInvokeListener = (
     event,
     request
   ): Promise<RionInvokeResponse> => {
-    let parsed: ReturnType<typeof parseInvokeRequest>;
+    let parsed: ReturnType<typeof parseInvokeRequest> | undefined;
     let identity: RendererIdentity;
     try {
       requireOpen();
       parsed = parseInvokeRequest(request);
       identity = input.identities.authorize(event.sender);
     } catch (error) {
-      return Promise.resolve({ ok: false, error: normalizeRionBridgeError(error) });
+      return Promise.resolve({
+        ok: false,
+        error: observeInvocationError(parsed?.method, error)
+      });
     }
     const token = {};
     const record = admit(token);
@@ -131,7 +150,10 @@ export function registerRionIpcBridge(
         const value = await input.dispatcher.invoke(identity, parsed.method, parsed.args);
         return { ok: true, value };
       } catch (error) {
-        return { ok: false, error: normalizeRionBridgeError(error) };
+        return {
+          ok: false,
+          error: observeInvocationError(parsed.method, error)
+        };
       }
     });
     return track(token, record, work);

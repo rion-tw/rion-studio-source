@@ -115,6 +115,7 @@ class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
         this.historyIndex = this.history.length - 1;
       }
     }
+    this.emit("did-navigate", {}, url, 200, "OK");
     this.emit("did-finish-load");
   }
 
@@ -382,6 +383,13 @@ describe("Chromium paired Workspace Web presentation", () => {
         canGoBack: true
       })
     }));
+    subject.emitAction(shell, {
+      surfaceId: "web-tab-1-1",
+      generation: 1,
+      type: "home"
+    });
+    await vi.waitFor(() => expect(content.loadedUrls.at(-1))
+      .toBe("rion-start://home/"));
     expect(WORKSPACE_WEB_CHROME_ACTION_CHANNEL)
       .toBe("rion:workspace-web-chrome:action");
   });

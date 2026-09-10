@@ -17,7 +17,7 @@ function pendingWeb(platform: "macos" | "windows") {
     type: "embeddedLoadWebSurfaces", tabId: specification.tabId,
     attemptGeneration: specification.attemptGeneration!, profile: globalWebProfile(),
     surfaces: [{ surfaceId: "web-surface-1", slotId: "web-slot-1",
-      url: specification.roles[0]!.web!.startUrl, zoomFactor: specification.roles[0]!.zoomFactor, resolvedEngine: "chromium" }]
+      url: specification.roles[0]!.web!.lastUrl!, zoomFactor: specification.roles[0]!.zoomFactor, resolvedEngine: "chromium" }]
   });
   return { subject, specification, action, resolve };
 }

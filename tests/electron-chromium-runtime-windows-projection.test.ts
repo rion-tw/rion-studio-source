@@ -176,7 +176,7 @@ describe("Windows Chromium runtime topology projection", () => {
     subject.tabs.delete("tab-2");
     subject.windows.delete("window-2");
     const rect = { x: 0, y: 0, width: 1, height: 1 };
-    const web = { name: "Single Web", startUrl: "https://example.test/" };
+    const web = { lastUrl: "https://example.test/" };
     const tab = subject.tabs.get("tab-1")!;
     tab.specification = {
       tabId: "tab-1", workspaceId: "workspace-1", workspaceTemplate: "single",

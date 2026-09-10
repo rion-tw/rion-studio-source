@@ -106,6 +106,8 @@ import { ChromiumRoleNavigationFailureReporter } from
   "./chromiumRoleNavigationFailureReporter";
 import { ChromiumWorkspaceWebNavigationFailureReporter } from
   "./chromiumWorkspaceWebNavigationFailureReporter";
+import { ChromiumWorkspaceWebNavigationCommitReporter } from
+  "./chromiumWorkspaceWebNavigationCommitReporter";
 import { WindowsChromiumHeldKeyContinuityCoordinator } from
   "./windowsChromiumHeldKeyContinuityCoordinator";
 import type {
@@ -124,12 +126,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 24;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 25;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 24 }> {
+): Readonly<Options & { runtimeContractVersion: 25 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
@@ -514,6 +516,8 @@ export class ChromiumRuntimeBootstrap {
   readonly #navigationFailureReporter: ChromiumRoleNavigationFailureReporter;
   readonly #workspaceWebNavigationFailureReporter:
     ChromiumWorkspaceWebNavigationFailureReporter;
+  readonly #workspaceWebNavigationCommitReporter:
+    ChromiumWorkspaceWebNavigationCommitReporter;
   readonly #hosts: ChromiumPlatformRuntimeHostFactory;
   readonly #windowPlacement: WindowsRuntimeWindowPlacementController | null;
   readonly #drainPlatformEvents?: () => Promise<void>;
@@ -542,6 +546,8 @@ export class ChromiumRuntimeBootstrap {
     navigationFailureReporter: ChromiumRoleNavigationFailureReporter,
     workspaceWebNavigationFailureReporter:
       ChromiumWorkspaceWebNavigationFailureReporter,
+    workspaceWebNavigationCommitReporter:
+      ChromiumWorkspaceWebNavigationCommitReporter,
     hosts: ChromiumPlatformRuntimeHostFactory,
     windowPlacement: WindowsRuntimeWindowPlacementController | null,
     registration: BrowserRuntimeRegistrationRecord,
@@ -563,6 +569,8 @@ export class ChromiumRuntimeBootstrap {
     this.#navigationFailureReporter = navigationFailureReporter;
     this.#workspaceWebNavigationFailureReporter =
       workspaceWebNavigationFailureReporter;
+    this.#workspaceWebNavigationCommitReporter =
+      workspaceWebNavigationCommitReporter;
     this.#hosts = hosts;
     this.#windowPlacement = windowPlacement;
     this.#closeNativeActionIngress = closeNativeActionIngress;
@@ -738,6 +746,11 @@ export class ChromiumRuntimeBootstrap {
         core: input.core,
         onError: input.onError
       });
+    const workspaceWebNavigationCommitReporter =
+      new ChromiumWorkspaceWebNavigationCommitReporter({
+        core: input.core,
+        onError: input.onError
+      });
     const surfaces = new ChromiumRoleSurfaceRegistry(
       sessions,
       input.views,
@@ -771,7 +784,8 @@ export class ChromiumRuntimeBootstrap {
       input.views,
       globalNativeAttachments,
       popupCoordinator,
-      workspaceWebNavigationFailureReporter
+      workspaceWebNavigationFailureReporter,
+      workspaceWebNavigationCommitReporter
     );
     const webSurfaces = input.webChromeShell
       ? new ChromiumGlobalWebPresentationRegistry({
@@ -1247,6 +1261,7 @@ export class ChromiumRuntimeBootstrap {
         popupCoordinator,
         navigationFailureReporter,
         workspaceWebNavigationFailureReporter,
+        workspaceWebNavigationCommitReporter,
         hosts,
         windowPlacement,
         receipt,
@@ -1268,6 +1283,8 @@ export class ChromiumRuntimeBootstrap {
       await input.appKit?.drainEvents?.().catch(() => undefined);
       await navigationFailureReporter.closeAndDrain().catch(() => undefined);
       await workspaceWebNavigationFailureReporter.closeAndDrain()
+        .catch(() => undefined);
+      await workspaceWebNavigationCommitReporter.closeAndDrain()
         .catch(() => undefined);
       await popupCoordinator.dispose().catch(() => undefined);
       if (executor) {
@@ -1511,6 +1528,7 @@ export class ChromiumRuntimeBootstrap {
       .then(() => this.#windowPlacement?.drain())
       .then(() => this.#navigationFailureReporter.closeAndDrain())
       .then(() => this.#workspaceWebNavigationFailureReporter.closeAndDrain())
+      .then(() => this.#workspaceWebNavigationCommitReporter.closeAndDrain())
       .then(() => this.#roleReloadCoordinator?.dispose())
       .then(() => this.#popupCoordinator.dispose())
       .then(() => this.#coordinator.dispose());

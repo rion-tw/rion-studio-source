@@ -1,4 +1,3 @@
-import { workspaceWebPresetName } from "./workspaceWebPresets";
 import { Check, Eraser, Save } from "lucide-react";
 
 import { type FormEvent, type JSX, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -35,13 +34,10 @@ import { formatWorkspaceResizeRatio, snapWorkspaceResizePosition } from "../../.
 
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 
-import { applyWorkspaceSplits, applyWorkspaceTemplate, assignRoleToWorkspaceSlot, assignWebToWorkspaceSlot, createWorkspaceSlotBackground, getWorkspaceResizeAffectedSlotIndexes, getWorkspaceSplitRange, getWorkspaceSplits, mergeWorkspaceRoleZoomOverrides, swapWorkspaceSlotRoles, type WorkspaceSplitAxis } from "./workspaceLayoutUtils";
+import { applyWorkspaceSplits, applyWorkspaceTemplate, assignRoleToWorkspaceSlot, assignWebToWorkspaceSlot, createWorkspaceSlotBackground, getWorkspaceResizeAffectedSlotIndexes, getWorkspaceSplitRange, getWorkspaceSplits, mergeWorkspaceRuntimeOverrides, swapWorkspaceSlotRoles, type WorkspaceSplitAxis } from "./workspaceLayoutUtils";
 
 import { WorkspaceHelpSection, WorkspaceResizeHandles, WorkspaceSlotDropZone } from "./WorkspaceLayoutControls";
 
-import { WorkspaceWebPresetPicker } from "./WorkspaceWebPresetPicker";
-
-import type { WorkspaceWebPreset } from "./workspaceWebPresets";
 
 interface WorkspaceEditorRouteProps {
   games: Game[];
@@ -100,18 +96,7 @@ function WorkspaceEditor({
   const persistedSlotsRef = useRef(persistedSlots ?? initialForm.slots);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
-  const canSubmit = form.name.trim().length > 0 && form.slots.every((slot) => {
-    if (!slot.web) {
-      return true;
-    }
-    try {
-      const url = slot.web.startUrl.trim() ? new URL(slot.web.startUrl.trim()) : null;
-      const nameLength = slot.web.name.trim().length;
-      return nameLength > 0 && nameLength <= 80 && (!url || ["http:", "https:"].includes(url.protocol));
-    } catch {
-      return false;
-    }
-  });
+  const canSubmit = form.name.trim().length > 0;
   const confirmationOptions = useMemo(() => ({
     title: t("confirm.unsaved.title"),
     description: t("confirm.unsaved.description"),
@@ -129,11 +114,11 @@ function WorkspaceEditor({
     const previousPersistedSlots = persistedSlotsRef.current;
     setForm((current) => ({
       ...current,
-      slots: mergeWorkspaceRoleZoomOverrides(current.slots, previousPersistedSlots, persistedSlots)
+      slots: mergeWorkspaceRuntimeOverrides(current.slots, previousPersistedSlots, persistedSlots)
     }));
     initialFormRef.current = {
       ...initialFormRef.current,
-      slots: mergeWorkspaceRoleZoomOverrides(
+      slots: mergeWorkspaceRuntimeOverrides(
         initialFormRef.current.slots,
         previousPersistedSlots,
         persistedSlots
@@ -293,7 +278,7 @@ function WorkspaceLayoutFormEditor({
       updateSlots(assignWebToWorkspaceSlot(
         slots,
         selectedSlotIndex,
-        selectedSlot?.web ?? { name: t("workspaces.content.web"), startUrl: "" }
+        selectedSlot?.web ?? {}
       ));
     } else {
       updateSlots(assignRoleToWorkspaceSlot(
@@ -302,18 +287,6 @@ function WorkspaceLayoutFormEditor({
         undefined
       ));
     }
-  }
-
-  function updateSelectedWeb(patch: Partial<NonNullable<LaunchWorkspaceSlot["web"]>>): void {
-    const current = selectedSlot?.web ?? { name: t("workspaces.content.web"), startUrl: "" };
-    updateSlots(assignWebToWorkspaceSlot(slots, selectedSlotIndex, { ...current, ...patch }));
-  }
-
-  function handleWebPresetSelect(preset: WorkspaceWebPreset): void {
-    updateSelectedWeb({
-      name: workspaceWebPresetName(preset, t),
-      startUrl: preset.startUrl
-    });
   }
 
   function handleClearSelectedSlot(): void {
@@ -619,44 +592,6 @@ function WorkspaceLayoutFormEditor({
                 </SelectContent>
               </Select>
             </FormField>
-            {selectedSlot?.web ? (
-              <div className="grid gap-3">
-                <WorkspaceWebPresetPicker
-                  disabled={isSaving}
-                  t={t}
-                  web={selectedSlot.web}
-                  onSelect={handleWebPresetSelect}
-                />
-                <div className="grid shrink-0 gap-3 rounded-lg border border-border/60 bg-background/20 p-3">
-                  <FormField htmlFor="workspace-web-name" label={t("workspaces.webName")}>
-                    <Input
-                      id="workspace-web-name"
-                      maxLength={80}
-                      required
-                      disabled={isSaving}
-                      placeholder={t("workspaces.webNamePlaceholder")}
-                      value={selectedSlot.web.name}
-                      onChange={(event) => updateSelectedWeb({ name: event.target.value })}
-                    />
-                  </FormField>
-                  <FormField
-                    htmlFor="workspace-web-url"
-                    label={t("workspaces.webUrl")}
-                    description={t("workspaces.webUrlDescription")}
-                  >
-                    <Input
-                      id="workspace-web-url"
-                      type="url"
-                      pattern="https?://.*"
-                      disabled={isSaving}
-                      placeholder="https://www.youtube.com/"
-                      value={selectedSlot.web.startUrl}
-                      onChange={(event) => updateSelectedWeb({ startUrl: event.target.value })}
-                    />
-                  </FormField>
-                </div>
-              </div>
-            ) : null}
           </div>
           {selectedSlot?.web || (!selectedSlot?.roleId && !selectedSlot?.web) ? null : (
           <div

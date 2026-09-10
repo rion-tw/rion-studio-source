@@ -7,8 +7,6 @@ import { ExtensionStoreHost } from "./extensionStoreHost";
 import { createExtensionApiDispatcher } from "./extensionApiDispatcher";
 import { ChromiumExtensionSessions } from "./chromiumExtensionSessions";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, writeSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -31,7 +29,6 @@ import {
 } from "electron";
 
 import type { CoreAppSnapshotRecord } from "../../shared/generated";
-import { rendererLogCommand } from "./rendererLogCommand";
 import { CoreAddonClient } from "../core/coreAddonClient";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import { createElectronBaselineDispatcher } from "./baselineDispatcher";
@@ -159,10 +156,6 @@ import {
   installChromiumCertificatePolicy,
   installChromiumSessionSecurityPolicy
 } from "./chromiumSecurityPolicy";
-import {
-  runChromeProfileImportHelperProcess,
-  type ChromeProfileImportHelperProcessPort
-} from "./chromeProfileImportHelperProcess";
 import { isChromeProfileImportHelperInvocation } from
   "./chromeProfileImportHelperMode";
 import {
@@ -176,6 +169,10 @@ import { revealElectronMainWindowOnStartupReady } from
 import { applyElectronAccessibilityStartupRequest } from
   "./electronAccessibilityStartup";
 import { runElectronReadyPhase } from "./electronReadyGate";
+import { runInternalChromeProfileImportHelper } from
+  "./electronChromeProfileImportHelperRuntime";
+import { installElectronOperationalLogHooks } from "./electronOperationalLogHooks";
+import { ElectronOperationalLogger } from "./electronOperationalLogger";
 
 const APP_NAME = "Rion Studio";
 let core: CoreAddonClient | null = null;
@@ -201,6 +198,8 @@ let fatalTermination: ElectronFatalTerminationCoordinator | null = null;
 let fatalEventStreamDetected = false;
 let applicationIcon: ReturnType<typeof initializeIcon> | null = null;
 let quickMenu: ElectronQuickMenuComposition | null = null;
+const operationalLogs = new ElectronOperationalLogger();
+let disposeOperationalLogHooks: (() => void) | null = null;
 const identities = new RendererIdentityRegistry((contents) =>
   BrowserWindow.fromWebContents(contents as Electron.WebContents)
 );
@@ -473,11 +472,13 @@ function activeOverlayShellEffects(): ElectronOverlayShellEffects {
 }
 
 function revealShellError(error: ReturnType<typeof normalizeRionBridgeError>): void {
+  operationalLogs.shellError(error);
   console.error(`[${error.code}] ${error.message}`);
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
   if (mainIdentity) ipcBridge?.publish(mainIdentity, "onShellError", error);
 }
 async function disposeShellAfterFatalTermination(): Promise<void> {
+  disposeOperationalLogHooks?.(); disposeOperationalLogHooks = null;
   quickMenu?.dispose(); quickMenu = null;
   graphicsHost?.dispose();
   chromiumUpdater?.dispose();
@@ -487,13 +488,17 @@ async function disposeShellAfterFatalTermination(): Promise<void> {
   coreRendererEvents?.dispose();
   chromiumLaunchCompletions?.dispose(); chromiumLaunchCompletions = null;
   ipcBridge?.dispose(); ipcBridge = null;
+  await operationalLogs.dispose();
 }
 function fatalTerminationCoordinator(): ElectronFatalTerminationCoordinator {
   return fatalTermination ??= new ElectronFatalTerminationCoordinator({
     lifecycle: () => lifecycle, runtime: () => chromiumRuntime, core: () => core,
     disposeShell: disposeShellAfterFatalTermination,
     quit: () => app.quit(), forceExit: (code) => app.exit(code),
-    onError: (error) => console.error(`[${error.code}] ${error.message}`)
+    onError: (error) => {
+      operationalLogs.fatalTerminationError(error);
+      console.error(`[${error.code}] ${error.message}`);
+    }
   });
 }
 
@@ -509,6 +514,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       applyRuntimeSuspended: (suspended) =>
         activeCore().invoke({ type: "browserRuntimeSuspend", suspended }),
       publish: (status) => {
+        operationalLogs.observeApplicationLifecycle(status);
         chromiumRuntime?.advanceLifecycle(status.lifecycleEpoch);
         if (mainIdentity) {
           ipcBridge?.publish(mainIdentity, "onApplicationLifecycleChanged", status);
@@ -722,6 +728,7 @@ async function bootstrapReadyPhase(
   userDataDirectory: string,
   startupQuitFence: ElectronStartupQuitFence
 ): Promise<void> {
+  operationalLogs.electronReady();
   applyElectronAccessibilityStartupRequest(app);
   const runtimePlatform = platform();
   applicationIcon = initializeIcon(
@@ -730,6 +737,8 @@ async function bootstrapReadyPhase(
   installChromiumCertificatePolicy(app);
   displayTopology = startElectronDisplayTopology(screen, revealShellError);
   core = await createCore(userDataDirectory);
+  operationalLogs.bindCore(core);
+  operationalLogs.rustCoreReady();
   graphicsHost?.attach(core);
   runtimeRestoreSession = new ChromiumRuntimeRestoreSessionCoordinator({ core });
   overlayShellEffects = new ElectronOverlayShellEffects({
@@ -791,7 +800,9 @@ async function bootstrapReadyPhase(
       lifecycle?.beginFatalQuit();
       const bridge = ipcBridge;
       ipcBridge = null;
-      return bridge?.closeAndDrain() ?? Promise.resolve();
+      return operationalLogs.fatalEventStreamFailure(
+        bridge?.closeAndDrain() ?? Promise.resolve()
+      );
     },
     terminate: () => fatalTerminationCoordinator().forceTerminate(),
     onError: revealShellError
@@ -1023,6 +1034,7 @@ async function bootstrapReadyPhase(
         if (failure === "handoff") await fatalTerminationCoordinator().forceTerminate();
       },
       publishStatus: (status) => {
+        operationalLogs.observeUpdateStatus(status);
         if (mainIdentity) {
           ipcBridge?.publish(mainIdentity, "onUpdateStatusChanged", status);
         }
@@ -1115,7 +1127,9 @@ async function bootstrapReadyPhase(
     },
     executeApplicationShortcut: (identity, command) =>
       applicationShortcuts.execute(identity, command),
-    exportDiagnostics: (identity) => diagnosticsExport.export(identity),
+    exportDiagnostics: (identity) => operationalLogs.runDiagnosticsExport(
+      () => diagnosticsExport.export(identity)
+    ),
     exportPortableData: (input) => nativeShellActions.exportPortableData(input),
     getCurrentWindowState: (identity) => {
       currentWindow(identity);
@@ -1153,9 +1167,9 @@ async function bootstrapReadyPhase(
       if (window.isMaximized()) window.unmaximize();
       else window.maximize();
     },
-    reportRendererLog: async (event) => {
-      await activeCore().invoke(rendererLogCommand(event));
-    }
+    reportRendererLog: (event) => operationalLogs.captureRendererError(
+      event.event, event.message, event.stack
+    )
   });
   chromiumLaunchCompletions = new ChromiumRuntimeLaunchCompletionCoordinator({
     core: activeCore(),
@@ -1510,6 +1524,9 @@ async function bootstrapReadyPhase(
     ipcMain,
     identities,
     dispatcher,
+    onInvocationError: (method, errorCode) => {
+      operationalLogs.observeInvocationFailure(method, errorCode);
+    },
     onNotificationError: revealShellError
   });
   unsubscribeDisplayTopology = activeDisplayTopology().onChanged((topology) => {
@@ -1562,19 +1579,27 @@ async function bootstrapReadyPhase(
         graphicsHost?.dispose();
         chromiumLaunchCompletions?.dispose();
         chromiumLaunchCompletions = null;
-        if (chromiumRuntime) await chromiumRuntime.shutdown();
-        else await core?.shutdown();
+        await operationalLogs.flush();
+        try {
+          if (chromiumRuntime) await chromiumRuntime.shutdown();
+          else await core?.shutdown();
+        } finally {
+          await operationalLogs.dispose();
+        }
       }
     },
     createMainWindow,
-    prepareCleanExit: () => prepareElectronCleanExit({
-      core: activeCore(),
-      runtime: chromiumRuntime,
-      rendererIngress: ipcBridge,
-      releaseRendererIngress: () => { ipcBridge = null; },
-      persistCleanExit: (snapshot) =>
-        activeRuntimeRestoreSession().persistCleanExit(snapshot)
-    }),
+    prepareCleanExit: async () => {
+      await operationalLogs.applicationQuitting();
+      await prepareElectronCleanExit({
+        core: activeCore(),
+        runtime: chromiumRuntime,
+        rendererIngress: ipcBridge,
+        releaseRendererIngress: () => { ipcBridge = null; },
+        persistCleanExit: (snapshot) =>
+          activeRuntimeRestoreSession().persistCleanExit(snapshot)
+      });
+    },
     onCleanExitFailure: (failure) => terminateAfterCleanExitFailure(
       failure, activeCore(), () => fatalTerminationCoordinator().forceTerminate(),
       revealShellError
@@ -1609,49 +1634,7 @@ async function bootstrapReadyPhase(
   });
   await fatalEventStream.waitForStartup(lifecycleStart);
   fatalEventStream.completeStartup();
-}
-
-async function runInternalChromeProfileImportHelper(): Promise<void> {
-  app.setPath(
-    "userData",
-    mkdtempSync(join(tmpdir(), "rion-chrome-profile-import-helper-"))
-  );
-  const helperPort: ChromeProfileImportHelperProcessPort = {
-    platform: platform(),
-    sessions: {
-      fromPath: (path, options) => {
-        const chromiumSession = session.fromPath(path, options);
-        installChromiumSessionSecurityPolicy(chromiumSession);
-        return chromiumSession;
-      }
-    },
-    views: {
-      create: (options: Electron.WebContentsViewConstructorOptions) =>
-        new WebContentsView(options)
-    } as unknown as ChromeProfileImportHelperProcessPort["views"],
-    readInheritedRequest: () => readFileSync(0),
-    ready: (chromiumUserDataDir) => {
-      if (process.platform === "darwin") {
-        if (app.isReady()) throw new Error("The helper storage root must be selected before ready.");
-        // Electron grants its macOS network service access under sessionData.
-        // The helper's temporary userData is outside the Rust-owned role store.
-        app.setPath("sessionData", chromiumUserDataDir);
-      }
-      return app.whenReady();
-    },
-    writeInheritedResponse: async (bytes) => {
-      let offset = 0;
-      while (offset < bytes.byteLength) {
-        const written = writeSync(1, bytes, offset, bytes.byteLength - offset);
-        if (written <= 0) {
-          throw new Error("The inherited helper response pipe closed before acknowledgement.");
-        }
-        offset += written;
-      }
-    },
-    exit: (code) => app.exit(code)
-  };
-  await runChromeProfileImportHelperProcess(helperPort);
+  await operationalLogs.applicationSessionReady();
 }
 
 async function runInternalMacosUpdateRelaunchHelper(
@@ -1683,6 +1666,13 @@ const internalLaunchContractRequested =
   internalMacosUpdateHelperRequested ||
   internalMacosUpdateRecoveryRequested;
 const startup = Promise.resolve().then(async () => {
+  if (!internalLaunchContractRequested && !disposeOperationalLogHooks) {
+    disposeOperationalLogHooks = installElectronOperationalLogHooks(
+      app as unknown as Parameters<typeof installElectronOperationalLogHooks>[0],
+      process as unknown as Parameters<typeof installElectronOperationalLogHooks>[1],
+      operationalLogs
+    );
+  }
   enforceChromiumCommandLinePolicy({
     commandLine: app.commandLine,
     environment: process.env,
@@ -1717,6 +1707,7 @@ void startup.catch(async (error: unknown) => {
     return;
   }
   const payload = normalizeRionBridgeError(error, "ELECTRON_STARTUP_FAILED");
+  await operationalLogs.applicationStartupFailed(error, payload.code);
   console.error(`[${payload.code}] ${payload.message}`);
   if (!new Set([
     "ELECTRON_CHROMIUM_BOOTSTRAP_CANCELLED",

@@ -1155,10 +1155,8 @@ export class ChromiumRuntimeEffectExecutor {
     if (
       !view?.web || !slot?.web ||
       view.role.id !== surfaceId || slot.role.id !== surfaceId ||
-      view.role.name !== view.web.name || slot.role.name !== slot.web.name ||
-      view.web.name !== slot.web.name ||
-      descriptor.url !== workspaceWebLaunchUrl(view.web.startUrl) ||
-      descriptor.url !== workspaceWebLaunchUrl(slot.web.startUrl) ||
+      descriptor.url !== workspaceWebLaunchUrl(view.web.lastUrl) ||
+      descriptor.url !== workspaceWebLaunchUrl(slot.web.lastUrl) ||
       view.role.launchUrl !== descriptor.url ||
       slot.role.launchUrl !== descriptor.url ||
       descriptor.zoomFactor !== view.zoomFactor ||

@@ -8,8 +8,7 @@ fn create_mixed_divider_workspace(core: &AppCore, role_id: &str) -> String {
                 {
                     "id": "web-left",
                     "web": {
-                        "name": "Fixture Web",
-                        "startUrl": "https://fixture.example.test/workspace"
+                        "lastUrl": "https://fixture.example.test/workspace"
                     },
                     "rect": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0}
                 },
@@ -118,11 +117,8 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
     let role_id = create_role(&core, &first_game_id(&core), 1);
     let workspace_id = create_mixed_divider_workspace(&core, &role_id);
     let window_id = create_saved_window(&core, "Divider persistence window");
-    let (tab_id, attempt_generation, window_generation) = launch_divider_workspace(
-        Arc::clone(&core),
-        &workspace_id,
-        &window_id,
-    );
+    let (tab_id, attempt_generation, window_generation) =
+        launch_divider_workspace(Arc::clone(&core), &workspace_id, &window_id);
     let initial = core.browser_runtime.snapshot().unwrap();
     let initial_window = initial.windows.get(&window_id).unwrap();
     let initial_revision = initial_window.revision;
@@ -147,7 +143,10 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
         event: start_event.clone(),
     };
     let start = drive_divider(Arc::clone(&core), start_event);
-    assert_eq!(start.status, crate::model::SystemRuntimeOperationStatus::Applied);
+    assert_eq!(
+        start.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
     assert!(!start.changed);
     assert!(!start.durable);
     let (duplicate, duplicate_effects, _) =
@@ -166,7 +165,10 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
             Some(0.7),
         ),
     );
-    assert_eq!(moved.status, crate::model::SystemRuntimeOperationStatus::Applied);
+    assert_eq!(
+        moved.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
     assert!(moved.changed);
     assert!(!moved.durable);
     assert!(moved.topology_revision > start.topology_revision);
@@ -181,7 +183,10 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
             moved.position,
         ),
     );
-    assert_eq!(unchanged.status, crate::model::SystemRuntimeOperationStatus::Applied);
+    assert_eq!(
+        unchanged.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
     assert!(!unchanged.changed);
     assert_eq!(unchanged.topology_revision, moved.topology_revision);
 
@@ -211,26 +216,33 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
             None,
         ),
     );
-    assert_eq!(ended.status, crate::model::SystemRuntimeOperationStatus::Applied);
+    assert_eq!(
+        ended.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
     assert!(ended.durable);
 
     let saved = core
-        .invoke(CoreCommand::GameWindowGet { id: window_id.clone() })
+        .invoke(CoreCommand::GameWindowGet {
+            id: window_id.clone(),
+        })
         .unwrap();
     let saved: crate::model::StateGameWindowRecord = serde_json::from_value(saved).unwrap();
     let saved_tab = saved.tabs.iter().find(|tab| tab.id == tab_id).unwrap();
     assert_eq!(saved_tab.workspace_slots, ended.workspace_slots);
     core.shutdown();
 
-    let restarted = Arc::new(AppCore::create(AppCoreOptions {
-        app_version: "2.1.0-test".to_owned(),
-        build_commit: None,
-        packaged: false,
-        platform: "win32".to_owned(),
-        runtime_contract_version: Some(23),
-        user_data_dir: directory.path().to_string_lossy().into_owned(),
-    })
-    .unwrap());
+    let restarted = Arc::new(
+        AppCore::create(AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(),
+            build_commit: None,
+            packaged: false,
+            platform: "win32".to_owned(),
+            runtime_contract_version: Some(23),
+            user_data_dir: directory.path().to_string_lossy().into_owned(),
+        })
+        .unwrap(),
+    );
     let restored = restarted
         .invoke(CoreCommand::GameWindowGet {
             id: window_id.clone(),
@@ -293,11 +305,8 @@ fn transient_workspace_divider_keeps_live_layout_without_creating_a_saved_window
     let workspace_id = create_mixed_divider_workspace(&core, &role_id);
     let window_id = uuid::Uuid::new_v4().to_string();
     let saved_before = core.invoke(CoreCommand::GameWindowsList).unwrap();
-    let (tab_id, attempt_generation, window_generation) = launch_divider_workspace(
-        Arc::clone(&core),
-        &workspace_id,
-        &window_id,
-    );
+    let (tab_id, attempt_generation, window_generation) =
+        launch_divider_workspace(Arc::clone(&core), &workspace_id, &window_id);
     let initial_revision = core.browser_runtime.snapshot().unwrap().windows[&window_id].revision;
     let gesture_id = uuid::Uuid::new_v4().to_string();
     let gesture = DividerGesture {
@@ -372,11 +381,8 @@ fn workspace_divider_cancel_and_host_replacement_terminalize_without_implicit_pe
     let role_id = create_role(&core, &first_game_id(&core), 1);
     let workspace_id = create_mixed_divider_workspace(&core, &role_id);
     let window_id = create_saved_window(&core, "Divider cancellation window");
-    let (tab_id, attempt_generation, window_generation) = launch_divider_workspace(
-        Arc::clone(&core),
-        &workspace_id,
-        &window_id,
-    );
+    let (tab_id, attempt_generation, window_generation) =
+        launch_divider_workspace(Arc::clone(&core), &workspace_id, &window_id);
     let revision = core
         .browser_runtime
         .snapshot()
@@ -445,7 +451,10 @@ fn workspace_divider_cancel_and_host_replacement_terminalize_without_implicit_pe
             None,
         ),
     );
-    assert_eq!(replacement.status, crate::model::SystemRuntimeOperationStatus::Applied);
+    assert_eq!(
+        replacement.status,
+        crate::model::SystemRuntimeOperationStatus::Applied
+    );
     let replacement_cancel = drive_divider(
         Arc::clone(&core),
         replacement_gesture.event(
@@ -468,6 +477,9 @@ fn workspace_divider_cancel_and_host_replacement_terminalize_without_implicit_pe
         .invoke(CoreCommand::GameWindowGet { id: window_id })
         .unwrap();
     let saved: crate::model::StateGameWindowRecord = serde_json::from_value(saved).unwrap();
-    assert_eq!(saved.tabs[0].workspace_slots, replacement_cancel.workspace_slots);
+    assert_eq!(
+        saved.tabs[0].workspace_slots,
+        replacement_cancel.workspace_slots
+    );
     core.shutdown();
 }

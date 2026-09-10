@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import WorkspaceEditorRoute from "../src/renderer/src/features/workspaces/WorkspaceModal";
-import { mergeWorkspaceRoleZoomOverrides } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
+import { mergeWorkspaceRuntimeOverrides } from "../src/renderer/src/features/workspaces/workspaceLayoutUtils";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Game, LaunchWorkspace, Role } from "../src/shared/types";
@@ -58,7 +58,7 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
-  it("selects a Website preset, keeps its fields editable, and clears the role assignment", async () => {
+  it("selects Website as a setting-free Rion portal slot", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const router = createMemoryRouter(
@@ -86,81 +86,31 @@ describe("workspace editor role picker layout", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Content type" }));
     await user.click(screen.getByRole("option", { name: "Website" }));
-    const presetSelect = screen.getByRole("combobox", { name: "Popular sites" });
-    expect(presetSelect.textContent).toContain("Select a popular site");
-    await user.click(presetSelect);
-    expect(screen.getAllByRole("option")).toHaveLength(26);
-    await user.click(screen.getByRole("option", { name: "YouTube" }));
-
-    const displayName = screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement;
-    const startUrl = screen.getByRole("textbox", { name: "Start URL" }) as HTMLInputElement;
     const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
     if (!firstSlot) throw new Error("Expected the selected workspace slot.");
-    expect(displayName.value).toBe("YouTube");
-    expect(startUrl.value).toBe("https://www.youtube.com/");
-    expect(presetSelect.textContent).toContain("YouTube");
-    expect(presetSelect.querySelector("img")).not.toBeNull();
-    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("youtube");
-    expect(firstSlot.style.backgroundImage).not.toBe("");
-
-    await user.clear(displayName);
-    await user.type(displayName, "Custom video room");
-    expect(presetSelect.textContent).toContain("YouTube");
-
-    await user.clear(startUrl);
-    await user.type(startUrl, "https://fixture.example.test/watch");
-
+    expect(screen.queryByRole("combobox", { name: "Popular sites" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Display name" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Start URL" })).toBeNull();
+    expect(firstSlot.textContent).toContain("Rion portal");
+    expect(firstSlot.textContent).toContain("At the Rion entrance");
     expect(container.querySelector("[data-workspace-role-scroll]")).toBeNull();
-    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("");
-    expect(firstSlot.getAttribute("data-workspace-web-url")).toBe("https://fixture.example.test/watch");
-    expect(firstSlot.style.backgroundImage).toBe("");
-    expect(presetSelect.textContent).toContain("Select a popular site");
+    expect(firstSlot.getAttribute("data-workspace-web-url")).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0][0].slots[0]).toEqual({
       id: "slot-1",
       rect: { x: 0, y: 0, width: 0.5, height: 1 },
-      web: { name: "Custom video room", startUrl: "https://fixture.example.test/watch" }
+      web: {}
     });
     expect(onSave.mock.calls[0][0].slots[0]).not.toHaveProperty("roleId");
   });
 
-  it("saves the default entrance and allows clearing a previously selected URL", async () => {
-    const user = userEvent.setup();
-    const onSave = vi.fn().mockResolvedValue(undefined);
-    const router = createMemoryRouter([{ path: "/workspaces/:id/edit", element: (
-      <WorkspaceEditorRoute games={[game()]} isSaving={false} roles={[role(1), role(2)]}
-        statusByRole={new Map()} t={t} workspaces={[workspace()]} onSave={onSave} />
-    ) }], { initialEntries: ["/workspaces/workspace-1/edit"] });
-    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
-    await user.click(screen.getByRole("combobox", { name: "Content type" }));
-    await user.click(screen.getByRole("option", { name: "Website" }));
-    const name = screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement;
-    const url = screen.getByRole("textbox", { name: "Start URL" }) as HTMLInputElement;
-    const save = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
-    expect(name.value).toBe("Website");
-    expect(url.value).toBe("");
-    expect(url.required).toBe(false);
-    expect(save.disabled).toBe(false);
-    await user.click(screen.getByRole("combobox", { name: "Popular sites" }));
-    await user.click(screen.getByRole("option", { name: "iQIYI (International)" }));
-    await user.clear(url);
-    await user.type(url, "https://");
-    expect(save.disabled).toBe(true);
-    await user.clear(url);
-    expect(save.disabled).toBe(false);
-    await user.click(save);
-    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
-    expect(onSave.mock.calls[0][0].slots[0].web).toEqual({ name: "iQIYI (International)", startUrl: "" });
-  });
-
-  it("restores a known brand image while editing and keeps custom sites generic", async () => {
-    const user = userEvent.setup();
+  it("shows a saved last hostname as read-only slot state", () => {
     const selectedWorkspace = workspace();
     selectedWorkspace.slots[0] = {
       id: "slot-1",
       rect: { x: 0, y: 0, width: 0.5, height: 1 },
-      web: { name: "My watch list", startUrl: "https://studio.youtube.com/channel/test" }
+      web: { lastUrl: "https://studio.youtube.com/channel/test" }
     };
     const router = createMemoryRouter(
       [{
@@ -186,17 +136,12 @@ describe("workspace editor role picker layout", () => {
     );
 
     const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
-    const presetSelect = screen.getByRole("combobox", { name: "Popular sites" });
-    if (!firstSlot) throw new Error("Expected the known Website preset state.");
-    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("youtube");
-    expect(presetSelect.textContent).toContain("YouTube");
-
-    const startUrl = screen.getByRole("textbox", { name: "Start URL" });
-    await user.clear(startUrl);
-    await user.type(startUrl, "https://custom.example.test/");
-
-    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("");
-    expect(presetSelect.textContent).toContain("Select a popular site");
+    if (!firstSlot) throw new Error("Expected the saved Website state.");
+    expect(firstSlot.textContent).toContain("Rion portal");
+    expect(firstSlot.textContent).toContain("studio.youtube.com");
+    expect(firstSlot.getAttribute("data-workspace-web-url"))
+      .toBe("https://studio.youtube.com/channel/test");
+    expect(screen.queryByRole("textbox", { name: "Start URL" })).toBeNull();
   });
 
   it("shows every workspace layout in a single-select menu", async () => {
@@ -284,14 +229,32 @@ describe("workspace editor role picker layout", () => {
       ? { ...slot, browserZoomPercent: 120 }
       : slot);
 
-    expect(mergeWorkspaceRoleZoomOverrides(previous, previous, runtimeUpdated)[0])
+    expect(mergeWorkspaceRuntimeOverrides(previous, previous, runtimeUpdated)[0])
       .toMatchObject({ browserZoomPercent: 120 });
 
     const locallyResized = previous.map((slot, index) => index === 0
       ? { ...slot, rect: { ...slot.rect, width: 0.55 } }
       : slot);
-    expect(mergeWorkspaceRoleZoomOverrides(locallyResized, previous, runtimeUpdated)[0])
+    expect(mergeWorkspaceRuntimeOverrides(locallyResized, previous, runtimeUpdated)[0])
       .toMatchObject({ browserZoomPercent: 120, rect: { width: 0.55 } });
+
+    const previousWeb = workspace().slots.map((slot, index) => index === 0
+      ? { ...slot, roleId: undefined, web: { lastUrl: "https://old.example.test/path" } }
+      : slot);
+    const runtimeWeb = previousWeb.map((slot, index) => index === 0
+      ? { ...slot, web: { lastUrl: "https://new.example.test/resumed" } }
+      : slot);
+    const locallyRenamedForm = previousWeb.map((slot, index) => index === 0
+      ? { ...slot, rect: { ...slot.rect, width: 0.55 } }
+      : slot);
+    expect(mergeWorkspaceRuntimeOverrides(
+      locallyRenamedForm,
+      previousWeb,
+      runtimeWeb
+    )[0]).toMatchObject({
+      rect: { width: 0.55 },
+      web: { lastUrl: "https://new.example.test/resumed" }
+    });
   });
 
   it("hides role zoom while preserving it through workspace saves", async () => {

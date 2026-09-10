@@ -25,8 +25,8 @@ fn export_bindings_index() {
     ] {
         let retired_path = path.parent().unwrap().join(retired);
         match fs::remove_file(retired_path) {
-            Ok(()) => {},
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => panic!("Failed to remove retired binding: {error}"),
         }
     }
@@ -59,6 +59,7 @@ fn export_bindings_index() {
                 "export type { BrowserWorkspaceDividerPointerPhase } from \"./BrowserWorkspaceDividerPointerPhase\";\n",
                 "export type { BrowserWorkspaceDividerPointerRecord } from \"./BrowserWorkspaceDividerPointerRecord\";\n",
                 "export type { BrowserWorkspaceDividerPointerReceiptRecord } from \"./BrowserWorkspaceDividerPointerReceiptRecord\";\n",
+                "export type { BrowserWorkspaceWebNavigationCommitReceiptRecord } from \"./BrowserWorkspaceWebNavigationCommitReceiptRecord\";\n",
                 "export type { MacroInputEpochRecord } from \"./MacroInputEpochRecord\";\n",
                 "export type { MacroInputRecoveryCompletionReceiptRecord } from \"./MacroInputRecoveryCompletionReceiptRecord\";\n",
                 "export type { MacroInputRecoveryFailureReceiptRecord } from \"./MacroInputRecoveryFailureReceiptRecord\";\n",
@@ -366,6 +367,7 @@ fn export_bindings_index() {
                 "import type { BrowserFontInstallResultRecord } from \"./BrowserFontInstallResultRecord\";\n",
                 "import type { BrowserFontRuntimePayloadRecord } from \"./BrowserFontRuntimePayloadRecord\";\n",
                 "import type { BrowserRuntimeRegistrationRecord } from \"./BrowserRuntimeRegistrationRecord\";\n",
+                "import type { BrowserWorkspaceWebNavigationCommitReceiptRecord } from \"./BrowserWorkspaceWebNavigationCommitReceiptRecord\";\n",
                 "import type { BrowserRuntimeSnapshot } from \"./BrowserRuntimeSnapshot\";\n",
                 "import type { BrowserWorkspaceStatusRecord } from \"./BrowserWorkspaceStatusRecord\";\n",
                 "import type { BulkDeleteResultRecord } from \"./BulkDeleteResultRecord\";\n",
@@ -557,6 +559,7 @@ fn export_bindings_index() {
                 "  browserWorkspaceLaunch: BrowserLaunchAdmissionRecord;\n",
                 "  browserRoleSlotClaim: BrowserRuntimeSnapshot;\n",
                 "  browserWorkspaceWebSurfaceFailed: BrowserRuntimeSnapshot;\n",
+                "  browserWorkspaceWebNavigationCommitted: BrowserWorkspaceWebNavigationCommitReceiptRecord;\n",
                 "  browserTabAudioMute: SystemRuntimeOperationSummaryRecord;\n",
                 "  browserRuntimeTabReload: BrowserTabReloadReceiptRecord;\n",
                 "  browserWindowCloseAdmit: RuntimeWindowStopRequestRecord;\n",

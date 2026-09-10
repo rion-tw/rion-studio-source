@@ -562,10 +562,12 @@ impl AppCore {
             .get("revision")
             .and_then(Value::as_u64)
             .unwrap_or_default();
-        self.emit(vec![CoreEvent::StateChanged {
-            revision,
-            changed_collections,
-        }]);
+        if result.get("changed").and_then(Value::as_bool).unwrap_or(true) {
+            self.emit(vec![CoreEvent::StateChanged {
+                revision,
+                changed_collections,
+            }]);
+        }
         Ok(result.get("value").cloned().unwrap_or(Value::Null))
     }
 

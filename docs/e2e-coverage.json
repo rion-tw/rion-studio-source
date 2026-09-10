@@ -80,6 +80,7 @@
         "chromium-app-crud-cleanup",
         "chromium-app-crud-final-restart",
         "chromium-system-settings",
+        "chromium-system-settings-restart",
         "chromium-graphics-settings-seed",
         "chromium-graphics-settings-restart",
         "chromium-quit-guard-seed",
@@ -186,6 +187,7 @@
         "chromium-app-crud-cleanup",
         "chromium-app-crud-final-restart",
         "chromium-system-settings",
+        "chromium-system-settings-restart",
         "chromium-graphics-settings-seed",
         "chromium-graphics-settings-restart",
         "chromium-quit-guard-seed",
@@ -508,7 +510,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install with visible permission confirmation and All roles scope, create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install the official AdBlock package with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-EXTENSIONS-001",
@@ -531,7 +533,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install with visible permission confirmation and All roles scope, create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install the official AdBlock package with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-SHELL-001",
@@ -962,7 +964,7 @@
         "success",
         "restart"
       ],
-      "description": "Create and edit a mixed Role/Web Workspace through visible macOS Chromium UI, launch its paired Role and Web content from the visible Workspace action into the retained AppKit Chromium host, and prove both slot identities, URLs, native readiness, and launch admission survive a clean process restart."
+      "description": "Create and edit a mixed Role/Rion Website Workspace through visible macOS Chromium UI with no Website settings, launch it into the retained AppKit Chromium host, navigate through the visible Rion chrome, and prove the Role slot plus per-slot last URL survive a clean process restart."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-PERSIST-004",
@@ -988,7 +990,7 @@
         "success",
         "restart"
       ],
-      "description": "Create and edit a mixed Role/Web Workspace through visible Windows Chromium UI, launch its paired Role and Web content from the visible Workspace action into the native Chromium host, and prove both slot identities, URLs, native readiness, and launch admission survive a clean process restart."
+      "description": "Create and edit a mixed Role/Rion Website Workspace through visible Windows Chromium UI with no Website settings, launch it into the native Chromium host, navigate through the visible Rion chrome, and prove the Role slot plus per-slot last URL survive a clean process restart."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-PERSIST-005",
@@ -1722,7 +1724,8 @@
       "status": "automated",
       "profile": "chromium-macos-appkit-smoke",
       "phases": [
-        "chromium-system-settings"
+        "chromium-system-settings",
+        "chromium-system-settings-restart"
       ],
       "spec": "e2e/desktop/specs/chromium-system-settings.e2e.ts",
       "platforms": [
@@ -1732,9 +1735,10 @@
       "risk": "external",
       "outcomes": [
         "success",
-        "cancel"
+        "cancel",
+        "restart"
       ],
-      "description": "Through visible macOS Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, and legal-document close boundary."
+      "description": "Through visible macOS Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, a non-empty structured log viewer with live Core state activity, cross-restart log persistence, and the legal-document close boundary."
     },
     {
       "id": "CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013",
@@ -1747,7 +1751,8 @@
       "status": "automated",
       "profile": "chromium-windows-smoke",
       "phases": [
-        "chromium-system-settings"
+        "chromium-system-settings",
+        "chromium-system-settings-restart"
       ],
       "spec": "e2e/desktop/specs/chromium-system-settings.e2e.ts",
       "platforms": [
@@ -1757,9 +1762,10 @@
       "risk": "external",
       "outcomes": [
         "success",
-        "cancel"
+        "cancel",
+        "restart"
       ],
-      "description": "Through visible Windows Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, and legal-document close boundary."
+      "description": "Through visible Windows Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, a non-empty structured log viewer with live Core state activity, cross-restart log persistence, and the legal-document close boundary."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-EXPORT-029",
@@ -2118,7 +2124,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create one exact permanent Game Window containing a Role tab and a mixed Role/Web Workspace tab, establish isolated Role cookies, LocalStorage, and global-Web continuity through a normal clean exit, visibly Show it before exact-PID termination, then use the visible Dashboard Restore session action. SQLite and native evidence require the exact schema-v2 cohort, mixed tab and slot identities, isolated persistent Role Sessions, global-Web content versus memory-only chrome Sessions, and the retained AppKit Game Window/tab host."
+      "description": "Create one exact permanent Game Window containing a Role tab and a mixed Role/Rion Website Workspace tab, navigate the Website from the Rion entrance, establish isolated Role cookies, LocalStorage, and per-slot global-Web continuation through a normal clean exit, visibly Show it before exact-PID termination, then use the visible Dashboard Restore session action. SQLite and native evidence require the exact schema-v2 cohort, saved last URL, isolated Sessions, and retained AppKit host."
     },
     {
       "id": "CHROMIUM-WINDOWS-MIXED-RECOVERY-021",
@@ -2146,7 +2152,7 @@
         "failure",
         "restart"
       ],
-      "description": "Run the same clean-seed, visible Show, exact-PID termination, and visible Restore sequence for the paired Windows Chromium host. Exact evidence requires the same Role/Workspace-Web topology, schema-v2 cohort, isolated Role and global-Web Session continuity, and bundled native Windows host ownership; Windows execution remains an independent CI verdict."
+      "description": "Run the same Rion-entrance navigation, clean-seed, visible Show, exact-PID termination, and visible Restore sequence for the paired Windows Chromium host. Exact evidence requires the same Role/Workspace-Web topology, per-slot last URL, isolated Sessions, and bundled native Windows host ownership; Windows execution remains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-UI-022",
@@ -2258,7 +2264,7 @@
         "success",
         "restart"
       ],
-      "description": "Create a mixed Website and Role Workspace through visible slot-content controls, choose the visible iQIYI International item from the grouped popular-site menu, and override its editable details with the HTTP(S) fixture URL. First launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell into a transient retained AppKit host, drag the visible native divider with a real platform pointer, and prove the live Core layout changes without creating a saved Game Window or shell error. Then repeat in a saved Game Window and prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior."
+      "description": "Create a setting-free Rion Website and Role Workspace through visible slot-content controls. First open the Rion entrance, navigate through the visible address control, and prove the canonical last URL is committed without changing Workspace sorting. Launch the paired persistent global-Web content and in-memory Rion chrome into a transient retained AppKit host, drag the native divider, then repeat in a saved Game Window and prove exact layout, per-slot continuation, isolated sessions, and resized persistence after restart."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FULLSCREEN-017",
@@ -2284,7 +2290,7 @@
         "success",
         "restart"
       ],
-      "description": "Create the mixed Web App + Role Workspace through visible controls, then click the real remote Chromium page controls and send a real Escape key to prove main and controlled-popup HTML fullscreen remain inside their exact slot/native popup envelopes. The paired local Rion chrome hides only for the main Web slot, the persistent global-Web content expands to that slot, sibling Role/Core layout and native window geometry remain unchanged, and the retained AppKit window/tab chrome plus exact AppKit popup identity survive both website exit and restart."
+      "description": "Create the setting-free Rion Website + Role Workspace, open the Rion entrance, navigate through the visible address control, then use real remote-page controls and Escape to prove main and controlled-popup HTML fullscreen remain inside their exact slot/native popup envelopes. The per-slot last URL, retained AppKit chrome, and exact popup identity survive restart."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SECURITY-POLICY-027",
@@ -2408,7 +2414,7 @@
         "success",
         "restart"
       ],
-      "description": "Create the same mixed Website and Role Workspace through visible slot-content controls, choose the visible iQIYI International item from the grouped popular-site menu, and override its editable details with the HTTP(S) fixture URL. First launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell into a transient bundled Windows host, drag its visible separator with a real platform pointer, and prove the live Core layout changes without creating a saved Game Window or shell error. Then repeat in a saved Game Window and prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey. During gated navigation, exact-process native UI Automation observes the visible activation button exposing its loading state alongside the named tab close control; after release, the same native host is bound to the Core tab. Windows execution retains an independent CI verdict. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior."
+      "description": "Create the same setting-free Rion Website and Role Workspace through visible controls. Open the Rion entrance, navigate through the visible address control, exercise the bundled Windows separator, then prove exact Core layout, per-slot continuation, isolated sessions, saved-window persistence, and restart recovery with an independent Windows CI verdict."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017",
@@ -2434,7 +2440,7 @@
         "success",
         "restart"
       ],
-      "description": "Run the identical visible mixed-Workspace contained-fullscreen journey in the bundled Windows Chromium host. Real remote-page clicks and Escape expand only the global-Web content to its exact slot while hiding/restoring the paired local Rion chrome, keep sibling Role/Core and native window geometry fixed, and keep the controlled popup in its revision-fenced native envelope across website exit and restart. Close the popup through its visible window control selected by its exact logical window ID, require the popup Core lifecycle to terminalize, and preserve the parent; Windows execution retains an independent CI verdict."
+      "description": "Run the identical setting-free Rion Website contained-fullscreen journey in the bundled Windows Chromium host, including entrance-to-address navigation and per-slot last-URL restart continuation. Real remote-page clicks and Escape keep main content and controlled popups inside their exact envelopes; Windows retains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-SECURITY-POLICY-027",
@@ -2979,7 +2985,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create a single Website Workspace through visible controls, prove event-bound Loading then Ready with no synthetic Role slots/statuses, and compare the persistent global-Web content session with the dedicated memory-only Rion chrome shell inside the retained AppKit host. Repeated launch deduplicates, visible chrome navigation produces an authoritative degraded failure, native AppKit tab close/reopen recovers only by user action, and the exact saved Web tab plus session survive process restart. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation. Visible address editing restores the full URL on focus, Escape discards the draft, and keyword submission emits the exact encoded Google main-frame navigation without depending on search-result content. Create and persist an entrance Website without entering a URL, open its offline 26-card page, click the visible iQIYI International card through a fixture-bound request, return through Home with a blank address bar, and repeat after restart without changing the saved start URL. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior. Clear the selected URL to restore the entrance, verify its matching four groups and local brand images, scroll to the drama card, activate it against a controlled response, and return Home without changing persisted configuration."
+      "description": "Create a setting-free single Rion Website Workspace and prove empty Role topology plus isolated persistent content and memory-only chrome sessions in the retained AppKit host. Navigate from the entrance, persist and resume the canonical last URL, ignore failed navigation, and recover through visible tab close/reopen and process restart. The entrance exposes 26 cards in four groups; a visible card navigation is persisted, Home clears the last URL, and reopening starts at the entrance again."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024",
@@ -3006,7 +3012,7 @@
         "failure",
         "restart"
       ],
-      "description": "Run the same visible Web-only Workspace lifecycle in the bundled Windows Chromium host: event-bound Loading and Ready, empty Role topology, persistent global-Web content isolated from the memory-only Rion chrome shell, deduplicated launch, authoritative degraded navigation failure, visible native tab close/reopen, and exact restart persistence. Windows execution retains an independent CI verdict. Last-tab close must return a coherent runtime read and publish the empty renderer topology from the pre-action event cursor without another persisted mutation. Visible address editing restores the full URL on focus, Escape discards the draft, and keyword submission emits the exact encoded Google main-frame navigation without depending on search-result content. Create and persist an entrance Website without entering a URL, open its offline 26-card page, click the visible iQIYI International card through a fixture-bound request, return through Home with a blank address bar, and repeat after restart without changing the saved start URL. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior. Clear the selected URL to restore the entrance, verify its matching four groups and local brand images, scroll to the drama card, activate it against a controlled response, and return Home without changing persisted configuration. The final visible native tab close runs immediately before phase teardown: the clean-exit boundary must drain every already-admitted native control operation before disposing Core effects, and the full-profile collector requires authoritative final flush and process exit."
+      "description": "Run the same setting-free Rion Website lifecycle in the bundled Windows Chromium host: empty Role topology, isolated sessions, entrance-to-address navigation, canonical per-slot last-URL persistence, failed-navigation exclusion, visible close/reopen, and restart continuation. Home clears the last URL and reopening returns to the 26-card entrance. Final native close and clean exit drain every accepted navigation commit; Windows retains an independent CI verdict."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025",

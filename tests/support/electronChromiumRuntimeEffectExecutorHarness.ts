@@ -404,7 +404,7 @@ export async function loadWebSurfaces(
         slotId: specification.slots.find(
           (slot) => slot.role.id === role.role.id
         )!.slotId,
-        url: role.web!.startUrl,
+        url: role.web!.lastUrl!,
         zoomFactor: role.zoomFactor,
         resolvedEngine: "chromium"
         }))

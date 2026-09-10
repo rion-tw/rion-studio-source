@@ -8,7 +8,139 @@ struct ChromiumWorkspaceWebSurfaceFailureInput {
     expected_window_generation: u64,
 }
 
+struct ChromiumWorkspaceWebNavigationCommitInput {
+    operation_id: String,
+    surface_id: String,
+    surface_generation: u64,
+    slot_id: String,
+    tab_id: String,
+    window_id: String,
+    expected_attempt_generation: String,
+    expected_window_generation: u64,
+    url: String,
+}
+
 impl AppCore {
+    fn commit_chromium_workspace_web_navigation(
+        &self,
+        input: ChromiumWorkspaceWebNavigationCommitInput,
+    ) -> CoreResult<crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord> {
+        if self.runtime_contract_version < CHROMIUM_RUNTIME_CONTRACT_VERSION {
+            return Err(chromium_launch_window_context_error(
+                "CHROMIUM_WORKSPACE_WEB_NAVIGATION_UNAVAILABLE",
+                "Workspace Web navigation continuation requires Chromium runtime contract v25.",
+            ));
+        }
+        let operation_id = crate::OperationId::new(input.operation_id)
+            .map_err(CoreError::InvalidInput)?
+            .into_string();
+        let last_url = if input.url == "rion-start://home/" {
+            None
+        } else {
+            Some(crate::domain::normalize_workspace_web_last_url(&input.url)?)
+        };
+        if input.surface_id.trim().is_empty()
+            || input.slot_id.trim().is_empty()
+            || input.expected_attempt_generation.trim().is_empty()
+            || input.surface_generation < 1
+            || input.expected_window_generation < 1
+        {
+            return Err(CoreError::InvalidInput(
+                "Chromium Workspace Web navigation identity is invalid.".to_owned(),
+            ));
+        }
+        let superseded = || crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord {
+            operation_id: operation_id.clone(),
+            status: "superseded".to_owned(),
+            durable: false,
+            window_id: input.window_id.clone(),
+            tab_id: input.tab_id.clone(),
+            slot_id: input.slot_id.clone(),
+            last_url: last_url.clone(),
+        };
+        let _lane = self.embedded_runtime_sequence.acquire()?;
+        let before = self.browser_runtime.snapshot()?;
+        let Some(window) = before.windows.get(&input.window_id) else {
+            return Ok(superseded());
+        };
+        let Some(tab) = window.tabs.iter().find(|tab| tab.id == input.tab_id) else {
+            return Ok(superseded());
+        };
+        let Some(browser_tab) = before
+            .browser_runtime
+            .tabs
+            .iter()
+            .find(|tab| tab.id == input.tab_id && tab.window_id == input.window_id)
+        else {
+            return Ok(superseded());
+        };
+        let exact_surface = browser_tab.web_surfaces.iter().any(|surface| {
+            surface.surface_id == input.surface_id && surface.slot_id == input.slot_id
+        });
+        if window.window_generation != input.expected_window_generation
+            || tab.tab_type != "workspace"
+            || browser_tab.tab_type != "workspace"
+            || browser_tab.attempt_generation.as_deref()
+                != Some(input.expected_attempt_generation.as_str())
+            || !exact_surface
+        {
+            return Ok(superseded());
+        }
+        let workspace_id = browser_tab.source_id.clone();
+        let mut workspace_slots = tab.workspace_slots.clone();
+        let Some(slot) = workspace_slots
+            .iter_mut()
+            .find(|slot| slot.id == input.slot_id && slot.web.is_some())
+        else {
+            return Ok(superseded());
+        };
+        slot.web.as_mut().expect("validated Web slot").last_url = last_url.clone();
+        let runtime_commit =
+            self.apply_runtime_intent(crate::RuntimeIntent::ReplaceTabWorkspaceSlots {
+                expected_revision: Some(window.revision),
+                operation_id: operation_id.clone(),
+                tab_id: input.tab_id.clone(),
+                window_id: input.window_id.clone(),
+                workspace_slots,
+            })?;
+        if runtime_commit.status == crate::RuntimeCommitStatus::Superseded {
+            return Ok(superseded());
+        }
+        let persisted = self.mutate_state(StateMutation::WorkspaceWebNavigationCommit {
+            workspace_id,
+            slot_id: input.slot_id.clone(),
+            window_id: input.window_id.clone(),
+            tab_id: input.tab_id.clone(),
+            last_url: last_url.clone(),
+        });
+        let persisted = match persisted {
+            Ok(value) => value,
+            Err(CoreError::Domain {
+                code: "WORKSPACE_WEB_NAVIGATION_STALE",
+                ..
+            }) => {
+                return Ok(superseded());
+            }
+            Err(error) => return Err(error),
+        };
+        let status = persisted
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("applied")
+            .to_owned();
+        Ok(
+            crate::model::BrowserWorkspaceWebNavigationCommitReceiptRecord {
+                operation_id,
+                status,
+                durable: true,
+                window_id: input.window_id,
+                tab_id: input.tab_id,
+                slot_id: input.slot_id,
+                last_url,
+            },
+        )
+    }
+
     fn ensure_chromium_launch_window_context(
         &self,
         tab: &EmbeddedTabEffectRecord,
@@ -94,12 +226,9 @@ impl AppCore {
             return Ok(false);
         }
         let topology_changed = {
-            let _authority_guard = self
-                .runtime_authority_barrier
-                .write()
-                .map_err(|_| {
-                    CoreError::Internal("runtime authority barrier poisoned".to_owned())
-                })?;
+            let _authority_guard = self.runtime_authority_barrier.write().map_err(|_| {
+                CoreError::Internal("runtime authority barrier poisoned".to_owned())
+            })?;
             let snapshot = self.browser_runtime.snapshot()?;
             let activation = snapshot.tab_activations.get(tab_id).ok_or_else(|| {
                 chromium_launch_window_context_error(

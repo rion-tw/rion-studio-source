@@ -6,8 +6,7 @@ fn create_web_only_workspace(core: &AppCore, name: &str) -> String {
             "template": "single",
             "slots": [{
                 "web": {
-                    "name": "Rion Docs",
-                    "startUrl": "https://example.test/docs"
+                    "lastUrl": "https://example.test/docs"
                 },
                 "rect": workspace_rect(0, 1)
             }]
@@ -229,20 +228,23 @@ fn repeated_web_only_launch_joins_the_existing_tab_and_stop_allows_a_fresh_attem
 fn chromium_browser_workspace_stop_retires_kernel_and_ownership_topology() {
     for platform in ["darwin", "win32"] {
         let (_directory, core) = core_for_platform_contract(platform, 23);
-        let workspace_id = create_web_only_workspace(
-            &core,
-            &format!("Chromium stop topology {platform}"),
-        );
+        let workspace_id =
+            create_web_only_workspace(&core, &format!("Chromium stop topology {platform}"));
         let window_id = format!("chromium-stop-window-{platform}");
         let (launched, launch_actions) = drive_launch_through_terminal(
             Arc::clone(&core),
             web_workspace_browser_launch(&workspace_id, &window_id),
         );
-        assert!(launched["operationId"].is_string(), "{platform}: {launched:?}");
-        assert!(launch_actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedCreateTab { .. }
-        )), "{platform}");
+        assert!(
+            launched["operationId"].is_string(),
+            "{platform}: {launched:?}"
+        );
+        assert!(
+            launch_actions
+                .iter()
+                .any(|action| matches!(action, CoreEffectAction::EmbeddedCreateTab { .. })),
+            "{platform}"
+        );
         let before = core.app_snapshot().unwrap();
         assert_eq!(before.logical_windows.len(), 1, "{platform}");
         assert_eq!(before.browser_runtime.windows.len(), 1, "{platform}");
@@ -256,10 +258,12 @@ fn chromium_browser_workspace_stop_retires_kernel_and_ownership_topology() {
             None,
         );
         assert!(stopped.is_ok(), "{platform}: {stopped:?}");
-        assert!(stop_actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedDestroyTab { .. }
-        )), "{platform}");
+        assert!(
+            stop_actions
+                .iter()
+                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. })),
+            "{platform}"
+        );
         let after = core.app_snapshot().unwrap();
         assert!(after.logical_windows.is_empty(), "{platform}");
         assert!(after.browser_runtime.windows.is_empty(), "{platform}");

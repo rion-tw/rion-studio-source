@@ -35,8 +35,7 @@ export const workspaceWebInspection = Object.freeze({
       rect: Object.freeze({ height: 1, width: 0.56, x: 0, y: 0 }),
       roleId: null,
       web: Object.freeze({
-        name: "Chromium Workspace Web",
-        startUrl: "http://127.0.0.1:3210/role/chromium-workspace-web"
+        lastUrl: "http://127.0.0.1:3210/role/chromium-workspace-web"
       })
     }),
     Object.freeze({

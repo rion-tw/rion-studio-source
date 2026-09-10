@@ -11,12 +11,12 @@ import type { LaunchWorkspaceSlot } from "../src/shared/types";
 const t: Translator = (key) => en[key];
 
 describe("workspace content projection", () => {
-  it("projects role and Website content with searchable names", () => {
+  it("projects role and Website counts without a redundant Website display name", () => {
     const slots: LaunchWorkspaceSlot[] = [
       { id: "role-slot", roleId: "role-1", rect: { x: 0, y: 0, width: 0.5, height: 1 } },
       {
         id: "web-slot",
-        web: { name: "Video room", startUrl: "https://example.test/watch" },
+        web: { lastUrl: "https://example.test/watch" },
         rect: { x: 0.5, y: 0, width: 0.5, height: 1 }
       }
     ];
@@ -28,7 +28,7 @@ describe("workspace content projection", () => {
     expect(content).toEqual({
       contentCount: 2,
       hasContent: true,
-      names: ["Main role", "Video room"],
+      names: ["Main role"],
       roleCount: 1,
       webCount: 1
     });

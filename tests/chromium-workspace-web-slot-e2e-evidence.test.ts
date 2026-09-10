@@ -4,8 +4,7 @@ import { validateChromiumWorkspaceWebSqliteEvidence } from
   "../scripts/desktopE2eChromiumWorkspaceWebEvidence.mjs";
 
 const web = {
-  name: "Chromium Workspace Web fixture",
-  startUrl: "http://127.0.0.1:49355/role/chromium-workspace-web-slot?mode=seed&marker=chromium-workspace-web-slot-marker"
+  lastUrl: "http://127.0.0.1:49355/role/chromium-workspace-web-slot?mode=seed&marker=chromium-workspace-web-slot-marker"
 };
 const templateSlots = [
   { id: "slot-1", rect: { height: 1, width: 0.5, x: 0, y: 0 }, web },

@@ -1,197 +1,379 @@
-
 #[test]
-    fn portable_validation_boundaries() {
-        {
-            let mut source = fixture_value(11);
-            source["games"][0]["coverImageDataUrl"] = json!("https://example.test/cover.png");
+fn portable_validation_boundaries() {
+    {
+        let mut source = fixture_value(11);
+        source["games"][0]["coverImageDataUrl"] = json!("https://example.test/cover.png");
+        assert_eq!(
+            normalize(&source.to_string()).unwrap_err().code(),
+            "CORE_INPUT_INVALID"
+        );
+    };
+
+    {
+        assert_eq!(
+            normalize(r#"{"app":"Rion Studio","schemaVersion":999}"#)
+                .unwrap_err()
+                .code(),
+            "CORE_DATA_VERSION_UNSUPPORTED"
+        );
+        assert_eq!(normalize("{").unwrap_err().code(), "CORE_INPUT_INVALID");
+    };
+
+    {
+        let mut source = fixture_value(11);
+        for macro_value in [
+            json!({
+                "id":"bad","enabled":true,"activationMode":"invalid","name":"Bad",
+                "roleIds":["r1"],"repeat":{"type":"once"},
+                "steps":[{"id":"hold","type":"key","code":"KeyW","action":"hold_until_stop"}]
+            }),
+            json!({
+                "id":"bad","enabled":true,"activationMode":"toggle","name":"Bad",
+                "roleIds":["r1"],"repeat":{"type":"once"},
+                "steps":[{"id":"hold","type":"key","code":"KeyW","action":"key_down"}]
+            }),
+            json!({
+                "id":"bad","enabled":true,"activationMode":"while_held","name":"Bad",
+                "roleIds":["r1"],"repeat":{"type":"once"},
+                "steps":[{"id":"hold","type":"key","code":"KeyW","action":"hold_until_stop"}]
+            }),
+        ] {
+            source["macros"] = json!([macro_value]);
             assert_eq!(
                 normalize(&source.to_string()).unwrap_err().code(),
                 "CORE_INPUT_INVALID"
             );
-        };
-
-        {
-            assert_eq!(
-                normalize(r#"{"app":"Rion Studio","schemaVersion":999}"#)
-                    .unwrap_err()
-                    .code(),
-                "CORE_DATA_VERSION_UNSUPPORTED"
-            );
-            assert_eq!(normalize("{").unwrap_err().code(), "CORE_INPUT_INVALID");
-        };
-
-        {
-            let mut source = fixture_value(11);
-            for macro_value in [
-                json!({
-                    "id":"bad","enabled":true,"activationMode":"invalid","name":"Bad",
-                    "roleIds":["r1"],"repeat":{"type":"once"},
-                    "steps":[{"id":"hold","type":"key","code":"KeyW","action":"hold_until_stop"}]
-                }),
-                json!({
-                    "id":"bad","enabled":true,"activationMode":"toggle","name":"Bad",
-                    "roleIds":["r1"],"repeat":{"type":"once"},
-                    "steps":[{"id":"hold","type":"key","code":"KeyW","action":"key_down"}]
-                }),
-                json!({
-                    "id":"bad","enabled":true,"activationMode":"while_held","name":"Bad",
-                    "roleIds":["r1"],"repeat":{"type":"once"},
-                    "steps":[{"id":"hold","type":"key","code":"KeyW","action":"hold_until_stop"}]
-                }),
-            ] {
-                source["macros"] = json!([macro_value]);
-                assert_eq!(
-                    normalize(&source.to_string()).unwrap_err().code(),
-                    "CORE_INPUT_INVALID"
-                );
-            }
-            source["schemaVersion"] = json!("4");
-            assert_eq!(
-                normalize(&source.to_string()).unwrap_err().code(),
-                "CORE_DATA_VERSION_UNSUPPORTED"
-            );
-        };
-
-        {
-            let mut source = fixture_value(11);
-            source["macros"][0]["repeat"] = json!({"type":"loop","intervalMs":86_400_000_u64});
-            source["macros"][0]["steps"] =
-                json!([{"id":"delay","type":"delay","ms":86_400_000_u64}]);
-            assert!(normalize(&source.to_string()).is_ok());
-            source["macros"][0]["steps"][0]["ms"] = json!(86_400_001_u64);
-            assert!(normalize(&source.to_string()).is_err());
-            source["macros"][0]["steps"][0]["ms"] = json!(86_400_000_u64);
-            source["macros"][0]["repeat"]["intervalMs"] = json!(86_400_001_u64);
-            assert!(normalize(&source.to_string()).is_err());
-        };
-    }
-
-    #[test]
-    fn portable_v17_round_trips_timed_holds_and_rejects_invalid_or_legacy_shapes() {
-        let mut source = fixture_value(17);
-        source["macros"][0]["steps"] = json!([{
-            "id":"timed","type":"key","code":"KeyW",
-            "action":"hold_for_duration","durationMs":1_250
-        }]);
-        let normalized = normalize(&source.to_string()).unwrap();
-        assert_eq!(
-            normalized["macros"][0]["steps"][0]["durationMs"],
-            1_250
-        );
-
-        for invalid_step in [
-            json!({"id":"timed","type":"key","code":"KeyW","action":"hold_for_duration"}),
-            json!({
-                "id":"timed","type":"key","code":"KeyW",
-                "action":"hold_for_duration","durationMs":19
-            }),
-            json!({
-                "id":"timed","type":"key","code":"KeyW",
-                "action":"hold_for_duration","durationMs":86_400_001_u64
-            }),
-            json!({
-                "id":"tap","type":"key","code":"KeyW","action":"tap","durationMs":20
-            }),
-        ] {
-            source["macros"][0]["steps"] = json!([invalid_step]);
-            assert!(normalize(&source.to_string()).is_err());
         }
+        source["schemaVersion"] = json!("4");
+        assert_eq!(
+            normalize(&source.to_string()).unwrap_err().code(),
+            "CORE_DATA_VERSION_UNSUPPORTED"
+        );
+    };
 
-        source["schemaVersion"] = json!(16);
-        source["macros"][0]["steps"] = json!([{
+    {
+        let mut source = fixture_value(11);
+        source["macros"][0]["repeat"] = json!({"type":"loop","intervalMs":86_400_000_u64});
+        source["macros"][0]["steps"] = json!([{"id":"delay","type":"delay","ms":86_400_000_u64}]);
+        assert!(normalize(&source.to_string()).is_ok());
+        source["macros"][0]["steps"][0]["ms"] = json!(86_400_001_u64);
+        assert!(normalize(&source.to_string()).is_err());
+        source["macros"][0]["steps"][0]["ms"] = json!(86_400_000_u64);
+        source["macros"][0]["repeat"]["intervalMs"] = json!(86_400_001_u64);
+        assert!(normalize(&source.to_string()).is_err());
+    };
+}
+
+#[test]
+fn portable_v17_round_trips_timed_holds_and_rejects_invalid_or_legacy_shapes() {
+    let mut source = fixture_value(17);
+    source["macros"][0]["steps"] = json!([{
+        "id":"timed","type":"key","code":"KeyW",
+        "action":"hold_for_duration","durationMs":1_250
+    }]);
+    let normalized = normalize(&source.to_string()).unwrap();
+    assert_eq!(normalized["macros"][0]["steps"][0]["durationMs"], 1_250);
+
+    for invalid_step in [
+        json!({"id":"timed","type":"key","code":"KeyW","action":"hold_for_duration"}),
+        json!({
             "id":"timed","type":"key","code":"KeyW",
-            "action":"hold_for_duration","durationMs":1_250
-        }]);
+            "action":"hold_for_duration","durationMs":19
+        }),
+        json!({
+            "id":"timed","type":"key","code":"KeyW",
+            "action":"hold_for_duration","durationMs":86_400_001_u64
+        }),
+        json!({
+            "id":"tap","type":"key","code":"KeyW","action":"tap","durationMs":20
+        }),
+    ] {
+        source["macros"][0]["steps"] = json!([invalid_step]);
         assert!(normalize(&source.to_string()).is_err());
     }
 
-    #[test]
-    fn portable_v18_round_trips_workspace_web_slots_and_rejects_conflicts() {
-        let mut source = fixture_value(18);
-        source["launchWorkspaces"][0]["slots"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("roleId");
-        source["launchWorkspaces"][0]["slots"][0]["web"] = json!({
-            "name":"  YouTube  ",
-            "startUrl":"https://www.youtube.com"
-        });
-        let normalized = normalize(&source.to_string()).unwrap();
-        assert_eq!(
-            normalized["launchWorkspaces"][0]["slots"][0]["web"],
-            json!({"name":"YouTube","startUrl":"https://www.youtube.com/"})
-        );
+    source["schemaVersion"] = json!(16);
+    source["macros"][0]["steps"] = json!([{
+        "id":"timed","type":"key","code":"KeyW",
+        "action":"hold_for_duration","durationMs":1_250
+    }]);
+    assert!(normalize(&source.to_string()).is_err());
+}
 
-        source["launchWorkspaces"][0]["slots"][0]["roleId"] = json!("r");
-        assert_eq!(
-            normalize(&source.to_string()).unwrap_err().code(),
-            "CORE_INPUT_INVALID"
-        );
+#[test]
+fn portable_v18_resets_legacy_workspace_web_slots_and_rejects_conflicts() {
+    let mut source = fixture_value(18);
+    source["launchWorkspaces"][0]["slots"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("roleId");
+    source["launchWorkspaces"][0]["slots"][0]["web"] = json!({
+        "name":"  YouTube  ",
+        "startUrl":"https://www.youtube.com"
+    });
+    let normalized = normalize(&source.to_string()).unwrap();
+    assert_eq!(
+        normalized["launchWorkspaces"][0]["slots"][0]["web"],
+        json!({})
+    );
 
-        source["launchWorkspaces"][0]["slots"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("roleId");
-        source["launchWorkspaces"][0]["slots"][0]["web"]["startUrl"] =
-            json!("file:///tmp/video");
-        assert_eq!(
-            normalize(&source.to_string()).unwrap_err().code(),
-            "CORE_INPUT_INVALID"
-        );
-    }
+    source["launchWorkspaces"][0]["slots"][0]["roleId"] = json!("r");
+    assert_eq!(
+        normalize(&source.to_string()).unwrap_err().code(),
+        "CORE_INPUT_INVALID"
+    );
 
-    #[test]
-    fn portable_v18_upgrades_mixed_game_window_layout_and_remaps_its_role_subset() {
-        let mut source = fixture_value(18);
-        source["launchWorkspaces"][0]["template"] = json!("two_columns");
-        source["launchWorkspaces"][0]["slots"] = json!([
-            {
-                "id":"slot-role","roleId":"r1",
-                "rect":{"x":0.0,"y":0.0,"width":0.5,"height":1.0}
-            },
-            {
-                "id":"slot-web",
-                "web":{"name":"Fixture","startUrl":"https://example.test/web"},
-                "rect":{"x":0.5,"y":0.0,"width":0.5,"height":1.0}
-            }
-        ]);
-        source["gameWindows"] = json!([{
+    source["launchWorkspaces"][0]["slots"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("roleId");
+    source["launchWorkspaces"][0]["slots"][0]["web"]["startUrl"] = json!("file:///tmp/video");
+    assert_eq!(
+        normalize(&source.to_string()).unwrap()["launchWorkspaces"][0]["slots"][0]["web"],
+        json!({})
+    );
+}
+
+#[test]
+fn portable_v18_upgrades_mixed_game_window_layout_and_remaps_its_role_subset() {
+    let mut source = fixture_value(18);
+    source["launchWorkspaces"][0]["template"] = json!("two_columns");
+    source["launchWorkspaces"][0]["slots"] = json!([
+        {
+            "id":"slot-role","roleId":"r1",
+            "rect":{"x":0.0,"y":0.0,"width":0.5,"height":1.0}
+        },
+        {
+            "id":"slot-web",
+            "web":{"name":"Fixture","startUrl":"https://example.test/web"},
+            "rect":{"x":0.5,"y":0.0,"width":0.5,"height":1.0}
+        }
+    ]);
+    source["gameWindows"] = json!([{
+        "id":uuid::Uuid::new_v4().to_string(),
+        "name":"Mixed window",
+        "targetDisplay":{"id":0},
+        "placement":{
+            "normalBounds":{"x":0,"y":0,"width":1280,"height":720},
+            "savedWorkArea":{"x":0,"y":0,"width":1920,"height":1080},
+            "presentation":"normal"
+        },
+        "tabs":[{
             "id":uuid::Uuid::new_v4().to_string(),
-            "name":"Mixed window",
-            "targetDisplay":{"id":0},
-            "placement":{
-                "normalBounds":{"x":0,"y":0,"width":1280,"height":720},
-                "savedWorkArea":{"x":0,"y":0,"width":1920,"height":1080},
-                "presentation":"normal"
-            },
-            "tabs":[{
-                "id":uuid::Uuid::new_v4().to_string(),
-                "tabType":"workspace",
-                "sourceId":"w1",
-                "name":"Mixed workspace",
-                "roleSlots":[{
-                    "slotId":"slot-role","roleId":"r1",
-                    "rect":{"x":0.0,"y":0.0,"width":0.6,"height":1.0}
-                }],
-                "hidden":false,
-                "audioMuted":false
-            }]
-        }]);
+            "tabType":"workspace",
+            "sourceId":"w1",
+            "name":"Mixed workspace",
+            "roleSlots":[{
+                "slotId":"slot-role","roleId":"r1",
+                "rect":{"x":0.0,"y":0.0,"width":0.6,"height":1.0}
+            }],
+            "hidden":false,
+            "audioMuted":false
+        }]
+    }]);
 
-        let normalized = normalize(&source.to_string()).unwrap();
-        assert_eq!(normalized["schemaVersion"], PORTABLE_SCHEMA_VERSION);
-        let slots = normalized["gameWindows"][0]["tabs"][0]["workspaceSlots"]
-            .as_array()
-            .unwrap();
-        assert_eq!(slots.len(), 2);
-        assert_eq!(slots[0]["rect"]["width"], 0.6);
-        assert_eq!(slots[1]["web"]["startUrl"], "https://example.test/web");
+    let normalized = normalize(&source.to_string()).unwrap();
+    assert_eq!(normalized["schemaVersion"], PORTABLE_SCHEMA_VERSION);
+    let slots = normalized["gameWindows"][0]["tabs"][0]["workspaceSlots"]
+        .as_array()
+        .unwrap();
+    assert_eq!(slots.len(), 2);
+    assert_eq!(slots[0]["rect"]["width"], 0.6);
+    assert_eq!(slots[1]["web"], json!({}));
 
+    let mut runtime = PortableRuntime::default();
+    let preview = runtime
+        .preview(
+            &source.to_string(),
+            "/tmp/mixed-workspace-window.json".to_owned(),
+            empty_snapshot(),
+        )
+        .unwrap();
+    let prepared = runtime
+        .prepare_apply(
+            &preview.import_id,
+            all_selection(),
+            Vec::new(),
+            empty_snapshot(),
+        )
+        .unwrap();
+    let tab = &prepared.snapshot.game_windows[0].tabs[0];
+    assert_eq!(tab.workspace_slots.len(), 2);
+    assert_eq!(
+        tab.workspace_slots[0].role_id,
+        Some(tab.role_slots[0].role_id.clone())
+    );
+    assert!(tab.workspace_slots[1].web.is_some());
+}
+
+#[test]
+fn portable_browser_preferences_are_normalized_before_preview() {
+    {
+        let mut source = fixture_value(11);
+        let mut settings =
+            serde_json::to_value(crate::domain::default_game_browser_settings()).unwrap();
+        settings["graphics"] = json!({
+            "mode":"experimental",
+            "backend":{"windows":"vulkan"},
+            "windowsEcoQosEnabled":false
+        });
+        settings["fonts"]["mode"] = json!("custom");
+        settings["fonts"]["slots"] = json!({
+            "cjk":{"source":"system","family":"  Missing   But   Valid  Font  "},
+            "latin":{"source":"system","family":"  Missing   But   Valid  Font  "},
+            "math":{"source":"system","family":"Noto Sans Math"},
+            "monospace":{"source":"system","family":"Bad\u{0000}Font"}
+        });
+        settings["fonts"]
+            .as_object_mut()
+            .unwrap()
+            .remove("fontSmoothingEnabled");
+        settings["fonts"]
+            .as_object_mut()
+            .unwrap()
+            .remove("presetId");
+        settings["performance"]["macosHighRefreshRate"] = json!(true);
+        source["preferences"] = json!({"gameBrowserSettings": settings});
         let mut runtime = PortableRuntime::default();
         let preview = runtime
             .preview(
                 &source.to_string(),
-                "/tmp/mixed-workspace-window.json".to_owned(),
+                "/tmp/font-normalization.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let browser_settings = preview.preferences.unwrap().game_browser_settings.unwrap();
+        assert!(
+            serde_json::to_value(&browser_settings)
+                .unwrap()
+                .get("graphics")
+                .is_none()
+        );
+        let fonts = &browser_settings.fonts;
+        let serialized_fonts = serde_json::to_value(fonts).unwrap();
+        assert_eq!(
+            serialized_fonts["slots"]["cjk"],
+            json!({"source":"system","family":"Missing But Valid Font"})
+        );
+        assert_eq!(
+            serialized_fonts["slots"]["latin"],
+            json!({"source":"system","family":"Missing But Valid Font"})
+        );
+        assert_eq!(
+            serialized_fonts["slots"]["math"],
+            json!({"source":"system","family":"Noto Sans Math"})
+        );
+        assert!(serialized_fonts["slots"].get("monospace").is_none());
+        assert!(fonts.font_smoothing_enabled);
+        assert!(
+            serde_json::to_value(&browser_settings)
+                .unwrap()
+                .get("performance")
+                .is_none()
+        );
+    };
+}
+
+#[test]
+fn portable_browser_preferences_do_not_export_retired_graphics_settings() {
+    let mut browser_settings = crate::domain::default_game_browser_settings();
+    browser_settings.fonts.mode = "custom".to_owned();
+    browser_settings.fonts.font_smoothing_enabled = false;
+    browser_settings.fonts.slots.insert(
+        "latin".to_owned(),
+        serde_json::from_value(json!({"source":"system","family":"Inter"})).unwrap(),
+    );
+    browser_settings.macro_overlay.show_tool_button = false;
+    browser_settings.macro_overlay.show_running_badges = false;
+    browser_settings.macro_overlay.show_click_markers = false;
+    let exported = export(
+        state_fixture(),
+        Some(PortablePreferencesRecord {
+            game_browser_settings: Some(browser_settings),
+            language: None,
+            macro_settings: None,
+            theme_mode: None,
+        }),
+        PortableDataSelectionRecord {
+            games: false,
+            roles: false,
+            launch_workspaces: false,
+            game_windows: false,
+            macros: false,
+            preferences: true,
+        },
+        "2.0.0",
+    )
+    .unwrap();
+    let mut runtime = PortableRuntime::default();
+    let preview = runtime
+        .preview(
+            &serde_json::to_string(&exported).unwrap(),
+            "/tmp/eco-qos-opt-out.json".to_owned(),
+            empty_snapshot(),
+        )
+        .unwrap();
+
+    let settings = preview.preferences.unwrap().game_browser_settings.unwrap();
+    let serialized = serde_json::to_value(settings).unwrap();
+    assert!(serialized.get("graphics").is_none());
+    assert_eq!(
+        serialized["fonts"]["slots"]["latin"],
+        json!({"source":"system","family":"Inter"})
+    );
+    assert_eq!(serialized["fonts"]["fontSmoothingEnabled"], false);
+    assert!(serialized.get("performance").is_none());
+    assert_eq!(serialized["macroOverlay"]["showToolButton"], false);
+    assert_eq!(serialized["macroOverlay"]["showRunningBadges"], false);
+    assert_eq!(serialized["macroOverlay"]["showClickMarkers"], false);
+}
+
+#[test]
+fn portable_role_mapping_and_shortcut_resolution() {
+    {
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &fixture(11),
+                "/tmp/remapped-role.json".to_owned(),
+                state_fixture(),
+            )
+            .unwrap();
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                state_fixture(),
+            )
+            .unwrap();
+        assert_eq!(prepared.snapshot.roles.len(), 1);
+        assert_eq!(prepared.snapshot.roles[0].id, "r");
+        assert_eq!(
+            prepared.snapshot.launch_workspaces[0].slots[0]
+                .role_id
+                .as_deref(),
+            Some("r")
+        );
+        assert_eq!(prepared.snapshot.macros.len(), 1);
+        assert_eq!(prepared.snapshot.macros[0].role_ids, vec!["r"]);
+    };
+
+    {
+        let mut source = fixture_value(15);
+        source["roles"].as_array_mut().unwrap().push(json!({
+            "id":"r2","gameId":"g1","name":"Controller",
+            "launchUrl":"https://example.test/controller","notes":""
+        }));
+        source["macros"][0]["trigger"] =
+            json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
+        source["macros"][0]["shortcutSourceScope"] =
+            json!({"type":"selected_roles","roleIds":["r2"]});
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &source.to_string(),
+                "/tmp/remapped-shortcut-source.json".to_owned(),
                 empty_snapshot(),
             )
             .unwrap();
@@ -203,386 +385,209 @@
                 empty_snapshot(),
             )
             .unwrap();
-        let tab = &prepared.snapshot.game_windows[0].tabs[0];
-        assert_eq!(tab.workspace_slots.len(), 2);
-        assert_eq!(tab.workspace_slots[0].role_id, Some(tab.role_slots[0].role_id.clone()));
-        assert!(tab.workspace_slots[1].web.is_some());
-    }
+        let controller_id = prepared
+            .snapshot
+            .roles
+            .iter()
+            .find(|role| role.name == "Controller")
+            .unwrap()
+            .id
+            .clone();
+        assert!(matches!(
+            &prepared.snapshot.macros[0].shortcut_source_scope,
+            MacroShortcutSourceScope::SelectedRoles { role_ids }
+                if role_ids == &vec![controller_id.clone()]
+        ));
+        assert_ne!(prepared.snapshot.macros[0].role_ids, vec![controller_id]);
+    };
 
-    #[test]
-    fn portable_browser_preferences_are_normalized_before_preview() {
-        {
-            let mut source = fixture_value(11);
-            let mut settings =
-                serde_json::to_value(crate::domain::default_game_browser_settings()).unwrap();
-            settings["graphics"] = json!({
-                "mode":"experimental",
-                "backend":{"windows":"vulkan"},
-                "windowsEcoQosEnabled":false
-            });
-            settings["fonts"]["mode"] = json!("custom");
-            settings["fonts"]["slots"] = json!({
-                "cjk":{"source":"system","family":"  Missing   But   Valid  Font  "},
-                "latin":{"source":"system","family":"  Missing   But   Valid  Font  "},
-                "math":{"source":"system","family":"Noto Sans Math"},
-                "monospace":{"source":"system","family":"Bad\u{0000}Font"}
-            });
-            settings["fonts"]
-                .as_object_mut()
-                .unwrap()
-                .remove("fontSmoothingEnabled");
-            settings["fonts"]
-                .as_object_mut()
-                .unwrap()
-                .remove("presetId");
-            settings["performance"]["macosHighRefreshRate"] = json!(true);
-            source["preferences"] = json!({"gameBrowserSettings": settings});
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/font-normalization.json".to_owned(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let browser_settings = preview.preferences.unwrap().game_browser_settings.unwrap();
-            assert!(
-                serde_json::to_value(&browser_settings)
-                    .unwrap()
-                    .get("graphics")
-                    .is_none()
-            );
-            let fonts = &browser_settings.fonts;
-            let serialized_fonts = serde_json::to_value(fonts).unwrap();
-            assert_eq!(
-                serialized_fonts["slots"]["cjk"],
-                json!({"source":"system","family":"Missing But Valid Font"})
-            );
-            assert_eq!(
-                serialized_fonts["slots"]["latin"],
-                json!({"source":"system","family":"Missing But Valid Font"})
-            );
-            assert_eq!(
-                serialized_fonts["slots"]["math"],
-                json!({"source":"system","family":"Noto Sans Math"})
-            );
-            assert!(serialized_fonts["slots"].get("monospace").is_none());
-            assert!(fonts.font_smoothing_enabled);
-            assert!(serde_json::to_value(&browser_settings).unwrap().get("performance").is_none());
-        };
-    }
-
-    #[test]
-    fn portable_browser_preferences_do_not_export_retired_graphics_settings() {
-        let mut browser_settings = crate::domain::default_game_browser_settings();
-        browser_settings.fonts.mode = "custom".to_owned();
-        browser_settings.fonts.font_smoothing_enabled = false;
-        browser_settings.fonts.slots.insert(
-            "latin".to_owned(),
-            serde_json::from_value(json!({"source":"system","family":"Inter"})).unwrap(),
-        );
-        browser_settings.macro_overlay.show_tool_button = false;
-        browser_settings.macro_overlay.show_running_badges = false;
-        browser_settings.macro_overlay.show_click_markers = false;
-        let exported = export(
-            state_fixture(),
-            Some(PortablePreferencesRecord {
-                game_browser_settings: Some(browser_settings),
-                language: None,
-                macro_settings: None,
-                theme_mode: None,
-            }),
-            PortableDataSelectionRecord {
-                games: false,
-                roles: false,
-                launch_workspaces: false,
-                game_windows: false,
-                macros: false,
-                preferences: true,
-            },
-            "2.0.0",
-        )
-        .unwrap();
+    {
+        let mut source = fixture_value(15);
+        source["macros"][0]["activationMode"] = json!("while_held");
+        source["macros"][0]["trigger"] =
+            json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
+        source["macros"][0]["shortcutSourceScope"] =
+            json!({"type":"selected_roles","roleIds":["missing-controller"]});
         let mut runtime = PortableRuntime::default();
         let preview = runtime
             .preview(
-                &serde_json::to_string(&exported).unwrap(),
-                "/tmp/eco-qos-opt-out.json".to_owned(),
+                &source.to_string(),
+                "/tmp/missing-shortcut-source.json".to_owned(),
                 empty_snapshot(),
             )
             .unwrap();
-
-        let settings = preview.preferences.unwrap().game_browser_settings.unwrap();
-        let serialized = serde_json::to_value(settings).unwrap();
-        assert!(serialized.get("graphics").is_none());
-        assert_eq!(
-            serialized["fonts"]["slots"]["latin"],
-            json!({"source":"system","family":"Inter"})
-        );
-        assert_eq!(serialized["fonts"]["fontSmoothingEnabled"], false);
-        assert!(serialized.get("performance").is_none());
-        assert_eq!(serialized["macroOverlay"]["showToolButton"], false);
-        assert_eq!(serialized["macroOverlay"]["showRunningBadges"], false);
-        assert_eq!(serialized["macroOverlay"]["showClickMarkers"], false);
-    }
-
-    #[test]
-    fn portable_role_mapping_and_shortcut_resolution() {
-        {
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &fixture(11),
-                    "/tmp/remapped-role.json".to_owned(),
-                    state_fixture(),
-                )
-                .unwrap();
-            let prepared = runtime
-                .prepare_apply(
-                    &preview.import_id,
-                    all_selection(),
-                    Vec::new(),
-                    state_fixture(),
-                )
-                .unwrap();
-            assert_eq!(prepared.snapshot.roles.len(), 1);
-            assert_eq!(prepared.snapshot.roles[0].id, "r");
-            assert_eq!(
-                prepared.snapshot.launch_workspaces[0].slots[0]
-                    .role_id
-                    .as_deref(),
-                Some("r")
-            );
-            assert_eq!(prepared.snapshot.macros.len(), 1);
-            assert_eq!(prepared.snapshot.macros[0].role_ids, vec!["r"]);
-        };
-
-        {
-            let mut source = fixture_value(15);
-            source["roles"].as_array_mut().unwrap().push(json!({
-                "id":"r2","gameId":"g1","name":"Controller",
-                "launchUrl":"https://example.test/controller","notes":""
-            }));
-            source["macros"][0]["trigger"] =
-                json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
-            source["macros"][0]["shortcutSourceScope"] =
-                json!({"type":"selected_roles","roleIds":["r2"]});
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/remapped-shortcut-source.json".to_owned(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let prepared = runtime
-                .prepare_apply(
-                    &preview.import_id,
-                    all_selection(),
-                    Vec::new(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let controller_id = prepared
-                .snapshot
-                .roles
+        assert!(
+            preview
+                .warnings
                 .iter()
-                .find(|role| role.name == "Controller")
-                .unwrap()
-                .id
-                .clone();
-            assert!(matches!(
-                &prepared.snapshot.macros[0].shortcut_source_scope,
-                MacroShortcutSourceScope::SelectedRoles { role_ids }
-                    if role_ids == &vec![controller_id.clone()]
-            ));
-            assert_ne!(prepared.snapshot.macros[0].role_ids, vec![controller_id]);
-        };
+                .any(|warning| { warning.code == "MACRO_SHORTCUT_CLEARED_NO_SOURCE_ROLES" })
+        );
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let imported = &prepared.snapshot.macros[0];
+        assert!(imported.trigger.is_none());
+        assert_eq!(imported.activation_mode.as_deref(), Some("toggle"));
+        assert!(matches!(
+            imported.shortcut_source_scope,
+            MacroShortcutSourceScope::AllExecutionRoles
+        ));
+    };
 
-        {
-            let mut source = fixture_value(15);
-            source["macros"][0]["activationMode"] = json!("while_held");
-            source["macros"][0]["trigger"] =
-                json!({"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false});
-            source["macros"][0]["shortcutSourceScope"] =
-                json!({"type":"selected_roles","roleIds":["missing-controller"]});
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/missing-shortcut-source.json".to_owned(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            assert!(preview.warnings.iter().any(|warning| {
-                warning.code == "MACRO_SHORTCUT_CLEARED_NO_SOURCE_ROLES"
-            }));
-            let prepared = runtime
-                .prepare_apply(
-                    &preview.import_id,
-                    all_selection(),
-                    Vec::new(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            let imported = &prepared.snapshot.macros[0];
-            assert!(imported.trigger.is_none());
-            assert_eq!(imported.activation_mode.as_deref(), Some("toggle"));
-            assert!(matches!(
-                imported.shortcut_source_scope,
-                MacroShortcutSourceScope::AllExecutionRoles
-            ));
-        };
-
-        {
-            let mut source = fixture_value(11);
-            let duplicate = json!({
-                "id":"r2","gameId":"g1","name":"Role",
-                "launchUrl":"https://example.test/play","notes":""
-            });
-            source["roles"].as_array_mut().unwrap().push(duplicate);
-            source["launchWorkspaces"] = json!([]);
-            source["macros"] = json!([]);
-            let mut runtime = PortableRuntime::default();
-            assert_eq!(
-                runtime
-                    .preview(
-                        &source.to_string(),
-                        "/tmp/duplicate-source-role.json".to_owned(),
-                        empty_snapshot(),
-                    )
-                    .unwrap_err()
-                    .code(),
-                "PORTABLE_ROLE_NAME_CONFLICT"
-            );
-        };
-
-        {
-            let mut snapshot = state_fixture();
-            let mut duplicate = snapshot.roles[0].clone();
-            duplicate.id = "r-duplicate".to_owned();
-            snapshot.roles.push(duplicate);
-            let before = snapshot.clone();
-            let mut runtime = PortableRuntime::default();
-            assert_eq!(
-                runtime
-                    .preview(
-                        &fixture(11),
-                        "/tmp/duplicate-existing-role.json".to_owned(),
-                        snapshot,
-                    )
-                    .unwrap_err()
-                    .code(),
-                "PORTABLE_ROLE_NAME_CONFLICT"
-            );
-            assert_eq!(
-                serde_json::to_value(before.clone()).unwrap(),
-                serde_json::to_value(before).unwrap()
-            );
-        };
-
-        {
-            let mut source = fixture_value(11);
-            source["macros"] = json!([
-                {
-                    "id":"first","name":"First","roleIds":["r1"],
-                    "trigger":{"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false},
-                    "repeat":{"type":"once"},"steps":[{"id":"one","type":"key","code":"F1"}]
-                },
-                {
-                    "id":"conflict","name":"Conflict","roleIds":["r1"],
-                    "trigger":{"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false},
-                    "repeat":{"type":"once"},"steps":[{"id":"two","type":"key","code":"F2"}]
-                },
-                {
-                    "id":"reserved","name":"Reserved","roleIds":["r1"],
-                    "trigger":{"code":"KeyM","ctrl":true,"alt":false,"shift":true,"meta":false},
-                    "repeat":{"type":"once"},"steps":[{"id":"three","type":"key","code":"F3"}]
-                },
-                {
-                    "id":"reserved-quick","name":"Reserved Quick Access","roleIds":["r1"],
-                    "trigger":{"code":"KeyK","ctrl":true,"alt":false,"shift":false,"meta":false},
-                    "repeat":{"type":"once"},"steps":[{"id":"four","type":"key","code":"F4"}]
-                }
-            ]);
-            let mut runtime = PortableRuntime::default();
-            let preview = runtime
-                .preview(
-                    &source.to_string(),
-                    "/tmp/shortcut-conflicts.json".to_owned(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            assert!(preview.warnings.iter().any(|warning| {
-                warning.code == "MACRO_SHORTCUT_CLEARED_CONFLICT"
-                    && warning.item_name.as_deref() == Some("Conflict")
-            }));
-            assert!(preview.warnings.iter().any(|warning| {
-                warning.code == "MACRO_SHORTCUT_CLEARED_RESERVED"
-                    && warning.item_name.as_deref() == Some("Reserved")
-            }));
-            assert!(preview.warnings.iter().any(|warning| {
-                warning.code == "MACRO_SHORTCUT_CLEARED_RESERVED"
-                    && warning.item_name.as_deref() == Some("Reserved Quick Access")
-            }));
-            let prepared = runtime
-                .prepare_apply(
-                    &preview.import_id,
-                    all_selection(),
-                    Vec::new(),
-                    empty_snapshot(),
-                )
-                .unwrap();
-            assert!(
-                prepared
-                    .snapshot
-                    .macros
-                    .iter()
-                    .find(|item| item.name == "First")
-                    .unwrap()
-                    .trigger
-                    .is_some()
-            );
-            assert!(
-                prepared
-                    .snapshot
-                    .macros
-                    .iter()
-                    .filter(|item| matches!(item.name.as_str(), "Conflict" | "Reserved"))
-                    .all(|item| item.trigger.is_none())
-            );
-        };
-    }
-
-    #[test]
-    fn pending_imports_are_bounded_and_discarded_by_id() {
+    {
+        let mut source = fixture_value(11);
+        let duplicate = json!({
+            "id":"r2","gameId":"g1","name":"Role",
+            "launchUrl":"https://example.test/play","notes":""
+        });
+        source["roles"].as_array_mut().unwrap().push(duplicate);
+        source["launchWorkspaces"] = json!([]);
+        source["macros"] = json!([]);
         let mut runtime = PortableRuntime::default();
-        let mut ids = Vec::new();
-        for index in 0..=MAX_PENDING_IMPORTS {
-            let preview = runtime
+        assert_eq!(
+            runtime
+                .preview(
+                    &source.to_string(),
+                    "/tmp/duplicate-source-role.json".to_owned(),
+                    empty_snapshot(),
+                )
+                .unwrap_err()
+                .code(),
+            "PORTABLE_ROLE_NAME_CONFLICT"
+        );
+    };
+
+    {
+        let mut snapshot = state_fixture();
+        let mut duplicate = snapshot.roles[0].clone();
+        duplicate.id = "r-duplicate".to_owned();
+        snapshot.roles.push(duplicate);
+        let before = snapshot.clone();
+        let mut runtime = PortableRuntime::default();
+        assert_eq!(
+            runtime
                 .preview(
                     &fixture(11),
-                    format!("/tmp/import-{index}.json"),
-                    empty_snapshot(),
+                    "/tmp/duplicate-existing-role.json".to_owned(),
+                    snapshot,
                 )
-                .unwrap();
-            ids.push(preview.import_id);
-        }
-        let first = runtime.prepare_apply(&ids[0], all_selection(), Vec::new(), empty_snapshot());
-        assert!(matches!(
-            first,
-            Err(CoreError::Domain {
-                code: "PORTABLE_IMPORT_EXPIRED",
-                ..
-            })
-        ));
-        assert!(runtime.discard(ids.last().unwrap()));
-        assert!(!runtime.discard(ids.last().unwrap()));
-    }
+                .unwrap_err()
+                .code(),
+            "PORTABLE_ROLE_NAME_CONFLICT"
+        );
+        assert_eq!(
+            serde_json::to_value(before.clone()).unwrap(),
+            serde_json::to_value(before).unwrap()
+        );
+    };
 
-    #[test]
-    fn unresolved_macro_ambiguity_requires_a_typed_resolution() {
-        let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
+    {
+        let mut source = fixture_value(11);
+        source["macros"] = json!([
+            {
+                "id":"first","name":"First","roleIds":["r1"],
+                "trigger":{"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false},
+                "repeat":{"type":"once"},"steps":[{"id":"one","type":"key","code":"F1"}]
+            },
+            {
+                "id":"conflict","name":"Conflict","roleIds":["r1"],
+                "trigger":{"code":"F2","ctrl":false,"alt":false,"shift":false,"meta":false},
+                "repeat":{"type":"once"},"steps":[{"id":"two","type":"key","code":"F2"}]
+            },
+            {
+                "id":"reserved","name":"Reserved","roleIds":["r1"],
+                "trigger":{"code":"KeyM","ctrl":true,"alt":false,"shift":true,"meta":false},
+                "repeat":{"type":"once"},"steps":[{"id":"three","type":"key","code":"F3"}]
+            },
+            {
+                "id":"reserved-quick","name":"Reserved Quick Access","roleIds":["r1"],
+                "trigger":{"code":"KeyK","ctrl":true,"alt":false,"shift":false,"meta":false},
+                "repeat":{"type":"once"},"steps":[{"id":"four","type":"key","code":"F4"}]
+            }
+        ]);
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &source.to_string(),
+                "/tmp/shortcut-conflicts.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        assert!(preview.warnings.iter().any(|warning| {
+            warning.code == "MACRO_SHORTCUT_CLEARED_CONFLICT"
+                && warning.item_name.as_deref() == Some("Conflict")
+        }));
+        assert!(preview.warnings.iter().any(|warning| {
+            warning.code == "MACRO_SHORTCUT_CLEARED_RESERVED"
+                && warning.item_name.as_deref() == Some("Reserved")
+        }));
+        assert!(preview.warnings.iter().any(|warning| {
+            warning.code == "MACRO_SHORTCUT_CLEARED_RESERVED"
+                && warning.item_name.as_deref() == Some("Reserved Quick Access")
+        }));
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        assert!(
+            prepared
+                .snapshot
+                .macros
+                .iter()
+                .find(|item| item.name == "First")
+                .unwrap()
+                .trigger
+                .is_some()
+        );
+        assert!(
+            prepared
+                .snapshot
+                .macros
+                .iter()
+                .filter(|item| matches!(item.name.as_str(), "Conflict" | "Reserved"))
+                .all(|item| item.trigger.is_none())
+        );
+    };
+}
+
+#[test]
+fn pending_imports_are_bounded_and_discarded_by_id() {
+    let mut runtime = PortableRuntime::default();
+    let mut ids = Vec::new();
+    for index in 0..=MAX_PENDING_IMPORTS {
+        let preview = runtime
+            .preview(
+                &fixture(11),
+                format!("/tmp/import-{index}.json"),
+                empty_snapshot(),
+            )
+            .unwrap();
+        ids.push(preview.import_id);
+    }
+    let first = runtime.prepare_apply(&ids[0], all_selection(), Vec::new(), empty_snapshot());
+    assert!(matches!(
+        first,
+        Err(CoreError::Domain {
+            code: "PORTABLE_IMPORT_EXPIRED",
+            ..
+        })
+    ));
+    assert!(runtime.discard(ids.last().unwrap()));
+    assert!(!runtime.discard(ids.last().unwrap()));
+}
+
+#[test]
+fn unresolved_macro_ambiguity_requires_a_typed_resolution() {
+    let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{
                 "id":"existing-game","source":"custom","name":"Game",
                 "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
@@ -601,55 +606,55 @@
             "compatibilityReports": []
         }))
         .unwrap();
-        let mut runtime = PortableRuntime::default();
-        let preview = runtime
-            .preview(
-                &fixture(11),
-                "/tmp/import.json".to_owned(),
-                snapshot.clone(),
-            )
-            .unwrap();
+    let mut runtime = PortableRuntime::default();
+    let preview = runtime
+        .preview(
+            &fixture(11),
+            "/tmp/import.json".to_owned(),
+            snapshot.clone(),
+        )
+        .unwrap();
+    assert_eq!(preview.conflicts.len(), 1);
+    let unresolved = runtime.prepare_apply(
+        &preview.import_id,
+        all_selection(),
+        Vec::new(),
+        snapshot.clone(),
+    );
+    {
+        assert!(matches!(
+            unresolved,
+            Err(CoreError::Domain {
+                code: "PORTABLE_IMPORT_CONFLICT_UNRESOLVED",
+                ..
+            })
+        ));
         assert_eq!(preview.conflicts.len(), 1);
-        let unresolved = runtime.prepare_apply(
+        assert_eq!(preview.conflicts[0].candidates.len(), 2);
+    };
+
+    let resolved = runtime
+        .prepare_apply(
             &preview.import_id,
             all_selection(),
-            Vec::new(),
-            snapshot.clone(),
-        );
-        {
-            assert!(matches!(
-                unresolved,
-                Err(CoreError::Domain {
-                    code: "PORTABLE_IMPORT_CONFLICT_UNRESOLVED",
-                    ..
-                })
-            ));
-            assert_eq!(preview.conflicts.len(), 1);
-            assert_eq!(preview.conflicts[0].candidates.len(), 2);
-        };
+            vec![PortableMacroConflictResolutionRecord::Update {
+                conflict_id: "macro:m1".to_owned(),
+                target_macro_id: "existing-2".to_owned(),
+            }],
+            snapshot,
+        )
+        .unwrap();
+    assert_eq!(resolved.snapshot.macros.len(), 2);
+    assert!(
+        resolved
+            .affected_macro_ids
+            .contains(&"existing-2".to_owned())
+    );
+}
 
-        let resolved = runtime
-            .prepare_apply(
-                &preview.import_id,
-                all_selection(),
-                vec![PortableMacroConflictResolutionRecord::Update {
-                    conflict_id: "macro:m1".to_owned(),
-                    target_macro_id: "existing-2".to_owned(),
-                }],
-                snapshot,
-            )
-            .unwrap();
-        assert_eq!(resolved.snapshot.macros.len(), 2);
-        assert!(
-            resolved
-                .affected_macro_ids
-                .contains(&"existing-2".to_owned())
-        );
-    }
-
-    #[test]
-    fn exported_macro_round_trip_is_semantically_idempotent() {
-        let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
+#[test]
+fn exported_macro_round_trip_is_semantically_idempotent() {
+    let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{
                 "id":"g","source":"custom","name":"Game",
                 "defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit",
@@ -685,60 +690,60 @@
             "compatibilityReports": []
         }))
         .unwrap();
-        let exported = export(snapshot.clone(), None, all_selection(), "2.0.0").unwrap();
-        let raw = serde_json::to_string(&exported).unwrap();
-        let mut runtime = PortableRuntime::default();
-        let preview = runtime
-            .preview(&raw, "/tmp/round-trip.json".to_owned(), snapshot.clone())
-            .unwrap();
+    let exported = export(snapshot.clone(), None, all_selection(), "2.0.0").unwrap();
+    let raw = serde_json::to_string(&exported).unwrap();
+    let mut runtime = PortableRuntime::default();
+    let preview = runtime
+        .preview(&raw, "/tmp/round-trip.json".to_owned(), snapshot.clone())
+        .unwrap();
 
-        assert_eq!(preview.operations.macros.unchanged, 2);
-        assert_eq!(preview.operations.macros.update, 0);
-        let prepared = runtime
-            .prepare_apply(
-                &preview.import_id,
-                all_selection(),
-                Vec::new(),
-                snapshot.clone(),
-            )
+    assert_eq!(preview.operations.macros.unchanged, 2);
+    assert_eq!(preview.operations.macros.update, 0);
+    let prepared = runtime
+        .prepare_apply(
+            &preview.import_id,
+            all_selection(),
+            Vec::new(),
+            snapshot.clone(),
+        )
+        .unwrap();
+    assert!(prepared.affected_macro_ids.is_empty());
+    assert_eq!(prepared.result.operations.macros.unchanged, 2);
+    assert_eq!(
+        serde_json::to_value(prepared.snapshot.clone()).unwrap(),
+        serde_json::to_value(snapshot).unwrap()
+    );
+    {
+        let source = prepared
+            .snapshot
+            .macros
+            .iter()
+            .find(|macro_record| macro_record.id == "source")
             .unwrap();
-        assert!(prepared.affected_macro_ids.is_empty());
-        assert_eq!(prepared.result.operations.macros.unchanged, 2);
-        assert_eq!(
-            serde_json::to_value(prepared.snapshot.clone()).unwrap(),
-            serde_json::to_value(snapshot).unwrap()
-        );
-        {
-            let source = prepared
-                .snapshot
-                .macros
-                .iter()
-                .find(|macro_record| macro_record.id == "source")
-                .unwrap();
-            assert!(source.steps.iter().any(|step| matches!(
-                step,
-                MacroStepDefinition::Macro { macro_id, .. } if macro_id == "target"
-            )));
-            assert!(matches!(
-                &source.trigger,
-                Some(MacroTrigger::MouseButton { button, ctrl: true, .. }) if button == "middle"
-            ));
-            let target = prepared
-                .snapshot
-                .macros
-                .iter()
-                .find(|macro_record| macro_record.id == "target")
-                .unwrap();
-            assert!(matches!(target.repeat, crate::model::MacroRepeat::Once));
-        };
-        {
-            let source = prepared
-                .snapshot
-                .macros
-                .iter()
-                .find(|macro_record| macro_record.id == "source")
-                .unwrap();
-            assert!(source.steps.iter().any(|step| matches!(
+        assert!(source.steps.iter().any(|step| matches!(
+            step,
+            MacroStepDefinition::Macro { macro_id, .. } if macro_id == "target"
+        )));
+        assert!(matches!(
+            &source.trigger,
+            Some(MacroTrigger::MouseButton { button, ctrl: true, .. }) if button == "middle"
+        ));
+        let target = prepared
+            .snapshot
+            .macros
+            .iter()
+            .find(|macro_record| macro_record.id == "target")
+            .unwrap();
+        assert!(matches!(target.repeat, crate::model::MacroRepeat::Once));
+    };
+    {
+        let source = prepared
+            .snapshot
+            .macros
+            .iter()
+            .find(|macro_record| macro_record.id == "source")
+            .unwrap();
+        assert!(source.steps.iter().any(|step| matches!(
                 step,
                 MacroStepDefinition::Click {
                     button: Some(button),
@@ -751,20 +756,20 @@
                     ..
                 } if button == "middle" && unit == "percent" && anchor == "top-left" && *x == 1.0 && *y == 2.0
             )));
-            assert!(source.steps.iter().any(|step| matches!(
-                step,
-                MacroStepDefinition::Click {
-                    button: None,
-                    anchor: Some(anchor),
-                    position: crate::model::MacroClickDefinition::Pixels {
-                        unit,
-                        x_px: x,
-                        y_px: y,
-                    },
-                    ..
-                } if unit == "px" && anchor == "center" && *x == 3.0 && *y == 4.0
-            )));
-            assert!(source.steps.iter().any(|step| matches!(
+        assert!(source.steps.iter().any(|step| matches!(
+            step,
+            MacroStepDefinition::Click {
+                button: None,
+                anchor: Some(anchor),
+                position: crate::model::MacroClickDefinition::Pixels {
+                    unit,
+                    x_px: x,
+                    y_px: y,
+                },
+                ..
+            } if unit == "px" && anchor == "center" && *x == 3.0 && *y == 4.0
+        )));
+        assert!(source.steps.iter().any(|step| matches!(
                 step,
                 MacroStepDefinition::Click {
                     button: Some(button),
@@ -777,12 +782,12 @@
                     ..
                 } if button == "right" && unit == "reference-px" && anchor == "bottom-right" && *x == -24.0 && *y == -32.0
             )));
-        };
-    }
+    };
+}
 
-    #[test]
-    fn export_is_v19_and_never_emits_internal_or_retired_sync_fields() {
-        let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
+#[test]
+fn export_is_v19_and_never_emits_internal_or_retired_sync_fields() {
+    let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "launchWorkspaces": [{
@@ -794,90 +799,86 @@
             "macros": [], "compatibilityReports": []
         }))
         .unwrap();
-        let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
-        let value = serde_json::to_value(exported).unwrap();
-        {
-            assert_eq!(value["schemaVersion"], PORTABLE_SCHEMA_VERSION);
-            assert!(
-                value["launchWorkspaces"][0]
-                    .get("browserZoomMode")
-                    .is_none()
-            );
-            assert!(
-                value["launchWorkspaces"][0]
-                    .get("browserZoomPercent")
-                    .is_none()
-            );
-            assert_eq!(value["appVersion"], "2.0.0");
-            for field in [
-                "authState",
-                "browserSessionSource",
-                "browserUserDataDir",
-                "createdAt",
-                "lastAuthCheckAt",
-                "lastSuccessfulLoginAt",
-                "launchPreset",
-                "updatedAt",
-                "windowHeight",
-                "windowWidth",
-            ] {
-                assert!(value["roles"][0].get(field).is_none());
-            }
-            for field in ["localStorageSyncKeys", "localStorageSyncSelectors"] {
-                assert!(value["games"][0].get(field).is_none());
-            }
-            assert!(
-                value["roles"][0]
-                    .get("localStorageSourceRoleId")
-                    .is_none()
-            );
-            assert!(value.get("gameCompatibilityReports").is_none());
-        };
-        assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
-    }
+    let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
+    let value = serde_json::to_value(exported).unwrap();
+    {
+        assert_eq!(value["schemaVersion"], PORTABLE_SCHEMA_VERSION);
+        assert!(
+            value["launchWorkspaces"][0]
+                .get("browserZoomMode")
+                .is_none()
+        );
+        assert!(
+            value["launchWorkspaces"][0]
+                .get("browserZoomPercent")
+                .is_none()
+        );
+        assert_eq!(value["appVersion"], "2.0.0");
+        for field in [
+            "authState",
+            "browserSessionSource",
+            "browserUserDataDir",
+            "createdAt",
+            "lastAuthCheckAt",
+            "lastSuccessfulLoginAt",
+            "launchPreset",
+            "updatedAt",
+            "windowHeight",
+            "windowWidth",
+        ] {
+            assert!(value["roles"][0].get(field).is_none());
+        }
+        for field in ["localStorageSyncKeys", "localStorageSyncSelectors"] {
+            assert!(value["games"][0].get(field).is_none());
+        }
+        assert!(value["roles"][0].get("localStorageSourceRoleId").is_none());
+        assert!(value.get("gameCompatibilityReports").is_none());
+    };
+    assert!(value["launchWorkspaces"][0].get("resourcePolicy").is_none());
+}
 
-    #[test]
-    fn portable_files_are_atomically_replaced_and_streamed_back_into_preview() {
-        let directory = tempdir().unwrap();
-        let path = directory.path().join("rion.json");
-        fs::write(&path, b"old").unwrap();
-        let data =
-            serde_json::from_value::<PortableDataRecord>(normalize(&fixture(11)).unwrap()).unwrap();
-        let selection = all_selection();
+#[test]
+fn portable_files_are_atomically_replaced_and_streamed_back_into_preview() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("rion.json");
+    fs::write(&path, b"old").unwrap();
+    let data =
+        serde_json::from_value::<PortableDataRecord>(normalize(&fixture(11)).unwrap()).unwrap();
+    let selection = all_selection();
 
-        let result = write_export(path.to_str().unwrap(), &data, &selection).unwrap();
-        assert_eq!(result.file_path, path.to_string_lossy());
-        assert!(!fs::read(&path).unwrap().starts_with(b"old"));
-        assert!(fs::read_dir(directory.path()).unwrap().all(|entry| {
-            !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .ends_with(".tmp")
-        }));
+    let result = write_export(path.to_str().unwrap(), &data, &selection).unwrap();
+    assert_eq!(result.file_path, path.to_string_lossy());
+    assert!(!fs::read(&path).unwrap().starts_with(b"old"));
+    assert!(fs::read_dir(directory.path()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".tmp")
+    }));
 
-        let preview = PortableRuntime::default()
-            .preview_file(
-                path.to_string_lossy().into_owned(),
-                CoreStateSnapshotRecord::default(),
-            )
-            .unwrap();
-        assert_eq!(preview.game_count, 1);
-        assert_eq!(preview.role_count, 1);
-    }
+    let preview = PortableRuntime::default()
+        .preview_file(
+            path.to_string_lossy().into_owned(),
+            CoreStateSnapshotRecord::default(),
+        )
+        .unwrap();
+    assert_eq!(preview.game_count, 1);
+    assert_eq!(preview.role_count, 1);
+}
 
-    #[test]
-    fn portable_file_preview_rejects_oversized_inputs_before_reading() {
-        let directory = tempdir().unwrap();
-        let path = directory.path().join("oversized.json");
-        let file = fs::File::create(&path).unwrap();
-        file.set_len(MAX_PORTABLE_BYTES + 1).unwrap();
+#[test]
+fn portable_file_preview_rejects_oversized_inputs_before_reading() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("oversized.json");
+    let file = fs::File::create(&path).unwrap();
+    file.set_len(MAX_PORTABLE_BYTES + 1).unwrap();
 
-        let error = PortableRuntime::default()
-            .preview_file(
-                path.to_string_lossy().into_owned(),
-                CoreStateSnapshotRecord::default(),
-            )
-            .unwrap_err();
-        assert_eq!(error.code(), "CORE_INPUT_INVALID");
-    }
+    let error = PortableRuntime::default()
+        .preview_file(
+            path.to_string_lossy().into_owned(),
+            CoreStateSnapshotRecord::default(),
+        )
+        .unwrap_err();
+    assert_eq!(error.code(), "CORE_INPUT_INVALID");
+}

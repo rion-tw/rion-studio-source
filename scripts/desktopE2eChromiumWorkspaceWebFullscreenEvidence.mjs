@@ -383,7 +383,11 @@ function validWeb(web, webSlot) {
       !web.contentProfilePath.replaceAll("\\", "/").toLowerCase()
         .endsWith("/web-profiles/global-web/chromium") ||
       !web.chromeShellUrl.endsWith("/runtime-web-chrome-electron.html") ||
-      !expectedWebUrl(web.contentUrl) || web.isolatedSessions !== true ||
+      !(
+        web.contentUrl === "rion-start://home/" && exactKeys(webSlot.web, []) ||
+        expectedWebUrl(web.contentUrl) && exactKeys(webSlot.web, ["lastUrl"]) &&
+          webSlot.web.lastUrl === web.contentUrl
+      ) || web.isolatedSessions !== true ||
       web.visible !== true || web.contentVisible !== true ||
       web.slotId !== webSlot.id || !Number.isSafeInteger(web.generation) ||
       web.generation < 1 || !Number.isSafeInteger(web.containedFullscreenRevision) ||
@@ -430,7 +434,8 @@ function validObservation(observation, platform) {
   }
   const webSlots = observation.coreSlots.filter((slot) =>
     exactKeys(slot, ["id", "rect", "roleId", "web"]) && slot.web !== null &&
-    validRect(slot.rect) && expectedWebUrl(slot.web?.startUrl)
+    validRect(slot.rect) && (exactKeys(slot.web, []) ||
+      exactKeys(slot.web, ["lastUrl"]) && expectedWebUrl(slot.web.lastUrl))
   );
   const roleSlots = observation.coreSlots.filter((slot) =>
     exactKeys(slot, ["id", "rect", "roleId", "web"]) &&
@@ -695,11 +700,12 @@ export function validateChromiumWorkspaceWebFullscreenSqliteEvidence(
   requireSqlite(roles.length === 1, `${phase}: dependency Role is missing`);
   const workspace = workspaces[0];
   const slots = workspace.payload?.slots;
-  const webSlots = slots?.filter((slot) => expectedWebUrl(slot.web?.startUrl)) ?? [];
+  const webSlots = slots?.filter((slot) =>
+    exactKeys(slot.web, ["lastUrl"]) && expectedWebUrl(slot.web.lastUrl)
+  ) ?? [];
   const roleSlots = slots?.filter((slot) => slot.roleId === roles[0].id) ?? [];
   requireSqlite(
     slots?.length === 2 && webSlots.length === 1 && roleSlots.length === 1 &&
-      webSlots[0].web.name === "Chromium Workspace Web fullscreen fixture" &&
       validRect(webSlots[0].rect) && validRect(roleSlots[0].rect),
     `${phase}: configured fullscreen Web App + Role workspace was not durable`
   );

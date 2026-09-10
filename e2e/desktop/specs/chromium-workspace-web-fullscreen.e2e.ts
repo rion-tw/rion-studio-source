@@ -16,6 +16,7 @@ import {
   clickVisibleElectronPageElement,
   clickVisibleElectronPageElementKeepingTarget,
   clickVisibleElectronPageElementWithPointerKeepingTarget,
+  navigateVisibleElectronWorkspaceWebChrome,
   restoreElectronMainWindowTarget,
   submitElectronPageEscape
 } from "../support/electron-role-surface";
@@ -42,7 +43,6 @@ import {
   clickWorkspaceCreateAction,
   ensureEnglishUi,
   setEditorName,
-  setInputValue,
   submitEditor,
   waitForRoute
 } from "../support/ui";
@@ -58,7 +58,6 @@ import {
 
 const ROLE_NAME = "Chromium Entity Role Edited";
 const WORKSPACE_NAME = "Chromium Workspace Web Fullscreen";
-const WEB_NAME = "Chromium Workspace Web fullscreen fixture";
 const WEB_FIXTURE_ID = "chromium-workspace-web-fullscreen";
 const POPUP_FIXTURE_ID = "e2e-workspace-popup";
 const WEB_SESSION_MARKER = "chromium-workspace-web-fullscreen-marker";
@@ -142,20 +141,6 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
 
   await $("#workspace-slot-content").click();
   await $("[role='option']=Website").click();
-  const preset = await $("[data-workspace-web-preset-select]");
-  await preset.waitForClickable({ timeout: 10_000 });
-  await preset.click();
-  const youtube = await $("[role='option'][data-workspace-web-preset='youtube']");
-  await youtube.waitForDisplayed({ timeout: 10_000 });
-  await youtube.click();
-  await browser.waitUntil(async () =>
-    await $("#workspace-web-name").getValue() === "YouTube" &&
-    await $("#workspace-web-url").getValue() === "https://www.youtube.com/", {
-    timeout: 10_000,
-    timeoutMsg: "The visible popular-site menu did not apply the YouTube preset"
-  });
-  await setInputValue("#workspace-web-name", WEB_NAME);
-  await setInputValue("#workspace-web-url", configuredWebUrl());
 
   await clickWorkspaceSlot(1);
   await $("#workspace-slot-content").click();
@@ -164,7 +149,7 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await submitEditor("/workspaces");
   const workspace = await findWorkspace();
   expect(workspace.slots).toEqual(expect.arrayContaining([
-    expect.objectContaining({ web: { name: WEB_NAME, startUrl: configuredWebUrl() } }),
+    expect.objectContaining({ web: {} }),
     expect.objectContaining({ roleId: role.id })
   ]));
   return workspace;
@@ -997,17 +982,36 @@ async function runPhase(
   restart: boolean
 ): Promise<void> {
   const role = await findRole();
-  const workspace = restart ? await findWorkspace() : await createWorkspace(role);
-  expect(workspace.slots.find((slot) => slot.web !== undefined)?.web).toEqual({
-    name: WEB_NAME,
-    startUrl: configuredWebUrl()
-  });
+  let workspace = restart ? await findWorkspace() : await createWorkspace(role);
+  expect(workspace.slots.find((slot) => slot.web !== undefined)?.web).toEqual(
+    restart ? { lastUrl: configuredWebUrl() } : {}
+  );
   const sessionCursor = await fixtureCursor();
   const launched = await launchWorkspace(workspace, role);
+  if (!restart) {
+    const entrance = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
+    expect(entrance.web.contentUrl).toBe("rion-start://home/");
+    await navigateVisibleElectronWorkspaceWebChrome(
+      entrance.web.chromeShellUrl,
+      launched.mainWindowHandle,
+      configuredWebUrl()
+    );
+  }
   await waitForWebSession(restart
     ? [WEB_SESSION_MARKER]
     : [null, "chromium-workspace-web-slot-marker"], sessionCursor);
-  const inspection = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
+  let inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
+  await browser.waitUntil(async () => {
+    workspace = await findWorkspace();
+    inspection = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
+    return inspection.web.contentUrl === configuredWebUrl() &&
+      workspace.slots.some((slot) => slot.web?.lastUrl === configuredWebUrl());
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The fullscreen Workspace Web URL was not durably committed"
+  });
+  if (!inspection) throw new Error("Workspace Web inspection is unavailable");
   expect(inspection.tabId).toBe(launched.tabId);
   expect(inspection.web.contentUrl).toBe(configuredWebUrl());
   expect(inspection.web.contentSessionStoragePath)

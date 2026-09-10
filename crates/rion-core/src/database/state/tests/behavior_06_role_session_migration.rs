@@ -198,7 +198,7 @@ fn schema_twenty_eight_adds_the_typed_role_session_migration_table_atomically() 
                 row.get::<_, u32>(0)
             })
             .unwrap(),
-        29
+        SCHEMA_VERSION
     );
     let columns = connection
         .prepare("PRAGMA table_info(role_session_migrations)")

@@ -204,16 +204,16 @@ identity throughout; Windows reports an independent bundled-Chromium verdict.
 The same profiles pair
 `CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016` and
 `CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016` under one replacement group. Their
-shared spec creates a mixed Web App plus Role Workspace from visible slot
-controls, selects YouTube from the visible popular-site menu, overrides the
-editable URL with the fixture, and opens the Workspace through its visible card.
+shared spec creates a mixed Rion Website plus Role Workspace from visible slot
+controls, confirms Website has no editor settings, opens the Rion entrance, and
+navigates to the fixture through the visible Rion address control.
 The remote surface must read back the Rust-resolved persistent global-Web path,
 the external Rion chrome surface must read back an in-memory local-shell session,
 and neither may alias the managed Role session. A real CoreGraphics pointer drag
 targets the retained AppKit splitter on macOS; a real WebDriver pointer drag
 targets the bundled-host separator on Windows. Read-only native/Core history and
-SQLite then prove the exact resized layout, configured start URL, session marker,
-and restart persistence. Contained fullscreen is deliberately excluded because
+SQLite then prove the exact resized layout, per-slot last URL, session marker,
+and restart continuation. Contained fullscreen is deliberately excluded because
 `WORKSPACE-WEB-FULLSCREEN-005` owns that independent verdict.
 
 That verdict is replaced by the paired

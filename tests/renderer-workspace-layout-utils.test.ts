@@ -155,7 +155,7 @@ describe("renderer workspace layout helpers", () => {
   });
 
   it("keeps role and Web slot content mutually exclusive across templates and swaps", () => {
-    const web = { name: "YouTube", startUrl: "https://www.youtube.com/" };
+    const web = { lastUrl: "https://www.youtube.com/" };
     const withWeb = assignWebToWorkspaceSlot(
       [slot("slot-1", "p1"), slot("slot-2")],
       0,
@@ -175,10 +175,10 @@ describe("renderer workspace layout helpers", () => {
     expect(assignWebToWorkspaceSlot(
       [{ ...slot("slot-1"), web, browserZoomPercent: 115 }],
       0,
-      { ...web, name: "Video" }
+      { lastUrl: "https://video.example.test/" }
     )[0]).toEqual({
       ...slot("slot-1"),
-      web: { ...web, name: "Video" },
+      web: { lastUrl: "https://video.example.test/" },
       browserZoomPercent: 115
     });
   });

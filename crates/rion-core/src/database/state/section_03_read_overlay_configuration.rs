@@ -96,7 +96,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
 
-    if (19..=28).contains(&current_version) {
+    if (19..=29).contains(&current_version) {
         connection
             .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -164,12 +164,21 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                     )
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
-            connection
-                .execute_batch(crate::session_migration::ROLE_SESSION_MIGRATION_SCHEMA_SQL)
-                .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            if current_version <= 28 {
+                connection
+                    .execute_batch(crate::session_migration::ROLE_SESSION_MIGRATION_SCHEMA_SQL)
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                connection
+                    .execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (29, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                        [],
+                    )
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            }
+            migrate_workspace_web_navigation_state(connection)?;
             connection
                 .execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (29, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (30, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                     [],
                 )
                 .map(|_| ())
@@ -237,8 +246,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                    ordinal INTEGER NOT NULL,
                    role_id TEXT REFERENCES roles(id) ON DELETE SET NULL,
                    content_kind TEXT NOT NULL DEFAULT 'empty' CHECK(content_kind IN ('empty', 'role', 'web')),
-                   web_name TEXT,
-                   web_start_url TEXT,
+                   web_last_url TEXT,
                    payload_json TEXT NOT NULL,
                    PRIMARY KEY(workspace_id, ordinal)
                  );
@@ -288,7 +296,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                  CREATE INDEX operation_journal_kind_phase_idx ON operation_journal(kind, phase);
                  {}
                  INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (29, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 VALUES (30, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                  COMMIT;",
                 crate::session_migration::ROLE_SESSION_MIGRATION_SCHEMA_SQL
             );
@@ -443,7 +451,9 @@ pub(super) fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
         read_payloads(connection, "game_windows")?,
     );
     let mut statement = connection
-        .prepare("SELECT key, payload_json FROM settings WHERE key != 'graphicsSettings' ORDER BY key")
+        .prepare(
+            "SELECT key, payload_json FROM settings WHERE key != 'graphicsSettings' ORDER BY key",
+        )
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
     let rows = statement
         .query_map([], |row| {

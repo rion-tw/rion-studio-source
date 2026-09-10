@@ -3,15 +3,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExtensionPackageRecord, ExtensionSnapshotRecord } from "../../../../shared/generated";
 import type { ExtensionStoreState, ExtensionUserCommand } from "../../../../shared/extensions";
 import type { AppLanguage, Role } from "../../../../shared/types";
-import type { Translator } from "../../i18n";
+import type { TranslationKey, Translator } from "../../i18n";
 import { Button } from "../../components/ui/button";
 import { SearchField } from "../../components/SearchField";
 import { EmptyState } from "../../components/EmptyState";
+import { ExtensionCard } from "./ExtensionCard";
 import { ExtensionDialog } from "./ExtensionDialog";
-import { Badge } from "../../components/ui/badge";
-import { PageFrame, PageHeader, StatusCallout, Surface } from "../../components/ui/patterns";
+import { PageFrame, PageHeader, StatusCallout } from "../../components/ui/patterns";
 
 const emptyStore: ExtensionStoreState = { url: "", extensionId: null, canGoBack: false, canGoForward: false, loading: false, failed: false };
+
+const extensionErrorKeys: Readonly<Record<string, TranslationKey>> = {
+  EXTENSIONS_STORE_UNAVAILABLE: "extensions.storeUnavailable",
+  EXTENSIONS_PACKAGE_TOO_LARGE: "extensions.packageTooLarge",
+  EXTENSIONS_UNPACKED_TOO_LARGE: "extensions.unpackedTooLarge",
+  EXTENSIONS_SIGNATURE_INVALID: "extensions.signatureInvalid",
+  EXTENSIONS_MANIFEST_UNSUPPORTED: "extensions.manifestUnsupported",
+  EXTENSIONS_CANCELLED: "extensions.cancelled"
+};
+
+function extensionFailure(t: Translator, reason: unknown): string {
+  const code = typeof reason === "object" && reason !== null && "code" in reason
+    ? (reason as { code?: unknown }).code
+    : undefined;
+  return t(typeof code === "string" ? extensionErrorKeys[code] ?? "extensions.failed" : "extensions.failed");
+}
 
 export default function ExtensionsRoute({ roles, t, language, covered = false }: { roles: Role[]; t: Translator; language: AppLanguage; covered?: boolean }) {
   const [snapshot, setSnapshot] = useState<ExtensionSnapshotRecord>({ revision: -1, installed: [], roles: [] });
@@ -68,7 +84,7 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
       const rect = element.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       void window.rionStudio.extensionStore({ action: "show", language, bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } })
-        .then(setStore, () => setError(t("extensions.failed")));
+        .then(setStore, () => setError(t("extensions.storeUnavailable")));
     };
     const observer = new ResizeObserver(update);
     observer.observe(element);
@@ -87,7 +103,7 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
       const result = await window.rionStudio.extensions(input);
       if (alive.current) apply(result.snapshot);
       return result;
-    } catch { if (alive.current && sequence === commandSequence.current) setError(t("extensions.failed")); return null; }
+    } catch (reason) { if (alive.current && sequence === commandSequence.current) setError(extensionFailure(t, reason)); return null; }
     finally { if (sequence === commandSequence.current) { commandBusy.current = false; if (alive.current) setBusy(false); } }
   };
   const close = async () => {
@@ -149,10 +165,10 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     {error && !selection && <StatusCallout tone="destructive" role="alert">{error}</StatusCallout>}
     {tab === "store" ? <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" aria-label={t("extensions.back")} disabled={!store.canGoBack} onClick={() => void window.rionStudio.extensionStore({ action: "back" }).then(setStore).catch(() => setError(t("extensions.failed")))}><ArrowLeft size={14} /></Button>
-        <Button variant="ghost" aria-label={t("extensions.forward")} disabled={!store.canGoForward} onClick={() => void window.rionStudio.extensionStore({ action: "forward" }).then(setStore).catch(() => setError(t("extensions.failed")))}><ArrowRight size={14} /></Button>
-        <Button variant="ghost" aria-label={t("extensions.reload")} onClick={() => void window.rionStudio.extensionStore({ action: "reload" }).then(setStore).catch(() => setError(t("extensions.failed")))}><RefreshCw size={14} /></Button>
-        <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{store.failed ? t("extensions.failed") : store.url}</span>
+        <Button variant="ghost" aria-label={t("extensions.back")} disabled={!store.canGoBack} onClick={() => void window.rionStudio.extensionStore({ action: "back" }).then(setStore).catch(() => setError(t("extensions.storeUnavailable")))}><ArrowLeft size={14} /></Button>
+        <Button variant="ghost" aria-label={t("extensions.forward")} disabled={!store.canGoForward} onClick={() => void window.rionStudio.extensionStore({ action: "forward" }).then(setStore).catch(() => setError(t("extensions.storeUnavailable")))}><ArrowRight size={14} /></Button>
+        <Button variant="ghost" aria-label={t("extensions.reload")} onClick={() => void window.rionStudio.extensionStore({ action: "reload" }).then(setStore).catch(() => setError(t("extensions.storeUnavailable")))}><RefreshCw size={14} /></Button>
+        <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{store.failed ? t("extensions.storeUnavailable") : store.url}</span>
         <Button disabled={!store.extensionId || busy || store.loading} onClick={() => void install().catch(() => setError(t("extensions.failed")))}>{busy ? t("extensions.preparing") : snapshot.installed.some(p => p.id === store.extensionId) ? t("extensions.manage") : t("extensions.install")}</Button>
         {busy && pending.current && <Button variant="ghost" disabled={cancelling} onClick={() => void cancelPreparation()}>{t("extensions.cancel")}</Button>}
       </div>
@@ -160,19 +176,9 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     </div> : snapshot.revision < 0 ? <StatusCallout role="status">{t(error ? "extensions.loadUnavailable" : "extensions.loading")}</StatusCallout>
       : snapshot.installed.length === 0 ? <EmptyState icon={Puzzle} title={t("extensions.empty")} actionLabel={t("extensions.add")} onAction={() => setTab("store")} />
       : visible.length === 0 ? <EmptyState icon={Search} title={t("extensions.noMatches")} actionLabel={t("extensions.clearSearch")} onAction={() => setQuery("")} />
-      : <ul className="grid gap-3" aria-label={t("extensions.installed")}>
-        {visible.map(p => <li key={p.id}><Surface className="flex items-center gap-3 px-4 py-3">
-          <Puzzle size={20} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-heading font-semibold" title={p.name}>{p.name}</h2>
-            <p className="text-caption text-muted-foreground">{p.version} · {p.applyToAllRoles ? t("extensions.allRoles") : `${p.enabledRoleIds.length} ${t("extensions.roles")}`}</p>
-            <div className="flex flex-wrap gap-1">
-              {p.removed && <Badge variant="warning">{t("extensions.removalPending")}</Badge>}
-              {snapshot.roles.some(r => r.extensionIds.includes(p.id) && r.status === "failed") && <Badge variant="destructive">{t("extensions.loadFailed")}</Badge>}
-            </div>
-          </div>
-          <Button className="shrink-0" variant="outline" onClick={() => { setError(""); setSelection(p); }}>{t(p.removed ? "extensions.retryRemoval" : "extensions.manage")}</Button>
-        </Surface></li>)}
+      : <ul className="collection-grid collection-grid-extensions auto-rows-fr gap-3" aria-label={t("extensions.installed")}>
+        {visible.map(p => <ExtensionCard key={p.id} language={language} packageRecord={p} runtimeRoles={snapshot.roles} t={t}
+          onManage={() => { setError(""); setSelection(p); }} />)}
       </ul>}
     {selection && <ExtensionDialog selection={selection} installing={!!operation} roles={roles} runtimeRoles={snapshot.roles}
       busy={busy} error={error} onClose={() => void close()} onSave={(ids, all, remove) => void save(ids, all, remove)} t={t} />}

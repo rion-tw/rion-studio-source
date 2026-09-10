@@ -43,6 +43,19 @@ export interface ChromiumRoleSurfaceEventMap {
     }>
   ) => void;
   readonly "did-finish-load": () => void;
+  readonly "did-navigate": (
+    event: unknown,
+    url: string,
+    httpResponseCode: number,
+    httpStatusText: string
+  ) => void;
+  readonly "did-navigate-in-page": (
+    event: unknown,
+    url: string,
+    isMainFrame: boolean,
+    frameProcessId: number,
+    frameRoutingId: number
+  ) => void;
   readonly "did-fail-load": (
     event: unknown,
     errorCode: number,

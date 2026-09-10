@@ -1,12 +1,15 @@
 impl AppCore {
     pub async fn invoke_async(self: &Arc<Self>, command: CoreCommand) -> CoreResult<Value> {
         match command {
-            CoreCommand::RoleSessionRecovery { command } => self.session_recovery_command(command).await,
+            CoreCommand::RoleSessionRecovery { command } => {
+                self.session_recovery_command(command).await
+            }
             CoreCommand::Extensions { command } => {
                 let core = Arc::clone(self);
-                tokio::task::spawn_blocking(move || core.extensions_command(command)).await
+                tokio::task::spawn_blocking(move || core.extensions_command(command))
+                    .await
                     .map_err(|e| CoreError::Internal(e.to_string()))?
-            },
+            }
             CoreCommand::RoleCreate { input } => {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || core.invoke(CoreCommand::RoleCreate { input }))
@@ -208,11 +211,7 @@ impl AppCore {
             } => {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || {
-                    core.claim_embedded_role_slot(
-                        &tab_id,
-                        &slot_id,
-                        expected_owner_generation,
-                    )
+                    core.claim_embedded_role_slot(&tab_id, &slot_id, expected_owner_generation)
                 })
                 .await
                 .map_err(|error| CoreError::Internal(error.to_string()))?
@@ -247,6 +246,38 @@ impl AppCore {
                 .await
                 .map_err(|error| CoreError::Internal(error.to_string()))??;
                 serde_json::to_value(snapshot)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserWorkspaceWebNavigationCommitted {
+                operation_id,
+                surface_id,
+                surface_generation,
+                slot_id,
+                tab_id,
+                window_id,
+                expected_attempt_generation,
+                expected_window_generation,
+                url,
+            } => {
+                let core = Arc::clone(self);
+                let receipt = tokio::task::spawn_blocking(move || {
+                    core.commit_chromium_workspace_web_navigation(
+                        ChromiumWorkspaceWebNavigationCommitInput {
+                            operation_id,
+                            surface_id,
+                            surface_generation,
+                            slot_id,
+                            tab_id,
+                            window_id,
+                            expected_attempt_generation,
+                            expected_window_generation,
+                            url,
+                        },
+                    )
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(receipt)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserTabAudioMute { tab_id, muted } => {
@@ -305,7 +336,9 @@ impl AppCore {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || {
                     core.stop_embedded_tab_mutation(
-                        request, &source_id, &tab_type,
+                        request,
+                        &source_id,
+                        &tab_type,
                         EmbeddedCloseProjection::FollowRoleOwnership,
                     )
                 })
@@ -318,39 +351,33 @@ impl AppCore {
             }
             CoreCommand::BrowserWindowCloseAdmit { request } => {
                 let core = Arc::clone(self);
-                let request = tokio::task::spawn_blocking(move || {
-                    core.admit_embedded_window_close(request)
-                })
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                let request =
+                    tokio::task::spawn_blocking(move || core.admit_embedded_window_close(request))
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))??;
                 serde_json::to_value(request)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserWindowStop { request } => {
                 let core = Arc::clone(self);
-                tokio::task::spawn_blocking(move || {
-                    core.stop_embedded_window(&request, false)
-                })
+                tokio::task::spawn_blocking(move || core.stop_embedded_window(&request, false))
                     .await
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "stopped": true }))
             }
             CoreCommand::BrowserWindowDelete { request } => {
                 let core = Arc::clone(self);
-                tokio::task::spawn_blocking(move || {
-                    core.stop_embedded_window(&request, true)
-                })
+                tokio::task::spawn_blocking(move || core.stop_embedded_window(&request, true))
                     .await
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "deleted": true }))
             }
             CoreCommand::BrowserAppKitRuntimeEvent { event } => {
                 let core = Arc::clone(self);
-                let receipt = tokio::task::spawn_blocking(move || {
-                    core.handle_appkit_runtime_event(event)
-                })
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                let receipt =
+                    tokio::task::spawn_blocking(move || core.handle_appkit_runtime_event(event))
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))??;
                 serde_json::to_value(receipt)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -366,11 +393,10 @@ impl AppCore {
             }
             CoreCommand::BrowserPopupOpenAdmit { request } => {
                 let core = Arc::clone(self);
-                let admission = tokio::task::spawn_blocking(move || {
-                    core.admit_chromium_popup(request)
-                })
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                let admission =
+                    tokio::task::spawn_blocking(move || core.admit_chromium_popup(request))
+                        .await
+                        .map_err(|error| CoreError::Internal(error.to_string()))??;
                 serde_json::to_value(admission)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -657,21 +683,29 @@ impl AppCore {
                 let webview2_user_data_dir = transaction_identity
                     .as_ref()
                     .map(|identity| identity.role_paths.webview2_user_data_dir.clone())
-                    .or_else(|| legacy_paths.as_ref().map(|paths| {
-                        paths.webview2_user_data_dir.clone()
-                    }))
-                    .ok_or_else(|| CoreError::Internal(
-                        "Chrome-import recovery path identity is unavailable.".to_owned()
-                    ))?;
+                    .or_else(|| {
+                        legacy_paths
+                            .as_ref()
+                            .map(|paths| paths.webview2_user_data_dir.clone())
+                    })
+                    .ok_or_else(|| {
+                        CoreError::Internal(
+                            "Chrome-import recovery path identity is unavailable.".to_owned(),
+                        )
+                    })?;
                 let webkit_data_store_identifier = transaction_identity
                     .as_ref()
                     .map(|identity| identity.role_paths.webkit_data_store_identifier.clone())
-                    .or_else(|| legacy_paths.as_ref().map(|paths| {
-                        paths.webkit_data_store_identifier.clone()
-                    }))
-                    .ok_or_else(|| CoreError::Internal(
-                        "Chrome-import recovery path identity is unavailable.".to_owned()
-                    ))?;
+                    .or_else(|| {
+                        legacy_paths
+                            .as_ref()
+                            .map(|paths| paths.webkit_data_store_identifier.clone())
+                    })
+                    .ok_or_else(|| {
+                        CoreError::Internal(
+                            "Chrome-import recovery path identity is unavailable.".to_owned(),
+                        )
+                    })?;
                 if self
                     .request_core_effect(
                         role_id,
@@ -684,9 +718,9 @@ impl AppCore {
                                 .map(|identity| identity.replace_existing),
                             webview2_user_data_dir,
                             webkit_data_store_identifier,
-                            chromium_user_data_dir: transaction_identity.as_ref().map(
-                                |identity| identity.role_paths.chromium_user_data_dir.clone(),
-                            ),
+                            chromium_user_data_dir: transaction_identity
+                                .as_ref()
+                                .map(|identity| identity.role_paths.chromium_user_data_dir.clone()),
                             journal_phase: v23_chromium.then(|| journal.phase.clone()),
                             journal_revision: transaction_identity
                                 .as_ref()
@@ -839,7 +873,9 @@ impl AppCore {
                 .iter()
                 .filter_map(|slot| slot.role_id.clone())
                 .collect::<Vec<_>>();
-            for role in &expected_role_ids { self.ensure_initial_role_session_upgrade(role).await?; }
+            for role in &expected_role_ids {
+                self.ensure_initial_role_session_upgrade(role).await?;
+            }
             let core = Arc::clone(self);
             let workspace_id = workspace_id.clone();
             let start_workspace_id = workspace_id.clone();
@@ -879,9 +915,7 @@ impl AppCore {
                         .snapshot
                         .tabs
                         .into_iter()
-                        .find(|tab| {
-                            tab.tab_type == "workspace" && tab.source_id == workspace_id
-                        })
+                        .find(|tab| tab.tab_type == "workspace" && tab.source_id == workspace_id)
                         .map(|tab| tab.id)
                         .or(admission_requested_tab_id.clone())
                         .ok_or_else(|| {
@@ -933,9 +967,7 @@ impl AppCore {
                         let completion_tab_id = tab_id.clone();
                         let completion_source_id = workspace_id.clone();
                         let persistence_window_id = window_id.clone();
-                        let launch = core
-                            .finish_system_launch_async(handle, &roles)
-                            .await;
+                        let launch = core.finish_system_launch_async(handle, &roles).await;
                         let completion_core = Arc::clone(&core);
                         let completion = tokio::task::spawn_blocking(move || {
                             let result = completion_core.commit_embedded_workspace_launch_outcome(
@@ -994,5 +1026,4 @@ impl AppCore {
             message: "The launch workspace kept changing while launch was waiting.".to_owned(),
         })
     }
-
 }

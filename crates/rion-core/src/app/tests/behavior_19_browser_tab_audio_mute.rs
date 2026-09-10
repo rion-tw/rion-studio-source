@@ -47,10 +47,7 @@ fn launch_chromium_audio_test_tab(
     (tab, roles)
 }
 
-fn failed_audio_effect(
-    effect: CoreEffectRequest,
-    code: &str,
-) -> CoreEffectResult {
+fn failed_audio_effect(effect: CoreEffectRequest, code: &str) -> CoreEffectResult {
     CoreEffectResult {
         effect_id: effect.effect_id,
         operation_id: effect.operation_id,
@@ -78,7 +75,10 @@ fn chromium_tab_audio_is_core_owned_exact_and_event_bound() {
             muted: true,
         },
         |effect| {
-            if matches!(effect.action, CoreEffectAction::EmbeddedSetTabAudioMuted { .. }) {
+            if matches!(
+                effect.action,
+                CoreEffectAction::EmbeddedSetTabAudioMuted { .. }
+            ) {
                 assert_eq!(
                     effect.completion_policy,
                     crate::model::OperationCompletionPolicy::EventBound
@@ -115,7 +115,14 @@ fn chromium_tab_audio_is_core_owned_exact_and_event_bound() {
         .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
         .unwrap()
         .snapshot;
-    assert!(snapshot.tabs.iter().find(|tab| tab.id == expected_tab_id).unwrap().audio_muted);
+    assert!(
+        snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.id == expected_tab_id)
+            .unwrap()
+            .audio_muted
+    );
     core.shutdown();
 }
 
@@ -152,7 +159,14 @@ fn chromium_tab_audio_compensates_failure_and_marks_unknown_native_rollback() {
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
             .unwrap()
             .snapshot;
-        assert!(snapshot.tabs.iter().find(|item| item.id == tab.id).unwrap().audio_muted);
+        assert!(
+            snapshot
+                .tabs
+                .iter()
+                .find(|item| item.id == tab.id)
+                .unwrap()
+                .audio_muted
+        );
     }
     core.shutdown();
 }
@@ -208,14 +222,15 @@ fn web_only_chromium_tab_audio_uses_exact_non_managed_surface_fences() {
         } if tab_id == &tab.id && roles.is_empty() && web_surfaces == &tab.web_surfaces
     )));
     assert!(core.browser_runtime_snapshot().unwrap().roles.is_empty());
-    assert!(core
-        .browser_runtime_snapshot()
-        .unwrap()
-        .tabs
-        .iter()
-        .find(|item| item.id == tab.id)
-        .unwrap()
-        .audio_muted);
+    assert!(
+        core.browser_runtime_snapshot()
+            .unwrap()
+            .tabs
+            .iter()
+            .find(|item| item.id == tab.id)
+            .unwrap()
+            .audio_muted
+    );
     core.shutdown();
 }
 
@@ -241,7 +256,7 @@ fn mixed_chromium_tab_audio_fences_managed_roles_and_web_surfaces_separately() {
                     },
                     {
                         "id": "web-audio",
-                        "web": {"name": "Audio Web", "startUrl": "https://audio.example.test"},
+                        "web": {"lastUrl": "https://audio.example.test"},
                         "rect": workspace_rect(1, 2)
                     }
                 ]

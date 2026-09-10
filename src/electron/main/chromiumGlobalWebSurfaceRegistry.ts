@@ -80,6 +80,18 @@ export interface CreateChromiumGlobalWebSurfaceInput {
   /** Exact Chromium HTML-fullscreen event projected by the paired host owner. */
   readonly onContainedFullscreenChange?: (fullscreen: boolean) => void;
   readonly onNavigationChange?: (evidence: ChromiumGlobalWebSurfaceRuntimeEvidence) => void;
+  readonly onNavigationCommitted?: (commit: ChromiumWorkspaceWebNavigationCommit) => void;
+}
+
+export interface ChromiumWorkspaceWebNavigationCommit {
+  readonly attemptGeneration: string;
+  readonly surfaceGeneration: number;
+  readonly surfaceId: string;
+  readonly slotId: string;
+  readonly tabId: string;
+  readonly url: string;
+  readonly windowGeneration: number;
+  readonly windowId: string;
 }
 
 export interface ChromiumGlobalWebActiveMainFrameFailure {
@@ -95,6 +107,11 @@ export interface ChromiumGlobalWebActiveMainFrameFailure {
 
 export interface ChromiumGlobalWebActiveMainFrameFailurePort {
   report: (failure: ChromiumGlobalWebActiveMainFrameFailure) => void;
+}
+
+export interface ChromiumWorkspaceWebNavigationCommitPort {
+  report: (commit: ChromiumWorkspaceWebNavigationCommit) => void;
+  drain: () => Promise<void>;
 }
 
 export interface ChromiumGlobalWebSurfaceHandle {
@@ -135,6 +152,8 @@ interface Deferred<Value> {
 interface SurfaceListeners {
   readonly didStartNavigation: ChromiumRoleSurfaceEventMap["did-start-navigation"];
   readonly didFinishLoad: () => void;
+  readonly didNavigate: ChromiumRoleSurfaceEventMap["did-navigate"];
+  readonly didNavigateInPage: ChromiumRoleSurfaceEventMap["did-navigate-in-page"];
   readonly didFailLoad: ChromiumRoleSurfaceEventMap["did-fail-load"];
   readonly enteredHtmlFullscreen: () => void;
   readonly leftHtmlFullscreen: () => void;
@@ -155,6 +174,7 @@ interface SurfaceRecord {
   readonly tabId: string;
   readonly windowGeneration: number;
   readonly windowId: string;
+  readonly initialUrl: string;
   readonly sessionLease: ChromiumGlobalWebSurfaceLease;
   readonly view: ChromiumRoleWebContentsViewPort;
   readonly contents: ChromiumRoleSurfaceWebContentsPort;
@@ -274,7 +294,9 @@ function validateZoomFactor(zoomFactor: number): void {
 function canonicalWebUrl(value: unknown): string {
   if (typeof value === "string" && isWorkspaceStartUrl(value)) return value;
   if (
-    typeof value !== "string" || value.length === 0 || value !== value.trim() ||
+    typeof value !== "string" || value.length === 0 ||
+    new TextEncoder().encode(value).byteLength > 2_048 ||
+    value !== value.trim() ||
     [...value].some((character) => {
       const point = character.codePointAt(0)!;
       return character === "\\" || /\s/u.test(character) ||
@@ -328,6 +350,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
   readonly #nativeAttachments: ChromiumGlobalWebNativeAttachmentPort | null;
   readonly #popups: ChromiumPopupOwnerLifecyclePort | null;
   readonly #activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null;
+  readonly #navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null;
   readonly #records = new Map<string, SurfaceRecord>();
   readonly #surfaceByView = new WeakMap<object, string>();
   readonly #surfaceByWebContents = new WeakMap<object, string>();
@@ -342,13 +365,15 @@ export class ChromiumGlobalWebSurfaceRegistry {
     views: ChromiumWebContentsViewFactoryPort,
     nativeAttachments: ChromiumGlobalWebNativeAttachmentPort | null = null,
     popups: ChromiumPopupOwnerLifecyclePort | null = null,
-    activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null = null
+    activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null = null,
+    navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null = null
   ) {
     this.#sessions = sessions;
     this.#views = views;
     this.#nativeAttachments = nativeAttachments;
     this.#popups = popups;
     this.#activeMainFrameFailures = activeMainFrameFailures;
+    this.#navigationCommits = navigationCommits;
   }
 
   get activeCount(): number {
@@ -440,7 +465,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
       );
     }
 
-    const record = this.#buildRecord(input, sessionLease, view, contents);
+    const record = this.#buildRecord(input, sessionLease, view, contents, url);
     if (record.destroyed) {
       return this.#rejectAfterSessionRelease(
         sessionLease,
@@ -823,7 +848,9 @@ export class ChromiumGlobalWebSurfaceRegistry {
         "The global Web surface generation is stale."
       ));
     }
-    return this.#beginTerminalClose(record);
+    record.state = "closing";
+    return (this.#navigationCommits?.drain() ?? Promise.resolve())
+      .then(() => this.#beginTerminalClose(record));
   }
 
   dispose(): Promise<void> {
@@ -853,7 +880,8 @@ export class ChromiumGlobalWebSurfaceRegistry {
     input: CreateChromiumGlobalWebSurfaceInput,
     sessionLease: ChromiumGlobalWebSurfaceLease,
     view: ChromiumRoleWebContentsViewPort,
-    contents: ChromiumRoleSurfaceWebContentsPort
+    contents: ChromiumRoleSurfaceWebContentsPort,
+    initialUrl: string
   ): SurfaceRecord {
     const record: SurfaceRecord = {
       attemptGeneration: input.attemptGeneration,
@@ -863,6 +891,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
       tabId: input.tabId,
       windowGeneration: input.windowGeneration,
       windowId: input.windowId,
+      initialUrl,
       sessionLease,
       view,
       contents,
@@ -891,11 +920,11 @@ export class ChromiumGlobalWebSurfaceRegistry {
         }
       },
       didFinishLoad: () => {
-        this.#finishInitialLoad(record);
-        if (record.state === "active" && !record.activeFailureReported &&
-            this.#records.get(record.surfaceId) === record && input.onNavigationChange) {
-          input.onNavigationChange(this.runtimeEvidence(record.surfaceId, record.generation));
-        }
+        this.#finishInitialLoad(record, input);
+      },
+      didNavigate: (_event, url) => this.#commitNavigation(record, input, url),
+      didNavigateInPage: (_event, url, isMainFrame) => {
+        if (isMainFrame) this.#commitNavigation(record, input, url);
       },
       didFailLoad: (
         _event,
@@ -949,13 +978,18 @@ export class ChromiumGlobalWebSurfaceRegistry {
     contents.on("will-redirect", record.listeners.willRedirect);
     contents.on("did-start-navigation", record.listeners.didStartNavigation);
     contents.on("did-finish-load", record.listeners.didFinishLoad);
+    contents.on("did-navigate", record.listeners.didNavigate);
+    contents.on("did-navigate-in-page", record.listeners.didNavigateInPage);
     contents.on("did-fail-load", record.listeners.didFailLoad);
     contents.on("enter-html-full-screen", record.listeners.enteredHtmlFullscreen);
     contents.on("leave-html-full-screen", record.listeners.leftHtmlFullscreen);
     contents.on("destroyed", record.listeners.destroyed);
   }
 
-  #finishInitialLoad(record: SurfaceRecord): void {
+  #finishInitialLoad(
+    record: SurfaceRecord,
+    input: CreateChromiumGlobalWebSurfaceInput
+  ): void {
     if (record.state !== "opening" || record.loadSettled) return;
     let loadedUrl: string;
     try {
@@ -972,6 +1006,41 @@ export class ChromiumGlobalWebSurfaceRegistry {
       parentId: record.parent.id,
       url: loadedUrl
     }));
+    if (loadedUrl !== record.initialUrl) {
+      this.#commitNavigation(record, input, loadedUrl);
+    }
+  }
+
+  #commitNavigation(
+    record: SurfaceRecord,
+    input: CreateChromiumGlobalWebSurfaceInput,
+    url: string
+  ): void {
+    if (
+      record.state !== "active" || record.activeFailureReported ||
+      this.#records.get(record.surfaceId) !== record
+    ) return;
+    let canonicalUrl: string;
+    try {
+      canonicalUrl = canonicalWebUrl(url);
+    } catch {
+      return;
+    }
+    input.onNavigationChange?.(
+      this.runtimeEvidence(record.surfaceId, record.generation)
+    );
+    const commit = Object.freeze({
+      attemptGeneration: record.attemptGeneration,
+      surfaceGeneration: record.generation,
+      surfaceId: record.surfaceId,
+      slotId: record.slotId,
+      tabId: record.tabId,
+      url: canonicalUrl,
+      windowGeneration: record.windowGeneration,
+      windowId: record.windowId
+    });
+    input.onNavigationCommitted?.(commit);
+    this.#navigationCommits?.report(commit);
   }
 
   #failInitialLoad(record: SurfaceRecord): void {
@@ -1412,6 +1481,11 @@ export class ChromiumGlobalWebSurfaceRegistry {
     record.contents.removeListener(
       "did-fail-load",
       record.listeners.didFailLoad
+    );
+    record.contents.removeListener("did-navigate", record.listeners.didNavigate);
+    record.contents.removeListener(
+      "did-navigate-in-page",
+      record.listeners.didNavigateInPage
     );
   }
 

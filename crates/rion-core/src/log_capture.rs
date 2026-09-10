@@ -73,6 +73,18 @@ impl LogCaptureRuntime {
     }
 
     pub fn capture(&mut self, captures: Vec<LogCaptureRecord>) -> Vec<LogEntry> {
+        self.capture_with_filter(captures, true)
+    }
+
+    pub(crate) fn capture_unfiltered(&mut self, captures: Vec<LogCaptureRecord>) -> Vec<LogEntry> {
+        self.capture_with_filter(captures, false)
+    }
+
+    fn capture_with_filter(
+        &mut self,
+        captures: Vec<LogCaptureRecord>,
+        apply_level_filter: bool,
+    ) -> Vec<LogEntry> {
         for capture in captures {
             if self.pending.len() >= CAPTURE_QUEUE_CAPACITY {
                 let discard_index = self
@@ -89,7 +101,7 @@ impl LogCaptureRuntime {
 
         let mut entries = Vec::with_capacity(self.pending.len());
         while let Some(capture) = self.pending.pop_front() {
-            if level_value(capture.level) < level_value(self.current_level) {
+            if apply_level_filter && level_value(capture.level) < level_value(self.current_level) {
                 continue;
             }
             self.sequence = self.sequence.saturating_add(1);

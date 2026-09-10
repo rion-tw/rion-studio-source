@@ -28,8 +28,7 @@ fn mixed_workspace_tab(id: &str, role_id: &str) -> RuntimeLiveTabRecord {
             id: "slot-web".to_owned(),
             role_id: None,
             web: Some(WorkspaceWebContentRecord {
-                name: "Fixture".to_owned(),
-                start_url: "https://example.test/".to_owned(),
+                last_url: Some("https://example.test/".to_owned()),
             }),
             browser_zoom_percent: Some(110.0),
             rect: StateNormalizedRectRecord {

@@ -2264,7 +2264,7 @@
         "success",
         "restart"
       ],
-      "description": "Create a setting-free Rion Website and Role Workspace through visible slot-content controls. First open the Rion entrance, navigate through the visible address control, then use ordinary target=_blank, Cmd+click, and middle-click controls to prove every tab disposition navigates the original slot with zero popups. Use Back to return and prove the canonical last URL is committed without changing Workspace sorting. Launch the paired persistent global-Web content and in-memory Rion chrome into a transient retained AppKit host, drag the native divider, then repeat in a saved Game Window and prove exact layout, per-slot continuation, isolated sessions, and resized persistence after restart."
+      "description": "Create a setting-free Rion Website and Role Workspace through visible slot-content controls. First open the Rion entrance, navigate through the visible address control, then use ordinary target=_blank, Cmd+click, and middle-click controls to prove every tab disposition navigates the original slot with zero popups. Use Back to return and prove the canonical last URL is committed without changing Workspace sorting. Launch the paired persistent global-Web content and in-memory Rion chrome into a transient retained AppKit host, drag the native divider, close that host without surfacing superseded teardown observations, then repeat in a saved Game Window and prove exact layout, per-slot continuation, isolated sessions, and resized persistence after restart."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FULLSCREEN-017",
@@ -2414,7 +2414,7 @@
         "success",
         "restart"
       ],
-      "description": "Create the same setting-free Rion Website and Role Workspace through visible controls. Open the Rion entrance, navigate through the visible address control, then use ordinary target=_blank, Ctrl+click, and middle-click controls to prove every tab disposition navigates the original slot with zero popups. Use Back, exercise the bundled Windows separator, and prove exact Core layout, per-slot continuation, isolated sessions, saved-window persistence, and restart recovery with an independent Windows CI verdict."
+      "description": "Create the same setting-free Rion Website and Role Workspace through visible controls. Open the Rion entrance, navigate through the visible address control, then use ordinary target=_blank, Ctrl+click, and middle-click controls to prove every tab disposition navigates the original slot with zero popups. Use Back, exercise the bundled Windows separator, close the transient host without shell errors, and prove exact Core layout, per-slot continuation, isolated sessions, saved-window persistence, and restart recovery with an independent Windows CI verdict."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017",

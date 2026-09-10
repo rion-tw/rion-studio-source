@@ -249,9 +249,7 @@ function createMacosAppKitAdapter(
             message: "The AppKit host factory is unavailable for event dispatch."
           });
         }
-        return hostFactory.captureHostObservations(capturedHosts.map(
-          (host) => host.identity.logicalWindowId
-        ));
+        return hostFactory.captureHostObservations(capturedHosts.map((host) => host.identity.logicalWindowId));
       },
       ...callbacks,
       onError: revealShellError
@@ -634,16 +632,14 @@ function readChromiumRuntimeSnapshot() {
 }
 
 async function readAppSnapshot() {
+  await chromiumRuntime?.settleCurrentApplicationEffects();
   let projectionSequence = await settleRuntimeProjection();
   while (true) {
     const snapshot = await activeCore().invoke({ type: "appSnapshot" });
     try {
       return projectAppSnapshot(snapshot);
     } catch (error) {
-      if (
-        error instanceof RionBridgeError &&
-        error.code === "ELECTRON_RUNTIME_PROJECTION_NOT_READY"
-      ) {
+      if (error instanceof RionBridgeError && error.code === "ELECTRON_RUNTIME_PROJECTION_NOT_READY") {
         projectionSequence = await waitForRuntimeProjection(projectionSequence);
         continue;
       }
@@ -652,9 +648,7 @@ async function readAppSnapshot() {
   }
 }
 
-async function settleRuntimeProjection(): Promise<number> {
-  return chromiumRuntime?.settleCurrentProjection() ?? 0;
-}
+async function settleRuntimeProjection() { return chromiumRuntime?.settleCurrentProjection() ?? 0; }
 
 async function waitForRuntimeProjection(afterSequence: number): Promise<number> {
   const runtime = chromiumRuntime;

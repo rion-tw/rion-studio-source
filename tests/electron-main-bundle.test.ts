@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { build } from "vite";
 import { resolveConfig } from "electron-vite";
@@ -18,6 +19,20 @@ describe("Electron executable main bundles", () => {
       expect(() => plugin.generateBundle({}, bundle)).toThrow("empty or missing executable entry");
     }
     expect(() => plugin.generateBundle({}, { entry: { type: "chunk", isEntry: true, code: "start();" } })).not.toThrow();
+  });
+
+  it("settles application effects before reading a projected app snapshot", async () => {
+    const source = await readFile(resolve("src/electron/main/index.ts"), "utf8");
+    const start = source.indexOf("async function readAppSnapshot()");
+    const end = source.indexOf("\nasync function settleRuntimeProjection", start);
+    const body = source.slice(start, end);
+    const applicationEffectFence = body.indexOf("settleCurrentApplicationEffects");
+    const projectionFence = body.indexOf("settleRuntimeProjection");
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(applicationEffectFence).toBeGreaterThan(-1);
+    expect(applicationEffectFence).toBeLessThan(projectionFence);
   });
 
   it.each(["production", "e2e"] as const)("builds the actual %s entry with the pinned Electron plugins", async mode => {

@@ -202,6 +202,58 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     }));
   });
 
+  it("supersedes a passive layout observation after its native host retires", async () => {
+    const invoke = vi.fn();
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      preparePassiveEventDispatch: async () => {
+        throw {
+          code: "ELECTRON_MACOS_APPKIT_OBSERVATION_STALE",
+          message: "The observed native host retired before dispatch."
+        };
+      },
+      onError
+    });
+
+    bridge.receiveLayout({ identity, hosts: [primaryObservation()] });
+    await bridge.dispose();
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("supersedes a passive window-state observation after its native host retires", async () => {
+    const invoke = vi.fn();
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      preparePassiveEventDispatch: async () => {
+        throw {
+          code: "ELECTRON_MACOS_APPKIT_OBSERVATION_STALE",
+          message: "The observed native host retired before dispatch."
+        };
+      },
+      onError
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: { type: "windowFocusChanged", sourceWindowId: "window-1" }
+    });
+    await bridge.dispose();
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("records bounded modifier-focus transitions without entering the AppKit event lane", async () => {
     const invoke = vi.fn(async (command: CoreCommand) => {
       if (command.type !== "logsCapture") {

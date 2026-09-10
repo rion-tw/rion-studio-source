@@ -538,10 +538,12 @@ implements MacosAppKitRendererActionPort {
       }
       void this.#submitLayoutObservation(key, event.identity, hosts).catch(
         (error: unknown) => {
-          this.#input.onError(normalizeRionBridgeError(
+          const normalized = normalizeRionBridgeError(
             error,
             "ELECTRON_MACOS_APPKIT_EVENT_FAILED"
-          ));
+          );
+          if (normalized.code === "ELECTRON_MACOS_APPKIT_OBSERVATION_STALE") return;
+          this.#input.onError(normalized);
         }
       );
     } catch (error) {
@@ -1178,10 +1180,17 @@ implements MacosAppKitRendererActionPort {
     action: AppKitRuntimeEventActionRecord
   ): void {
     void this.#submit(hosts, action).catch((error: unknown) => {
-      this.#input.onError(normalizeRionBridgeError(
+      const normalized = normalizeRionBridgeError(
         error,
         "ELECTRON_MACOS_APPKIT_EVENT_FAILED"
-      ));
+      );
+      if (
+        (action.type === "layout" || action.type === "windowState") &&
+        normalized.code === "ELECTRON_MACOS_APPKIT_OBSERVATION_STALE"
+      ) {
+        return;
+      }
+      this.#input.onError(normalized);
     });
   }
 

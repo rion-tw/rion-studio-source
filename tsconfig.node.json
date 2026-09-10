@@ -17,7 +17,6 @@
     "e2e/desktop/support/windows-runtime-foreground.ts",
     "e2e/desktop/support/windows-native-edit.ts",
     "e2e/desktop/phaseSpecs.ts",
-    "e2e/desktop/support/flyff-caret.ts",
     "e2e/desktop/support/transcript.ts",
     "e2e/desktop/support/window-target.ts",
     "vitest.config.ts",

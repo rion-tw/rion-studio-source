@@ -202,6 +202,131 @@ describe("macOS AppKit privileged runtime event bridge", () => {
     }));
   });
 
+  it("records bounded modifier-focus transitions without entering the AppKit event lane", async () => {
+    const invoke = vi.fn(async (command: CoreCommand) => {
+      if (command.type !== "logsCapture") {
+        throw new Error(`Unexpected command ${command.type}`);
+      }
+      return [] as never;
+    });
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: {
+        type: "modifierFocusNeutralized",
+        sourceWindowId: "window-1",
+        tabId: "tab-1",
+        modifierCount: 2
+      }
+    });
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: {
+        type: "modifierFocusReasserted",
+        sourceWindowId: "window-1",
+        modifierCount: 0
+      }
+    });
+    await bridge.dispose();
+
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual([
+      {
+        type: "logsCapture",
+        entries: [{
+          level: "debug",
+          source: "browser",
+          event: "input.modifier-focus-neutralized",
+          message: "Game Window modifiers were neutralized before focus left.",
+          contextRawJson: JSON.stringify({
+            modifierCount: 2,
+            platform: "macos",
+            tabId: "tab-1",
+            windowId: "window-1"
+          })
+        }]
+      },
+      {
+        type: "logsCapture",
+        entries: [{
+          level: "debug",
+          source: "browser",
+          event: "input.modifier-focus-reasserted",
+          message: "Physically held Game Window modifiers were reasserted after focus returned.",
+          contextRawJson: JSON.stringify({
+            modifierCount: 0,
+            platform: "macos",
+            tabId: null,
+            windowId: "window-1"
+          })
+        }]
+      }
+    ]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed modifier-focus telemetry before diagnostic capture", async () => {
+    const invoke = vi.fn();
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke,
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: {
+        type: "modifierFocusNeutralized",
+        sourceWindowId: "window-1",
+        modifierCount: 9
+      }
+    });
+    await bridge.dispose();
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_MACOS_APPKIT_MODIFIER_FOCUS_INVALID"
+    }));
+  });
+
+  it("does not turn modifier-focus logging failure into a shell error", async () => {
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: vi.fn(async () => { throw new Error("injected log failure"); }),
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError
+    });
+
+    bridge.receiveAction({
+      identity,
+      hosts: [primaryObservation()],
+      action: {
+        type: "modifierFocusReasserted",
+        sourceWindowId: "window-1",
+        tabId: "tab-1",
+        modifierCount: 1
+      }
+    });
+    await bridge.dispose();
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("does not make an interactive stop wait behind a passive-event fence", async () => {
     const preparePassiveEventDispatch = vi.fn(() => new Promise<
       readonly AppKitRuntimeHostObservationRecord[]
@@ -308,6 +433,125 @@ describe("macOS AppKit privileged runtime event bridge", () => {
       windowId: "window-1"
     });
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("accepts a transient divider end as applied for the session without durability", async () => {
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: async (command) => {
+          const pointer = command as Extract<CoreCommand, {
+            type: "browserWorkspaceDividerPointer";
+          }>;
+          return {
+            eventId: pointer.event.eventId,
+            gestureId: pointer.event.gestureId,
+            pointerSequence: pointer.event.pointerSequence,
+            phase: pointer.event.phase,
+            status: pointer.event.phase === "end" ? "degraded" : "applied",
+            changed: pointer.event.phase === "move",
+            durable: false,
+            ...(pointer.event.phase === "end"
+              ? { failureCode: "WORKSPACE_DIVIDER_WINDOW_NOT_SAVED" }
+              : {}),
+            ...(pointer.event.phase === "move"
+              ? { position: pointer.event.requestedPosition }
+              : {}),
+            windowGeneration: pointer.event.windowGeneration,
+            topologyRevision: pointer.event.phase === "move"
+              ? pointer.event.topologyRevision + 1
+              : pointer.event.topologyRevision,
+            workspaceSlots: []
+          } as never;
+        },
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError
+    });
+    const emit = (phase: "start" | "move" | "end", pointerSequence: number): void => {
+      bridge.receiveAction({
+        identity,
+        hosts: [primaryObservation()],
+        action: {
+          type: "workspaceDividerPointer",
+          sessionId: "transient-divider-gesture",
+          sourceWindowId: "window-1",
+          tabId: "tab-1",
+          statusIdentity: {
+            phase,
+            pointerSequence,
+            attemptGeneration: "workspace-attempt-1",
+            dividerIndex: 0,
+            axis: "vertical",
+            ...(phase === "move" ? { requestedPosition: 0.68 } : {})
+          }
+        }
+      });
+    };
+
+    emit("start", 1);
+    emit("move", 2);
+    emit("end", 3);
+    await bridge.dispose();
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a real divider persistence failure visible", async () => {
+    const onError = vi.fn();
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: async (command) => {
+          const pointer = command as Extract<CoreCommand, {
+            type: "browserWorkspaceDividerPointer";
+          }>;
+          return {
+            eventId: pointer.event.eventId,
+            gestureId: pointer.event.gestureId,
+            pointerSequence: pointer.event.pointerSequence,
+            phase: pointer.event.phase,
+            status: pointer.event.phase === "end" ? "degraded" : "applied",
+            changed: false,
+            durable: false,
+            ...(pointer.event.phase === "end"
+              ? { failureCode: "WORKSPACE_DIVIDER_PERSISTENCE_FAILED" }
+              : {}),
+            windowGeneration: pointer.event.windowGeneration,
+            topologyRevision: pointer.event.topologyRevision,
+            workspaceSlots: []
+          } as never;
+        },
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError
+    });
+    const emit = (phase: "start" | "end", pointerSequence: number): void => {
+      bridge.receiveAction({
+        identity,
+        hosts: [primaryObservation()],
+        action: {
+          type: "workspaceDividerPointer",
+          sessionId: "failed-divider-gesture",
+          sourceWindowId: "window-1",
+          tabId: "tab-1",
+          statusIdentity: {
+            phase,
+            pointerSequence,
+            attemptGeneration: "workspace-attempt-1",
+            dividerIndex: 0,
+            axis: "vertical"
+          }
+        }
+      });
+    };
+
+    emit("start", 1);
+    emit("end", 2);
+    await bridge.dispose();
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "WORKSPACE_DIVIDER_PERSISTENCE_FAILED"
+    }));
   });
 
   it("serializes action, layout, and close events through exact Core receipts", async () => {

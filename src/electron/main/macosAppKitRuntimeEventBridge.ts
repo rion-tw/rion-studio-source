@@ -6,7 +6,6 @@ import type {
   AppKitRuntimeEventRecord,
   AppKitRuntimeHostObservationRecord,
   BrowserWorkspaceDividerPointerPhase,
-  BrowserWorkspaceDividerPointerReceiptRecord,
   BrowserWorkspaceDividerPointerRecord,
   CoreEffectRequest,
   CoreEvent
@@ -18,8 +17,12 @@ import type {
   AppKitRuntimeHostIdentity,
   AppKitRuntimeLayoutEvent
 } from "./macosAppKitRuntimeHostFactory";
+import { isExactWorkspaceDividerReceipt } from "./workspaceDividerReceipt";
 
 type BridgeState = "open" | "draining" | "disposed";
+type ModifierFocusAction = "modifierFocusNeutralized" | "modifierFocusReasserted";
+
+const MAX_MOMENTARY_MODIFIER_COUNT = 8;
 
 interface AppKitCoreCommandPort extends ElectronCoreCommandPort {
   subscribeCoreEvents: (listener: (event: CoreEvent) => void) => () => void;
@@ -179,6 +182,39 @@ function exactKeys(
   const expected = [...keys].sort();
   return actual.length === expected.length &&
     actual.every((key, index) => key === expected[index]);
+}
+
+function requireModifierFocusTransition(
+  action: Readonly<Record<string, unknown>>,
+  actionType: ModifierFocusAction
+): Readonly<{ modifierCount: number; tabId?: string }> {
+  const hasTabId = Object.hasOwn(action, "tabId");
+  if (!exactKeys(
+    action,
+    hasTabId
+      ? ["type", "sourceWindowId", "modifierCount", "tabId"]
+      : ["type", "sourceWindowId", "modifierCount"]
+  )) {
+    throw bridgeError(
+      "ELECTRON_MACOS_APPKIT_MODIFIER_FOCUS_INVALID",
+      "The AppKit modifier-focus transition contains unsupported fields."
+    );
+  }
+  const modifierCount = action.modifierCount;
+  if (
+    !Number.isSafeInteger(modifierCount) ||
+    (modifierCount as number) < (actionType === "modifierFocusNeutralized" ? 1 : 0) ||
+    (modifierCount as number) > MAX_MOMENTARY_MODIFIER_COUNT
+  ) {
+    throw bridgeError(
+      "ELECTRON_MACOS_APPKIT_MODIFIER_FOCUS_INVALID",
+      "The AppKit modifier-focus transition has an invalid modifier count."
+    );
+  }
+  return Object.freeze({
+    modifierCount: modifierCount as number,
+    ...(hasTabId ? { tabId: requireIdentifier(action.tabId, "tab") } : {})
+  });
 }
 
 function requireNativeWorkspaceDividerPointer(
@@ -368,31 +404,6 @@ function isExactVisibilityDispatch(
     action.visible === event.action.visible &&
     appkitIdentity !== undefined &&
     identitiesMatch(appkitIdentity, primary.identity);
-}
-
-function validateWorkspaceDividerReceipt(
-  event: BrowserWorkspaceDividerPointerRecord,
-  receipt: BrowserWorkspaceDividerPointerReceiptRecord
-): void {
-  const expectedStatus = event.phase === "cancel" ? "cancelled" : "applied";
-  if (
-    receipt.eventId !== event.eventId ||
-    receipt.gestureId !== event.gestureId ||
-    receipt.pointerSequence !== event.pointerSequence ||
-    receipt.phase !== event.phase ||
-    receipt.status !== expectedStatus ||
-    receipt.windowGeneration !== event.windowGeneration ||
-    !Number.isSafeInteger(receipt.topologyRevision) ||
-    receipt.topologyRevision < event.topologyRevision ||
-    (event.phase !== "move" && receipt.changed) ||
-    (event.phase === "end" && !receipt.durable) ||
-    (event.phase !== "end" && receipt.durable)
-  ) {
-    throw bridgeError(
-      receipt.failureCode ?? "ELECTRON_MACOS_APPKIT_DIVIDER_RECEIPT_INVALID",
-      "Core returned a mismatched workspace-divider terminal receipt."
-    );
-  }
 }
 
 /**
@@ -729,6 +740,10 @@ implements MacosAppKitRendererActionPort {
       case "workspaceDividerPointer":
         this.#receiveWorkspaceDividerPointer(event, hosts, sourceWindowId);
         return;
+      case "modifierFocusNeutralized":
+      case "modifierFocusReasserted":
+        this.#recordModifierFocusTransition(event, actionType, sourceWindowId);
+        return;
       case "windowPlacementChanged":
       case "windowFocusChanged":
         this.#enqueue(hosts, {
@@ -746,6 +761,39 @@ implements MacosAppKitRendererActionPort {
           `The AppKit action ${actionType} is outside the migrated privileged event lane.`
         );
     }
+  }
+
+  #recordModifierFocusTransition(
+    event: AppKitRuntimeActionEvent,
+    actionType: ModifierFocusAction,
+    sourceWindowId: string
+  ): void {
+    const transition = requireModifierFocusTransition(event.action, actionType);
+    const reasserted = actionType === "modifierFocusReasserted";
+    const capture = Promise.resolve().then(() => this.#input.core.invoke({
+      type: "logsCapture",
+      entries: [{
+        level: "debug",
+        source: "browser",
+        event: reasserted
+          ? "input.modifier-focus-reasserted"
+          : "input.modifier-focus-neutralized",
+        message: reasserted
+          ? "Physically held Game Window modifiers were reasserted after focus returned."
+          : "Game Window modifiers were neutralized before focus left.",
+        contextRawJson: JSON.stringify({
+          modifierCount: transition.modifierCount,
+          platform: "macos",
+          tabId: transition.tabId ?? null,
+          windowId: sourceWindowId
+        })
+      }]
+    }));
+    this.#terminalResults.add(capture);
+    void capture.then(
+      () => this.#terminalResults.delete(capture),
+      () => this.#terminalResults.delete(capture)
+    );
   }
 
   #startDragSession(
@@ -894,7 +942,12 @@ implements MacosAppKitRendererActionPort {
           type: "browserWorkspaceDividerPointer",
           event: coreEvent
         });
-        validateWorkspaceDividerReceipt(coreEvent, receipt);
+        if (!isExactWorkspaceDividerReceipt(coreEvent, receipt)) {
+          throw bridgeError(
+            receipt.failureCode ?? "ELECTRON_MACOS_APPKIT_DIVIDER_RECEIPT_INVALID",
+            "Core returned a mismatched workspace-divider terminal receipt."
+          );
+        }
         gesture.currentTopologyRevision = receipt.topologyRevision;
         if (pointer.phase === "end" || pointer.phase === "cancel") {
           this.#workspaceDividerGestures.delete(gesture.gestureId);

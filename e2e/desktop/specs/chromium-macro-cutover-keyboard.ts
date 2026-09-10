@@ -22,6 +22,10 @@ import {
   waitForMacroProjection
 } from "../support/renderer-events";
 import {
+  installRuntimeTabShellErrorJournal,
+  runtimeTabShellErrors
+} from "../support/native-runtime-tabs";
+import {
   activateChromiumRoleVisible,
   bootstrapChromiumMacroCutover,
   createChromiumMacroWindow,
@@ -126,6 +130,7 @@ async function createMiddleHeldMacro(roleId: string): Promise<Macro> {
 
 export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const context = await bootstrapChromiumMacroCutover();
+  await installRuntimeTabShellErrorJournal();
   const game = await rendererCall("createGame", {
     defaultLaunchUrl: macroFixtureUrl(ROLE_A_FIXTURE, ROLE_A_CONTEXT_QUERY),
     name: "Chromium Macro Keyboard Game"
@@ -342,6 +347,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   expect(finalState?.consumerPressedCodes).toEqual([]);
   const trustedInput = await electronDesktopE2eTrustedInputRuntime(roleA.id);
   expect(trustedInput.every((entry) => entry.receipt.status === "applied")).toBe(true);
+  expect(await runtimeTabShellErrors()).toEqual([]);
   await writeChromiumMacroEvidence("chromium-macro-keyboard-cutover-evidence.json", {
     nativeBinding,
     platform: context.platform,

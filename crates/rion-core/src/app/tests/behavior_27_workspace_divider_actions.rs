@@ -283,6 +283,86 @@ fn workspace_divider_moves_are_fenced_event_bound_and_only_end_commits_durabilit
 }
 
 #[test]
+fn transient_workspace_divider_keeps_live_layout_without_creating_a_saved_window() {
+    let (_directory, core) = core_for_runtime_contract("win32", 23);
+    core.invoke(CoreCommand::BrowserRuntimeRegister {
+        registration: chromium_registration("win32", true),
+    })
+    .unwrap();
+    let role_id = create_role(&core, &first_game_id(&core), 1);
+    let workspace_id = create_mixed_divider_workspace(&core, &role_id);
+    let window_id = uuid::Uuid::new_v4().to_string();
+    let saved_before = core.invoke(CoreCommand::GameWindowsList).unwrap();
+    let (tab_id, attempt_generation, window_generation) = launch_divider_workspace(
+        Arc::clone(&core),
+        &workspace_id,
+        &window_id,
+    );
+    let initial_revision = core.browser_runtime.snapshot().unwrap().windows[&window_id].revision;
+    let gesture_id = uuid::Uuid::new_v4().to_string();
+    let gesture = DividerGesture {
+        window_id: &window_id,
+        tab_id: &tab_id,
+        attempt_generation: &attempt_generation,
+        gesture_id: &gesture_id,
+        host_generation: 1,
+        window_generation,
+    };
+
+    let started = drive_divider(
+        Arc::clone(&core),
+        gesture.event(
+            1,
+            crate::model::BrowserWorkspaceDividerPointerPhase::Start,
+            initial_revision,
+            None,
+        ),
+    );
+    let moved = drive_divider(
+        Arc::clone(&core),
+        gesture.event(
+            2,
+            crate::model::BrowserWorkspaceDividerPointerPhase::Move,
+            started.topology_revision,
+            Some(0.68),
+        ),
+    );
+    let ended = drive_divider(
+        Arc::clone(&core),
+        gesture.event(
+            3,
+            crate::model::BrowserWorkspaceDividerPointerPhase::End,
+            moved.topology_revision,
+            None,
+        ),
+    );
+
+    assert!(moved.changed);
+    assert_eq!(
+        ended.status,
+        crate::model::SystemRuntimeOperationStatus::Degraded
+    );
+    assert!(!ended.changed);
+    assert!(!ended.durable);
+    assert_eq!(
+        ended.failure_code.as_deref(),
+        Some("WORKSPACE_DIVIDER_WINDOW_NOT_SAVED")
+    );
+    let runtime = core.browser_runtime.snapshot().unwrap();
+    let live_tab = runtime.windows[&window_id]
+        .tabs
+        .iter()
+        .find(|tab| tab.id == tab_id)
+        .unwrap();
+    assert_eq!(live_tab.workspace_slots, ended.workspace_slots);
+    assert_eq!(
+        core.invoke(CoreCommand::GameWindowsList).unwrap(),
+        saved_before
+    );
+    core.shutdown();
+}
+
+#[test]
 fn workspace_divider_cancel_and_host_replacement_terminalize_without_implicit_persistence() {
     let (_directory, core) = core_for_runtime_contract("win32", 23);
     core.invoke(CoreCommand::BrowserRuntimeRegister {

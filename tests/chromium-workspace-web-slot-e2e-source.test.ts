@@ -161,7 +161,9 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(aggregator).toContain("...chromiumWorkspaceWebPhaseNamespaces");
     expect(aggregator).toContain("validateChromiumWorkspaceWebRuntimeEvidence(input)");
     expect(aggregator).toContain("validateChromiumWorkspaceWebSqliteEvidence(");
-    expect(evidence).toContain("terminal.topologyRevision > first.topologyRevision");
+    expect(evidence).toContain("cohorts.length === 2");
+    expect(evidence).toContain("cohorts.every(hasAdvancedDividerLayout)");
+    expect(evidence).toContain("terminal.topologyRevision > initial.topologyRevision");
     expect(evidence).toContain("terminalWebSlot.rect.width > initialWebSlot.rect.width");
     expect(evidence).toContain("Chromium Workspace Web Window");
     expect(evidence).toContain("workspaceTab.roleSlots");

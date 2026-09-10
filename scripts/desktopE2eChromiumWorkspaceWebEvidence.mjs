@@ -59,6 +59,30 @@ function canonicalRestartSlots(slots) {
   }));
 }
 
+function observationCohorts(observations) {
+  return observations.reduce((cohorts, observation) => {
+    const current = cohorts.at(-1);
+    if (current?.[0].windowId === observation.windowId &&
+        current[0].windowGeneration === observation.windowGeneration) {
+      current.push(observation);
+    } else {
+      cohorts.push([observation]);
+    }
+    return cohorts;
+  }, []);
+}
+
+function hasAdvancedDividerLayout(cohort) {
+  const initial = cohort[0];
+  const terminal = cohort.at(-1);
+  const initialWebSlot = initial.coreSlots.find((slot) => slot.web !== null);
+  const terminalWebSlot = terminal.coreSlots.find((slot) => slot.web !== null);
+  return cohort.length >= 2 &&
+    terminal.topologyRevision > initial.topologyRevision &&
+    terminalWebSlot.rect.width > initialWebSlot.rect.width + 0.03 &&
+    terminal.web.slotBounds.width > initial.web.slotBounds.width + 20;
+}
+
 function validBounds(bounds) {
   return exactKeys(bounds, ["height", "width", "x", "y"]) &&
     [bounds.height, bounds.width, bounds.x, bounds.y].every(Number.isSafeInteger) &&
@@ -183,27 +207,29 @@ export async function validateChromiumWorkspaceWebRuntimeEvidence({
   );
   const first = observations[0];
   const terminal = observations.at(-1);
+  const cohorts = observationCohorts(observations);
   requireRuntime(
-    observations.every((observation) =>
-      observation.windowId === first.windowId &&
-      observation.windowGeneration === first.windowGeneration
-    ) && observations.every((observation, index) => index === 0 ||
+    observations.every((observation, index) => index === 0 ||
       observation.topologyRevision >= observations[index - 1].topologyRevision),
-    `${phase}: native window identity or Core topology moved backwards`
+    `${phase}: Core topology moved backwards`
   );
   const terminalWebSlot = terminal.coreSlots.find((slot) => slot.web !== null);
   if (phase === "chromium-workspace-web-slot-seed") {
-    const initialWebSlot = first.coreSlots.find((slot) => slot.web !== null);
     requireRuntime(
-      observations.length >= 2 &&
-        terminal.topologyRevision > first.topologyRevision &&
-        terminalWebSlot.rect.width > initialWebSlot.rect.width + 0.03 &&
-        terminal.web.slotBounds.width > first.web.slotBounds.width + 20,
-      `${phase}: real native pointer drag did not advance durable Core/native layout`
+      cohorts.length === 2 &&
+        new Set(cohorts.map((cohort) =>
+          `${cohort[0].windowId}:${cohort[0].windowGeneration}`
+        )).size === 2 &&
+        cohorts.every(hasAdvancedDividerLayout),
+      `${phase}: transient and saved-window native pointer drags were not both exact`
     );
   } else {
     requireRuntime(
-      terminalWebSlot.rect.width > 0.53,
+      cohorts.length === 1 &&
+        observations.every((observation) =>
+          observation.windowId === first.windowId &&
+          observation.windowGeneration === first.windowGeneration
+        ) && terminalWebSlot.rect.width > 0.53,
       `${phase}: restart lost the persisted resized Web slot`
     );
   }

@@ -824,7 +824,7 @@ export class ChromiumRoleOverlayCoordinator {
       if (!this.#runtime.observeGameInputContext) unsupported("request");
       await this.#runtime.observeGameInputContext(identity, payload);
     }
-    if (type === "runtime-tab-shortcut" || type === "flyff-caret-diagnostic") {
+    if (type === "runtime-tab-shortcut") {
       fail(
         "ELECTRON_ROLE_OVERLAY_REQUEST_UNAVAILABLE",
         `The Chromium runtime has not enabled overlay request ${type}.`

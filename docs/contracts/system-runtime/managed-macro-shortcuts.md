@@ -55,6 +55,10 @@ responder and folds any active Ctrl+Tab handoff into those exact releases. On
 key state and reasserts only still-held sides, in original order, to the current
 responder before later keyboard input. A missing window, responder, or replaced
 controller discards the handoff rather than replaying it across generations.
+The native neutralize and reassert callbacks are bounded diagnostic events, not
+logical input mutations. The Electron main-process consumer records only the
+window, optional tab, platform, and modifier count through Core logging; a
+logging failure cannot alter focus handling or surface a shell error.
 
 Top-level overlay blur clears ordinary keys and while-held leases immediately,
 then defers only pass-through modifier fallback releases to a microtask in the

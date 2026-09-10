@@ -766,8 +766,6 @@
 
   function dispose() {
     isDisposed = true;
-    flyffCaretDiagnosticCleanup?.();
-    flyffCaretDiagnosticCleanup = null;
     appliedPageZoomRequestRevision += 1;
     appliedPageZoom = 1;
     appliedPageZoomKnown = false;
@@ -842,7 +840,6 @@
     }
 
     isDisposed = false;
-    flyffCaretDiagnosticCleanup = installFlyffCaretDiagnostics();
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keypress", handleCoordinateKeyPress, true);
     window.addEventListener("keyup", handleKeyUp, true);

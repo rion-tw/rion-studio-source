@@ -34,6 +34,7 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Chromium Macro Cutover Parity](validation/runbooks/chromium-macro-cutover.md) | Active runbook | Paired managed Macro/input cutover phases, evidence, or platform limits |
 | [Electron Production Candidate](electron-production-candidate.md) | Current entry index; retired design below | Existing Electron release entry and historical provisional workflow evidence |
 | [Validation](validation/README.md) | Active index | Native/hardware runbooks or historical evidence lookup |
+| [Electron Development Output](validation/electron-dev-output.md) | Active runbook | Classifying local Electron dev warnings and errors without suppressing stderr |
 | [Session Migration Diagnostics](validation/session-migration-diagnostics.md) | Internal runbook | Isolated v8 → v9 source assessment, synthetic persistence proof and native evidence gaps |
 | [Preserve-session Recovery](validation/session-recovery.md) | Active runbook | Single-role recovery authority, source support list, UI and native acceptance |
 | [Web App DRM](validation/runbooks/web-app-drm.md) | Active runbook | HTTPS permission evidence and iq.com playback acceptance |

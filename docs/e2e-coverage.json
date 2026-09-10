@@ -1368,7 +1368,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease or page key left behind."
+      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008",
@@ -1394,7 +1394,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease or page key left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions."
+      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",
@@ -2258,7 +2258,7 @@
         "success",
         "restart"
       ],
-      "description": "Create a mixed Website and Role Workspace through visible slot-content controls, choose the visible iQIYI International item from the grouped popular-site menu, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell inside the retained AppKit host. Drag the visible native AppKit divider with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior."
+      "description": "Create a mixed Website and Role Workspace through visible slot-content controls, choose the visible iQIYI International item from the grouped popular-site menu, and override its editable details with the HTTP(S) fixture URL. First launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell into a transient retained AppKit host, drag the visible native divider with a real platform pointer, and prove the live Core layout changes without creating a saved Game Window or shell error. Then repeat in a saved Game Window and prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FULLSCREEN-017",
@@ -2408,7 +2408,7 @@
         "success",
         "restart"
       ],
-      "description": "Create the same mixed Website and Role Workspace through visible slot-content controls, choose the visible iQIYI International item from the grouped popular-site menu, override its editable details with the HTTP(S) fixture URL, and launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell in the bundled Windows host. Drag its visible separator with a real platform pointer, then prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey and During the gated navigation, exact-process native UI Automation observes the visible activation button exposing its loading state alongside the named tab close control; after release, the same native host is bound to the Core tab. Windows execution retains an independent CI verdict. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior."
+      "description": "Create the same mixed Website and Role Workspace through visible slot-content controls, choose the visible iQIYI International item from the grouped popular-site menu, and override its editable details with the HTTP(S) fixture URL. First launch the paired persistent global-Web Chromium content plus the dedicated in-memory Rion-owned local chrome shell into a transient bundled Windows host, drag its visible separator with a real platform pointer, and prove the live Core layout changes without creating a saved Game Window or shell error. Then repeat in a saved Game Window and prove exact Core layout, configured start URL, isolated session identities, and resized persistence after restart; contained fullscreen remains the separate WORKSPACE-WEB-FULLSCREEN-005 journey. During gated navigation, exact-process native UI Automation observes the visible activation button exposing its loading state alongside the named tab close control; after release, the same native host is bound to the Core tab. Windows execution retains an independent CI verdict. Pending Web navigation must admit newer Core ownership before readiness, and exact retirement must prevent late surface resurrection; focused admission tests cover both native host contracts. Verify Media, Live, Social and Other groups in the visible preset menu with 15/2/8/1 options, select the newly added international drama platform, and retain editable name/URL behavior."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017",

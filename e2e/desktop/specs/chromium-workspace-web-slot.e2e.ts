@@ -21,7 +21,16 @@ import { dragWindowsVisibleWorkspaceDivider } from
 import { fixtureEvents, waitFixtureEvent } from "../support/fixture";
 import { dragMacosVisibleWorkspaceDivider } from
   "../support/macos-appkit-ui";
+import {
+  installRuntimeTabShellErrorJournal,
+  runtimeTabShellErrors
+} from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
+import {
+  openCutoverWorkspace,
+  stopCutoverWindow,
+  waitCutoverWorkspaceTab
+} from "../support/chromium-workspace-cutover";
 import {
   acceptLegalAndSkipFirstRun,
   clickWorkspaceCreateAction,
@@ -451,13 +460,46 @@ async function waitForPersistedGameWindowLayout(
 async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   const role = await findRole();
   const workspace = await createWorkspaceThroughVisibleSlotControls(role);
+  const mainWindowHandle = await browser.getWindowHandle();
+  const savedWindowIds = (await rendererCall("listGameWindows"))
+    .map((window) => window.id)
+    .sort();
+  await installRuntimeTabShellErrorJournal();
+  await openCutoverWorkspace(workspace, "new-window");
+  const transientTab = await waitCutoverWorkspaceTab(workspace, [{
+    roleId: role.id,
+    state: "running"
+  }]);
+  await waitForWebSession(null);
+  const transientBefore = await electronDesktopE2eWorkspaceWebRuntime(
+    transientTab.windowId
+  );
+  await expectExactSessionsAndLayout({
+    inspection: transientBefore,
+    platform,
+    role,
+    slots: workspace.slots
+  });
+  const transientAfter = await dragVisibleNativeDivider({
+    before: transientBefore,
+    mainWindowHandle,
+    platform
+  });
+  expect(transientAfter.coreSlots.find((slot) => slot.web !== null)?.rect.width)
+    .toBeGreaterThan(0.53);
+  expect((await rendererCall("listGameWindows")).map((window) => window.id).sort())
+    .toEqual(savedWindowIds);
+  expect((await rendererCall("listGameWindows"))
+    .some((window) => window.id === transientTab.windowId)).toBe(false);
+  expect(await runtimeTabShellErrors()).toEqual([]);
+  await stopCutoverWindow({ mainWindowHandle, platform, tab: transientTab });
+
   const gameWindow = await createSavedWindowThroughVisibleUi();
   const launched = await launchWorkspaceThroughVisibleUi(
     workspace,
     role,
     gameWindow
   );
-  await waitForWebSession(null);
   const before = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
   expect(before.tabId).toBe(launched.tabId);
   await expectExactSessionsAndLayout({
@@ -478,6 +520,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     role,
     slots: settled.slots
   });
+  expect(await runtimeTabShellErrors()).toEqual([]);
 }
 
 async function restartPhase(platform: "macos" | "windows"): Promise<void> {

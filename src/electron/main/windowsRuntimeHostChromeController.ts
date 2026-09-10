@@ -28,6 +28,7 @@ import type { ChromiumRuntimeNativeTabAction } from
   "./chromiumRuntimeNativeWindowController";
 import type { ControlledRuntimeTabReloadFence } from
   "./controlledRuntimeTabReload";
+import { isExactWorkspaceDividerReceipt } from "./workspaceDividerReceipt";
 
 export const WINDOWS_RUNTIME_CHROME_INSET = 40;
 export const WINDOWS_RUNTIME_REVEAL_EDGE_INSET = 2;
@@ -839,16 +840,7 @@ export class WindowsRuntimeHostChromeController {
     event: BrowserWorkspaceDividerPointerRecord,
     receipt: BrowserWorkspaceDividerPointerReceiptRecord
   ): void {
-    const expectedStatus = event.phase === "cancel" ? "cancelled" : "applied";
-    if (receipt.eventId !== event.eventId ||
-        receipt.gestureId !== event.gestureId ||
-        receipt.pointerSequence !== event.pointerSequence ||
-        receipt.phase !== event.phase || receipt.status !== expectedStatus ||
-        receipt.windowGeneration !== event.windowGeneration ||
-        !Number.isSafeInteger(receipt.topologyRevision) ||
-        receipt.topologyRevision < event.topologyRevision ||
-        (event.phase !== "move" && receipt.changed) ||
-        (event.phase === "end" ? !receipt.durable : receipt.durable)) {
+    if (!isExactWorkspaceDividerReceipt(event, receipt)) {
       throw chromeError(
         receipt.failureCode ?? "ELECTRON_WINDOWS_RUNTIME_DIVIDER_RECEIPT_INVALID",
         "Core returned a mismatched Windows workspace-divider terminal receipt."

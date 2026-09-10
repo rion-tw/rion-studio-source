@@ -269,7 +269,12 @@ hit rectangle. Windows projects the same divider into its bundled sandboxed
 host. Both native pointer streams carry one host/attempt/window-generation
 ownership fence and strictly monotonic gesture sequence into the Rust browser
 action lane; only Core-accepted moves alter projected bounds, and only the exact
-terminal end makes the layout durable. The paired
+terminal end attempts durability. A saved Game Window returns an
+`applied`/durable receipt. A transient window keeps the Core-accepted layout for
+its live session and returns the exact expected
+`degraded`/non-durable/`WORKSPACE_DIVIDER_WINDOW_NOT_SAVED` receipt; the native
+consumer accepts that tuple without creating a saved window or surfacing a
+shell error. Other persistence failures remain errors. The paired
 `CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SLOT-016` and
 `CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016` journeys use the same visible creation,
 popular-site override, and launch spec while producing independent native

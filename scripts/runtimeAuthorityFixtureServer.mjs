@@ -234,13 +234,10 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     #file-upload { display: block; width: min(420px, 100%); margin: 28px auto; padding: 16px; border: 2px solid #7c3aed; border-radius: 14px; background: #0e1522; color: white; font: inherit; cursor: pointer; }
     #verification-frame { position: fixed; inset: 0; z-index: 4; width: 100vw; height: 100vh; border: 0; background: #10141d; }
     #verification-frame[hidden] { display: none; }
-    #text_input { position: fixed; right: 24px; bottom: 24px; z-index: 3; width: min(420px, calc(100vw - 48px)); padding: 12px; border: 2px solid #fbbf24; border-radius: 10px; background: #0e1522; color: #ecf2ff; font: inherit; }
-    #text_input[hidden] { display: none; }
   </style>
 </head>
 <body>
   <canvas id="game-input-canvas" tabindex="0"></canvas>
-  <input id="text_input" type="text" aria-label="Flyff chat caret fixture" hidden>
   <main>
     <h1>[Runtime QA] <span id="role-id"></span></h1>
     <p>Local-only WKWebView/WebView2 lifecycle, focus, input, and macro fixture.</p>
@@ -275,7 +272,6 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const challengeOrigin = ${safeChallengeOrigin};
     const challengeUrl = ${safeChallengeUrl};
     const verificationEnabled = roleId === "macro-input-recovery";
-    const flyffCaretDiagnosticsEnabled = roleId === "macro-keyboard-a";
     const activeNavigationFailureEnabled =
       roleId === "chromium-workspaces-recovery-failing"
       || new URL(location.href).searchParams.get("activeNavigationFailure") === "1";
@@ -527,52 +523,6 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       repeat: event.repeat,
       targetId: event.target instanceof Element ? event.target.id : undefined
     });
-    const textInput = document.querySelector("#text_input");
-    let textEditInvocation = 0;
-    const caretSnapshot = (requestedStart, requestedEnd) => ({
-      activeElementId: document.activeElement instanceof Element
-        ? document.activeElement.id
-        : null,
-      requestedEnd,
-      requestedStart,
-      selectionEnd: textInput.selectionEnd,
-      selectionStart: textInput.selectionStart,
-      textEditInvocation,
-      valueLength: textInput.value.length
-    });
-    const recordCaret = (kind, event, requestedStart, requestedEnd) => record(kind, {
-      ...(event ? keyboardDetails(event) : {}),
-      caret: caretSnapshot(requestedStart, requestedEnd)
-    });
-    const startFlyffTextEdit = (event) => {
-      textEditInvocation += 1;
-      textInput.hidden = false;
-      textInput.value = "seed";
-      const requestedCaret = textInput.value.length;
-      recordCaret("flyff-caret-selection-before", event, requestedCaret, requestedCaret);
-      textInput.setSelectionRange(requestedCaret, requestedCaret);
-      recordCaret("flyff-caret-selection-after", event, requestedCaret, requestedCaret);
-      recordCaret("flyff-caret-focus-before", event);
-      textInput.focus();
-      recordCaret("flyff-caret-focus-after", event);
-    };
-    if (flyffCaretDiagnosticsEnabled) {
-      textInput.value = "seed";
-      addEventListener("keydown", (event) => {
-        if (event.code === "Enter" || event.code === "NumpadEnter") {
-          recordCaret("flyff-caret-keydown", event);
-        }
-      }, true);
-      addEventListener("keyup", (event) => {
-        if (event.code === "Enter" || event.code === "NumpadEnter") {
-          recordCaret("flyff-caret-keyup", event);
-        }
-      }, true);
-      textInput.addEventListener("focusin", (event) => recordCaret("flyff-caret-focusin", event));
-      document.querySelector("#game-input-canvas").addEventListener("keydown", (event) => {
-        if (event.code === "Enter" || event.code === "NumpadEnter") startFlyffTextEdit(event);
-      });
-    }
     const consumerPressedCodes = new Set();
     const consumerChordActivations = [];
     let consumerRevision = 0;

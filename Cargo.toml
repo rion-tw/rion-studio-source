@@ -41,7 +41,7 @@ sha1 = "0.11.0"
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
-ts-rs = { version = "12.0.1", features = ["chrono-impl"] }
+ts-rs = { version = "12.0.1", features = ["chrono-impl", "no-serde-warnings"] }
 url = "2.5.8"
 uuid = { version = "1.26.0", features = ["serde", "v4"] }
 

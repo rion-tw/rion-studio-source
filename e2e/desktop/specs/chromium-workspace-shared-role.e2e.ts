@@ -7,6 +7,10 @@ import {
 import { clickVisibleElectronPageElement } from
   "../support/electron-role-surface";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
+import {
+  installRuntimeTabShellErrorJournal,
+  runtimeTabShellErrors
+} from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   createCutoverGame,
@@ -18,6 +22,7 @@ import {
   requiredCutoverEnvironment,
   waitCutoverWorkspaceTab
 } from "../support/chromium-workspace-cutover";
+import { verifyVisibleChromiumTabAudio } from "./chromium-tab-audio-support";
 
 // [journey:CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025]
 // [journey:CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025]
@@ -71,6 +76,7 @@ describe("Chromium shared Workspace Role exact replacement", () => {
     if (phase !== "chromium-workspace-shared-role") {
       throw new Error(`Unexpected shared Role phase ${phase}`);
     }
+    await installRuntimeTabShellErrorJournal();
     const game = await createCutoverGame(
       GAME_NAME,
       cutoverFixtureUrl(SHARED_FIXTURE)
@@ -104,6 +110,26 @@ describe("Chromium shared Workspace Role exact replacement", () => {
       { roleId: shared.id, state: "running" },
       { roleId: uniqueA.id, state: "running" }
     ]);
+    expect((await rendererCall("listGameWindows")).some(
+      (window) => window.id === tabA.windowId
+    )).toBe(false);
+    await verifyVisibleChromiumTabAudio({
+      mainWindowHandle: input.mainWindowHandle,
+      muted: true,
+      platform: input.platform,
+      tabId: tabA.id,
+      tabName: tabA.name,
+      windowId: tabA.windowId
+    });
+    await verifyVisibleChromiumTabAudio({
+      mainWindowHandle: input.mainWindowHandle,
+      muted: false,
+      platform: input.platform,
+      tabId: tabA.id,
+      tabName: tabA.name,
+      windowId: tabA.windowId
+    });
+    expect(await runtimeTabShellErrors()).toEqual([]);
     await openCutoverWorkspace(workspaceB, "new-window");
     const tabB = await waitCutoverWorkspaceTab(workspaceB, [
       { roleId: shared.id, state: "blocked" },

@@ -114,7 +114,15 @@ function fixtures() {
         windowGeneration: 3,
         topologyRevision: 7,
         parentNativeHostId: 41,
-        appKitIdentity: sourceIdentity
+        appKitIdentity: sourceIdentity,
+        target: {
+          windowId: "window-1",
+          displayId: 1,
+          scaleFactor: 1,
+          workArea: { x: 0, y: 0, width: 1440, height: 900 },
+          bounds: { x: 0, y: 0, width: 900, height: 600 },
+          presentation: "normal" as const
+        }
       },
       {
         windowId: "window-2",
@@ -128,7 +136,16 @@ function fixtures() {
         windowGeneration: 3,
         topologyRevision: 5,
         parentNativeHostId: 42,
-        appKitIdentity: targetIdentity
+        appKitIdentity: targetIdentity,
+        target: {
+          windowId: "window-2",
+          persistedName: "Native Target Window",
+          displayId: 1,
+          scaleFactor: 1,
+          workArea: { x: 0, y: 0, width: 1440, height: 900 },
+          bounds: { x: 40, y: 40, width: 900, height: 600 },
+          presentation: "normal" as const
+        }
       }
     ],
     tabs: [
@@ -316,6 +333,88 @@ describe("macOS retained AppKit runtime tab menu", () => {
         windowId: "window-2"
       })
     }));
+  });
+
+  it("opens and re-fences a coherent transient Workspace window", async () => {
+    const { core, host, lifecycleEpoch, native } = fixtures();
+    core.state.gameWindows = [];
+    core.logicalWindows[0]!.tabs[0]!.tabType = "workspace";
+    core.logicalWindows[0]!.tabs[0]!.sourceId = "workspace-transient";
+    const execute = vi.fn(async () => undefined);
+    const popup = vi.fn();
+    const readCoreSnapshot = vi.fn(async () => core);
+    const readNativeSnapshot = vi.fn(() => native);
+    const controller = new MacosAppKitRuntimeTabMenuController({
+      actions: { execute },
+      language: () => "en",
+      lifecycleEpoch,
+      nativeMenu: { popup },
+      onError: vi.fn(),
+      readCoreSnapshot,
+      readNativeSnapshot
+    });
+
+    await controller.open({ hosts: [host], identity: sourceIdentity, tabId: "tab-1" });
+    const items = popup.mock.calls[0]![0].items as readonly MacosAppKitRuntimeTabMenuItem[];
+    expect(item(items, "runtime-tab-menu-move-window-1")).toMatchObject({
+      enabled: false,
+      label: "Game Window"
+    });
+    expect(item(items, "runtime-tab-menu-move-window-2")).toMatchObject({
+      label: "Native Target Window"
+    });
+
+    item(items, "runtime-tab-menu-mute").click!();
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    expect(readCoreSnapshot).toHaveBeenCalledTimes(2);
+    expect(readNativeSnapshot).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      action: { muted: true, tabId: "tab-1", type: "setMuted" },
+      source: expect.objectContaining({
+        appKitIdentity: sourceIdentity,
+        lifecycleEpoch: 17,
+        parentNativeHostId: 41,
+        topologyRevision: 7,
+        windowGeneration: 3,
+        windowId: "window-1"
+      })
+    }));
+  });
+
+  it("still rejects a transient window with a mismatched AppKit identity", async () => {
+    const { core, host, lifecycleEpoch, native } = fixtures();
+    core.state.gameWindows = core.state.gameWindows.filter(
+      (candidate) => candidate.id !== "window-1"
+    );
+    const mismatchedNative = {
+      ...native,
+      windows: native.windows.map((window, index) => index === 0
+        ? {
+            ...window,
+            appKitIdentity: {
+              ...sourceIdentity,
+              logicalWindowId: "replacement-window"
+            }
+          }
+        : window)
+    } satisfies ChromiumRuntimeExecutorSnapshot;
+    const controller = new MacosAppKitRuntimeTabMenuController({
+      actions: { execute: vi.fn(async () => undefined) },
+      language: () => "en",
+      lifecycleEpoch,
+      nativeMenu: { popup: vi.fn() },
+      onError: vi.fn(),
+      readCoreSnapshot: async () => core,
+      readNativeSnapshot: () => mismatchedNative
+    });
+
+    await expect(controller.open({
+      hosts: [host],
+      identity: sourceIdentity,
+      tabId: "tab-1"
+    })).rejects.toMatchObject({
+      code: "ELECTRON_MACOS_APPKIT_TAB_MENU_TOPOLOGY_STALE"
+    });
   });
 
   it("rejects a menu selection after its Core topology revision changes", async () => {

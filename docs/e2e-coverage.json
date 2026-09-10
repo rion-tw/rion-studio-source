@@ -3037,7 +3037,7 @@
         "success",
         "failure"
       ],
-      "description": "Launch two visible Workspaces into separate retained AppKit Game Windows with one shared Role and independent siblings, prove the blocked slot is a sandboxed memory-only local placeholder attached to the target AppKit content host, then press its visible Claim control. The Core terminal owner generation advances before projection, the old host becomes the exact placeholder, the new AppKit host owns the Chromium Role, and both unrelated Roles retain their original owner fences."
+      "description": "Launch two visible Workspaces into separate transient retained AppKit Game Windows with one shared Role and independent siblings. Before the ownership transfer, prove the first live window is absent from the saved Game Window catalog and use its real AppKit NSMenu to mute and unmute the Workspace tab with exact Core/Chromium audio readback and no shell error. Then prove the blocked slot is a sandboxed memory-only local placeholder attached to the target AppKit content host and press its visible Claim control. The Core terminal owner generation advances before projection, the old host becomes the exact placeholder, the new AppKit host owns the Chromium Role, and both unrelated Roles retain their original owner fences."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025",
@@ -3062,7 +3062,7 @@
         "success",
         "failure"
       ],
-      "description": "Run the identical two-window shared-Role claim in the bundled Windows Chromium hosts, initializing the blocked placeholder only after the Core window projection supplies positive generation/revision fences, then using its visible sandboxed Claim control and a terminal Core owner-generation transfer. Exact old-host isolation, new-host attachment, and both unrelated Role fences are independently validated by Windows CI."
+      "description": "Run the identical two-transient-window shared-Role claim in the bundled Windows Chromium hosts. Prove the first live window is absent from the saved Game Window catalog and use its visible context menu to mute and unmute the Workspace tab with exact Core/Chromium audio readback and no shell error. Initialize the blocked placeholder only after the Core window projection supplies positive generation/revision fences, then use its visible sandboxed Claim control and a terminal Core owner-generation transfer. Exact old-host isolation, new-host attachment, and both unrelated Role fences are independently validated by Windows CI."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACES-RECOVERY-026",

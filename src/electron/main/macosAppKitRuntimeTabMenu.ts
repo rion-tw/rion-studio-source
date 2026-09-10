@@ -78,6 +78,8 @@ interface ExactMenuContext {
   readonly targets: readonly ExactWindow[];
 }
 
+const DEFAULT_GAME_WINDOW_NAME = "Game Window";
+
 type Labels = Readonly<{
   hide: string;
   mute: string;
@@ -357,7 +359,7 @@ export class MacosAppKitRuntimeTabMenuController {
         (candidate) => candidate.windowId === logical.windowId
       );
       if (
-        matches.length !== 1 || !owner || !saved ||
+        matches.length !== 1 || !owner ||
         logical.windowGeneration !== owner.windowGeneration ||
         logical.revision !== owner.topologyRevision ||
         logical.presentation !== owner.presentation ||
@@ -393,7 +395,8 @@ export class MacosAppKitRuntimeTabMenuController {
           windowGeneration: logical.windowGeneration,
           windowId: logical.windowId
         }),
-        name: saved.name
+        name: saved?.name ?? owner.target?.persistedName ??
+          DEFAULT_GAME_WINDOW_NAME
       }));
     }
     if (result.size !== native.windows.length) {

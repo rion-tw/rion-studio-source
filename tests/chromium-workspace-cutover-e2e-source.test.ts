@@ -228,7 +228,12 @@ describe("Chromium Workspace cutover paired replacements", () => {
       "CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025",
       '"#claim"',
       "ownerGeneration",
-      "electronDesktopE2eRolePlaceholderRuntime"
+      "electronDesktopE2eRolePlaceholderRuntime",
+      "verifyVisibleChromiumTabAudio",
+      'rendererCall("listGameWindows")',
+      "runtimeTabShellErrors",
+      "muted: true",
+      "muted: false"
     ]) expect(shared).toContain(marker);
     for (const marker of [
       "CHROMIUM-MACOS-APPKIT-WORKSPACES-RECOVERY-026",

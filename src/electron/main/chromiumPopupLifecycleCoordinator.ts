@@ -236,9 +236,9 @@ function sameHostEnvelope(
 }
 
 function supportedWindowOpen(details: ChromiumWindowOpenDetails): boolean {
-  // Chromium reports a normal left-click on target=_blank as foreground-tab;
-  // new-window is the Shift+left-click form. Both enter the same controlled
-  // native popup admission, while background/default/other remain denied.
+  // Role surfaces may forward foreground-tab or explicit new-window requests.
+  // The Workspace Website registry forwards only new-window; its tab
+  // dispositions are consumed as same-surface navigation before this policy.
   return (details.disposition === "foreground-tab" ||
       details.disposition === "new-window") &&
     details.url !== "about:blank" &&

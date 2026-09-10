@@ -63,6 +63,12 @@ Workspace and saved-window slot in one transaction without changing Workspace
 `rion-start://home/` clears `lastUrl`. Failed loads, subframes, and popups never
 update continuation state. Portable schema 22 preserves valid `lastUrl` values;
 imports from schema 21 or earlier discard legacy `name`/`startUrl` data.
+Workspace Website owns one WebContents: `default`, `foreground-tab`, and
+`background-tab` window-open dispositions are ordered onto that same surface,
+preserve referrer and history, and never admit a popup. Only an explicit
+`new-window` disposition enters controlled popup admission; POST, named-target,
+invalid-URL, stale-generation, and other-disposition requests fail closed. Role
+surfaces retain their existing popup policy.
 
 | Subsystem | Shared guarantee | Native mechanism |
 | --- | --- | --- |
@@ -74,9 +80,9 @@ imports from schema 21 or earlier discard legacy `name`/`startUrl` data.
 | Tab mutation | AppKit or HTML commits the complete post-intent topology to `LiveWindowTabStore` in one short memory transaction. Native surfaces retry toward it and SQLite consumes latest-only snapshots; neither can compensate the visible tabs | AppKit tab controller and lifecycle / Win32, WebView2 controllers, and the local tab-strip WebView |
 | Tab chrome projection | One complete, revisioned projection replaces native tab metadata, order, active state, ARIA state, toolbar, display, language, and theme | Idempotent AppKit projection and readback / instance-fenced Windows tab-strip hydration and acknowledgement |
 | Geometry and layout | User move/resize commits placement directly to the live store and queues latest-wins persistence without readback or compensation. Programmatic fullscreen/maximize and surface layout retain generation-fenced native transactions | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
-| Popup | Owner-scoped, fail-closed policy; only `about`, `http`, and `https` are eligible | WKUIDelegate-backed Tauri callback / WebView2 NewWindowRequested-backed callback |
+| Popup | Owner-scoped, fail-closed policy; Workspace Website admits a controlled popup only for explicit `new-window`, while tab dispositions stay in the owning surface; Role behavior is unchanged | Electron `setWindowOpenHandler` plus Core-fenced controlled popup admission |
 | Security | Policy installation succeeds before a role or popup becomes live | WKWebView policy adapter / WebView2 settings and event handlers |
-| Session | User-consented one-time Chrome Profile cookie and exact-origin LocalStorage transfer with readback and rollback; ordinary role LocalStorage remains native-store-owned; workspace Web Apps use one Rion-managed `global-web` profile isolated from roles and the renderer | WKWebsiteDataStore / WebView2 profile data |
+| Session | User-consented one-time Chrome Profile cookie and exact-origin LocalStorage transfer with readback and rollback; ordinary role LocalStorage remains native-store-owned; Workspace Websites use one Rion-managed `global-web` profile isolated from roles and the renderer | Electron persistent Chromium Sessions |
 | Audio and zoom | Reversible native fan-out followed by a live-state commit; saved-window durability is latest-revision-wins and never compensates the visible UI | Per-view System WebView APIs |
 | Metadata | Native tab metadata batch is submitted or reported degraded | AppKit tab controller / Windows tab-strip WebView evaluation |
 | Performance and capability | Probe result carries evidence and policy mode, never inferred support | Platform runtime probe plus bounded foreground sampling |

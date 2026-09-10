@@ -93,12 +93,16 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 25. Version 23 remains the first
+The active runtime contract is version 26. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
 Chrome Web Store extension prepares; already-installed extension directories are
 not reverified or migrated.
+Version 26 changes only Workspace Website window-open disposition: `default`,
+`foreground-tab`, and `background-tab` are denied as new native contents and
+navigate the owning Website slot, while `new-window` remains eligible for the
+controlled popup lifecycle. Role popup behavior remains unchanged.
 The global-Web policy explicitly enables DRM for HTTPS requesting and embedding
 origins, including controlled popups. Request/check handlers share the same
 origin decision and retain Chromium encrypted-media Permissions Policy. Missing,
@@ -180,8 +184,11 @@ chrome. Only this paired visible/native evidence permits both Chromium targets
 to register `fileUpload=supported`.
 
 The staged popup contract starts from Electron's exact owner WebContents
-`window-open` event and synchronously returns `deny`; a bounded coordinator then
-submits the request to Rust. Core alone allocates popup/open-operation identity,
+`window-open` event and synchronously returns `deny`. Role surfaces retain their
+existing admission policy. A Workspace Website sends only the explicit
+`new-window` disposition to the bounded coordinator; `default`,
+`foreground-tab`, and `background-tab` navigate the same Website surface through
+an ordered EventBound lane. Core alone allocates popup/open-operation identity,
 admits the canonical HTTP(S) target, and owns lifecycle revision plus terminal
 receipt. Admission rejects POST bodies, nested popups, uncontrolled frame names
 or dispositions, unsupported window features, stale parent window/tab/surface

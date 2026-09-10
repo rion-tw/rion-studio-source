@@ -15,7 +15,10 @@ import type {
   ChromiumWebContentsViewFactoryPort
 } from "./chromiumRoleSurfacePorts";
 import { buildUnprivilegedRemoteContentWebPreferences } from "./security";
-import type { ChromiumPopupOwnerLifecyclePort } from "./chromiumPopupPorts";
+import type {
+  ChromiumPopupOwnerLifecyclePort,
+  ChromiumWindowOpenDetails
+} from "./chromiumPopupPorts";
 
 type RegistryState = "open" | "draining" | "disposed";
 type SurfaceState =
@@ -26,6 +29,11 @@ type SurfaceState =
   | "quarantined";
 
 const MAX_GLOBAL_WEB_SURFACES = 512;
+const SAME_SURFACE_WINDOW_OPEN_DISPOSITIONS = new Set([
+  "default",
+  "foreground-tab",
+  "background-tab"
+]);
 
 export interface ChromiumGlobalWebSurfaceSessionOwnerPort {
   acquireSurface: (
@@ -195,6 +203,7 @@ interface SurfaceRecord {
   terminalFailure: unknown | null;
   nativeAttachmentRetired: boolean;
   activeFailureReported: boolean;
+  windowOpenNavigationLane: Promise<void>;
 }
 
 interface GlobalWebNetworkErrorDetails {
@@ -336,6 +345,35 @@ function isAllowedNavigation(value: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+type WorkspaceWindowOpenDecision =
+  | Readonly<{ action: "navigate"; url: string }>
+  | Readonly<{ action: "popup" }>
+  | Readonly<{ action: "deny" }>;
+
+function classifyWorkspaceWindowOpen(
+  details: ChromiumWindowOpenDetails
+): WorkspaceWindowOpenDecision {
+  if (details.disposition === "new-window") return Object.freeze({ action: "popup" });
+  if (!SAME_SURFACE_WINDOW_OPEN_DISPOSITIONS.has(details.disposition ?? "")) {
+    return Object.freeze({ action: "deny" });
+  }
+  if (
+    details.postBody !== undefined ||
+    (details.frameName !== undefined && details.frameName !== "" &&
+      details.frameName !== "_blank")
+  ) {
+    return Object.freeze({ action: "deny" });
+  }
+  try {
+    const url = canonicalWebUrl(details.url);
+    return isWorkspaceStartUrl(url)
+      ? Object.freeze({ action: "deny" })
+      : Object.freeze({ action: "navigate", url });
+  } catch {
+    return Object.freeze({ action: "deny" });
   }
 }
 
@@ -911,7 +949,8 @@ export class ChromiumGlobalWebSurfaceRegistry {
       terminalObservation: null,
       terminalFailure: null,
       nativeAttachmentRetired: false,
-      activeFailureReported: false
+      activeFailureReported: false,
+      windowOpenNavigationLane: Promise.resolve()
     };
     record.listeners = {
       didStartNavigation: (details) => {
@@ -957,7 +996,11 @@ export class ChromiumGlobalWebSurfaceRegistry {
   #installSecurityPolicy(record: SurfaceRecord): void {
     const contents = record.contents;
     contents.setWindowOpenHandler((details) => {
-      if (
+      const decision = classifyWorkspaceWindowOpen(details);
+      if (decision.action === "navigate") {
+        this.#enqueueWindowOpenNavigation(record, details, decision.url);
+      } else if (
+        decision.action === "popup" &&
         this.#popups && this.#state === "open" && record.state === "active" &&
         !record.destroyed && this.#records.get(record.surfaceId) === record
       ) {
@@ -984,6 +1027,35 @@ export class ChromiumGlobalWebSurfaceRegistry {
     contents.on("enter-html-full-screen", record.listeners.enteredHtmlFullscreen);
     contents.on("leave-html-full-screen", record.listeners.leftHtmlFullscreen);
     contents.on("destroyed", record.listeners.destroyed);
+  }
+
+  #enqueueWindowOpenNavigation(
+    record: SurfaceRecord,
+    details: ChromiumWindowOpenDetails,
+    destination: string
+  ): void {
+    const httpReferrer = details.referrer?.url
+      ? Object.freeze({ ...details.referrer })
+      : undefined;
+    record.windowOpenNavigationLane = record.windowOpenNavigationLane.then(async () => {
+      if (
+        this.#state !== "open" || record.state !== "active" || record.destroyed ||
+        this.#records.get(record.surfaceId) !== record
+      ) return;
+      try {
+        await this.#observeNavigation(
+          record,
+          () => record.contents.loadURL(
+            destination,
+            httpReferrer ? { httpReferrer } : undefined
+          ),
+          destination
+        );
+      } catch {
+        // EventBound: the exact did-fail-load, loadURL rejection, destruction,
+        // or superseding surface lifecycle already owns the terminal outcome.
+      }
+    });
   }
 
   #finishInitialLoad(

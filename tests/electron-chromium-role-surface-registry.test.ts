@@ -29,7 +29,10 @@ import type { ChromiumRoleQuickAccessShortcutPort } from
   "../src/electron/main/chromiumRoleQuickAccessShortcut";
 import type { ChromiumRoleActiveMainFrameFailurePort } from
   "../src/electron/main/chromiumRoleNavigationFailureReporter";
-import type { ChromiumPopupOwnerLifecyclePort } from
+import type {
+  ChromiumPopupOwnerLifecyclePort,
+  ChromiumWindowOpenDetails
+} from
   "../src/electron/main/chromiumPopupPorts";
 
 type Listener = (...arguments_: unknown[]) => unknown;
@@ -69,7 +72,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   currentUrl = "";
   destroyed = false;
   windowOpenHandler:
-    | ((details: Readonly<{ url: string }>) => Readonly<{ action: "deny" }>)
+    | ((details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>)
     | null = null;
   loadResult: Promise<void> = Promise.resolve();
   currentAudioMuted = false;
@@ -145,7 +148,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   }
 
   setWindowOpenHandler(
-    handler: (details: Readonly<{ url: string }>) => Readonly<{ action: "deny" }>
+    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
   ): void {
     this.windowOpenHandler = handler;
   }
@@ -1062,7 +1065,11 @@ describe("Electron Chromium role-surface registry", () => {
       surfaceGeneration: 1,
       tabId: "tab-1"
     });
-    contents.windowOpenHandler?.({ url: "https://popup.test/blocked" });
+    contents.windowOpenHandler?.({
+      url: "https://popup.test/blocked",
+      disposition: "foreground-tab",
+      frameName: "_blank"
+    });
     expect(requestOpen).not.toHaveBeenCalled();
 
     subject.registry.submitControlledReload(preparation, "reload-1");
@@ -1101,8 +1108,17 @@ describe("Electron Chromium role-surface registry", () => {
       "reload-1",
       replacementDocument
     )).toBe(true);
-    contents.windowOpenHandler?.({ url: "https://popup.test/admitted" });
+    const admittedDetails = {
+      url: "https://popup.test/admitted",
+      disposition: "foreground-tab",
+      frameName: "_blank"
+    };
+    contents.windowOpenHandler?.(admittedDetails);
     expect(requestOpen).toHaveBeenCalledOnce();
+    expect(requestOpen).toHaveBeenCalledWith(expect.objectContaining({
+      ownerKind: "role",
+      ownerId: "role-1"
+    }), admittedDetails);
   });
 
   it("tears down the active failure listener with the exact surface", async () => {

@@ -212,7 +212,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     main { position: relative; z-index: 1; width: min(760px, calc(100vw - 40px)); padding: 28px; border: 2px solid #5eead4; border-radius: 18px; background: #182131; box-shadow: 0 24px 80px #0008; }
     h1 { margin: 0 0 8px; color: #5eead4; }
     p { color: #a9b7ce; }
-    button, #blocked-download, #contained-fullscreen-popup { display: block; width: 240px; height: 72px; margin: 28px auto; border: 0; border-radius: 14px; background: #7c3aed; color: white; font: inherit; font-size: 18px; line-height: 72px; text-align: center; text-decoration: none; cursor: pointer; }
+    button, #blocked-download, #contained-fullscreen-popup, .workspace-window-open-link { display: block; width: 240px; height: 72px; margin: 28px auto; border: 0; border-radius: 14px; background: #7c3aed; color: white; font: inherit; font-size: 18px; line-height: 72px; text-align: center; text-decoration: none; cursor: pointer; }
     dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
     div { padding: 12px; border-radius: 10px; background: #0e1522; }
     dt { color: #8ea0bc; font-size: 12px; } dd { margin: 5px 0 0; font-size: 22px; }
@@ -226,6 +226,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     #active-navigation-failure[hidden] { display: none; }
     #contained-fullscreen-controls { padding: 18px; border: 1px solid #5eead4; border-radius: 12px; background: #0e1522; }
     #contained-fullscreen-controls[hidden] { display: none; }
+    #workspace-window-open-controls[hidden] { display: none; }
     #contained-fullscreen-controls button, #contained-fullscreen-controls a { position: static; transform: none; }
     #contained-fullscreen-controls #permission-drm,
     #contained-fullscreen-controls #permission-geolocation,
@@ -254,6 +255,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       <a id="blocked-download" href="/download/${roleId}" download hidden>Attempt blocked download</a>
       <input id="file-upload" type="file" accept="text/plain" aria-label="Choose upload fixture" hidden>
     </section>
+    <section id="workspace-window-open-controls" hidden>
+      <p>Workspace Website window-open fixture</p>
+      <a class="workspace-window-open-link" id="workspace-open-foreground" target="_blank" rel="noopener">Open foreground tab</a>
+      <a class="workspace-window-open-link" id="workspace-open-background" target="_blank" rel="noopener">Open background tab</a>
+      <a class="workspace-window-open-link" id="workspace-open-middle" target="_blank" rel="noopener">Open middle-click tab</a>
+    </section>
     <iframe id="verification-frame" title="Robot verification" hidden></iframe>
     <dl>
       <div><dt>click</dt><dd id="click">0</dd></div>
@@ -280,6 +287,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       || roleId === "chromium-controlled-role-reload"
       || roleId === "e2e-workspace-popup";
     const containedFullscreenPopup = roleId === "e2e-workspace-popup";
+    const workspaceWindowOpenEnabled = roleId === "chromium-workspace-web-slot";
     let verificationComplete = false;
     document.querySelector("#role-id").textContent = roleId;
     const render = (kind) => {
@@ -303,6 +311,34 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       return recordQueue;
     };
     const qaTarget = document.querySelector("#qa-target");
+    const windowOpenControls = document.querySelector("#workspace-window-open-controls");
+    if (workspaceWindowOpenEnabled) {
+      windowOpenControls.hidden = false;
+      for (const [id, destination] of [
+        ["workspace-open-foreground", "foreground"],
+        ["workspace-open-background", "background"],
+        ["workspace-open-middle", "middle"]
+      ]) {
+        const link = document.querySelector("#" + id);
+        const url = new URL(location.href);
+        url.searchParams.set("windowOpen", destination);
+        link.href = url.href;
+        const recordRequest = (event) => record("workspace-window-open-requested", {
+          button: event.button,
+          eventType: event.type,
+          isTrusted: event.isTrusted,
+          modifiers: {
+            alt: event.altKey,
+            control: event.ctrlKey,
+            meta: event.metaKey,
+            shift: event.shiftKey
+          },
+          targetId: event.currentTarget.id
+        });
+        link.addEventListener("click", recordRequest);
+        link.addEventListener("auxclick", recordRequest);
+      }
+    }
     if (verificationEnabled) qaTarget.textContent = "Open robot verification";
     else if (sessionMode === "late-write") qaTarget.textContent = "Save role LocalStorage marker";
     qaTarget.addEventListener("mousedown", (event) => event.preventDefault());
@@ -411,7 +447,16 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         if (securityPolicyEnabled && popupRequestCount > 1) {
           popupButton.href = "/role/e2e-workspace-popup";
         }
-        record("contained-popup-requested", { isTrusted: event.isTrusted });
+        record("contained-popup-requested", {
+          button: event.button,
+          isTrusted: event.isTrusted,
+          modifiers: {
+            alt: event.altKey,
+            control: event.ctrlKey,
+            meta: event.metaKey,
+            shift: event.shiftKey
+          }
+        });
       });
       permissionButton.addEventListener("click", (event) => {
         record("permission-requested", {

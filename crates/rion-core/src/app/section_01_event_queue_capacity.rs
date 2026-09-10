@@ -62,10 +62,11 @@ const LAUNCH_COMPLETION_QUEUE_CAPACITY: usize = 64;
 const LAUNCH_COMPLETION_CONCURRENCY: usize = 4;
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
 const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
-// Version 23 introduced Chromium data/effect semantics; 24 added Web App DRM policy;
-// 25 requires the production-publisher CRX3 verification policy.
+// Version 23 introduced Chromium data/effect semantics; 24 added Website DRM policy;
+// 25 requires production-publisher CRX3 verification; 26 fixes Workspace Website
+// tab dispositions to navigate their owning surface.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 25;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 26;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.

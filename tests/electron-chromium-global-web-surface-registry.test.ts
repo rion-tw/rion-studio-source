@@ -23,6 +23,10 @@ import type {
   ChromiumRoleSessionPort,
   ChromiumSessionFactoryPort
 } from "../src/electron/main/chromiumRoleSessionRegistry";
+import type {
+  ChromiumPopupOwnerLifecyclePort,
+  ChromiumWindowOpenDetails
+} from "../src/electron/main/chromiumPopupPorts";
 
 type Listener = (...arguments_: unknown[]) => unknown;
 
@@ -47,6 +51,9 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   readonly id = FakeWebContents.nextId++;
   readonly listeners = new Map<keyof ChromiumRoleSurfaceEventMap, Set<Listener>>();
   readonly loadedUrls: string[] = [];
+  readonly loadOptions: Array<Readonly<{
+    httpReferrer?: Readonly<{ url: string; policy: string }>;
+  }> | undefined> = [];
   readonly closeOptions: Array<Readonly<{
     waitForBeforeUnload?: boolean;
   }> | undefined> = [];
@@ -60,7 +67,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   zoomFactor = 1;
   loadFailure: unknown = null;
   windowOpenHandler:
-    | ((details: Readonly<{ url: string }>) => Readonly<{ action: "deny" }>)
+    | ((details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>)
     | null = null;
 
   constructor(session: ChromiumRoleSessionPort) {
@@ -95,8 +102,11 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
     return this.destroyed;
   }
 
-  loadURL(url: string): Promise<void> {
+  loadURL(url: string, options?: Readonly<{
+    httpReferrer?: Readonly<{ url: string; policy: string }>;
+  }>): Promise<void> {
     this.loadedUrls.push(url);
+    this.loadOptions.push(options);
     if (this.loadFailure) return Promise.reject(this.loadFailure);
     return Promise.resolve();
   }
@@ -122,7 +132,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   send(): void {}
 
   setWindowOpenHandler(
-    handler: (details: Readonly<{ url: string }>) => Readonly<{ action: "deny" }>
+    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
   ): void {
     this.windowOpenHandler = handler;
   }
@@ -269,7 +279,8 @@ function harness(
   nativeAttachments: ChromiumGlobalWebNativeAttachmentPort | null = null,
   activeMainFrameFailures: ChromiumGlobalWebActiveMainFrameFailurePort | null =
     null,
-  navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null = null
+  navigationCommits: ChromiumWorkspaceWebNavigationCommitPort | null = null,
+  popups: ChromiumPopupOwnerLifecyclePort | null = null
 ) {
   const nativeSession = fakeSession();
   const fromPath = vi.fn(() => nativeSession.session);
@@ -290,7 +301,7 @@ function harness(
       }
     },
     nativeAttachments,
-    null,
+    popups,
     activeMainFrameFailures,
     navigationCommits
   );
@@ -325,6 +336,16 @@ function harness(
     parent,
     input
   };
+}
+
+function fakePopups() {
+  const requestOpen = vi.fn();
+  const port: ChromiumPopupOwnerLifecyclePort = {
+    requestOpen,
+    retireOwner: async () => undefined,
+    retireOwnerPopupsForMove: async () => undefined
+  };
+  return { port, requestOpen };
 }
 
 function fakeNativeAttachments(
@@ -474,15 +495,212 @@ describe("Electron Chromium global Web surface registry", () => {
     expect(contents.listeners.get("leave-html-full-screen")?.size ?? 0).toBe(0);
   });
 
-  it("denies popups, webviews, unsafe navigation, and every permission", async () => {
+  it.each(["default", "foreground-tab", "background-tab"])(
+    "redirects %s window-open requests into the owning Web slot",
+    async (disposition) => {
+      const commits: unknown[] = [];
+      const popups = fakePopups();
+      const subject = harness(null, null, {
+        report: (commit) => commits.push(commit),
+        drain: async () => undefined
+      }, popups.port);
+      const created = subject.surfaces.create(subject.input());
+      const contents = subject.views[0]!.webContents;
+      contents.finish("https://web-tab-1-1.example.test/start");
+      await created;
+
+      expect(contents.windowOpenHandler?.({
+        url: "https://destination.example.test/path",
+        disposition,
+        frameName: "_blank",
+        referrer: {
+          url: "https://web-tab-1-1.example.test/start",
+          policy: "strict-origin-when-cross-origin"
+        }
+      })).toEqual({ action: "deny" });
+      await vi.waitFor(() => {
+        expect(contents.loadedUrls).toHaveLength(2);
+      });
+      expect(contents.loadedUrls.at(-1)).toBe(
+        "https://destination.example.test/path"
+      );
+      expect(contents.loadOptions.at(-1)).toEqual({
+        httpReferrer: {
+          url: "https://web-tab-1-1.example.test/start",
+          policy: "strict-origin-when-cross-origin"
+        }
+      });
+      expect(popups.requestOpen).not.toHaveBeenCalled();
+
+      contents.finish("https://destination.example.test/path");
+      await vi.waitFor(() => {
+        expect(commits.at(-1)).toEqual(expect.objectContaining({
+          surfaceId: "web-tab-1-1",
+          url: "https://destination.example.test/path"
+        }));
+      });
+    }
+  );
+
+  it("keeps explicit new-window requests on the controlled popup path", async () => {
+    const popups = fakePopups();
+    const subject = harness(null, null, null, popups.port);
+    const created = subject.surfaces.create(subject.input());
+    const contents = subject.views[0]!.webContents;
+    contents.finish("https://web-tab-1-1.example.test/start");
+    await created;
+    const details = {
+      url: "https://popup.example.test/path",
+      disposition: "new-window",
+      frameName: "_blank",
+      features: "noopener"
+    };
+
+    expect(contents.windowOpenHandler?.(details)).toEqual({ action: "deny" });
+    expect(popups.requestOpen).toHaveBeenCalledOnce();
+    expect(popups.requestOpen).toHaveBeenCalledWith(expect.objectContaining({
+      ownerKind: "globalWeb",
+      ownerId: "web-tab-1-1",
+      slotId: "slot-web-tab-1-1",
+      nativeGeneration: 1
+    }), details);
+    expect(contents.loadedUrls).toEqual([
+      "https://web-tab-1-1.example.test/start"
+    ]);
+  });
+
+  it("reports failed same-slot navigation without committing continuation", async () => {
+    const reportFailure = vi.fn();
+    const commits: unknown[] = [];
+    const popups = fakePopups();
+    const navigationCommits: ChromiumWorkspaceWebNavigationCommitPort = {
+      report: (commit) => commits.push(commit),
+      drain: async () => undefined
+    };
+    const withReporter = harness(null, { report: reportFailure }, navigationCommits,
+      popups.port);
+    const created = withReporter.surfaces.create(withReporter.input());
+    const contents = withReporter.views[0]!.webContents;
+    contents.finish("https://web-tab-1-1.example.test/start");
+    await created;
+    commits.length = 0;
+    contents.loadFailure = Object.assign(new Error("connection reset"), {
+      errorCode: -101
+    });
+
+    expect(contents.windowOpenHandler?.({
+      url: "https://offline.example.test/path",
+      disposition: "foreground-tab",
+      frameName: "_blank"
+    })).toEqual({ action: "deny" });
+    await vi.waitFor(() => {
+      expect(reportFailure).toHaveBeenCalledWith(expect.objectContaining({
+        errorCode: -101,
+        surfaceGeneration: 1,
+        surfaceId: "web-tab-1-1",
+        validatedUrl: "https://offline.example.test/path"
+      }));
+    });
+    expect(commits).toEqual([]);
+    expect(popups.requestOpen).not.toHaveBeenCalled();
+  });
+
+  it("orders consecutive same-slot window-open requests per surface", async () => {
+    const popups = fakePopups();
+    const subject = harness(null, null, null, popups.port);
+    const created = subject.surfaces.create(subject.input());
+    const contents = subject.views[0]!.webContents;
+    contents.finish("https://web-tab-1-1.example.test/start");
+    await created;
+
+    contents.windowOpenHandler?.({
+      url: "https://first.example.test/",
+      disposition: "foreground-tab",
+      frameName: "_blank"
+    });
+    contents.windowOpenHandler?.({
+      url: "https://second.example.test/",
+      disposition: "background-tab",
+      frameName: "_blank"
+    });
+    await vi.waitFor(() => {
+      expect(contents.loadedUrls).toHaveLength(2);
+    });
+    expect(contents.loadedUrls.at(-1)).toBe("https://first.example.test/");
+
+    contents.finish("https://first.example.test/");
+    await vi.waitFor(() => {
+      expect(contents.loadedUrls).toHaveLength(3);
+    });
+    expect(contents.loadedUrls.at(-1)).toBe("https://second.example.test/");
+    expect(popups.requestOpen).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for unsupported same-slot window-open requests", async () => {
+    const popups = fakePopups();
+    const subject = harness(null, null, null, popups.port);
+    const created = subject.surfaces.create(subject.input());
+    const contents = subject.views[0]!.webContents;
+    contents.finish("https://web-tab-1-1.example.test/start");
+    await created;
+
+    for (const details of [
+      { url: "javascript:alert(1)", disposition: "foreground-tab" },
+      { url: "https://user:secret@credential.example.test/",
+        disposition: "foreground-tab" },
+      { url: `https://large.example.test/${"a".repeat(2_100)}`,
+        disposition: "foreground-tab" },
+      { url: "https://post.example.test/", disposition: "foreground-tab",
+        postBody: { data: [] } },
+      { url: "https://named.example.test/", disposition: "background-tab",
+        frameName: "reports" },
+      { url: "https://other.example.test/", disposition: "other" },
+      { url: "https://missing.example.test/" }
+    ]) {
+      expect(contents.windowOpenHandler?.(details)).toEqual({ action: "deny" });
+    }
+    await Promise.resolve();
+    expect(contents.loadedUrls).toEqual([
+      "https://web-tab-1-1.example.test/start"
+    ]);
+    expect(popups.requestOpen).not.toHaveBeenCalled();
+  });
+
+  it("drops queued same-slot navigation after its surface starts closing", async () => {
     const subject = harness();
     const created = subject.surfaces.create(subject.input());
     const contents = subject.views[0]!.webContents;
     contents.finish("https://web-tab-1-1.example.test/start");
     await created;
 
-    expect(contents.windowOpenHandler?.({ url: "https://popup.test" }))
-      .toEqual({ action: "deny" });
+    contents.windowOpenHandler?.({
+      url: "https://pending.example.test/",
+      disposition: "foreground-tab",
+      frameName: "_blank"
+    });
+    await vi.waitFor(() => expect(contents.loadedUrls).toHaveLength(2));
+    contents.windowOpenHandler?.({
+      url: "https://stale.example.test/",
+      disposition: "foreground-tab",
+      frameName: "_blank"
+    });
+    const close = subject.surfaces.closeSurface("web-tab-1-1", 1);
+    contents.destroy();
+    await close;
+    await Promise.resolve();
+    expect(contents.loadedUrls).toEqual([
+      "https://web-tab-1-1.example.test/start",
+      "https://pending.example.test/"
+    ]);
+  });
+
+  it("denies webviews, unsafe navigation, and every permission", async () => {
+    const subject = harness();
+    const created = subject.surfaces.create(subject.input());
+    const contents = subject.views[0]!.webContents;
+    contents.finish("https://web-tab-1-1.example.test/start");
+    await created;
+
     const webviewEvent = { preventDefault: vi.fn() };
     contents.emit("will-attach-webview", webviewEvent);
     expect(webviewEvent.preventDefault).toHaveBeenCalledOnce();

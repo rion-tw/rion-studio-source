@@ -247,12 +247,59 @@ export async function clickVisibleElectronPageElement(
   });
 }
 
-/**
- * Clicks a visible control while retaining its WebDriver target. This is used
- * only when a deliberately pending popup navigation would block a main-target
- * switch until an external native parent-retirement action cancels that load.
- */
-export async function clickVisibleElectronPageElementKeepingTarget(
+async function clickVisibleElectronPageElementWithWindowOpenModifierTarget(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string,
+  modifier: "primary" | "shift",
+  platform: "macos" | "windows",
+  restoreMainWindow: boolean
+): Promise<void> {
+  await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
+    const element = await $(selector);
+    await element.waitForDisplayed({ timeout: 10_000 });
+    await scrollLayoutControlIntoView(element);
+    await element.waitForClickable({ timeout: 10_000 });
+    const key = modifier === "shift"
+      ? Key.Shift
+      : platform === "macos" ? Key.Command : Key.Ctrl;
+    await browser.action("key").down(key).perform(true);
+    try {
+      await element.click();
+    } finally {
+      await browser.releaseActions();
+    }
+  }, restoreMainWindow);
+}
+
+/** Clicks a visible link with the Chromium gesture that selects its disposition. */
+export async function clickVisibleElectronPageElementWithWindowOpenModifier(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string,
+  modifier: "primary" | "shift",
+  platform: "macos" | "windows"
+): Promise<void> {
+  await clickVisibleElectronPageElementWithWindowOpenModifierTarget(
+    expectedUrl, mainWindowHandle, selector, modifier, platform, true
+  );
+}
+
+/** Keeps the source target selected while a modifier-opened page is pending. */
+export async function clickVisibleElectronPageElementWithWindowOpenModifierKeepingTarget(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string,
+  modifier: "primary" | "shift",
+  platform: "macos" | "windows"
+): Promise<void> {
+  await clickVisibleElectronPageElementWithWindowOpenModifierTarget(
+    expectedUrl, mainWindowHandle, selector, modifier, platform, false
+  );
+}
+
+/** Middle-clicks a visible link to produce Chromium's background-tab disposition. */
+export async function middleClickVisibleElectronPageElement(
   expectedUrl: string,
   mainWindowHandle: string,
   selector: string
@@ -261,8 +308,13 @@ export async function clickVisibleElectronPageElementKeepingTarget(
     const element = await $(selector);
     await element.waitForDisplayed({ timeout: 10_000 });
     await scrollLayoutControlIntoView(element);
-    await element.click();
-  }, false);
+    await element.waitForClickable({ timeout: 10_000 });
+    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
+      .move({ duration: 100, origin: element })
+      .down("middle")
+      .up("middle")
+      .perform();
+  });
 }
 
 async function clickVisibleElectronPageElementWithPointerTarget(

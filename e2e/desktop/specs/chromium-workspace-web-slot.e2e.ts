@@ -16,10 +16,13 @@ import {
   type ElectronDesktopE2eWorkspaceWebRuntimeInspection
 } from "../support/electron-driver";
 import {
+  clickVisibleElectronPageElement,
+  clickVisibleElectronPageElementWithWindowOpenModifier,
   dragWindowsVisibleWorkspaceDivider,
+  middleClickVisibleElectronPageElement,
   navigateVisibleElectronWorkspaceWebChrome
 } from "../support/electron-role-surface";
-import { fixtureEvents, waitFixtureEvent } from "../support/fixture";
+import { fixtureCursor, fixtureEvents, waitFixtureEvent } from "../support/fixture";
 import { dragMacosVisibleWorkspaceDivider } from
   "../support/macos-appkit-ui";
 import {
@@ -64,6 +67,12 @@ function configuredWebUrl(): string {
   );
   url.searchParams.set("mode", "seed");
   url.searchParams.set("marker", WEB_SESSION_MARKER);
+  return url.href;
+}
+
+function windowOpenUrl(kind: "foreground" | "background" | "middle"): string {
+  const url = new URL(configuredWebUrl());
+  url.searchParams.set("windowOpen", kind);
   return url.href;
 }
 
@@ -363,6 +372,95 @@ async function waitForWebSession(expectedBefore: string | null): Promise<void> {
   });
 }
 
+async function waitForWindowOpenUrl(
+  before: ElectronDesktopE2eWorkspaceWebRuntimeInspection,
+  expectedUrl: string
+): Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection> {
+  let inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
+  await browser.waitUntil(async () => {
+    const workspace = await findWorkspace();
+    inspection = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
+    return inspection.web.contentUrl === expectedUrl &&
+      inspection.popups.length === 0 &&
+      workspace.slots.some((slot) => slot.web?.lastUrl === expectedUrl);
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: `The Workspace Website did not navigate in place to ${expectedUrl}`
+  });
+  expect(inspection).toMatchObject({
+    windowId: before.windowId,
+    tabId: before.tabId,
+    parentNativeHostId: before.parentNativeHostId,
+    popups: []
+  });
+  return inspection!;
+}
+
+async function exerciseWindowOpenNavigation(input: Readonly<{
+  before: ElectronDesktopE2eWorkspaceWebRuntimeInspection;
+  mainWindowHandle: string;
+  platform: "macos" | "windows";
+}>): Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection> {
+  let current = input.before;
+  for (const request of [
+    {
+      kind: "foreground" as const,
+      selector: "#workspace-open-foreground",
+      click: () => clickVisibleElectronPageElement(
+        configuredWebUrl(), input.mainWindowHandle, "#workspace-open-foreground"
+      ),
+      evidence: { button: 0, eventType: "click", modifiers: {
+        alt: false, control: false, meta: false, shift: false
+      } }
+    },
+    {
+      kind: "background" as const,
+      selector: "#workspace-open-background",
+      click: () => clickVisibleElectronPageElementWithWindowOpenModifier(
+        configuredWebUrl(), input.mainWindowHandle, "#workspace-open-background",
+        "primary", input.platform
+      ),
+      evidence: { button: 0, eventType: "click", modifiers: {
+        alt: false,
+        control: input.platform === "windows",
+        meta: input.platform === "macos",
+        shift: false
+      } }
+    },
+    {
+      kind: "middle" as const,
+      selector: "#workspace-open-middle",
+      click: () => middleClickVisibleElectronPageElement(
+        configuredWebUrl(), input.mainWindowHandle, "#workspace-open-middle"
+      ),
+      evidence: { button: 1, eventType: "auxclick", modifiers: {
+        alt: false, control: false, meta: false, shift: false
+      } }
+    }
+  ]) {
+    const afterSequence = await fixtureCursor();
+    await request.click();
+    expect(await waitFixtureEvent({
+      afterSequence,
+      kind: "workspace-window-open-requested",
+      roleId: WEB_FIXTURE_ID
+    })).toEqual(expect.objectContaining({
+      isTrusted: true,
+      targetId: request.selector.slice(1),
+      ...request.evidence
+    }));
+    current = await waitForWindowOpenUrl(current, windowOpenUrl(request.kind));
+    await clickVisibleElectronPageElement(
+      current.web.chromeShellUrl,
+      input.mainWindowHandle,
+      "#back"
+    );
+    current = await waitForWindowOpenUrl(current, configuredWebUrl());
+  }
+  return current;
+}
+
 async function dragVisibleNativeDivider(input: Readonly<{
   before: ElectronDesktopE2eWorkspaceWebRuntimeInspection;
   mainWindowHandle: string;
@@ -489,6 +587,12 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     timeout: 20_000,
     timeoutMsg: "The visible Web navigation was not committed to its Workspace slot"
   });
+  transientBefore = await exerciseWindowOpenNavigation({
+    before: transientBefore!,
+    mainWindowHandle,
+    platform
+  });
+  workspace = await findWorkspace();
   await expectExactSessionsAndLayout({
     inspection: transientBefore!,
     platform,

@@ -206,7 +206,11 @@ The same profiles pair
 `CHROMIUM-WINDOWS-WORKSPACE-WEB-SLOT-016` under one replacement group. Their
 shared spec creates a mixed Rion Website plus Role Workspace from visible slot
 controls, confirms Website has no editor settings, opens the Rion entrance, and
-navigates to the fixture through the visible Rion address control.
+navigates to the fixture through the visible Rion address control. Ordinary
+`target=_blank`, platform Cmd/Ctrl+click, and middle-click actions must all
+navigate the owning Website slot with normal history and zero popup hosts; the
+visible Back control must return to the source page before continuation is
+checked.
 The remote surface must read back the Rust-resolved persistent global-Web path,
 the external Rion chrome surface must read back an in-memory local-shell session,
 and neither may alias the managed Role session. A real CoreGraphics pointer drag
@@ -225,7 +229,8 @@ the target Chromium document owns focus. Read-only evidence must show the Rion-o
 chrome hidden while remote content exactly fills its existing slot, with the
 Core revision, sibling Role bounds, window bounds, and window presentation
 unchanged. The same visible flow repeats inside a Core-admitted controlled
-popup; macOS additionally proves the exact retained AppKit identities for both
+popup opened by a real Shift+left click; macOS additionally proves the exact
+retained AppKit identities for both
 the parent and popup hosts. Both website exit and Escape restore the paired
 projection, and the restart phase proves this transient presentation never
 became durable state. Windows retains a separate CI verdict.

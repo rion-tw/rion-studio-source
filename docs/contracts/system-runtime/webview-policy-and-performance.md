@@ -55,40 +55,50 @@ an artificial per-frame `gl.flush()`.
 
 ## Popup, security, and capability policy
 
-### Workspace Web App surfaces
+### Workspace Website surfaces
 
-A workspace slot contains exactly one of a Role, a Web App, or nothing. A Web
-App has a display name and an HTTP(S) start URL. Every launch starts at that URL;
-last URL and history are not durable state. Main-frame HTTP(S) navigation may
-cross origins. Each Web App owns a separate 34 logical-pixel local chrome WebView
-above its website WebView. That sibling surface exposes Back, Forward, Reload,
-Home, and an editable full HTTP(S) URL. A missing scheme becomes `https://`;
-arbitrary search text and non-HTTP(S) schemes are rejected. The website DOM never
-contains the Rion chrome, while tab audio and window zoom continue through the
-shared native tab projection.
+A workspace slot contains exactly one of a Role, a Website, or nothing. A
+Website has no configurable name or start URL. Missing `web.lastUrl` resolves to
+the packaged `rion-start://home/` entrance; otherwise launch resumes the last
+successfully committed canonical HTTP(S) main-frame URL. Home always returns to
+the Rion entrance and clears `lastUrl`. Each Website owns a separate 34
+logical-pixel local chrome WebContentsView above its remote content
+WebContentsView. That sibling exposes Back, Forward, Reload, Home, and an
+editable HTTP(S) URL. A missing scheme becomes `https://`; arbitrary search text
+and non-HTTP(S) schemes are rejected. The website DOM never contains Rion chrome,
+while tab audio and window zoom continue through the shared native projection.
 
-All workspace Web Apps and their controlled HTTP(S) popups share the single
-Rion-owned `global-web` session. On Windows its WebView2 data directory is
-`web-profiles/global-web/webview2`; on macOS it is the deterministic
-`rion-studio:wkwebsite-data-store:global-web` WKWebsiteDataStore identifier.
-This store is isolated from every Role store and from the renderer. Clearing it
-is rejected while any owning surface or popup is live. Rion does not expose
-profile CRUD or make Chrome profiles a runtime fallback.
+Workspace Websites are single-surface browsers and never create in-slot tabs.
+Electron `default`, `foreground-tab`, and `background-tab` window-open
+dispositions synchronously deny creation of another WebContents and enter an
+ordered same-surface navigation lane. The lane accepts only canonical HTTP(S),
+an unnamed or `_blank` target, and no POST body; successful main-frame navigation
+creates ordinary Back history and updates `lastUrl`. `new-window` alone remains
+eligible for the controlled popup lifecycle. Unsupported dispositions and
+targets fail closed. This policy applies only to Workspace Websites; Role popup
+semantics do not change.
 
-Web App surfaces do not receive macro overlay or trusted-input features.
+All Workspace Websites and their controlled HTTP(S) popups share the single
+Rion-owned `global-web` session rooted at
+`web-profiles/global-web/chromium`. This store is isolated from every Role store
+and from the renderer. Clearing it is rejected while any owning surface or popup
+is live. Rion does not expose profile CRUD or make Chrome profiles a runtime
+fallback.
+
+Workspace Website surfaces do not receive macro overlay or trusted-input features.
 Permission requests are denied by default, certificate failures are fail-closed,
 and unsupported navigation/popup schemes are denied. YouTube is the baseline
 media compatibility target. Netflix and other DRM services are best-effort:
-availability depends on the operating-system WebView's codec, EME, and account
+availability depends on bundled Chromium's codec, EME, and account
 policy and is not guaranteed by Rion Studio.
 
-Website-initiated fullscreen on a Workspace Web App or its controlled popup is
-contained to that WebView viewport. A document-start, all-frame policy owns the
+Website-initiated fullscreen on a Workspace Website or its controlled popup is
+contained to that Chromium viewport. A document-start, all-frame policy owns the
 standard Fullscreen API and WebKit compatibility aliases, promotes a requesting
 child frame through an authenticated parent-frame relay, and presents the
 requested element through the browser top layer or a fixed-position fallback.
 The request Promise waits for the System Runtime to hide the sibling chrome and
-expand the website WebView from its content bounds to the complete slot envelope.
+expand the website content surface from its bounds to the complete slot envelope.
 While active it locks document scrolling. Site
 exit, Escape, active-element removal, unload, and navigation restore the prior
 document state from exact DOM events; no timer or polling loop establishes
@@ -110,8 +120,9 @@ depend exclusively on the engine's native `:fullscreen` pseudo-class or a
 proprietary DRM fullscreen path remain best-effort and must not fall back to
 owner-window fullscreen.
 
-Popups without a managed Role/Web surface owner or with an unsupported scheme are denied before a
-native window is created. A created popup must install security, lifecycle,
+Popups without a managed Role/Website owner, without an explicit `new-window`
+disposition for Website content, or with an unsupported scheme are denied before
+a native window is created. A created popup must install security, lifecycle,
 failure-monitor, zoom, ownership, and main-frame navigation handling before
 registration. Popup resource and subframe activity never participates in the
 role input-fence transaction. Failure at any stage closes the provisional window

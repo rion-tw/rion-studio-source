@@ -352,6 +352,32 @@ describe("runtime authority fixture launch gates", () => {
     expect(ordinary).toContain("downloadLink.hidden = !securityPolicyEnabled");
   });
 
+  it("exposes trusted target-blank controls only to the Workspace Website fixture", async () => {
+    const { origin } = await startFixture();
+    const workspace = await (await fetch(
+      `${origin}/role/chromium-workspace-web-slot`
+    )).text();
+    const ordinary = await (await fetch(`${origin}/role/test-role`)).text();
+
+    for (const marker of [
+      'id="workspace-open-foreground" target="_blank"',
+      'id="workspace-open-background" target="_blank"',
+      'id="workspace-open-middle" target="_blank"',
+      'record("workspace-window-open-requested"',
+      "event.isTrusted",
+      "event.button",
+      "event.metaKey",
+      "event.ctrlKey",
+      "event.shiftKey"
+    ]) {
+      expect(workspace).toContain(marker);
+    }
+    expect(ordinary).toContain(
+      'roleId === "chromium-workspace-web-slot"'
+    );
+    expect(ordinary).toContain("windowOpenControls.hidden = false");
+  });
+
   it("holds attachment transport until the exact client cancellation event", async () => {
     const { origin } = await startFixture();
     const controller = new AbortController();

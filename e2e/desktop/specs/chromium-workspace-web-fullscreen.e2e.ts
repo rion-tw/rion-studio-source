@@ -14,7 +14,8 @@ import {
 } from "../support/electron-driver";
 import {
   clickVisibleElectronPageElement,
-  clickVisibleElectronPageElementKeepingTarget,
+  clickVisibleElectronPageElementWithWindowOpenModifier,
+  clickVisibleElectronPageElementWithWindowOpenModifierKeepingTarget,
   clickVisibleElectronPageElementWithPointerKeepingTarget,
   navigateVisibleElectronWorkspaceWebChrome,
   restoreElectronMainWindowTarget,
@@ -679,17 +680,23 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expectNormalPairedProjection(escapeRestored);
 
   const popupReadyAfter = await fixtureCursor();
-  await clickVisibleElectronPageElement(
+  await clickVisibleElectronPageElementWithWindowOpenModifier(
     configuredWebUrl(),
     mainWindowHandle,
-    "#contained-fullscreen-popup"
+    "#contained-fullscreen-popup",
+    "shift",
+    platform
   );
   const popupRequest = await waitFixtureEvent({
     afterSequence: popupReadyAfter,
     kind: "contained-popup-requested",
     roleId: WEB_FIXTURE_ID
   });
-  expect(popupRequest.isTrusted).toBe(true);
+  expect(popupRequest).toEqual(expect.objectContaining({
+    button: 0,
+    isTrusted: true,
+    modifiers: { alt: false, control: false, meta: false, shift: true }
+  }));
   await waitFixtureEvent({
     afterSequence: popupReadyAfter,
     kind: "contained-popup-ready",
@@ -844,23 +851,31 @@ async function exerciseContainedFullscreen(input: Readonly<{
   try {
     const popupRequestAfter = await fixtureCursor();
     if (platform === "macos") {
-      await clickVisibleElectronPageElementKeepingTarget(
+      await clickVisibleElectronPageElementWithWindowOpenModifierKeepingTarget(
         configuredWebUrl(),
         mainWindowHandle,
-        "#contained-fullscreen-popup"
+        "#contained-fullscreen-popup",
+        "shift",
+        platform
       );
     } else {
-      await clickVisibleElectronPageElement(
+      await clickVisibleElectronPageElementWithWindowOpenModifier(
         configuredWebUrl(),
         mainWindowHandle,
-        "#contained-fullscreen-popup"
+        "#contained-fullscreen-popup",
+        "shift",
+        platform
       );
     }
     expect(await waitFixtureEvent({
       afterSequence: popupRequestAfter,
       kind: "contained-popup-requested",
       roleId: WEB_FIXTURE_ID
-    })).toEqual(expect.objectContaining({ isTrusted: true }));
+    })).toEqual(expect.objectContaining({
+      button: 0,
+      isTrusted: true,
+      modifiers: { alt: false, control: false, meta: false, shift: true }
+    }));
     const waiting = await fetch(
       `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}` +
       `/api/gates/${POPUP_FIXTURE_ID}/waiting`,

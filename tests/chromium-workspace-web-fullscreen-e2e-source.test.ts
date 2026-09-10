@@ -113,7 +113,8 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "data-workspace-role-id",
       "button[aria-label='Open workspace']",
       "clickVisibleElectronPageElement",
-      "clickVisibleElectronPageElementKeepingTarget",
+      "clickVisibleElectronPageElementWithWindowOpenModifier",
+      "clickVisibleElectronPageElementWithWindowOpenModifierKeepingTarget",
       "clickVisibleElectronPageElementWithPointerKeepingTarget",
       "restoreElectronMainWindowTarget",
       "submitElectronPageEscape",
@@ -146,6 +147,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     }
     expect(nativeUpload).not.toContain("System.Windows.Automation");
     expect(spec).toContain("isTrusted: true");
+    expect(spec).toContain('"shift"');
     expect(spec).not.toContain("runtimeUiAction(");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("keyboardInput(");

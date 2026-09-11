@@ -40,10 +40,14 @@ describe("Electron durable public publisher", () => {
   });
 
   it("treats private release assets and notes as API-ID product data before the App key", async () => {
-    const source = await workflow();
+    const [source, finalize] = await Promise.all([workflow(), finalizer()]);
     const capture = step(
       source,
       "Capture the private release as immutable product data before public credentials"
+    );
+    const resolve = step(
+      finalize,
+      "Resolve the private release and tag only as immutable data"
     );
     const reverify = step(
       source,
@@ -51,7 +55,12 @@ describe("Electron durable public publisher", () => {
     );
     const token = source.indexOf("Create the narrow public repository writer token");
 
-    expect(capture).toContain("releases/tags/${TAG}");
+    for (const releaseLookup of [capture, resolve]) {
+      expect(releaseLookup).toContain("releases?per_page=100");
+      expect(releaseLookup).toContain("gh api --paginate --slurp");
+      expect(releaseLookup).toContain("expected one private release for tag");
+      expect(releaseLookup).not.toContain("releases/tags/${TAG}");
+    }
     expect(capture).toContain('releases/${release_id}');
     expect(capture).toContain("releases/assets/${asset_id}");
     expect(capture).toContain("private-release-api.json");
@@ -65,6 +74,9 @@ describe("Electron durable public publisher", () => {
     expect(reverify).toContain("--verify-checksums --require-electron");
     expect(source.indexOf(reverify)).toBeLessThan(token);
     expect(token).toBeGreaterThan(source.indexOf("stable-publication-input.json"));
+    expect(resolve).toContain(
+      'test "$(jq -r .draft private-release-api.json)" = "true"'
+    );
   });
 
   it("stages exactly seven Electron assets as non-latest and captures both releases by ID", async () => {

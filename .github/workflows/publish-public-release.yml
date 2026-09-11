@@ -106,7 +106,14 @@ jobs:
             SHA256SUMS.txt
             latest.json
           )
-          gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/tags/${TAG}" \
+          gh api --paginate --slurp \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/releases?per_page=100" \
+            > "${input_root}/private-release-pages.json"
+          jq --arg tag "${TAG}" \
+            '[.[][] | select(.tag_name == $tag)] |
+             if length == 1 then .[0]
+             else error("expected one private release for tag") end' \
+            "${input_root}/private-release-pages.json" \
             > "${input_root}/private-release-lookup.json"
           release_id="$(jq -r .id "${input_root}/private-release-lookup.json")"
           [[ "${release_id}" =~ ^[1-9][0-9]*$ ]]

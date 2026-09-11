@@ -103,14 +103,21 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/tags/${TAG}" \
-            > private-release-lookup.json
+          gh api --paginate --slurp \
+            "repos/${SOURCE_CONTROL_REPOSITORY}/releases?per_page=100" \
+            > private-release-pages.json
+          jq --arg tag "${TAG}" \
+            '[.[][] | select(.tag_name == $tag)] |
+             if length == 1 then .[0]
+             else error("expected one private release for tag") end' \
+            private-release-pages.json > private-release-lookup.json
           release_id="$(jq -r .id private-release-lookup.json)"
           [[ "${release_id}" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/${SOURCE_CONTROL_REPOSITORY}/releases/${release_id}" \
             > private-release-api.json
           test "$(jq -r .id private-release-api.json)" = "${release_id}"
           test "$(jq -r .tag_name private-release-api.json)" = "${TAG}"
+          test "$(jq -r .draft private-release-api.json)" = "true"
           test "$(jq -r .prerelease private-release-api.json)" = "false"
           tag_ref="$(gh api "repos/${SOURCE_CONTROL_REPOSITORY}/git/ref/tags/${TAG}")"
           tag_type="$(jq -r .object.type <<< "${tag_ref}")"

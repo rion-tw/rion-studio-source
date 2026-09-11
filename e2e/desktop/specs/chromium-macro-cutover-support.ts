@@ -172,22 +172,34 @@ async function pressVisibleControl(
     if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
     set targetProcess to a reference to (first application process whose unix id is targetPid)
     set frontmost of targetProcess to true
-    set launcherWindow to missing value
-    set launcherWindowCount to 0
-    repeat with appWindow in windows of targetProcess
-      set appWindowIdentifier to ""
+    set activationExpiry to (current date) + 10
+    repeat
+      set launcherWindow to missing value
+      set launcherWindowCount to 0
       try
-        set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
+        repeat with appWindow in windows of targetProcess
+          set appWindowIdentifier to ""
+          try
+            set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
+          end try
+          if appWindowIdentifier does not start with appKitWindowPrefix then
+            if value of attribute "AXRole" of appWindow is "AXWindow" then
+              set launcherWindow to appWindow
+              set launcherWindowCount to launcherWindowCount + 1
+            end if
+          end if
+        end repeat
       end try
-      if appWindowIdentifier does not start with appKitWindowPrefix then
-        if value of attribute "AXRole" of appWindow is "AXWindow" then
-          set launcherWindow to appWindow
-          set launcherWindowCount to launcherWindowCount + 1
-        end if
+      if launcherWindowCount is greater than 1 then error "ambiguous exact Rion launcher AXWindow"
+      if launcherWindowCount is 1 then
+        perform action "AXRaise" of launcherWindow
+        try
+          if frontmost of targetProcess is true and value of attribute "AXMain" of launcherWindow is true then exit repeat
+        end try
       end if
+      if (current date) is greater than activationExpiry then error "exact Rion launcher AXWindow unavailable"
+      delay 0.05
     end repeat
-    if launcherWindowCount is not 1 then error "exact Rion launcher AXWindow unavailable"
-    perform action "AXRaise" of launcherWindow
     if frontmost of targetProcess is not true then error "exact Rion process rejected foreground"
     if value of attribute "AXMain" of launcherWindow is not true then error "exact Rion launcher is not main"
   end tell

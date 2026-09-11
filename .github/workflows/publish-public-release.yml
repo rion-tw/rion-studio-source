@@ -500,24 +500,28 @@ jobs:
               --output "${snapshot_path}"
           }
 
-          lookup_error="${work_root}/target-lookup-error.txt"
-          if gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/tags/${TAG}" \
-            > "${work_root}/target-lookup.json" 2> "${lookup_error}"; then
-            target_id="$(jq -r .id "${work_root}/target-lookup.json")"
-            [[ "${target_id}" =~ ^[1-9][0-9]*$ ]]
-          else
-            if ! grep -Fq '(HTTP 404)' "${lookup_error}"; then
-              cat "${lookup_error}" >&2
-              exit 1
-            fi
+          resolve_target_release() {
+            local output_path="$1"
+            gh api --paginate --slurp \
+              "repos/${PUBLIC_RELEASE_REPOSITORY}/releases?per_page=100" | \
+              jq --arg tag "${TAG}" \
+                '[flatten[] | select(.tag_name == $tag)]' > "${output_path}"
+          }
+          resolve_target_release "${work_root}/target-matches.json"
+          target_count="$(jq 'length' "${work_root}/target-matches.json")"
+          if test "${target_count}" = "0"; then
             gh release create "${TAG}" --repo "${PUBLIC_RELEASE_REPOSITORY}" \
               --draft --latest=false --title "${TAG}" \
               --notes-file "${marker_source}" --verify-tag
-            gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/tags/${TAG}" \
-              > "${work_root}/target-lookup.json"
-            target_id="$(jq -r .id "${work_root}/target-lookup.json")"
-            [[ "${target_id}" =~ ^[1-9][0-9]*$ ]]
+            resolve_target_release "${work_root}/target-matches.json"
+            target_count="$(jq 'length' "${work_root}/target-matches.json")"
           fi
+          test "${target_count}" = "1" || {
+            echo "expected one public release for tag ${TAG}, found ${target_count}" >&2
+            exit 1
+          }
+          target_id="$(jq -r '.[0].id' "${work_root}/target-matches.json")"
+          [[ "${target_id}" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/${PUBLIC_RELEASE_REPOSITORY}/releases/${target_id}" \
             > "${work_root}/target-before-stage.json"
           test "$(jq -r .id "${work_root}/target-before-stage.json")" = "${target_id}"

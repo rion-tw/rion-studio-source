@@ -99,6 +99,10 @@ describe("Electron durable public publisher", () => {
     expect(stage).toContain('test "$(jq \'.assets | length\' "${api_file}")" = "7"');
     expect(stage).toContain("releases/${release_id}");
     expect(stage).toContain("releases/assets/${asset_id}");
+    expect(stage).toContain("releases?per_page=100");
+    expect(stage).toContain("gh api --paginate --slurp");
+    expect(stage).toContain("expected one public release for tag");
+    expect(stage).not.toContain("releases/tags/${TAG}");
     expect(stage).toContain("source-public-latest-snapshot.json");
     expect(stage).toContain("target-observed-snapshot.json");
     expect(stage).toContain("target-expected-latest-snapshot.json");

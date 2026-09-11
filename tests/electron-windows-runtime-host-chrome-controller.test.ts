@@ -748,6 +748,69 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.controller.hasActiveWorkspaceDividerGestures).toBe(false);
   });
 
+  it("keeps an exact divider continuation valid across its own projection", async () => {
+    const subject = harness();
+    const coreProjection = {
+      activeTabId: tabId,
+      contentBounds: { height: 640, width: 960, x: 0, y: 40 },
+      moveTargets: [],
+      tabs: [{
+        active: true,
+        audioMuted: false,
+        hidden: false,
+        name: "Mixed workspace",
+        phase: "ready" as const,
+        tabId
+      }],
+      topologyRevision: 9,
+      windowGeneration: 4,
+      windowId,
+      workspaceDividers: [{
+        attemptGeneration,
+        axis: "vertical" as const,
+        bounds: { x: 478, y: 40, width: 4, height: 640 },
+        dividerIndex: 0,
+        tabId,
+        visible: true
+      }]
+    };
+    await subject.controller.applyCoreProjection(coreProjection);
+    subject.controller.documentLoaded(documentUrl);
+    const projectionRevision = subject.controller.readObservation().projectionRevision;
+    const command = (
+      phase: "start" | "move" | "end",
+      pointerSequence: number
+    ) => ({
+      attemptGeneration,
+      dividerIndex: 0,
+      gestureId,
+      phase,
+      pointerSequence,
+      projectionRevision,
+      ...(phase === "move" ? { requestedPosition: 0.65 } : {}),
+      tabId,
+      type: "workspaceDividerPointer" as const,
+      windowId
+    });
+
+    await subject.controller.handleCommand(documentUrl, command("start", 1));
+    await subject.controller.handleCommand(documentUrl, command("move", 2));
+    await subject.controller.applyCoreProjection({
+      ...coreProjection,
+      topologyRevision: 10
+    });
+    expect(subject.controller.readObservation().projectionRevision)
+      .toBeGreaterThan(projectionRevision);
+
+    await expect(subject.controller.handleCommand(
+      documentUrl,
+      command("end", 3)
+    )).resolves.toBeUndefined();
+    expect(subject.requestWorkspaceDividerPointer.mock.calls.at(-1)?.[0])
+      .toMatchObject({ phase: "end", pointerSequence: 3, topologyRevision: 10 });
+    expect(subject.controller.hasActiveWorkspaceDividerGestures).toBe(false);
+  });
+
   it("accepts a transient Windows divider end without claiming durability", async () => {
     const subject = harness();
     subject.requestWorkspaceDividerPointer.mockImplementation(async (event) => ({

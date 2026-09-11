@@ -669,7 +669,7 @@ function Find-RionNotificationIcon {
     )
   )
   foreach ($button in $buttons) {
-    $name = $button.Current.Name
+    $name = $button.Current.Name.Trim()
     if (-not $button.Current.IsOffscreen -and
         $name.StartsWith('Rion Studio', [StringComparison]::Ordinal)) {
       return $button

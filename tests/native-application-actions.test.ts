@@ -168,6 +168,7 @@ describe("native application shortcut target modes", () => {
     );
     expect(quickMenu).toContain("function Find-NotificationChevron");
     expect(quickMenu).toContain("function Find-RionNotificationIcon");
+    expect(quickMenu).toContain("$name = $button.Current.Name.Trim()");
     expect(quickMenu).toContain(
       "$name.StartsWith('Rion Studio', [StringComparison]::Ordinal)"
     );

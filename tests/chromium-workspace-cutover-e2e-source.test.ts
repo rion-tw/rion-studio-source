@@ -47,7 +47,7 @@ function webOnlyObservation(input: Readonly<{
       roleId: null,
       web: {
         lastUrl: "https://fixture.invalid/role/chromium-workspace-web-only"
-      }
+      } as { lastUrl?: string }
     }],
     focused: input.visible,
     hostKind: "appkit-chromium",

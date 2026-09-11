@@ -134,6 +134,8 @@ export function installElectronDesktopE2eDiagnosticsExportObserver(): void {
     const identity = nextCoreFlowIdentity(command.type);
     const requestDetails = command.type === "browserAppKitRuntimeEvent"
       ? { event: command.event }
+      : command.type === "browserWorkspaceDividerPointer"
+        ? { event: command.event }
       : command.type === "browserPopupOpenAdmit"
         ? { request: command.request }
         : undefined;
@@ -179,6 +181,8 @@ export function installElectronDesktopE2eDiagnosticsExportObserver(): void {
             ? { admission: result }
           : command.type === "browserAppKitRuntimeEvent"
             ? { receipt: result }
+            : command.type === "browserWorkspaceDividerPointer"
+              ? { receipt: result }
             : undefined;
         appendCoreFlowObservation({
           boundary: "command",

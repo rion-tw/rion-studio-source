@@ -505,28 +505,64 @@ print(
   const script = `
 import CoreGraphics
 import Foundation
-let source = CGEventSource(stateID: .hidSystemState)
+guard let source = CGEventSource(stateID: .hidSystemState) else {
+  fatalError("system pointer source unavailable")
+}
 let start = CGPoint(x: ${startX}, y: ${startY})
+let midpoint = CGPoint(
+  x: ${startX} + (${endX} - ${startX}) * 0.5,
+  y: ${startY} + (${endY} - ${startY}) * 0.5
+)
 let end = CGPoint(x: ${endX}, y: ${endY})
+func warp(_ point: CGPoint) {
+  guard CGWarpMouseCursorPosition(point) == .success else {
+    fatalError("system pointer warp failed")
+  }
+  usleep(50_000)
+}
 CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
   mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
-usleep(25_000)
+usleep(100_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
   mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
-usleep(25_000)
-// A single exact destination is the authoritative AppKit drag sample. Avoid
-// intermediate samples inside Core's snap hysteresis: under CI load they can
-// be coalesced with mouse-up while leaving only an accepted no-op move.
+usleep(150_000)
+// Space meaningful samples far enough apart that a loaded AppKit run loop
+// cannot coalesce the only destination with mouse-up. Every sample remains a
+// real CGEvent and the test still requires Core's terminal persisted receipt.
+warp(midpoint)
+CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
+  mouseCursorPosition: midpoint, mouseButton: .left)?.post(tap: .cghidEventTap)
+usleep(150_000)
+warp(end)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
   mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
-usleep(25_000)
+usleep(200_000)
+warp(end)
+CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
+  mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+usleep(200_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
   mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+usleep(100_000)
+guard let settled = CGEvent(source: nil)?.location else {
+  fatalError("system pointer readback unavailable")
+}
+print("\\(settled.x),\\(settled.y)")
 `;
-  await executeFile("/usr/bin/xcrun", ["swift", "-e", script], {
+  const result = await executeFile("/usr/bin/xcrun", ["swift", "-e", script], {
     encoding: "utf8",
     timeout: 30_000
   });
+  const settled = result.stdout.trim().split(",").map(Number);
+  if (
+    settled.length !== 2 || settled.some((value) => !Number.isFinite(value)) ||
+    Math.abs(settled[0]! - endX) > 2 || Math.abs(settled[1]! - endY) > 2
+  ) {
+    throw new Error(
+      `The system pointer missed the exact AppKit divider destination ` +
+      `(${result.stdout.trim()})`
+    );
+  }
 }
 
 function exactGeometry(raw: string, field: string): readonly number[] {

@@ -216,6 +216,62 @@ static void RionCollectChromiumRendererTargets(
   }
 }
 
+static uint16_t RionPhysicalModifierMask(void) {
+  const CGEventSourceStateID source = kCGEventSourceStateCombinedSessionState;
+  const CGKeyCode codes[] = {
+      kVK_Control, kVK_RightControl, kVK_Option, kVK_RightOption,
+      kVK_Shift, kVK_RightShift, kVK_Command, kVK_RightCommand};
+  uint16_t mask = 0;
+  for (uint16_t index = 0; index < 8; index += 1) {
+    if (CGEventSourceKeyState(source, codes[index])) mask |= (1u << index);
+  }
+  return mask;
+}
+
+extern "C" int32_t rion_appkit_probe_chromium_input_surface(
+    void *nativeView, uintptr_t webContentsRootAddress,
+    RionAppKitChromiumInputSurfaceProbeResult *result) {
+  if (result) std::memset(result, 0, sizeof(*result));
+  if (!nativeView || webContentsRootAddress == 0 || !result) return 1;
+  if (!NSThread.isMainThread) return 2;
+  NSView *root = (__bridge NSView *)nativeView;
+  NSWindow *targetWindow = root.window;
+  if (!targetWindow) return 3;
+  NSView *webContentsRoot =
+      RionFindNativeViewWithAddress(root, webContentsRootAddress);
+  if (!webContentsRoot || webContentsRoot.window != targetWindow ||
+      ![NSStringFromClass(webContentsRoot.class)
+          isEqualToString:@"WebContentsViewCocoa"])
+    return 4;
+  NSMutableArray<NSView *> *targets = [NSMutableArray arrayWithCapacity:1];
+  uintptr_t visited = 0;
+  RionCollectChromiumRendererTargets(webContentsRoot, 0, &visited, targets);
+  if (targets.count != 1) return 9;
+  NSView *target = targets.firstObject;
+  NSRect bounds = target.bounds;
+  if (!std::isfinite(bounds.origin.x) || !std::isfinite(bounds.origin.y) ||
+      !std::isfinite(bounds.size.width) || !std::isfinite(bounds.size.height) ||
+      bounds.size.width <= 0 || bounds.size.height <= 0)
+    return 7;
+  NSWindow *keyWindow = NSApp.keyWindow;
+  result->targetAttached = 1;
+  result->targetWindowIsKey = targetWindow.isKeyWindow ? 1 : 0;
+  result->keyWindowAddress =
+      reinterpret_cast<uintptr_t>((__bridge void *)keyWindow);
+  result->keyWindowFirstResponderAddress =
+      reinterpret_cast<uintptr_t>((__bridge void *)keyWindow.firstResponder);
+  result->targetWindowAddress =
+      reinterpret_cast<uintptr_t>((__bridge void *)targetWindow);
+  result->targetWindowFirstResponderAddress =
+      reinterpret_cast<uintptr_t>((__bridge void *)targetWindow.firstResponder);
+  result->physicalModifierMask = RionPhysicalModifierMask();
+  result->targetX = bounds.origin.x;
+  result->targetY = bounds.origin.y;
+  result->targetWidth = bounds.size.width;
+  result->targetHeight = bounds.size.height;
+  return 0;
+}
+
 extern "C" int32_t rion_appkit_dispatch_chromium_key(
     void *nativeView, uintptr_t webContentsRootAddress, const char *rawCode,
     bool keyDown, uint64_t modifierFlags, bool repeat,

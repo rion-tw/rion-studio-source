@@ -66,9 +66,10 @@ const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // 25 requires production-publisher CRX3 verification; 26 fixes Workspace Website
 // tab dispositions; 27 admits bounded exact POST envelopes for controlled popups;
 // 28 retains native macOS popup presentation; 29 adds exact live Workspace
-// appearance projection and AppKit geometry fencing.
+// appearance projection and AppKit geometry fencing; 30 promotes one bounded
+// in-process CDP Input transport on both Chromium hosts.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 29;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 30;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.

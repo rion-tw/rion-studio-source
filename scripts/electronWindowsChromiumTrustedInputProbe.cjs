@@ -85,8 +85,9 @@ void (async () => {
         partition: `rion-input-probe-host-${randomUUID()}` }
     });
     const parentBounds = parent.getContentBounds();
-    const { ChromiumViewAttachmentCoordinator, ChromiumViewTrustedInputHost,
-      ChromiumViewFocusAdmission, windowsChromiumViewParentBinding } = require("./electronLoadChromiumInputOwner.cjs");
+    const { ChromiumViewAttachmentCoordinator, ChromiumViewInputSubmission,
+      ChromiumViewTrustedInputHost, ChromiumViewFocusAdmission,
+      windowsChromiumViewParentBinding } = require("./electronLoadChromiumInputOwner.cjs");
     const parentBinding = windowsChromiumViewParentBinding({ window: parent, logicalParent: parent,
       identity: { nativeGeneration: 1, ownerRevision: "1" } }, addon,
     () => webContents.getFocusedWebContents()?.id ?? null);
@@ -256,6 +257,18 @@ void (async () => {
       "document.querySelector('#probe').focus(); document.activeElement?.id", true);
     if (activeElement !== "probe") throw new Error("The target input did not establish initial DOM focus.");
     const binding = hosts.resolve("probe-role", 1);
+    const exactAttachment = attachments.resolve("probe-role", 1);
+    if (!exactAttachment) throw new Error("The validation baseline lost its exact View attachment.");
+    const baselineSubmission = new ChromiumViewInputSubmission({
+      identity: exactAttachment.identity,
+      nowMs: Date.now,
+      observe: exactAttachment.observe,
+      contents: {
+        get id() { return view.webContents.id; },
+        isDestroyed: () => view.webContents.isDestroyed(),
+        sendInputEvent: event => view.webContents.sendInputEvent(event)
+      }
+    });
     const probe = mode => {
       if (attachmentFailure) throw attachmentFailure;
       return binding.native.probeExactInputSurface(binding.identity, mode);
@@ -271,8 +284,8 @@ void (async () => {
     );
 
     const identity = { ...binding.identity, inputEpoch: "1", deliveryMode: "foreground" };
-    const submitKey = request => binding.native.submitNativeBackgroundKey(binding.identity, request);
-    const submitClick = request => binding.native.submitNativeBackgroundMouse(binding.identity, request);
+    const submitKey = request => baselineSubmission.key(request);
+    const submitClick = request => baselineSubmission.click(request);
     const keyPending = await armInput("windows-probe-key", [
       { type: "keydown", code: "KeyA" },
       { type: "keyup", code: "KeyA" }

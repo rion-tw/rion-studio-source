@@ -1,5 +1,4 @@
 import type { ChromiumViewAttachmentCoordinator } from "./chromiumViewAttachmentCoordinator";
-import type { ChromiumViewInputSubmission } from "./chromiumViewInputSubmission";
 import { chromiumViewInputObservationKey, sameChromiumViewInputIdentity,
   validChromiumViewInputObservation } from "./chromiumViewTrustedInputValidation";
 import type { ChromiumNativeTrustedInputReceipt, ChromiumNativeTrustedInputRequest } from "./chromiumTrustedInputCoordinator";
@@ -9,11 +8,11 @@ import type { ChromiumViewTrustedInputProbeReceipt, WindowsChromiumInputDelivery
 
 type Attachment = NonNullable<ReturnType<ChromiumViewAttachmentCoordinator["resolve"]>>;
 
-/** Adapts exact View ownership to the existing single trusted-DOM receipt lane. */
+/** Supplies read-only View ownership and focus admission around CDP Input. */
 export class ChromiumViewTrustedInputHost implements WindowsChromiumTrustedInputHostPort {
   readonly #attachments: Pick<ChromiumViewAttachmentCoordinator, "resolve">;
   readonly #focus: (request: ChromiumNativeTrustedInputRequest) => Promise<ChromiumNativeTrustedInputReceipt>;
-  readonly #bindings = new WeakMap<ChromiumViewInputSubmission, WindowsChromiumTrustedInputHostBinding>();
+  readonly #bindings = new WeakMap<object, WindowsChromiumTrustedInputHostBinding>();
 
   constructor(input: { attachments: Pick<ChromiumViewAttachmentCoordinator, "resolve">;
     focus: (request: ChromiumNativeTrustedInputRequest) => Promise<ChromiumNativeTrustedInputReceipt> }) {
@@ -77,15 +76,7 @@ export class ChromiumViewTrustedInputHost implements WindowsChromiumTrustedInput
       isInputReady: (expected, mode) => {
         try { probe(expected, mode); return true; } catch { return false; }
       },
-      probeExactInputSurface: probe,
-      submitNativeBackgroundKey: (expected, request) => {
-        const before = probe(expected, request.deliveryMode);
-        return Object.freeze({ ...attachment.input.key(request), probeRevision: before.probeRevision });
-      },
-      submitNativeBackgroundMouse: (expected, request) => {
-        const before = probe(expected, request.deliveryMode);
-        return Object.freeze({ ...attachment.input.click(request), probeRevision: before.probeRevision });
-      }
+      probeExactInputSurface: probe
     }) });
   }
 }

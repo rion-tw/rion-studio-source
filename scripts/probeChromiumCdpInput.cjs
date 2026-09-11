@@ -1,4 +1,4 @@
-// Isolated native A/B probe only; never imported by the product graph.
+// Native A/B validation for the production in-process CDP Input transport.
 const { app, BrowserWindow } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
@@ -213,17 +213,29 @@ async function probe() {
       ])));
     target.webContents.debugger.detach();
     const findEvents = name => outcomes.find(outcome => outcome.name === name)?.receipt.events;
+    const normalizeLegacyRightControl = events => events?.map(event =>
+      event.code === "ControlLeft" && event.location === 2
+        ? { ...event, code: "ControlRight" }
+        : event);
+    const baselineChord = findEvents("baseline-background-chord");
+    const cdpChord = findEvents("cdp-background-chord");
     return {
       platform: process.platform,
       electron: process.versions.electron,
       chromium: process.versions.chrome,
       transport: "in-process-webContents-debugger-input-only",
-      productionPromoted: false,
+      productionPromoted: true,
       externalDebugTransport: false,
       detachReason,
       comparisons: {
-        chord: JSON.stringify(findEvents("baseline-background-chord")) ===
-          JSON.stringify(findEvents("cdp-background-chord")),
+        chordExceptLegacyRightControl: JSON.stringify(
+          normalizeLegacyRightControl(baselineChord)
+        ) === JSON.stringify(cdpChord),
+        rightControlIdentityCorrected:
+          baselineChord?.[0]?.code === "ControlLeft" &&
+          baselineChord?.at(-1)?.code === "ControlLeft" &&
+          cdpChord?.[0]?.code === "ControlRight" &&
+          cdpChord?.at(-1)?.code === "ControlRight",
         middle: JSON.stringify(findEvents("baseline-middle")) ===
           JSON.stringify(findEvents("cdp-middle")),
         right: JSON.stringify(findEvents("baseline-right")) ===

@@ -4,7 +4,7 @@ import { ChromiumViewAttachmentCoordinator, type ChromiumViewParentBinding } fro
   "../src/electron/main/chromiumViewAttachmentCoordinator";
 import type { ChromiumRoleWebContentsViewPort, ChromiumRoleSurfaceParentPort } from "../src/electron/main/chromiumRoleSurfacePorts";
 
-function fixture(platform: "macos" | "windows") {
+function fixture(_platform: "macos" | "windows") {
   const bindings = new Map<object, ChromiumViewParentBinding>();
   const parent = (id: number) => {
     const children: unknown[] = [];
@@ -53,10 +53,7 @@ function fixture(platform: "macos" | "windows") {
     detachTarget: () => target.window.contentView.removeChildView(one.value),
     restoreSource: () => source.window.contentView.addChildView(one.value),
     restoreSourceTo: (parent: ChromiumRoleSurfaceParentPort) => parent.contentView.addChildView(one.value) });
-  const key = { roleId: "one", surfaceGeneration: 1, requestId: "key", inputEpoch: "1", deadlineMs: "200",
-    deliveryMode: "background" as const, eventType: "rawKeyDown" as const, code: "KeyA", repeat: false as const,
-    ctrl: platform === "windows", meta: platform === "macos", shift: false, alt: false };
-  return { owner, source, target, one, two, attach, move, onError, key, bindings };
+  return { owner, source, target, one, two, attach, move, onError, bindings };
 }
 
 describe.each(["macos", "windows"] as const)("%s direct View attachment lifetime", platform => {
@@ -69,7 +66,7 @@ describe.each(["macos", "windows"] as const)("%s direct View attachment lifetime
     const two = f.owner.resolve("two", 1)!;
     expect(one.identity.parentIdentity).toBe(two.identity.parentIdentity);
     expect(one.identity.webContentsId).not.toBe(two.identity.webContentsId);
-    expect(one.input.key(f.key).status).toBe("submitted");
+    expect(one.input).not.toBe(two.input);
     await expect(f.owner.attach(f.attach("alias"))).rejects.toThrow();
     expect(f.source.children).toHaveLength(2);
   });
@@ -110,13 +107,12 @@ describe.each(["macos", "windows"] as const)("%s direct View attachment lifetime
     await f.owner.reparent({ ...move, detachSource: () => {
       move.detachSource();
       f.source.events.emit("event", "changed");
-      expect(() => previous.input.key(f.key)).toThrow();
+      expect(f.owner.resolve("one", 1)).toBeNull();
     } });
     expect(f.onError).not.toHaveBeenCalled();
     expect(f.source.children).toEqual([f.two.value]);
     expect(f.target.children).toEqual([f.one.value]);
-    expect(() => previous.input.key(f.key)).toThrow();
-    expect(f.owner.resolve("one", 1)!.input.key(f.key).status).toBe("submitted");
+    expect(f.owner.resolve("one", 1)!.input).not.toBe(previous.input);
   });
 
   it("restores exact source ownership when a target move fails", async () => {
@@ -151,9 +147,8 @@ describe.each(["macos", "windows"] as const)("%s direct View attachment lifetime
   it("disposal revokes input without taking the registry's Views or shared parent lifetime", async () => {
     const f = fixture(platform);
     await f.owner.attach(f.attach("one"));
-    const prior = f.owner.resolve("one", 1)!;
     await f.owner.dispose();
-    expect(() => prior.input.key(f.key)).toThrow();
+    expect(f.owner.resolve("one", 1)).toBeNull();
     expect(f.source.children).toEqual([f.one.value]);
     expect(f.one.events.listenerCount("destroyed")).toBe(0);
     expect(f.source.events.listenerCount("event")).toBe(0);
@@ -206,11 +201,9 @@ describe.each(["macos", "windows"] as const)("%s direct View attachment lifetime
   it.each(["closed", "destroyed"])("revokes admission from the exact %s event", async event => {
     const f = fixture(platform);
     await f.owner.attach(f.attach("one"));
-    const binding = f.owner.resolve("one", 1)!;
     if (event === "closed") f.source.events.emit("event", "closed");
     else f.one.events.emit("destroyed");
     expect(f.owner.resolve("one", 1)).toBeNull();
-    expect(() => binding.input.key(f.key)).toThrow();
     expect(f.onError).toHaveBeenCalledTimes(1);
   });
 });

@@ -28,6 +28,12 @@ import type {
   ChromiumRoleOverlayLifecycleEvent
 } from "./chromiumRoleSurfaceRegistry";
 import type { AppKitRuntimeHostIdentity } from "./macosAppKitRuntimeHostFactory";
+import type { AppKitCdpInputSurfaceProbeReceipt } from
+  "./macosAppKitInputSurfaceAttachmentCoordinator";
+import type {
+  ChromiumCdpInputTerminalEvent,
+  ChromiumCdpInputTransportPort
+} from "./chromiumCdpInputTransport";
 
 const INPUT_SEQUENCE_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -115,6 +121,10 @@ export const MACOS_APPKIT_TRUSTED_KEY_CODES = Object.freeze([
   "F18",
   "F19",
   "F20",
+  "F21",
+  "F22",
+  "F23",
+  "F24",
   "ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft",
   "ShiftRight", "MetaLeft", "MetaRight"
 ] as const);
@@ -168,44 +178,11 @@ export interface AppKitNativeMouseSubmissionReceipt
 }
 
 export interface RawNativeAppKitTrustedInputHost {
-  submitNativeBackgroundKey: (
+  probeCdpInputSurface: (
     expected: AppKitRuntimeHostIdentity,
-    request: Readonly<{
-      requestId: string;
-      roleId: string;
-      surfaceGeneration: number;
-      inputEpoch: string;
-      deadlineMs: string;
-      eventType: "rawKeyDown" | "keyUp";
-      code: string;
-      modifierFlags: number;
-      repeat: boolean;
-    }>
-  ) => AppKitNativeKeySubmissionReceipt;
-  submitNativeBackgroundMouse: (
-    expected: AppKitRuntimeHostIdentity,
-    request: Readonly<{
-      requestId: string;
-      roleId: string;
-      surfaceGeneration: number;
-      inputEpoch: string;
-      deadlineMs: string;
-      clientX: number;
-      clientY: number;
-      zoomFactor: number;
-      button: number;
-      modifierFlags: number;
-    }>
-  ) => AppKitNativeMouseSubmissionReceipt;
-}
-
-export function isRawNativeAppKitTrustedInputHost(
-  value: unknown
-): value is RawNativeAppKitTrustedInputHost {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate.submitNativeBackgroundKey === "function" &&
-    typeof candidate.submitNativeBackgroundMouse === "function";
+    roleId: string,
+    surfaceGeneration: number
+  ) => AppKitCdpInputSurfaceProbeReceipt;
 }
 
 export interface MacosAppKitTrustedInputHostBinding {
@@ -287,6 +264,7 @@ interface PendingDispatch {
   readonly request: ChromiumNativeTrustedInputRequest;
   readonly frame: ChromiumRoleOverlayFrameIdentity;
   readonly host: MacosAppKitTrustedInputHostBinding;
+  nativeProbe: AppKitCdpInputSurfaceProbeReceipt;
   readonly inputSequence: string;
   expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[];
   readonly nativeTransitions: readonly NativeTransition[];
@@ -297,7 +275,6 @@ interface PendingDispatch {
   nextDomIndex: number;
   nativeComplete: boolean;
   terminal: boolean;
-  lastNativeDispatchSequence: bigint;
   physicalModifierCodes: readonly string[];
 }
 
@@ -333,23 +310,59 @@ function sameHost(
     left.identity.nativeGeneration === right.identity.nativeGeneration;
 }
 
-function modifierFlags(codes: readonly string[]): number {
-  let flags = 0;
-  for (const code of codes) {
-    if (code.startsWith("Shift")) flags |= 1 << 17;
-    if (code.startsWith("Control")) flags |= 1 << 18;
-    if (code.startsWith("Alt")) flags |= 1 << 19;
-    if (code.startsWith("Meta")) flags |= 1 << 20;
+function validAddress(value: unknown, positive = false): boolean {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/u.test(value)) return false;
+  try {
+    const parsed = BigInt(value);
+    return parsed <= 18_446_744_073_709_551_615n && (!positive || parsed > 0n);
+  } catch {
+    return false;
   }
-  return flags;
 }
 
-function nativeKeyModifierFlags(code: string, flags: number): number {
-  return /^F(?:[1-9]|[12][0-9]|3[0-5])$/u.test(code) ||
-    code.startsWith("Arrow") ||
-    ["Insert", "Delete", "Home", "End", "PageUp", "PageDown"].includes(code)
-    ? flags | (1 << 23)
-    : flags;
+function validateAppKitProbe(
+  receipt: AppKitCdpInputSurfaceProbeReceipt,
+  host: MacosAppKitTrustedInputHostBinding,
+  roleId: string,
+  generation: number
+): AppKitCdpInputSurfaceProbeReceipt {
+  const modifierCodes = new Set([
+    "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+    "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
+  ]);
+  if (receipt.roleId !== roleId || receipt.surfaceGeneration !== generation ||
+    receipt.nativeGeneration !== host.identity.nativeGeneration ||
+    receipt.targetAttached !== true || typeof receipt.targetWindowIsKey !== "boolean" ||
+    !validAddress(receipt.keyWindowAddress) ||
+    !validAddress(receipt.keyWindowFirstResponderAddress) ||
+    !validAddress(receipt.targetWindowAddress, true) ||
+    !validAddress(receipt.targetWindowFirstResponderAddress) ||
+    !Array.isArray(receipt.physicalModifierCodes) ||
+    new Set(receipt.physicalModifierCodes).size !== receipt.physicalModifierCodes.length ||
+    receipt.physicalModifierCodes.some((code) => !modifierCodes.has(code)) ||
+    ![receipt.targetX, receipt.targetY, receipt.targetWidth, receipt.targetHeight]
+      .every(Number.isFinite) || receipt.targetWidth <= 0 || receipt.targetHeight <= 0) {
+    fail(
+      "SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID",
+      "The AppKit host returned malformed CDP input guard evidence."
+    );
+  }
+  return Object.freeze({ ...receipt,
+    physicalModifierCodes: Object.freeze([...receipt.physicalModifierCodes]) });
+}
+
+function sameAppKitFocusProof(
+  left: AppKitCdpInputSurfaceProbeReceipt,
+  right: AppKitCdpInputSurfaceProbeReceipt
+): boolean {
+  return left.targetWindowIsKey === right.targetWindowIsKey &&
+    left.keyWindowAddress === right.keyWindowAddress &&
+    left.keyWindowFirstResponderAddress === right.keyWindowFirstResponderAddress &&
+    left.targetWindowAddress === right.targetWindowAddress &&
+    left.targetWindowFirstResponderAddress === right.targetWindowFirstResponderAddress &&
+    left.targetX === right.targetX && left.targetY === right.targetY &&
+    left.targetWidth === right.targetWidth && left.targetHeight === right.targetHeight &&
+    left.physicalModifierCodes.join("\n") === right.physicalModifierCodes.join("\n");
 }
 
 function modifiers(codes: readonly string[]): Readonly<{
@@ -510,56 +523,10 @@ function parseReceipt(value: unknown): ChromiumRoleTrustedInputReceipt {
   return parseTrustedInputDomReceipt(value, (message) => fail("ELECTRON_MACOS_APPKIT_INPUT_RECEIPT_INVALID", message));
 }
 
-function canonicalU64(value: unknown): bigint | null {
-  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/u.test(value)) return null;
-  try {
-    return BigInt(value);
-  } catch {
-    return null;
-  }
-}
-
-function validBounds(receipt: AppKitNativeSubmissionBase): boolean {
-  return [receipt.targetX, receipt.targetY, receipt.targetWidth, receipt.targetHeight]
-    .every(Number.isFinite) && receipt.targetWidth > 0 && receipt.targetHeight > 0;
-}
-
-function validateNativeBase(
-  pending: PendingDispatch,
-  receipt: AppKitNativeSubmissionBase,
-  nativeRequestId: string,
-  expectedEventCount: number,
-  expectedModifierFlags: number
-): bigint {
-  const dispatchSequence = canonicalU64(receipt.dispatchSequence);
-  const submittedAt = canonicalU64(receipt.submittedAtMs);
-  if (
-    receipt.status !== "submitted" || receipt.requestId !== nativeRequestId ||
-    receipt.roleId !== pending.request.roleId ||
-    receipt.surfaceGeneration !== pending.request.surfaceGeneration ||
-    receipt.inputEpoch !== String(pending.request.inputEpoch) ||
-    receipt.nativeGeneration !== pending.host.identity.nativeGeneration ||
-    !dispatchSequence || dispatchSequence <= pending.lastNativeDispatchSequence ||
-    !submittedAt || submittedAt >= BigInt(pending.request.deadlineMs) ||
-    receipt.withinDeadline !== true ||
-    receipt.dispatchedEventCount !== expectedEventCount ||
-    receipt.modifierFlags !== expectedModifierFlags ||
-    receipt.targetAttached !== true || receipt.focusNeutral !== true ||
-    receipt.keyWindowPreserved !== true ||
-    receipt.keyWindowFirstResponderPreserved !== true ||
-    receipt.targetFirstResponderPreserved !== true || !validBounds(receipt)
-  ) {
-    fail(
-      "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-      "The AppKit host returned a malformed or mismatched native submission receipt."
-    );
-  }
-  return dispatchSequence;
-}
-
 /**
- * Correlates AppKit-native submission with exact trusted DOM receipts from the
- * sandboxed role preload. Native return values are never terminal success.
+ * Retains AppKit host-identity admission while the shared CDP transport owns
+ * submission. CDP acceptance is never terminal success; every transition is
+ * correlated with an exact trusted DOM receipt from the sandboxed Role preload.
  */
 export class MacosAppKitTrustedInputAdapter
 implements ChromiumNativeTrustedInputPort {
@@ -568,9 +535,11 @@ implements ChromiumNativeTrustedInputPort {
   readonly #clicks: MacosAppKitTrustedInputClickResolverPort;
   readonly #nowMs: () => number;
   readonly #timers: MacosAppKitTrustedInputTimerPort;
+  readonly #cdp: ChromiumCdpInputTransportPort;
   readonly #createInputSequence: () => string;
   readonly #pending: ChromiumTrustedInputPendingLane<PendingDispatch>;
   readonly #unsubscribeLifecycle: () => void;
+  readonly #unsubscribeCdpTerminal: () => void;
   readonly #ipcListener = (
     event: MacosAppKitTrustedInputIpcEventPort,
     receipt: unknown
@@ -589,6 +558,7 @@ implements ChromiumNativeTrustedInputPort {
     hosts: MacosAppKitTrustedInputHostPort;
     surfaces: MacosAppKitTrustedInputSurfacePort;
     clicks: MacosAppKitTrustedInputClickResolverPort;
+    cdp: ChromiumCdpInputTransportPort;
     nowMs: () => number;
     timers?: MacosAppKitTrustedInputTimerPort;
     createInputSequence?: () => string;
@@ -596,6 +566,7 @@ implements ChromiumNativeTrustedInputPort {
     this.#hosts = input.hosts;
     this.#surfaces = input.surfaces;
     this.#clicks = input.clicks;
+    this.#cdp = input.cdp;
     this.#nowMs = input.nowMs;
     this.#timers = input.timers ?? {
       // event-topology-exception: macos-appkit-trusted-input-dom-receipt-deadline
@@ -610,6 +581,9 @@ implements ChromiumNativeTrustedInputPort {
     });
     this.#unsubscribeLifecycle = this.#surfaces.subscribeTrustedInputLifecycle(
       (event) => this.#onSurfaceLifecycle(event)
+    );
+    this.#unsubscribeCdpTerminal = this.#cdp.subscribeTerminal(
+      (event) => this.#onCdpTerminal(event)
     );
   }
 
@@ -643,6 +617,7 @@ implements ChromiumNativeTrustedInputPort {
     }
     let frame: ChromiumRoleOverlayFrameIdentity;
     let host: MacosAppKitTrustedInputHostBinding | null;
+    let nativeProbe: AppKitCdpInputSurfaceProbeReceipt;
     let prepared: ReturnType<typeof prepareDispatch>;
     try {
       frame = this.#surfaces.currentTrustedInputFrame(
@@ -656,6 +631,16 @@ implements ChromiumNativeTrustedInputPort {
           "The role has no exact live AppKit trusted-input host."
         );
       }
+      nativeProbe = validateAppKitProbe(
+        host.native.probeCdpInputSurface(
+          host.identity,
+          request.roleId,
+          request.surfaceGeneration
+        ),
+        host,
+        request.roleId,
+        request.surfaceGeneration
+      );
       if (request.action.type === "focus") {
         const observedAtMs = this.#nowMs();
         const liveFrame = this.#surfaces.currentTrustedInputFrame(
@@ -712,6 +697,7 @@ implements ChromiumNativeTrustedInputPort {
       request,
       frame,
       host,
+      nativeProbe,
       inputSequence,
       expectedEvents: prepared.expectedEvents,
       nativeTransitions: prepared.nativeTransitions,
@@ -722,7 +708,6 @@ implements ChromiumNativeTrustedInputPort {
       nextDomIndex: 0,
       nativeComplete: false,
       terminal: false,
-      lastNativeDispatchSequence: 0n,
       physicalModifierCodes: Object.freeze([])
     };
     if (!this.#pending.add(pending)) {
@@ -732,10 +717,14 @@ implements ChromiumNativeTrustedInputPort {
     pending.timer = this.#timers.schedule(() => {
       this.#terminalize(
         pending,
-        "indeterminate",
-        "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_DEADLINE",
-        "The authoritative trusted DOM receipt did not arrive before the Core deadline.",
-        false
+        pending.nativeInvoked ? "indeterminate" : "failed",
+        pending.nativeInvoked
+          ? "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_DEADLINE"
+          : "ELECTRON_MACOS_APPKIT_INPUT_ARM_RECEIPT_DEADLINE",
+        pending.nativeInvoked
+          ? "The authoritative trusted DOM receipt did not arrive before the Core deadline."
+          : "The private preload did not acknowledge arming before the Core deadline.",
+        !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
     }, request.deadlineMs - now);
     try {
@@ -788,7 +777,7 @@ implements ChromiumNativeTrustedInputPort {
         pending.physicalModifierCodes,
         projectedCode
       );
-      this.#submitNative(pending);
+      void this.#submitCdp(pending);
       return true;
     }
     if (receipt.kind === "rejected") {
@@ -801,7 +790,7 @@ implements ChromiumNativeTrustedInputPort {
       );
       return true;
     }
-    if (receipt.kind !== "input" || pending.nativeSubmitted === 0 ||
+    if (receipt.kind !== "input" || !pending.nativeInvoked ||
       receipt.observedIndex !== pending.nextDomIndex ||
       !sameExpected(receipt, pending.expectedEvents[pending.nextDomIndex]!)) {
       this.#terminalizeMismatch(pending);
@@ -833,6 +822,7 @@ implements ChromiumNativeTrustedInputPort {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#unsubscribeLifecycle();
+    this.#unsubscribeCdpTerminal();
     if (this.#ipcMain) {
       this.#ipcMain.removeListener(
         CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
@@ -851,17 +841,37 @@ implements ChromiumNativeTrustedInputPort {
     }
   }
 
-  #submitNative(pending: PendingDispatch): void {
-    const liveFrame = this.#surfaces.currentTrustedInputFrame(
-      pending.request.roleId,
-      pending.request.surfaceGeneration
-    );
-    const liveHost = this.#hosts.resolve(
-      pending.request.roleId,
-      pending.request.surfaceGeneration
-    );
-    if (!sameFrame(liveFrame, pending.frame) || !liveHost ||
-      !sameHost(liveHost, pending.host)) {
+  async #submitCdp(pending: PendingDispatch): Promise<void> {
+    try {
+      const liveFrame = this.#surfaces.currentTrustedInputFrame(
+        pending.request.roleId,
+        pending.request.surfaceGeneration
+      );
+      const liveHost = this.#hosts.resolve(
+        pending.request.roleId,
+        pending.request.surfaceGeneration
+      );
+      if (!sameFrame(liveFrame, pending.frame) || !liveHost ||
+        !sameHost(liveHost, pending.host)) {
+        throw new Error("The exact AppKit input host was superseded.");
+      }
+      const liveProbe = validateAppKitProbe(
+        liveHost.native.probeCdpInputSurface(
+          liveHost.identity,
+          pending.request.roleId,
+          pending.request.surfaceGeneration
+        ),
+        liveHost,
+        pending.request.roleId,
+        pending.request.surfaceGeneration
+      );
+      if (!sameAppKitFocusProof(liveProbe, pending.nativeProbe)) {
+        throw new Error(
+          "The AppKit focus or native physical modifier proof changed before CDP submission."
+        );
+      }
+      pending.nativeProbe = liveProbe;
+    } catch {
       this.#terminalize(
         pending,
         "superseded",
@@ -872,102 +882,77 @@ implements ChromiumNativeTrustedInputPort {
       return;
     }
     try {
-      for (const [index, transition] of pending.nativeTransitions.entries()) {
+      for (const transition of pending.nativeTransitions) {
         if (pending.terminal) return;
-        const nativeRequestId = `${pending.inputSequence}-${index + 1}`;
         if (transition.type === "key") {
           const physicalCodes = isChromiumModifierCode(transition.code)
             ? pending.physicalModifierCodes.filter(code => code !== transition.code)
             : pending.physicalModifierCodes;
-          const flags = modifierFlags([
+          const activeCodes = Object.freeze([...new Set([
             ...transition.modifierCodes,
-            ...physicalCodes
-          ]);
+            ...physicalCodes,
+            ...(transition.eventType === "rawKeyDown" ? [transition.code] : [])
+          ])]);
           pending.nativeInvoked = true;
-          const receipt = pending.host.native.submitNativeBackgroundKey(
-            pending.host.identity,
-            {
-              requestId: nativeRequestId,
-              roleId: pending.request.roleId,
-              surfaceGeneration: pending.request.surfaceGeneration,
-              inputEpoch: String(pending.request.inputEpoch),
-              deadlineMs: String(pending.request.deadlineMs),
-              eventType: transition.eventType,
-              code: transition.code,
-              modifierFlags: flags,
-              repeat: transition.repeat
-            }
-          );
-          pending.lastNativeDispatchSequence = validateNativeBase(
-            pending,
-            receipt,
-            nativeRequestId,
-            1,
-            nativeKeyModifierFlags(transition.code, flags)
-          );
-          if (receipt.eventType !== transition.eventType ||
-            receipt.code !== transition.code ||
-            receipt.repeat !== transition.repeat ||
-            !Number.isSafeInteger(receipt.virtualKeyCode)) {
-            fail(
-              "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-              "The AppKit key receipt does not match the exact transition."
-            );
+          const receipt = await this.#cdp.dispatchKey(pending.frame, {
+            phase: transition.eventType,
+            code: transition.code,
+            activeCodesBefore: [...activeCodes],
+            activeCodes: [...activeCodes],
+            autoRepeat: transition.repeat,
+            suppressShortcut: true
+          });
+          if (receipt.acceptedCommandCount !== 1 ||
+            receipt.requiresTrustedDomReceipt !== true) {
+            throw new Error("CDP did not accept the exact key command.");
           }
         } else {
           pending.nativeInvoked = true;
-          const receipt = pending.host.native.submitNativeBackgroundMouse(
-            pending.host.identity,
-            {
-              requestId: nativeRequestId,
-              roleId: pending.request.roleId,
-              surfaceGeneration: pending.request.surfaceGeneration,
-              inputEpoch: String(pending.request.inputEpoch),
-              deadlineMs: String(pending.request.deadlineMs),
-              clientX: transition.clientX,
-              clientY: transition.clientY,
-              zoomFactor: transition.zoomFactor,
-              button: transition.button,
-              modifierFlags: modifierFlags(pending.physicalModifierCodes)
-            }
-          );
-          pending.lastNativeDispatchSequence = validateNativeBase(
-            pending,
-            receipt,
-            nativeRequestId,
-            2,
-            modifierFlags(pending.physicalModifierCodes)
-          );
-          const expectedAppKitPointX = receipt.targetX +
-            transition.clientX * transition.zoomFactor;
-          const expectedAppKitPointY = receipt.targetFlipped
-            ? receipt.targetY + transition.clientY * transition.zoomFactor
-            : receipt.targetY + receipt.targetHeight -
-              transition.clientY * transition.zoomFactor;
-          if (receipt.button !== transition.button ||
-            receipt.clientX !== transition.clientX ||
-            receipt.clientY !== transition.clientY ||
-            receipt.zoomFactor !== transition.zoomFactor ||
-            typeof receipt.targetFlipped !== "boolean" ||
-            receipt.appKitPointX !== expectedAppKitPointX ||
-            receipt.appKitPointY !== expectedAppKitPointY ||
-            !Number.isFinite(receipt.windowPointX) ||
-            !Number.isFinite(receipt.windowPointY) ||
-            transition.clientX * transition.zoomFactor >= receipt.targetWidth ||
-            transition.clientY * transition.zoomFactor >= receipt.targetHeight) {
-            fail(
-              "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-              "The AppKit mouse receipt does not match the exact CSS-to-native point."
-            );
-          }
           pending.expectedEvents = Object.freeze(pending.expectedEvents.map(event =>
             Object.freeze({
               ...event,
-              clientX: receipt.clientX,
-              clientY: receipt.clientY
+              clientX: transition.clientX,
+              clientY: transition.clientY
             })
           ));
+          const receipt = await this.#cdp.dispatchMouse(pending.frame, {
+            x: transition.clientX,
+            y: transition.clientY,
+            button: transition.button === 0 ? "left"
+              : transition.button === 1 ? "middle" : "right",
+            modifierCodes: pending.physicalModifierCodes
+          });
+          if (receipt.acceptedCommandCount !== 2 ||
+            receipt.requiresTrustedDomReceipt !== true) {
+            throw new Error("CDP did not accept the exact mouse command pair.");
+          }
         }
+        const afterFrame = this.#surfaces.currentTrustedInputFrame(
+          pending.request.roleId,
+          pending.request.surfaceGeneration
+        );
+        const afterHost = this.#hosts.resolve(
+          pending.request.roleId,
+          pending.request.surfaceGeneration
+        );
+        if (!sameFrame(afterFrame, pending.frame) || !afterHost ||
+          !sameHost(afterHost, pending.host)) {
+          throw new Error("AppKit host identity changed during CDP submission.");
+        }
+        const afterProbe = validateAppKitProbe(
+          afterHost.native.probeCdpInputSurface(
+            afterHost.identity,
+            pending.request.roleId,
+            pending.request.surfaceGeneration
+          ),
+          afterHost,
+          pending.request.roleId,
+          pending.request.surfaceGeneration
+        );
+        if (!sameAppKitFocusProof(afterProbe, pending.nativeProbe)) {
+          throw new Error("AppKit focus or physical modifiers changed during CDP submission.");
+        }
+        pending.nativeProbe = afterProbe;
         pending.nativeSubmitted += 1;
       }
       pending.nativeComplete = true;
@@ -980,8 +965,8 @@ implements ChromiumNativeTrustedInputPort {
           ? "SYSTEM_TRUSTED_INPUT_PARTIAL_NATIVE_SUBMISSION"
           : "SYSTEM_TRUSTED_INPUT_NATIVE_SUBMISSION_FAILED",
         pending.nativeInvoked
-          ? "AppKit native invocation did not return a complete exact receipt sequence."
-          : "AppKit rejected input before any native transition was invoked.",
+          ? "CDP invocation did not return a complete exact receipt sequence."
+          : "CDP rejected input before any transition was invoked.",
         !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
     }
@@ -1042,5 +1027,20 @@ implements ChromiumNativeTrustedInputPort {
 
   #onSurfaceLifecycle(event: ChromiumRoleOverlayLifecycleEvent): void {
     this.#pending.surfaceChanged(event);
+  }
+
+  #onCdpTerminal(event: ChromiumCdpInputTerminalEvent): void {
+    const pending = this.#pending.forRole(event.identity.roleId);
+    if (!pending || pending.terminal ||
+      pending.frame.generation !== event.identity.surfaceGeneration ||
+      pending.frame.documentInstanceId !== event.identity.documentInstanceId ||
+      pending.frame.frameToken !== event.identity.frameToken) return;
+    this.#terminalize(
+      pending,
+      pending.nativeInvoked ? "indeterminate" : "superseded",
+      "SYSTEM_TRUSTED_INPUT_CDP_SESSION_TERMINATED",
+      `The exact CDP Input session terminalized: ${event.reason}.`,
+      !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
+    );
   }
 }

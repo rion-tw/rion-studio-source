@@ -68,7 +68,8 @@ export function supportsNativeInputSurface(
   return typeof candidate.beginInputSurfaceCapture === "function" &&
     typeof candidate.commitInputSurfaceCapture === "function" &&
     typeof candidate.cancelInputSurfaceCapture === "function" &&
-    typeof candidate.retireInputSurface === "function";
+    typeof candidate.retireInputSurface === "function" &&
+    typeof candidate.probeCdpInputSurface === "function";
 }
 
 export function supportsWorkspaceDividerProjection(

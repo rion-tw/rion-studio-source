@@ -68,7 +68,23 @@ function harness() {
       if (owned.get(roleId) !== generation) return false;
       owned.delete(roleId);
       return true;
-    }
+    },
+    probeCdpInputSurface: (identity, roleId, surfaceGeneration) => ({
+      roleId,
+      surfaceGeneration,
+      nativeGeneration: identity.nativeGeneration,
+      targetAttached: true,
+      targetWindowIsKey: focused,
+      keyWindowAddress: focused ? "11" : "0",
+      keyWindowFirstResponderAddress: focused ? "12" : "0",
+      targetWindowAddress: "13",
+      targetWindowFirstResponderAddress: "14",
+      physicalModifierCodes: [],
+      targetX: 0,
+      targetY: 0,
+      targetWidth: 800,
+      targetHeight: 600
+    })
   };
   const binding: MacosAppKitInputHostBinding = {
     identity: {

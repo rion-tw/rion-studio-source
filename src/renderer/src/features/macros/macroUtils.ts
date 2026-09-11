@@ -180,16 +180,13 @@ export const commonMacroKeyCodes = [
   "F24",
 ] as const;
 
-const MACOS_UNSUPPORTED_FUNCTION_CODES = new Set(["F21", "F22", "F23", "F24"]);
-
 export function isMacroKeyCodeSupportedForCreation(
   code: string,
-  platform = typeof document === "undefined"
+  _platform = typeof document === "undefined"
     ? undefined
     : document.documentElement.dataset.platform
 ): boolean {
-  return platform !== "mac" ||
-    !MACOS_UNSUPPORTED_FUNCTION_CODES.has(code);
+  return commonMacroKeyCodes.includes(code as typeof commonMacroKeyCodes[number]);
 }
 
 export function selectableMacroKeyCodes(

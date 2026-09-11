@@ -81,6 +81,20 @@ typedef struct {
   double targetHeight;
 } RionAppKitChromiumMouseDispatchResult;
 
+typedef struct {
+  uint8_t targetAttached;
+  uint8_t targetWindowIsKey;
+  uintptr_t keyWindowAddress;
+  uintptr_t keyWindowFirstResponderAddress;
+  uintptr_t targetWindowAddress;
+  uintptr_t targetWindowFirstResponderAddress;
+  uint16_t physicalModifierMask;
+  double targetX;
+  double targetY;
+  double targetWidth;
+  double targetHeight;
+} RionAppKitChromiumInputSurfaceProbeResult;
+
 typedef void (^RionRuntimeContentLayoutHandler)(RionRuntimeContentLayout layout);
 
 #if defined(RION_DESKTOP_E2E)
@@ -282,6 +296,9 @@ int32_t rion_appkit_dispatch_chromium_mouse(
     double clientX, double clientY, double zoomFactor, uint8_t button,
     uint64_t modifierFlags,
     RionAppKitChromiumMouseDispatchResult * _Nullable result);
+int32_t rion_appkit_probe_chromium_input_surface(
+    void * _Nullable nativeView, uintptr_t webContentsRootAddress,
+    RionAppKitChromiumInputSurfaceProbeResult * _Nullable result);
 void rion_runtime_tabs_destroy(void * _Nullable controller);
 void rion_runtime_tabs_prepare_fullscreen(
     void * _Nullable controller, bool fullscreen);

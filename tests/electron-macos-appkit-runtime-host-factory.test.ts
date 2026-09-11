@@ -1147,7 +1147,7 @@ describe("macOS AppKit Chromium runtime host", () => {
   it("rejects ABI and controller identity mismatches without a fallback host", async () => {
     const order: string[] = [];
     const addon = new FakeAddon(order);
-    expect(RION_APPKIT_RUNTIME_ABI_VERSION).toBe(6);
+    expect(RION_APPKIT_RUNTIME_ABI_VERSION).toBe(7);
     addon.abiVersion = 1;
     expect(() => new MacosAppKitChromiumRuntimeHostFactory({
       addon,
@@ -1186,9 +1186,10 @@ describe("macOS AppKit Chromium runtime host", () => {
     "beginInputSurfaceCapture",
     "commitInputSurfaceCapture",
     "cancelInputSurfaceCapture",
-    "retireInputSurface"
+    "retireInputSurface",
+    "probeCdpInputSurface"
   ] as const)(
-    "rejects an ABI v4 controller missing required %s support",
+    "rejects an ABI v7 controller missing required %s support",
     async (method) => {
       const fixture = new Fixture();
       const controller = new FakeNativeHost({

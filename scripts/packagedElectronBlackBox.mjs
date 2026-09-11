@@ -175,7 +175,7 @@ export async function seedPackagedElectronRole(input) {
     appVersion: packageJson.version,
     packaged: true,
     platform: input.platform,
-    runtimeContractVersion: 29,
+    runtimeContractVersion: 30,
     userDataDir: input.userDataDirectory
   });
   const invoke = async (command) => JSON.parse(await core.invoke(JSON.stringify(command)));

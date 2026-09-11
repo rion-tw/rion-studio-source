@@ -91,11 +91,14 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     }
   });
 
-  it("locks foreground native ABI, ordinary failure, and exact SQLite ownership", async () => {
+  it("locks production CDP ownership, native guards, and exact SQLite ownership", async () => {
     const [
       bootstrap,
       contract,
-      coordinator,
+      main,
+      windowsRuntime,
+      transport,
+      session,
       adapterTest,
       coreTest,
       physicalProbe,
@@ -106,7 +109,10 @@ describe("Chromium Macro native-effect exact replacement source", () => {
     ] = await Promise.all([
       source("src/electron/main/chromiumRuntimeBootstrap.ts"),
       source("src/electron/main/windowsChromiumTrustedInputContract.ts"),
-      source("src/electron/main/chromiumViewInputSubmission.ts"),
+      source("src/electron/main/index.ts"),
+      source("src/electron/main/windowsChromiumTrustedInputRuntime.ts"),
+      source("src/electron/main/chromiumCdpInputTransport.ts"),
+      source("src/electron/main/chromiumCdpInputSession.ts"),
       source("tests/electron-windows-chromium-trusted-input-adapter.test.ts"),
       source("crates/rion-core/src/macro_runtime/tests/behavior_10_trusted_input_recovery_restarts_eligible_roots.rs"),
       source("scripts/electronWindowsChromiumTrustedInputProbe.cjs"),
@@ -120,9 +126,18 @@ describe("Chromium Macro native-effect exact replacement source", () => {
       /trustedInput: "supported",\n\s+backgroundInput: "supported"/u
     );
     expect(contract).not.toContain("WINDOWS_CHROMIUM_TRUSTED_INPUT_ABI_VERSION");
-    expect(contract).toContain("readonly foregroundPreserved: true");
-    expect(coordinator).toContain("chromiumViewInputObservationKey(observation)");
-    expect(coordinator).toContain("validChromiumViewInputObservation");
+    expect(main).toContain('platform: "darwin"');
+    expect(main).toContain("new ChromiumCdpInputTransport");
+    expect(windowsRuntime).toContain('platform: "win32"');
+    expect(windowsRuntime).toContain("new ChromiumCdpInputTransport");
+    expect(main).not.toContain("submitNativeBackgroundKey");
+    expect(windowsRuntime).not.toContain("ChromiumViewInputSubmission");
+    expect(transport).toContain("The sole production Chromium input submission owner");
+    expect(transport).not.toMatch(/fallback|reconnect/u);
+    expect(session).toContain('"Input.dispatchKeyEvent" | "Input.dispatchMouseEvent"');
+    for (const forbiddenMethod of ["Runtime.evaluate", "Network.", "Storage.", "Target."]) {
+      expect(session).not.toContain(forbiddenMethod);
+    }
     expect(adapterTest).toContain("accepts exact hidden delivery without changing");
     expect(coreTest).toContain(
       "foreground_required_is_an_ordinary_terminal_failure_without_input_recovery"

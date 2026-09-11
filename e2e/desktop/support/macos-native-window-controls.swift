@@ -50,7 +50,7 @@ if command == "minimize" {
   print("pressed")
   exit(0)
 }
-guard ["drag", "resize"].contains(command),
+guard ["drag", "geometry", "resize"].contains(command),
       let position = attribute(window, "AXPosition"), CFGetTypeID(position) == AXValueGetTypeID(),
       let size = attribute(window, "AXSize"), CFGetTypeID(size) == AXValueGetTypeID() else {
   fail("exact native window geometry unavailable")
@@ -60,9 +60,18 @@ var extent = CGSize.zero
 guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
       AXValueGetValue(size as! AXValue, .cgSize, &extent),
       [point.x, point.y, extent.width, extent.height].allSatisfy({ $0.isFinite }),
-      extent.width > 0, extent.height > 0,
-      let source = CGEventSource(stateID: .hidSystemState) else {
-  fail("exact native window geometry or pointer source invalid")
+      extent.width > 0, extent.height > 0 else {
+  fail("exact native window geometry invalid")
+}
+if command == "geometry" {
+  let data = try JSONSerialization.data(withJSONObject: [
+    "x": point.x, "y": point.y, "width": extent.width, "height": extent.height
+  ], options: [.sortedKeys])
+  print(String(decoding: data, as: UTF8.self))
+  exit(0)
+}
+guard let source = CGEventSource(stateID: .hidSystemState) else {
+  fail("exact native window pointer source invalid")
 }
 let start = command == "drag"
   ? CGPoint(x: point.x + extent.width / 2, y: point.y + 16)

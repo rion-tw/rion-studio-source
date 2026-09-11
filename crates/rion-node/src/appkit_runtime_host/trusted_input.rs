@@ -1,11 +1,15 @@
-use std::collections::{HashMap, HashSet};
+#[cfg(any(test, feature = "desktop-e2e"))]
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 use napi_derive::napi;
 
 use super::*;
 
 const MAX_NATIVE_INPUT_SURFACES: usize = 128;
+#[cfg(any(test, feature = "desktop-e2e"))]
 const MAX_NATIVE_INPUT_REQUESTS_PER_SURFACE: usize = 256;
+#[cfg(any(test, feature = "desktop-e2e"))]
 const APPKIT_INPUT_ALLOWED_MODIFIER_FLAGS: u32 = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20);
 
 #[napi(object)]
@@ -25,6 +29,25 @@ pub struct AppKitInputSurfaceOwnershipReceipt {
 }
 
 #[napi(object)]
+pub struct AppKitCdpInputSurfaceProbeReceipt {
+    pub role_id: String,
+    pub surface_generation: u32,
+    pub native_generation: u32,
+    pub target_attached: bool,
+    pub target_window_is_key: bool,
+    pub key_window_address: String,
+    pub key_window_first_responder_address: String,
+    pub target_window_address: String,
+    pub target_window_first_responder_address: String,
+    pub physical_modifier_codes: Vec<String>,
+    pub target_x: f64,
+    pub target_y: f64,
+    pub target_width: f64,
+    pub target_height: f64,
+}
+
+#[cfg(any(test, feature = "desktop-e2e"))]
+#[napi(object)]
 pub struct AppKitNativeBackgroundKeyRequest {
     pub request_id: String,
     pub role_id: String,
@@ -37,6 +60,7 @@ pub struct AppKitNativeBackgroundKeyRequest {
     pub repeat: bool,
 }
 
+#[cfg(feature = "desktop-e2e")]
 #[napi(object)]
 pub struct AppKitNativeBackgroundKeySubmissionReceipt {
     pub status: String,
@@ -65,6 +89,7 @@ pub struct AppKitNativeBackgroundKeySubmissionReceipt {
     pub target_height: f64,
 }
 
+#[cfg(any(test, feature = "desktop-e2e"))]
 #[napi(object)]
 pub struct AppKitNativeBackgroundMouseRequest {
     pub request_id: String,
@@ -79,6 +104,7 @@ pub struct AppKitNativeBackgroundMouseRequest {
     pub modifier_flags: u32,
 }
 
+#[cfg(feature = "desktop-e2e")]
 #[napi(object)]
 pub struct AppKitNativeBackgroundMouseSubmissionReceipt {
     pub status: String,
@@ -122,11 +148,15 @@ pub(super) struct PendingInputSurfaceCapture {
 pub(super) struct NativeInputSurface {
     surface_generation: u32,
     web_contents_root_address: usize,
+    #[cfg(feature = "desktop-e2e")]
     input_epoch: u64,
+    #[cfg(feature = "desktop-e2e")]
     dispatch_sequence: u64,
+    #[cfg(feature = "desktop-e2e")]
     request_deadlines: HashMap<String, u64>,
 }
 
+#[cfg(any(test, feature = "desktop-e2e"))]
 struct ValidatedNativeBackgroundKeyRequest {
     request_id: String,
     role_id: String,
@@ -139,6 +169,7 @@ struct ValidatedNativeBackgroundKeyRequest {
     repeat: bool,
 }
 
+#[cfg(any(test, feature = "desktop-e2e"))]
 struct ValidatedNativeBackgroundMouseRequest {
     request_id: String,
     role_id: String,
@@ -272,8 +303,11 @@ impl NativeAppKitRuntimeHost {
             NativeInputSurface {
                 surface_generation,
                 web_contents_root_address: root_address,
+                #[cfg(feature = "desktop-e2e")]
                 input_epoch: 0,
+                #[cfg(feature = "desktop-e2e")]
                 dispatch_sequence: 0,
+                #[cfg(feature = "desktop-e2e")]
                 request_deadlines: HashMap::new(),
             },
         );
@@ -339,8 +373,79 @@ impl NativeAppKitRuntimeHost {
         Ok(true)
     }
 
-    #[napi(js_name = "submitNativeBackgroundKey")]
-    pub fn submit_native_background_key(
+    #[napi(js_name = "probeCdpInputSurface")]
+    pub fn probe_cdp_input_surface(
+        &self,
+        expected: AppKitRuntimeHostIdentity,
+        role_id: String,
+        surface_generation: u32,
+    ) -> Result<AppKitCdpInputSurfaceProbeReceipt> {
+        self.require_identity(&expected)?;
+        validate_identifier(&role_id, "input role")?;
+        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
+        controller_pointer(&state)?;
+        state
+            .context
+            .as_ref()
+            .ok_or_else(host_destroyed_error)?
+            .ensure_healthy()?;
+        self.require_exact_native_window()?;
+        let surface = state.input_surfaces.get(&role_id).ok_or_else(|| {
+            adapter_error(
+                Status::InvalidArg,
+                "The role has no captured AppKit Chromium input surface.",
+            )
+        })?;
+        if surface.surface_generation != surface_generation {
+            return Err(adapter_error(
+                Status::InvalidArg,
+                "The AppKit Chromium input-surface generation is stale.",
+            ));
+        }
+        let native_view =
+            NonNull::new(self.native_view as *mut c_void).ok_or_else(malformed_handle_error)?;
+        let probe = probe_cdp_input_surface(native_view, surface.web_contents_root_address)?;
+        if probe.target_attached == 0
+            || probe.target_window_address == 0
+            || !probe.target_x.is_finite()
+            || !probe.target_y.is_finite()
+            || !probe.target_width.is_finite()
+            || probe.target_width <= 0.0
+            || !probe.target_height.is_finite()
+            || probe.target_height <= 0.0
+            || probe.physical_modifier_mask & !0xff != 0
+        {
+            return Err(adapter_error(
+                Status::GenericFailure,
+                "The AppKit CDP input-surface probe returned invalid native evidence.",
+            ));
+        }
+        Ok(AppKitCdpInputSurfaceProbeReceipt {
+            role_id,
+            surface_generation,
+            native_generation: self.identity.native_generation,
+            target_attached: true,
+            target_window_is_key: probe.target_window_is_key != 0,
+            key_window_address: probe.key_window_address.to_string(),
+            key_window_first_responder_address: probe
+                .key_window_first_responder_address
+                .to_string(),
+            target_window_address: probe.target_window_address.to_string(),
+            target_window_first_responder_address: probe
+                .target_window_first_responder_address
+                .to_string(),
+            physical_modifier_codes: physical_modifier_codes(probe.physical_modifier_mask),
+            target_x: probe.target_x,
+            target_y: probe.target_y,
+            target_width: probe.target_width,
+            target_height: probe.target_height,
+        })
+    }
+}
+
+#[cfg(feature = "desktop-e2e")]
+impl NativeAppKitRuntimeHost {
+    fn submit_native_background_key_validation(
         &self,
         expected: AppKitRuntimeHostIdentity,
         request: AppKitNativeBackgroundKeyRequest,
@@ -443,8 +548,7 @@ impl NativeAppKitRuntimeHost {
         })
     }
 
-    #[napi(js_name = "submitNativeBackgroundMouse")]
-    pub fn submit_native_background_mouse(
+    fn submit_native_background_mouse_validation(
         &self,
         expected: AppKitRuntimeHostIdentity,
         request: AppKitNativeBackgroundMouseRequest,
@@ -548,6 +652,49 @@ impl NativeAppKitRuntimeHost {
     }
 }
 
+// Former AppKit submission leaves are available only to the isolated A/B
+// baseline addon. Production exposes the read-only CDP surface probe instead.
+#[cfg(feature = "desktop-e2e")]
+#[napi]
+impl NativeAppKitRuntimeHost {
+    #[napi(js_name = "submitNativeBackgroundKey")]
+    pub fn desktop_e2e_submit_native_background_key(
+        &self,
+        expected: AppKitRuntimeHostIdentity,
+        request: AppKitNativeBackgroundKeyRequest,
+    ) -> Result<AppKitNativeBackgroundKeySubmissionReceipt> {
+        self.submit_native_background_key_validation(expected, request)
+    }
+
+    #[napi(js_name = "submitNativeBackgroundMouse")]
+    pub fn desktop_e2e_submit_native_background_mouse(
+        &self,
+        expected: AppKitRuntimeHostIdentity,
+        request: AppKitNativeBackgroundMouseRequest,
+    ) -> Result<AppKitNativeBackgroundMouseSubmissionReceipt> {
+        self.submit_native_background_mouse_validation(expected, request)
+    }
+}
+
+fn physical_modifier_codes(mask: u16) -> Vec<String> {
+    const CODES: [&str; 8] = [
+        "ControlLeft",
+        "ControlRight",
+        "AltLeft",
+        "AltRight",
+        "ShiftLeft",
+        "ShiftRight",
+        "MetaLeft",
+        "MetaRight",
+    ];
+    CODES
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| mask & (1 << index) != 0)
+        .map(|(_, code)| (*code).to_owned())
+        .collect()
+}
+
 fn parse_canonical_u64(value: &str, positive: bool, field: &str) -> Result<u64> {
     let parsed = value.parse::<u64>().map_err(|_| {
         adapter_error(
@@ -564,6 +711,7 @@ fn parse_canonical_u64(value: &str, positive: bool, field: &str) -> Result<u64> 
     Ok(parsed)
 }
 
+#[cfg(any(test, feature = "desktop-e2e"))]
 fn validate_native_background_key_request(
     request: AppKitNativeBackgroundKeyRequest,
 ) -> Result<ValidatedNativeBackgroundKeyRequest> {
@@ -599,6 +747,7 @@ fn validate_native_background_key_request(
     })
 }
 
+#[cfg(any(test, feature = "desktop-e2e"))]
 fn validate_native_background_mouse_request(
     request: AppKitNativeBackgroundMouseRequest,
 ) -> Result<ValidatedNativeBackgroundMouseRequest> {
@@ -640,6 +789,7 @@ fn validate_native_background_mouse_request(
     })
 }
 
+#[cfg(feature = "desktop-e2e")]
 fn unix_epoch_ms() -> Result<u64> {
     let now = rion_core::macro_input_epoch_millis();
     if now == 0 || now == u64::MAX {
@@ -651,6 +801,7 @@ fn unix_epoch_ms() -> Result<u64> {
     Ok(now)
 }
 
+#[cfg(any(test, feature = "desktop-e2e"))]
 fn admit_request_ledger(
     request_deadlines: &mut HashMap<String, u64>,
     request_id: &str,
@@ -727,7 +878,7 @@ fn exact_added_web_contents_root(
     Ok(candidates[0])
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "desktop-e2e"))]
 fn submit_native_background_key(
     native_view: NonNull<c_void>,
     web_contents_root_address: usize,
@@ -758,6 +909,35 @@ fn submit_native_background_key(
 }
 
 #[cfg(target_os = "macos")]
+fn probe_cdp_input_surface(
+    native_view: NonNull<c_void>,
+    web_contents_root_address: usize,
+) -> Result<rion_appkit::AppKitChromiumInputSurfaceProbeResult> {
+    // SAFETY: the address was captured below this exact live AppKit host and
+    // is synchronously re-resolved by the read-only native probe.
+    unsafe {
+        rion_appkit::probe_electron_chromium_input_surface(native_view, web_contents_root_address)
+    }
+    .map_err(|error| {
+        adapter_error(
+            Status::GenericFailure,
+            format!("The AppKit CDP input-surface probe failed: {error:?}."),
+        )
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn probe_cdp_input_surface(
+    _native_view: NonNull<c_void>,
+    _web_contents_root_address: usize,
+) -> Result<rion_appkit::AppKitChromiumInputSurfaceProbeResult> {
+    Err(adapter_error(
+        Status::GenericFailure,
+        "The AppKit CDP input-surface probe is unavailable on this platform.",
+    ))
+}
+
+#[cfg(all(target_os = "macos", feature = "desktop-e2e"))]
 fn submit_native_background_mouse(
     native_view: NonNull<c_void>,
     web_contents_root_address: usize,
@@ -788,7 +968,7 @@ fn submit_native_background_mouse(
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), feature = "desktop-e2e"))]
 fn submit_native_background_mouse(
     _native_view: NonNull<c_void>,
     _web_contents_root_address: usize,
@@ -804,7 +984,7 @@ fn submit_native_background_mouse(
     ))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), feature = "desktop-e2e"))]
 fn submit_native_background_key(
     _native_view: NonNull<c_void>,
     _web_contents_root_address: usize,
@@ -824,6 +1004,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn appkit_physical_modifier_mask_preserves_all_exact_sides() {
+        assert_eq!(
+            physical_modifier_codes(0b1010_0101),
+            vec!["ControlLeft", "AltLeft", "ShiftRight", "MetaRight"]
+        );
+    }
+
+    #[test]
     fn key_requests_require_canonical_fences_and_known_modifier_bits() {
         let request = || AppKitNativeBackgroundKeyRequest {
             request_id: "request-1".to_owned(),
@@ -836,7 +1024,17 @@ mod tests {
             modifier_flags: 1 << 20,
             repeat: false,
         };
-        assert!(validate_native_background_key_request(request()).is_ok());
+        let validated = validate_native_background_key_request(request())
+            .expect("supported key request must validate");
+        assert_eq!(validated.request_id, "request-1");
+        assert_eq!(validated.role_id, "role-1");
+        assert_eq!(validated.surface_generation, 1);
+        assert_eq!(validated.input_epoch, 0);
+        assert_eq!(validated.deadline_ms, 1);
+        assert_eq!(validated.event_type, "rawKeyDown");
+        assert_eq!(validated.code, "KeyA");
+        assert_eq!(validated.modifier_flags, 1 << 20);
+        assert!(!validated.repeat);
         assert!(
             validate_native_background_key_request(AppKitNativeBackgroundKeyRequest {
                 input_epoch: "00".to_owned(),
@@ -873,6 +1071,13 @@ mod tests {
             assert_eq!(validated.client_x, 100.0);
             assert_eq!(validated.client_y, 200.0);
             assert_eq!(validated.zoom_factor, zoom_factor);
+            assert_eq!(validated.request_id, "request-1");
+            assert_eq!(validated.role_id, "role-1");
+            assert_eq!(validated.surface_generation, 1);
+            assert_eq!(validated.input_epoch, 0);
+            assert_eq!(validated.deadline_ms, 1);
+            assert_eq!(validated.button, 2);
+            assert_eq!(validated.modifier_flags, 1 << 17);
         }
         assert!(
             validate_native_background_mouse_request(AppKitNativeBackgroundMouseRequest {

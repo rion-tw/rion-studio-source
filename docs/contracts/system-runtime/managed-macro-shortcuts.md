@@ -128,8 +128,11 @@ reveal a hidden surface. A role with no remaining Core-owned key terminalizes
 `noHeldKeys`; stale role, generation, or input context terminalizes
 `superseded`. This ordering is event-bound and adds no polling, timeout
 reconciliation, generic debugger retry, or second pressed-key owner. Production
-continues to use the Windows `sendInputEvent` and retained macOS AppKit submission
-leaves until a separately gated cross-platform transport is promoted.
+uses one in-process CDP Input owner on both platforms. Windows View and retained
+macOS AppKit code continue to prove exact host/generation and unchanged focus,
+but do not submit the final event. Debugger detach or a rejected/uncertain CDP
+command terminalizes and quarantines the Role; there is no native transport
+fallback or same-document reconnect.
 
 ## Managed middle-button shortcuts
 

@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { ChromiumViewInputSubmission } from "../main/chromiumViewInputSubmission";
+import { ChromiumCdpInputTransport } from "../main/chromiumCdpInputTransport";
 import { WindowsChromiumTrustedInputAdapter } from "../main/windowsChromiumTrustedInputAdapter";
 
 /** Observe original results; persist at shutdown or after a failed terminal result. */
@@ -38,32 +38,28 @@ export function installElectronDesktopE2eTrustedInputDiagnostics(
     }));
     return result;
   };
-  const submission = ChromiumViewInputSubmission.prototype;
-  const key = submission.key;
-  submission.key = function (request) {
+  const transport = ChromiumCdpInputTransport.prototype;
+  const key = transport.dispatchKey;
+  transport.dispatchKey = function (frame, effect) {
     const startedAtMs = Date.now();
-    try {
-      const receipt = key.call(this, request);
-      record({ kind: "view-key", request, receipt, startedAtMs, observedAtMs: Date.now() });
-      return receipt;
-    } catch (error) {
-      record({ kind: "view-key-rejected", request, error: describeError(error),
-        startedAtMs, observedAtMs: Date.now() });
-      throw error;
-    }
+    const result = key.call(this, frame, effect);
+    void result.then(receipt => record({ kind: "cdp-key", frame, effect, receipt,
+      startedAtMs, observedAtMs: Date.now() }), error => record({
+      kind: "cdp-key-rejected", frame, effect, error: describeError(error),
+      startedAtMs, observedAtMs: Date.now()
+    }));
+    return result;
   };
-  const click = submission.click;
-  submission.click = function (request) {
+  const mouse = transport.dispatchMouse;
+  transport.dispatchMouse = function (frame, input) {
     const startedAtMs = Date.now();
-    try {
-      const receipt = click.call(this, request);
-      record({ kind: "view-click", request, receipt, startedAtMs, observedAtMs: Date.now() });
-      return receipt;
-    } catch (error) {
-      record({ kind: "view-click-rejected", request, error: describeError(error),
-        startedAtMs, observedAtMs: Date.now() });
-      throw error;
-    }
+    const result = mouse.call(this, frame, input);
+    void result.then(receipt => record({ kind: "cdp-mouse", frame, input, receipt,
+      startedAtMs, observedAtMs: Date.now() }), error => record({
+      kind: "cdp-mouse-rejected", frame, input, error: describeError(error),
+      startedAtMs, observedAtMs: Date.now()
+    }));
+    return result;
   };
   onWillQuit(flush);
 }

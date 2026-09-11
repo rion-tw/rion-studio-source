@@ -7,9 +7,10 @@ import {
   type ChromiumCdpMouseDescriptor
 } from "./chromiumCdpInputDescriptors";
 
-export type ChromiumCdpCandidateTerminalReason =
+export type ChromiumCdpTerminalReason =
   | "closed"
   | "crashed"
+  | "command-rejected"
   | "debugger-detached"
   | "document-replacing";
 
@@ -28,7 +29,7 @@ export interface ChromiumCdpDebuggerPort {
   ) => void;
 }
 
-export interface ChromiumCdpCandidateIdentity {
+export interface ChromiumCdpInputIdentity {
   readonly roleId: string;
   readonly surfaceGeneration: number;
   readonly documentInstanceId: string;
@@ -36,15 +37,15 @@ export interface ChromiumCdpCandidateIdentity {
   readonly webContentsId: number;
 }
 
-export interface ChromiumCdpCandidateAdmission {
-  readonly identity: ChromiumCdpCandidateIdentity;
+export interface ChromiumCdpInputAdmission {
+  readonly identity: ChromiumCdpInputIdentity;
   readonly domReady: true;
   readonly roleOwnershipVerified: true;
   readonly preloadFrameToken: string;
   readonly debugger: ChromiumCdpDebuggerPort;
 }
 
-export interface ChromiumCdpCandidateSubmissionReceipt {
+export interface ChromiumCdpSubmissionReceipt {
   readonly roleId: string;
   readonly surfaceGeneration: number;
   readonly documentInstanceId: string;
@@ -54,8 +55,8 @@ export interface ChromiumCdpCandidateSubmissionReceipt {
 }
 
 function sameIdentity(
-  left: ChromiumCdpCandidateIdentity,
-  right: ChromiumCdpCandidateIdentity
+  left: ChromiumCdpInputIdentity,
+  right: ChromiumCdpInputIdentity
 ): boolean {
   return left.roleId === right.roleId &&
     left.surfaceGeneration === right.surfaceGeneration &&
@@ -65,28 +66,28 @@ function sameIdentity(
 }
 
 /**
- * Isolated product candidate. Production bootstrap does not import this class.
- * It owns one in-process debugger session for one exact Role document and has
- * no arbitrary command entry point or reconnect path.
+ * One in-process debugger session for one exact Role document. The API keeps
+ * the CDP method union closed to Input dispatch and deliberately exposes no
+ * reconnect or arbitrary-command path.
  */
-export class ChromiumCdpInputCandidateSession {
-  readonly #identity: ChromiumCdpCandidateIdentity;
+export class ChromiumCdpInputSession {
+  readonly #identity: ChromiumCdpInputIdentity;
   readonly #debugger: ChromiumCdpDebuggerPort;
   readonly #platform: ChromiumCdpInputPlatform;
   readonly #onTerminal: (
-    identity: ChromiumCdpCandidateIdentity,
-    reason: ChromiumCdpCandidateTerminalReason
+    identity: ChromiumCdpInputIdentity,
+    reason: ChromiumCdpTerminalReason
   ) => void;
   readonly #detachListener: (_event: unknown, reason: string) => void;
   readonly #pendingCommandRejections = new Set<(error: Error) => void>();
   #state: "attached" | "replacing" | "closed" = "attached";
   #commandTail: Promise<void> = Promise.resolve();
 
-  private constructor(input: ChromiumCdpCandidateAdmission & Readonly<{
+  private constructor(input: ChromiumCdpInputAdmission & Readonly<{
     platform: ChromiumCdpInputPlatform;
     onTerminal: (
-      identity: ChromiumCdpCandidateIdentity,
-      reason: ChromiumCdpCandidateTerminalReason
+      identity: ChromiumCdpInputIdentity,
+      reason: ChromiumCdpTerminalReason
     ) => void;
   }>) {
     this.#identity = Object.freeze({ ...input.identity });
@@ -97,17 +98,17 @@ export class ChromiumCdpInputCandidateSession {
     this.#debugger.on("detach", this.#detachListener);
   }
 
-  static attach(input: ChromiumCdpCandidateAdmission & Readonly<{
+  static attach(input: ChromiumCdpInputAdmission & Readonly<{
     platform: ChromiumCdpInputPlatform;
     onTerminal: (
-      identity: ChromiumCdpCandidateIdentity,
-      reason: ChromiumCdpCandidateTerminalReason
+      identity: ChromiumCdpInputIdentity,
+      reason: ChromiumCdpTerminalReason
     ) => void;
-  }>): ChromiumCdpInputCandidateSession {
+  }>): ChromiumCdpInputSession {
     if (input.domReady !== true || input.roleOwnershipVerified !== true ||
       input.preloadFrameToken !== input.identity.frameToken ||
       input.identity.surfaceGeneration < 1 || input.identity.webContentsId < 1) {
-      throw new Error("CDP candidate admission has a stale Role or preload identity.");
+      throw new Error("CDP Input admission has a stale Role or preload identity.");
     }
     if (input.debugger.isAttached()) {
       throw new Error("The Role WebContents already has a debugger owner.");
@@ -116,17 +117,17 @@ export class ChromiumCdpInputCandidateSession {
     if (!input.debugger.isAttached()) {
       throw new Error("The in-process CDP Input session did not attach.");
     }
-    return new ChromiumCdpInputCandidateSession(input);
+    return new ChromiumCdpInputSession(input);
   }
 
-  identity(): ChromiumCdpCandidateIdentity {
+  identity(): ChromiumCdpInputIdentity {
     return this.#identity;
   }
 
   dispatchKey(
-    identity: ChromiumCdpCandidateIdentity,
+    identity: ChromiumCdpInputIdentity,
     effect: EmbeddedKeyEffectRecord
-  ): Promise<ChromiumCdpCandidateSubmissionReceipt> {
+  ): Promise<ChromiumCdpSubmissionReceipt> {
     const descriptor = chromiumCdpKeyDescriptor(effect, this.#platform);
     return this.#enqueue(identity, [() => this.#debugger.sendCommand(
       "Input.dispatchKeyEvent",
@@ -134,37 +135,37 @@ export class ChromiumCdpInputCandidateSession {
     )]);
   }
 
-  dispatchMouse(identity: ChromiumCdpCandidateIdentity, input: Readonly<{
+  dispatchMouse(identity: ChromiumCdpInputIdentity, input: Readonly<{
     x: number;
     y: number;
     button: "left" | "middle" | "right";
     modifierCodes: readonly string[];
-  }>): Promise<ChromiumCdpCandidateSubmissionReceipt> {
+  }>): Promise<ChromiumCdpSubmissionReceipt> {
     const descriptors = chromiumCdpMouseDescriptors(input);
     return this.#enqueue(identity, descriptors.map((descriptor) =>
       () => this.#debugger.sendCommand("Input.dispatchMouseEvent", descriptor)));
   }
 
-  beginMainFrameNavigation(identity: ChromiumCdpCandidateIdentity): void {
+  beginMainFrameNavigation(identity: ChromiumCdpInputIdentity): void {
     this.#requireCurrent(identity);
     this.#state = "replacing";
     this.#terminalize("document-replacing", true);
   }
 
-  crash(identity: ChromiumCdpCandidateIdentity): void {
+  crash(identity: ChromiumCdpInputIdentity): void {
     this.#requireCurrent(identity);
     this.#terminalize("crashed", true);
   }
 
-  close(identity: ChromiumCdpCandidateIdentity): void {
+  close(identity: ChromiumCdpInputIdentity): void {
     this.#requireCurrent(identity);
     this.#terminalize("closed", true);
   }
 
   async #enqueue(
-    identity: ChromiumCdpCandidateIdentity,
+    identity: ChromiumCdpInputIdentity,
     commands: readonly (() => Promise<unknown>)[]
-  ): Promise<ChromiumCdpCandidateSubmissionReceipt> {
+  ): Promise<ChromiumCdpSubmissionReceipt> {
     this.#requireCurrent(identity);
     let acceptedCommandCount = 0;
     const run = async (): Promise<void> => {
@@ -176,7 +177,14 @@ export class ChromiumCdpInputCandidateSession {
     };
     const current = this.#commandTail.then(run);
     this.#commandTail = current.catch(() => undefined);
-    await current;
+    try {
+      await current;
+    } catch (error) {
+      if (this.#state === "attached") {
+        this.#terminalize("command-rejected", true);
+      }
+      throw error;
+    }
     this.#requireCurrent(identity);
     return Object.freeze({
       roleId: identity.roleId,
@@ -210,20 +218,27 @@ export class ChromiumCdpInputCandidateSession {
     });
   }
 
-  #requireCurrent(identity: ChromiumCdpCandidateIdentity): void {
+  #requireCurrent(identity: ChromiumCdpInputIdentity): void {
     if (this.#state !== "attached" || !this.#debugger.isAttached() ||
       !sameIdentity(identity, this.#identity)) {
       throw new Error("The CDP Input session is detached or generation-stale.");
     }
   }
 
-  #terminalize(reason: ChromiumCdpCandidateTerminalReason, detach: boolean): void {
+  #terminalize(reason: ChromiumCdpTerminalReason, detach: boolean): void {
     if (this.#state === "closed") return;
     this.#state = "closed";
     const terminalError = new Error(`The CDP Input session terminalized: ${reason}.`);
     for (const reject of [...this.#pendingCommandRejections]) reject(terminalError);
     this.#debugger.removeListener("detach", this.#detachListener);
-    if (detach && this.#debugger.isAttached()) this.#debugger.detach();
+    if (detach && this.#debugger.isAttached()) {
+      try {
+        this.#debugger.detach();
+      } catch {
+        // The closed state and terminal event remain authoritative even if
+        // Chromium has already torn down its debugger endpoint.
+      }
+    }
     this.#onTerminal(this.#identity, reason);
   }
 }

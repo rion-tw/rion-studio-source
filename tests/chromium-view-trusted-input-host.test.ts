@@ -1,27 +1,24 @@
 import type { ChromiumNativeTrustedInputRequest, ChromiumNativeTrustedInputReceipt } from "../src/electron/main/chromiumTrustedInputCoordinator";
 import { describe, expect, it, vi } from "vitest";
-import { ChromiumViewInputSubmission, type ChromiumViewInputObservation } from "../src/electron/main/chromiumViewInputSubmission";
+import type { ChromiumViewInputObservation } from "../src/electron/main/chromiumViewInputSubmission";
 import { ChromiumViewTrustedInputHost } from "../src/electron/main/chromiumViewTrustedInputHost";
 
-function fixture(platform: "macos" | "windows") {
+function fixture(_platform: "macos" | "windows") {
   const identity = { roleId: "role-one", surfaceGeneration: 1, nativeGeneration: 2,
     bindingRevision: "3", parentIdentity: "a".repeat(64), webContentsId: 4 };
   let observation: ChromiumViewInputObservation = { identity, focusIdentity: "b".repeat(64),
     parentForeground: true, parentVisible: true, parentMinimized: false,
     viewAttached: true, viewVisible: false, contentsDestroyed: false, contentsFocused: false,
     focusedWebContentsId: 5, bounds: { x: 0, y: 0, width: 300, height: 200 }, zoomFactor: 1.25 };
-  const contents = { id: 4, isDestroyed: () => false, sendInputEvent: vi.fn() };
-  const input = new ChromiumViewInputSubmission({ identity, contents, observe: () => observation, nowMs: () => 100 });
+  const contents = { sendInputEvent: vi.fn() };
+  const input = Object.freeze({ owner: "role-one" });
   const attachment = { identity, input, observe: () => observation };
   let current = true;
   const host = new ChromiumViewTrustedInputHost({ attachments: { resolve: () => current ? attachment : null },
     focus: vi.fn(async (request: ChromiumNativeTrustedInputRequest): Promise<ChromiumNativeTrustedInputReceipt> => ({ requestId: request.requestId, roleId: request.roleId,
       surfaceGeneration: request.surfaceGeneration, inputEpoch: request.inputEpoch, status: "applied",
       completedAtMs: 100, errorCode: null, errorMessage: null, confirmedInputNeutrality: true })) });
-  const key = { roleId: "role-one", surfaceGeneration: 1, requestId: "key", inputEpoch: "7", deadlineMs: "200",
-    deliveryMode: "background" as const, code: "KeyA", eventType: "rawKeyDown" as const,
-    ctrl: platform === "windows", meta: platform === "macos", shift: false, alt: false, repeat: false as const };
-  return { host, contents, key, retire: () => { current = false; },
+  return { host, contents, retire: () => { current = false; },
     change: (patch: Partial<ChromiumViewInputObservation>) => { observation = { ...observation, ...patch }; } };
 }
 
@@ -31,10 +28,10 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
     f.change({ viewVisible: true });
     const { native, identity } = f.host.resolve("role-one", 1)!;
     expect(native.currentInputDeliveryMode(identity)).toBe("foreground");
-    const receipt = native.submitNativeBackgroundKey(identity, { ...f.key, deliveryMode: "foreground" });
+    const receipt = native.probeExactInputSurface(identity, "foreground");
     expect(receipt).toMatchObject({ deliveryMode: "foreground",
       observation: { viewVisible: true, contentsFocused: false, focusedWebContentsId: 5 } });
-    expect(f.contents.sendInputEvent).toHaveBeenCalledOnce();
+    expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
   it.each([true, false])("admits an unfocused parent with visible=%s through the exact host", viewVisible => {
@@ -43,9 +40,9 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
     const { native, identity } = f.host.resolve("role-one", 1)!;
     const deliveryMode = viewVisible ? "foreground" : "background";
     expect(native.currentInputDeliveryMode(identity)).toBe(deliveryMode);
-    expect(native.submitNativeBackgroundKey(identity, { ...f.key, deliveryMode }))
+    expect(native.probeExactInputSurface(identity, deliveryMode))
       .toMatchObject({ observation: { parentForeground: false, focusedWebContentsId: 1 } });
-    expect(f.contents.sendInputEvent).toHaveBeenCalledOnce();
+    expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
   it("keeps stable binding identity and emits the actual engine owner's observation", () => {
@@ -53,12 +50,10 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
     const binding = f.host.resolve("role-one", 1)!;
     expect(f.host.resolve("role-one", 1)).toBe(binding);
     const probe = binding.native.probeExactInputSurface(binding.identity, "background");
-    const receipt = binding.native.submitNativeBackgroundKey(binding.identity, f.key);
-    expect(receipt).toMatchObject({ ownerKind: "view", probeRevision: probe.probeRevision,
-      observation: probe.ownerKind === "view" ? probe.observation : undefined,
-      submissionApi: "webContents.sendInputEvent", dispatchedEventCount: 1 });
-    expect(receipt).not.toHaveProperty("surfaceHandleToken");
-    expect(f.contents.sendInputEvent).toHaveBeenCalledTimes(1);
+    expect(probe).toMatchObject({ ownerKind: "view",
+      observation: probe.ownerKind === "view" ? probe.observation : undefined });
+    expect(probe).not.toHaveProperty("submissionApi");
+    expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
   it("advances the probe fence only when exact observed facts change", () => {
@@ -79,7 +74,6 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
     f.retire();
     expect(f.host.resolve("role-one", 1)).toBeNull();
     expect(native.isInputReady(identity, "background")).toBe(false);
-    expect(() => native.submitNativeBackgroundKey(identity, f.key)).toThrow();
     expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
   });
 
@@ -87,10 +81,11 @@ describe.each(["macos", "windows"] as const)("%s View trusted-input host bridge"
     const f = fixture(platform);
     const { native, identity } = f.host.resolve("role-one", 1)!;
     if (identity.ownerKind !== "view") throw new Error("Expected View identity.");
-    expect(() => native.submitNativeBackgroundKey({ ...identity, webContentsId: 6 }, f.key)).toThrow();
+    expect(() => native.probeExactInputSurface(
+      { ...identity, webContentsId: 6 }, "background"
+    )).toThrow();
     f.change({ contentsFocused: true });
     expect(native.currentInputDeliveryMode(identity)).toBeNull();
-    expect(() => native.submitNativeBackgroundKey(identity, f.key)).toThrow();
     expect(f.contents.sendInputEvent).not.toHaveBeenCalled();
   });
 });

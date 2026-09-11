@@ -32,7 +32,7 @@ interface PendingLanePorts {
     envelope: ChromiumRoleTrustedInputCancelEnvelope) => void;
 }
 
-/** Shared pending ownership; native submission and native receipt validation stay in adapters. */
+/** Shared pending ownership; platform guards and trusted DOM validation stay in adapters. */
 export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrustedInput> {
   readonly #roles = new Map<string, Pending>();
   readonly #requests = new Map<string, Pending>();

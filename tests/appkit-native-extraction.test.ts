@@ -27,10 +27,10 @@ describe("shared AppKit runtime controller", () => {
     expect(appKitBuild).toContain('rustc-link-lib=framework=AppKit');
     expect(appKitBuild).toContain('rustc-link-lib=framework=QuartzCore');
     expect(appKitBuild).not.toContain("WebKit");
-    expect(appKitRust).toContain("RUNTIME_TABS_ABI_VERSION: u32 = 6");
+    expect(appKitRust).toContain("RUNTIME_TABS_ABI_VERSION: u32 = 7");
     expect(controllerHeader).not.toContain("safe_tao");
     expect(controllerBridge).toMatch(
-      /rion_appkit_runtime_tabs_abi_version\(void\)\s*\{\s*return 6;\s*\}/u
+      /rion_appkit_runtime_tabs_abi_version\(void\)\s*\{\s*return 7;\s*\}/u
     );
     expect(controllerBridge).not.toContain("TaoWindow");
   });

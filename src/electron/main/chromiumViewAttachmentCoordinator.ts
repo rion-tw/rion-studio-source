@@ -1,4 +1,4 @@
-import { ChromiumViewInputSubmission, type ChromiumViewInputIdentity,
+import { type ChromiumViewInputIdentity,
   type ChromiumViewInputObservation } from "./chromiumViewInputSubmission";
 import type { ChromiumRoleSurfaceNativeAttachmentInput, ChromiumRoleSurfaceNativeAttachmentPort,
   ChromiumRoleSurfaceNativePresentationInput, ChromiumRoleSurfaceNativeReparentInput,
@@ -28,7 +28,7 @@ interface Record {
   readonly binding: ChromiumViewParentBinding;
   readonly view: ChromiumRoleWebContentsViewPort;
   readonly identity: ChromiumViewInputIdentity;
-  readonly input: ChromiumViewInputSubmission;
+  readonly input: object;
   readonly observe: () => ChromiumViewInputObservation;
   unsubscribe: () => void;
   visible: boolean;
@@ -42,7 +42,6 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
   readonly #invalidations = new Set<(roleId: string, generation: number) => void>();
   readonly #presentations = new Set<PresentationListener>();
   readonly #resolveParent: ParentResolver;
-  readonly #nowMs: () => number;
   readonly #onError: (error: unknown) => void;
   #revision = 0n;
   #disposed = false;
@@ -50,7 +49,6 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
   constructor(input: { resolveParent: ParentResolver;
     nowMs: () => number; onError: (error: unknown) => void }) {
     this.#resolveParent = input.resolveParent;
-    this.#nowMs = input.nowMs;
     this.#onError = input.onError;
   }
 
@@ -231,13 +229,7 @@ export class ChromiumViewAttachmentCoordinator implements ChromiumRoleSurfaceNat
         contentsDestroyed: view.webContents.isDestroyed(), contentsFocused: binding.contentsFocused(view),
         bounds: view.getBounds(), zoomFactor: view.webContents.getZoomFactor() };
     };
-    const contents = view.webContents;
-    const input = new ChromiumViewInputSubmission({ identity, nowMs: this.#nowMs, observe,
-      contents: { get id() { return contents.id!; }, isDestroyed: () => contents.isDestroyed(),
-        sendInputEvent(event) {
-          if (!contents.sendInputEvent) throw new Error("Chromium input API is unavailable.");
-          contents.sendInputEvent(event);
-        } } });
+    const input = Object.freeze({ roleId, generation, webContentsId: view.webContents.id });
     Object.assign(record, { logicalParent, binding, view, identity, input, observe,
       unsubscribe: () => {}, visible: view.getVisible(), state: "active" });
     return record;

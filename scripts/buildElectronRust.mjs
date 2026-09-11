@@ -106,7 +106,9 @@ function verifyDesktopE2eAddonSurface(addonPath, expected) {
     "desktopE2eTitlebarGeometry",
     "desktopE2eTabAnchor",
     "desktopE2eFullscreenToolbarState",
-    "desktopE2eStatusPresentation"
+    "desktopE2eStatusPresentation",
+    "submitNativeBackgroundKey",
+    "submitNativeBackgroundMouse"
   ];
   const present = methods.filter((method) => typeof prototype[method] === "function");
   if (expected && present.length !== methods.length) {

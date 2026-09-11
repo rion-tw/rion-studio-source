@@ -112,6 +112,7 @@ function harness() {
   let probeRevision = "1";
   let preserveForeground = true;
   let exactParent = true;
+  let nativePhysicalModifierCodes: readonly string[] = [];
   let viewFocus: Partial<Pick<ChromiumViewInputObservation,
     "focusIdentity" | "parentForeground" | "contentsFocused" | "focusedWebContentsId">> = {};
 
@@ -195,6 +196,63 @@ function harness() {
       };
     })
   };
+  const cdpTerminalListeners = new Set<(event: never) => void>();
+  const cdp = {
+    dispatchKey: async (_frame: unknown, effect: Readonly<{
+      phase: "rawKeyDown" | "keyUp";
+      code: string;
+      activeCodes: readonly string[];
+      autoRepeat: boolean;
+    }>) => {
+      const has = (prefix: string) =>
+        effect.activeCodes.some((code) => code.startsWith(prefix));
+      native.submitNativeBackgroundKey(identity, {
+        requestId: `cdp-${keyRequests.length + 1}`,
+        roleId: "role-1",
+        surfaceGeneration: 3,
+        inputEpoch: "7",
+        deadlineMs: String(nowMs + 1_000),
+        deliveryMode,
+        eventType: effect.phase,
+        code: effect.code,
+        ctrl: has("Control"),
+        alt: has("Alt"),
+        shift: has("Shift"),
+        meta: has("Meta"),
+        repeat: effect.autoRepeat
+      });
+      return { roleId: "role-1", surfaceGeneration: 3,
+        documentInstanceId: "document-1", acceptedCommandCount: 1,
+        requiresTrustedDomReceipt: true as const };
+    },
+    dispatchMouse: async (_frame: unknown, input: Readonly<{
+      x: number; y: number; button: "left" | "middle" | "right";
+      modifierCodes: readonly string[];
+    }>) => {
+      const has = (prefix: string) =>
+        input.modifierCodes.some((code) => code.startsWith(prefix));
+      native.submitNativeBackgroundMouse(identity, {
+        requestId: `cdp-mouse-${mouseRequests.length + 1}`,
+        roleId: "role-1",
+        surfaceGeneration: 3,
+        inputEpoch: "7",
+        deadlineMs: String(nowMs + 1_000),
+        deliveryMode,
+        clientX: input.x,
+        clientY: input.y,
+        zoomFactor: 1.25,
+        button: input.button === "left" ? 0 : input.button === "middle" ? 1 : 2,
+        ctrl: has("Control"), alt: has("Alt"), shift: has("Shift"), meta: has("Meta")
+      });
+      return { roleId: "role-1", surfaceGeneration: 3,
+        documentInstanceId: "document-1", acceptedCommandCount: 2,
+        requiresTrustedDomReceipt: true as const };
+    },
+    subscribeTerminal: (listener: (event: never) => void) => {
+      cdpTerminalListeners.add(listener);
+      return () => { cdpTerminalListeners.delete(listener); };
+    }
+  };
   const adapter = new WindowsChromiumTrustedInputAdapter({
     hosts: {
       resolve: () => liveBinding ? { identity, native } : null
@@ -214,11 +272,13 @@ function harness() {
         return () => { lifecycle = null; };
       }
     },
+    cdp,
     clicks: {
       resolve: () => ({ clientX: 100, clientY: 200, zoomFactor: 1.25 })
     },
     nowMs: () => nowMs,
     backgroundSupported: true,
+    physicalModifierCodes: () => nativePhysicalModifierCodes,
     deadlines: {
       schedule: (callback) => {
         const id = timerId += 1;
@@ -241,15 +301,17 @@ function harness() {
   const receive = (receipt: unknown) => adapter.receive(event, receipt);
   const arm = () => controls.find((control): control is ChromiumRoleTrustedInputArmEnvelope =>
     control.kind === "arm")!;
-  const armed = (physicalModifierCodes: readonly string[] = []) => receive({
-    kind: "armed",
-    roleId: "role-1",
-    generation: 3,
-    frameToken: frame.frameToken,
-    inputSequence: INPUT_SEQUENCE,
-    expectedEventCount: arm().expectedEvents.length,
-    physicalModifierCodes
-  });
+  const armed = (physicalModifierCodes: readonly string[] = []) => {
+    return receive({
+      kind: "armed",
+      roleId: "role-1",
+      generation: 3,
+      frameToken: frame.frameToken,
+      inputSequence: INPUT_SEQUENCE,
+      expectedEventCount: arm().expectedEvents.length,
+      physicalModifierCodes
+    });
+  };
   const dom = (
     expected: ChromiumRoleTrustedInputExpectedEvent,
     observedIndex: number,
@@ -272,6 +334,7 @@ function harness() {
     arm,
     armed,
     controls,
+    cdp,
     dom,
     frameIdentity,
     keyRequests,
@@ -285,6 +348,9 @@ function harness() {
       deliveryMode = value;
     },
     setLiveBinding: (value: boolean) => { liveBinding = value; },
+    setNativePhysicalModifierCodes: (value: readonly string[]) => {
+      nativePhysicalModifierCodes = value;
+    },
     setNow: (value: number) => { nowMs = value; },
     setPreserveForeground: (value: boolean) => { preserveForeground = value; },
     setProbeRevision: (value: string) => { probeRevision = value; },
@@ -300,7 +366,7 @@ function harness() {
 }
 
 describe("Windows Chromium trusted-input adapter", () => {
-  it("keeps foreground and hidden delivery native and non-CDP", () => {
+  it("keeps CDP inside the common production transport and Win32 read-only", () => {
     const adapter = readFileSync(new URL(
       "../src/electron/main/windowsChromiumTrustedInputAdapter.ts",
       import.meta.url
@@ -313,9 +379,15 @@ describe("Windows Chromium trusted-input adapter", () => {
       "../src/electron/main/chromiumRuntimeBootstrap.ts",
       import.meta.url
     ), "utf8");
+    const runtime = readFileSync(new URL(
+      "../src/electron/main/windowsChromiumTrustedInputRuntime.ts",
+      import.meta.url
+    ), "utf8");
     expect(adapter).not.toContain(".sendInputEvent(");
     expect(adapter).not.toContain("webContents.debugger");
     expect(adapter).not.toContain("remote-debugging");
+    expect(runtime).toContain("new ChromiumCdpInputTransport");
+    expect(runtime).not.toContain("ChromiumViewInputSubmission");
     for (const mutation of [
       "SetParent(", "SetWindowLong", "SetWindowPos(", "ShowWindow(",
       "PostMessage", "SendMessage", "EnumChildWindows", "FindWindow"
@@ -333,6 +405,7 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(subject.keyRequests).toEqual([]);
 
     expect(subject.armed()).toBe(true);
+    await Promise.resolve();
     expect(subject.arm().shortcutSuppression).toEqual({
       code: "KeyA",
       phases: ["keydown", "keyup"],
@@ -351,7 +424,7 @@ describe("Windows Chromium trusted-input adapter", () => {
       status: "applied",
       confirmedInputNeutrality: true
     }));
-    expect(subject.native.probeExactInputSurface).toHaveBeenCalledTimes(2);
+    expect(subject.native.probeExactInputSurface).toHaveBeenCalledTimes(4);
   });
 
   it.each(["hold", "release"] as const)(
@@ -379,6 +452,7 @@ describe("Windows Chromium trusted-input adapter", () => {
       keyAction("tap", ["primary", "meta", "shift"])
     ));
     subject.armed();
+    await Promise.resolve();
     expect(subject.keyRequests).toEqual([
       expect.objectContaining({ ctrl: true, meta: true, shift: true }),
       expect.objectContaining({ ctrl: true, meta: true, shift: true })
@@ -391,11 +465,13 @@ describe("Windows Chromium trusted-input adapter", () => {
 
   it("preserves physical modifier flags on key and mouse submissions", async () => {
     const keySubject = harness();
+    keySubject.setNativePhysicalModifierCodes(["AltRight"]);
     const keyResult = keySubject.adapter.dispatch(nativeRequest(
       "physical-key",
       keyAction("tap", [])
     ));
     keySubject.armed(["AltRight"]);
+    await Promise.resolve();
     expect(keySubject.keyRequests).toEqual([
       expect.objectContaining({ alt: true }),
       expect.objectContaining({ alt: true })
@@ -406,6 +482,7 @@ describe("Windows Chromium trusted-input adapter", () => {
     await expect(keyResult).resolves.toMatchObject({ status: "applied" });
 
     const mouseSubject = harness();
+    mouseSubject.setNativePhysicalModifierCodes(["ShiftLeft"]);
     const mouseResult = mouseSubject.adapter.dispatch(nativeRequest(
       "physical-mouse",
       clickAction("left")
@@ -474,9 +551,11 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(armedExpected.map((event) => event.clientX)).toEqual(
       Array.from({ length: 2 + activations.length }, () => null)
     );
-    expect(armedExpected.map((event) => event.type)).toEqual([
-      "mousedown", "mouseup", ...activations
-    ]);
+    expect(armedExpected.map((event) => event.type)).toEqual(
+      button === "right"
+        ? ["mousedown", "contextmenu", "mouseup", "auxclick"]
+        : ["mousedown", "mouseup", ...activations]
+    );
     expect(armedExpected.map((event) => event.button)).toEqual(
       Array.from({ length: 2 + activations.length }, () => domButton)
     );
@@ -553,12 +632,14 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(revised.keyRequests).toEqual([]);
   });
 
-  it("makes changed focus evidence and untrusted DOM input indeterminate", async () => {
+  it("makes rejected CDP and untrusted DOM input indeterminate", async () => {
     const focus = harness();
     const focusResult = focus.adapter.dispatch(
       nativeRequest("request-focus-change", keyAction())
     );
-    focus.setPreserveForeground(false);
+    vi.spyOn(focus.cdp, "dispatchKey").mockRejectedValueOnce(
+      new Error("foreground changed")
+    );
     focus.armed();
     await expect(focusResult).resolves.toEqual(expect.objectContaining({
       status: "indeterminate",
@@ -693,6 +774,7 @@ describe("Windows adapter with exact View receipts", () => {
     subject.setViewFocus({ focusIdentity: "c".repeat(64), parentForeground: false,
       contentsFocused: false, focusedWebContentsId: 1 });
     subject.armed();
+    await Promise.resolve();
     expect(subject.keyRequests).toHaveLength(2);
     for (const [index, expected] of subject.arm().expectedEvents.entries()) subject.dom(expected, index);
     await expect(result).resolves.toMatchObject({ status: "applied" });
@@ -712,17 +794,26 @@ describe("Windows adapter with exact View receipts", () => {
     expect(subject.keyRequests).toHaveLength(0);
   });
 
-  it.each(["focus", "identity"])("terminalizes a mismatched %s receipt after submission as indeterminate", async field => {
+  it.each(["detach", "command rejection"])("terminalizes CDP %s after invocation as indeterminate", async () => {
     const subject = harness();
-    const submit = subject.native.submitNativeBackgroundKey.getMockImplementation()!;
-    subject.native.submitNativeBackgroundKey.mockImplementation((expected, request) => {
-      const receipt = submit(expected, request);
-      if (receipt.ownerKind !== "view") throw new Error("Expected a View receipt.");
-      return field === "identity" ? { ...receipt, webContentsId: 92 } :
-        { ...receipt, observation: { ...receipt.observation, focusIdentity: "c".repeat(64) } };
-    });
+    vi.spyOn(subject.cdp, "dispatchKey").mockRejectedValueOnce(
+      new Error("CDP terminal")
+    );
     const result = subject.adapter.dispatch(nativeRequest("view-forged", keyAction()));
     subject.armed();
     await expect(result).resolves.toMatchObject({ status: "indeterminate" });
+  });
+
+  it("terminalizes changed Windows physical modifiers after CDP acceptance", async () => {
+    const subject = harness();
+    const result = subject.adapter.dispatch(nativeRequest("physical-changed", keyAction()));
+    subject.armed([]);
+    subject.setNativePhysicalModifierCodes(["ControlRight"]);
+
+    await expect(result).resolves.toMatchObject({
+      status: "indeterminate",
+      errorCode: "SYSTEM_TRUSTED_INPUT_PARTIAL_NATIVE_SUBMISSION",
+      confirmedInputNeutrality: false
+    });
   });
 });

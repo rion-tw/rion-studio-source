@@ -9,7 +9,7 @@ use std::ffi::c_void;
 #[cfg(target_os = "macos")]
 use std::{ffi::CStr, ptr::NonNull};
 
-pub const RUNTIME_TABS_ABI_VERSION: u32 = 6;
+pub const RUNTIME_TABS_ABI_VERSION: u32 = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElectronViewWindowResolutionError {
@@ -73,6 +73,17 @@ pub enum ElectronChromiumMouseSubmissionError {
     EventCreationFailed,
     NativeException,
     PointOutsideTarget,
+    RendererTargetAmbiguous,
+    UnknownStatus(i32),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ElectronChromiumInputSurfaceProbeError {
+    InvalidInput,
+    NotMainThread,
+    DetachedView,
+    SurfaceNotFound,
+    InvalidBounds,
     RendererTargetAmbiguous,
     UnknownStatus(i32),
 }
@@ -170,6 +181,22 @@ pub struct AppKitChromiumMouseDispatchResult {
     pub window_point_x: f64,
     pub window_point_y: f64,
     pub target_flipped: u8,
+    pub target_x: f64,
+    pub target_y: f64,
+    pub target_width: f64,
+    pub target_height: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[repr(C)]
+pub struct AppKitChromiumInputSurfaceProbeResult {
+    pub target_attached: u8,
+    pub target_window_is_key: u8,
+    pub key_window_address: usize,
+    pub key_window_first_responder_address: usize,
+    pub target_window_address: usize,
+    pub target_window_first_responder_address: usize,
+    pub physical_modifier_mask: u16,
     pub target_x: f64,
     pub target_y: f64,
     pub target_width: f64,
@@ -317,6 +344,11 @@ unsafe extern "C" {
         button: u8,
         modifier_flags: u64,
         result: *mut AppKitChromiumMouseDispatchResult,
+    ) -> i32;
+    fn rion_appkit_probe_chromium_input_surface(
+        native_view: *mut c_void,
+        web_contents_root_address: usize,
+        result: *mut AppKitChromiumInputSurfaceProbeResult,
     ) -> i32;
     fn rion_runtime_tabs_create(
         window: *mut c_void,
@@ -697,6 +729,40 @@ pub unsafe fn submit_mouse_to_electron_chromium_view(
         7 => Err(ElectronChromiumMouseSubmissionError::PointOutsideTarget),
         9 => Err(ElectronChromiumMouseSubmissionError::RendererTargetAmbiguous),
         code => Err(ElectronChromiumMouseSubmissionError::UnknownStatus(code)),
+    }
+}
+
+/// Captures exact AppKit host, responder, bounds, and physical-modifier facts
+/// around an in-process CDP Input submission without dispatching an event.
+///
+/// # Safety
+///
+/// `native_view` and `web_contents_root_address` must be the exact live root
+/// and snapshot-derived Role surface owned by the caller.
+#[cfg(target_os = "macos")]
+pub unsafe fn probe_electron_chromium_input_surface(
+    native_view: NonNull<c_void>,
+    web_contents_root_address: usize,
+) -> Result<AppKitChromiumInputSurfaceProbeResult, ElectronChromiumInputSurfaceProbeError> {
+    let mut result = AppKitChromiumInputSurfaceProbeResult::default();
+    // SAFETY: inherited from this function's exact-root and captured-surface
+    // contract. The native bridge re-resolves all borrowed descendants.
+    let status = unsafe {
+        rion_appkit_probe_chromium_input_surface(
+            native_view.as_ptr(),
+            web_contents_root_address,
+            &raw mut result,
+        )
+    };
+    match status {
+        0 => Ok(result),
+        1 => Err(ElectronChromiumInputSurfaceProbeError::InvalidInput),
+        2 => Err(ElectronChromiumInputSurfaceProbeError::NotMainThread),
+        3 => Err(ElectronChromiumInputSurfaceProbeError::DetachedView),
+        4 => Err(ElectronChromiumInputSurfaceProbeError::SurfaceNotFound),
+        7 => Err(ElectronChromiumInputSurfaceProbeError::InvalidBounds),
+        9 => Err(ElectronChromiumInputSurfaceProbeError::RendererTargetAmbiguous),
+        code => Err(ElectronChromiumInputSurfaceProbeError::UnknownStatus(code)),
     }
 }
 

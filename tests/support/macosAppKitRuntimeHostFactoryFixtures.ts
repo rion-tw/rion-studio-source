@@ -486,6 +486,29 @@ export class FakeNativeHost implements RawNativeAppKitRuntimeHost {
   retireInputSurface(): boolean {
     return true;
   }
+
+  probeCdpInputSurface(
+    _expected: AppKitRuntimeHostIdentity,
+    roleId: string,
+    surfaceGeneration: number
+  ) {
+    return {
+      roleId,
+      surfaceGeneration,
+      nativeGeneration: this.nativeGeneration,
+      targetAttached: true,
+      targetWindowIsKey: false,
+      keyWindowAddress: "0",
+      keyWindowFirstResponderAddress: "0",
+      targetWindowAddress: "1",
+      targetWindowFirstResponderAddress: "2",
+      physicalModifierCodes: [],
+      targetX: 0,
+      targetY: 0,
+      targetWidth: 800,
+      targetHeight: 600
+    };
+  }
 }
 
 export class FakeAddon implements RawAppKitRuntimeAddon {

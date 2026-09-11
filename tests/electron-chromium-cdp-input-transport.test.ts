@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { commonMacroKeyCodes } from
   "../src/renderer/src/features/macros/macroUtils";
-import { ChromiumCdpInputCandidateSession } from
-  "../src/electron/main/chromiumCdpInputCandidate";
+import { ChromiumCdpInputSession } from
+  "../src/electron/main/chromiumCdpInputSession";
+import type { ChromiumCdpInputIdentity } from
+  "../src/electron/main/chromiumCdpInputSession";
 import {
   chromiumCdpKeyDescriptor,
   chromiumCdpMouseDescriptors
 } from "../src/electron/main/chromiumCdpInputDescriptors";
+import { ChromiumCdpInputTransport } from
+  "../src/electron/main/chromiumCdpInputTransport";
 
 const identity = Object.freeze({
   roleId: "role-1",
@@ -46,7 +50,7 @@ function harness(send: (
       if (detachListener === listener) detachListener = null;
     })
   };
-  const session = ChromiumCdpInputCandidateSession.attach({
+  const session = ChromiumCdpInputSession.attach({
     identity,
     domReady: true,
     roleOwnershipVerified: true,
@@ -67,7 +71,7 @@ function harness(send: (
   };
 }
 
-describe("isolated in-process CDP Input candidate", () => {
+describe("in-process CDP Input session", () => {
   it("has an explicit descriptor for every UI key and all modifier sides", () => {
     const codes = [
       ...commonMacroKeyCodes,
@@ -176,7 +180,7 @@ describe("isolated in-process CDP Input candidate", () => {
     const subject = harness();
     await expect(subject.session.dispatchKey({ ...identity, surfaceGeneration: 5 },
       effect("KeyA"))).rejects.toThrow("generation-stale");
-    expect(() => ChromiumCdpInputCandidateSession.attach({
+    expect(() => ChromiumCdpInputSession.attach({
       identity,
       domReady: true,
       roleOwnershipVerified: true,
@@ -185,5 +189,130 @@ describe("isolated in-process CDP Input candidate", () => {
       platform: "win32",
       onTerminal: vi.fn()
     })).toThrow("stale Role or preload identity");
+  });
+});
+
+function transportHarness() {
+  let currentIdentity: ChromiumCdpInputIdentity = identity;
+  let attached = false;
+  let detachListener: ((_event: unknown, reason: string) => void) | null = null;
+  let lifecycle: ((event: Readonly<{
+    roleId: string;
+    generation: number;
+    reason: "document-superseded" | "surface-retired";
+  }>) => void) | null = null;
+  const sendCommand = vi.fn(async (
+    _method: "Input.dispatchKeyEvent" | "Input.dispatchMouseEvent",
+    _params: object
+  ) => Object.freeze({}));
+  const attach = vi.fn(() => { attached = true; });
+  const detach = vi.fn(() => { attached = false; });
+  const debuggerPort = {
+    isAttached: () => attached,
+    attach,
+    detach,
+    sendCommand,
+    on: vi.fn((_event: "detach", listener: typeof detachListener) => {
+      detachListener = listener;
+    }),
+    removeListener: vi.fn((_event: "detach", listener: typeof detachListener) => {
+      if (detachListener === listener) detachListener = null;
+    })
+  };
+  const transport = new ChromiumCdpInputTransport({
+    platform: "darwin",
+    surfaces: {
+      currentCdpInputBinding: () => ({ identity: currentIdentity, debugger: debuggerPort }),
+      subscribeTrustedInputLifecycle: (listener) => {
+        lifecycle = listener;
+        return () => { lifecycle = null; };
+      }
+    }
+  });
+  const frame = () => ({
+    roleId: currentIdentity.roleId,
+    generation: currentIdentity.surfaceGeneration,
+    documentInstanceId: currentIdentity.documentInstanceId,
+    frameToken: currentIdentity.frameToken,
+    frame: Object.freeze({})
+  });
+  return {
+    attach,
+    debuggerPort,
+    detach,
+    frame,
+    sendCommand,
+    transport,
+    replaceDocument: () => {
+      lifecycle?.({ roleId: identity.roleId, generation: identity.surfaceGeneration,
+        reason: "document-superseded" });
+      currentIdentity = Object.freeze({ ...identity,
+        documentInstanceId: "document-5", frameToken: "frame-5" });
+    },
+    detachFromDevTools: () => {
+      attached = false;
+      detachListener?.({}, "target closed");
+    }
+  };
+}
+
+describe("production CDP Input transport", () => {
+  it("reuses one exact document session and dispatches only allowlisted Input methods", async () => {
+    const subject = transportHarness();
+    await subject.transport.dispatchKey(subject.frame(), effect("KeyA"));
+    await subject.transport.dispatchMouse(subject.frame(), {
+      x: 10, y: 20, button: "middle", modifierCodes: []
+    });
+    expect(subject.attach).toHaveBeenCalledOnce();
+    expect(subject.sendCommand.mock.calls.map(([method]) => method)).toEqual([
+      "Input.dispatchKeyEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent"
+    ]);
+    subject.transport.dispose();
+  });
+
+  it("blocks same-document reconnect after lifecycle or debugger detach", async () => {
+    const lifecycle = transportHarness();
+    await lifecycle.transport.dispatchKey(lifecycle.frame(), effect("KeyA"));
+    const staleFrame = lifecycle.frame();
+    lifecycle.replaceDocument();
+    await expect(lifecycle.transport.dispatchKey(staleFrame, effect("KeyA")))
+      .rejects.toThrow("no longer owns");
+    await lifecycle.transport.dispatchKey(lifecycle.frame(), effect("KeyB"));
+    expect(lifecycle.attach).toHaveBeenCalledTimes(2);
+
+    const detached = transportHarness();
+    await detached.transport.dispatchKey(detached.frame(), effect("KeyA"));
+    detached.detachFromDevTools();
+    await expect(detached.transport.dispatchKey(detached.frame(), effect("KeyB")))
+      .rejects.toThrow("terminal CDP Input session");
+  });
+
+  it("publishes detach as an exact terminal event", async () => {
+    const subject = transportHarness();
+    const terminal = vi.fn();
+    subject.transport.subscribeTerminal(terminal);
+    await subject.transport.dispatchKey(subject.frame(), effect("KeyA"));
+    subject.detachFromDevTools();
+    expect(terminal).toHaveBeenCalledWith({
+      identity,
+      reason: "debugger-detached"
+    });
+  });
+
+  it("terminalizes a rejected command and never retries that document", async () => {
+    const subject = transportHarness();
+    subject.sendCommand.mockRejectedValueOnce(new Error("CDP rejected input"));
+    const terminal = vi.fn();
+    subject.transport.subscribeTerminal(terminal);
+
+    await expect(subject.transport.dispatchKey(subject.frame(), effect("KeyA")))
+      .rejects.toThrow("CDP rejected input");
+    expect(subject.detach).toHaveBeenCalledOnce();
+    expect(terminal).toHaveBeenCalledWith({ identity, reason: "command-rejected" });
+    await expect(subject.transport.dispatchKey(subject.frame(), effect("KeyB")))
+      .rejects.toThrow("terminal CDP Input session");
+    expect(subject.sendCommand).toHaveBeenCalledOnce();
   });
 });

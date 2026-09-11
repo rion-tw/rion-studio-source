@@ -21,6 +21,23 @@ interface AppKitInputSurfaceOwnershipReceipt {
   readonly captureSequence: string;
 }
 
+export interface AppKitCdpInputSurfaceProbeReceipt {
+  readonly roleId: string;
+  readonly surfaceGeneration: number;
+  readonly nativeGeneration: number;
+  readonly targetAttached: boolean;
+  readonly targetWindowIsKey: boolean;
+  readonly keyWindowAddress: string;
+  readonly keyWindowFirstResponderAddress: string;
+  readonly targetWindowAddress: string;
+  readonly targetWindowFirstResponderAddress: string;
+  readonly physicalModifierCodes: readonly string[];
+  readonly targetX: number;
+  readonly targetY: number;
+  readonly targetWidth: number;
+  readonly targetHeight: number;
+}
+
 export interface RawNativeAppKitInputSurfaceHost {
   beginInputSurfaceCapture: (
     expected: AppKitRuntimeHostIdentity,
@@ -44,6 +61,11 @@ export interface RawNativeAppKitInputSurfaceHost {
     roleId: string,
     surfaceGeneration: number
   ) => boolean;
+  probeCdpInputSurface: (
+    expected: AppKitRuntimeHostIdentity,
+    roleId: string,
+    surfaceGeneration: number
+  ) => AppKitCdpInputSurfaceProbeReceipt;
 }
 
 export interface MacosAppKitInputHostBinding {

@@ -76,39 +76,17 @@ export async function clickMacosVisibleRoleControl(
     throw new Error("The exact visible AppKit Role surface is unavailable");
   }
   const processId = probe.processId;
-  const windowIdentifier = `com.rionstudio.runtime.appkit-window.v1:${windowId}`;
-  const windowGeometry = exactGeometry(await readSystemEvents(`
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set expectedIdentifier to item 2 of argv
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set targetWindow to missing value
-    set targetCount to 0
-    repeat with appWindow in windows of targetProcess
-      try
-        if value of attribute "AXIdentifier" of appWindow is expectedIdentifier then
-          set targetWindow to appWindow
-          set targetCount to targetCount + 1
-        end if
-      end try
-    end repeat
-    if targetCount is not 1 then error "exact AppKit runtime window unavailable"
-    set frontmost of targetProcess to true
-    perform action "AXRaise" of targetWindow
-    if frontmost of targetProcess is not true then error "exact Rion process is not foreground"
-    set windowPosition to position of targetWindow
-    set windowSize to size of targetWindow
-    return (item 1 of windowPosition as text) & "," & ¬
-      (item 2 of windowPosition as text) & "," & ¬
-      (item 1 of windowSize as text) & "," & ¬
-      (item 2 of windowSize as text)
-  end tell
-end run`, String(processId), windowIdentifier), "runtime-role-window");
-  if (windowGeometry.length !== 4 || windowGeometry[2]! <= 0 ||
-      windowGeometry[3]! <= 0) {
+  await focusVisibleMacosAppKitRuntime({ processId, windowId });
+  const geometryResult = await executeFile("/usr/bin/xcrun", [
+    "swift", resolve(import.meta.dirname, "macos-native-window-controls.swift"),
+    String(processId), windowId, "geometry"
+  ], { encoding: "utf8", timeout: 15_000 });
+  const geometry = JSON.parse(geometryResult.stdout) as {
+    x: number; y: number; width: number; height: number;
+  };
+  const windowGeometry = [geometry.x, geometry.y, geometry.width, geometry.height];
+  if (windowGeometry.some((value) => !Number.isFinite(value)) ||
+      windowGeometry[2]! <= 0 || windowGeometry[3]! <= 0) {
     throw new Error("The exact AppKit Role window geometry is invalid");
   }
   const scaleX = surface.bounds.width / point.viewport.width;

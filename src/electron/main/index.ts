@@ -93,12 +93,11 @@ import {
 } from "./macosRuntimeTabMenuTemplate";
 import { MacosAppKitInputSurfaceAttachmentCoordinator } from
   "./macosAppKitInputSurfaceAttachmentCoordinator";
-import {
-  isRawNativeAppKitTrustedInputHost,
-  MacosAppKitTrustedInputAdapter
-} from "./macosAppKitTrustedInputAdapter";
+import { MacosAppKitTrustedInputAdapter } from
+  "./macosAppKitTrustedInputAdapter";
 import { ChromiumTrustedInputCoordinator } from
   "./chromiumTrustedInputCoordinator";
+import { ChromiumCdpInputTransport } from "./chromiumCdpInputTransport";
 import { CoreRendererEventBridge } from "./coreRendererEventBridge";
 import { createElectronCoreApiDispatcher } from "./coreApiDispatcher";
 import { createChromiumRoleFontApiDispatcher } from
@@ -294,32 +293,25 @@ function createMacosAppKitAdapter(
       nativeAttachments: attachments,
       createTrustedInput: (surfaces, preflightAutomaticInputContext,
         onRecoveryProof, embeddedInput) => {
+        const cdp = new ChromiumCdpInputTransport({ platform: "darwin", surfaces });
         const native = new MacosAppKitTrustedInputAdapter({
           hosts: {
             resolve: (roleId, generation) => {
               const binding = attachments!.resolveOwnedInputHost(roleId, generation);
-              if (!binding || !isRawNativeAppKitTrustedInputHost(binding.native)) {
-                return null;
-              }
-              return Object.freeze({
-                identity: binding.identity,
-                native: binding.native
-              });
+              return binding ? Object.freeze({ identity: binding.identity,
+                native: binding.native }) : null;
             }
           },
           surfaces,
-          clicks: {
-            resolve: (request, frame) =>
-              surfaces.resolveTrustedInputClick(request, frame)
-          },
+          cdp,
+          clicks: { resolve: (request, frame) =>
+            surfaces.resolveTrustedInputClick(request, frame) },
           nowMs: addon.macroInputEpochMillis
         });
+        const disposeInput = () => { try { native.dispose(); } finally { cdp.dispose(); } };
         try {
           native.register(ipcMain);
-        } catch (error) {
-          native.dispose();
-          throw error;
-        }
+        } catch (error) { disposeInput(); throw error; }
         const coordinator = new ChromiumTrustedInputCoordinator({
           native,
           surfaces,
@@ -349,11 +341,7 @@ function createMacosAppKitAdapter(
           supersedeControlledDocumentReplacement: (lease, submitted) =>
             coordinator.supersedeControlledDocumentReplacement(lease, submitted),
           dispose: async () => {
-            try {
-              await coordinator.dispose();
-            } finally {
-              native.dispose();
-            }
+            try { await coordinator.dispose(); } finally { disposeInput(); }
           }
         };
       },

@@ -66,6 +66,7 @@ import type {
   ChromiumRoleSurfaceRegistryState as RegistryState,
   CreateChromiumRoleSurfaceInput
 } from "./chromiumRoleSurfaceRegistryTypes";
+import type { ChromiumCdpInputBinding } from "./chromiumCdpInputTransport";
 export type {
   ChromiumRoleOverlayFrameIdentity,
   ChromiumRoleOverlayLifecycleEvent,
@@ -357,6 +358,32 @@ export class ChromiumRoleSurfaceRegistry {
     generation: number
   ): ChromiumRoleOverlayFrameIdentity {
     return this.currentOverlayFrame(roleId, generation);
+  }
+
+  currentCdpInputBinding(
+    roleId: string,
+    generation: number
+  ): ChromiumCdpInputBinding {
+    const frame = this.currentTrustedInputFrame(roleId, generation);
+    const record = this.#recordsByRole.get(roleId)!;
+    const debuggerPort = record.contents.debugger;
+    const webContentsId = record.contents.id;
+    if (!debuggerPort || !Number.isSafeInteger(webContentsId) || webContentsId! < 1) {
+      fail(
+        "ELECTRON_ROLE_CDP_INPUT_UNAVAILABLE",
+        "The exact live Role WebContents has no in-process CDP Input endpoint."
+      );
+    }
+    return Object.freeze({
+      identity: Object.freeze({
+        roleId,
+        surfaceGeneration: generation,
+        documentInstanceId: frame.documentInstanceId,
+        frameToken: frame.frameToken,
+        webContentsId: webContentsId!
+      }),
+      debugger: debuggerPort
+    });
   }
 
   sendTrustedInputControl(

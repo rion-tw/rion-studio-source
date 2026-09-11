@@ -20,7 +20,7 @@ const validProbe = {
 
 describe("Electron runtime verifier", () => {
   it("pins the Electron, Chromium, and embedded Node versions", () => {
-    expect(EXPECTED_APPKIT_RUNTIME_ABI).toBe(6);
+    expect(EXPECTED_APPKIT_RUNTIME_ABI).toBe(7);
     expect(EXPECTED_APPKIT_RUNTIME_ABI).toBe(RION_APPKIT_RUNTIME_ABI_VERSION);
     expect(() => assertElectronRuntimeProbe(
       validProbe,

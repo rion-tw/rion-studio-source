@@ -1,6 +1,6 @@
 import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
 import { sameChromiumViewInputIdentity, validChromiumViewInputIdentity,
-  validChromiumViewInputObservation, chromiumViewInputArmingKey, chromiumViewInputObservationKey } from "./chromiumViewTrustedInputValidation";
+  validChromiumViewInputObservation, chromiumViewInputArmingKey } from "./chromiumViewTrustedInputValidation";
 import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
   "./chromiumTrustedInputDomReceipt";
 import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } from
@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { activeChromiumModifierCodes, isChromiumModifierCode,
   resolveChromiumModifierCodes } from
   "./chromiumTrustedInputKeySequence";
-import { mergeChromiumPhysicalModifiers } from
+import { mergeChromiumPhysicalModifiers, validChromiumPhysicalModifierCodes } from
   "../ipc/chromiumTrustedInputPhysicalModifiers";
 import {
   CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
@@ -27,6 +27,10 @@ import type {
   ChromiumRoleOverlayFrameIdentity,
   ChromiumRoleOverlayLifecycleEvent
 } from "./chromiumRoleSurfaceRegistry";
+import type {
+  ChromiumCdpInputTerminalEvent,
+  ChromiumCdpInputTransportPort
+} from "./chromiumCdpInputTransport";
 import {
   WINDOWS_CHROMIUM_TRUSTED_KEY_CODES,
   type WindowsChromiumInputDeliveryMode,
@@ -35,10 +39,7 @@ import {
   type WindowsChromiumTrustedInputClickResolverPort,
   type WindowsChromiumTrustedInputHostBinding,
   type WindowsChromiumTrustedInputHostPort,
-  type WindowsChromiumTrustedInputSurfacePort,
-  type WindowsNativeTrustedInputSubmissionBase,
-  type WindowsNativeTrustedKeySubmissionReceipt,
-  type WindowsNativeTrustedMouseSubmissionReceipt
+  type WindowsChromiumTrustedInputSurfacePort
 } from "./windowsChromiumTrustedInputContract";
 
 const INPUT_SEQUENCE_PATTERN =
@@ -110,8 +111,8 @@ interface PendingDispatch {
   nextDomIndex: number;
   nativeComplete: boolean;
   terminal: boolean;
-  lastNativeDispatchSequence: bigint;
   physicalModifierCodes: readonly string[];
+  readonly nativePhysicalModifierCodes: readonly string[];
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -285,11 +286,11 @@ function prepareDispatch(
   }
   const button = action.button === "left" ? 0 : action.button === "middle" ? 1 : 2;
   const activationEvents = button === 0 ? ["click" as const]
-    : button === 1 ? ["auxclick" as const]
-      : ["contextmenu" as const, "auxclick" as const];
+    : ["auxclick" as const];
   return Object.freeze({
     expectedEvents: Object.freeze([
       mouseEvent("mousedown", null, null, button),
+      ...(button === 2 ? [mouseEvent("contextmenu", null, null, button)] : []),
       mouseEvent("mouseup", null, null, button),
       ...activationEvents.map((type) => mouseEvent(type, null, null, button))
     ]),
@@ -345,32 +346,6 @@ function validateProbe(
     bounds: Object.freeze({ ...receipt.observation.bounds }) }) });
 }
 
-function validateNativeBase(
-  pending: PendingDispatch,
-  receipt: WindowsNativeTrustedInputSubmissionBase,
-  nativeRequestId: string,
-  expectedEventCount: number
-): bigint {
-  const dispatchSequence = canonicalU64(receipt.dispatchSequence, true);
-  const submittedAt = canonicalU64(receipt.submittedAtMs, true);
-  const scheduledAt = BigInt(pending.request.scheduledAtMs);
-  const deadline = BigInt(pending.request.deadlineMs);
-  if (receipt.ownerKind !== "view" || pending.host.identity.ownerKind !== "view" || pending.probe.ownerKind !== "view" ||
-      receipt.status !== "submitted" || receipt.submissionApi !== "webContents.sendInputEvent" ||
-      receipt.requestId !== nativeRequestId || !validateIdentityFields(receipt, pending.host.identity) ||
-      receipt.roleId !== pending.request.roleId || receipt.surfaceGeneration !== pending.request.surfaceGeneration ||
-      receipt.inputEpoch !== String(pending.request.inputEpoch) || receipt.deliveryMode !== pending.deliveryMode ||
-      receipt.probeRevision !== pending.probe.probeRevision ||
-      !dispatchSequence || dispatchSequence <= pending.lastNativeDispatchSequence ||
-      !submittedAt || submittedAt < scheduledAt || submittedAt >= deadline ||
-      receipt.viewAttached !== true || receipt.foregroundPreserved !== true || expectedEventCount < 1 ||
-      !validChromiumViewInputObservation(receipt.observation, pending.host.identity, pending.deliveryMode) ||
-      chromiumViewInputObservationKey(receipt.observation) !== chromiumViewInputObservationKey(pending.probe.observation)) {
-    fail("SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID", "The Chromium View submission does not match its exact admission.");
-  }
-  return dispatchSequence;
-}
-
 /**
  * Accepts Chromium submission only after an exact direct-View probe,
  * then correlates it with private main-frame `isTrusted` DOM observations.
@@ -388,10 +363,13 @@ implements ChromiumNativeTrustedInputPort {
   readonly #clicks: WindowsChromiumTrustedInputClickResolverPort;
   readonly #nowMs: () => number;
   readonly #deadlines: WindowsChromiumTrustedInputDeadlinePort;
+  readonly #cdp: ChromiumCdpInputTransportPort;
   readonly #createInputSequence: () => string;
   readonly #backgroundSupported: boolean;
+  readonly #physicalModifierCodes: () => readonly string[];
   readonly #pending: ChromiumTrustedInputPendingLane<PendingDispatch>;
   readonly #unsubscribeLifecycle: () => void;
+  readonly #unsubscribeCdpTerminal: () => void;
   readonly #ipcListener = (
     event: WindowsChromiumTrustedInputIpcEventPort,
     receipt: unknown
@@ -409,17 +387,21 @@ implements ChromiumNativeTrustedInputPort {
     hosts: WindowsChromiumTrustedInputHostPort;
     surfaces: WindowsChromiumTrustedInputSurfacePort;
     clicks: WindowsChromiumTrustedInputClickResolverPort;
+    cdp: ChromiumCdpInputTransportPort;
     nowMs: () => number;
     deadlines: WindowsChromiumTrustedInputDeadlinePort;
     backgroundSupported: boolean;
+    physicalModifierCodes: () => readonly string[];
     createInputSequence?: () => string;
   }>) {
     this.#hosts = input.hosts;
     this.#surfaces = input.surfaces;
     this.#clicks = input.clicks;
+    this.#cdp = input.cdp;
     this.#nowMs = input.nowMs;
     this.#deadlines = input.deadlines;
     this.#backgroundSupported = input.backgroundSupported;
+    this.#physicalModifierCodes = input.physicalModifierCodes;
     this.#createInputSequence = input.createInputSequence ?? randomUUID;
     this.#pending = new ChromiumTrustedInputPendingLane({
       nowMs: this.#nowMs,
@@ -428,6 +410,9 @@ implements ChromiumNativeTrustedInputPort {
     });
     this.#unsubscribeLifecycle = this.#surfaces.subscribeTrustedInputLifecycle(
       (event) => this.#onSurfaceLifecycle(event)
+    );
+    this.#unsubscribeCdpTerminal = this.#cdp.subscribeTerminal(
+      (event) => this.#onCdpTerminal(event)
     );
   }
 
@@ -463,6 +448,7 @@ implements ChromiumNativeTrustedInputPort {
     let host: WindowsChromiumTrustedInputHostBinding | null;
     let probe: WindowsChromiumInputSurfaceProbeReceipt;
     let deliveryMode: WindowsChromiumInputDeliveryMode;
+    let nativePhysicalModifierCodes: readonly string[];
     let prepared: ReturnType<typeof prepareDispatch>;
     try {
       frame = this.#surfaces.currentTrustedInputFrame(
@@ -493,6 +479,14 @@ implements ChromiumNativeTrustedInputPort {
         host.identity,
         deliveryMode
       );
+      const observedPhysicalModifierCodes = this.#physicalModifierCodes();
+      if (!validChromiumPhysicalModifierCodes(observedPhysicalModifierCodes)) {
+        fail(
+          "SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID",
+          "The Windows host returned malformed physical modifier evidence."
+        );
+      }
+      nativePhysicalModifierCodes = Object.freeze([...observedPhysicalModifierCodes]);
       prepared = prepareDispatch(request, frame, this.#clicks);
     } catch (error) {
       const bridge = error instanceof RionBridgeError ? error : inputError(
@@ -534,8 +528,8 @@ implements ChromiumNativeTrustedInputPort {
       nextDomIndex: 0,
       nativeComplete: false,
       terminal: false,
-      lastNativeDispatchSequence: 0n,
-      physicalModifierCodes: Object.freeze([])
+      physicalModifierCodes: Object.freeze([]),
+      nativePhysicalModifierCodes
     };
     if (!this.#pending.add(pending)) {
       return Promise.resolve(this.#immediateFailure(request,
@@ -604,7 +598,7 @@ implements ChromiumNativeTrustedInputPort {
         pending.physicalModifierCodes,
         projectedCode
       );
-      this.#submitNative(pending);
+      void this.#submitCdp(pending);
       return true;
     }
     if (receipt.kind === "rejected") {
@@ -617,7 +611,7 @@ implements ChromiumNativeTrustedInputPort {
       );
       return true;
     }
-    if (receipt.kind !== "input" || pending.nativeSubmitted === 0 ||
+    if (receipt.kind !== "input" || !pending.nativeInvoked ||
       receipt.observedIndex !== pending.nextDomIndex ||
       !sameExpected(receipt, pending.expectedEvents[pending.nextDomIndex]!)) {
       this.#terminalizeMismatch(pending);
@@ -649,6 +643,7 @@ implements ChromiumNativeTrustedInputPort {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#unsubscribeLifecycle();
+    this.#unsubscribeCdpTerminal();
     if (this.#ipcMain) {
       this.#ipcMain.removeListener(
         CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
@@ -667,7 +662,7 @@ implements ChromiumNativeTrustedInputPort {
     }
   }
 
-  #submitNative(pending: PendingDispatch): void {
+  async #submitCdp(pending: PendingDispatch): Promise<void> {
     let liveFrame: ChromiumRoleOverlayFrameIdentity;
     let liveHost: WindowsChromiumTrustedInputHostBinding | null;
     let liveProbe: WindowsChromiumInputSurfaceProbeReceipt;
@@ -727,7 +722,23 @@ implements ChromiumNativeTrustedInputPort {
     // native edge and its receipt must still preserve this complete observation.
     pending.probe = liveProbe;
     try {
-      for (const [index, transition] of pending.nativeTransitions.entries()) {
+      const observed = this.#physicalModifierCodes();
+      if (!validChromiumPhysicalModifierCodes(observed) ||
+        observed.join("\n") !== pending.nativePhysicalModifierCodes.join("\n")) {
+        throw new Error("The physical modifier snapshot changed before CDP submission.");
+      }
+    } catch {
+      this.#terminalize(
+        pending,
+        "superseded",
+        "BROWSER_ACTION_STALE",
+        "The Windows physical modifier state changed before CDP submission.",
+        pending.request.expectedInputNeutralityBefore
+      );
+      return;
+    }
+    try {
+      for (const transition of pending.nativeTransitions) {
         if (pending.terminal) return;
         if (!pending.host.native.isInputReady(
           pending.host.identity,
@@ -746,70 +757,74 @@ implements ChromiumNativeTrustedInputPort {
           );
           return;
         }
-        const nativeRequestId = `${pending.inputSequence}-${index + 1}`;
         if (transition.type === "key") {
           const physicalCodes = isChromiumModifierCode(transition.code)
             ? pending.physicalModifierCodes.filter(code => code !== transition.code)
             : pending.physicalModifierCodes;
-          const modifiers = keyModifiers([
+          const activeCodes = Object.freeze([...new Set([
             ...transition.modifierCodes,
-            ...physicalCodes
-          ]);
+            ...physicalCodes,
+            ...(transition.eventType === "rawKeyDown" ? [transition.code] : [])
+          ])]);
           pending.nativeInvoked = true;
-          const receipt = pending.host.native.submitNativeBackgroundKey(
-            pending.host.identity,
-            {
-              requestId: nativeRequestId,
-              roleId: pending.request.roleId,
-              surfaceGeneration: pending.request.surfaceGeneration,
-              inputEpoch: String(pending.request.inputEpoch),
-              deadlineMs: String(pending.request.deadlineMs),
-              deliveryMode: pending.deliveryMode,
-              eventType: transition.eventType,
-              code: transition.code,
-              ctrl: modifiers.ctrlKey,
-              alt: modifiers.altKey,
-              shift: modifiers.shiftKey,
-              meta: modifiers.metaKey,
-              repeat: transition.repeat
-            }
-          );
-          pending.lastNativeDispatchSequence = validateNativeBase(
-            pending,
-            receipt,
-            nativeRequestId,
-            1
-          );
-          this.#validateKeyReceipt(pending, transition, receipt, modifiers);
+          const receipt = await this.#cdp.dispatchKey(pending.frame, {
+            phase: transition.eventType,
+            code: transition.code,
+            activeCodesBefore: [...activeCodes],
+            activeCodes: [...activeCodes],
+            autoRepeat: transition.repeat,
+            suppressShortcut: true
+          });
+          if (receipt.acceptedCommandCount !== 1 ||
+            receipt.requiresTrustedDomReceipt !== true) {
+            throw new Error("CDP did not accept the exact key command.");
+          }
         } else {
           pending.nativeInvoked = true;
-          const receipt = pending.host.native.submitNativeBackgroundMouse(
-            pending.host.identity,
-            {
-              requestId: nativeRequestId,
-              roleId: pending.request.roleId,
-              surfaceGeneration: pending.request.surfaceGeneration,
-              inputEpoch: String(pending.request.inputEpoch),
-              deadlineMs: String(pending.request.deadlineMs),
-              deliveryMode: pending.deliveryMode,
+          pending.expectedEvents = Object.freeze(pending.expectedEvents.map(event =>
+            Object.freeze({
+              ...event,
               clientX: transition.clientX,
-              clientY: transition.clientY,
-              zoomFactor: transition.zoomFactor,
-              button: transition.button,
-              ctrl: keyModifiers(pending.physicalModifierCodes).ctrlKey,
-              alt: keyModifiers(pending.physicalModifierCodes).altKey,
-              shift: keyModifiers(pending.physicalModifierCodes).shiftKey,
-              meta: keyModifiers(pending.physicalModifierCodes).metaKey
-            }
-          );
-          pending.lastNativeDispatchSequence = validateNativeBase(
-            pending,
-            receipt,
-            nativeRequestId,
-            2
-          );
-          this.#validateMouseReceipt(pending, transition, receipt);
+              clientY: transition.clientY
+            })
+          ));
+          const receipt = await this.#cdp.dispatchMouse(pending.frame, {
+            x: transition.clientX,
+            y: transition.clientY,
+            button: transition.button === 0 ? "left"
+              : transition.button === 1 ? "middle" : "right",
+            modifierCodes: pending.physicalModifierCodes
+          });
+          if (receipt.acceptedCommandCount !== 2 ||
+            receipt.requiresTrustedDomReceipt !== true) {
+            throw new Error("CDP did not accept the exact mouse command pair.");
+          }
         }
+        if (!pending.host.native.isInputReady(
+          pending.host.identity,
+          pending.deliveryMode
+        )) {
+          throw new Error("Windows input ownership changed during CDP submission.");
+        }
+        const afterProbe = validateProbe(
+          pending.host.native.probeExactInputSurface(
+            pending.host.identity,
+            pending.deliveryMode
+          ),
+          pending.host.identity,
+          pending.deliveryMode
+        );
+        if (chromiumViewInputArmingKey(afterProbe.observation) !==
+          chromiumViewInputArmingKey(pending.probe.observation)) {
+          throw new Error("Windows foreground ownership changed during CDP submission.");
+        }
+        const afterPhysicalModifiers = this.#physicalModifierCodes();
+        if (!validChromiumPhysicalModifierCodes(afterPhysicalModifiers) ||
+          afterPhysicalModifiers.join("\n") !==
+            pending.nativePhysicalModifierCodes.join("\n")) {
+          throw new Error("Windows physical modifiers changed during CDP submission.");
+        }
+        pending.probe = afterProbe;
         pending.nativeSubmitted += 1;
       }
       pending.nativeComplete = true;
@@ -827,68 +842,6 @@ implements ChromiumNativeTrustedInputPort {
         !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
     }
-  }
-
-  #validateKeyReceipt(
-    pending: PendingDispatch,
-    transition: Extract<NativeTransition, { type: "key" }>,
-    receipt: WindowsNativeTrustedKeySubmissionReceipt,
-    modifiers: ReturnType<typeof keyModifiers>
-  ): void {
-    if (
-      receipt.eventType !== transition.eventType || receipt.code !== transition.code ||
-      receipt.ctrl !== modifiers.ctrlKey || receipt.alt !== modifiers.altKey ||
-      receipt.shift !== modifiers.shiftKey || receipt.meta !== modifiers.metaKey ||
-      receipt.repeat !== transition.repeat ||
-      receipt.dispatchedEventCount !== 1 ||
-      receipt.probeRevision !== pending.probe.probeRevision
-    ) {
-      fail(
-        "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-        "The Chromium key receipt does not match the exact native transition."
-      );
-    }
-  }
-
-  #validateMouseReceipt(
-    pending: PendingDispatch,
-    transition: Extract<NativeTransition, { type: "mouse" }>,
-    receipt: WindowsNativeTrustedMouseSubmissionReceipt
-  ): void {
-    const expectedModifiers = keyModifiers(pending.physicalModifierCodes);
-    const nativePointValid = Number.isSafeInteger(receipt.inputX) &&
-      receipt.inputX >= 0 && receipt.inputX === Math.round(transition.clientX * transition.zoomFactor) &&
-      Number.isSafeInteger(receipt.inputY) &&
-      receipt.inputY >= 0 && receipt.inputY === Math.round(transition.clientY * transition.zoomFactor);
-    const domPointValid = Number.isFinite(receipt.expectedDomClientX) &&
-      receipt.expectedDomClientX >= 0 && receipt.expectedDomClientX <= 1_000_000 &&
-      Number.isFinite(receipt.expectedDomClientY) &&
-      receipt.expectedDomClientY >= 0 && receipt.expectedDomClientY <= 1_000_000 &&
-      receipt.expectedDomClientX === Math.floor(receipt.inputX / transition.zoomFactor) &&
-      receipt.expectedDomClientY === Math.floor(receipt.inputY / transition.zoomFactor);
-    if (
-      receipt.button !== transition.button || receipt.clientX !== transition.clientX ||
-      receipt.clientY !== transition.clientY ||
-      receipt.zoomFactor !== transition.zoomFactor ||
-      receipt.ctrl !== expectedModifiers.ctrlKey ||
-      receipt.alt !== expectedModifiers.altKey ||
-      receipt.shift !== expectedModifiers.shiftKey ||
-      receipt.meta !== expectedModifiers.metaKey ||
-      receipt.dispatchedEventCount !== 2 || !nativePointValid || !domPointValid ||
-      receipt.probeRevision !== pending.probe.probeRevision
-    ) {
-      fail(
-        "SYSTEM_TRUSTED_INPUT_NATIVE_RECEIPT_INVALID",
-        "The Chromium mouse receipt does not match the exact CSS-to-native point."
-      );
-    }
-    pending.expectedEvents = Object.freeze(pending.expectedEvents.map(event =>
-      Object.freeze({
-        ...event,
-        clientX: receipt.expectedDomClientX,
-        clientY: receipt.expectedDomClientY
-      })
-    ));
   }
 
   #maybeApply(pending: PendingDispatch): void {
@@ -929,5 +882,20 @@ implements ChromiumNativeTrustedInputPort {
 
   #onSurfaceLifecycle(event: ChromiumRoleOverlayLifecycleEvent): void {
     this.#pending.surfaceChanged(event);
+  }
+
+  #onCdpTerminal(event: ChromiumCdpInputTerminalEvent): void {
+    const pending = this.#pending.forRole(event.identity.roleId);
+    if (!pending || pending.terminal ||
+      pending.frame.generation !== event.identity.surfaceGeneration ||
+      pending.frame.documentInstanceId !== event.identity.documentInstanceId ||
+      pending.frame.frameToken !== event.identity.frameToken) return;
+    this.#terminalize(
+      pending,
+      pending.nativeInvoked ? "indeterminate" : "superseded",
+      "SYSTEM_TRUSTED_INPUT_CDP_SESSION_TERMINATED",
+      `The exact CDP Input session terminalized: ${event.reason}.`,
+      !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
+    );
   }
 }

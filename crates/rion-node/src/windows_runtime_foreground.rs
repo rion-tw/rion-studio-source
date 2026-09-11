@@ -16,6 +16,42 @@ pub struct WindowsRuntimeForegroundReadback {
     pub parent_minimized: bool,
 }
 
+#[cfg(windows)]
+#[napi(js_name = "readWindowsPhysicalModifierCodes")]
+pub fn read_windows_physical_modifier_codes() -> Vec<String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU,
+        VK_RSHIFT, VK_RWIN,
+    };
+    let keys = [
+        (VK_LCONTROL, "ControlLeft"),
+        (VK_RCONTROL, "ControlRight"),
+        (VK_LMENU, "AltLeft"),
+        (VK_RMENU, "AltRight"),
+        (VK_LSHIFT, "ShiftLeft"),
+        (VK_RSHIFT, "ShiftRight"),
+        (VK_LWIN, "MetaLeft"),
+        (VK_RWIN, "MetaRight"),
+    ];
+    keys.into_iter()
+        .filter(|(key, _)| {
+            // SAFETY: GetAsyncKeyState is a read-only query for a fixed
+            // virtual-key constant and does not retain the argument.
+            unsafe { GetAsyncKeyState(key.0 as i32) < 0 }
+        })
+        .map(|(_, code)| code.to_owned())
+        .collect()
+}
+
+#[cfg(not(windows))]
+#[napi(js_name = "readWindowsPhysicalModifierCodes")]
+pub fn read_windows_physical_modifier_codes() -> Result<Vec<String>> {
+    Err(probe_error(
+        Status::GenericFailure,
+        "Physical Windows modifier readback is available only on Windows.",
+    ))
+}
+
 #[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct WindowsRuntimeForegroundFacts {

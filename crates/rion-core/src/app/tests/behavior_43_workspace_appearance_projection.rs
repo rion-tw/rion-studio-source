@@ -6,9 +6,10 @@ fn workspace_appearance_patch(gap: u32) -> CoreCommand {
 }
 
 fn workspace_appearance_core(platform: &str) -> (TempDir, Arc<AppCore>) {
-    let (directory, core) = core_for_runtime_contract(platform, 29);
+    let (directory, core) =
+        core_for_runtime_contract(platform, crate::CHROMIUM_RUNTIME_CONTRACT_VERSION);
     let mut registration = chromium_registration(platform, true);
-    registration.contract_version = 29;
+    registration.contract_version = crate::CHROMIUM_RUNTIME_CONTRACT_VERSION;
     core.invoke(CoreCommand::BrowserRuntimeRegister {
         registration,
     })

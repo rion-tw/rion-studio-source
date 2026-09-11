@@ -303,6 +303,7 @@ class FakeBrowserWindows {
 }
 
 class FakeRuntimeForegroundProbe implements WindowsRuntimeForegroundProbePort {
+  readonly readWindowsPhysicalModifierCodes = vi.fn(() => []);
   parentWasForeground = false;
   parentVisible = false;
   parentMinimized = false;

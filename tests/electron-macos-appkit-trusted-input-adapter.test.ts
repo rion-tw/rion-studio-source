@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import type { BrowserAction } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
 
@@ -17,8 +15,7 @@ import {
   type AppKitNativeKeySubmissionReceipt,
   type AppKitNativeMouseSubmissionReceipt,
   type MacosAppKitTrustedInputIpcEventPort,
-  type MacosAppKitTrustedInputIpcMainPort,
-  type RawNativeAppKitTrustedInputHost
+  type MacosAppKitTrustedInputIpcMainPort
 } from "../src/electron/main/macosAppKitTrustedInputAdapter";
 import type {
   ChromiumRoleOverlayFrameIdentity,
@@ -121,6 +118,7 @@ function harness(options: Readonly<{
   const mouseSubmissions: unknown[] = [];
   const mouseReceipts: AppKitNativeMouseSubmissionReceipt[] = [];
   let nativeFocusNeutral = true;
+  let nativePhysicalModifierCodes: readonly string[] = [];
   let nativeMouseOffset = { x: 0, y: 0 };
   let nativeAppKitPointOffset = { x: 0, y: 0 };
   const zoomFactor = options.zoomFactor ?? 1.25;
@@ -132,11 +130,30 @@ function harness(options: Readonly<{
   const slotOffset = options.slotOffset ?? { x: 73, y: 57 };
   const targetFlipped = options.targetFlipped ?? true;
   const native = {
+    probeCdpInputSurface: () => ({
+      roleId: "role-1",
+      surfaceGeneration: 1,
+      nativeGeneration: 1,
+      targetAttached: true,
+      targetWindowIsKey: false,
+      keyWindowAddress: "11",
+      keyWindowFirstResponderAddress: "12",
+      targetWindowAddress: "13",
+      targetWindowFirstResponderAddress: nativeFocusNeutral ? "14" : "15",
+      physicalModifierCodes: nativePhysicalModifierCodes,
+      targetX: 0,
+      targetY: 0,
+      targetWidth: 800,
+      targetHeight: 560
+    }),
     submitNativeBackgroundKey: (
       _expected: typeof identity,
-      request: Parameters<RawNativeAppKitTrustedInputHost[
-        "submitNativeBackgroundKey"
-      ]>[1]
+      request: Readonly<{
+        requestId: string; roleId: string; surfaceGeneration: number;
+        inputEpoch: string; deadlineMs: string;
+        eventType: "rawKeyDown" | "keyUp"; code: string;
+        modifierFlags: number; repeat: boolean;
+      }>
     ): AppKitNativeKeySubmissionReceipt => {
       keySubmissions.push(request);
       dispatchSequence += 1;
@@ -174,9 +191,12 @@ function harness(options: Readonly<{
     },
     submitNativeBackgroundMouse: (
       _expected: typeof identity,
-      request: Parameters<RawNativeAppKitTrustedInputHost[
-        "submitNativeBackgroundMouse"
-      ]>[1]
+      request: Readonly<{
+        requestId: string; roleId: string; surfaceGeneration: number;
+        inputEpoch: string; deadlineMs: string; clientX: number;
+        clientY: number; zoomFactor: number; button: number;
+        modifierFlags: number;
+      }>
     ): AppKitNativeMouseSubmissionReceipt => {
       mouseSubmissions.push(request);
       dispatchSequence += 1;
@@ -225,6 +245,64 @@ function harness(options: Readonly<{
       return receipt;
     }
   };
+  const cdpTerminalListeners = new Set<(event: never) => void>();
+  const cdp = {
+    dispatchKey: async (_frame: unknown, effect: Readonly<{
+      phase: "rawKeyDown" | "keyUp";
+      code: string;
+      activeCodes: readonly string[];
+      autoRepeat: boolean;
+    }>) => {
+      const flags = effect.activeCodes.reduce((value, code) => value |
+        (code.startsWith("Shift") ? 1 << 17
+          : code.startsWith("Control") ? 1 << 18
+            : code.startsWith("Alt") ? 1 << 19
+              : code.startsWith("Meta") ? 1 << 20 : 0), 0);
+      native.submitNativeBackgroundKey(identity, {
+        requestId: `cdp-${keySubmissions.length + 1}`,
+        roleId: "role-1",
+        surfaceGeneration: 1,
+        inputEpoch: "7",
+        deadlineMs: String(nowMs + 1_000),
+        eventType: effect.phase,
+        code: effect.code,
+        modifierFlags: flags,
+        repeat: effect.autoRepeat
+      });
+      return { roleId: "role-1", surfaceGeneration: 1,
+        documentInstanceId: "document-1", acceptedCommandCount: 1,
+        requiresTrustedDomReceipt: true as const };
+    },
+    dispatchMouse: async (_frame: unknown, input: Readonly<{
+      x: number; y: number; button: "left" | "middle" | "right";
+      modifierCodes: readonly string[];
+    }>) => {
+      const flags = input.modifierCodes.reduce((value, code) => value |
+        (code.startsWith("Shift") ? 1 << 17
+          : code.startsWith("Control") ? 1 << 18
+            : code.startsWith("Alt") ? 1 << 19
+              : code.startsWith("Meta") ? 1 << 20 : 0), 0);
+      native.submitNativeBackgroundMouse(identity, {
+        requestId: `cdp-mouse-${mouseSubmissions.length + 1}`,
+        roleId: "role-1",
+        surfaceGeneration: 1,
+        inputEpoch: "7",
+        deadlineMs: String(nowMs + 1_000),
+        clientX: input.x,
+        clientY: input.y,
+        zoomFactor,
+        button: input.button === "left" ? 0 : input.button === "middle" ? 1 : 2,
+        modifierFlags: flags
+      });
+      return { roleId: "role-1", surfaceGeneration: 1,
+        documentInstanceId: "document-1", acceptedCommandCount: 2,
+        requiresTrustedDomReceipt: true as const };
+    },
+    subscribeTerminal: (listener: (event: never) => void) => {
+      cdpTerminalListeners.add(listener);
+      return () => { cdpTerminalListeners.delete(listener); };
+    }
+  };
   let ipcListener: ((event: MacosAppKitTrustedInputIpcEventPort, value: unknown) => void)
     | null = null;
   const ipcMain: MacosAppKitTrustedInputIpcMainPort = {
@@ -251,6 +329,7 @@ function harness(options: Readonly<{
         return () => { lifecycle = null; };
       }
     },
+    cdp,
     clicks: { resolve: () => resolvedClick },
     nowMs: () => nowMs,
     timers: {
@@ -315,6 +394,7 @@ function harness(options: Readonly<{
   };
   return {
     adapter,
+    cdp,
     arm,
     cancelTimer,
     controls,
@@ -328,6 +408,9 @@ function harness(options: Readonly<{
     keySubmissions,
     mouseReceipts,
     mouseSubmissions,
+    setNativePhysicalModifierCodes: (codes: readonly string[]) => {
+      nativePhysicalModifierCodes = Object.freeze([...codes]);
+    },
     setNativeFocusNeutral: (value: boolean) => { nativeFocusNeutral = value; },
     setNativeMouseOffset: (x: number, y: number) => {
       nativeMouseOffset = { x, y };
@@ -343,38 +426,11 @@ function harness(options: Readonly<{
 }
 
 describe("macOS AppKit trusted-input adapter", () => {
-  it("accepts exactly the UI key codes with stable macOS virtual keys", async () => {
+  it("accepts every CDP-backed UI key code on macOS", async () => {
     const supported = new Set<string>(MACOS_APPKIT_TRUSTED_KEY_CODES);
-    const nativeSource = readFileSync(new URL(
-      "../crates/rion-appkit/native/macos/RionRuntimeTabsController/09_chromium_surface_probe.mm",
-      import.meta.url
-    ), "utf8");
-    const matrixStart = nativeSource.indexOf("codes = @{");
-    const matrixEnd = nativeSource.indexOf("\n    };", matrixStart);
-    const nativeCodes = [...nativeSource.slice(matrixStart, matrixEnd)
-      .matchAll(/@"([A-Za-z0-9]+)":/gu)]
-      .map((match) => match[1]!);
-
-    expect(matrixStart).toBeGreaterThanOrEqual(0);
-    expect(matrixEnd).toBeGreaterThan(matrixStart);
-    expect([...nativeCodes].sort()).toEqual([...supported].sort());
-    expect(commonMacroKeyCodes.filter((code) => !supported.has(code))).toEqual([
-      "F21",
-      "F22",
-      "F23",
-      "F24"
-    ]);
-    const targetCollector = nativeSource.slice(
-      nativeSource.indexOf("static void RionCollectChromiumRendererTargets"),
-      nativeSource.indexOf("extern \"C\" int32_t rion_appkit_dispatch_chromium_key")
-    );
-    expect(targetCollector).toContain(
-      'isEqualToString:@"RenderWidgetHostViewCocoa"] &&'
-    );
-    expect(targetCollector).toContain("view.acceptsFirstResponder && view.window");
-    expect(targetCollector).not.toContain("!view.hidden");
+    expect(commonMacroKeyCodes.every((code) => supported.has(code))).toBe(true);
     expect(MACOS_APPKIT_TRUSTED_KEY_CODES).toEqual([
-      ...commonMacroKeyCodes.filter((code) => !/^F2[1-4]$/u.test(code)),
+      ...commonMacroKeyCodes,
       "ControlLeft", "ControlRight", "AltLeft", "AltRight",
       "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
     ]);
@@ -396,7 +452,7 @@ describe("macOS AppKit trusted-input adapter", () => {
     }
   });
 
-  it.each(["F21", "F22", "F23", "F24", "Numpad0"])(
+  it.each(["Numpad0"])(
     "rejects unsupported Core DOM code %s before preload arming or native submission",
     async (code) => {
       const subject = harness();
@@ -434,6 +490,7 @@ describe("macOS AppKit trusted-input adapter", () => {
     const subject = harness();
     const completion = subject.adapter.dispatch(nativeRequest("tap-1", keyAction()));
     const control = subject.arm();
+    await Promise.resolve();
     expect(control.shortcutSuppression).toEqual({
       code: "KeyA",
       phases: ["keydown", "keyup"],
@@ -454,11 +511,13 @@ describe("macOS AppKit trusted-input adapter", () => {
 
   it("preserves physical modifier flags on key and mouse submissions", async () => {
     const keySubject = harness();
+    keySubject.setNativePhysicalModifierCodes(["ControlRight"]);
     const keyCompletion = keySubject.adapter.dispatch(nativeRequest(
       "physical-key",
       { ...keyAction(), modifiers: [] }
     ));
     const keyControl = keySubject.arm(["ControlRight"]);
+    await Promise.resolve();
     expect(keySubject.keySubmissions).toEqual([
       expect.objectContaining({ modifierFlags: 1 << 18 }),
       expect.objectContaining({ modifierFlags: 1 << 18 })
@@ -473,6 +532,7 @@ describe("macOS AppKit trusted-input adapter", () => {
     await expect(keyCompletion).resolves.toMatchObject({ status: "applied" });
 
     const mouseSubject = harness();
+    mouseSubject.setNativePhysicalModifierCodes(["ShiftLeft"]);
     const mouseCompletion = mouseSubject.adapter.dispatch(nativeRequest(
       "physical-mouse",
       clickAction("left")
@@ -613,9 +673,11 @@ describe("macOS AppKit trusted-input adapter", () => {
     expect(subject.mouseSubmissions).toHaveLength(0);
   });
 
-  it("quarantines a native mouse receipt for any CSS point other than the submission", async () => {
+  it("quarantines a rejected CDP mouse command after invocation", async () => {
     const subject = harness();
-    subject.setNativeMouseOffset(1, 0);
+    vi.spyOn(subject.cdp, "dispatchMouse").mockRejectedValueOnce(
+      new Error("CDP rejected the point")
+    );
     const completion = subject.adapter.dispatch(
       nativeRequest("wrong-click-point", clickAction())
     );
@@ -628,9 +690,11 @@ describe("macOS AppKit trusted-input adapter", () => {
     });
   });
 
-  it("quarantines a native mouse receipt with the wrong CSS-to-AppKit scaling", async () => {
+  it("does not fall back to AppKit when CDP mouse submission fails", async () => {
     const subject = harness({ zoomFactor: 1.25 });
-    subject.setNativeAppKitPointOffset(1, 0);
+    vi.spyOn(subject.cdp, "dispatchMouse").mockRejectedValueOnce(
+      new Error("CDP unavailable")
+    );
     const completion = subject.adapter.dispatch(
       nativeRequest("wrong-native-point", clickAction())
     );
@@ -691,9 +755,11 @@ describe("macOS AppKit trusted-input adapter", () => {
     expect(subject.adapter.receive(subject.event, subject.domReceipt(control, 1))).toBe(false);
   });
 
-  it("quarantines a native invocation without exact focus-neutral evidence", async () => {
+  it("quarantines an invoked CDP key command that rejects", async () => {
     const subject = harness();
-    subject.setNativeFocusNeutral(false);
+    vi.spyOn(subject.cdp, "dispatchKey").mockRejectedValueOnce(
+      new Error("debugger detached")
+    );
     const completion = subject.adapter.dispatch(nativeRequest("neutrality-1", keyAction()));
     subject.arm();
     await expect(completion).resolves.toMatchObject({
@@ -754,6 +820,32 @@ describe("macOS AppKit trusted-input adapter", () => {
     });
     subject.receiptAll(nextControl);
     await expect(next).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("fails neutrally when the preload never acknowledges arming", async () => {
+    const subject = harness();
+    const result = subject.adapter.dispatch(nativeRequest("arm-lost", keyAction()));
+    subject.fireDeadline();
+
+    await expect(result).resolves.toMatchObject({
+      status: "failed",
+      errorCode: "ELECTRON_MACOS_APPKIT_INPUT_ARM_RECEIPT_DEADLINE",
+      confirmedInputNeutrality: true
+    });
+    expect(subject.keySubmissions).toHaveLength(0);
+  });
+
+  it("terminalizes changed AppKit focus proof after CDP acceptance", async () => {
+    const subject = harness();
+    const result = subject.adapter.dispatch(nativeRequest("focus-changed", keyAction("hold")));
+    subject.arm();
+    subject.setNativeFocusNeutral(false);
+
+    await expect(result).resolves.toMatchObject({
+      status: "indeterminate",
+      errorCode: "SYSTEM_TRUSTED_INPUT_PARTIAL_NATIVE_SUBMISSION",
+      confirmedInputNeutrality: false
+    });
   });
 
   it("proves focus readiness without changing native focus or forging input", async () => {

@@ -24,9 +24,13 @@ import type {
 } from "./windowsChromiumTrustedInputContract";
 import type { ChromiumEmbeddedInputCorePort } from
   "./chromiumTrustedInputSequenceExecutor";
+import {
+  ChromiumCdpInputTransport,
+  type ChromiumCdpInputSurfacePort
+} from "./chromiumCdpInputTransport";
 
 export interface WindowsChromiumTrustedInputRuntimeSurfacePort
-  extends WindowsChromiumTrustedInputSurfacePort {
+  extends WindowsChromiumTrustedInputSurfacePort, ChromiumCdpInputSurfacePort {
   resolveInputSurface: ChromiumTrustedInputSurfacePort["resolveInputSurface"];
   resolveTrustedInputClick:
     WindowsChromiumTrustedInputClickResolverPort["resolve"];
@@ -131,21 +135,31 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
         );
       }
       created = true;
+      const cdp = new ChromiumCdpInputTransport({
+        platform: "win32",
+        surfaces
+      });
       const native = new WindowsChromiumTrustedInputAdapter({
         hosts,
         surfaces,
+        cdp,
         clicks: {
           resolve: (request, frame) =>
             surfaces.resolveTrustedInputClick(request, frame)
         },
         nowMs: configuration.nowMs,
         deadlines: configuration.deadlines,
-        backgroundSupported
+        backgroundSupported,
+        physicalModifierCodes: configuration.addon.readWindowsPhysicalModifierCodes
       });
       try {
         native.register(configuration.ipcMain);
       } catch (error) {
-        native.dispose();
+        try {
+          native.dispose();
+        } finally {
+          cdp.dispose();
+        }
         throw error;
       }
       const coordinator = new ChromiumTrustedInputCoordinator({
@@ -184,9 +198,13 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
           try {
             await coordinator.dispose();
           } finally {
-            native.dispose();
-            focus.dispose();
-            await attachments.dispose();
+            try {
+              native.dispose();
+            } finally {
+              cdp.dispose();
+              focus.dispose();
+              await attachments.dispose();
+            }
           }
         }
       } satisfies ChromiumRuntimeTrustedInputPort);

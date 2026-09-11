@@ -94,11 +94,10 @@ describe("macroUtils", () => {
     expect(commonMacroKeyCodes).toContain("F2");
   });
 
-  it("blocks new macOS F21-F24 choices while preserving a loaded value", () => {
+  it("offers CDP-backed F21-F24 creation on macOS and Windows", () => {
     expect(isMacroKeyCodeSupportedForCreation("F20", "mac")).toBe(true);
-    expect(isMacroKeyCodeSupportedForCreation("F21", "mac")).toBe(false);
-    expect(selectableMacroKeyCodes(undefined, "mac")).not.toContain("F24");
-    expect(selectableMacroKeyCodes("F24", "mac")[0]).toBe("F24");
+    expect(isMacroKeyCodeSupportedForCreation("F21", "mac")).toBe(true);
+    expect(selectableMacroKeyCodes(undefined, "mac")).toContain("F24");
     expect(selectableMacroKeyCodes(undefined, "windows")).toContain("F24");
   });
 

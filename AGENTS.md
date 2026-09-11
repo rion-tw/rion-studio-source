@@ -21,16 +21,22 @@ then follow the scoped `AGENTS.md` nearest the files you edit.
   managed role stores, runtime topology, operation terminality, and macro
   scheduling. Electron owns Chromium sessions and non-serializable WebContents
   handles and applies revision-fenced Rust projections. On macOS, the existing
-  AppKit-native game-window/tab presentation, gestures, and trusted-input adapter
-  remain product requirements; the migration replaces WKWebView, not AppKit.
+  AppKit-native game-window/tab presentation, gestures, host identity, physical
+  modifier observation, and focus-neutrality proof remain product requirements;
+  in-process CDP Input owns only the final Chromium key/mouse submission.
 - The renderer calls only the typed `window.rionStudio` bridge. It must not import
   Node APIs, Electron internals, Tauri internals, or browser automation clients.
 - Shared contracts under `src/shared` are the source of truth across Rust, the
   transition shells, the renderer, and tests.
 - The runtime is Electron-bundled Chromium on both platforms, retaining the
-  macOS 14+ AppKit host. External Chrome, a remote
-  debugging port, CDN rewriting, and a user's Chrome profile as a live runtime
-  remain forbidden.
+  macOS 14+ AppKit host. External Chrome, `--remote-debugging-port`,
+  `--remote-debugging-pipe`, external CDP clients, renderer/preload debugger
+  access, CDN rewriting, and a user's Chrome profile as a live runtime remain
+  forbidden. Electron main may attach `webContents.debugger` only to the exact
+  managed Role WebContents and only through the fixed
+  `Input.dispatchKeyEvent`/`Input.dispatchMouseEvent` allowlist. A detach is a
+  terminal input event; arbitrary methods, reconnect, and transport fallback
+  are forbidden.
 - Target macOS runtime code must adapt Chromium surfaces to the retained AppKit
   host boundary. It must not replace native AppKit game-window/tab chrome with
   HTML chrome or a generic cross-platform BrowserWindow-only implementation.

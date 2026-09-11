@@ -11,6 +11,7 @@ import type {
 } from "./chromiumRoleSessionRegistry";
 import type { SandboxedRemoteContentWebPreferences } from "./security";
 import type { ChromiumWindowOpenDetails } from "./chromiumPopupPorts";
+import type { ChromiumCdpDebuggerPort } from "./chromiumCdpInputSession";
 
 export interface ChromiumRoleSurfaceBounds {
   readonly x: number;
@@ -89,6 +90,7 @@ export interface ChromiumRoleSurfaceEventMap {
 }
 
 export interface ChromiumRoleSurfaceWebContentsPort {
+  readonly debugger?: ChromiumCdpDebuggerPort;
   focus?: () => void;
   isFocused?: () => boolean;
   sendInputEvent?: (event: KeyboardInputEvent | MouseInputEvent) => void;

@@ -2,7 +2,9 @@
 const { app, BrowserWindow, WebContentsView, webContents } = require("electron");
 const { writeFile } = require("node:fs/promises");
 const { resolve } = require("node:path");
-const { sendChromiumKey, sendChromiumClick, ChromiumViewAttachmentCoordinator, ChromiumViewTrustedInputHost, ChromiumViewFocusAdmission } = require("./electronLoadChromiumInputOwner.cjs");
+const { sendChromiumKey, sendChromiumClick, ChromiumViewAttachmentCoordinator,
+  ChromiumViewInputSubmission, ChromiumViewTrustedInputHost,
+  ChromiumViewFocusAdmission } = require("./electronLoadChromiumInputOwner.cjs");
 
 const [reportPath, userData, addonPath] = process.argv.slice(2);
 if (!reportPath || !userData || !["darwin", "win32"].includes(process.platform)) {
@@ -205,10 +207,22 @@ async function probe() {
         focus: request => focusAdmission.focus(request) });
       const bindingOwner = trustedHosts.resolve(roleId, 1);
       if (!bindingOwner) throw new Error("The direct View attachment did not establish input ownership.");
+      const exactAttachment = attachments.resolve(roleId, 1);
+      if (!exactAttachment) throw new Error("The validation baseline lost its exact View attachment.");
+      const baselineSubmission = new ChromiumViewInputSubmission({
+        identity: exactAttachment.identity,
+        nowMs: Date.now,
+        observe: exactAttachment.observe,
+        contents: {
+          get id() { return view.webContents.id; },
+          isDestroyed: () => view.webContents.isDestroyed(),
+          sendInputEvent: event => view.webContents.sendInputEvent(event)
+        }
+      });
       viewOwner = {
         focus: request => bindingOwner.native.focusForeground(bindingOwner.identity, request),
-        key: request => bindingOwner.native.submitNativeBackgroundKey(bindingOwner.identity, request),
-        click: request => bindingOwner.native.submitNativeBackgroundMouse(bindingOwner.identity, request)
+        key: request => baselineSubmission.key(request),
+        click: request => baselineSubmission.click(request)
       };
     }
     let directVisible = false;

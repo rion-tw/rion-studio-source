@@ -25,7 +25,8 @@ function configuration(): WindowsChromiumTrustedInputRuntimeConfiguration {
   return {
     nowMs: () => 1,
     addon: {
-      readWindowsRuntimeForeground: () => { throw new Error("No native parent in this fixture."); }
+      readWindowsRuntimeForeground: () => { throw new Error("No native parent in this fixture."); },
+      readWindowsPhysicalModifierCodes: () => []
     },
     focusedWebContentsId: () => null,
     deadlines: {
@@ -46,6 +47,9 @@ function surfaces(): WindowsChromiumTrustedInputRuntimeSurfacePort {
     },
     currentTrustedInputFrame: () => {
       throw new Error("no active frame");
+    },
+    currentCdpInputBinding: () => {
+      throw new Error("no active CDP binding");
     },
     resolveInputSurface: () => null,
     resolveTrustedInputClick: () => ({
@@ -137,7 +141,8 @@ describe("Windows Chromium trusted-input runtime composition", () => {
     const input = runtimeInput(capabilities("supported", "supported"), {
       ...configuration(), addon: { readWindowsRuntimeForeground: () => ({
         parentIdentity: "a".repeat(64), focusIdentity: "b".repeat(64), parentWasForeground: true,
-        parentVisible: true, parentMinimized: false }) }, focusedWebContentsId: () => 13
+        parentVisible: true, parentMinimized: false }),
+      readWindowsPhysicalModifierCodes: () => [] }, focusedWebContentsId: () => 13
     });
     const runtime = createWindowsChromiumTrustedInputRuntime({ ...input.value, parents: {
       resolve: () => ({ window: parent, logicalParent: parent,

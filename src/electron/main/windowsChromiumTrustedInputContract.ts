@@ -133,14 +133,6 @@ export interface RawNativeWindowsChromiumTrustedInputHost {
     expected: WindowsChromiumInputSurfaceIdentity,
     deliveryMode: WindowsChromiumInputDeliveryMode
   ) => WindowsChromiumInputSurfaceProbeReceipt;
-  submitNativeBackgroundKey: (
-    expected: WindowsChromiumInputSurfaceIdentity,
-    request: WindowsNativeTrustedKeyRequest
-  ) => WindowsNativeTrustedKeySubmissionReceipt;
-  submitNativeBackgroundMouse: (
-    expected: WindowsChromiumInputSurfaceIdentity,
-    request: WindowsNativeTrustedMouseRequest
-  ) => WindowsNativeTrustedMouseSubmissionReceipt;
 }
 
 export interface WindowsChromiumTrustedInputHostBinding {

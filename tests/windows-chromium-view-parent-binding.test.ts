@@ -17,7 +17,7 @@ describe("Windows public View parent binding", () => {
     const readWindowsRuntimeForeground = vi.fn(() => native);
     const binding = windowsChromiumViewParentBinding({ window,
       identity: { nativeGeneration: 2, ownerRevision: "3" } } as unknown as WindowsChromiumInputRuntimeParentBinding,
-    { readWindowsRuntimeForeground }, () => 12);
+    { readWindowsRuntimeForeground, readWindowsPhysicalModifierCodes: () => [] }, () => 12);
     return { events, handle, children, window, native, readWindowsRuntimeForeground, binding };
   }
   it("requires both native foreground proof and Electron parent state", () => {

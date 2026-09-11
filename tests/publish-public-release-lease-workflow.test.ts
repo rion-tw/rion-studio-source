@@ -53,6 +53,7 @@ describe("Electron durable public publisher", () => {
       source,
       "Independently reverify the staged input before the App private key"
     );
+    const install = source.indexOf("Install publication verification dependencies");
     const token = source.indexOf("Create the narrow public repository writer token");
 
     for (const releaseLookup of [capture, resolve]) {
@@ -81,6 +82,9 @@ describe("Electron durable public publisher", () => {
       "JSON.stringify(observed) !== JSON.stringify(receipt.documents)"
     );
     expect(source.indexOf(reverify)).toBeLessThan(token);
+    expect(source).toContain("pnpm install --frozen-lockfile --ignore-scripts");
+    expect(install).toBeGreaterThan(-1);
+    expect(install).toBeLessThan(token);
     expect(token).toBeGreaterThan(source.indexOf("stable-publication-input.json"));
     expect(resolve).toContain(
       'test "$(jq -r .draft private-release-api.json)" = "true"'

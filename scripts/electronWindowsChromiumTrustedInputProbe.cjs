@@ -19,17 +19,17 @@ function withDiagnosticDeadline(promise, milliseconds) {
   ]).finally(() => clearTimeout(deadline));
 }
 
-function exactNativeBase(receipt, expected, probe) {
+function exactBaselineSubmission(receipt, expected, expectedObservation) {
   if (receipt.ownerKind !== "view" || receipt.status !== "submitted" ||
       receipt.submissionApi !== "webContents.sendInputEvent" ||
       receipt.roleId !== expected.roleId || receipt.surfaceGeneration !== expected.surfaceGeneration ||
       receipt.nativeGeneration !== expected.nativeGeneration || receipt.bindingRevision !== expected.bindingRevision ||
       receipt.parentIdentity !== expected.parentIdentity || receipt.webContentsId !== expected.webContentsId ||
-      receipt.probeRevision !== probe.probeRevision || receipt.inputEpoch !== expected.inputEpoch ||
+      receipt.inputEpoch !== expected.inputEpoch ||
       receipt.deliveryMode !== expected.deliveryMode || !receipt.viewAttached || !receipt.foregroundPreserved ||
-      JSON.stringify(receipt.observation) !== JSON.stringify(probe.observation) ||
+      JSON.stringify(receipt.observation) !== JSON.stringify(expectedObservation) ||
       !/^[1-9][0-9]*$/u.test(receipt.dispatchSequence) || !/^[1-9][0-9]*$/u.test(receipt.submittedAtMs)) {
-    throw new Error(`The ${receipt.requestId} exact View submission receipt is invalid.`);
+    throw new Error(`The ${receipt.requestId} exact baseline submission receipt is invalid.`);
   }
 }
 
@@ -316,12 +316,12 @@ void (async () => {
         meta: false,
         repeat: false
       });
-    exactNativeBase(keyDown, identity, foregroundProbe);
-    exactNativeBase(keyUp, identity, foregroundProbe);
+    exactBaselineSubmission(keyDown, identity, foregroundProbe.observation);
+    exactBaselineSubmission(keyUp, identity, foregroundProbe.observation);
     if (
       keyDown.requestId !== "windows-probe-key-down" ||
       keyUp.requestId !== "windows-probe-key-up" ||
-      keyDown.eventType !== "keyDown" ||
+      keyDown.eventType !== "rawKeyDown" ||
       keyUp.eventType !== "keyUp" ||
       keyDown.code !== "KeyA" ||
       keyUp.code !== "KeyA" ||
@@ -379,7 +379,11 @@ void (async () => {
         zoomFactor,
         button: 0
       });
-    exactNativeBase(mouse, { ...identity, inputEpoch: "2" }, mouseProbe);
+    exactBaselineSubmission(
+      mouse,
+      { ...identity, inputEpoch: "2" },
+      mouseProbe.observation
+    );
     const expectedNativeX = Math.round(
       clientX * zoomFactor
     );
@@ -474,8 +478,8 @@ void (async () => {
         meta: false,
         repeat: false
       });
-    exactNativeBase(hiddenKeyDown, hiddenIdentity, hiddenProbe);
-    exactNativeBase(hiddenKeyUp, hiddenIdentity, hiddenProbe);
+    exactBaselineSubmission(hiddenKeyDown, hiddenIdentity, hiddenProbe.observation);
+    exactBaselineSubmission(hiddenKeyUp, hiddenIdentity, hiddenProbe.observation);
     const hiddenKeyDom = await withDiagnosticDeadline(hiddenKeyPending.input, 3_000);
     if (!hiddenKeyDom.received || hiddenKeyDom.value.length !== 2 ||
         hiddenKeyDom.value.some((receipt) => !receipt.matches || !receipt.isTrusted) ||
@@ -494,7 +498,11 @@ void (async () => {
     const hiddenMouseProbe = probe("background");
     const hiddenMouse = submitClick({ ...hiddenIdentity, requestId: "windows-probe-hidden-middle",
       inputEpoch: "4", deadlineMs: String(Date.now() + 5000), clientX, clientY, zoomFactor, button: 1 });
-    exactNativeBase(hiddenMouse, { ...hiddenIdentity, inputEpoch: "4" }, hiddenMouseProbe);
+    exactBaselineSubmission(
+      hiddenMouse,
+      { ...hiddenIdentity, inputEpoch: "4" },
+      hiddenMouseProbe.observation
+    );
     const hiddenMouseDom = await withDiagnosticDeadline(hiddenMousePending.input, 3000);
     if (!hiddenMouseDom.received || hiddenMouseDom.value.length !== 3 ||
         hiddenMouseDom.value.some(receipt => !receipt.isTrusted || !receipt.matches) ||

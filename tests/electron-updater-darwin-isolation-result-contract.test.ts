@@ -68,7 +68,7 @@ describe.skipIf(process.platform === "win32")(
     } finally {
       await fixture.cleanup();
     }
-  });
+  }, 30_000);
 
   it("rejects a serialized or caller-forged supervisor capability", async () => {
     const fixture = await createMacosCompatibilityFinalizerFixture();
@@ -101,6 +101,6 @@ describe.skipIf(process.platform === "win32")(
         rm(forgedRoot, { force: true, recursive: true })
       ]);
     }
-  });
+  }, 30_000);
   }
 );

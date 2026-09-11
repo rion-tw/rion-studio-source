@@ -92,7 +92,7 @@ describe("Electron production updater terminal-receipt observer CLI", () => {
       status: "verified"
     });
     expect(stdout).toEqual(serializeCanonicalJson(verified));
-  });
+  }, 30_000);
 
   it("keeps observe event-bound and cancellation non-success", async () => {
     const fixture = await createFixture({

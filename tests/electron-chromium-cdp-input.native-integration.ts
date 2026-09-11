@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 
@@ -13,7 +14,15 @@ it("records native parity for the production CDP Input transport", async () => {
   expect(["darwin", "win32"]).toContain(process.platform);
   const directory = await mkdtemp(join(tmpdir(), "rion-cdp-input-"));
   try {
-    const reportPath = join(directory, `chromium-cdp-input-${process.platform}.json`);
+    const configuredReportDirectory = process.env.RION_CHROMIUM_INPUT_REPORT_DIR;
+    const reportDirectory = configuredReportDirectory
+      ? resolve(configuredReportDirectory)
+      : directory;
+    await mkdir(reportDirectory, { recursive: true });
+    const reportPath = join(
+      reportDirectory,
+      `chromium-cdp-input-${process.platform}.json`
+    );
     await executeFile(require("electron") as string, [
       "scripts/probeChromiumCdpInput.cjs", reportPath, join(directory, "data")
     ], { timeout: 30_000, maxBuffer: 1024 * 1024 });
@@ -32,7 +41,10 @@ it("records native parity for the production CDP Input transport", async () => {
       "cdp-f21", "cdp-f22", "cdp-f23", "cdp-f24", "cdp-hidden-key"
     ]);
     for (const outcome of report.outcomes) {
-      expect(outcome.receipt.status).toBe("received");
+      expect(
+        outcome.receipt.status,
+        `${outcome.name}: ${JSON.stringify(outcome.receipt)}`
+      ).toBe("received");
       expect(outcome.before.hostFocused).toBe(outcome.after.hostFocused);
       expect(outcome.before.contentsFocused).toBe(outcome.after.contentsFocused);
       for (const event of outcome.receipt.events) expect(event.trusted).toBe(true);

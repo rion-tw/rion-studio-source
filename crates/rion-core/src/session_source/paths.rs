@@ -1,18 +1,25 @@
 use super::Result;
 use std::{
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
+
+#[cfg(not(windows))]
+use std::path::Component;
+
+#[cfg(any(windows, test))]
+fn contains_encoded_traversal(units: &[u16]) -> bool {
+    units
+        .split(|unit| *unit == b'/' as u16 || *unit == b'\\' as u16)
+        .any(|segment| segment == [b'.' as u16] || segment == [b'.' as u16, b'.' as u16])
+}
 
 #[cfg(windows)]
 fn contains_raw_traversal(path: &Path) -> bool {
     use std::os::windows::ffi::OsStrExt;
 
-    path.as_os_str()
-        .encode_wide()
-        .collect::<Vec<_>>()
-        .split(|unit| matches!(unit, b'/' | b'\\'))
-        .any(|segment| matches!(segment, [b'.' as u16] | [b'.' as u16, b'.' as u16]))
+    let units = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    contains_encoded_traversal(&units)
 }
 
 #[cfg(not(windows))]
@@ -140,6 +147,18 @@ pub(crate) fn files(root: &Path) -> Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoded_windows_paths_preserve_traversal_segments() {
+        for path in [r"C:\base\..\output", "C:/base/./output"] {
+            assert!(contains_encoded_traversal(
+                &path.encode_utf16().collect::<Vec<_>>()
+            ));
+        }
+        assert!(!contains_encoded_traversal(
+            &r"C:\base\output".encode_utf16().collect::<Vec<_>>()
+        ));
+    }
 
     #[test]
     fn existing_accepts_a_native_temporary_descendant() {

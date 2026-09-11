@@ -753,7 +753,10 @@ export async function dragWindowsVisibleWorkspaceDivider(
       .move({ duration: 250, origin: divider })
       .down("left")
       .move({
-        duration: 700,
+        // One exact destination event prevents an interpolated no-op move at
+        // the 16px host/child-WebContentsView boundary from terminalizing the
+        // native pointer-capture handoff before the requested snap changes.
+        duration: 0,
         origin: divider,
         x: exactAxis === "vertical" ? deltaCssPixels : 0,
         y: exactAxis === "horizontal" ? deltaCssPixels : 0

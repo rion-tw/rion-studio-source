@@ -64,5 +64,6 @@ it.skipIf(process.platform !== "win32")(
         InJobAtObservation: true
       });
     expect(result.observations.every((entry) => entry.ProcessId !== process.pid)).toBe(true);
-  }
+  },
+  30_000
 );

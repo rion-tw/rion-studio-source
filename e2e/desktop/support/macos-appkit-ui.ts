@@ -514,16 +514,11 @@ usleep(25_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
   mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
 usleep(25_000)
-for step in 1...8 {
-  let progress = CGFloat(step) / 8.0
-  let point = CGPoint(
-    x: start.x + (end.x - start.x) * progress,
-    y: start.y + (end.y - start.y) * progress
-  )
-  CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
-    mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-  usleep(25_000)
-}
+// A single exact destination is the authoritative AppKit drag sample. Avoid
+// intermediate samples inside Core's snap hysteresis: under CI load they can
+// be coalesced with mouse-up while leaving only an accepted no-op move.
+CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
+  mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
 usleep(25_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
   mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)

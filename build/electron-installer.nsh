@@ -30,7 +30,10 @@
 !define RION_TAURI_V22_INSTALL_REGISTRY_KEY "Software\rionstudio\Rion Studio"
 !define RION_TAURI_V22_UNINSTALL_REGISTRY_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Rion Studio"
 !define INSTALL_REGISTRY_KEY "${RION_TAURI_V22_INSTALL_REGISTRY_KEY}"
-!define UNINSTALL_REGISTRY_KEY_2 "${RION_TAURI_V22_UNINSTALL_REGISTRY_KEY}"
+; Keep the legacy uninstall key out of electron-builder's old-version fallback.
+; That fallback runs before installApplicationFiles, while this exact-layout
+; migration deliberately retires the Tauri files only after the Electron
+; payload and uninstaller have landed.
 
 !ifndef BUILD_UNINSTALLER
   Var RionTauriV22InstallDirectory

@@ -269,8 +269,9 @@ describe("Electron packaging contract", () => {
     expect(installerHook).toContain(
       '!define INSTALL_REGISTRY_KEY "${RION_TAURI_V22_INSTALL_REGISTRY_KEY}"'
     );
+    expect(installerHook).not.toContain("!define UNINSTALL_REGISTRY_KEY_2");
     expect(installerHook).toContain(
-      '!define UNINSTALL_REGISTRY_KEY_2 "${RION_TAURI_V22_UNINSTALL_REGISTRY_KEY}"'
+      "That fallback runs before installApplicationFiles"
     );
     expect(installerHook).toContain("SetRegView 32");
     expect(installerHook).toContain("SetRegView 64");

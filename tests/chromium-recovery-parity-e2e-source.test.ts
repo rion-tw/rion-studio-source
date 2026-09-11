@@ -65,6 +65,8 @@ describe("Chromium recovery parity replacement source", () => {
     }
     expect(windows).toContain("button=Discard");
     expect(mixed).toContain("electronDesktopE2eWorkspaceWebRuntime");
+    expect(mixed).toContain("waitForWorkspaceWebRuntime");
+    expect(mixed).toContain('inspection.phase === "ready"');
     expect(mixed).toContain("navigateVisibleElectronWorkspaceWebChrome");
     expect(mixed).toContain("rion-start://home/");
     expect(windows).toContain("CHROMIUM-MACOS-APPKIT-WINDOW-RECOVERY-UI-022");
@@ -103,6 +105,7 @@ describe("Chromium recovery parity replacement source", () => {
     expect(evidence).toContain("runtime.appKitIdentity?.logicalWindowId");
     expect(evidence).toContain('web.web?.contentSession === "global-web-persistent"');
     expect(evidence).toContain('web.web?.chromeShellSession === "rion-web-chrome-shell:memory"');
+    expect(evidence).toContain("web?.lastUrl?.includes(lifecycle.web.marker)");
     expect(evidence).toContain("roleTab.latestSessionEnsure.chromiumPathSha256 !==");
     expect(evidence).toContain("gameWindow.currentRuntime.coreTabIds");
   });

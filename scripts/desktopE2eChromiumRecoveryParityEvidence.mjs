@@ -250,7 +250,7 @@ async function validateMixedSqlite({ entities, phase, phaseDirectory, settings }
       && workspaceTab.workspaceSlots?.some(({ roleId }) =>
         roleId === lifecycle.roleWorkspace.roleId)
       && workspaceTab.workspaceSlots?.some(({ id, web }) =>
-        id === lifecycle.web.slotId && web?.name === "Chromium Mixed Recovery Web"),
+        id === lifecycle.web.slotId && web?.lastUrl?.includes(lifecycle.web.marker)),
     `${phase}: exact Workspace Role/Web topology is missing`
   );
   const session = settings.find(({ key }) => key === "runtimeRestoreSession")?.payload;

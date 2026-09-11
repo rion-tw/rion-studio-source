@@ -218,11 +218,30 @@ async function activateTab(input: Readonly<{
   });
 }
 
+async function waitForWorkspaceWebRuntime(windowId: string) {
+  let inspection: Awaited<ReturnType<
+    typeof electronDesktopE2eWorkspaceWebRuntime
+  >> | undefined;
+  await browser.waitUntil(async () => {
+    try {
+      inspection = await electronDesktopE2eWorkspaceWebRuntime(windowId);
+      return inspection.phase === "ready" && inspection.visible && inspection.web.visible;
+    } catch {
+      return false;
+    }
+  }, {
+    interval: 100,
+    timeout: 45_000,
+    timeoutMsg: "Mixed recovery Workspace Web did not reach authoritative ready"
+  });
+  return inspection!;
+}
+
 async function exactNative(lifecycle: MixedRecoveryLifecycle) {
   const [roleTab, roleWorkspace, web, gameWindow] = await Promise.all([
     electronDesktopE2eRoleSessionRuntime(lifecycle.roleTab.roleId),
     electronDesktopE2eRoleSessionRuntime(lifecycle.roleWorkspace.roleId),
-    electronDesktopE2eWorkspaceWebRuntime(lifecycle.windowId),
+    waitForWorkspaceWebRuntime(lifecycle.windowId),
     electronDesktopE2eGameWindowRuntime(lifecycle.windowId)
   ]);
   return { gameWindow, roleTab, roleWorkspace, web };
@@ -268,7 +287,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   cursor = await fixtureCursor();
   await quickAccessLaunch(workspace, "workspace", gameWindow.id);
   await waitSession(cursor, ROLE_WORKSPACE_FIXTURE, MARKERS.roleWorkspace, false);
-  const entrance = await electronDesktopE2eWorkspaceWebRuntime(gameWindow.id);
+  const entrance = await waitForWorkspaceWebRuntime(gameWindow.id);
   expect(entrance.web.contentUrl).toBe("rion-start://home/");
   await navigateVisibleElectronWorkspaceWebChrome(
     entrance.web.chromeShellUrl,
@@ -290,7 +309,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   const [roleTabNative, roleWorkspaceNative, web] = await Promise.all([
     electronDesktopE2eRoleSessionRuntime(roleTab.id),
     electronDesktopE2eRoleSessionRuntime(roleWorkspace.id),
-    electronDesktopE2eWorkspaceWebRuntime(gameWindow.id)
+    waitForWorkspaceWebRuntime(gameWindow.id)
   ]);
   const lifecycle: MixedRecoveryLifecycle = {
     contractVersion: 1,

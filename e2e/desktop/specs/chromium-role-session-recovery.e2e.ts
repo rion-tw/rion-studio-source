@@ -23,12 +23,24 @@ describe("Preserve sign-in source recovery", () => {
     await menu.$(".//*[@role='menuitem' and normalize-space(.)='Preserve sign-in data']").click();
     const dialog = await $("dialog[open]"); await dialog.waitForDisplayed();
     const inspected = await rendererCall("sessionMigrationRecovery", { type: "inspect", roleId: fixture.roleId });
-    const supported = inspected.candidates.some(candidate => candidate.supported);
-    if (!supported) {
+    const supportedCandidates = inspected.candidates.filter(candidate => candidate.supported);
+    if (supportedCandidates.length === 0) {
       await dialog.$("[role='alert']").waitForDisplayed({ timeout: 20_000 });
       await expect(dialog).toHaveText(expect.stringContaining("NATIVE_PLATFORM_VALIDATION_PENDING"));
       expect(await electronDesktopE2eRoleSessionMigration(fixture.roleId)).toEqual(before);
     } else {
+      expect(supportedCandidates).toHaveLength(1);
+      const supported = supportedCandidates[0];
+      if (!supported) throw new Error("Missing the unique supported recovery source");
+      const candidateIndex = inspected.candidates.findIndex(candidate =>
+        candidate.token === supported.token
+      );
+      const sourceOptions = await dialog.$$("input[type='radio']");
+      expect(sourceOptions).toHaveLength(inspected.candidates.length);
+      const sourceOption = sourceOptions[candidateIndex];
+      if (!sourceOption) throw new Error("Missing the supported recovery source option");
+      await sourceOption.waitForClickable(); await sourceOption.click();
+      await expect(sourceOption).toBeSelected();
       const recover = await dialog.$("button=Preserve sign-in data");
       await recover.waitForEnabled({ timeout: 20_000 }); await recover.click();
       await browser.waitUntil(async () => {

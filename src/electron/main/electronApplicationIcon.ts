@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { isAbsolute, join, normalize, resolve } from "node:path";
+import { join, posix, resolve, win32 } from "node:path";
 
 import type { NativeImage } from "electron";
 
@@ -36,17 +36,19 @@ export const RION_APPLICATION_ID = "com.rionstudio.launcher";
 export function resolveElectronApplicationIconPath(
   input: ElectronApplicationIconPathInput
 ): string {
+  const pathApi = input.platform === "darwin" ? posix : win32;
   const fileName = input.platform === "darwin"
     ? "rion-studio.png"
     : "rion-studio.ico";
   const path = input.isPackaged
-    ? join(input.resourcesPath, "icons", fileName)
-    : join(
+    ? pathApi.join(input.resourcesPath, "icons", fileName)
+    : pathApi.join(
         input.appPath,
         "build",
         input.platform === "darwin" ? "icon.png" : "icon.ico"
       );
-  if (!isAbsolute(path) || normalize(path) !== path || path.includes("\0")) {
+  if (!pathApi.isAbsolute(path) || pathApi.normalize(path) !== path ||
+      path.includes("\0")) {
     throw new RionBridgeError({
       code: "ELECTRON_APPLICATION_ICON_PATH_INVALID",
       message: "Rion Studio could not resolve a canonical application icon path."

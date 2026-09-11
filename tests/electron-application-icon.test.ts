@@ -24,8 +24,8 @@ describe("Electron application icon", () => {
       appPath: "C:\\workspace\\rion",
       isPackaged: true,
       platform: "win32",
-      resourcesPath: "/package/resources"
-    })).toBe("/package/resources/icons/rion-studio.ico");
+      resourcesPath: "C:\\package\\resources"
+    })).toBe("C:\\package\\resources\\icons\\rion-studio.ico");
   });
 
   it("fails closed when Electron cannot decode the resolved icon", () => {

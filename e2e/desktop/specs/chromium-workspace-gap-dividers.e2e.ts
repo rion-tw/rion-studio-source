@@ -306,9 +306,17 @@ async function dragDivider(input: Readonly<{
     expectedThickness: 16
   };
   if (input.platform === "macos") {
-    await dragMacosVisibleWorkspaceDivider(request);
+    await dragMacosVisibleWorkspaceDivider({
+      ...request,
+      // Remains inside the 960x640 host while crossing Core's 5% snap even
+      // when the CI display reports a scaled accessibility coordinate.
+      deltaScreenPixels: 192
+    });
   } else {
-    await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, request);
+    await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, {
+      ...request,
+      deltaCssPixels: 192
+    });
   }
 }
 

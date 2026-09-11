@@ -103,6 +103,8 @@ describe("Electron durable public publisher", () => {
     expect(stage).toContain("gh api --paginate --slurp");
     expect(stage).toContain("expected one public release for tag");
     expect(stage).not.toContain("releases/tags/${TAG}");
+    expect(stage.match(/jq -j 'if \.body == null/gu)).toHaveLength(2);
+    expect(stage).not.toContain("jq -r 'if .body == null");
     expect(stage).toContain("source-public-latest-snapshot.json");
     expect(stage).toContain("target-observed-snapshot.json");
     expect(stage).toContain("target-expected-latest-snapshot.json");

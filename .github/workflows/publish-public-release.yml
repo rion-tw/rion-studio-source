@@ -527,7 +527,7 @@ jobs:
           test "$(jq -r .id "${work_root}/target-before-stage.json")" = "${target_id}"
           test "$(jq -r .tag_name "${work_root}/target-before-stage.json")" = "${TAG}"
           test "$(jq -r .prerelease "${work_root}/target-before-stage.json")" = "false"
-          jq -r 'if .body == null then "" else .body end' \
+          jq -j 'if .body == null then "" else .body end' \
             "${work_root}/target-before-stage.json" > "${work_root}/target-notes.md"
           cmp "${marker_source}" "${work_root}/target-notes.md"
           if test "$(jq -r .draft "${work_root}/target-before-stage.json")" = "true"; then
@@ -585,7 +585,7 @@ jobs:
           done
           node scripts/releaseArtifacts.mjs "${work_root}/target-verified-assets" \
             "${version}" --verify-checksums --require-electron
-          jq -r 'if .body == null then "" else .body end' \
+          jq -j 'if .body == null then "" else .body end' \
             "${work_root}/target-published.json" > "${work_root}/published-notes.md"
           cmp "${marker_source}" "${work_root}/published-notes.md"
 

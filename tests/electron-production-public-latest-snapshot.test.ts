@@ -92,8 +92,12 @@ describe("Electron production public latest snapshot", () => {
     })).rejects.toThrow("create-new");
   });
 
-  it("supports a source snapshot without relabelling it as an Electron candidate", async () => {
-    const fixture = await createFixture({ includeCandidateReceipt: false, version: "8.4.2" });
+  it("supports a legacy source manifest without artifact digests or an Electron candidate", async () => {
+    const fixture = await createFixture({
+      includeCandidateReceipt: false,
+      includeManifestDigests: false,
+      version: "8.4.2"
+    });
     const snapshot = await createElectronProductionPublicLatestSnapshot({
       assetDirectory: fixture.assetDirectory,
       release: fixture.release
@@ -102,6 +106,9 @@ describe("Electron production public latest snapshot", () => {
     expect(snapshot.candidateReceipt).toBeNull();
     expect(snapshot.latestJson.version).toBe("8.4.2");
     expect(snapshot.release.tag).toBe("v8.4.2");
+    expect(snapshot.latestJson.platforms["darwin-aarch64"].artifactSha256).toBe(
+      fixture.assetSha256["Rion.Studio-mac.app.tar.gz"]
+    );
   });
 
   it("proves a by-tag baseline is the exact candidate-less source with only latest status changed", async () => {
@@ -436,6 +443,7 @@ async function createSnapshotFixture(version: string, idBase: number) {
 async function createFixture(options: Readonly<{
   idBase?: number;
   includeCandidateReceipt?: boolean;
+  includeManifestDigests?: boolean;
   isLatest?: boolean;
   reverseReleaseAssets?: boolean;
   version?: string;
@@ -458,12 +466,16 @@ async function createFixture(options: Readonly<{
       "darwin-aarch64": {
         url: `${UPDATER_BASE_URL}Rion.Studio-mac.app.tar.gz`,
         signature: signatures["Rion.Studio-mac.app.tar.gz.sig"].trim(),
-        sha256: sha256(`mac-archive-${version}\n`)
+        ...(options.includeManifestDigests === false
+          ? {}
+          : { sha256: sha256(`mac-archive-${version}\n`) })
       },
       "windows-x86_64": {
         url: `${UPDATER_BASE_URL}Rion.Studio-win.exe`,
         signature: signatures["Rion.Studio-win.exe.sig"].trim(),
-        sha256: sha256(`windows-installer-${version}\n`)
+        ...(options.includeManifestDigests === false
+          ? {}
+          : { sha256: sha256(`windows-installer-${version}\n`) })
       }
     }
   };

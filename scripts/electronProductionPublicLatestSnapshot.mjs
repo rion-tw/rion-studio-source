@@ -424,18 +424,32 @@ async function captureLatestJsonBinding(input) {
     Object.keys(PLATFORM_CONTRACTS),
     "public release manifest platforms"
   );
+  const manifestEntries = Object.values(manifest.platforms);
+  const digestEntryCount = manifestEntries.filter((entry) =>
+    Object.hasOwn(requiredRecord(entry, "public release manifest platform"), "sha256")
+  ).length;
+  if (digestEntryCount !== 0 && digestEntryCount !== manifestEntries.length) {
+    throw new Error(
+      "The public release manifest platform digest schema is inconsistent."
+    );
+  }
+  const manifestIncludesArtifactDigests = digestEntryCount !== 0;
   const platforms = {};
   for (const [platform, contract] of Object.entries(PLATFORM_CONTRACTS)) {
     const entry = manifest.platforms[platform];
-    assertExactKeys(entry, ["sha256", "signature", "url"],
+    assertExactKeys(entry, manifestIncludesArtifactDigests
+      ? ["sha256", "signature", "url"]
+      : ["signature", "url"],
       `public release manifest ${platform}`);
     const artifact = input.identities.get(contract.artifactName);
     const signature = input.identities.get(contract.signatureName);
-    assertEqual(
-      requiredDigest(entry.sha256, `public release manifest ${platform} artifact SHA-256`),
-      artifact.sha256,
-      `public release manifest ${platform} artifact SHA-256`
-    );
+    if (manifestIncludesArtifactDigests) {
+      assertEqual(
+        requiredDigest(entry.sha256, `public release manifest ${platform} artifact SHA-256`),
+        artifact.sha256,
+        `public release manifest ${platform} artifact SHA-256`
+      );
+    }
     const signatureSource = await readSmallAsset(
       input.assetDirectory,
       contract.signatureName,

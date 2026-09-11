@@ -124,7 +124,9 @@ jobs:
           if (-not (Test-Path (Join-Path $cleanPath "Rion Studio.exe") -PathType Leaf)) { throw "Clean NSIS installation did not create the executable." }
           $cleanUninstaller = Get-ChildItem $cleanPath -Filter "*uninstall*.exe" | Select-Object -First 1
           if ($null -eq $cleanUninstaller) { throw "Clean installation did not create an uninstaller." }
-          Invoke-BoundedProcess -FilePath $cleanUninstaller.FullName -ArgumentList "/S" -Stage "Clean NSIS uninstallation"
+          # `_?=` keeps the NSIS uninstaller in place, so WaitForExit observes
+          # the authoritative cleanup process instead of its short-lived launcher.
+          Invoke-BoundedProcess -FilePath $cleanUninstaller.FullName -ArgumentList @("/S", "_?=$cleanPath") -Stage "Clean NSIS uninstallation"
 
           Invoke-BoundedProcess -FilePath $previousInstaller -ArgumentList @("/S", "/D=$installPath") -Stage "Previous published NSIS installation"
           $previousExecutables = @("rion-tauri.exe", "Rion Studio.exe") | Where-Object {
@@ -151,7 +153,7 @@ jobs:
 
           $uninstaller = Get-ChildItem $installPath -Filter "*uninstall*.exe" | Select-Object -First 1
           if ($null -eq $uninstaller) { throw "The upgraded installation did not create an uninstaller." }
-          Invoke-BoundedProcess -FilePath $uninstaller.FullName -ArgumentList "/S" -Stage "Upgraded NSIS uninstallation"
+          Invoke-BoundedProcess -FilePath $uninstaller.FullName -ArgumentList @("/S", "_?=$installPath") -Stage "Upgraded NSIS uninstallation"
           if ((Get-Content -Raw -Path $roleMarker) -ne $roleSentinel) { throw "Uninstallation modified role browser data." }
           if ((Get-Content -Raw -Path $stateStore) -ne $stateSentinel) { throw "Uninstallation modified the SQLite store." }
 

@@ -881,6 +881,10 @@ describe("desktop shell migration workflows", () => {
     expect(compatibility).toContain("Verify macOS manual replacement preserves shared data");
     expect(compatibility).toContain("Verify Windows clean install and previous release in-place upgrade");
     expect(compatibility).toContain('@("/S", "--updated", "/D=$installPath")');
+    expect(compatibility).toContain('@("/S", "_?=$cleanPath")');
+    expect(compatibility).toContain('@("/S", "_?=$installPath")');
+    expect(compatibility).not.toContain('-ArgumentList "/S" -Stage "Clean NSIS uninstallation"');
+    expect(compatibility).not.toContain('-ArgumentList "/S" -Stage "Upgraded NSIS uninstallation"');
     expect(compatibility).not.toContain("--force-run");
     expect(compatibility).not.toContain("Start-Process -FilePath $previousExecutable");
     expect(compatibility).not.toContain("Get-CimInstance Win32_Process");

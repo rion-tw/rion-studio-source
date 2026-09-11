@@ -269,6 +269,65 @@ describe("Electron main IPC bridge", () => {
     await expect(registration.closeAndDrain()).resolves.toBeUndefined();
   });
 
+  it.each([
+    ["quitApplication", []],
+    ["confirmApplicationQuit", []],
+    ["executeApplicationShortcut", ["quitApplication"]],
+    ["installDownloadedUpdate", []]
+  ] as const)("recognizes an externally started shutdown while %s awaits it", async (
+    method,
+    args
+  ) => {
+    const ipc = createIpcMain();
+    const renderer = createWindow();
+    const identities = new RendererIdentityRegistry(() => renderer.window);
+    identities.registerMainWindow(renderer.window, 1);
+    const terminal = deferred<undefined>();
+    const invoke = vi.fn(() => terminal.promise);
+    const registration = registerRionIpcBridge({
+      ipcMain: ipc.port,
+      identities,
+      dispatcher: { invoke } as unknown as RionApiDispatcher
+    });
+    const handler = ipc.invokeListeners.get(RION_IPC_CHANNELS.invoke)!;
+    const admitted = handler({ sender: renderer.contents }, { method, args });
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+
+    await expect(registration.closeAndDrain()).resolves.toBeUndefined();
+
+    terminal.resolve(undefined);
+    await expect(admitted).resolves.toEqual({ ok: true, value: undefined });
+  });
+
+  it("keeps a non-quit application shortcut inside an external drain", async () => {
+    const ipc = createIpcMain();
+    const renderer = createWindow();
+    const identities = new RendererIdentityRegistry(() => renderer.window);
+    identities.registerMainWindow(renderer.window, 1);
+    const terminal = deferred<undefined>();
+    const registration = registerRionIpcBridge({
+      ipcMain: ipc.port,
+      identities,
+      dispatcher: {
+        invoke: vi.fn(() => terminal.promise)
+      } as unknown as RionApiDispatcher
+    });
+    const handler = ipc.invokeListeners.get(RION_IPC_CHANNELS.invoke)!;
+    const admitted = handler({ sender: renderer.contents }, {
+      method: "executeApplicationShortcut",
+      args: ["toggleFullscreen"]
+    });
+    const drain = registration.closeAndDrain();
+    let drained = false;
+    void drain.then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    terminal.resolve(undefined);
+    await expect(admitted).resolves.toEqual({ ok: true, value: undefined });
+    await expect(drain).resolves.toBeUndefined();
+  });
+
   it("releases concurrent drain owners while still waiting for ordinary work", async () => {
     const ipc = createIpcMain();
     const renderer = createWindow();

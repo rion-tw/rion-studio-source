@@ -52,6 +52,7 @@ export interface RegisterRionIpcBridgeInput {
 }
 
 interface InFlightInvocation {
+  canOwnDrain: boolean;
   owner: boolean;
   ownerDeclared: Promise<void>;
   terminal: Promise<void>;
@@ -59,10 +60,21 @@ interface InFlightInvocation {
   markTerminal: () => void;
 }
 
-function inFlightInvocation(): InFlightInvocation {
+function canOwnShutdownDrain(
+  method: RionApiDispatchMethod,
+  args: readonly unknown[]
+): boolean {
+  return method === "quitApplication"
+    || method === "confirmApplicationQuit"
+    || method === "installDownloadedUpdate"
+    || (method === "executeApplicationShortcut" && args[0] === "quitApplication");
+}
+
+function inFlightInvocation(canOwnDrain: boolean): InFlightInvocation {
   let markOwner!: () => void;
   let markTerminal!: () => void;
   const record: InFlightInvocation = {
+    canOwnDrain,
     owner: false,
     ownerDeclared: new Promise<void>((resolve) => { markOwner = resolve; }),
     terminal: new Promise<void>((resolve) => { markTerminal = resolve; }),
@@ -91,8 +103,8 @@ export function registerRionIpcBridge(
   const inFlight = new Map<object, InFlightInvocation>();
   let disposed = false;
   let drainPromise: Promise<void> | null = null;
-  const admit = (token: object): InFlightInvocation => {
-    const record = inFlightInvocation();
+  const admit = (token: object, canOwnDrain: boolean): InFlightInvocation => {
+    const record = inFlightInvocation(canOwnDrain);
     inFlight.set(token, record);
     return record;
   };
@@ -144,7 +156,7 @@ export function registerRionIpcBridge(
       });
     }
     const token = {};
-    const record = admit(token);
+    const record = admit(token, canOwnShutdownDrain(parsed.method, parsed.args));
     const work = invocationContext.run(token, async (): Promise<RionInvokeResponse> => {
       try {
         const value = await input.dispatcher.invoke(identity, parsed.method, parsed.args);
@@ -172,7 +184,7 @@ export function registerRionIpcBridge(
       const parsed = parseNotifyRequest(request);
       const identity = input.identities.authorize(event.sender);
       const token = {};
-      const record = admit(token);
+      const record = admit(token, canOwnShutdownDrain(parsed.method, parsed.args));
       const work = invocationContext.run(token, () =>
         input.dispatcher.invoke(identity, parsed.method, parsed.args)
           .catch((error) => input.onNotificationError?.(normalizeRionBridgeError(error))));
@@ -189,6 +201,9 @@ export function registerRionIpcBridge(
     closeAndDrain: () => {
       const owner = invocationContext.getStore();
       if (owner) inFlight.get(owner)?.markOwner();
+      for (const record of inFlight.values()) {
+        if (record.canOwnDrain) record.markOwner();
+      }
       closeIngress();
       if (drainPromise) return drainPromise;
       drainPromise = (async () => {

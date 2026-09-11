@@ -4,14 +4,29 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+#[cfg(windows)]
+fn contains_raw_traversal(path: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+
+    path.as_os_str()
+        .encode_wide()
+        .collect::<Vec<_>>()
+        .split(|unit| matches!(unit, b'/' | b'\\'))
+        .any(|segment| matches!(segment, [b'.' as u16] | [b'.' as u16, b'.' as u16]))
+}
+
+#[cfg(not(windows))]
+fn contains_raw_traversal(path: &Path) -> bool {
+    path.components()
+        .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+}
+
 pub(crate) fn existing(path: &Path) -> Result<PathBuf> {
     if !path.is_absolute() {
         return Err("ABSOLUTE_PATH_REQUIRED");
     }
-    for part in path.components() {
-        if matches!(part, Component::ParentDir | Component::CurDir) {
-            return Err("PATH_TRAVERSAL");
-        }
+    if contains_raw_traversal(path) {
+        return Err("PATH_TRAVERSAL");
     }
     // Walk complete ancestors instead of rebuilding the path one component at
     // a time. On Windows, rebuilding a verbatim drive path can transiently

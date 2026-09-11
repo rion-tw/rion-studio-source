@@ -3,14 +3,15 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use fs2::FileExt;
 use std::fs;
 
+#[cfg(windows)]
 fn migration_output_tempdir() -> tempfile::TempDir {
-    #[cfg(windows)]
-    {
-        // Windows' default temp directory is inside LOCALAPPDATA, which the
-        // production migration boundary deliberately rejects as an output root.
-        return tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
-    }
-    #[cfg(not(windows))]
+    // Windows' default temp directory is inside LOCALAPPDATA, which the
+    // production migration boundary deliberately rejects as an output root.
+    tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap()
+}
+
+#[cfg(not(windows))]
+fn migration_output_tempdir() -> tempfile::TempDir {
     tempfile::tempdir().unwrap()
 }
 

@@ -141,7 +141,10 @@ fn output_is_new_disjoint_and_cannot_overwrite_an_existing_run() {
         "NEW_ABSOLUTE_OUTPUT_REQUIRED"
     );
     assert_eq!(fs::read(output.join("retained")).unwrap(), b"never delete");
-    assert!(paths::existing(&root.join("output/../output")).is_err());
+    // Keep the raw, non-verbatim user spelling for this assertion. Joining
+    // onto the canonical Windows verbatim path normalizes `..` before the
+    // migration boundary can inspect it.
+    assert!(paths::existing(&temporary.path().join("output/../output")).is_err());
 }
 
 #[cfg(unix)]

@@ -1114,7 +1114,8 @@ describe("desktop shell migration workflows", () => {
     expect(leaseIndex).toBeGreaterThan(verifyIndex);
     expect(documentationIndex).toBeGreaterThan(leaseIndex);
     expect(summaryIndex).toBeGreaterThan(documentationIndex);
-    expect(workflow).toContain("permissions:\n  contents: read");
+    expect(workflow).toContain("permissions:\n  # GitHub exposes draft releases");
+    expect(workflow).toContain("contents: write");
     expect(workflow).toContain("permission-contents: write");
     expect(workflow).toContain("RION_RELEASE_APP_PRIVATE_KEY");
     expect(workflow).toContain("--verify-checksums");

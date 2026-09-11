@@ -16,7 +16,10 @@ on:
         required: true
 
 permissions:
-  contents: read
+  # GitHub exposes draft releases only to tokens with push access. This token
+  # remains scoped to the private source repository; the public repository uses
+  # a separate narrow App installation token below.
+  contents: write
 
 env:
   PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio

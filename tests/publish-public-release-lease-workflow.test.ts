@@ -176,13 +176,14 @@ describe("Electron durable public publisher", () => {
   });
 
   it("keeps private upload and terminal finalization on trusted main control", async () => {
-    const source = await finalizer();
+    const [source, publisher] = await Promise.all([finalizer(), workflow()]);
     const authorize = job(
       source,
       "authorize-control-plane",
       "verify-and-upload-private-release"
     );
     const upload = job(source, "verify-and-upload-private-release", "publish-public-release");
+    const publish = job(source, "publish-public-release", "finalize-private-release");
     const terminal = job(source, "finalize-private-release");
 
     expect(source).toContain("permissions:\n  contents: read");
@@ -194,6 +195,13 @@ describe("Electron durable public publisher", () => {
       );
       expect(credentialJob).not.toContain("ref: ${{ inputs.tag }}");
     }
+    expect(publish).toContain("permissions:\n      # Push access is required");
+    expect(publish).toContain("contents: write");
+    expect(publisher).toContain(
+      "permissions:\n  # GitHub exposes draft releases only to tokens with push access"
+    );
+    expect(publisher).toContain("contents: write");
+    expect(publisher).toContain("Create the narrow public repository writer token");
     expect(upload).toContain("releases/assets/${asset_id}");
     expect(upload).toContain("--verify-checksums --require-electron");
     expect(upload).not.toContain("gh release download");

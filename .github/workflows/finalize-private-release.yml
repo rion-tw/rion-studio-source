@@ -238,7 +238,9 @@ jobs:
       - verify-and-upload-private-release
     uses: ./.github/workflows/publish-public-release.yml
     permissions:
-      contents: read
+      # Push access is required to list the private draft release. Public
+      # repository mutation still uses the later repository-scoped App token.
+      contents: write
     with:
       tag: ${{ inputs.tag }}
       release_contract: electron-v23

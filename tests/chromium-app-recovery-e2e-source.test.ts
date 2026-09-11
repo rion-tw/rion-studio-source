@@ -103,6 +103,8 @@ describe("Chromium application-recovery exact replacement", () => {
     expect(forced).toContain('"chromium-app-recovery-force"');
     expect(forced).toContain('RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT: "1"');
     expect(forced).toContain("process.kill(marker.pid, 0)");
+    expect(forced).toContain('executeFile("/bin/ps"');
+    expect(forced).toContain('state.startsWith("Z")');
     expect(evidence.match(/chromium-app-recovery-lifecycle/gu)).toHaveLength(3);
     expect(evidence).toContain('phase !== "chromium-app-recovery-force"');
     expect(evidence).toContain("sameValue(session.liveWindowIds, [lifecycle.windowId])");

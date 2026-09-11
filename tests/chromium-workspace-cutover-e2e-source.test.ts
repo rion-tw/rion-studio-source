@@ -142,7 +142,7 @@ describe("Chromium Workspace cutover paired replacements", () => {
       }
     }
   );
-  it("accepts only the hidden activating projection sampled during visible reopen", async () => {
+  it("accepts exact initial and hidden-reopen activating projections", async () => {
     const ready = webOnlyObservation({
       attemptGeneration: "attempt-1", generation: 1, phase: "ready", visible: true
     });
@@ -158,6 +158,15 @@ describe("Chromium Workspace cutover paired replacements", () => {
 
     await expect(validateWebOnlyHistory([
       ready, degraded, activating, recovered
+    ])).resolves.toMatchObject({ navigationFailureRecovered: true });
+    const initialActivating = structuredClone(ready);
+    initialActivating.phase = "activating";
+    initialActivating.web.contentUrl = "rion-start://home/";
+    initialActivating.coreSlots[0].web = {};
+    const initialReady = structuredClone(initialActivating);
+    initialReady.phase = "ready";
+    await expect(validateWebOnlyHistory([
+      initialActivating, initialReady, ready, degraded, activating, recovered
     ])).resolves.toMatchObject({ navigationFailureRecovered: true });
     const auxiliary = structuredClone(recovered);
     auxiliary.tabId = "00000000-0000-4000-8000-000000000041";
@@ -181,6 +190,12 @@ describe("Chromium Workspace cutover paired replacements", () => {
       { ...activating, focused: true, visible: true },
       recovered
     ])).rejects.toThrow("malformed Core/native Web-only history");
+    await expect(validateWebOnlyHistory([
+      initialActivating, initialActivating, initialReady, ready, degraded,
+      activating, recovered
+    ])).rejects.toThrow(
+      "ready/degraded/visible-reopen ordering or generation is incomplete"
+    );
   });
 
   it("routes independent Web-only, shared-Role, and recovery phase state", () => {

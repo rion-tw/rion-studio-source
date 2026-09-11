@@ -246,11 +246,16 @@ function validateWebOnlyHistory(phase, observations, platform) {
     `${phase}: exact Web-only journey tab is missing or ambiguous`
   );
   const targetTabId = targetTabIds.values().next().value;
+  const firstTargetReadyObservation = observations.findIndex((observation) =>
+    observation.tabId === targetTabId && observation.phase === "ready" &&
+    observation.visible
+  );
   requireRuntime(
-    observations.every((observation) => validWebOnlyObservation(
+    observations.every((observation, index) => validWebOnlyObservation(
       observation,
       platform,
-      observation.tabId !== targetTabId
+      observation.tabId !== targetTabId ||
+        index < firstTargetReadyObservation && observation.phase === "activating"
     )),
     `${phase}: malformed Core/native Web-only history`
   );
@@ -270,6 +275,13 @@ function validateWebOnlyHistory(phase, observations, platform) {
   const activating = targetObservations.filter(
     (observation) => observation.phase === "activating"
   );
+  const initialActivating = targetObservations.filter(
+    (observation, index) => index < ready && observation.phase === "activating"
+  );
+  const recoveryActivating = targetObservations.filter(
+    (observation, index) => index > degraded && index < recovered &&
+      observation.phase === "activating"
+  );
   const terminal = targetObservations.at(-1);
   if (phase.endsWith("-seed")) {
     requireRuntime(
@@ -277,11 +289,15 @@ function validateWebOnlyHistory(phase, observations, platform) {
         terminal.phase === "ready" && terminal.visible === true &&
         targetObservations.every((observation, index) =>
           observation.phase !== "activating" ||
+          index < ready &&
+            observation.web.generation === targetObservations[ready].web.generation &&
+            observation.attemptGeneration === targetObservations[ready].attemptGeneration ||
           index > degraded && index < recovered &&
-          observation.web.generation > targetObservations[degraded].web.generation &&
-          observation.web.generation === targetObservations[recovered].web.generation &&
-          observation.attemptGeneration === targetObservations[recovered].attemptGeneration
-        ) && activating.length <= 1 &&
+            observation.web.generation > targetObservations[degraded].web.generation &&
+            observation.web.generation === targetObservations[recovered].web.generation &&
+            observation.attemptGeneration === targetObservations[recovered].attemptGeneration
+        ) && activating.length <= 2 && initialActivating.length <= 1 &&
+        recoveryActivating.length <= 1 &&
         targetObservations[degraded].tabId === targetObservations[ready].tabId &&
         targetObservations[recovered].tabId === targetObservations[ready].tabId &&
         targetObservations[recovered].web.generation >

@@ -167,6 +167,10 @@ describe("native application shortcut target modes", () => {
       "/** Opens the real Dock/notification-area menu"
     );
     expect(quickMenu).toContain("function Find-NotificationChevron");
+    expect(quickMenu).toContain("function Find-RionNotificationIcon");
+    expect(quickMenu).toContain(
+      "$name.StartsWith('Rion Studio', [StringComparison]::Ordinal)"
+    );
     expect(quickMenu).toContain("'Notification Chevron'");
     expect(quickMenu).toContain("$names -contains $button.Current.Name");
     expect(quickMenu).toContain("$button.Current.AutomationId -eq 'SystemTrayIcon'");
@@ -176,5 +180,6 @@ describe("native application shortcut target modes", () => {
     expect(quickMenu).toContain(
       "throw 'Windows notification-area overflow chevron unavailable'"
     );
+    expect(quickMenu).toContain("visible buttons=$buttons");
   });
 });

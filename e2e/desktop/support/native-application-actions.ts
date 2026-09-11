@@ -660,6 +660,39 @@ function Find-NamedElement([string[]]$names, [System.Windows.Automation.ControlT
   }
   return $null
 }
+function Find-RionNotificationIcon {
+  $buttons = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Button
+    )
+  )
+  foreach ($button in $buttons) {
+    $name = $button.Current.Name
+    if (-not $button.Current.IsOffscreen -and
+        $name.StartsWith('Rion Studio', [StringComparison]::Ordinal)) {
+      return $button
+    }
+  }
+  return $null
+}
+function VisibleNotificationButtonDiagnostics {
+  $buttons = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Button
+    )
+  )
+  $diagnostic = ($buttons | Where-Object { -not $_.Current.IsOffscreen } |
+    ForEach-Object {
+      $bounds = $_.Current.BoundingRectangle
+      "name=$($_.Current.Name),id=$($_.Current.AutomationId),class=$($_.Current.ClassName),left=$([int]$bounds.Left),top=$([int]$bounds.Top)"
+    } | Select-Object -First 32) -join '; '
+  if ($diagnostic.Length -gt 2000) { return $diagnostic.Substring(0, 2000) }
+  return $diagnostic
+}
 function Find-NotificationChevron {
   $buttons = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants,
@@ -715,16 +748,19 @@ $matches = [System.Collections.Generic.List[System.IntPtr]]::new()
 if ($matches.Count -ne 1) { throw 'exact visible Rion launcher HWND unavailable' }
 [RionQuickMenuInput]::ShowWindowAsync($matches[0], 6) | Out-Null
 
-$trayIcon = Find-NamedElement @('Rion Studio') ([System.Windows.Automation.ControlType]::Button)
+$trayIcon = Find-RionNotificationIcon
 if (-not $trayIcon) {
   $chevron = Find-NotificationChevron
   if (-not $chevron) { throw 'Windows notification-area overflow chevron unavailable' }
   Click-Center $chevron $false
   $expiry = [DateTime]::UtcNow.AddSeconds(10)
   do {
-    $trayIcon = Find-NamedElement @('Rion Studio') ([System.Windows.Automation.ControlType]::Button)
+    $trayIcon = Find-RionNotificationIcon
     if ($trayIcon) { break }
-    if ([DateTime]::UtcNow -gt $expiry) { throw 'Rion Studio notification-area icon unavailable' }
+    if ([DateTime]::UtcNow -gt $expiry) {
+      $buttons = VisibleNotificationButtonDiagnostics
+      throw "Rion Studio notification-area icon unavailable; visible buttons=$buttons"
+    }
     Start-Sleep -Milliseconds 50
   } while ($true)
 }

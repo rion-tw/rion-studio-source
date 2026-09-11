@@ -6,7 +6,8 @@ import { rendererCall } from "../support/renderer-bridge";
 import { scrollLayoutControlIntoView } from "../support/ui";
 import {
   bootstrapChromiumMacroCutover, createChromiumMacroWindow,
-  launchChromiumRoleVisible, macroFixtureUrl, writeChromiumMacroEvidence
+  launchChromiumRoleVisible, macroFixtureUrl, pressChromiumVisibleControl,
+  writeChromiumMacroEvidence
 } from "./chromium-macro-cutover-support";
 
 export async function prepareChromiumFontRole() {
@@ -51,7 +52,9 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
       return { hitMatches: hit !== null && target.contains(hit), hasFocus: document.hasFocus(),
         bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } };
     }, picker as unknown as HTMLElement);
-    await picker.click();
+    await pressChromiumVisibleControl(
+      `button[aria-label='${slot}']`, slot, "accessibility", "AXButton"
+    );
     const option = await $(`[role='menuitemradio']*=${family} · System`);
     try {
       await option.waitForDisplayed({ timeout: 10_000 });
@@ -64,13 +67,27 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
       pickerEvidence.push({ family, slot, beforeClick, afterClick });
       await writeChromiumMacroEvidence("chromium-font-picker-click.json", pickerEvidence);
     }
-    await option.click();
+    await pressChromiumVisibleControl(
+      `[role='menuitemradio']*=${family} · System`,
+      `${family} · System`,
+      "accessibility",
+      "AXMenuItem"
+    );
+    await browser.waitUntil(async () =>
+      (await picker.getAttribute("aria-expanded")) === "false"
+        && (await picker.getText()).includes(family), {
+      interval: 100,
+      timeout: 10_000,
+      timeoutMsg: `${slot} did not commit visible font selection ${family}`
+    });
   };
   const press = async (label: string) => {
     const button = await $(`button=${label}`);
     await scrollLayoutControlIntoView(button);
     await button.waitForClickable({ timeout: 10_000 });
-    await button.click();
+    await pressChromiumVisibleControl(
+      `button=${label}`, label, "accessibility", "AXButton"
+    );
   };
   await browser.waitUntil(async () => {
     const loading = await $("div[role='status']*=Loading installed fonts.");
@@ -90,6 +107,15 @@ export async function verifyChromiumFontApplication(input: Awaited<ReturnType<ty
   await pick("ui-monospace");
   await pick("ui-monospace", "Numbers");
   await press("Apply");
+  await browser.waitUntil(async () => {
+    const settings = await rendererCall("getGameBrowserSettings");
+    return settings.fonts.slots.latin?.family === "ui-monospace"
+      && settings.fonts.slots.numeric?.family === "ui-monospace";
+  }, {
+    interval: 100,
+    timeout: 15_000,
+    timeoutMsg: "Font override did not reach Rust-owned settings"
+  });
   await browser.waitUntil(async () => {
     const state = await read();
     return state.bodyFamily.startsWith("ui-monospace") &&

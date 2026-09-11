@@ -6,7 +6,10 @@ const specPath = "e2e/desktop/specs/chromium-system-settings.e2e.ts";
 
 describe("Chromium system-settings desktop E2E boundary", () => {
   it("keeps product actions on visible WebDriver UI and bridge evidence read-only", async () => {
-    const source = await readFile(specPath, "utf8");
+    const [source, fontSupport] = await Promise.all([
+      readFile(specPath, "utf8"),
+      readFile("e2e/desktop/specs/chromium-font-application-support.ts", "utf8")
+    ]);
 
     expect(source).not.toContain("navigate(");
     expect(source).not.toContain("browser.executeAsync");
@@ -51,5 +54,8 @@ describe("Chromium system-settings desktop E2E boundary", () => {
     expect(source).toContain("electronDesktopE2eDiagnosticsExportJournal");
     expect(source).toContain("coreDiagnosticsExportInvocationCount: 0");
     expect(source).toContain("typedOutcome: null");
+    expect(fontSupport).toContain("pressChromiumVisibleControl");
+    expect(fontSupport).toContain("did not commit visible font selection");
+    expect(fontSupport).toContain("Font override did not reach Rust-owned settings");
   });
 });

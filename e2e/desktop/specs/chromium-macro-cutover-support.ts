@@ -137,7 +137,7 @@ export async function openChromiumSection(
   await waitForRoute(route);
 }
 
-async function pressVisibleControl(
+export async function pressChromiumVisibleControl(
   selector: string,
   expectedLabel?: string,
   interaction: "accessibility" | "physical" = "accessibility",
@@ -587,7 +587,7 @@ export async function showChromiumMacroWindow(window: GameWindow): Promise<void>
     runtime: runtimeBeforeShow,
     windowId: window.id
   });
-  await pressVisibleControl(
+  await pressChromiumVisibleControl(
     `[data-selection-id='${window.id}'] button[aria-label='Show']`,
     "Show",
     "physical",
@@ -634,7 +634,7 @@ export async function launchChromiumRoleVisible(
   const palette = await $("[data-testid='quick-access-palette'][open]");
   await palette.waitForDisplayed({ timeout: 10_000 });
   await palette.$("input[role='combobox']").setValue(role.name);
-  await pressVisibleControl(
+  await pressChromiumVisibleControl(
     `[data-testid='quick-access-destination-role-${role.id}']`
   );
   const destination = await $(
@@ -643,7 +643,7 @@ export async function launchChromiumRoleVisible(
   await destination.waitForClickable({ timeout: 10_000 });
   const fixtureAfter = await fixtureCursor();
   const projectionAfter = await rendererEventCursor();
-  await pressVisibleControl(
+  await pressChromiumVisibleControl(
     `[data-testid='quick-access-destination-option-window-${window.id}']`,
     undefined,
     "physical"
@@ -712,7 +712,7 @@ export async function launchChromiumWorkspaceVisible(
   await $(`#quick-access-option-workspace-${workspace.id}`).waitForDisplayed({
     timeout: 10_000
   });
-  await pressVisibleControl(
+  await pressChromiumVisibleControl(
     `[data-testid='quick-access-destination-workspace-${workspace.id}']`
   );
   const destination = await $(
@@ -721,7 +721,7 @@ export async function launchChromiumWorkspaceVisible(
   await destination.waitForClickable({ timeout: 10_000 });
   const fixtureAfter = await fixtureCursor();
   const projectionAfter = await rendererEventCursor();
-  await pressVisibleControl(
+  await pressChromiumVisibleControl(
     `[data-testid='quick-access-destination-option-window-${window.id}']`,
     undefined,
     "physical"

@@ -660,6 +660,37 @@ function Find-NamedElement([string[]]$names, [System.Windows.Automation.ControlT
   }
   return $null
 }
+function Find-NotificationChevron {
+  $buttons = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Button
+    )
+  )
+  $names = @(
+    'Notification Chevron',
+    'Show hidden icons',
+    '顯示隱藏的圖示',
+    '显示隐藏的图标'
+  )
+  $sharedIdCandidates = [System.Collections.Generic.List[object]]::new()
+  foreach ($button in $buttons) {
+    if ($button.Current.IsOffscreen) { continue }
+    if ($names -contains $button.Current.Name) { return $button }
+    if ($button.Current.AutomationId -eq 'SystemTrayIcon') {
+      $bounds = $button.Current.BoundingRectangle
+      if (-not $bounds.IsEmpty -and $bounds.Width -gt 0 -and $bounds.Height -gt 0) {
+        $sharedIdCandidates.Add($button)
+      }
+    }
+  }
+  # Windows 11/Server 2025 shares SystemTrayIcon across the notification-area
+  # buttons. The overflow chevron is the leftmost member of that exact row.
+  return $sharedIdCandidates |
+    Sort-Object { $_.Current.BoundingRectangle.Left } |
+    Select-Object -First 1
+}
 function Click-Center($element, [bool]$right) {
   $bounds = $element.Current.BoundingRectangle
   if ($bounds.IsEmpty -or $bounds.Width -le 0 -or $bounds.Height -le 0) {
@@ -686,23 +717,9 @@ if ($matches.Count -ne 1) { throw 'exact visible Rion launcher HWND unavailable'
 
 $trayIcon = Find-NamedElement @('Rion Studio') ([System.Windows.Automation.ControlType]::Button)
 if (-not $trayIcon) {
-  $chevrons = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.PropertyCondition]::new(
-      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-      [System.Windows.Automation.ControlType]::Button
-    )
-  )
-  foreach ($candidate in $chevrons) {
-    $automationId = $candidate.Current.AutomationId
-    $name = $candidate.Current.Name
-    if (-not $candidate.Current.IsOffscreen -and
-        ($automationId -eq 'SystemTrayIcon' -or
-         @('Show hidden icons', '顯示隱藏的圖示', '显示隐藏的图标') -contains $name)) {
-      Click-Center $candidate $false
-      break
-    }
-  }
+  $chevron = Find-NotificationChevron
+  if (-not $chevron) { throw 'Windows notification-area overflow chevron unavailable' }
+  Click-Center $chevron $false
   $expiry = [DateTime]::UtcNow.AddSeconds(10)
   do {
     $trayIcon = Find-NamedElement @('Rion Studio') ([System.Windows.Automation.ControlType]::Button)

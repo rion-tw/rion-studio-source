@@ -160,4 +160,21 @@ describe("native application shortcut target modes", () => {
     expect(source).toContain("boundedPowerShellFailure(error)");
     expect(source).toContain("output.slice(-2_000)");
   });
+
+  it("selects the exact Windows notification overflow before its shared-id fallback", () => {
+    const quickMenu = sourceBetween(
+      "async function activateVisibleWindowsTrayQuickMenu",
+      "/** Opens the real Dock/notification-area menu"
+    );
+    expect(quickMenu).toContain("function Find-NotificationChevron");
+    expect(quickMenu).toContain("'Notification Chevron'");
+    expect(quickMenu).toContain("$names -contains $button.Current.Name");
+    expect(quickMenu).toContain("$button.Current.AutomationId -eq 'SystemTrayIcon'");
+    expect(quickMenu).toContain(
+      "Sort-Object { $_.Current.BoundingRectangle.Left }"
+    );
+    expect(quickMenu).toContain(
+      "throw 'Windows notification-area overflow chevron unavailable'"
+    );
+  });
 });

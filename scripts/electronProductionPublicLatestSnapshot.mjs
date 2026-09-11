@@ -31,8 +31,12 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const GITHUB_DIGEST_PATTERN = /^sha256:([a-f0-9]{64})$/u;
 const DECIMAL_ID_PATTERN = /^[1-9]\d*$/u;
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/u;
-const CONTENT_TYPE_PATTERN =
-  /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/u;
+const CONTENT_TYPE_TOKEN = "[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*";
+const CONTENT_TYPE_PATTERN = new RegExp(
+  `^${CONTENT_TYPE_TOKEN}/${CONTENT_TYPE_TOKEN}` +
+    `(?:;[ \\t]*${CONTENT_TYPE_TOKEN}=${CONTENT_TYPE_TOKEN})*$`,
+  "u"
+);
 const PLATFORM_CONTRACTS = Object.freeze({
   "darwin-aarch64": Object.freeze({
     artifactName: "Rion.Studio-mac.app.tar.gz",

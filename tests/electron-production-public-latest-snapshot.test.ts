@@ -180,6 +180,40 @@ describe("Electron production public latest snapshot", () => {
     })).rejects.toThrow("asset inventory");
   });
 
+  it("accepts safe MIME parameters and rejects line-breaking content types", async () => {
+    const fixture = await createFixture({ version: "8.5.0" });
+    const parameterizedAssets = fixture.release.assets.map((asset) => ({
+      ...asset,
+      contentType: asset.name === "SHA256SUMS.txt"
+        ? "text/plain; charset=utf-8"
+        : asset.contentType
+    }));
+    await expect(createElectronProductionPublicLatestSnapshot({
+      assetDirectory: fixture.assetDirectory,
+      candidateReceiptPath: fixture.candidateReceiptPath,
+      candidateReceiptSha256: fixture.candidateReceiptSha256,
+      release: { ...fixture.release, assets: parameterizedAssets }
+    })).resolves.toMatchObject({
+      assets: expect.arrayContaining([
+        expect.objectContaining({
+          contentType: "text/plain; charset=utf-8",
+          name: "SHA256SUMS.txt"
+        })
+      ])
+    });
+
+    parameterizedAssets[0] = {
+      ...parameterizedAssets[0]!,
+      contentType: "application/json\ntext/plain"
+    };
+    await expect(createElectronProductionPublicLatestSnapshot({
+      assetDirectory: fixture.assetDirectory,
+      candidateReceiptPath: fixture.candidateReceiptPath,
+      candidateReceiptSha256: fixture.candidateReceiptSha256,
+      release: { ...fixture.release, assets: parameterizedAssets }
+    })).rejects.toThrow("content type");
+  });
+
   it("rejects candidate, manifest, and snapshot digest rebinding", async () => {
     const fixture = await createFixture();
     if (!fixture.candidateReceiptPath) {

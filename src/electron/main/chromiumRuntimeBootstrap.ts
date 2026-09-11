@@ -126,12 +126,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 28;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 29;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 28 }> {
+): Readonly<Options & { runtimeContractVersion: 29 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
@@ -1038,6 +1038,16 @@ export class ChromiumRuntimeBootstrap {
           platform: input.platform
         });
       const createdExecutor = new ChromiumRuntimeEffectExecutor({
+        ...(input.appKit?.rendererActions
+          ? {
+              appKitWorkspaceAppearance: {
+                observe: (ids) => input.appKit!.rendererActions!
+                  .captureWorkspaceAppearanceObservation(
+                    input.appKit!.hostFactory.captureHostObservations(ids)
+                  )
+              }
+            }
+          : {}),
         browserDataClear,
         chromeProfileImport: new ChromeProfileImportCoordinator(input.core),
         sessionRecovery: new ChromiumSessionRecoveryExecutor(input.core),

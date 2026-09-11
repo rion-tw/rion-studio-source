@@ -13,6 +13,7 @@ export type { AppKitRuntimeEventReceiptRecord } from "./AppKitRuntimeEventReceip
 export type { AppKitRuntimeEventRecord } from "./AppKitRuntimeEventRecord";
 export type { AppKitRuntimeHostIdentityRecord } from "./AppKitRuntimeHostIdentityRecord";
 export type { AppKitRuntimeHostObservationRecord } from "./AppKitRuntimeHostObservationRecord";
+export type { AppKitWorkspaceAppearanceObservationReceiptRecord } from "./AppKitWorkspaceAppearanceObservationReceiptRecord";
 export type { AppKitRuntimeProjectionEffectRecord } from "./AppKitRuntimeProjectionEffectRecord";
 export type { AppKitRuntimeRoleLayoutRecord } from "./AppKitRuntimeRoleLayoutRecord";
 export type { AppKitRuntimeTabProjectionRecord } from "./AppKitRuntimeTabProjectionRecord";

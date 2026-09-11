@@ -168,19 +168,40 @@ NS_ASSUME_NONNULL_BEGIN
                          context:context];
 }
 
+- (BOOL)workspaceDividerPointForEvent:(NSEvent *)event
+                         overlayPoint:(NSPoint *)overlayPoint {
+  if (!_window || !_workspaceDividerOverlay || !overlayPoint) return NO;
+  NSPoint windowPoint = NSZeroPoint;
+  if (event.window == _window) {
+    windowPoint = event.locationInWindow;
+  } else {
+    // Electron WebContents surfaces can own the immediate NSEvent window even
+    // though the retained AppKit host is the exact visible key/main window.
+    // The fallback remains single-host scoped and converts one screen point
+    // back through that authoritative host before any divider hit test.
+    if (!_window.isKeyWindow || !_window.isMainWindow) return NO;
+    NSPoint screenPoint = event.window
+        ? [event.window convertPointToScreen:event.locationInWindow]
+        : NSEvent.mouseLocation;
+    if (!NSPointInRect(screenPoint, _window.frame)) return NO;
+    windowPoint = [_window convertPointFromScreen:screenPoint];
+  }
+  *overlayPoint = [_workspaceDividerOverlay convertPoint:windowPoint fromView:nil];
+  return YES;
+}
+
 - (nullable NSEvent *)routeWorkspaceDividerEvent:(NSEvent *)event {
-  if (_destroyed || !_window || event.window != _window ||
-      !_workspaceDividerOverlay || _workspaceDividerOverlay.hidden) {
+  if (_destroyed || !_window || !_workspaceDividerOverlay ||
+      _workspaceDividerOverlay.hidden) {
     return event;
   }
+  NSPoint point = NSZeroPoint;
+  if (![self workspaceDividerPointForEvent:event overlayPoint:&point]) return event;
   if (event.type == NSEventTypeLeftMouseDown) {
     if (_activeWorkspaceDivider) {
       [_activeWorkspaceDivider cancelActiveGesture];
       _activeWorkspaceDivider = nil;
     }
-    NSPoint point = [_workspaceDividerOverlay
-        convertPoint:event.locationInWindow
-           fromView:nil];
     for (RionRuntimeWorkspaceDividerView *divider in
              _workspaceDividerViews.allValues.reverseObjectEnumerator) {
       if (!divider.hidden && NSPointInRect(point, divider.frame)) {
@@ -194,7 +215,7 @@ NS_ASSUME_NONNULL_BEGIN
   RionRuntimeWorkspaceDividerView *active = _activeWorkspaceDivider;
   if (!active) return event;
   if (event.type == NSEventTypeLeftMouseDragged) {
-    [active mouseDragged:event];
+    [active mouseDraggedAtOverlayPoint:point];
     return nil;
   }
   if (event.type == NSEventTypeLeftMouseUp) {

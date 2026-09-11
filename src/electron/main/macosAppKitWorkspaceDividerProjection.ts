@@ -26,7 +26,6 @@ interface PrepareWorkspaceDividerProjectionInput {
   readonly identity: AppKitRuntimeHostIdentityRecord;
   readonly projection: AppKitRuntimeWindowProjectionRecord;
   readonly state: MacosAppKitWorkspaceDividerProjectionState;
-  readonly contentBounds: () => ChromiumRoleSurfaceBounds;
   readonly currentFenceMatches: () => boolean;
   readonly apply: (
     revision: string,
@@ -215,6 +214,14 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
     );
   }
   const nextDividers = validateDividers(projection);
+  if (!projection.contentBounds) {
+    throw dividerError(
+      "ELECTRON_MACOS_APPKIT_DIVIDER_CONTENT_BOUNDS_MISSING",
+      "Core omitted the exact content bounds used for workspace-divider layout."
+    );
+  }
+  const nextContentBounds = cloneBounds(projection.contentBounds);
+  requireContainedDividers(nextContentBounds, nextDividers);
   const preparedVersion = state.version;
   const previousContentBounds = state.contentBounds &&
     cloneBounds(state.contentBounds);
@@ -267,13 +274,12 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
           "The prepared native divider projection lost its exact Core fence."
         );
       }
-      const contentBounds = cloneBounds(input.contentBounds());
       // Geometry validation is side-effect free. Do it before entering the
       // native compensation region so malformed Core bounds never mutate the
       // last verified AppKit projection.
-      requireContainedDividers(contentBounds, nextDividers);
+      requireContainedDividers(nextContentBounds, nextDividers);
       if (
-        previousContentBounds && sameBounds(previousContentBounds, contentBounds) &&
+        previousContentBounds && sameBounds(previousContentBounds, nextContentBounds) &&
         sameDividers(previousDividers, nextDividers)
       ) {
         committedVersion = state.version;
@@ -281,12 +287,12 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
         return;
       }
       try {
-        committedVersion = applyExact(contentBounds, nextDividers);
+        committedVersion = applyExact(nextContentBounds, nextDividers);
         nativeMutationCommitted = true;
         phase = "committed";
       } catch (error) {
         phase = "failed";
-        compensateToPrevious(contentBounds);
+        compensateToPrevious(nextContentBounds);
         throw error;
       }
     },
@@ -306,8 +312,7 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
         phase = "rolled-back";
         return;
       }
-      const fallback = cloneBounds(input.contentBounds());
-      if (!compensateToPrevious(fallback)) {
+      if (!compensateToPrevious(nextContentBounds)) {
         phase = "failed";
         throw dividerError(
           "ELECTRON_MACOS_APPKIT_DIVIDER_ROLLBACK_FAILED",

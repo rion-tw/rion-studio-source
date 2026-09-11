@@ -1017,7 +1017,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       identity: record.identity,
       projection,
       state: record.workspaceDividerProjection,
-      contentBounds: () => this.#projectContentBounds(record),
       currentFenceMatches: () => this.#isExactOwner(record) &&
         record.windowGeneration === projection.windowGeneration &&
         record.topologyRevision === projection.topologyRevision &&

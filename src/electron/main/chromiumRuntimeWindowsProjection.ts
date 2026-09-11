@@ -81,6 +81,8 @@ function projectWorkspaceSpecification(
     projection.tabId !== tab.specification.tabId ||
     tab.specification.workspaceId === undefined ||
     projection.workspaceSlots.length < 1 ||
+    !["material", "black"].includes(projection.workspaceAppearance.background) ||
+    ![1, 2, 4, 6, 8, 12, 16].includes(projection.workspaceAppearance.gap) ||
     new Set(projection.workspaceSlots.map((slot) => slot.id)).size !==
       projection.workspaceSlots.length
   ) {
@@ -136,6 +138,7 @@ function projectWorkspaceSpecification(
   });
   return {
     ...tab.specification,
+    workspaceAppearance: { ...projection.workspaceAppearance },
     workspaceSlots,
     slots,
     roles

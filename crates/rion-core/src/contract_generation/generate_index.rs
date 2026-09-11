@@ -48,6 +48,7 @@ fn export_bindings_index() {
                 "export type { AppKitRuntimeEventRecord } from \"./AppKitRuntimeEventRecord\";\n",
                 "export type { AppKitRuntimeHostIdentityRecord } from \"./AppKitRuntimeHostIdentityRecord\";\n",
                 "export type { AppKitRuntimeHostObservationRecord } from \"./AppKitRuntimeHostObservationRecord\";\n",
+                "export type { AppKitWorkspaceAppearanceObservationReceiptRecord } from \"./AppKitWorkspaceAppearanceObservationReceiptRecord\";\n",
                 "export type { AppKitRuntimeProjectionEffectRecord } from \"./AppKitRuntimeProjectionEffectRecord\";\n",
                 "export type { AppKitRuntimeRoleLayoutRecord } from \"./AppKitRuntimeRoleLayoutRecord\";\n",
                 "export type { AppKitRuntimeTabProjectionRecord } from \"./AppKitRuntimeTabProjectionRecord\";\n",

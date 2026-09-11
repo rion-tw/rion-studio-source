@@ -89,6 +89,16 @@ pub struct AppKitRuntimeEventRecord {
     pub action: AppKitRuntimeEventActionRecord,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct AppKitWorkspaceAppearanceObservationReceiptRecord {
+    pub observation_id: String,
+    #[ts(type = "number")]
+    pub adapter_sequence: u64,
+    pub hosts: Vec<AppKitRuntimeHostObservationRecord>,
+}
+
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -152,6 +162,9 @@ pub struct AppKitRuntimeWindowProjectionRecord {
     pub window_generation: u64,
     #[ts(type = "number")]
     pub topology_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub content_bounds: Option<LayoutBounds>,
     pub logical_tab_ids: Vec<String>,
     pub hidden_tab_ids: Vec<String>,
     pub tabs: Vec<AppKitRuntimeTabProjectionRecord>,

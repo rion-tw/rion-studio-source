@@ -58,6 +58,10 @@ export const desktopE2eSpecByPhase: Readonly<Record<string, string>> = {
   "chromium-settings-persistence-seed": "e2e/desktop/specs/chromium-settings-persistence.e2e.ts",
   "chromium-workspace-web-slot-restart": "e2e/desktop/specs/chromium-workspace-web-slot.e2e.ts",
   "chromium-workspace-web-slot-seed": "e2e/desktop/specs/chromium-workspace-web-slot.e2e.ts",
+  "chromium-workspace-gap-dividers-restart":
+    "e2e/desktop/specs/chromium-workspace-gap-dividers.e2e.ts",
+  "chromium-workspace-gap-dividers-seed":
+    "e2e/desktop/specs/chromium-workspace-gap-dividers.e2e.ts",
   "chromium-workspace-web-fullscreen-restart": "e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts",
   "chromium-workspace-web-fullscreen-seed": "e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts",
   "chromium-workspace-web-only-restart": "e2e/desktop/specs/chromium-workspace-web-only.e2e.ts",

@@ -1,4 +1,6 @@
 import { workspaceWebLaunchUrl } from "../../shared/workspaceStartPage";
+import { observeAppKitWorkspaceAppearance } from
+  "./appKitWorkspaceAppearanceObservation";
 import type {
   AppKitRuntimeProjectionEffectRecord,
   BrowserRuntimeRoleRecord,
@@ -468,6 +470,12 @@ export class ChromiumRuntimeEffectExecutor {
         return this.#destroyTab(action.tabId, action.nextActiveTabId ?? undefined);
       case "embeddedFollowRoleOwnership":
         return this.#followRoleOwnership(effect, action, context?.signal);
+      case "embeddedObserveAppKitWorkspaceAppearance":
+        return observeAppKitWorkspaceAppearance(
+          this.#input.appKitWorkspaceAppearance,
+          action.windowIds,
+          (windowId) => this.#windows.has(windowId)
+        );
       case "embeddedApplyAppKitProjection":
         return this.#applyAppKitProjection(effect, action.projection);
       case "embeddedProvisionWindowForTabMove":

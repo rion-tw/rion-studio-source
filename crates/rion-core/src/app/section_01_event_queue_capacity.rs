@@ -64,9 +64,11 @@ const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
 const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // Version 23 introduced Chromium data/effect semantics; 24 added Website DRM policy;
 // 25 requires production-publisher CRX3 verification; 26 fixes Workspace Website
-// tab dispositions; 27 admits bounded exact POST envelopes for controlled popups.
+// tab dispositions; 27 admits bounded exact POST envelopes for controlled popups;
+// 28 retains native macOS popup presentation; 29 adds exact live Workspace
+// appearance projection and AppKit geometry fencing.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 28;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 29;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.
@@ -373,6 +375,7 @@ pub struct AppCore {
     #[cfg(test)]
     controlled_role_reload_before_final_admission_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     workspace_divider_runtime: Mutex<WorkspaceDividerRuntime>,
+    workspace_appearance_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
     runtime_window_provision_receipts: Mutex<RuntimeWindowProvisionReceiptLedger>,
     instance_lock: Mutex<Option<File>>,
     #[cfg(test)]
@@ -556,6 +559,9 @@ impl AppCore {
             #[cfg(test)]
             controlled_role_reload_before_final_admission_hook: Mutex::new(None),
             workspace_divider_runtime: Mutex::new(WorkspaceDividerRuntime::default()),
+            workspace_appearance_sequence: Arc::new(
+                crate::runtime_sequence::RuntimeOperationSequence::default(),
+            ),
             runtime_window_provision_receipts: Mutex::new(
                 RuntimeWindowProvisionReceiptLedger::default(),
             ),

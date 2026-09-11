@@ -338,6 +338,9 @@ pub enum CoreEffectAction {
         #[ts(optional, rename = "focusTabId")]
         focus_tab_id: Option<String>,
     },
+    EmbeddedObserveAppKitWorkspaceAppearance {
+        window_ids: Vec<String>,
+    },
     EmbeddedApplyAppKitProjection {
         projection: Box<AppKitRuntimeProjectionEffectRecord>,
     },
@@ -465,6 +468,7 @@ impl CoreEffectAction {
             | Self::EmbeddedDestroyTab { .. }
             | Self::EmbeddedSetTabAudioMuted { .. }
             | Self::EmbeddedFollowRoleOwnership { .. }
+            | Self::EmbeddedObserveAppKitWorkspaceAppearance { .. }
             | Self::EmbeddedInstallOverlays { .. }
             | Self::EmbeddedApplyAppKitProjection { .. }
             | Self::EmbeddedProvisionWindowForTabMove { .. }

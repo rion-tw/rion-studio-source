@@ -65,6 +65,93 @@ use super::*;
     }
 
     #[test]
+    fn resolves_main_left_stack_right_gaps_on_both_axes_inside_the_observed_content_bounds() {
+        let content_bounds = LayoutBounds {
+            x: 17,
+            y: 43,
+            width: 1_000,
+            height: 700,
+        };
+        for gap in [1, 2, 4, 6, 8, 12, 16] {
+            let output = resolve(&WorkspaceLayoutInput {
+                active: true,
+                hidden: false,
+                window_visible: true,
+                content_bounds: content_bounds.clone(),
+                gap,
+                roles: vec![
+                    LayoutRoleInput {
+                        role_id: "main".to_owned(),
+                        rect: LayoutRect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 0.5,
+                            height: 1.0,
+                        },
+                    },
+                    LayoutRoleInput {
+                        role_id: "top".to_owned(),
+                        rect: LayoutRect {
+                            x: 0.5,
+                            y: 0.0,
+                            width: 0.5,
+                            height: 0.5,
+                        },
+                    },
+                    LayoutRoleInput {
+                        role_id: "bottom".to_owned(),
+                        rect: LayoutRect {
+                            x: 0.5,
+                            y: 0.5,
+                            width: 0.5,
+                            height: 0.5,
+                        },
+                    },
+                ],
+                dividers: vec![
+                    LayoutDividerInput {
+                        axis: "vertical".to_owned(),
+                        before_role_ids: vec!["main".to_owned()],
+                        after_role_ids: vec!["top".to_owned(), "bottom".to_owned()],
+                    },
+                    LayoutDividerInput {
+                        axis: "horizontal".to_owned(),
+                        before_role_ids: vec!["top".to_owned()],
+                        after_role_ids: vec!["bottom".to_owned()],
+                    },
+                ],
+            });
+
+            let main = &output.roles[0].bounds;
+            let top = &output.roles[1].bounds;
+            let bottom = &output.roles[2].bounds;
+            assert_eq!(top.x - (main.x + main.width), gap as i32, "gap={gap}");
+            assert_eq!(bottom.x - (main.x + main.width), gap as i32, "gap={gap}");
+            assert_eq!(bottom.y - (top.y + top.height), gap as i32, "gap={gap}");
+            assert_eq!(output.dividers[0].bounds.width, gap as i32, "gap={gap}");
+            assert_eq!(output.dividers[1].bounds.height, gap as i32, "gap={gap}");
+
+            for bounds in output
+                .roles
+                .iter()
+                .map(|role| &role.bounds)
+                .chain(output.dividers.iter().map(|divider| &divider.bounds))
+            {
+                assert!(bounds.x >= content_bounds.x, "gap={gap}: {bounds:?}");
+                assert!(bounds.y >= content_bounds.y, "gap={gap}: {bounds:?}");
+                assert!(
+                    bounds.x + bounds.width <= content_bounds.x + content_bounds.width,
+                    "gap={gap}: {bounds:?}"
+                );
+                assert!(
+                    bounds.y + bounds.height <= content_bounds.y + content_bounds.height,
+                    "gap={gap}: {bounds:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn resolves_adaptive_zoom_with_hysteresis() {
         {
             assert_eq!(adaptive_zoom_percent(1.0, None), 25);

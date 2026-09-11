@@ -4,5 +4,6 @@ import type { AppKitRuntimeRoleLayoutRecord } from "./AppKitRuntimeRoleLayoutRec
 import type { AppKitRuntimeTabProjectionRecord } from "./AppKitRuntimeTabProjectionRecord";
 import type { AppKitRuntimeWebSurfaceLayoutRecord } from "./AppKitRuntimeWebSurfaceLayoutRecord";
 import type { AppKitRuntimeWorkspaceDividerLayoutRecord } from "./AppKitRuntimeWorkspaceDividerLayoutRecord";
+import type { LayoutBounds } from "./LayoutBounds";
 
-export type AppKitRuntimeWindowProjectionRecord = { identity: AppKitRuntimeHostIdentityRecord, adapterSequence: number, windowGeneration: number, topologyRevision: number, logicalTabIds: Array<string>, hiddenTabIds: Array<string>, tabs: Array<AppKitRuntimeTabProjectionRecord>, activeTabId?: string, roles: Array<AppKitRuntimeRoleLayoutRecord>, webSurfaces: Array<AppKitRuntimeWebSurfaceLayoutRecord>, workspaceDividers: Array<AppKitRuntimeWorkspaceDividerLayoutRecord>, windowVisible: boolean, };
+export type AppKitRuntimeWindowProjectionRecord = { identity: AppKitRuntimeHostIdentityRecord, adapterSequence: number, windowGeneration: number, topologyRevision: number, contentBounds?: LayoutBounds, logicalTabIds: Array<string>, hiddenTabIds: Array<string>, tabs: Array<AppKitRuntimeTabProjectionRecord>, activeTabId?: string, roles: Array<AppKitRuntimeRoleLayoutRecord>, webSurfaces: Array<AppKitRuntimeWebSurfaceLayoutRecord>, workspaceDividers: Array<AppKitRuntimeWorkspaceDividerLayoutRecord>, windowVisible: boolean, };

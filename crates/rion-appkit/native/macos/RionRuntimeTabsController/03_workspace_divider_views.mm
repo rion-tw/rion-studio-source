@@ -20,6 +20,7 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 - (void)applyProjection:(NSDictionary<NSString *, id> *)projection
              localFrame:(NSRect)localFrame;
 - (void)cancelActiveGesture;
+- (void)mouseDraggedAtOverlayPoint:(NSPoint)point;
 
 @end
 
@@ -199,6 +200,11 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 - (void)mouseDragged:(NSEvent *)event {
   if (!_gestureActive || !self.superview) return;
   NSPoint point = [self.superview convertPoint:event.locationInWindow fromView:nil];
+  [self mouseDraggedAtOverlayPoint:point];
+}
+
+- (void)mouseDraggedAtOverlayPoint:(NSPoint)point {
+  if (!_gestureActive || !self.superview) return;
   NSRect bounds = self.superview.bounds;
   CGFloat extent = [_axis isEqualToString:@"vertical"]
       ? NSWidth(bounds)

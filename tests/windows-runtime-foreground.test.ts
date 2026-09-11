@@ -43,7 +43,7 @@ const windowId = "10000000-0000-4000-8000-000000000001";
 const tabId = "10000000-0000-4000-8000-000000000002";
 const inspection = {
   hostKind: "windows", presentation: "normal", windowId, windowGeneration: 1,
-  topologyRevision: 1, tabIds: [tabId], surfaces: [],
+  topologyRevision: 1, tabIds: [tabId], surfaces: [], workspaceTabs: [],
   native: {
     windowId, windowGeneration: 1, topologyRevision: 1, projectionRevision: 1,
     alwaysShowToolbarInFullScreen: false, fullscreen: false, revealed: false,

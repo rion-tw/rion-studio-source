@@ -339,9 +339,7 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::GameBrowserSettingsReplace { settings } => {
-                let settings = normalize_game_browser_settings(settings);
-                validate_game_browser_settings(&settings)?;
-                self.replace_scalar_state("gameBrowserSettings", settings.clone())?;
+                let settings = self.replace_game_browser_settings(settings)?;
                 serde_json::to_value(settings)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }

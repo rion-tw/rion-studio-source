@@ -246,7 +246,7 @@ function createMacosAppKitAdapter(
         if (!hostFactory) {
           throw new RionBridgeError({
             code: "ELECTRON_MACOS_APPKIT_HOST_UNAVAILABLE",
-            message: "The AppKit host factory is unavailable for event dispatch."
+            message: "The AppKit event host is unavailable."
           });
         }
         return hostFactory.captureHostObservations(capturedHosts.map((host) => host.identity.logicalWindowId));
@@ -272,7 +272,7 @@ function createMacosAppKitAdapter(
           if (!attachments) {
             return Promise.reject(new RionBridgeError({
               code: "ELECTRON_MACOS_APPKIT_INPUT_HOST_UNAVAILABLE",
-              message: "The AppKit input attachment coordinator is unavailable."
+              message: "The AppKit input host is unavailable."
             }));
           }
           return attachments.closeHost(binding);

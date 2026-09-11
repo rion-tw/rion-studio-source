@@ -109,6 +109,18 @@ const focusedPhaseDependencies = new Map([
   ],
   ["chromium-game-crud-restart", ["chromium-game-crud-seed"]],
   ["chromium-game-window-ui-restart", ["chromium-game-window-ui-seed"]],
+  [
+    "chromium-workspace-gap-dividers-seed",
+    ["chromium-entity-persistence-seed", "chromium-entity-persistence-restart"]
+  ],
+  [
+    "chromium-workspace-gap-dividers-restart",
+    [
+      "chromium-entity-persistence-seed",
+      "chromium-entity-persistence-restart",
+      "chromium-workspace-gap-dividers-seed"
+    ]
+  ],
   ...chromiumJourneyPhaseDependencies,
   ["chromium-entity-persistence-restart", ["chromium-entity-persistence-seed"]],
   [
@@ -149,6 +161,8 @@ const phaseNamespaces = new Map([
   ["chromium-game-crud-restart", "chromium-game-crud-lifecycle"],
   ["chromium-game-window-ui-seed", "chromium-game-window-ui-lifecycle"],
   ["chromium-game-window-ui-restart", "chromium-game-window-ui-lifecycle"],
+  ["chromium-workspace-gap-dividers-seed", "chromium-entity-persistence-lifecycle"],
+  ["chromium-workspace-gap-dividers-restart", "chromium-entity-persistence-lifecycle"],
   ...chromiumJourneyPhaseNamespaces,
   ["chromium-entity-persistence-seed", "chromium-entity-persistence-lifecycle"],
   ["chromium-entity-persistence-restart", "chromium-entity-persistence-lifecycle"],

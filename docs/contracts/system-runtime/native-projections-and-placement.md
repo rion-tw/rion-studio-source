@@ -152,6 +152,17 @@ order. Successful compensation is `failed`; incomplete compensation is
 cannot overwrite a newer topology. Both platforms are tested with explicit
 platform inputs even when only one native shell is locally available.
 
+Chromium contract v29 makes normalized Workspace appearance changes EventBound.
+Core holds one global lease and refreshes only changed appearances with a live
+Workspace. Windows projections carry the current `workspaceAppearance`. macOS
+obtains one `AppKitWorkspaceAppearanceObservationReceiptRecord` with one
+monotonic adapter sequence and the exact hosts. Each projected window carries
+the `contentBounds` used for Role, Website, and divider geometry; validation,
+apply, readback, and rollback cannot resample it. Refresh does not advance the
+topology revision and supersedes unfinished divider gestures. Native failure
+restores the setting and layout; unprovable compensation quarantines the host
+and reports `indeterminate`.
+
 A runtime tab drag has one stable tab identity and a lifecycle fence from
 pointer-down to drop. Gesture completion is not receipt- or deadline-gated;
 duplicate and late semantic events are silent `superseded`. A newer user gesture supersedes older background projection;

@@ -71,6 +71,7 @@ export interface Harness {
   readonly trustedRetireSurfaceForDestruction: ReturnType<typeof vi.fn>;
   readonly trustedDispose: ReturnType<typeof vi.fn>;
   readonly reconcileRolePlaceholders: ReturnType<typeof vi.fn>;
+  readonly observeAppKitWorkspaceAppearance: ReturnType<typeof vi.fn>;
 }
 
 export function harness(
@@ -246,6 +247,27 @@ export function harness(
   const trustedRetireSurfaceForDestruction = vi.fn(async () => true);
   const trustedDispose = vi.fn(async () => undefined);
   const reconcileRolePlaceholders = vi.fn(async () => undefined);
+  const observeAppKitWorkspaceAppearance = vi.fn((windowIds: readonly string[]) => ({
+    observationId: "11111111-1111-4111-8111-111111111111",
+    adapterSequence: 1,
+    hosts: windowIds.map((windowId) => ({
+        identity: {
+          logicalWindowId: windowId,
+          launchGeneration: "launch-1",
+          nativeGeneration: 1
+        },
+        windowGeneration: 3,
+        topologyRevision: 7,
+        contentBounds: { x: 0, y: 44, width: 1_000, height: 656 },
+        normalBounds: { x: 120, y: 80, width: 1_152, height: 720 },
+        savedWorkArea: { x: 0, y: 0, width: 1_920, height: 1_080 },
+        targetDisplay: { id: 101 },
+        presentation: "normal" as const,
+        focused: true,
+        minimized: false,
+        visible: true
+      }))
+  }));
   const webSurfaces: ChromiumRuntimeGlobalWebSurfacePort = {
     audioMuted: webAudioMuted,
     isCurrentlyAudible: isWebCurrentlyAudible,
@@ -265,6 +287,9 @@ export function harness(
   const resolvePaths = vi.fn(async (roleId: string) => rolePaths(roleId));
   const executeChromeProfileImport = vi.fn(async () => ({ status: "applied" }));
   const executor = new ChromiumRuntimeEffectExecutor({
+    ...(platform === "macos" ? {
+      appKitWorkspaceAppearance: { observe: observeAppKitWorkspaceAppearance }
+    } : {}),
     browserDataClear: {
       clear: clearBrowserData as ChromiumRuntimeBrowserDataClearPort["clear"]
     },
@@ -357,7 +382,8 @@ export function harness(
     trustedRetireSurface,
     trustedRetireSurfaceForDestruction,
     trustedDispose,
-    reconcileRolePlaceholders
+    reconcileRolePlaceholders,
+    observeAppKitWorkspaceAppearance
   };
 }
 

@@ -689,8 +689,21 @@ export async function movePointerToWindowsRuntimeContent(windowId: string): Prom
 /** Drags the visible bundled-host separator with a real WebDriver pointer. */
 export async function dragWindowsVisibleWorkspaceDivider(
   mainWindowHandle: string,
-  deltaCssPixels = 72
+  input: number | Readonly<{
+    axis: "horizontal" | "vertical";
+    dividerIndex: number;
+    deltaCssPixels?: number;
+    expectedThickness?: number;
+  }> = 72
 ): Promise<void> {
+  const axis = typeof input === "number" ? "vertical" : input.axis;
+  const dividerIndex = typeof input === "number" ? 0 : input.dividerIndex;
+  const deltaCssPixels = typeof input === "number"
+    ? input
+    : input.deltaCssPixels ?? 72;
+  const expectedThickness = typeof input === "number"
+    ? undefined
+    : input.expectedThickness;
   let hostHandle: string | undefined;
   await browser.waitUntil(async () => {
     for (const handle of await browser.getWindowHandles()) {
@@ -718,11 +731,23 @@ export async function dragWindowsVisibleWorkspaceDivider(
   if (!hostHandle) throw new Error("The Windows runtime-host target is unavailable");
   await switchTrackedWindow(hostHandle);
   try {
-    const divider = await $("button.runtime-workspace-divider:not([hidden])");
+    const divider = await $(
+      `button.runtime-workspace-divider[data-axis='${axis}']` +
+      `[data-divider-index='${dividerIndex}']:not([hidden])`
+    );
     await divider.waitForDisplayed({ timeout: 10_000 });
-    const axis = await divider.getAttribute("data-axis");
-    if (axis !== "vertical" && axis !== "horizontal") {
+    const exactAxis = await divider.getAttribute("data-axis");
+    if (exactAxis !== axis || await divider.getAttribute("data-divider-index") !==
+        String(dividerIndex)) {
       throw new Error("The visible Windows workspace divider has no exact axis");
+    }
+    const size = await divider.getSize();
+    const thickness = exactAxis === "vertical" ? size.width : size.height;
+    if (expectedThickness !== undefined && thickness !== expectedThickness) {
+      throw new Error(
+        `The Windows ${axis} workspace-divider thickness is ${thickness}, ` +
+        `expected ${expectedThickness}`
+      );
     }
     await browser.action("pointer", { parameters: { pointerType: "mouse" } })
       .move({ duration: 250, origin: divider })
@@ -730,8 +755,8 @@ export async function dragWindowsVisibleWorkspaceDivider(
       .move({
         duration: 700,
         origin: divider,
-        x: axis === "vertical" ? deltaCssPixels : 0,
-        y: axis === "horizontal" ? deltaCssPixels : 0
+        x: exactAxis === "vertical" ? deltaCssPixels : 0,
+        y: exactAxis === "horizontal" ? deltaCssPixels : 0
       })
       .up("left")
       .perform();

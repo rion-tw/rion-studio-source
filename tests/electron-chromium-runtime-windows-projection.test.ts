@@ -186,10 +186,18 @@ describe("Windows Chromium runtime topology projection", () => {
     } as unknown as EmbeddedTabEffectRecord;
     const projected = {
       ...projection("window-1", ["tab-1"], "tab-1"),
-      workspaceTabs: [{ tabId: "tab-1", workspaceSlots: [{ id: "slot-1", web, rect }] }]
+      workspaceTabs: [{
+        tabId: "tab-1",
+        workspaceSlots: [{ id: "slot-1", web, rect }],
+        workspaceAppearance: { background: "material" as const, gap: 16 as const }
+      }]
     };
     await applyChromiumRuntimeWindowsProjection({ ...subject.input, projections: [projected] });
     expect(tab.specification.workspaceSlots).toEqual([{ id: "slot-1", web, rect }]);
+    expect(tab.specification.workspaceAppearance).toEqual({
+      background: "material",
+      gap: 16
+    });
     expect(tab.specification.roles).toEqual([]);
     expect(subject.firstHost.applyWindowsChromeProjection).toHaveBeenCalled();
     projected.topologyRevision += 1;

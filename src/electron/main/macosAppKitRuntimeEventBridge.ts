@@ -5,6 +5,7 @@ import type {
   AppKitRuntimeEventReceiptRecord,
   AppKitRuntimeEventRecord,
   AppKitRuntimeHostObservationRecord,
+  AppKitWorkspaceAppearanceObservationReceiptRecord,
   BrowserWorkspaceDividerPointerPhase,
   BrowserWorkspaceDividerPointerRecord,
   CoreEffectRequest,
@@ -63,6 +64,9 @@ export interface MacosAppKitRuntimeEventBridgeInput {
 }
 
 export interface MacosAppKitRendererActionPort {
+  captureWorkspaceAppearanceObservation: (
+    hosts: readonly AppKitRuntimeHostObservationRecord[]
+  ) => AppKitWorkspaceAppearanceObservationReceiptRecord;
   beginSavedWindowRestore: (windowId: string) => void;
   finishSavedWindowRestore: (windowId: string) => Promise<void>;
   settleCurrentEvents: () => Promise<number>;
@@ -552,6 +556,35 @@ implements MacosAppKitRendererActionPort {
         "ELECTRON_MACOS_APPKIT_LAYOUT_EVENT_INVALID"
       ));
     }
+  }
+
+  captureWorkspaceAppearanceObservation(
+    rawHosts: readonly AppKitRuntimeHostObservationRecord[]
+  ): AppKitWorkspaceAppearanceObservationReceiptRecord {
+    if (this.#state !== "open" || rawHosts.length < 1 || rawHosts.length > 128) {
+      throw bridgeError(
+        "ELECTRON_MACOS_APPKIT_WORKSPACE_APPEARANCE_OBSERVATION_INVALID",
+        "The AppKit workspace-appearance observation set is unavailable or unbounded."
+      );
+    }
+    const seen = new Set<string>();
+    const hosts = rawHosts.map((rawHost) => {
+      const [host] = validateHosts(rawHost.identity, [rawHost]);
+      const windowId = host!.identity.logicalWindowId;
+      if (seen.has(windowId)) {
+        throw bridgeError(
+          "ELECTRON_MACOS_APPKIT_WORKSPACE_APPEARANCE_OBSERVATION_INVALID",
+          "The AppKit workspace-appearance observation set contains a duplicate host."
+        );
+      }
+      seen.add(windowId);
+      return host!;
+    });
+    return Object.freeze({
+      observationId: randomUUID(),
+      adapterSequence: this.#nextAdapterSequence(),
+      hosts
+    });
   }
 
   beginSavedWindowRestore(windowId: string): void {

@@ -4,12 +4,17 @@ import type {
 } from "../../shared/generated";
 
 const WORKSPACE_DIVIDER_WINDOW_NOT_SAVED = "WORKSPACE_DIVIDER_WINDOW_NOT_SAVED";
+const WORKSPACE_DIVIDER_APPEARANCE_SUPERSEDED =
+  "WORKSPACE_DIVIDER_APPEARANCE_SUPERSEDED";
 
 export function isExactWorkspaceDividerReceipt(
   event: BrowserWorkspaceDividerPointerRecord,
   receipt: BrowserWorkspaceDividerPointerReceiptRecord
 ): boolean {
-  const exactOutcome = event.phase === "end"
+  const exactOutcome = receipt.status === "superseded"
+    ? !receipt.changed && !receipt.durable &&
+      receipt.failureCode === WORKSPACE_DIVIDER_APPEARANCE_SUPERSEDED
+    : event.phase === "end"
     ? (
         receipt.status === "applied" &&
         receipt.durable &&

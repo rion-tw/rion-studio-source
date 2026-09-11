@@ -57,6 +57,44 @@ function receipt(command: Extract<CoreCommand, {
 }
 
 describe("macOS AppKit privileged runtime event bridge", () => {
+  it("captures one fenced observation receipt for the exact workspace hosts", async () => {
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: vi.fn(),
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError: vi.fn()
+    });
+    const first = primaryObservation();
+    const second = observation("window-2", 2);
+
+    const captured = bridge.captureWorkspaceAppearanceObservation([first, second]);
+
+    expect(captured).toEqual({
+      observationId: expect.any(String),
+      adapterSequence: 1,
+      hosts: [first, second]
+    });
+    await bridge.dispose();
+  });
+
+  it("rejects duplicate workspace-appearance host observations", async () => {
+    const bridge = new MacosAppKitRuntimeEventBridge({
+      core: {
+        invoke: vi.fn(),
+        subscribeCoreEvents: () => () => undefined
+      },
+      onError: vi.fn()
+    });
+
+    expect(() => bridge.captureWorkspaceAppearanceObservation([
+      primaryObservation(), primaryObservation()
+    ])).toThrowError(expect.objectContaining({
+      code: "ELECTRON_MACOS_APPKIT_WORKSPACE_APPEARANCE_OBSERVATION_INVALID"
+    }));
+    await bridge.dispose();
+  });
+
   it("exposes an event-bound fence for already admitted native callbacks", async () => {
     let release!: () => void;
     const nativeTerminal = new Promise<void>((resolve) => {

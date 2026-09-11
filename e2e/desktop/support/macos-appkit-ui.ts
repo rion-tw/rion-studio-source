@@ -371,15 +371,29 @@ print("\\(settled.x),\\(settled.y)")
 
 /** Drags the retained native NSSplitter hit surface with platform CGEvents. */
 export async function dragMacosVisibleWorkspaceDivider(
-  deltaScreenPixels = 72
+  input: number | Readonly<{
+    axis: "horizontal" | "vertical";
+    dividerIndex: number;
+    deltaScreenPixels?: number;
+    expectedThickness?: number;
+  }> = 72
 ): Promise<void> {
+  const axis = typeof input === "number" ? "vertical" : input.axis;
+  const dividerIndex = typeof input === "number" ? 0 : input.dividerIndex;
+  const deltaScreenPixels = typeof input === "number"
+    ? input
+    : input.deltaScreenPixels ?? 72;
+  const expectedThickness = typeof input === "number"
+    ? undefined
+    : input.expectedThickness;
   const processId = String((await electronDesktopE2eProbe()).processId);
   let geometry = "";
   let pendingDiagnostic = "";
   try {
     await browser.waitUntil(async () => {
       const result = await executeFile("/usr/bin/xcrun", [
-        "swift", resolve(import.meta.dirname, "macos-native-divider-geometry.swift"), processId
+        "swift", resolve(import.meta.dirname, "macos-native-divider-geometry.swift"),
+        processId, axis, String(dividerIndex)
       ], { encoding: "utf8", timeout: 10_000 });
       const candidate = result.stdout.trim();
       if (candidate.startsWith("PENDING|")) {
@@ -401,17 +415,29 @@ export async function dragMacosVisibleWorkspaceDivider(
     );
   }
   const divider = JSON.parse(geometry) as {
+    axis: "horizontal" | "vertical"; dividerIndex: number;
     windowId: string; x: number; y: number; width: number; height: number;
   };
+  if (divider.axis !== axis || divider.dividerIndex !== dividerIndex) {
+    throw new Error("The AppKit workspace-divider accessibility identity is stale");
+  }
   await focusVisibleMacosAppKitRuntime({ processId: Number(processId), windowId: divider.windowId });
   const values = [divider.x, divider.y, divider.width, divider.height];
   if (values.length !== 4 || values.some((value) => !Number.isFinite(value)) ||
       values[2]! <= 0 || values[3]! <= 0) {
     throw new Error("The AppKit workspace-divider accessibility geometry is invalid");
   }
+  const thickness = axis === "vertical" ? divider.width : divider.height;
+  if (expectedThickness !== undefined && thickness !== expectedThickness) {
+    throw new Error(
+      `The AppKit ${axis} workspace-divider thickness is ${thickness}, ` +
+      `expected ${expectedThickness}`
+    );
+  }
   const startX = values[0]! + values[2]! / 2;
   const startY = values[1]! + values[3]! / 2;
-  const endX = startX + deltaScreenPixels;
+  const endX = startX + (axis === "vertical" ? deltaScreenPixels : 0);
+  const endY = startY + (axis === "horizontal" ? deltaScreenPixels : 0);
   const hitTestScript = `
 import ApplicationServices
 import Foundation
@@ -439,6 +465,17 @@ func childrenSummary(_ element: AXUIElement) -> String {
     stringAttribute($0, kAXDescriptionAttribute)
   }.joined(separator: ";")
 }
+func ancestorWindowIdentifier(_ element: AXUIElement) -> String {
+  var current: AXUIElement? = element
+  for _ in 0..<64 {
+    guard let candidate = current else { return "" }
+    if stringAttribute(candidate, kAXRoleAttribute) == "AXWindow" {
+      return stringAttribute(candidate, kAXIdentifierAttribute)
+    }
+    current = elementAttribute(candidate, kAXParentAttribute)
+  }
+  return ""
+}
 let systemWide = AXUIElementCreateSystemWide()
 var hit: AXUIElement?
 let result = AXUIElementCopyElementAtPosition(
@@ -459,7 +496,8 @@ print(
   (parent.map { stringAttribute($0, kAXRoleAttribute) + ":" +
     stringAttribute($0, kAXDescriptionAttribute) } ?? "") + "\\t" +
   (grandparent.map { stringAttribute($0, kAXRoleAttribute) + ":" +
-    stringAttribute($0, kAXDescriptionAttribute) } ?? "")
+    stringAttribute($0, kAXDescriptionAttribute) } ?? "") + "\\t" +
+  ancestorWindowIdentifier(hit)
 )
 `;
   const hitTest = await executeFile("/usr/bin/xcrun", ["swift", "-e", hitTestScript], {
@@ -467,16 +505,23 @@ print(
     timeout: 30_000
   });
   const [hitProcessId, hitRole, hitDescription, , hitChildren, hitParent,
-    hitGrandparent] = hitTest.stdout.trim().split("\t");
+    hitGrandparent, hitWindowIdentifier] = hitTest.stdout.trim().split("\t");
+  const expectedDescription = axis === "vertical"
+    ? "Resize workspace columns"
+    : "Resize workspace rows";
   const exactSplitterHit = hitRole === "AXSplitter" &&
-    hitDescription === "Resize workspace columns";
-  if (hitProcessId !== processId || (!exactSplitterHit && hitRole !== "AXGroup")) {
+    hitDescription === expectedDescription;
+  const exactWindowIdentifier =
+    `com.rionstudio.runtime.appkit-window.v1:${divider.windowId}`;
+  if (hitProcessId !== processId || hitWindowIdentifier !== exactWindowIdentifier ||
+      (!exactSplitterHit && hitRole !== "AXGroup" && hitRole !== "AXWebArea")) {
     throw new Error(
       `The AppKit divider coordinate is not owned by the exact Rion host ` +
       `(geometry=${values.join(",")}; hitPid=${hitProcessId ?? ""}; ` +
       `hitRole=${hitRole ?? ""}; hitDescription=${hitDescription ?? ""}; ` +
       `hitChildren=${hitChildren ?? ""}; hitParent=${hitParent ?? ""}; ` +
-      `hitGrandparent=${hitGrandparent ?? ""})`
+      `hitGrandparent=${hitGrandparent ?? ""}; ` +
+      `hitWindowIdentifier=${hitWindowIdentifier ?? ""})`
     );
   }
   const script = `
@@ -484,18 +529,24 @@ import CoreGraphics
 import Foundation
 let source = CGEventSource(stateID: .hidSystemState)
 let start = CGPoint(x: ${startX}, y: ${startY})
-let end = CGPoint(x: ${endX}, y: ${startY})
+let end = CGPoint(x: ${endX}, y: ${endY})
 CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
   mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+usleep(25_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
   mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+usleep(25_000)
 for step in 1...8 {
   let progress = CGFloat(step) / 8.0
-  let point = CGPoint(x: start.x + (end.x - start.x) * progress, y: start.y)
+  let point = CGPoint(
+    x: start.x + (end.x - start.x) * progress,
+    y: start.y + (end.y - start.y) * progress
+  )
   CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
     mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
   usleep(25_000)
 }
+usleep(25_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
   mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
 `;

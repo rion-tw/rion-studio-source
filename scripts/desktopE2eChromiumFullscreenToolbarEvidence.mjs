@@ -46,7 +46,7 @@ function validCommon(observation, platform) {
   const surfaces = observation?.surfaces;
   return exactKeys(observation, [
     "hostKind", "native", "presentation", "surfaces", "tabIds",
-    "topologyRevision", "windowGeneration", "windowId",
+    "topologyRevision", "windowGeneration", "windowId", "workspaceTabs",
     ...(observation && "nativeWindowHandle" in observation ? ["nativeWindowHandle"] : [])
   ]) && (!("nativeWindowHandle" in observation) || (platform === "windows" &&
     typeof observation.nativeWindowHandle === "string" &&
@@ -67,6 +67,12 @@ function validCommon(observation, platform) {
     Number.isSafeInteger(native.projectionRevision) && native.projectionRevision > 0 &&
     Array.isArray(observation.tabIds) && observation.tabIds.length > 0 &&
     new Set(observation.tabIds).size === observation.tabIds.length &&
+    Array.isArray(observation.workspaceTabs) &&
+    observation.workspaceTabs.every((workspace) =>
+      exactKeys(workspace, ["slots", "sourceId", "tabId"]) &&
+      observation.tabIds.includes(workspace.tabId) &&
+      Array.isArray(workspace.slots) && workspace.slots.length > 0
+    ) &&
     Array.isArray(surfaces) && surfaces.some((surface) =>
       surface.kind === "role" && surface.visible === true &&
       Number.isSafeInteger(surface.bounds?.height) && surface.bounds.height > 0

@@ -284,7 +284,22 @@ impl AppCore {
 
     fn admit_embedded_window_close(
         &self,
+        request: RuntimeWindowStopRequestRecord,
+    ) -> CoreResult<RuntimeWindowStopRequestRecord> {
+        self.admit_embedded_window_close_with_runtime_sequence(request, false)
+    }
+
+    fn admit_embedded_window_close_under_runtime_sequence(
+        &self,
+        request: RuntimeWindowStopRequestRecord,
+    ) -> CoreResult<RuntimeWindowStopRequestRecord> {
+        self.admit_embedded_window_close_with_runtime_sequence(request, true)
+    }
+
+    fn admit_embedded_window_close_with_runtime_sequence(
+        &self,
         mut request: RuntimeWindowStopRequestRecord,
+        runtime_sequence_held: bool,
     ) -> CoreResult<RuntimeWindowStopRequestRecord> {
         if request.admission_id.is_some() || !request.closing_tabs.is_empty() {
             return Ok(request);
@@ -330,7 +345,11 @@ impl AppCore {
 
         let admitted = (|| {
             let _window_sequence = self.embedded_window_sequence.acquire()?;
-            let _runtime_sequence = self.embedded_runtime_sequence.acquire()?;
+            let _runtime_sequence = if runtime_sequence_held {
+                None
+            } else {
+                Some(self.embedded_runtime_sequence.acquire()?)
+            };
             let current = self
                 .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                 .snapshot;
@@ -396,9 +415,28 @@ impl AppCore {
         request: &RuntimeWindowStopRequestRecord,
         delete: bool,
     ) -> CoreResult<()> {
+        self.stop_embedded_window_runtime_with_sequence(request, delete, false)
+    }
+
+    fn stop_embedded_window_under_runtime_sequence(
+        &self,
+        request: &RuntimeWindowStopRequestRecord,
+        delete: bool,
+    ) -> CoreResult<()> {
+        self.stop_embedded_window_runtime_with_sequence(request, delete, true)
+    }
+
+    fn stop_embedded_window_runtime_with_sequence(
+        &self,
+        request: &RuntimeWindowStopRequestRecord,
+        delete: bool,
+        runtime_sequence_held: bool,
+    ) -> CoreResult<()> {
         let admitted_request = if request.admission_id.is_some() || !request.closing_tabs.is_empty()
         {
             request.clone()
+        } else if runtime_sequence_held {
+            self.admit_embedded_window_close_under_runtime_sequence(request.clone())?
         } else {
             self.admit_embedded_window_close(request.clone())?
         };

@@ -179,7 +179,7 @@ pub struct MacroOverlaySettingsPatchRecord {
     pub show_click_markers: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct WorkspaceAppearanceSettingsRecord {

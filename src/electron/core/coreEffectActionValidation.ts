@@ -144,7 +144,9 @@ const tabPhaseProjection: Check = (value) => closed(value, {
   tabId: identity, phase: runtimeTabPhase
 });
 const workspaceTabProjection: Check = (value) => closed(value, {
-  tabId: identity, workspaceSlots: arrayOf(workspaceSlot)
+  tabId: identity,
+  workspaceSlots: arrayOf(workspaceSlot),
+  workspaceAppearance: appearance
 });
 const runtimeWindowProjection: Check = (value) => closed(value, {
   windowId: identity,
@@ -203,7 +205,7 @@ const appKitWindow: Check = (value) => closed(value, {
   webSurfaces: arrayOf(appKitWebSurface),
   workspaceDividers: arrayOf(appKitDivider),
   windowVisible: bool
-}, { activeTabId: identity });
+}, { activeTabId: identity, contentBounds: layoutBounds });
 const appKitProjection: Check = (value) => closed(value, {
   eventId: identity, windows: arrayOf(appKitWindow)
 });
@@ -321,6 +323,7 @@ const actionTypes = new Set<ActionType>([
   "embeddedClaimRoleSlot",
   "embeddedDestroyTab",
   "embeddedFollowRoleOwnership",
+  "embeddedObserveAppKitWorkspaceAppearance",
   "embeddedApplyAppKitProjection",
   "embeddedProvisionWindowForTabMove",
   "embeddedRetireProvisionedWindow",
@@ -419,6 +422,10 @@ function isClosedKnownCoreEffectAction(value: unknown, type: ActionType): boolea
         focusWindowIds: arrayOf(identity)
       }, {
         windows: arrayOf(runtimeWindowProjection), target: launchTarget, focusTabId: identity
+      });
+    case "embeddedObserveAppKitWorkspaceAppearance":
+      return closed(value, {
+        type: oneOf(type), windowIds: arrayOf(identity)
       });
     case "embeddedApplyAppKitProjection":
       return closed(value, { type: oneOf(type), projection: appKitProjection });

@@ -253,6 +253,12 @@ impl AppCore {
         &self,
     ) -> CoreResult<Vec<crate::model::EmbeddedRuntimeWindowProjectionRecord>> {
         let snapshot = self.browser_runtime.snapshot()?;
+        let workspace_appearance = self
+            .read_scalar_state::<GameBrowserSettingsRecord>(
+                "gameBrowserSettings",
+                "game browser settings are missing",
+            )?
+            .workspace;
         let activation_by_tab = &snapshot.tab_activations;
         let mut windows = snapshot
             .windows
@@ -284,6 +290,7 @@ impl AppCore {
                         .map(|tab| crate::model::EmbeddedRuntimeWorkspaceTabProjectionRecord {
                             tab_id: tab.id.clone(),
                             workspace_slots: tab.workspace_slots.clone(),
+                            workspace_appearance: workspace_appearance.clone(),
                         })
                         .collect(),
                     window_id: window.window_id,
@@ -470,15 +477,32 @@ impl AppCore {
         })
     }
 
+    fn replace_game_browser_settings(
+        &self,
+        settings: GameBrowserSettingsRecord,
+    ) -> CoreResult<GameBrowserSettingsRecord> {
+        let _appearance_lease = self.workspace_appearance_sequence.acquire()?;
+        let _lane = self.embedded_runtime_sequence.acquire()?;
+        let previous = self.read_scalar_state::<GameBrowserSettingsRecord>(
+            "gameBrowserSettings",
+            "game browser settings are missing",
+        )?;
+        let settings = normalize_game_browser_settings(settings);
+        validate_game_browser_settings(&settings)?;
+        self.commit_game_browser_settings(previous, settings)
+    }
+
     fn patch_game_browser_settings(
         &self,
         patch: GameBrowserSettingsPatchRecord,
     ) -> CoreResult<GameBrowserSettingsRecord> {
-        let _guard = self.state_mutation_guard()?;
+        let _appearance_lease = self.workspace_appearance_sequence.acquire()?;
+        let _lane = self.embedded_runtime_sequence.acquire()?;
         let mut settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
             "gameBrowserSettings",
             "game browser settings are missing",
         )?;
+        let previous = settings.clone();
         let patch_macro_badge_position = patch.macro_badge_position.is_some();
         let patch_macro_overlay = patch.macro_overlay.is_some();
         let patch_workspace = patch.workspace.is_some();
@@ -511,8 +535,179 @@ impl AppCore {
         if patch_workspace {
             settings.workspace = candidate.workspace;
         }
-        self.replace_scalar_state_under_guard("gameBrowserSettings", settings.clone())?;
+        self.commit_game_browser_settings(previous, settings)
+    }
+
+    fn commit_game_browser_settings(
+        &self,
+        previous: GameBrowserSettingsRecord,
+        settings: GameBrowserSettingsRecord,
+    ) -> CoreResult<GameBrowserSettingsRecord> {
+        let workspace_changed = previous.workspace != settings.workspace;
+        let refresh_live_workspace = workspace_changed
+            && self.runtime_contract_version >= CHROMIUM_RUNTIME_CONTRACT_VERSION
+            && self.has_live_workspace_tabs()?;
+        {
+            let _guard = self.state_mutation_guard()?;
+            self.replace_scalar_state_under_guard("gameBrowserSettings", settings.clone())?;
+        }
+        if !refresh_live_workspace {
+            return Ok(settings);
+        }
+        let projection = self
+            .supersede_active_workspace_divider_gestures()
+            .and_then(|()| self.project_workspace_appearance());
+        if let Err(error) = projection {
+            let restored = (|| {
+                let _guard = self.state_mutation_guard()?;
+                self.replace_scalar_state_under_guard(
+                    "gameBrowserSettings",
+                    previous.clone(),
+                )?;
+                Ok::<(), CoreError>(())
+            })();
+            return match restored {
+                Ok(()) => Err(error),
+                Err(_) => Err(CoreError::Domain {
+                    code: "WORKSPACE_APPEARANCE_COMPENSATION_FAILED",
+                    message: "Workspace appearance failed and its persisted setting could not be restored. Restart Rion Studio before retrying.".to_owned(),
+                }),
+            };
+        }
         Ok(settings)
+    }
+
+    fn has_live_workspace_tabs(&self) -> CoreResult<bool> {
+        Ok(self.browser_runtime.snapshot()?.windows.values().any(|window| {
+            window.tabs.iter().any(|tab| !tab.workspace_slots.is_empty())
+        }))
+    }
+
+    fn project_workspace_appearance(&self) -> CoreResult<()> {
+        if self.platform == rion_platform::Platform::Windows {
+            self.project_embedded_runtime_snapshot_without_persistence(None)?;
+            return Ok(());
+        }
+        let mut window_ids = self
+            .browser_runtime
+            .snapshot()?
+            .windows
+            .values()
+            .filter(|window| {
+                window.tabs.iter().any(|tab| !tab.workspace_slots.is_empty())
+            })
+            .map(|window| window.window_id.clone())
+            .collect::<Vec<_>>();
+        window_ids.sort();
+        let outcome = self.run_embedded_runtime_effect(
+            "workspace-appearance-observation",
+            CoreEffectAction::EmbeddedObserveAppKitWorkspaceAppearance {
+                window_ids: window_ids.clone(),
+            },
+            None,
+            None,
+        )?;
+        let value_json = outcome
+            .results
+            .first()
+            .and_then(|result| result.value_json.as_deref())
+            .ok_or_else(|| CoreError::Effect {
+                code: "APPKIT_WORKSPACE_APPEARANCE_OBSERVATION_MISSING".to_owned(),
+                message: "Electron omitted the exact AppKit workspace-appearance observation."
+                    .to_owned(),
+            })?;
+        let observation = serde_json::from_str::<
+            crate::model::AppKitWorkspaceAppearanceObservationReceiptRecord,
+        >(value_json)
+        .map_err(|_| CoreError::Effect {
+            code: "APPKIT_WORKSPACE_APPEARANCE_OBSERVATION_INVALID".to_owned(),
+            message: "Electron returned an invalid AppKit workspace-appearance observation."
+                .to_owned(),
+        })?;
+        if uuid::Uuid::parse_str(&observation.observation_id).is_err()
+            || observation.adapter_sequence == 0
+            || observation.hosts.len() != window_ids.len()
+        {
+            return Err(CoreError::Effect {
+                code: "APPKIT_WORKSPACE_APPEARANCE_OBSERVATION_INCOMPLETE".to_owned(),
+                message: "Electron omitted a live AppKit workspace host observation.".to_owned(),
+            });
+        }
+        let expected = window_ids.into_iter().collect::<std::collections::HashSet<_>>();
+        let before = self.browser_runtime.snapshot()?;
+        let _event_lane = self.appkit_event_sequence.acquire()?;
+        let mut projected_windows = Vec::with_capacity(observation.hosts.len());
+        let mut seen = std::collections::HashSet::new();
+        for host in observation.hosts {
+            let event = crate::model::AppKitRuntimeEventRecord {
+                event_id: observation.observation_id.clone(),
+                adapter_sequence: observation.adapter_sequence,
+                hosts: vec![host],
+                action: crate::model::AppKitRuntimeEventActionRecord::Layout {
+                    layout_sequence: observation.adapter_sequence,
+                },
+            };
+            validate_appkit_runtime_event_platform(self)?;
+            validate_appkit_runtime_event_shape(&event)?;
+            let host = event.hosts.first().expect("validated one AppKit host");
+            if !expected.contains(&host.identity.logical_window_id)
+                || !seen.insert(host.identity.logical_window_id.clone())
+                || !self.accept_appkit_event_sequence(&host.identity, event.adapter_sequence)?
+                || !appkit_observations_match(&event.hosts, &before)
+            {
+                return Err(CoreError::Domain {
+                    code: "APPKIT_WORKSPACE_APPEARANCE_OBSERVATION_STALE",
+                    message: "The AppKit workspace host changed before appearance projection."
+                        .to_owned(),
+                });
+            }
+            let projection = self.build_appkit_projection(&event)?;
+            if projection.windows.len() != 1 {
+                return Err(CoreError::Effect {
+                    code: "APPKIT_WORKSPACE_APPEARANCE_PROJECTION_INVALID".to_owned(),
+                    message: "Core produced an invalid AppKit workspace-appearance projection."
+                        .to_owned(),
+                });
+            }
+            projected_windows.extend(projection.windows);
+        }
+        let projection_event_id = observation.observation_id;
+        let quarantine_scope = projected_windows.clone();
+        let projection_target = projected_windows
+            .first()
+            .expect("validated live AppKit workspace projection")
+            .identity
+            .logical_window_id
+            .clone();
+        let native = self.run_embedded_runtime_effect(
+            &projection_target,
+            CoreEffectAction::EmbeddedApplyAppKitProjection {
+                projection: Box::new(crate::model::AppKitRuntimeProjectionEffectRecord {
+                    event_id: projection_event_id.clone(),
+                    windows: projected_windows,
+                }),
+            },
+            None,
+            None,
+        );
+        if let Err(error) = native {
+            if appkit_projection_failure_requires_quarantine(error.code()) {
+                self.reconcile_appkit_projection_quarantine_under_runtime_sequence(
+                    &projection_event_id,
+                    &quarantine_scope,
+                )
+                .map_err(|reconciliation_error| CoreError::Domain {
+                    code: "WORKSPACE_APPEARANCE_PROJECTION_INDETERMINATE",
+                    message: format!(
+                        "Workspace appearance projection could not prove native compensation or isolate its window: {}",
+                        reconciliation_error.code()
+                    ),
+                })?;
+            }
+            return Err(error);
+        }
+        self.emit_browser_statuses();
+        Ok(())
     }
 
     fn read_optional_scalar_state<T: serde::de::DeserializeOwned>(

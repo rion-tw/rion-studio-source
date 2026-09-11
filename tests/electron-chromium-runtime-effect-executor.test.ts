@@ -28,6 +28,35 @@ import {
 
 
 describe("Electron Chromium runtime effect executor", () => {
+  it("observes the exact live AppKit workspace hosts once", async () => {
+    const subject = harness();
+    await createTab(subject);
+    const request = effect("app", {
+      type: "embeddedObserveAppKitWorkspaceAppearance",
+      windowIds: ["window-1"]
+    });
+
+    const result = await subject.executor.execute(request);
+
+    expect(subject.observeAppKitWorkspaceAppearance).toHaveBeenCalledExactlyOnceWith([
+      "window-1"
+    ]);
+    expect(result).toEqual(expect.objectContaining({
+      adapterSequence: 1,
+      observationId: expect.any(String),
+      hosts: [expect.objectContaining({
+        identity: expect.objectContaining({ logicalWindowId: "window-1" }),
+        contentBounds: { x: 0, y: 44, width: 1_000, height: 656 }
+      })]
+    }));
+    await expect(subject.executor.execute(effect("app", {
+      type: "embeddedObserveAppKitWorkspaceAppearance",
+      windowIds: ["missing-window"]
+    }))).rejects.toMatchObject({
+      code: "ELECTRON_MACOS_APPKIT_WORKSPACE_APPEARANCE_TARGET_INVALID"
+    });
+  });
+
   it("routes all v23 Chrome-import effects through the dedicated coordinator", async () => {
     const subject = harness();
     const importRoleId = "11111111-1111-4111-8111-111111111111";

@@ -50,7 +50,9 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(spec).not.toContain("runtimeUiAction(");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("fullscreen");
-    expect(windowsPointer).toContain("button.runtime-workspace-divider:not([hidden])");
+    expect(windowsPointer).toContain("button.runtime-workspace-divider[data-axis='");
+    expect(windowsPointer).toContain("[data-divider-index='");
+    expect(windowsPointer).toContain(":not([hidden])");
     expect(windowsPointer).toContain('browser.action("pointer"');
     expect(windowsPointer).toContain('.down("left")');
     expect(windowsPointer).toContain('.up("left")');
@@ -63,22 +65,27 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(dividerGeometry).toContain('identifier.hasPrefix(prefix)');
     expect(appKitPointer).toContain("windowId: divider.windowId");
     expect(dividerGeometry).toContain(
-      'text(candidate, "AXDescription") == "Resize workspace columns"'
+      'text(candidate, "AXDescription") == expectedLabel'
     );
-    expect(dividerGeometry).toContain('print("PENDING|no exact native splitter")');
+    expect(dividerGeometry).toContain('attribute(candidate, "AXValue")');
+    expect(dividerGeometry).toContain("value.intValue == dividerIndex");
+    expect(dividerGeometry).toContain('print("PENDING|no exact native \\(axis) splitter');
     expect(appKitPointer).toContain('candidate.startsWith("PENDING|")');
     expect(appKitPointer).toContain("await browser.waitUntil(async () =>");
     expect(await readFile("e2e/desktop/support/macos-native-focus.swift", "utf8"))
       .toContain("AXUIElementPerformAction(target, kAXRaiseAction as CFString)");
     expect(appKitPointer).toContain("AXUIElementCopyElementAtPosition(");
     expect(appKitPointer).toContain('hitProcessId !== processId');
+    expect(appKitPointer).toContain("hitWindowIdentifier !== exactWindowIdentifier");
     expect(appKitPointer).toContain("CGEvent(mouseEventSource: source");
     expect(appKitPointer).toContain(".leftMouseDragged");
     expect(appKitLifecycle).toContain(
       "addLocalMonitorForEventsMatchingMask:"
     );
     expect(appKitLifecycle).toContain("routeWorkspaceDividerEvent:");
-    expect(appKitLifecycle).toContain("event.window != _window");
+    expect(appKitLifecycle).toContain("event.window == _window");
+    expect(appKitLifecycle).toContain("_window.isKeyWindow || !_window.isMainWindow");
+    expect(appKitLifecycle).toContain("convertPointFromScreen:screenPoint");
     expect(appKitLifecycle).toContain("NSPointInRect(point, divider.frame)");
   });
 

@@ -353,6 +353,16 @@ export interface ElectronDesktopE2eFullscreenToolbarRuntimeInspection {
   topologyRevision: number;
   windowGeneration: number;
   windowId: string;
+  workspaceTabs: readonly {
+    slots: readonly {
+      id: string;
+      rect: { height: number; width: number; x: number; y: number };
+      roleId: string | null;
+      web: { lastUrl?: string } | null;
+    }[];
+    sourceId: string;
+    tabId: string;
+  }[];
 }
 
 export interface ElectronDesktopE2eWorkspaceWebRuntimeInspection {

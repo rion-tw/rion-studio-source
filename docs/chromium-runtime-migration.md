@@ -93,7 +93,7 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 28. Version 23 remains the first
+The active runtime contract is version 29. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -114,6 +114,12 @@ exact single `popup` projection uses AppKit single-page chrome: the window title
 and traffic lights remain native, while the tab strip, tab menu, tab dragging,
 tab close control, and launcher button are absent. Windows retains its existing
 single-page native popup presentation.
+Version 29 makes Workspace appearance changes an exact EventBound runtime
+projection. Windows receives the current appearance with every Core-owned
+Workspace projection. macOS captures one adapter-sequenced AppKit host
+observation and carries its exact content bounds through Core layout, native
+divider validation, application, and receipt readback without a second geometry
+sample. Persisted data and portable schema remain unchanged.
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the
 exact parent fence used by a later controlled popup.
@@ -312,6 +318,14 @@ setting-free Rion Website selection, visible address navigation, and launch
 spec while producing independent native pointer, per-slot continuation, and
 restart verdicts. Workspace contained fullscreen remains a separate
 journey and is not inferred from this layout evidence.
+
+Workspace appearance refresh uses the same Core-owned projection lane. A real
+change to the normalized Workspace settings supersedes older geometry, keeps the
+window topology revision unchanged, and completes only after the current native
+surface and divider bounds have been applied. Equal settings and non-Workspace
+patches do not trigger a layout projection. On failure, Core restores the last
+confirmed setting and the native transaction compensates or quarantines its
+window if compensation cannot be proven.
 
 Contained fullscreen is a Chromium document event, not a logical-window state
 transition. Unprivileged global-Web and controlled-popup contents set

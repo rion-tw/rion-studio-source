@@ -52,6 +52,16 @@ export interface ElectronDesktopE2eFullscreenToolbarInspection {
   readonly topologyRevision: number;
   readonly windowGeneration: number;
   readonly windowId: string;
+  readonly workspaceTabs: readonly Readonly<{
+    slots: readonly Readonly<{
+      id: string;
+      rect: Readonly<{ height: number; width: number; x: number; y: number }>;
+      roleId: string | null;
+      web: Readonly<{ lastUrl?: string }> | null;
+    }>[];
+    sourceId: string;
+    tabId: string;
+  }>[];
 }
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
@@ -73,7 +83,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
 ): ElectronDesktopE2eFullscreenToolbarInspection {
   if (!record(candidate) || !exact(candidate, [
     "hostKind", "native", "presentation", "surfaces", "tabIds",
-    "topologyRevision", "windowGeneration", "windowId",
+    "topologyRevision", "windowGeneration", "windowId", "workspaceTabs",
     ...("nativeWindowHandle" in candidate ? ["nativeWindowHandle"] : [])
   ]) || !ID.test(String(candidate.windowId)) ||
     !new Set(["appkit", "windows"]).has(String(candidate.hostKind)) ||
@@ -83,7 +93,8 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
     !positive(candidate.topologyRevision) || !Array.isArray(candidate.tabIds) ||
     candidate.tabIds.some((id) => !ID.test(String(id))) ||
     new Set(candidate.tabIds).size !== candidate.tabIds.length ||
-    !Array.isArray(candidate.surfaces) || !record(candidate.native)) {
+    !Array.isArray(candidate.surfaces) || !Array.isArray(candidate.workspaceTabs) ||
+    !record(candidate.native)) {
     throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
   }
   if ("nativeWindowHandle" in candidate &&
@@ -208,6 +219,32 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
       throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
     }
     surfaceIds.add(surfaceId);
+  }
+  for (const workspace of candidate.workspaceTabs) {
+    if (!record(workspace) || !exact(workspace, ["slots", "sourceId", "tabId"]) ||
+      !ID.test(String(workspace.sourceId)) || !ID.test(String(workspace.tabId)) ||
+      !candidate.tabIds.includes(workspace.tabId) || !Array.isArray(workspace.slots) ||
+      workspace.slots.length < 1 || workspace.slots.length > 9) {
+      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+    }
+    for (const slot of workspace.slots) {
+      if (!record(slot) || !exact(slot, ["id", "rect", "roleId", "web"]) ||
+        typeof slot.id !== "string" || !record(slot.rect) ||
+        !exact(slot.rect, ["height", "width", "x", "y"]) ||
+        ![slot.rect.x, slot.rect.y, slot.rect.width, slot.rect.height]
+          .every((value) => typeof value === "number" && Number.isFinite(value)) ||
+        Number(slot.rect.x) < 0 || Number(slot.rect.y) < 0 ||
+        Number(slot.rect.width) <= 0 || Number(slot.rect.height) <= 0 ||
+        Number(slot.rect.x) + Number(slot.rect.width) > 1.000_001 ||
+        Number(slot.rect.y) + Number(slot.rect.height) > 1.000_001 ||
+        (slot.roleId !== null && !ID.test(String(slot.roleId))) ||
+        (slot.web !== null && (!record(slot.web) ||
+          !exact(slot.web, "lastUrl" in slot.web ? ["lastUrl"] : []) ||
+          ("lastUrl" in slot.web && typeof slot.web.lastUrl !== "string"))) ||
+        (slot.roleId === null) === (slot.web === null)) {
+        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+      }
+    }
   }
   return candidate as unknown as ElectronDesktopE2eFullscreenToolbarInspection;
 }

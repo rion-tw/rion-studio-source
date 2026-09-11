@@ -50,6 +50,8 @@
         "chromium-entity-persistence-restart",
         "chromium-workspace-web-slot-seed",
         "chromium-workspace-web-slot-restart",
+        "chromium-workspace-gap-dividers-seed",
+        "chromium-workspace-gap-dividers-restart",
         "chromium-workspace-web-fullscreen-seed",
         "chromium-workspace-web-fullscreen-restart",
         "chromium-workspace-web-only-seed",
@@ -114,6 +116,7 @@
         "e2e/desktop/specs/chromium-game-crud.e2e.ts",
         "e2e/desktop/specs/chromium-entity-persistence.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-web-slot.e2e.ts",
+        "e2e/desktop/specs/chromium-workspace-gap-dividers.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-web-only.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-shared-role.e2e.ts",
@@ -157,6 +160,8 @@
         "chromium-entity-persistence-restart",
         "chromium-workspace-web-slot-seed",
         "chromium-workspace-web-slot-restart",
+        "chromium-workspace-gap-dividers-seed",
+        "chromium-workspace-gap-dividers-restart",
         "chromium-workspace-web-fullscreen-seed",
         "chromium-workspace-web-fullscreen-restart",
         "chromium-workspace-web-only-seed",
@@ -222,6 +227,7 @@
         "e2e/desktop/specs/chromium-game-crud.e2e.ts",
         "e2e/desktop/specs/chromium-entity-persistence.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-web-slot.e2e.ts",
+        "e2e/desktop/specs/chromium-workspace-gap-dividers.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-web-fullscreen.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-web-only.e2e.ts",
         "e2e/desktop/specs/chromium-workspace-shared-role.e2e.ts",
@@ -2267,6 +2273,29 @@
       "description": "Create a setting-free Rion Website and Role Workspace through visible slot-content controls. First open the Rion entrance, navigate through the visible address control, then use ordinary target=_blank, Cmd+click, and middle-click controls to prove every tab disposition navigates the original slot with zero popups. Use Back to return and prove the canonical last URL is committed without changing Workspace sorting. Launch the paired persistent global-Web content and in-memory Rion chrome into a transient retained AppKit host, drag the native divider, close that host without surfacing superseded teardown observations, then repeat in a saved Game Window and prove exact layout, per-slot continuation, isolated sessions, and resized persistence after restart."
     },
     {
+      "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-GAP-DIVIDERS-035",
+      "coverageGroup": "chromium-v29-workspace-gap-dividers",
+      "feature": "workspaces",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-workspace-gap-dividers-seed",
+        "chromium-workspace-gap-dividers-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-workspace-gap-dividers.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "restart"
+      ],
+      "description": "Create a main-left, stack-right Workspace with two Roles and one Website through visible controls, launch it at a 1px gap, then change the open Workspace to 16px through visible Settings without rebuilding the retained AppKit host or advancing Core topology. Prove exact two-axis native surface and splitter geometry, drag the vertical and horizontal NSSplitters with CGEvents, reject shell errors, and verify terminal Core slot persistence plus 16px restart recovery."
+    },
+    {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-FULLSCREEN-017",
       "coverageGroup": "chromium-v23-workspace-web-fullscreen",
       "replaces": [
@@ -2415,6 +2444,29 @@
         "restart"
       ],
       "description": "Create the same setting-free Rion Website and Role Workspace through visible controls. Open the Rion entrance, navigate through the visible address control, then use ordinary target=_blank, Ctrl+click, and middle-click controls to prove every tab disposition navigates the original slot with zero popups. Use Back, exercise the bundled Windows separator, close the transient host without shell errors, and prove exact Core layout, per-slot continuation, isolated sessions, saved-window persistence, and restart recovery with an independent Windows CI verdict."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-WORKSPACE-GAP-DIVIDERS-035",
+      "coverageGroup": "chromium-v29-workspace-gap-dividers",
+      "feature": "workspaces",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-workspace-gap-dividers-seed",
+        "chromium-workspace-gap-dividers-restart"
+      ],
+      "spec": "e2e/desktop/specs/chromium-workspace-gap-dividers.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "restart"
+      ],
+      "description": "Create the paired three-slot Workspace through visible controls, update its open bundled Chromium host from a 1px to a 16px gap through visible Settings without a topology revision, verify both surface axes and exact DOM splitter hit rects, drag divider indices 0 and 1 with WebDriver pointer input, reject shell errors, and prove exact Core slot persistence plus restart recovery in Windows CI."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-FULLSCREEN-017",

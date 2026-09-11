@@ -1426,6 +1426,18 @@ async function readFullscreenToolbarRuntime(
   const handle = nativeHost?.getNativeWindowHandle();
   const inspection = parseElectronDesktopE2eFullscreenToolbarInspection({
     ...runtime.inspectFullscreenToolbar(windowId),
+    workspaceTabs: Object.freeze(logical.tabs
+      .filter((tab) => tab.tabType === "workspace" && tab.workspaceSlots)
+      .map((tab) => Object.freeze({
+        slots: Object.freeze(tab.workspaceSlots!.map((slot) => Object.freeze({
+          id: slot.id,
+          rect: Object.freeze({ ...slot.rect }),
+          roleId: slot.roleId ?? null,
+          web: slot.web ? Object.freeze({ ...slot.web }) : null
+        }))),
+        sourceId: tab.sourceId,
+        tabId: tab.id
+      }))),
     ...(handle ? { nativeWindowHandle: (handle.length === 8
       ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE())).toString() } : {})
   });

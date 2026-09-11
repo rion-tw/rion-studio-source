@@ -114,6 +114,8 @@ impl AppCore {
             // shutdown itself performs no divider durability commit. A prior,
             // independent window snapshot may already have persisted them.
             divider_runtime.gestures.clear();
+            divider_runtime.superseded_gestures.clear();
+            divider_runtime.superseded_order.clear();
         }
         let mut instance_lock = self
             .instance_lock

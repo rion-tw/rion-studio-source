@@ -79,6 +79,7 @@ include!("behavior_39_role_browser_data_clear_timeout.rs");
 include!("behavior_40_appkit_runtime_persistence.rs");
 include!("behavior_41_window_stop_logical_commit.rs");
 include!("behavior_42_diagnostic_logs.rs");
+include!("behavior_43_workspace_appearance_projection.rs");
 
 include!("behavior_53_extensions.rs");
 include!("behavior_54_macro_source_roles.rs");

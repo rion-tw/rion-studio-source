@@ -12,6 +12,7 @@ function observation(mode: "normal" | "hidden" | "revealed" | "pinned", revision
     hostKind: "windows", nativeWindowHandle: "1835114", windowId: "window",
     windowGeneration: 3, topologyRevision: revision,
     presentation: fullscreen ? "fullscreen" : "normal", tabIds: ["tab"],
+    workspaceTabs: [],
     native: {
       windowId: "window", windowGeneration: 3, topologyRevision: revision,
       projectionRevision: revision, fullscreen, revealed: mode === "revealed",

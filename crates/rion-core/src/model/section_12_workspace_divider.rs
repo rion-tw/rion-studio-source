@@ -95,4 +95,5 @@ pub struct BrowserWorkspaceDividerPointerReceiptRecord {
 pub struct EmbeddedRuntimeWorkspaceTabProjectionRecord {
     pub tab_id: String,
     pub workspace_slots: Vec<StateWorkspaceSlotRecord>,
+    pub workspace_appearance: crate::model::WorkspaceAppearanceSettingsRecord,
 }

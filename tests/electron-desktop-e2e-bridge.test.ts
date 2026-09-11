@@ -268,7 +268,8 @@ const fullscreenToolbarInspection = Object.freeze({
   tabIds: Object.freeze([TAB_ID]),
   topologyRevision: 7,
   windowGeneration: 2,
-  windowId: WINDOW_ID
+  windowId: WINDOW_ID,
+  workspaceTabs: Object.freeze([])
 });
 const workspaceWebSecurityPolicyInspection = Object.freeze({
   contentProfilePath: workspaceWebInspection.web.contentProfilePath,

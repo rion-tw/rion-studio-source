@@ -814,6 +814,69 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.controller.hasActiveWorkspaceDividerGestures).toBe(false);
   });
 
+  it("accepts an appearance-superseded divider through its native terminal event", async () => {
+    const subject = harness();
+    subject.requestWorkspaceDividerPointer.mockImplementation(async (event) => ({
+      eventId: event.eventId,
+      gestureId: event.gestureId,
+      pointerSequence: event.pointerSequence,
+      phase: event.phase,
+      status: event.phase === "start" ? "applied" as const : "superseded" as const,
+      changed: false,
+      durable: false,
+      ...(event.phase === "start"
+        ? {}
+        : { failureCode: "WORKSPACE_DIVIDER_APPEARANCE_SUPERSEDED" }),
+      windowGeneration: event.windowGeneration,
+      topologyRevision: event.topologyRevision,
+      workspaceSlots: []
+    } as never));
+    await subject.controller.applyCoreProjection({
+      activeTabId: tabId,
+      contentBounds: { height: 640, width: 960, x: 0, y: 40 },
+      moveTargets: [],
+      tabs: [{
+        active: true,
+        audioMuted: false,
+        hidden: false,
+        name: "Superseded workspace",
+        phase: "ready",
+        tabId
+      }],
+      topologyRevision: 9,
+      windowGeneration: 4,
+      windowId,
+      workspaceDividers: [{
+        attemptGeneration,
+        axis: "vertical",
+        bounds: { x: 478, y: 40, width: 4, height: 640 },
+        dividerIndex: 0,
+        tabId,
+        visible: true
+      }]
+    });
+    subject.controller.documentLoaded(documentUrl);
+    const projectionRevision = subject.controller.readObservation().projectionRevision;
+    const submit = (phase: "start" | "move" | "end", pointerSequence: number) =>
+      subject.controller.handleCommand(documentUrl, {
+        attemptGeneration,
+        dividerIndex: 0,
+        gestureId,
+        phase,
+        pointerSequence,
+        projectionRevision,
+        ...(phase === "move" ? { requestedPosition: 0.65 } : {}),
+        tabId,
+        type: "workspaceDividerPointer",
+        windowId
+      });
+
+    await submit("start", 1);
+    await expect(submit("move", 2)).resolves.toBeUndefined();
+    await expect(submit("end", 3)).resolves.toBeUndefined();
+    expect(subject.controller.hasActiveWorkspaceDividerGestures).toBe(false);
+  });
+
   it("terminalizes a live Windows divider gesture on host release", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection({

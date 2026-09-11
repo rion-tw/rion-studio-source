@@ -27,6 +27,8 @@ struct WorkspaceDividerReceiptEntry {
 #[derive(Default)]
 struct WorkspaceDividerRuntime {
     gestures: std::collections::HashMap<String, WorkspaceDividerGesture>,
+    superseded_gestures: std::collections::HashMap<String, WorkspaceDividerGesture>,
+    superseded_order: std::collections::VecDeque<String>,
     receipts: std::collections::HashMap<String, WorkspaceDividerReceiptEntry>,
     receipt_order: std::collections::VecDeque<String>,
 }
@@ -56,6 +58,15 @@ impl AppCore {
             return Ok(receipt);
         }
         self.accept_workspace_divider_appkit_sequence(&event)?;
+        if event.phase != crate::model::BrowserWorkspaceDividerPointerPhase::Start
+            && let Some(receipt) = self.superseded_workspace_divider_receipt(&event)?
+        {
+            return self.retain_workspace_divider_receipt(
+                event.event_id,
+                fingerprint,
+                receipt,
+            );
+        }
         let receipt = match event.phase {
             crate::model::BrowserWorkspaceDividerPointerPhase::Start => {
                 self.start_workspace_divider_gesture(&event)?
@@ -592,6 +603,73 @@ impl AppCore {
             gesture.workspace_slots,
             Some(failure_code.to_owned()),
         ))
+    }
+
+    fn supersede_active_workspace_divider_gestures(&self) -> CoreResult<()> {
+        let mut runtime = self.workspace_divider_runtime.lock().map_err(|_| {
+            CoreError::Internal("workspace divider runtime lock poisoned".to_owned())
+        })?;
+        let gestures = std::mem::take(&mut runtime.gestures);
+        for (gesture_id, gesture) in gestures {
+            runtime.superseded_order.push_back(gesture_id.clone());
+            runtime.superseded_gestures.insert(gesture_id, gesture);
+        }
+        while runtime.superseded_gestures.len() > MAX_ACTIVE_WORKSPACE_DIVIDER_GESTURES {
+            let Some(gesture_id) = runtime.superseded_order.pop_front() else {
+                break;
+            };
+            runtime.superseded_gestures.remove(&gesture_id);
+        }
+        Ok(())
+    }
+
+    fn superseded_workspace_divider_receipt(
+        &self,
+        event: &crate::model::BrowserWorkspaceDividerPointerRecord,
+    ) -> CoreResult<Option<crate::model::BrowserWorkspaceDividerPointerReceiptRecord>> {
+        let mut runtime = self.workspace_divider_runtime.lock().map_err(|_| {
+            CoreError::Internal("workspace divider runtime lock poisoned".to_owned())
+        })?;
+        let Some(gesture) = runtime.superseded_gestures.get(&event.gesture_id).cloned() else {
+            return Ok(None);
+        };
+        if gesture.platform != event.platform
+            || gesture.host_identity != event.host_identity
+            || gesture.window_id != event.window_id
+            || gesture.tab_id != event.tab_id
+            || gesture.attempt_generation != event.attempt_generation
+            || gesture.window_generation != event.window_generation
+            || gesture.current_topology_revision != event.topology_revision
+            || gesture.divider_index != event.divider_index
+            || event.pointer_sequence <= gesture.last_pointer_sequence
+        {
+            return Err(workspace_divider_error(
+                "WORKSPACE_DIVIDER_GESTURE_STALE",
+                "The superseded divider gesture lost its exact native or pointer fence.",
+            ));
+        }
+        if matches!(
+            event.phase,
+            crate::model::BrowserWorkspaceDividerPointerPhase::End
+                | crate::model::BrowserWorkspaceDividerPointerPhase::Cancel
+        ) {
+            runtime.superseded_gestures.remove(&event.gesture_id);
+            runtime
+                .superseded_order
+                .retain(|gesture_id| gesture_id != &event.gesture_id);
+        } else if let Some(current) = runtime.superseded_gestures.get_mut(&event.gesture_id) {
+            current.last_pointer_sequence = event.pointer_sequence;
+        }
+        Ok(Some(workspace_divider_receipt(
+            event,
+            crate::model::SystemRuntimeOperationStatus::Superseded,
+            false,
+            false,
+            gesture.last_position,
+            gesture.current_topology_revision,
+            gesture.workspace_slots,
+            Some("WORKSPACE_DIVIDER_APPEARANCE_SUPERSEDED".to_owned()),
+        )))
     }
 
     fn project_workspace_divider_native(

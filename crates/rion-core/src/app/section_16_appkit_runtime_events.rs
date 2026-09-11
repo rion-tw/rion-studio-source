@@ -1291,6 +1291,31 @@ impl AppCore {
         event_id: &str,
         projections: &[crate::model::AppKitRuntimeWindowProjectionRecord],
     ) -> CoreResult<()> {
+        self.reconcile_appkit_projection_quarantine_with_runtime_sequence(
+            event_id,
+            projections,
+            false,
+        )
+    }
+
+    fn reconcile_appkit_projection_quarantine_under_runtime_sequence(
+        &self,
+        event_id: &str,
+        projections: &[crate::model::AppKitRuntimeWindowProjectionRecord],
+    ) -> CoreResult<()> {
+        self.reconcile_appkit_projection_quarantine_with_runtime_sequence(
+            event_id,
+            projections,
+            true,
+        )
+    }
+
+    fn reconcile_appkit_projection_quarantine_with_runtime_sequence(
+        &self,
+        event_id: &str,
+        projections: &[crate::model::AppKitRuntimeWindowProjectionRecord],
+        runtime_sequence_held: bool,
+    ) -> CoreResult<()> {
         for projection in projections {
             let window_id = projection.identity.logical_window_id.as_str();
             let tab_ids = projection
@@ -1325,7 +1350,11 @@ impl AppCore {
                 admission_id: None,
                 closing_tabs: Vec::new(),
             };
-            self.stop_embedded_window(&request, false)?;
+            if runtime_sequence_held {
+                self.stop_embedded_window_under_runtime_sequence(&request, false)?;
+            } else {
+                self.stop_embedded_window(&request, false)?;
+            }
         }
         Ok(())
     }
@@ -1391,6 +1420,7 @@ impl AppCore {
                 adapter_sequence: event.adapter_sequence,
                 window_generation: window.window_generation,
                 topology_revision: window.revision,
+                content_bounds: Some(observation.content_bounds.clone()),
                 logical_tab_ids: window.tabs.iter().map(|tab| tab.id.clone()).collect(),
                 hidden_tab_ids: window
                     .tabs

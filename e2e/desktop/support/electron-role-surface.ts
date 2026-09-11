@@ -742,6 +742,7 @@ export async function dragWindowsVisibleWorkspaceDivider(
       throw new Error("The visible Windows workspace divider has no exact axis");
     }
     const size = await divider.getSize();
+    const location = await divider.getLocation();
     const thickness = exactAxis === "vertical" ? size.width : size.height;
     if (expectedThickness !== undefined && thickness !== expectedThickness) {
       throw new Error(
@@ -749,17 +750,18 @@ export async function dragWindowsVisibleWorkspaceDivider(
         `expected ${expectedThickness}`
       );
     }
+    const startX = Math.round(location.x + size.width / 2);
+    const startY = Math.round(location.y + size.height / 2);
     await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-      .move({ duration: 250, origin: divider })
+      .move({ duration: 250, origin: "viewport", x: startX, y: startY })
       .down("left")
       .move({
-        // One exact destination event prevents an interpolated no-op move at
-        // the 16px host/child-WebContentsView boundary from terminalizing the
-        // native pointer-capture handoff before the requested snap changes.
-        duration: 0,
-        origin: divider,
-        x: exactAxis === "vertical" ? deltaCssPixels : 0,
-        y: exactAxis === "horizontal" ? deltaCssPixels : 0
+        // A short absolute move emits the destination coordinate before the
+        // pointer crosses from the 16px host divider into a child WebContents.
+        duration: 1,
+        origin: "viewport",
+        x: startX + (exactAxis === "vertical" ? deltaCssPixels : 0),
+        y: startY + (exactAxis === "horizontal" ? deltaCssPixels : 0)
       })
       .up("left")
       .perform();

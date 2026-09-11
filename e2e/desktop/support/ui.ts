@@ -188,6 +188,13 @@ export async function setInputValue(selector: string, value: string): Promise<vo
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await input.clearValue();
+    if (await input.getValue() !== "") {
+      // Chromium can leave a controlled input unchanged after WebDriver's
+      // clear command. Keep the fallback user-visible and cross-platform.
+      await input.click();
+      await browser.keys([Key.Ctrl, "a"]);
+      await browser.keys(Key.Backspace);
+    }
     await browser.waitUntil(async () => await input.getValue() === "", {
       timeout: 2_000,
       timeoutMsg: `Visible input ${selector} did not clear`

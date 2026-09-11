@@ -125,7 +125,7 @@ jobs:
           test "$(jq -r .id "${input_root}/private-release-api.json")" = "${release_id}"
           test "$(jq -r .tag_name "${input_root}/private-release-api.json")" = "${TAG}"
           test "$(jq -r .prerelease "${input_root}/private-release-api.json")" = "false"
-          test "$(jq '.draft | type == \"boolean\"' \
+          test "$(jq '.draft | type == "boolean"' \
             "${input_root}/private-release-api.json")" = "true"
           test "$(jq '.assets | length' "${input_root}/private-release-api.json")" = "7"
           for name in "${asset_names[@]}"; do

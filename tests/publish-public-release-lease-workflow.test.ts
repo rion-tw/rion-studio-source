@@ -66,6 +66,7 @@ describe("Electron durable public publisher", () => {
     expect(capture).toContain("private-release-api.json");
     expect(capture).toContain("private-release-notes.md");
     expect(capture).toContain("stable-publication-input.json");
+    expect(capture).toContain(`jq '.draft | type == "boolean"'`);
     expect(capture.match(/kind: "rion-electron-v23-publication-input"/gu)).toHaveLength(1);
     expect(capture).toContain("git archive --format=tar");
     expect(capture).not.toContain("git checkout");

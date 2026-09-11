@@ -86,6 +86,12 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(appKitLifecycle).toContain("event.window == _window");
     expect(appKitLifecycle).toContain("_window.isKeyWindow || !_window.isMainWindow");
     expect(appKitLifecycle).toContain("convertPointFromScreen:screenPoint");
+    expect(appKitLifecycle).toContain(
+      "if (active && event.type == NSEventTypeLeftMouseDragged)"
+    );
+    expect(appKitLifecycle).toContain(
+      "convertPointFromScreen:NSEvent.mouseLocation"
+    );
     expect(appKitLifecycle).toContain("NSPointInRect(point, divider.frame)");
   });
 

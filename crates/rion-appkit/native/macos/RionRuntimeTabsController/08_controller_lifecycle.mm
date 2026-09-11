@@ -195,6 +195,22 @@ NS_ASSUME_NONNULL_BEGIN
       _workspaceDividerOverlay.hidden) {
     return event;
   }
+  RionRuntimeWorkspaceDividerView *active = _activeWorkspaceDivider;
+  if (active && event.type == NSEventTypeLeftMouseDragged) {
+    // NSEvent.locationInWindow can remain at mouse-down when the AppKit run
+    // loop coalesces a fast cross-surface drag. The system pointer is the live
+    // physical authority once this exact native splitter owns the gesture.
+    NSPoint windowPoint = [_window convertPointFromScreen:NSEvent.mouseLocation];
+    NSPoint point =
+        [_workspaceDividerOverlay convertPoint:windowPoint fromView:nil];
+    [active mouseDraggedAtOverlayPoint:point];
+    return nil;
+  }
+  if (active && event.type == NSEventTypeLeftMouseUp) {
+    [active mouseUp:event];
+    _activeWorkspaceDivider = nil;
+    return nil;
+  }
   NSPoint point = NSZeroPoint;
   if (![self workspaceDividerPointForEvent:event overlayPoint:&point]) return event;
   if (event.type == NSEventTypeLeftMouseDown) {
@@ -211,17 +227,6 @@ NS_ASSUME_NONNULL_BEGIN
       }
     }
     return event;
-  }
-  RionRuntimeWorkspaceDividerView *active = _activeWorkspaceDivider;
-  if (!active) return event;
-  if (event.type == NSEventTypeLeftMouseDragged) {
-    [active mouseDraggedAtOverlayPoint:point];
-    return nil;
-  }
-  if (event.type == NSEventTypeLeftMouseUp) {
-    [active mouseUp:event];
-    _activeWorkspaceDivider = nil;
-    return nil;
   }
   return event;
 }

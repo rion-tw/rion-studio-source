@@ -286,6 +286,7 @@ jobs:
           import { createHash } from "node:crypto";
           import { readFile } from "node:fs/promises";
           import path from "node:path";
+          import { isDeepStrictEqual } from "node:util";
           import { collectPublicDocuments } from "./scripts/syncPublicRepositoryDocs.mjs";
           const digest = (value) => createHash("sha256").update(value).digest("hex");
           const receipt = JSON.parse(await readFile(
@@ -312,7 +313,7 @@ jobs:
             targetPath: entry.targetPath, bytes: entry.content.length,
             sha256: digest(entry.content)
           }));
-          if (JSON.stringify(observed) !== JSON.stringify(receipt.documents)) {
+          if (!isDeepStrictEqual(observed, receipt.documents)) {
             throw new Error("The staged release documentation changed.");
           }
           NODE

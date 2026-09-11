@@ -73,6 +73,13 @@ describe("Electron durable public publisher", () => {
     expect(source).not.toContain("gh release download");
     for (const asset of EXACT_ASSETS) expect(capture).toContain(asset);
     expect(reverify).toContain("--verify-checksums --require-electron");
+    expect(reverify).toContain('import { isDeepStrictEqual } from "node:util"');
+    expect(reverify).toContain(
+      "isDeepStrictEqual(observed, receipt.documents)"
+    );
+    expect(reverify).not.toContain(
+      "JSON.stringify(observed) !== JSON.stringify(receipt.documents)"
+    );
     expect(source.indexOf(reverify)).toBeLessThan(token);
     expect(token).toBeGreaterThan(source.indexOf("stable-publication-input.json"));
     expect(resolve).toContain(

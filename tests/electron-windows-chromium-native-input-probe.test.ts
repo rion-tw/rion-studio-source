@@ -25,6 +25,9 @@ describe("Windows Chromium physical input candidate gate", () => {
     expect(probe).toContain("exactSiblingViews");
     expect(probe).toContain("viewportAcknowledgement");
     expect(probe).toContain("hiddenMouseDom");
+    expect(probe).toMatch(
+      /const submitClick = request => baselineSubmission\.click\(\{\s+ctrl: false,\s+alt: false,\s+shift: false,\s+meta: false,\s+\.\.\.request/u
+    );
     expect(preload).toContain("event.isTrusted");
     for (const forbidden of ["attachWindowsChromiumInputHwnd", "projectWindowsChromiumInputHwnd",
       "probeWindowsChromiumInputHwnd", "surfaceHandleToken", "submitOwnedChromiumKey", "SetParent(", "SendMessageTimeoutW"]) {

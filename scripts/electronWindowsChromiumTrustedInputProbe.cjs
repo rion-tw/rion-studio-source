@@ -285,7 +285,13 @@ void (async () => {
 
     const identity = { ...binding.identity, inputEpoch: "1", deliveryMode: "foreground" };
     const submitKey = request => baselineSubmission.key(request);
-    const submitClick = request => baselineSubmission.click(request);
+    const submitClick = request => baselineSubmission.click({
+      ctrl: false,
+      alt: false,
+      shift: false,
+      meta: false,
+      ...request
+    });
     const keyPending = await armInput("windows-probe-key", [
       { type: "keydown", code: "KeyA" },
       { type: "keyup", code: "KeyA" }

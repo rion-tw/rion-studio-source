@@ -96,6 +96,8 @@ const focusedPhaseDependencies = new Map([
     "chromium-app-crud-cleanup",
     [
       ...chromiumAppCrudFocusedDependencies,
+      "chromium-workspace-gap-dividers-seed",
+      "chromium-workspace-gap-dividers-restart",
       "chromium-app-crud-mutations"
     ]
   ],

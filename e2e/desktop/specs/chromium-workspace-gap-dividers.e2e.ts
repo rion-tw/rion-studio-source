@@ -38,7 +38,10 @@ import {
 
 const PRIMARY_ROLE_NAME = "Chromium Entity Role Edited";
 const SECONDARY_ROLE_NAME = "Chromium Workspace Gap Secondary Role";
-const GAME_NAME = "Chromium Entity Game";
+// This journey persists its secondary Role beyond the divider restart. Keep it
+// on a built-in Game so the later app-CRUD cleanup can delete its own custom
+// Game without inheriting a dependency from this independent journey.
+const GAME_NAME = "Flyff Universe";
 const WORKSPACE_NAME = "Chromium Workspace Gap Dividers";
 const WINDOW_NAME = "Chromium Workspace Gap Divider Window";
 

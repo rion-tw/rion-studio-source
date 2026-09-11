@@ -174,13 +174,16 @@ async function probe() {
     const chordEvents = [
       "keydown", "keydown", "keydown", "keydown", "keyup", "keyup", "keyup"
     ];
+    const rightClickEvents = process.platform === "win32"
+      ? ["mousedown", "mouseup", "auxclick", "contextmenu"]
+      : ["mousedown", "contextmenu", "mouseup", "auxclick"];
     outcomes.push(await sample(target.webContents, target, "baseline-background-chord",
       chordEvents, () => sendBaselineKeys(target.webContents, chord)));
     outcomes.push(await sample(target.webContents, target, "baseline-middle",
       ["mousedown", "mouseup", "auxclick"],
       () => sendBaselineMouse(target.webContents, "middle")));
     outcomes.push(await sample(target.webContents, target, "baseline-right",
-      ["mousedown", "contextmenu", "mouseup", "auxclick"],
+      rightClickEvents,
       () => sendBaselineMouse(target.webContents, "right")));
     outcomes.push(await sample(
       target.webContents,
@@ -198,7 +201,7 @@ async function probe() {
       ["mousedown", "mouseup", "auxclick"],
       () => sendCdpMouse(target.webContents, "middle")));
     outcomes.push(await sample(target.webContents, target, "cdp-right",
-      ["mousedown", "contextmenu", "mouseup", "auxclick"],
+      rightClickEvents,
       () => sendCdpMouse(target.webContents, "right")));
     for (const code of ["F21", "F22", "F23", "F24"]) {
       outcomes.push(await sample(target.webContents, target, `cdp-${code.toLowerCase()}`,

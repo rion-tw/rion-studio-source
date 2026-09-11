@@ -26,7 +26,15 @@ const UPDATER_PLATFORM_ASSETS = [
 ];
 
 export async function verifyReleaseAssets(directory, expectedVersion, options = {}) {
-  const { allowChecksums = false } = options;
+  const {
+    allowChecksums = false,
+    allowLegacyManifestWithoutDigests = false
+  } = options;
+  if (allowLegacyManifestWithoutDigests && !allowChecksums) {
+    throw new Error(
+      "Legacy updater manifests require a verified checksum document."
+    );
+  }
   const names = (await readdir(directory)).sort();
   const missing = REQUIRED_RELEASE_ASSETS.filter((name) => !names.includes(name));
   if (missing.length > 0) throw new Error(`Missing required release assets: ${missing.join(", ")}`);
@@ -50,7 +58,8 @@ export async function verifyReleaseAssets(directory, expectedVersion, options = 
     join(directory, "latest.json"),
     expectedVersion,
     directory,
-    checksumEntries
+    checksumEntries,
+    allowLegacyManifestWithoutDigests
   );
   if (allowChecksums) await verifyReleaseChecksums(directory);
   return names;
@@ -77,7 +86,13 @@ async function releaseChecksumDocument(directory) {
   return `${lines.join("\n")}\n`;
 }
 
-async function verifyUpdaterManifest(manifestPath, expectedVersion, directory, checksumEntries) {
+async function verifyUpdaterManifest(
+  manifestPath,
+  expectedVersion,
+  directory,
+  checksumEntries,
+  allowLegacyManifestWithoutDigests
+) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (manifest.version !== expectedVersion) {
     throw new Error(
@@ -98,6 +113,16 @@ async function verifyUpdaterManifest(manifestPath, expectedVersion, directory, c
       `${basename(manifestPath)} platforms must be exactly ${expectedPlatforms.join(", ")}.`
     );
   }
+  const digestEntryCount = UPDATER_PLATFORM_ASSETS.filter(([platform]) =>
+    Object.hasOwn(manifest.platforms[platform], "sha256")
+  ).length;
+  if (digestEntryCount !== 0 && digestEntryCount !== UPDATER_PLATFORM_ASSETS.length) {
+    throw new Error(`${basename(manifestPath)} has an inconsistent sha256 schema.`);
+  }
+  const manifestIncludesDigests = digestEntryCount !== 0;
+  if (!manifestIncludesDigests && !allowLegacyManifestWithoutDigests) {
+    throw new Error(`${basename(manifestPath)} has an invalid darwin-aarch64 sha256.`);
+  }
   for (const [platform, name, signatureName] of UPDATER_PLATFORM_ASSETS) {
     const artifact = manifest.platforms?.[platform];
     if (
@@ -115,14 +140,16 @@ async function verifyUpdaterManifest(manifestPath, expectedVersion, directory, c
         `${basename(manifestPath)} ${platform} signature does not match ${signatureName}.`
       );
     }
-    if (typeof artifact.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(artifact.sha256)) {
-      throw new Error(`${basename(manifestPath)} has an invalid ${platform} sha256.`);
-    }
     const payloadSha256 = await sha256File(join(directory, name));
-    if (artifact.sha256 !== payloadSha256) {
-      throw new Error(`${basename(manifestPath)} ${platform} sha256 does not match ${name}.`);
+    if (manifestIncludesDigests) {
+      if (typeof artifact.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(artifact.sha256)) {
+        throw new Error(`${basename(manifestPath)} has an invalid ${platform} sha256.`);
+      }
+      if (artifact.sha256 !== payloadSha256) {
+        throw new Error(`${basename(manifestPath)} ${platform} sha256 does not match ${name}.`);
+      }
     }
-    if (checksumEntries && checksumEntries.get(name) !== artifact.sha256) {
+    if (checksumEntries && checksumEntries.get(name) !== payloadSha256) {
       throw new Error(
         `${basename(manifestPath)} ${platform} sha256 does not match ${CHECKSUM_ASSET_NAME}.`
       );
@@ -196,11 +223,20 @@ async function runCli() {
   if ([requireTauriV22, requireElectron, requireSupportedSource].filter(Boolean).length > 1) {
     throw new Error("Choose exactly one release runtime policy.");
   }
-  await verifyReleaseAssets(directory, version, { allowChecksums: verifyChecksums });
+  await verifyReleaseAssets(directory, version, {
+    allowChecksums: verifyChecksums,
+    allowLegacyManifestWithoutDigests: requireSupportedSource
+  });
   if (requireTauriV22) await assertStableTauriV22PublicReleaseAssets(directory);
   if (requireElectron) await assertElectronPublicReleaseAssets(directory);
   if (requireSupportedSource) {
-    console.log(`Verified source runtime: ${await identifyPublicReleaseRuntime(directory)}`);
+    const sourceRuntime = await identifyPublicReleaseRuntime(directory);
+    if (sourceRuntime === "electron-v23") {
+      await verifyReleaseAssets(directory, version, {
+        allowChecksums: verifyChecksums
+      });
+    }
+    console.log(`Verified source runtime: ${sourceRuntime}`);
   }
   if (writeChecksums) {
     await writeReleaseChecksums(directory);

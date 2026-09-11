@@ -112,6 +112,31 @@ describe("release artifact verification", () => {
     ).rejects.toThrow("latest.json windows-x86_64 sha256 does not match SHA256SUMS.txt");
   });
 
+  it("accepts a legacy manifest without inline hashes only with verified checksums", async () => {
+    const directory = await createReleaseFixture("8.4.2");
+    const manifestPath = join(directory, "latest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    delete manifest.platforms["darwin-aarch64"].sha256;
+    delete manifest.platforms["windows-x86_64"].sha256;
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    await writeReleaseChecksums(directory);
+
+    await expect(
+      verifyReleaseAssets(directory, "8.4.2", {
+        allowChecksums: true,
+        allowLegacyManifestWithoutDigests: true
+      })
+    ).resolves.toContain(CHECKSUM_ASSET_NAME);
+    await expect(
+      verifyReleaseAssets(directory, "8.4.2", { allowChecksums: true })
+    ).rejects.toThrow("invalid darwin-aarch64 sha256");
+    await expect(
+      verifyReleaseAssets(directory, "8.4.2", {
+        allowLegacyManifestWithoutDigests: true
+      })
+    ).rejects.toThrow("require a verified checksum document");
+  });
+
   it("rejects non-public artifact URLs and unexpected updater platforms", async () => {
     const insecureDirectory = await createReleaseFixture("1.20.0");
     const insecureManifestPath = join(insecureDirectory, "latest.json");

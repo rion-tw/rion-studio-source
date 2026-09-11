@@ -4,7 +4,10 @@ export const CHECKSUM_ASSET_NAME: string;
 export function verifyReleaseAssets(
   directory: string,
   expectedVersion: string,
-  options?: { allowChecksums?: boolean }
+  options?: {
+    allowChecksums?: boolean;
+    allowLegacyManifestWithoutDigests?: boolean;
+  }
 ): Promise<string[]>;
 
 export function writeReleaseChecksums(directory: string): Promise<string>;

@@ -79,6 +79,38 @@ function subject(
   ]]);
   const dispatch = vi.fn(dispatchImplementation ?? (async (nativeRequest) =>
     receipt(nativeRequest, nowMs)));
+  let hasHeldKeys = false;
+  let transitionSequence = 0;
+  const embeddedInput = {
+    prepare: vi.fn(async (input: Readonly<{
+      phase: "hold" | "release" | "tap";
+      code: string;
+    }>) => {
+      const before = hasHeldKeys;
+      hasHeldKeys = input.phase === "hold" ? true
+        : input.phase === "release" ? false : hasHeldKeys;
+      return {
+        transitionId: `transition-${++transitionSequence}`,
+        hasHeldKeys,
+        effects: [{
+          phase: input.phase === "release" ? "keyUp" as const : "rawKeyDown" as const,
+          code: input.code,
+          activeCodesBefore: before ? [input.code] : [],
+          activeCodes: hasHeldKeys ? [input.code] : [],
+          autoRepeat: input.phase === "tap",
+          suppressShortcut: true
+        }]
+      };
+    }),
+    complete: vi.fn(async (_transitionId: string, succeeded: boolean) => {
+      if (!succeeded) hasHeldKeys = false;
+    }),
+    reassert: vi.fn(async () => ({
+      effects: [],
+      hasHeldKeys
+    })),
+    clear: vi.fn(async () => { hasHeldKeys = false; })
+  };
   let lifecycle: ((event: Readonly<{
     roleId: string;
     generation: number;
@@ -86,6 +118,8 @@ function subject(
   }>) => void) | null = null;
   const coordinator = new ChromiumTrustedInputCoordinator({
     native: { dispatch },
+    embeddedInput,
+    platform: "win32",
     surfaces: {
       resolveInputSurface: (roleId) => surfaces.get(roleId) ?? null,
       subscribeTrustedInputLifecycle: (listener) => {
@@ -152,6 +186,8 @@ describe("Electron Chromium trusted-input coordinator", () => {
         key: "a",
         code: "KeyA",
         modifiers: ["primary"],
+        exactModifierCodes: null,
+        modifierOwnership: "synthetic",
         ownerId: "macro-1",
         suppressOverlayShortcut: true
       }
@@ -198,6 +234,8 @@ describe("Electron Chromium trusted-input coordinator", () => {
         key: "2",
         code: "Digit2",
         modifiers: [],
+        exactModifierCodes: [],
+        modifierOwnership: "physical-pass-through",
         ownerId: "managed-shortcut:press-1",
         suppressOverlayShortcut: true
       }
@@ -229,6 +267,8 @@ describe("Electron Chromium trusted-input coordinator", () => {
         key: "2",
         code: "Digit2",
         modifiers: [],
+        exactModifierCodes: [],
+        modifierOwnership: "physical-pass-through",
         ownerId: "managed-shortcut:press-1",
         suppressOverlayShortcut: true
       }
@@ -249,6 +289,8 @@ describe("Electron Chromium trusted-input coordinator", () => {
       key: "a",
       code: "KeyA",
       modifiers: [] as Array<"primary" | "ctrl" | "alt" | "shift" | "meta">,
+      exactModifierCodes: null,
+      modifierOwnership: "synthetic" as const,
       ownerId: "macro-1",
       suppressOverlayShortcut: false
     });
@@ -295,6 +337,8 @@ describe("Electron Chromium trusted-input coordinator", () => {
         key: "a",
         code: "KeyA",
         modifiers: [],
+        exactModifierCodes: null,
+        modifierOwnership: "synthetic",
         ownerId: "macro-1",
         suppressOverlayShortcut: false
       }
@@ -381,6 +425,8 @@ describe("Electron Chromium trusted-input coordinator", () => {
         key: "a",
         code: "KeyA",
         modifiers: [],
+        exactModifierCodes: null,
+        modifierOwnership: "synthetic",
         ownerId: "macro-1",
         suppressOverlayShortcut: false
       }

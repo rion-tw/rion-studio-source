@@ -43,7 +43,8 @@
       code: normalizedCode,
       dispatchId: normalizedDispatchId,
       disposition,
-      phase
+      phase,
+      repeat: false
     });
     return true;
   }
@@ -52,7 +53,7 @@
     return armMacroKeyGuard(dispatchId, code, phase, "macro-key");
   }
 
-  function suppressShortcutSequence(dispatchId, code, phases) {
+  function suppressShortcutSequence(dispatchId, code, phases, repeat = false) {
     const normalizedDispatchId = String(dispatchId);
     const normalizedCode = String(code);
     if (
@@ -61,6 +62,7 @@
       normalizedDispatchId.length === 0 ||
       normalizedCode.length === 0 ||
       !Array.isArray(phases) ||
+      typeof repeat !== "boolean" ||
       phases.length < 1 ||
       phases.length > 2 ||
       phases.some((phase, index) =>
@@ -75,7 +77,8 @@
         code: normalizedCode,
         dispatchId: normalizedDispatchId,
         disposition: "macro-key",
-        phase
+        phase,
+        repeat
       });
     }
     return true;
@@ -116,7 +119,7 @@
       guard.disposition !== disposition ||
       guard.code !== event.code ||
       guard.phase !== phase ||
-      event.repeat
+      Boolean(event.repeat) !== guard.repeat
     ) {
       return null;
     }

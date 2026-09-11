@@ -47,8 +47,14 @@ impl EmbeddedInputRuntime {
                 "embedded key modifiers exceed the supported limit".to_owned(),
             ));
         }
+        let mut unique_modifiers = HashSet::with_capacity(modifier_codes.len());
         for modifier in modifier_codes {
             validate_identifier(modifier, "modifier code")?;
+            if !is_modifier_code(modifier) || !unique_modifiers.insert(modifier.as_str()) {
+                return Err(CoreError::InvalidInput(
+                    "embedded key modifiers must be unique exact modifier codes".to_owned(),
+                ));
+            }
         }
         if self.pending.len() >= MAX_PENDING_TRANSITIONS {
             return Err(domain(
@@ -232,7 +238,7 @@ fn apply_tap(
     modifier_codes: &[String],
     owner_id: &str,
 ) -> Vec<EmbeddedKeyEffectRecord> {
-    let tap_owner = format!("tap:{owner_id}");
+    let tap_owner = format!("\0tap:{}:{owner_id}", Uuid::new_v4());
     let mut effects = apply_hold(held, code, modifier_codes, &tap_owner);
     let key_was_held = held
         .get(code)
@@ -282,7 +288,10 @@ fn is_modifier_code(code: &str) -> bool {
 }
 
 fn validate_identifier(value: &str, field: &str) -> CoreResult<()> {
-    if value.trim().is_empty() || value.len() > MAX_IDENTIFIER_LENGTH {
+    if value.trim().is_empty()
+        || value.len() > MAX_IDENTIFIER_LENGTH
+        || value.chars().any(char::is_control)
+    {
         return Err(CoreError::InvalidInput(format!(
             "embedded key {field} is invalid"
         )));
@@ -386,5 +395,73 @@ mod tests {
         assert_eq!(reassert.effects[0].code, "Digit1");
         runtime.clear_role("r1");
         assert!(runtime.reassert("r1").unwrap().effects.is_empty());
+    }
+
+    #[test]
+    fn tapping_an_already_held_key_emits_only_an_exact_repeat() {
+        let mut runtime = EmbeddedInputRuntime::default();
+        let hold = runtime
+            .prepare(
+                "r1",
+                "hold",
+                "KeyW",
+                &["ShiftRight".to_owned()],
+                "held-owner",
+            )
+            .unwrap();
+        runtime
+            .complete(hold.transition_id.as_deref().unwrap(), true)
+            .unwrap();
+
+        let tap = runtime
+            .prepare("r1", "tap", "KeyW", &["ShiftRight".to_owned()], "tap-owner")
+            .unwrap();
+        assert_eq!(tap.effects.len(), 1);
+        assert_eq!(tap.effects[0].phase, "rawKeyDown");
+        assert_eq!(tap.effects[0].code, "KeyW");
+        assert!(tap.effects[0].auto_repeat);
+        assert_eq!(tap.effects[0].active_codes, ["KeyW", "ShiftRight"]);
+        runtime
+            .complete(tap.transition_id.as_deref().unwrap(), true)
+            .unwrap();
+
+        let release = runtime
+            .prepare(
+                "r1",
+                "release",
+                "KeyW",
+                &["ShiftRight".to_owned()],
+                "held-owner",
+            )
+            .unwrap();
+        assert_eq!(
+            release
+                .effects
+                .iter()
+                .map(|effect| (effect.phase.as_str(), effect.code.as_str()))
+                .collect::<Vec<_>>(),
+            [("keyUp", "KeyW"), ("keyUp", "ShiftRight")]
+        );
+    }
+
+    #[test]
+    fn rejects_non_modifier_and_duplicate_modifier_codes() {
+        let mut runtime = EmbeddedInputRuntime::default();
+        assert!(
+            runtime
+                .prepare("r1", "tap", "KeyA", &["KeyB".to_owned()], "owner")
+                .is_err()
+        );
+        assert!(
+            runtime
+                .prepare(
+                    "r1",
+                    "tap",
+                    "KeyA",
+                    &["AltLeft".to_owned(), "AltLeft".to_owned()],
+                    "owner",
+                )
+                .is_err()
+        );
     }
 }

@@ -128,9 +128,13 @@ fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_press_releases()
                 matches!(&request.action, crate::model::BrowserAction::Key {
                 phase,
                 code: Some(code),
+                exact_modifier_codes: Some(exact_modifier_codes),
+                modifier_ownership,
                 suppress_overlay_shortcut: true,
                 ..
-            } if phase == "hold" && code == "Digit2")
+            } if phase == "hold" && code == "Digit2" &&
+                exact_modifier_codes == &["ShiftLeft"] &&
+                modifier_ownership == "physical-pass-through")
     ));
 
     let (duplicate, duplicate_actions) = drive_command(
@@ -161,8 +165,11 @@ fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_press_releases()
         CoreEffectAction::BrowserAction { request }
             if matches!(&request.action, crate::model::BrowserAction::Key {
                 phase,
+                exact_modifier_codes: Some(exact_modifier_codes),
+                modifier_ownership,
                 ..
-            } if phase == "release")
+            } if phase == "release" && exact_modifier_codes == &["ShiftLeft"] &&
+                modifier_ownership == "physical-pass-through")
     ));
 
     let (next, next_actions) = drive_command(
@@ -358,12 +365,23 @@ fn managed_shortcut_authoritative_surface_retirement_releases_the_old_press() {
 #[test]
 fn managed_shortcut_operation_identity_cannot_be_reused_for_another_phase() {
     let (_directory, core) = managed_shortcut_core();
-    let (first, _) = drive_command(
+    let (first, actions) = drive_command(
         Arc::clone(&core),
         managed_shortcut_command("shortcut-operation", "press-1", "replay"),
         None,
     );
     assert_eq!(first.unwrap()["status"], json!("accepted"));
+    assert!(matches!(
+        &actions[0],
+        CoreEffectAction::BrowserAction { request }
+            if matches!(&request.action, crate::model::BrowserAction::Key {
+                phase,
+                exact_modifier_codes: Some(exact_modifier_codes),
+                modifier_ownership,
+                ..
+            } if phase == "tap" && exact_modifier_codes == &["ShiftLeft"] &&
+                modifier_ownership == "synthetic")
+    ));
 
     let reused = core
         .invoke(managed_shortcut_command(

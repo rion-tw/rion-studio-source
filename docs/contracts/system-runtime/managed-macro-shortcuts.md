@@ -23,6 +23,42 @@ page-observation failure all terminalize fail-closed. An indeterminate delivery
 uses the existing input quarantine and restart-required recovery contract; it
 cannot admit a macro action.
 
+Electron preserves this contract through one cross-platform sequence executor;
+it does not expand a key action into a guessed main-key event. Every key action
+first enters Rust `EmbeddedInputRuntime`. Core returns the ordered
+`rawKeyDown`/`keyUp` effects, active-code snapshots, repeat bit, and shortcut
+suppression intent. Electron submits exactly one effect at a time through the
+platform transport and advances only after the exact Role preload reports the
+trusted DOM event after synchronous page propagation. Electron then commits the
+Core transition. Repeated owners, a key retained by another owner, and a tap of
+an already-held key are therefore decided only by Core; the last case emits one
+trusted repeat keydown without a balancing keyup that would release the existing
+owner.
+
+Normal macro modifiers use canonical left-side DOM codes selected for the target
+platform and are synthetic Core owners. A managed shortcut retains the observed
+left/right physical codes. Toggle replay makes those exact modifiers synthetic,
+while the `keyDown`/`keyUp` phases of a while-held shortcut are
+`physical-pass-through` and submit only the replacement main key. Before every
+native effect, the authenticated isolated-world guard reports the eight-sided
+physical modifier snapshot. The adapter merges non-owned physical modifiers into
+the event flags without converting them into synthetic Core ownership. A managed
+hold must still match the admitted ownership snapshot. Its release remains
+cleanup-reachable when focus continuity changes that snapshot: the original sides
+identify the owned cycle, while the freshly armed sides determine release-event
+flags.
+
+If an effect fails before submission, Core rolls the pending transition back. If
+a later effect fails after a confirmed prefix, Electron submits inverse effects
+for only that prefix in reverse order and then rolls Core back. A missing trusted
+DOM receipt after submission, document replacement, native transport
+indeterminacy, or uncertain compensation quarantines only the affected Role. It
+never retries the effect or switches transport, and elapsed time is never
+success. Surface retirement clears the Role's embedded-input state. Context-loss
+continuity requests one complete Core `embeddedKeysReassert` result and executes
+that result through the same ordered lane instead of rebuilding held keys in
+Electron.
+
 ## Toggle and while-held ordering
 
 A toggle waits until the entire physical chord is released and the final
@@ -83,15 +119,17 @@ cannot prevent its terminal event.
 
 The System Runtime serializes an admitted event through the role's native input
 lane and reasserts every still-Core-owned key with the existing guarded trusted
-DOM acknowledgement. Windows uses this event to restore WebView2 consumer state
-cleared by focus or visibility loss. WKWebView preserves that state, so macOS
-schedules no tab-hide restoration and any delivered blur request terminalizes
-`notRequired`. The operation does not advance the input epoch, change the macro
+DOM acknowledgement. Electron/Chromium on Windows uses this event to restore
+consumer state cleared by focus or visibility loss. The retained macOS AppKit
+host preserves the same Role and responder fences while adapting Chromium
+surfaces. The operation does not advance the input epoch, change the macro
 status or iteration, synthesize a new invocation, select the role, or focus or
 reveal a hidden surface. A role with no remaining Core-owned key terminalizes
 `noHeldKeys`; stale role, generation, or input context terminalizes
 `superseded`. This ordering is event-bound and adds no polling, timeout
-reconciliation, generic debugger retry, or second pressed-key owner.
+reconciliation, generic debugger retry, or second pressed-key owner. Production
+continues to use the Windows `sendInputEvent` and retained macOS AppKit submission
+leaves until a separately gated cross-platform transport is promoted.
 
 ## Managed middle-button shortcuts
 

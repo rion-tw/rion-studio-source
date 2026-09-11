@@ -165,9 +165,25 @@ describe("Windows Chromium trusted-input runtime composition", () => {
     );
     const runtime = createWindowsChromiumTrustedInputRuntime(input.value)!;
     expect(input.listeners).toHaveLength(0);
-    const trustedInput = runtime.createTrustedInput(surfaces());
+    const embeddedInput = {
+      prepare: vi.fn(),
+      complete: vi.fn(),
+      reassert: vi.fn(),
+      clear: vi.fn(async () => undefined)
+    };
+    const trustedInput = runtime.createTrustedInput(
+      surfaces(),
+      () => undefined,
+      undefined,
+      embeddedInput
+    );
     expect(input.listeners).toHaveLength(1);
-    expect(() => runtime.createTrustedInput(surfaces())).toThrowError(
+    expect(() => runtime.createTrustedInput(
+      surfaces(),
+      () => undefined,
+      undefined,
+      embeddedInput
+    )).toThrowError(
       expect.objectContaining({ code: "ELECTRON_WINDOWS_INPUT_RUNTIME_CONFLICT" })
     );
 

@@ -31,7 +31,7 @@ function keyEvent(type: "keydown" | "keyup"): ChromiumRoleTrustedInputExpectedEv
 }
 
 function mouseEvent(
-  type: "mousedown" | "mouseup" | "click" | "auxclick",
+  type: "mousedown" | "mouseup" | "click" | "auxclick" | "contextmenu",
   button: 0 | 1 | 2 = 0
 ): ChromiumRoleTrustedInputExpectedEvent {
   return {
@@ -49,7 +49,7 @@ function mouseEvent(
 }
 
 function deferredMouseEvent(
-  type: "mousedown" | "mouseup" | "click" | "auxclick",
+  type: "mousedown" | "mouseup" | "click" | "auxclick" | "contextmenu",
   button: 0 | 1 | 2 = 0
 ): ChromiumRoleTrustedInputExpectedEvent {
   return { ...mouseEvent(type, button), clientX: null, clientY: null };
@@ -72,7 +72,7 @@ function observedKey(
 }
 
 function observedMouse(
-  type: "mousedown" | "mouseup" | "click" | "auxclick",
+  type: "mousedown" | "mouseup" | "click" | "auxclick" | "contextmenu",
   button: 0 | 1 | 2 = 0
 ): ChromiumRoleTrustedInputEventPort {
   return {
@@ -127,32 +127,48 @@ function harness(overlayGuards?: ChromiumRoleTrustedInputOverlayGuardPort) {
 
 describe("Chromium role trusted-input preload", () => {
   it("acknowledges guarded key arming only after the exact overlay sequence is ready", async () => {
-    let finishArm!: (armed: boolean) => void;
-    const arm = vi.fn(() => new Promise<boolean>((resolve) => {
+    let finishArm!: (result: Readonly<{
+      armed: boolean;
+      physicalModifierCodes: readonly string[];
+    }>) => void;
+    const arm = vi.fn(() => new Promise<Readonly<{
+      armed: boolean;
+      physicalModifierCodes: readonly string[];
+    }>>((resolve) => {
       finishArm = resolve;
     }));
     const clear = vi.fn(async () => true);
-    const subject = harness({ arm, clear });
+    const snapshot = vi.fn(async () => ({
+      admitted: true,
+      physicalModifierCodes: []
+    }));
+    const subject = harness({ arm, clear, snapshot });
 
     subject.arm([keyEvent("keydown"), keyEvent("keyup")], {
       shortcutSuppression: {
         code: "KeyA",
-        phases: ["keydown", "keyup"]
+        phases: ["keydown", "keyup"],
+        repeat: false
       }
     });
     expect(arm).toHaveBeenCalledWith({
       code: "KeyA",
       frameToken: "frame-token-1",
       inputSequence: INPUT_SEQUENCE,
-      phases: ["keydown", "keyup"]
+      phases: ["keydown", "keyup"],
+      repeat: false
     });
     expect(subject.send).not.toHaveBeenCalled();
 
-    finishArm(true);
+    finishArm({ armed: true, physicalModifierCodes: ["MetaLeft"] });
     await Promise.resolve();
     expect(subject.send).toHaveBeenCalledWith(
       CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
-      expect.objectContaining({ kind: "armed", expectedEventCount: 2 })
+      expect.objectContaining({
+        kind: "armed",
+        expectedEventCount: 2,
+        physicalModifierCodes: ["MetaLeft"]
+      })
     );
 
     subject.control({
@@ -170,11 +186,20 @@ describe("Chromium role trusted-input preload", () => {
 
   it("executes the guard only in the locked overlay world with an exact receipt", async () => {
     const execute = vi.fn(async (_worldId: number, scripts: Array<{ code: string }>) => {
+      if (scripts[0]!.code.includes("physicalModifierCodes: admitted")) {
+        return {
+          admitted: true,
+          frameToken: "frame-token-1",
+          inputSequence: INPUT_SEQUENCE,
+          physicalModifierCodes: ["AltRight"]
+        };
+      }
       expect(scripts[0]!.code).toContain("suppressShortcutSequence");
       return {
         armed: true,
         frameToken: "frame-token-1",
-        inputSequence: INPUT_SEQUENCE
+        inputSequence: INPUT_SEQUENCE,
+        physicalModifierCodes: ["ShiftRight"]
       };
     });
     const guards = createChromiumRoleTrustedInputOverlayGuard({
@@ -184,22 +209,66 @@ describe("Chromium role trusted-input preload", () => {
       frameToken: "frame-token-1",
       inputSequence: INPUT_SEQUENCE,
       code: "Digit4",
-      phases: ["keydown", "keyup"]
-    })).resolves.toBe(true);
+      phases: ["keydown", "keyup"],
+      repeat: false
+    })).resolves.toEqual({
+      armed: true,
+      physicalModifierCodes: ["ShiftRight"]
+    });
     expect(execute).toHaveBeenCalledWith(1004, [expect.objectContaining({
       url: "rion-studio://chromium-trusted-input-guard-arm.js"
     })], false);
+    await expect(guards.snapshot({
+      frameToken: "frame-token-1",
+      inputSequence: INPUT_SEQUENCE
+    })).resolves.toEqual({
+      admitted: true,
+      physicalModifierCodes: ["AltRight"]
+    });
+    expect(execute).toHaveBeenLastCalledWith(1004, [expect.objectContaining({
+      url: "rion-studio://chromium-trusted-input-modifier-snapshot.js"
+    })], false);
   });
 
-  it("exposes no page API and receipts only the exact trusted key sequence", () => {
+  it("merges the physical modifier snapshot before mouse propagation", async () => {
+    const guards: ChromiumRoleTrustedInputOverlayGuardPort = {
+      arm: vi.fn(async () => ({ armed: true, physicalModifierCodes: [] })),
+      clear: vi.fn(async () => true),
+      snapshot: vi.fn(async () => ({
+        admitted: true,
+        physicalModifierCodes: ["ShiftRight"]
+      }))
+    };
+    const subject = harness(guards);
+    subject.arm([mouseEvent("mousedown")]);
+    await Promise.resolve();
+
+    expect(subject.send).toHaveBeenCalledWith(
+      CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
+      expect.objectContaining({
+        kind: "armed",
+        physicalModifierCodes: ["ShiftRight"]
+      })
+    );
+    subject.emit({ ...observedMouse("mousedown"), shiftKey: true });
+    await Promise.resolve();
+    expect(subject.send).toHaveBeenLastCalledWith(
+      CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
+      expect.objectContaining({ kind: "input", matches: true, shiftKey: true })
+    );
+  });
+
+  it("exposes no page API and receipts only after the exact event propagation", async () => {
     const subject = harness();
     expect(subject.installed).toBe(true);
     expect([...subject.listeners.keys()].sort()).toEqual([
-      "auxclick", "click", "keydown", "keyup", "mousedown", "mouseup"
+      "auxclick", "click", "contextmenu", "keydown", "keyup", "mousedown", "mouseup"
     ]);
     subject.arm([keyEvent("keydown"), keyEvent("keyup")]);
     subject.emit(observedKey("keydown", true));
     subject.emit(observedKey("keyup", true));
+    expect(subject.send).toHaveBeenCalledOnce();
+    await Promise.resolve();
 
     expect(subject.send.mock.calls.map(([channel]) => channel)).toEqual([
       CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
@@ -212,7 +281,8 @@ describe("Chromium role trusted-input preload", () => {
       generation: 3,
       frameToken: "frame-token-1",
       inputSequence: INPUT_SEQUENCE,
-      expectedEventCount: 2
+      expectedEventCount: 2,
+      physicalModifierCodes: []
     });
     expect(subject.send.mock.calls.slice(1).map(([, receipt]) => receipt)).toEqual([
       expect.objectContaining({ kind: "input", observedIndex: 0, type: "keydown",
@@ -222,7 +292,7 @@ describe("Chromium role trusted-input preload", () => {
     ]);
   });
 
-  it("preserves exact fractional Retina/zoom coordinates without rounding", () => {
+  it("preserves exact fractional Retina/zoom coordinates without rounding", async () => {
     const subject = harness();
     subject.arm([
       deferredMouseEvent("mousedown"),
@@ -232,6 +302,7 @@ describe("Chromium role trusted-input preload", () => {
     for (const type of ["mousedown", "mouseup", "click"] as const) {
       subject.emit(observedMouse(type));
     }
+    await Promise.resolve();
     expect(subject.send.mock.calls.slice(1).map(([, receipt]) => receipt)).toEqual([
       expect.objectContaining({ clientX: 100.25, clientY: 200.75, matches: true }),
       expect.objectContaining({ clientX: 100.25, clientY: 200.75, matches: true }),
@@ -242,7 +313,7 @@ describe("Chromium role trusted-input preload", () => {
   it.each([
     { button: 1 as const, activation: "auxclick" as const },
     { button: 2 as const, activation: "auxclick" as const }
-  ])("receipts Chromium $activation activation for auxiliary button $button", ({
+  ])("receipts Chromium $activation activation for auxiliary button $button", async ({
     activation,
     button
   }) => {
@@ -255,6 +326,7 @@ describe("Chromium role trusted-input preload", () => {
     subject.emit(observedMouse("mousedown", button));
     subject.emit(observedMouse("mouseup", button));
     subject.emit(observedMouse(activation, button));
+    await Promise.resolve();
     expect(subject.send.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
       button,
       isTrusted: true,
@@ -263,10 +335,11 @@ describe("Chromium role trusted-input preload", () => {
     }));
   });
 
-  it("fails closed for untrusted page events, stale frames, and guessed sequences", () => {
+  it("fails closed for untrusted page events, stale frames, and guessed sequences", async () => {
     const subject = harness();
     subject.arm([keyEvent("keydown")]);
     subject.emit(observedKey("keydown", false));
+    await Promise.resolve();
     expect(subject.send.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
       kind: "input",
       isTrusted: false,

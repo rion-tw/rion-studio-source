@@ -54,7 +54,7 @@ function fixture(platform: "macos" | "windows") {
     restoreSource: () => source.window.contentView.addChildView(one.value),
     restoreSourceTo: (parent: ChromiumRoleSurfaceParentPort) => parent.contentView.addChildView(one.value) });
   const key = { roleId: "one", surfaceGeneration: 1, requestId: "key", inputEpoch: "1", deadlineMs: "200",
-    deliveryMode: "background" as const, eventType: "keyDown" as const, code: "KeyA", repeat: false as const,
+    deliveryMode: "background" as const, eventType: "rawKeyDown" as const, code: "KeyA", repeat: false as const,
     ctrl: platform === "windows", meta: platform === "macos", shift: false, alt: false };
   return { owner, source, target, one, two, attach, move, onError, key, bindings };
 }

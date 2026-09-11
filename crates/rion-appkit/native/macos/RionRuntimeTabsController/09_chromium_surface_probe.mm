@@ -130,7 +130,11 @@ static NSNumber *RionChromiumVirtualKeyCode(NSString *code) {
       @"End": @(kVK_End), @"F2": @(kVK_F2),
       @"PageDown": @(kVK_PageDown), @"F1": @(kVK_F1),
       @"ArrowLeft": @(kVK_LeftArrow), @"ArrowRight": @(kVK_RightArrow),
-      @"ArrowDown": @(kVK_DownArrow), @"ArrowUp": @(kVK_UpArrow)
+      @"ArrowDown": @(kVK_DownArrow), @"ArrowUp": @(kVK_UpArrow),
+      @"ControlLeft": @(kVK_Control), @"ControlRight": @(kVK_RightControl),
+      @"AltLeft": @(kVK_Option), @"AltRight": @(kVK_RightOption),
+      @"ShiftLeft": @(kVK_Shift), @"ShiftRight": @(kVK_RightShift),
+      @"MetaLeft": @(kVK_Command), @"MetaRight": @(kVK_RightCommand)
     };
   });
   return codes[code];
@@ -141,6 +145,10 @@ static NSString *RionChromiumFunctionCharacter(unichar value) {
 }
 
 static NSString *RionChromiumBaseCharacter(NSString *code) {
+  if ([code hasPrefix:@"Control"] || [code hasPrefix:@"Alt"] ||
+      [code hasPrefix:@"Shift"] || [code hasPrefix:@"Meta"]) {
+    return @"";
+  }
   if ([code hasPrefix:@"Key"] && code.length == 4) {
     return [code substringFromIndex:3].lowercaseString;
   }
@@ -253,7 +261,11 @@ extern "C" int32_t rion_appkit_dispatch_chromium_key(
     if ((flags & NSEventModifierFlagShift) != 0) {
       characters = RionChromiumShiftedCharacter(code, characters);
     }
-    NSEventType type = keyDown ? NSEventTypeKeyDown : NSEventTypeKeyUp;
+    const bool modifierCode = [code hasPrefix:@"Control"] ||
+        [code hasPrefix:@"Alt"] || [code hasPrefix:@"Shift"] ||
+        [code hasPrefix:@"Meta"];
+    NSEventType type = modifierCode ? NSEventTypeFlagsChanged
+                                    : keyDown ? NSEventTypeKeyDown : NSEventTypeKeyUp;
     NSEvent *event = [NSEvent keyEventWithType:type
                                       location:NSZeroPoint
                                  modifierFlags:flags
@@ -265,7 +277,9 @@ extern "C" int32_t rion_appkit_dispatch_chromium_key(
                                      isARepeat:repeat
                                        keyCode:virtualCode.unsignedShortValue];
     if (!event) return 5;
-    if (keyDown) {
+    if (modifierCode) {
+      [target flagsChanged:event];
+    } else if (keyDown) {
       [target keyDown:event];
     } else {
       [target keyUp:event];

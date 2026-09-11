@@ -92,6 +92,8 @@ import { ChromiumAutomaticInputContextCoordinator } from
   "./chromiumAutomaticInputContextCoordinator";
 import type { ChromiumTrustedInputRecoveryProof } from
   "./chromiumTrustedInputCoordinator";
+import type { ChromiumEmbeddedInputCorePort } from
+  "./chromiumTrustedInputSequenceExecutor";
 import { ChromiumManagedShortcutCoordinator } from
   "./chromiumManagedShortcutCoordinator";
 import {
@@ -306,7 +308,8 @@ export interface MacosAppKitRuntimeBootstrapAdapter {
       roleId: string,
       surfaceGeneration: number
     ) => void | Promise<void>,
-    onRecoveryProof: (proof: ChromiumTrustedInputRecoveryProof) => void
+    onRecoveryProof: (proof: ChromiumTrustedInputRecoveryProof) => void,
+    embeddedInput: ChromiumEmbeddedInputCorePort
   ) => ChromiumRuntimeTrustedInputPort;
   readonly adapterVersion: string;
   readonly capabilities: EngineCapabilitySnapshotRecord;
@@ -797,6 +800,27 @@ export class ChromiumRuntimeBootstrap {
         })
       : contentWebSurfaces;
     let trustedInput: ChromiumRuntimeTrustedInputPort | null = null;
+    const embeddedInput: ChromiumEmbeddedInputCorePort = Object.freeze({
+      prepare: ({ roleId, phase, code, modifierCodes, ownerId }) =>
+        input.core.invoke({
+          type: "embeddedKeyPrepare",
+          roleId,
+          phase,
+          code,
+          modifierCodes: [...modifierCodes],
+          ownerId
+        }),
+      complete: (transitionId, succeeded) => input.core.invoke({
+        type: "embeddedKeyComplete",
+        transitionId,
+        succeeded
+      }).then(() => undefined),
+      reassert: (roleId) => input.core.invoke({ type: "embeddedKeysReassert", roleId }),
+      clear: (roleId) => input.core.invoke({
+        type: "embeddedKeysClear",
+        roleId
+      }).then(() => undefined)
+    } satisfies ChromiumEmbeddedInputCorePort);
     const automaticInputContext = new ChromiumAutomaticInputContextCoordinator({
       core: {
         inspectRecovery: ({ recoveryId, roleId, expectedInputEpoch }) =>
@@ -974,7 +998,8 @@ export class ChromiumRuntimeBootstrap {
                 "ELECTRON_AUTOMATIC_INPUT_RECOVERY_PROOF_FAILED"
               ))
             );
-          }
+          },
+          embeddedInput
         );
       }
       if (registration.available) {
@@ -995,7 +1020,8 @@ export class ChromiumRuntimeBootstrap {
                 "ELECTRON_AUTOMATIC_INPUT_RECOVERY_PROOF_FAILED"
               ))
             );
-          }
+          },
+          embeddedInput
         );
       }
       requireBootstrapNotCancelled(input.startupSignal);

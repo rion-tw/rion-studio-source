@@ -488,6 +488,8 @@ const trustedInputObservations = Object.freeze([Object.freeze({
       code: "KeyS",
       key: "s",
       modifiers: [],
+      exactModifierCodes: null,
+      modifierOwnership: "synthetic" as const,
       ownerId: "macro-run-1",
       phase: "hold" as const,
       suppressOverlayShortcut: true,

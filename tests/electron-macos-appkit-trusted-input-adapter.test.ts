@@ -59,6 +59,8 @@ function keyAction(
     key: "a",
     code: "KeyA",
     modifiers: ["primary"],
+    exactModifierCodes: null,
+    modifierOwnership: "synthetic",
     ownerId: "macro-1",
     suppressOverlayShortcut: true
   };
@@ -164,9 +166,10 @@ function harness(options: Readonly<{
         targetY: 0,
         targetWidth: 800,
         targetHeight: 560,
-        eventType: request.eventType as "keyDown" | "keyUp",
+        eventType: request.eventType,
         code: String(request.code),
-        virtualKeyCode: 0
+        virtualKeyCode: 0,
+        repeat: request.repeat
       };
     },
     submitNativeBackgroundMouse: (
@@ -198,7 +201,7 @@ function harness(options: Readonly<{
         submittedAtMs: String(nowMs),
         withinDeadline: true,
         dispatchedEventCount: 2,
-        modifierFlags: 0,
+        modifierFlags: request.modifierFlags,
         targetAttached: true,
         focusNeutral: nativeFocusNeutral,
         keyWindowPreserved: true,
@@ -265,7 +268,9 @@ function harness(options: Readonly<{
   });
   adapter.register(ipcMain);
 
-  const arm = (): ChromiumRoleTrustedInputArmEnvelope => {
+  const arm = (
+    physicalModifierCodes: readonly string[] = []
+  ): ChromiumRoleTrustedInputArmEnvelope => {
     const control = controls.find((candidate) => candidate.kind === "arm");
     if (!control || control.kind !== "arm") throw new Error("missing arm");
     adapter.receive(event, {
@@ -274,7 +279,8 @@ function harness(options: Readonly<{
       generation: control.generation,
       frameToken: control.frameToken,
       inputSequence: control.inputSequence,
-      expectedEventCount: control.expectedEvents.length
+      expectedEventCount: control.expectedEvents.length,
+      physicalModifierCodes
     });
     return control;
   };
@@ -295,7 +301,8 @@ function harness(options: Readonly<{
       matches: true,
       ...expected,
       ...(expected.type === "mousedown" || expected.type === "mouseup" ||
-        expected.type === "click" || expected.type === "auxclick"
+        expected.type === "click" || expected.type === "auxclick" ||
+        expected.type === "contextmenu"
         ? { clientX: 100, clientY: 200 }
         : {}),
       ...overrides
@@ -366,9 +373,11 @@ describe("macOS AppKit trusted-input adapter", () => {
     );
     expect(targetCollector).toContain("view.acceptsFirstResponder && view.window");
     expect(targetCollector).not.toContain("!view.hidden");
-    expect(MACOS_APPKIT_TRUSTED_KEY_CODES).toEqual(
-      commonMacroKeyCodes.filter((code) => !/^F2[1-4]$/u.test(code))
-    );
+    expect(MACOS_APPKIT_TRUSTED_KEY_CODES).toEqual([
+      ...commonMacroKeyCodes.filter((code) => !/^F2[1-4]$/u.test(code)),
+      "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+      "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
+    ]);
 
     for (const [index, code] of MACOS_APPKIT_TRUSTED_KEY_CODES.entries()) {
       const subject = harness();
@@ -413,7 +422,8 @@ describe("macOS AppKit trusted-input adapter", () => {
       const completion = subject.adapter.dispatch(nativeRequest("ordinary-key", action));
       const control = subject.arm();
       expect(control.shortcutSuppression).toEqual({
-        code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"]
+        code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"],
+        repeat: false
       });
       subject.adapter.receive(subject.event, subject.domReceipt(control, 0));
       await expect(completion).resolves.toMatchObject({ status: "applied" });
@@ -426,7 +436,8 @@ describe("macOS AppKit trusted-input adapter", () => {
     const control = subject.arm();
     expect(control.shortcutSuppression).toEqual({
       code: "KeyA",
-      phases: ["keydown", "keyup"]
+      phases: ["keydown", "keyup"],
+      repeat: false
     });
     expect(subject.keySubmissions).toHaveLength(2);
     let settled = false;
@@ -439,6 +450,76 @@ describe("macOS AppKit trusted-input adapter", () => {
       status: "applied",
       confirmedInputNeutrality: true
     });
+  });
+
+  it("preserves physical modifier flags on key and mouse submissions", async () => {
+    const keySubject = harness();
+    const keyCompletion = keySubject.adapter.dispatch(nativeRequest(
+      "physical-key",
+      { ...keyAction(), modifiers: [] }
+    ));
+    const keyControl = keySubject.arm(["ControlRight"]);
+    expect(keySubject.keySubmissions).toEqual([
+      expect.objectContaining({ modifierFlags: 1 << 18 }),
+      expect.objectContaining({ modifierFlags: 1 << 18 })
+    ]);
+    keyControl.expectedEvents.forEach((_event, index) => {
+      keySubject.adapter.receive(keySubject.event, keySubject.domReceipt(
+        keyControl,
+        index,
+        { ctrlKey: true }
+      ));
+    });
+    await expect(keyCompletion).resolves.toMatchObject({ status: "applied" });
+
+    const mouseSubject = harness();
+    const mouseCompletion = mouseSubject.adapter.dispatch(nativeRequest(
+      "physical-mouse",
+      clickAction("left")
+    ));
+    const mouseControl = mouseSubject.arm(["ShiftLeft"]);
+    expect(mouseSubject.mouseSubmissions).toEqual([
+      expect.objectContaining({ modifierFlags: 1 << 17 })
+    ]);
+    mouseControl.expectedEvents.forEach((_event, index) => {
+      mouseSubject.adapter.receive(mouseSubject.event, mouseSubject.domReceipt(
+        mouseControl,
+        index,
+        { shiftKey: true }
+      ));
+    });
+    await expect(mouseCompletion).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("admits physical-pass-through release with the current modifier snapshot", async () => {
+    const subject = harness();
+    const action: Extract<BrowserAction, { type: "key" }> = {
+      ...keyAction("release"),
+      modifiers: [],
+      exactModifierCodes: ["ShiftLeft"],
+      modifierOwnership: "physical-pass-through" as const
+    };
+    const completion = subject.adapter.dispatch(nativeRequest(
+      "physical-release",
+      action,
+      {
+        physicalModifierCodes: ["ShiftLeft"],
+        keyEffect: {
+          phase: "keyUp",
+          code: "KeyA",
+          activeCodesBefore: ["KeyA"],
+          activeCodes: [],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      }
+    ));
+    const control = subject.arm([]);
+    expect(subject.keySubmissions).toEqual([
+      expect.objectContaining({ modifierFlags: 0, eventType: "keyUp" })
+    ]);
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0));
+    await expect(completion).resolves.toMatchObject({ status: "applied" });
   });
 
   it.each([1, 1.25, 2])(
@@ -484,12 +565,14 @@ describe("macOS AppKit trusted-input adapter", () => {
       clickAction(button)
     ));
     const control = subject.arm();
-    expect(control.expectedEvents.map((event) => event.type)).toEqual([
-      "mousedown", "mouseup", "auxclick"
-    ]);
-    expect(control.expectedEvents.map((event) => event.button)).toEqual([
-      domButton, domButton, domButton
-    ]);
+    expect(control.expectedEvents.map((event) => event.type)).toEqual(
+      button === "right"
+        ? ["mousedown", "contextmenu", "mouseup", "auxclick"]
+        : ["mousedown", "mouseup", "auxclick"]
+    );
+    expect(control.expectedEvents.map((event) => event.button)).toEqual(
+      Array.from({ length: button === "right" ? 4 : 3 }, () => domButton)
+    );
     subject.receiptAll(control);
     await expect(completion).resolves.toMatchObject({ status: "applied" });
   });
@@ -666,7 +749,8 @@ describe("macOS AppKit trusted-input adapter", () => {
       generation: nextControl.generation,
       frameToken: nextControl.frameToken,
       inputSequence: nextControl.inputSequence,
-      expectedEventCount: nextControl.expectedEvents.length
+      expectedEventCount: nextControl.expectedEvents.length,
+      physicalModifierCodes: []
     });
     subject.receiptAll(nextControl);
     await expect(next).resolves.toMatchObject({ status: "applied" });

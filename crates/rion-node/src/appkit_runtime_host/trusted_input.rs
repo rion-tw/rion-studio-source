@@ -52,6 +52,7 @@ pub struct AppKitNativeBackgroundKeySubmissionReceipt {
     pub code: String,
     pub dispatched_event_count: u32,
     pub virtual_key_code: u32,
+    pub repeat: bool,
     pub modifier_flags: u32,
     pub target_attached: bool,
     pub focus_neutral: bool,
@@ -400,7 +401,7 @@ impl NativeAppKitRuntimeHost {
             native_view,
             surface.web_contents_root_address,
             &code,
-            request.event_type == "keyDown",
+            request.event_type == "rawKeyDown",
             request.modifier_flags,
             request.repeat,
         )?;
@@ -421,6 +422,7 @@ impl NativeAppKitRuntimeHost {
             code: request.code,
             dispatched_event_count: u32::from(native_receipt.dispatched_event_count),
             virtual_key_code: u32::from(native_receipt.virtual_key_code),
+            repeat: request.repeat,
             modifier_flags: u32::try_from(native_receipt.modifier_flags).map_err(|_| {
                 adapter_error(
                     Status::GenericFailure,
@@ -568,7 +570,7 @@ fn validate_native_background_key_request(
     validate_identifier(&request.request_id, "input request")?;
     validate_identifier(&request.role_id, "input role")?;
     if request.surface_generation == 0
-        || !matches!(request.event_type.as_str(), "keyDown" | "keyUp")
+        || !matches!(request.event_type.as_str(), "rawKeyDown" | "keyUp")
         || request.code.is_empty()
         || request.code.len() > 128
         || request.code.trim() != request.code
@@ -829,7 +831,7 @@ mod tests {
             surface_generation: 1,
             input_epoch: "0".to_owned(),
             deadline_ms: "1".to_owned(),
-            event_type: "keyDown".to_owned(),
+            event_type: "rawKeyDown".to_owned(),
             code: "KeyA".to_owned(),
             modifier_flags: 1 << 20,
             repeat: false,

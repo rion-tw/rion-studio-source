@@ -1440,6 +1440,14 @@ mod tests {
             ("ArrowRight", "kVK_RightArrow"),
             ("ArrowDown", "kVK_DownArrow"),
             ("ArrowUp", "kVK_UpArrow"),
+            ("ControlLeft", "kVK_Control"),
+            ("ControlRight", "kVK_RightControl"),
+            ("AltLeft", "kVK_Option"),
+            ("AltRight", "kVK_RightOption"),
+            ("ShiftLeft", "kVK_Shift"),
+            ("ShiftRight", "kVK_RightShift"),
+            ("MetaLeft", "kVK_Command"),
+            ("MetaRight", "kVK_RightCommand"),
         ];
 
         let matrix_start = SOURCE
@@ -1463,6 +1471,8 @@ mod tests {
             assert!(!matrix.contains(&format!("@\"{unsupported}\":")));
         }
         assert!(SOURCE.contains("if (!code || !virtualCode || !base) return 8;"));
+        assert!(SOURCE.contains("NSEventTypeFlagsChanged"));
+        assert!(SOURCE.contains("[target flagsChanged:event]"));
     }
 
     #[test]

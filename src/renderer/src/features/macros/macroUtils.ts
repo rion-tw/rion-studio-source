@@ -180,6 +180,32 @@ export const commonMacroKeyCodes = [
   "F24",
 ] as const;
 
+const MACOS_UNSUPPORTED_FUNCTION_CODES = new Set(["F21", "F22", "F23", "F24"]);
+
+export function isMacroKeyCodeSupportedForCreation(
+  code: string,
+  platform = typeof document === "undefined"
+    ? undefined
+    : document.documentElement.dataset.platform
+): boolean {
+  return platform !== "mac" ||
+    !MACOS_UNSUPPORTED_FUNCTION_CODES.has(code);
+}
+
+export function selectableMacroKeyCodes(
+  currentCode?: string,
+  platform = typeof document === "undefined"
+    ? undefined
+    : document.documentElement.dataset.platform
+): readonly string[] {
+  const supported = commonMacroKeyCodes.filter(
+    code => isMacroKeyCodeSupportedForCreation(code, platform)
+  );
+  return currentCode && !supported.includes(currentCode as typeof supported[number])
+    ? [currentCode, ...supported]
+    : supported;
+}
+
 const codeLabels: Record<string, string> = {
   Backspace: "Backspace",
   Enter: "Enter",

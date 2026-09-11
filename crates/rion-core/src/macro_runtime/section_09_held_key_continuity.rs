@@ -101,22 +101,12 @@ impl MacroRuntime {
             surface_generation: dispatch.surface_generation,
             document_instance_id: dispatch.document_instance_id.to_owned(),
         };
-        let actions = held_keys
+        let reasserted_key_count = held_keys
             .iter()
-            .map(|held| {
-                (
-                    dispatch.role_id,
-                    BrowserAction::Key {
-                        phase: "hold".to_owned(),
-                        key: held.code.clone(),
-                        code: Some(held.code.clone()),
-                        modifiers: held.modifiers.clone(),
-                        owner_id: held.owner_id.clone(),
-                        suppress_overlay_shortcut: true,
-                    },
-                )
-            })
-            .collect::<Vec<_>>();
+            .map(|held| held.code.as_str())
+            .collect::<HashSet<_>>()
+            .len();
+        let actions = vec![(dispatch.role_id, BrowserAction::ReassertHeldKeys)];
         match perform_actions_with_control(
             &self.shared,
             &control,
@@ -128,7 +118,7 @@ impl MacroRuntime {
                 error_code: None,
                 error_message: None,
                 input_epoch,
-                reasserted_key_count: request_ids.len(),
+                reasserted_key_count,
                 request_ids,
                 status: "reasserted",
             }),

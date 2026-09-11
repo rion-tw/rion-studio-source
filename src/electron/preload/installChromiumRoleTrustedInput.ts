@@ -10,11 +10,15 @@ import {
 } from "../ipc/chromiumRoleTrustedInputProtocol";
 import { CHROMIUM_ROLE_OVERLAY_WORLD_ID } from
   "../ipc/chromiumRoleOverlayProtocol";
+import {
+  mergeChromiumPhysicalModifiers,
+  validChromiumPhysicalModifierCodes
+} from "../ipc/chromiumTrustedInputPhysicalModifiers";
 
 const INPUT_SEQUENCE_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const EVENT_TYPES = new Set([
-  "keydown", "keyup", "mousedown", "mouseup", "click", "auxclick"
+  "keydown", "keyup", "mousedown", "mouseup", "click", "auxclick", "contextmenu"
 ]);
 const MAX_CLIENT_COORDINATE = 1_000_000;
 
@@ -50,7 +54,7 @@ export interface ChromiumRoleTrustedInputEventTargetPort {
 
 interface PendingInput {
   readonly identity: ChromiumRoleTrustedInputIdentity;
-  readonly expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[];
+  expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[];
   nextIndex: number;
   shortcutSuppressionArmed: boolean;
 }
@@ -61,11 +65,22 @@ export interface ChromiumRoleTrustedInputOverlayGuardPort {
     inputSequence: string;
     code: string;
     phases: readonly ("keydown" | "keyup")[];
-  }>) => Promise<boolean>;
+    repeat: boolean;
+  }>) => Promise<Readonly<{
+    armed: boolean;
+    physicalModifierCodes: readonly string[];
+  }>>;
   clear: (input: Readonly<{
     frameToken: string;
     inputSequence: string;
   }>) => Promise<boolean>;
+  snapshot: (input: Readonly<{
+    frameToken: string;
+    inputSequence: string;
+  }>) => Promise<Readonly<{
+    admitted: boolean;
+    physicalModifierCodes: readonly string[];
+  }>>;
 }
 
 export interface ChromiumRoleTrustedInputOverlayGuardWebFramePort {
@@ -119,7 +134,7 @@ function parseExpectedEvent(value: unknown): ChromiumRoleTrustedInputExpectedEve
   const type = record.type;
   const keyboard = type === "keydown" || type === "keyup";
   const mouse = type === "mousedown" || type === "mouseup" || type === "click" ||
-    type === "auxclick";
+    type === "auxclick" || type === "contextmenu";
   if (
     !validEventType(type) ||
     typeof record.altKey !== "boolean" ||
@@ -187,7 +202,7 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
     ]) ||
     !Array.isArray(record.expectedEvents) ||
     record.expectedEvents.length === 0 ||
-    record.expectedEvents.length > 3
+    record.expectedEvents.length > 10
   ) return null;
   const expectedEvents = record.expectedEvents.map(parseExpectedEvent);
   if (expectedEvents.some((event) => event === null)) return null;
@@ -198,7 +213,7 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
       Array.isArray(record.shortcutSuppression)) return null;
     const suppression = record.shortcutSuppression as Record<string, unknown>;
     const suppressionPhases = suppression.phases;
-    if (!exactKeys(suppression, ["code", "phases"]) ||
+    if (!exactKeys(suppression, ["code", "phases", "repeat"]) ||
       typeof suppression.code !== "string" ||
       suppression.code.length === 0 || suppression.code.length > 128 ||
       suppression.code !== suppression.code.trim() ||
@@ -207,16 +222,17 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
       suppressionPhases.some((phase, index) =>
         (phase !== "keydown" && phase !== "keyup") ||
         (index > 0 && suppressionPhases[index - 1] === phase)
-      )) return null;
+      ) || typeof suppression.repeat !== "boolean") return null;
     const keyboardEvents = expectedEvents as ChromiumRoleTrustedInputExpectedEvent[];
     if (keyboardEvents.some((event) =>
       (event.type !== "keydown" && event.type !== "keyup") ||
-      event.code !== suppression.code
+      event.code !== suppression.code || event.repeat !== suppression.repeat
     ) || keyboardEvents.map((event) => event.type).join("\n") !==
       suppressionPhases.join("\n")) return null;
     shortcutSuppression = Object.freeze({
       code: suppression.code,
-      phases: Object.freeze([...suppressionPhases]) as readonly ("keydown" | "keyup")[]
+      phases: Object.freeze([...suppressionPhases]) as readonly ("keydown" | "keyup")[],
+      repeat: suppression.repeat
     });
   }
   return Object.freeze({
@@ -244,7 +260,7 @@ function exactGuardResult(
 export function createChromiumRoleTrustedInputOverlayGuard(
   webFrame: ChromiumRoleTrustedInputOverlayGuardWebFramePort
 ): ChromiumRoleTrustedInputOverlayGuardPort {
-  const execute = (
+  const executeClear = (
     input: Readonly<{ frameToken: string; inputSequence: string }>,
     expression: string,
     field: "armed" | "cleared",
@@ -256,7 +272,9 @@ export function createChromiumRoleTrustedInputOverlayGuard(
   )).then((value) => exactGuardResult(value, input, field));
   return Object.freeze({
     arm: (input: Parameters<ChromiumRoleTrustedInputOverlayGuardPort["arm"]>[0]) =>
-      execute(input, `(() => {
+      Promise.resolve(webFrame.executeJavaScriptInIsolatedWorld(
+        CHROMIUM_ROLE_OVERLAY_WORLD_ID,
+        [{ code: `(() => {
       const frameToken = ${JSON.stringify(input.frameToken)};
       const inputSequence = ${JSON.stringify(input.inputSequence)};
       const controller = globalThis.__rionStudioMacroOverlay;
@@ -264,19 +282,77 @@ export function createChromiumRoleTrustedInputOverlayGuard(
         controller?.suppressShortcutSequence?.(
           inputSequence,
           ${JSON.stringify(input.code)},
-          ${JSON.stringify(input.phases)}
+          ${JSON.stringify(input.phases)},
+          ${JSON.stringify(input.repeat)}
         ) === true;
-      return Object.freeze({ armed, frameToken, inputSequence });
-    })()`, "armed", "rion-studio://chromium-trusted-input-guard-arm.js"),
+      const observedPhysicalModifierCodes = controller?.physicalModifierCodes?.();
+      const physicalModifierCodes = armed && Array.isArray(observedPhysicalModifierCodes)
+        ? observedPhysicalModifierCodes : [];
+      return Object.freeze({ armed, frameToken, inputSequence, physicalModifierCodes });
+    })()`, url: "rion-studio://chromium-trusted-input-guard-arm.js" }],
+        false
+      )).then((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return Object.freeze({ armed: false, physicalModifierCodes: [] });
+        }
+        const record = value as Record<string, unknown>;
+        const codes = record.physicalModifierCodes;
+        const validCodes = validChromiumPhysicalModifierCodes(codes);
+        return Object.freeze({
+          armed: exactKeys(record, [
+            "armed", "frameToken", "inputSequence", "physicalModifierCodes"
+          ]) && record.frameToken === input.frameToken &&
+            record.inputSequence === input.inputSequence && record.armed === true && validCodes,
+          physicalModifierCodes: validCodes ? Object.freeze([...codes]) : []
+        });
+      }),
     clear: (input: Parameters<ChromiumRoleTrustedInputOverlayGuardPort["clear"]>[0]) =>
-      execute(input, `(() => {
+      executeClear(input, `(() => {
       const frameToken = ${JSON.stringify(input.frameToken)};
       const inputSequence = ${JSON.stringify(input.inputSequence)};
       const controller = globalThis.__rionStudioMacroOverlay;
       const cleared = globalThis.__rionStudioDocumentInstanceId === frameToken &&
         controller?.clearSuppressedShortcut?.(inputSequence) === true;
       return Object.freeze({ cleared, frameToken, inputSequence });
-    })()`, "cleared", "rion-studio://chromium-trusted-input-guard-clear.js")
+    })()`, "cleared", "rion-studio://chromium-trusted-input-guard-clear.js"),
+    snapshot: (input: Parameters<
+      ChromiumRoleTrustedInputOverlayGuardPort["snapshot"]
+    >[0]) => Promise.resolve(webFrame.executeJavaScriptInIsolatedWorld(
+      CHROMIUM_ROLE_OVERLAY_WORLD_ID,
+      [{ code: `(() => {
+      const frameToken = ${JSON.stringify(input.frameToken)};
+      const inputSequence = ${JSON.stringify(input.inputSequence)};
+      const controller = globalThis.__rionStudioMacroOverlay;
+      const observed = controller?.physicalModifierCodes?.();
+      const admitted = globalThis.__rionStudioDocumentInstanceId === frameToken &&
+        Array.isArray(observed);
+      return Object.freeze({
+        admitted,
+        frameToken,
+        inputSequence,
+        physicalModifierCodes: admitted ? observed : []
+      });
+    })()`, url: "rion-studio://chromium-trusted-input-modifier-snapshot.js" }],
+      false
+    )).then(value => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return Object.freeze({ admitted: false, physicalModifierCodes: [] });
+      }
+      const record = value as Record<string, unknown>;
+      const validCodes = validChromiumPhysicalModifierCodes(
+        record.physicalModifierCodes
+      );
+      const admitted = exactKeys(record, [
+        "admitted", "frameToken", "inputSequence", "physicalModifierCodes"
+      ]) && record.admitted === true && record.frameToken === input.frameToken &&
+        record.inputSequence === input.inputSequence && validCodes;
+      return Object.freeze({
+        admitted,
+        physicalModifierCodes: admitted
+          ? Object.freeze([...(record.physicalModifierCodes as readonly string[])])
+          : []
+      });
+    })
   });
 }
 
@@ -295,7 +371,7 @@ function observedEvent(
 ): ChromiumRoleTrustedInputExpectedEvent | null {
   const keyboard = event.type === "keydown" || event.type === "keyup";
   const mouse = event.type === "mousedown" || event.type === "mouseup" ||
-    event.type === "click" || event.type === "auxclick";
+    event.type === "click" || event.type === "auxclick" || event.type === "contextmenu";
   if (!keyboard && !mouse) return null;
   const candidate = {
     type: event.type,
@@ -381,13 +457,37 @@ export function installChromiumRoleTrustedInput(
       shortcutSuppressionArmed: false
     };
     pending = candidate;
-    const acknowledge = (): void => send({
-      ...candidate.identity,
-      kind: "armed",
-      expectedEventCount: candidate.expectedEvents.length
-    });
+    const acknowledge = (physicalModifierCodes: readonly string[]): void => {
+      candidate.expectedEvents = mergeChromiumPhysicalModifiers(
+        candidate.expectedEvents,
+        physicalModifierCodes,
+        control.shortcutSuppression?.code ?? null
+      );
+      send({
+        ...candidate.identity,
+        kind: "armed",
+        expectedEventCount: candidate.expectedEvents.length,
+        physicalModifierCodes
+      });
+    };
     if (!control.shortcutSuppression) {
-      acknowledge();
+      if (!overlayGuards) {
+        acknowledge([]);
+        return;
+      }
+      void overlayGuards.snapshot(candidate.identity).then(result => {
+        if (pending !== candidate) return;
+        if (!result.admitted) {
+          pending = null;
+          send({ ...candidate.identity, kind: "rejected", reason: "invalid-control" });
+          return;
+        }
+        acknowledge(result.physicalModifierCodes);
+      }).catch(() => {
+        if (pending !== candidate) return;
+        pending = null;
+        send({ ...candidate.identity, kind: "rejected", reason: "invalid-control" });
+      });
       return;
     }
     if (!overlayGuards) {
@@ -399,22 +499,23 @@ export function installChromiumRoleTrustedInput(
       frameToken: control.frameToken,
       inputSequence: control.inputSequence,
       code: control.shortcutSuppression.code,
-      phases: control.shortcutSuppression.phases
-    }).then((armed) => {
+      phases: control.shortcutSuppression.phases,
+      repeat: control.shortcutSuppression.repeat
+    }).then((result) => {
       if (pending !== candidate) {
-        if (armed) void overlayGuards.clear({
+        if (result.armed) void overlayGuards.clear({
           frameToken: control.frameToken,
           inputSequence: control.inputSequence
         }).catch(() => false);
         return;
       }
-      if (!armed) {
+      if (!result.armed) {
         pending = null;
         send({ ...candidate.identity, kind: "rejected", reason: "invalid-control" });
         return;
       }
       candidate.shortcutSuppressionArmed = true;
-      acknowledge();
+      acknowledge(result.physicalModifierCodes);
     }).catch(() => {
       if (pending !== candidate) return;
       pending = null;
@@ -450,7 +551,7 @@ export function installChromiumRoleTrustedInput(
       current.nextIndex += 1;
       if (current.nextIndex === current.expectedEvents.length) pending = null;
     }
-    send(receipt);
+    queueMicrotask(() => send(receipt));
   };
   for (const type of EVENT_TYPES) {
     target.addEventListener(type, capture, { capture: true });

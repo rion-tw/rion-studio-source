@@ -176,6 +176,8 @@ describe("Chromium Macro standby recovery exact replacement source", () => {
           code: "KeyS",
           key: "s",
           modifiers: [],
+          exactModifierCodes: null,
+          modifierOwnership: "synthetic",
           ownerId,
           phase,
           suppressOverlayShortcut: true,

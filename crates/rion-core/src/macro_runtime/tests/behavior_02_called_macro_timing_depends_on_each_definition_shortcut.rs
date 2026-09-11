@@ -491,6 +491,7 @@
                                 phase.clone()
                             }
                             BrowserAction::Click { .. } => "click".to_owned(),
+                            BrowserAction::ReassertHeldKeys => "reassert".to_owned(),
                         };
                         (action.role_id.clone(), phase)
                     }));

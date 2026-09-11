@@ -43,6 +43,8 @@ function inputObservation(input: Readonly<{
         code: "Digit2",
         key: "2",
         modifiers: [],
+        exactModifierCodes: null,
+        modifierOwnership: "synthetic",
         ownerId: input.ownerId,
         phase: input.phase,
         suppressOverlayShortcut: true,

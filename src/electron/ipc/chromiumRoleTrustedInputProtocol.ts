@@ -9,7 +9,8 @@ export type ChromiumRoleTrustedInputEventType =
   | "mousedown"
   | "mouseup"
   | "click"
-  | "auxclick";
+  | "auxclick"
+  | "contextmenu";
 
 export interface ChromiumRoleTrustedInputExpectedEvent {
   readonly type: ChromiumRoleTrustedInputEventType;
@@ -35,6 +36,7 @@ export interface ChromiumRoleTrustedInputIdentity {
 export interface ChromiumRoleTrustedInputShortcutSuppression {
   readonly code: string;
   readonly phases: readonly ("keydown" | "keyup")[];
+  readonly repeat: boolean;
 }
 
 export interface ChromiumRoleTrustedInputArmEnvelope
@@ -58,6 +60,7 @@ export interface ChromiumRoleTrustedInputArmedReceipt
   extends ChromiumRoleTrustedInputIdentity {
   readonly kind: "armed";
   readonly expectedEventCount: number;
+  readonly physicalModifierCodes: readonly string[];
 }
 
 export interface ChromiumRoleTrustedInputRejectedReceipt

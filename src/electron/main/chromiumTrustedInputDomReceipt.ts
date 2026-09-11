@@ -2,6 +2,8 @@ import type {
   ChromiumRoleTrustedInputReceipt, ChromiumRoleTrustedInputDomReceipt,
   ChromiumRoleTrustedInputExpectedEvent
 } from "../ipc/chromiumRoleTrustedInputProtocol";
+import { validChromiumPhysicalModifierCodes } from
+  "../ipc/chromiumTrustedInputPhysicalModifiers";
 
 const MAX_RECEIPT_BYTES = 16 * 1024;
 const INPUT_SEQUENCE_PATTERN =
@@ -44,10 +46,13 @@ export function parseTrustedInputDomReceipt(
   if (!identityValid) {
     invalid("The trusted-input preload receipt has an invalid identity.");
   }
-  if (record.kind === "armed" && exactKeys(record, [...baseKeys, "expectedEventCount"])) {
+  if (record.kind === "armed" && exactKeys(record, [
+    ...baseKeys, "expectedEventCount", "physicalModifierCodes"
+  ])) {
     if (!Number.isSafeInteger(record.expectedEventCount) ||
       (record.expectedEventCount as number) < 1 ||
-      (record.expectedEventCount as number) > 3) {
+      (record.expectedEventCount as number) > 10 ||
+      !validChromiumPhysicalModifierCodes(record.physicalModifierCodes)) {
       invalid("The arm receipt is invalid.");
     }
     return record as unknown as ChromiumRoleTrustedInputReceipt;

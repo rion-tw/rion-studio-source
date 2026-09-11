@@ -41,16 +41,7 @@ fn windows_held_key_continuity_replays_core_owned_keys_on_exact_surface_once() {
     );
     assert!(matches!(
         actions[0].action,
-        BrowserAction::Key {
-            ref phase,
-            ref code,
-            ref modifiers,
-            ref owner_id,
-            ..
-        } if phase == "hold"
-            && code.as_deref() == Some("Digit2")
-            && modifiers == &["shift"]
-            && owner_id == "owner-1"
+        BrowserAction::ReassertHeldKeys
     ));
     runtime.dispatch_results(success_results(actions)).unwrap();
     let receipt = replay.join().unwrap().unwrap();

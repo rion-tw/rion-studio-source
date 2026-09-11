@@ -73,6 +73,18 @@ pub enum BrowserAction {
         code: Option<String>,
         #[ts(type = "Array<\"primary\" | \"ctrl\" | \"alt\" | \"shift\" | \"meta\">")]
         modifiers: Vec<String>,
+        #[serde(default, rename = "exactModifierCodes")]
+        #[ts(rename = "exactModifierCodes")]
+        exact_modifier_codes: Option<Vec<String>>,
+        #[serde(
+            default = "default_browser_action_modifier_ownership",
+            rename = "modifierOwnership"
+        )]
+        #[ts(
+            type = "\"synthetic\" | \"physical-pass-through\"",
+            rename = "modifierOwnership"
+        )]
+        modifier_ownership: String,
         #[serde(rename = "ownerId")]
         #[ts(rename = "ownerId")]
         owner_id: String,
@@ -80,6 +92,7 @@ pub enum BrowserAction {
         #[ts(rename = "suppressOverlayShortcut")]
         suppress_overlay_shortcut: bool,
     },
+    ReassertHeldKeys,
     Click {
         #[ts(
             type = "\"top-left\" | \"top-center\" | \"top-right\" | \"center-left\" | \"center\" | \"center-right\" | \"bottom-left\" | \"bottom-center\" | \"bottom-right\" | null"
@@ -92,6 +105,10 @@ pub enum BrowserAction {
         #[ts(type = "\"left\" | \"middle\" | \"right\"")]
         button: String,
     },
+}
+
+fn default_browser_action_modifier_ownership() -> String {
+    "synthetic".to_owned()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

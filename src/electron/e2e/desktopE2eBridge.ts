@@ -1197,11 +1197,14 @@ function parseApplicationLifecycleSignalReceipt(
 function isBrowserAction(candidate: unknown): candidate is BrowserActionRequest["action"] {
   if (!isRecord(candidate) || typeof candidate.type !== "string") return false;
   if (candidate.type === "focus") return hasExactKeys(candidate, ["type"]);
+  if (candidate.type === "reassertHeldKeys") return hasExactKeys(candidate, ["type"]);
   if (candidate.type === "key") {
     return hasExactKeys(candidate, [
       "code",
       "key",
       "modifiers",
+      "exactModifierCodes",
+      "modifierOwnership",
       "ownerId",
       "phase",
       "suppressOverlayShortcut",
@@ -1212,6 +1215,16 @@ function isBrowserAction(candidate: unknown): candidate is BrowserActionRequest[
       Array.isArray(candidate.modifiers) && new Set(candidate.modifiers).size ===
         candidate.modifiers.length && candidate.modifiers.every((modifier) =>
         new Set(["alt", "ctrl", "meta", "primary", "shift"]).has(String(modifier))) &&
+      (candidate.exactModifierCodes === null ||
+        Array.isArray(candidate.exactModifierCodes) &&
+        new Set(candidate.exactModifierCodes).size === candidate.exactModifierCodes.length &&
+        candidate.exactModifierCodes.every((code) => new Set([
+          "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+          "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
+        ]).has(String(code)))) &&
+      new Set(["synthetic", "physical-pass-through"]).has(
+        String(candidate.modifierOwnership)
+      ) &&
       typeof candidate.ownerId === "string" && candidate.ownerId.length > 0 &&
       typeof candidate.suppressOverlayShortcut === "boolean";
   }

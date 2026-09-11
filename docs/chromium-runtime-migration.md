@@ -246,6 +246,63 @@ through a CDN, or use a live browser profile as a runtime fallback. Chromium
 command-line switches require a named contract capability, cross-platform
 evidence, and a focused regression test.
 
+### Trusted macro input restoration and CDP candidate
+
+The Electron macro lane preserves the Rust `EmbeddedInputRuntime` as its only
+key-ownership state machine. Key requests are prepared by Core, each returned
+effect independently completes native submission and a post-propagation trusted
+DOM receipt, and only then may the next effect run or the Core transition commit.
+This restores exact modifier-side ordering, multi-owner reference counts,
+tap-while-held repeat, managed-shortcut physical/synthetic ownership, held-key
+reassertion, rollback, and Role retirement cleanup without changing the public
+preload bridge or persisted macro schema. A confirmed prefix is compensated in
+reverse order before Core rollback; missing receipts or uncertain compensation
+quarantine the exact Role and never select another transport.
+
+Production remains on the retained macOS AppKit submission leaf and the Windows
+Electron `sendInputEvent` leaf. The repository also contains an isolated,
+unreferenced in-process CDP Input candidate and native A/B probe. It is not part
+of the production bootstrap, exposes no renderer/preload entry point, never adds
+`--remote-debugging-port` or `--remote-debugging-pipe`, and accepts only the
+closed method union `Input.dispatchKeyEvent` and `Input.dispatchMouseEvent`.
+`Runtime`, `Network`, `Storage`, `Target`, arbitrary method strings, external
+clients, and reconnect-after-abnormal-detach are absent. One session is bound to
+one admitted Role, WebContents, surface generation, document instance, and
+preload frame token. Navigation, close, crash, or debugger detach is an exact
+terminal event for pending work. Command acceptance is submission evidence only;
+trusted DOM receipt remains the success authority. See Electron's
+[`webContents.debugger`](https://github.com/electron/electron/blob/v43.6.0/docs/api/debugger.md)
+and the Chromium [`Input` domain](https://chromedevtools.github.io/devtools-protocol/tot/Input/).
+
+The candidate uses an explicit cross-platform descriptor catalog for the
+currently creatable letters, digits, punctuation, navigation keys, F1-F24, and
+all eight modifier sides. Key commands set the event type, DOM `code`/`key`,
+location, platform virtual-key values, active modifier mask, and repeat bit.
+Mouse commands use main-frame CSS viewport coordinates and explicit button,
+buttons, click count, and modifiers. Unknown keys fail closed instead of falling
+through to another code.
+
+The current macOS native probes establish trusted exact AppKit delivery for
+right Control, left Shift, repeat, reverse modifier release, left/middle/right
+mouse semantics, CSS coordinates at 100%, 125%, and 200% zoom, and unchanged
+background focus/responders. The in-process CDP probe establishes trusted exact
+right-side modifier and F21-F24 DOM identity, matching middle/right Chromium
+mouse sequences, and unchanged background/hidden-window focus. It also records
+that Electron's generic `sendInputEvent` reference cannot express a right-Control
+DOM code on this macOS Chromium build; that difference is evidence to resolve,
+not permission to promote CDP.
+
+Promotion is intentionally blocked until the same candidate suite and the
+required native desktop profiles pass on Windows as well as macOS, including
+physical-modifier readback, foreground ownership, hidden/background Roles,
+navigation/reload/close/crash/detach, stale identities, zoom boundaries, and
+post-mousedown compensation. Before those gates pass, the owner-level production
+CDP/debugger prohibition below remains unchanged, F21-F24 remain unavailable for
+new macOS macro selections while existing/imported values are preserved, and no
+runtime fallback exists. A future all-gates promotion must update this contract
+and the repository owner boundary, switch both platforms in one change, and
+remove both legacy submission leaves and their selector.
+
 Startup rejects both incoming `remote-debugging-port` and
 `remote-debugging-pipe` transports before helper or ready-phase work. The sole
 exception is the isolated desktop-E2E envelope, which must carry the exact

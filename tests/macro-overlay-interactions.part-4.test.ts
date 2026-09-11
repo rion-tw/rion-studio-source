@@ -48,7 +48,8 @@ interface OverlayController {
   suppressShortcutSequence: (
     dispatchId: string,
     code: string,
-    phases: readonly ("keydown" | "keyup")[]
+    phases: readonly ("keydown" | "keyup")[],
+    repeat?: boolean
   ) => boolean;
 }
 
@@ -821,6 +822,33 @@ describe("macro overlay native key guard", () => {
     expect(controller.clearSuppressedShortcut(dispatchId)).toBe(true);
     expect(controller.clearSuppressedShortcut(dispatchId)).toBe(false);
     armShortcut(controller, "KeyW", "keyup");
+  });
+
+  it("consumes an explicitly armed repeated Macro key without changing physical ownership", async () => {
+    const observed = vi.fn(async (_observation: MacroKeyObservation) => undefined);
+    const binding = Object.assign(
+      vi.fn(async () => ({ macros: [], statuses: [] })),
+      { macroKeyObserved: observed }
+    );
+    const controller = installOverlay(binding);
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+
+    expect(controller.suppressShortcutSequence(
+      "repeat-dispatch",
+      "KeyW",
+      ["keydown"],
+      true
+    )).toBe(true);
+    canvas.dispatchEvent(keyEvent("keydown", "KeyW", "w", { repeat: true }));
+    await Promise.resolve();
+
+    expect(observed).toHaveBeenCalledWith({
+      code: "KeyW",
+      dispatchId: "repeat-dispatch",
+      phase: "keydown"
+    });
+    expect(controller.physicalModifierCodes()).toEqual([]);
   });
 
   it("does not reassert a forwarded key after acknowledged macro keyup cleanup", async () => {

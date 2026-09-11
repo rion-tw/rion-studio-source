@@ -1,8 +1,16 @@
 import type {
   BrowserAction,
-  BrowserActionRequest
+  BrowserActionRequest,
+  EmbeddedKeyEffectRecord
 } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
+import {
+  ChromiumTrustedInputSequenceFailure,
+  executeChromiumTrustedKeySequence,
+  type ChromiumEmbeddedInputCorePort
+} from "./chromiumTrustedInputSequenceExecutor";
+import type { ChromiumTrustedInputPlatform } from
+  "./chromiumTrustedInputKeySequence";
 
 type CoordinatorState = "open" | "draining" | "disposed";
 
@@ -35,6 +43,8 @@ export interface ChromiumNativeTrustedInputRequest {
   readonly expectedInputNeutralityBefore: boolean;
   readonly expectedInputNeutralityAfter: boolean;
   readonly action: BrowserAction;
+  readonly keyEffect?: EmbeddedKeyEffectRecord;
+  readonly physicalModifierCodes?: readonly string[];
 }
 
 export interface ChromiumNativeTrustedInputReceipt {
@@ -64,6 +74,8 @@ export interface ChromiumNativeTrustedInputPort {
 export interface ChromiumTrustedInputCoordinatorInput {
   readonly native: ChromiumNativeTrustedInputPort;
   readonly surfaces: ChromiumTrustedInputSurfacePort;
+  readonly embeddedInput: ChromiumEmbeddedInputCorePort;
+  readonly platform: ChromiumTrustedInputPlatform;
   readonly nowMs: () => number;
   readonly preflightAutomaticInputContext?: (
     roleId: string,
@@ -84,7 +96,7 @@ interface RoleLaneState {
   inputEpoch: number;
   readonly surfaceGeneration: number;
   quarantined: boolean;
-  readonly heldKeys: Set<string>;
+  hasHeldKeys: boolean;
 }
 
 interface DocumentReplacementQuarantine {
@@ -98,22 +110,6 @@ export interface ChromiumTrustedInputDocumentReplacementLease {
   readonly operationId: string;
   readonly roleId: string;
   readonly surfaceGeneration: number;
-}
-
-function heldKeyIdentity(action: Extract<BrowserAction, { type: "key" }>): string {
-  return JSON.stringify([action.ownerId, action.code ?? action.key]);
-}
-
-function projectedHeldKeys(
-  current: ReadonlySet<string>,
-  action: BrowserAction
-): Set<string> {
-  const projected = new Set(current);
-  if (action.type !== "key" || action.phase === "tap") return projected;
-  const identity = heldKeyIdentity(action);
-  if (action.phase === "hold") projected.add(identity);
-  else projected.delete(identity);
-  return projected;
 }
 
 function inputError(code: string, message: string): RionBridgeError {
@@ -149,8 +145,13 @@ function validateAction(action: BrowserAction): void {
     fail("ELECTRON_CHROMIUM_INPUT_INVALID", "Core supplied an invalid browser action.");
   }
   if (action.type === "focus") return;
+  if (action.type === "reassertHeldKeys") return;
   if (action.type === "key") {
     const modifiers = new Set(["primary", "ctrl", "alt", "shift", "meta"]);
+    const modifierCodes = new Set([
+      "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+      "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
+    ]);
     if (
       !(["tap", "hold", "release"] as const).includes(action.phase) ||
       typeof action.key !== "string" ||
@@ -161,6 +162,14 @@ function validateAction(action: BrowserAction): void {
       !Array.isArray(action.modifiers) ||
       new Set(action.modifiers).size !== action.modifiers.length ||
       action.modifiers.some((modifier) => !modifiers.has(modifier)) ||
+      (action.exactModifierCodes !== null && (
+        !Array.isArray(action.exactModifierCodes) ||
+        action.exactModifierCodes.length > 8 ||
+        new Set(action.exactModifierCodes).size !== action.exactModifierCodes.length ||
+        action.exactModifierCodes.some((code) => !modifierCodes.has(code))
+      )) ||
+      !(["synthetic", "physical-pass-through"] as const)
+        .includes(action.modifierOwnership) ||
       typeof action.ownerId !== "string" ||
       action.ownerId.length === 0 ||
       action.ownerId.length > 256 ||
@@ -314,12 +323,13 @@ export class ChromiumTrustedInputCoordinator {
     this.#input = input;
     this.#unsubscribeSurfaceLifecycle =
       input.surfaces.subscribeTrustedInputLifecycle?.((event) => {
-        void this.#enqueue(event.roleId, () => {
+        void this.#enqueue(event.roleId, async () => {
           const state = this.#roleStates.get(event.roleId);
           if (state?.surfaceGeneration === event.generation) {
             if (event.reason === "surface-retired") {
+              await this.#input.embeddedInput.clear(event.roleId);
               this.#roleStates.delete(event.roleId);
-            } else if (state.heldKeys.size > 0) {
+            } else if (state.hasHeldKeys) {
               state.quarantined = true;
             }
           }
@@ -449,7 +459,7 @@ export class ChromiumTrustedInputCoordinator {
         surface.documentInstanceId === lease.documentInstanceId &&
         (!state || (
           state.surfaceGeneration === lease.surfaceGeneration &&
-          !state.quarantined && state.heldKeys.size === 0 &&
+          !state.quarantined && !state.hasHeldKeys &&
           state.inputEpoch <= lease.inputEpoch
         ));
     });
@@ -481,7 +491,7 @@ export class ChromiumTrustedInputCoordinator {
       let state = this.#roleStates.get(lease.roleId);
       if (!state) {
         state = {
-          heldKeys: new Set(),
+          hasHeldKeys: false,
           inputEpoch: lease.inputEpoch,
           quarantined: false,
           surfaceGeneration: lease.surfaceGeneration
@@ -490,7 +500,7 @@ export class ChromiumTrustedInputCoordinator {
       }
       if (
         state.surfaceGeneration !== lease.surfaceGeneration ||
-        state.quarantined || state.heldKeys.size > 0 ||
+        state.quarantined || state.hasHeldKeys ||
         state.inputEpoch > lease.inputEpoch
       ) return false;
       state.inputEpoch = lease.inputEpoch;
@@ -533,15 +543,16 @@ export class ChromiumTrustedInputCoordinator {
     }
     requireIdentifier(roleId, "browser-action role identity");
     requireSafeInteger(surfaceGeneration, "surface generation", 1);
-    return this.#enqueue(roleId, () => {
+    return this.#enqueue(roleId, async () => {
       const state = this.#roleStates.get(roleId);
       if (!state || state.surfaceGeneration !== surfaceGeneration) return false;
-      if (state.quarantined || state.heldKeys.size > 0) {
+      if (state.quarantined || state.hasHeldKeys) {
         fail(
           "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
           "The Chromium input surface cannot retire before exact input neutrality."
         );
       }
+      await this.#input.embeddedInput.clear(roleId);
       this.#roleStates.delete(roleId);
       return true;
     });
@@ -559,7 +570,7 @@ export class ChromiumTrustedInputCoordinator {
     }
     requireIdentifier(roleId, "browser-action role identity");
     requireSafeInteger(surfaceGeneration, "surface generation", 1);
-    return this.#enqueue(roleId, () => {
+    return this.#enqueue(roleId, async () => {
       const state = this.#roleStates.get(roleId);
       const quarantine = this.#documentReplacementQuarantines.get(roleId);
       if (state && state.surfaceGeneration !== surfaceGeneration) return false;
@@ -585,13 +596,14 @@ export class ChromiumTrustedInputCoordinator {
     }
     requireIdentifier(roleId, "browser-action role identity");
     requireSafeInteger(surfaceGeneration, "surface generation", 1);
-    return this.#enqueue(roleId, () => {
+    return this.#enqueue(roleId, async () => {
       const state = this.#roleStates.get(roleId);
       if (!state || state.surfaceGeneration !== surfaceGeneration || !state.quarantined) {
         return false;
       }
       state.quarantined = false;
-      state.heldKeys.clear();
+      await this.#input.embeddedInput.clear(roleId);
+      state.hasHeldKeys = false;
       return true;
     });
   }
@@ -601,7 +613,10 @@ export class ChromiumTrustedInputCoordinator {
     if (this.#state === "disposed") return Promise.resolve();
     this.#state = "draining";
     this.#unsubscribeSurfaceLifecycle();
-    this.#disposePromise = Promise.allSettled([...this.#tails.values()]).then(() => {
+    this.#disposePromise = Promise.allSettled([...this.#tails.values()]).then(async () => {
+      await Promise.allSettled([...this.#roleStates.keys()].map(
+        (roleId) => this.#input.embeddedInput.clear(roleId)
+      ));
       this.#tails.clear();
       this.#roleStates.clear();
       this.#documentReplacementLeases.clear();
@@ -667,7 +682,7 @@ export class ChromiumTrustedInputCoordinator {
         inputEpoch: 0,
         surfaceGeneration: surface.surfaceGeneration,
         quarantined: false,
-        heldKeys: new Set()
+        hasHeldKeys: false
       };
       this.#roleStates.set(request.roleId, state);
     }
@@ -682,7 +697,35 @@ export class ChromiumTrustedInputCoordinator {
         "Automatic input is disabled for this role until its surface is restarted."
       );
     }
-    const heldKeysAfter = projectedHeldKeys(state.heldKeys, request.action);
+    if (request.action.type === "key" || request.action.type === "reassertHeldKeys") {
+      try {
+        const result = await executeChromiumTrustedKeySequence({
+          request,
+          surfaceGeneration: surface.surfaceGeneration,
+          platform: this.#input.platform,
+          core: this.#input.embeddedInput,
+          dispatch: (nativeRequest) => this.#dispatchNative(nativeRequest),
+          nowMs: this.#input.nowMs
+        });
+        state.hasHeldKeys = result.hasHeldKeys;
+        if (request.intent === "cleanup" && result.receipt.confirmedInputNeutrality) {
+          state.quarantined = false;
+          this.#input.onRecoveryProof?.(Object.freeze({
+            kind: "cleanup-neutral",
+            requestId: request.requestId,
+            roleId: request.roleId,
+            inputEpoch: request.inputEpoch,
+            surfaceGeneration: surface.surfaceGeneration
+          }));
+        }
+        return result.receipt;
+      } catch (error) {
+        if (error instanceof ChromiumTrustedInputSequenceFailure && error.quarantine) {
+          state.quarantined = true;
+        }
+        throw error;
+      }
+    }
     const nativeRequest: ChromiumNativeTrustedInputRequest = Object.freeze({
       requestId: request.requestId,
       roleId: request.roleId,
@@ -691,39 +734,18 @@ export class ChromiumTrustedInputCoordinator {
       scheduledAtMs: request.scheduledAtMs,
       deadlineMs: request.deadlineMs,
       surfaceGeneration: surface.surfaceGeneration,
-      expectedInputNeutralityBefore: state.heldKeys.size === 0,
-      expectedInputNeutralityAfter: heldKeysAfter.size === 0,
+      expectedInputNeutralityBefore: !state.hasHeldKeys,
+      expectedInputNeutralityAfter: !state.hasHeldKeys,
       action: request.action
     });
-    let receipt: unknown;
+    let receipt: ChromiumNativeTrustedInputReceipt;
     try {
-      receipt = await this.#input.native.dispatch(nativeRequest);
-    } catch {
+      receipt = await this.#dispatchNative(nativeRequest);
+    } catch (error) {
       state.quarantined = true;
-      fail(
-        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
-        "The native input adapter ended without an authoritative terminal receipt."
-      );
-    }
-    const observedAtMs = this.#input.nowMs();
-    requireSafeInteger(observedAtMs, "native receipt observation time", 1);
-    if (!receiptMatches(receipt, nativeRequest, observedAtMs)) {
-      state.quarantined = true;
-      fail(
-        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
-        "The native input adapter returned an invalid or mismatched terminal receipt."
-      );
-    }
-    if (request.intent === "normal" && observedAtMs >= request.deadlineMs) {
-      state.quarantined = true;
-      fail(
-        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
-        "The native input receipt arrived after the declared deadline."
-      );
+      throw error;
     }
     if (receipt.status === "applied") {
-      state.heldKeys.clear();
-      for (const identity of heldKeysAfter) state.heldKeys.add(identity);
       if (request.intent === "cleanup" && receipt.confirmedInputNeutrality) {
         state.quarantined = false;
         this.#input.onRecoveryProof?.(Object.freeze({
@@ -734,7 +756,7 @@ export class ChromiumTrustedInputCoordinator {
           surfaceGeneration: surface.surfaceGeneration
         }));
       }
-      return Object.freeze({ ...receipt });
+      return receipt;
     }
     if (receipt.status === "indeterminate" || !receipt.confirmedInputNeutrality) {
       state.quarantined = true;
@@ -747,6 +769,35 @@ export class ChromiumTrustedInputCoordinator {
       fail("BROWSER_ACTION_STALE", receipt.errorMessage!);
     }
     fail(receipt.errorCode!, receipt.errorMessage!);
+  }
+
+  async #dispatchNative(
+    nativeRequest: ChromiumNativeTrustedInputRequest
+  ): Promise<ChromiumNativeTrustedInputReceipt> {
+    let receipt: unknown;
+    try {
+      receipt = await this.#input.native.dispatch(nativeRequest);
+    } catch {
+      fail(
+        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+        "The native input adapter ended without an authoritative terminal receipt."
+      );
+    }
+    const observedAtMs = this.#input.nowMs();
+    requireSafeInteger(observedAtMs, "native receipt observation time", 1);
+    if (!receiptMatches(receipt, nativeRequest, observedAtMs)) {
+      fail(
+        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+        "The native input adapter returned an invalid or mismatched terminal receipt."
+      );
+    }
+    if (nativeRequest.intent === "normal" && observedAtMs >= nativeRequest.deadlineMs) {
+      fail(
+        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+        "The native input receipt arrived after the declared deadline."
+      );
+    }
+    return Object.freeze({ ...receipt });
   }
 
   #sameDocumentReplacementLease(

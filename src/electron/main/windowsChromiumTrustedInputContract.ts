@@ -13,6 +13,8 @@ export const WINDOWS_CHROMIUM_TRUSTED_KEY_CODES = Object.freeze([
   "Delete", "End", "PageDown", "ArrowLeft", "ArrowUp", "ArrowRight",
   "ArrowDown", "Equal", "Minus", "Space", "Backslash", "Slash", "Period",
   "Comma", "Semicolon", "Quote", "BracketLeft", "BracketRight", "Enter",
+  "ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft",
+  "ShiftRight", "MetaLeft", "MetaRight",
   "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7",
   "Digit8", "Digit9", "Digit0", "KeyA", "KeyB", "KeyC", "KeyD", "KeyE",
   "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL", "KeyM",
@@ -60,23 +62,24 @@ export interface WindowsNativeTrustedKeyRequest {
   readonly inputEpoch: string;
   readonly deadlineMs: string;
   readonly deliveryMode: WindowsChromiumInputDeliveryMode;
-  readonly eventType: "keyDown" | "keyUp";
+  readonly eventType: "rawKeyDown" | "keyUp";
   readonly code: string;
   /** Win32: primary maps to Ctrl, unlike the retained macOS adapter. */
   readonly ctrl: boolean;
   readonly alt: boolean;
   readonly shift: boolean;
   readonly meta: boolean;
-  readonly repeat: false;
+  readonly repeat: boolean;
 }
 
 export type WindowsNativeTrustedKeySubmissionReceipt = WindowsNativeTrustedInputSubmissionBase & {
-  readonly eventType: "keyDown" | "keyUp";
+  readonly eventType: "rawKeyDown" | "keyUp";
   readonly code: string;
   readonly ctrl: boolean;
   readonly alt: boolean;
   readonly shift: boolean;
   readonly meta: boolean;
+  readonly repeat: boolean;
   readonly dispatchedEventCount: 1;
 }
 
@@ -91,6 +94,10 @@ export interface WindowsNativeTrustedMouseRequest {
   readonly clientY: number;
   readonly zoomFactor: number;
   readonly button: 0 | 1 | 2;
+  readonly ctrl: boolean;
+  readonly alt: boolean;
+  readonly shift: boolean;
+  readonly meta: boolean;
 }
 
 export type WindowsNativeTrustedMouseSubmissionReceipt = WindowsNativeTrustedInputSubmissionBase & {
@@ -98,6 +105,10 @@ export type WindowsNativeTrustedMouseSubmissionReceipt = WindowsNativeTrustedInp
   readonly clientX: number;
   readonly clientY: number;
   readonly zoomFactor: number;
+  readonly ctrl: boolean;
+  readonly alt: boolean;
+  readonly shift: boolean;
+  readonly meta: boolean;
   readonly inputX: number;
   readonly inputY: number;
   /** Integral CSS coordinate expected back after Chromium zoom conversion. */

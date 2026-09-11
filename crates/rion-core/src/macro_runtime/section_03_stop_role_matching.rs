@@ -282,6 +282,8 @@ fn execute_step(
                             key: code.clone(),
                             code: Some(code.clone()),
                             modifiers: modifiers.to_vec(),
+                            exact_modifier_codes: None,
+                            modifier_ownership: "synthetic".to_owned(),
                             owner_id: owner_id_for(role_id),
                             suppress_overlay_shortcut: should_suppress_overlay_shortcut(
                                 context, role_id, code, modifiers,
@@ -304,6 +306,8 @@ fn execute_step(
                                     key: code.clone(),
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
+                                    exact_modifier_codes: None,
+                                    modifier_ownership: "synthetic".to_owned(),
                                     owner_id: owner_id_for(role_id),
                                     suppress_overlay_shortcut: should_suppress_overlay_shortcut(
                                         context, role_id, code, modifiers,
@@ -338,6 +342,8 @@ fn execute_step(
                                     key: code.clone(),
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
+                                    exact_modifier_codes: None,
+                                    modifier_ownership: "synthetic".to_owned(),
                                     owner_id,
                                     suppress_overlay_shortcut: should_suppress_overlay_shortcut(
                                         context, role_id, code, modifiers,
@@ -364,6 +370,8 @@ fn execute_step(
                                     key: code.clone(),
                                     code: Some(code.clone()),
                                     modifiers: modifiers.to_vec(),
+                                    exact_modifier_codes: None,
+                                    modifier_ownership: "synthetic".to_owned(),
                                     owner_id: owner_id_for(role_id),
                                     suppress_overlay_shortcut: should_suppress_overlay_shortcut(
                                         context, role_id, code, modifiers,

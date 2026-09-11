@@ -40,6 +40,8 @@ function keyAction(
     key: "a",
     code: "KeyA",
     modifiers,
+    exactModifierCodes: null,
+    modifierOwnership: "synthetic",
     ownerId: "macro-1",
     suppressOverlayShortcut: true
   };
@@ -166,6 +168,7 @@ function harness() {
         alt: request.alt,
         shift: request.shift,
         meta: request.meta,
+        repeat: request.repeat,
         dispatchedEventCount: 1
       };
     }),
@@ -180,6 +183,10 @@ function harness() {
         clientX: request.clientX,
         clientY: request.clientY,
         zoomFactor: request.zoomFactor,
+        ctrl: request.ctrl,
+        alt: request.alt,
+        shift: request.shift,
+        meta: request.meta,
         inputX: 125,
         inputY: 250,
         expectedDomClientX: 100,
@@ -234,13 +241,14 @@ function harness() {
   const receive = (receipt: unknown) => adapter.receive(event, receipt);
   const arm = () => controls.find((control): control is ChromiumRoleTrustedInputArmEnvelope =>
     control.kind === "arm")!;
-  const armed = () => receive({
+  const armed = (physicalModifierCodes: readonly string[] = []) => receive({
     kind: "armed",
     roleId: "role-1",
     generation: 3,
     frameToken: frame.frameToken,
     inputSequence: INPUT_SEQUENCE,
-    expectedEventCount: arm().expectedEvents.length
+    expectedEventCount: arm().expectedEvents.length,
+    physicalModifierCodes
   });
   const dom = (
     expected: ChromiumRoleTrustedInputExpectedEvent,
@@ -327,10 +335,11 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(subject.armed()).toBe(true);
     expect(subject.arm().shortcutSuppression).toEqual({
       code: "KeyA",
-      phases: ["keydown", "keyup"]
+      phases: ["keydown", "keyup"],
+      repeat: false
     });
     expect(subject.keyRequests).toEqual([
-      expect.objectContaining({ eventType: "keyDown", code: "KeyA", ctrl: true }),
+      expect.objectContaining({ eventType: "rawKeyDown", code: "KeyA", ctrl: true }),
       expect.objectContaining({ eventType: "keyUp", code: "KeyA", ctrl: true })
     ]);
     const expected = subject.arm().expectedEvents;
@@ -353,7 +362,8 @@ describe("Windows Chromium trusted-input adapter", () => {
         suppressOverlayShortcut: false };
       const result = subject.adapter.dispatch(nativeRequest("ordinary-held-key", action));
       expect(subject.arm().shortcutSuppression).toEqual({
-        code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"]
+        code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"],
+        repeat: false
       });
       expect(subject.keyRequests).toEqual([]);
       subject.armed();
@@ -379,12 +389,79 @@ describe("Windows Chromium trusted-input adapter", () => {
     await expect(result).resolves.toEqual(expect.objectContaining({ status: "applied" }));
   });
 
+  it("preserves physical modifier flags on key and mouse submissions", async () => {
+    const keySubject = harness();
+    const keyResult = keySubject.adapter.dispatch(nativeRequest(
+      "physical-key",
+      keyAction("tap", [])
+    ));
+    keySubject.armed(["AltRight"]);
+    expect(keySubject.keyRequests).toEqual([
+      expect.objectContaining({ alt: true }),
+      expect.objectContaining({ alt: true })
+    ]);
+    keySubject.arm().expectedEvents.forEach((event, index) => {
+      keySubject.dom({ ...event, altKey: true }, index);
+    });
+    await expect(keyResult).resolves.toMatchObject({ status: "applied" });
+
+    const mouseSubject = harness();
+    const mouseResult = mouseSubject.adapter.dispatch(nativeRequest(
+      "physical-mouse",
+      clickAction("left")
+    ));
+    mouseSubject.armed(["ShiftLeft"]);
+    expect(mouseSubject.mouseRequests).toEqual([
+      expect.objectContaining({ shift: true })
+    ]);
+    mouseSubject.arm().expectedEvents.forEach((event, index) => {
+      mouseSubject.dom({
+        ...event,
+        clientX: 100,
+        clientY: 200,
+        shiftKey: true
+      }, index);
+    });
+    await expect(mouseResult).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("admits physical-pass-through release with the current modifier snapshot", async () => {
+    const subject = harness();
+    const action = {
+      ...keyAction("release", []),
+      exactModifierCodes: ["ShiftLeft"],
+      modifierOwnership: "physical-pass-through" as const
+    };
+    const result = subject.adapter.dispatch(nativeRequest(
+      "physical-release",
+      action,
+      {
+        physicalModifierCodes: ["ShiftLeft"],
+        keyEffect: {
+          phase: "keyUp",
+          code: "KeyA",
+          activeCodesBefore: ["KeyA"],
+          activeCodes: [],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      }
+    ));
+    subject.armed([]);
+    expect(subject.keyRequests).toEqual([
+      expect.objectContaining({ shift: false, eventType: "keyUp" })
+    ]);
+    subject.dom(subject.arm().expectedEvents[0]!, 0);
+    await expect(result).resolves.toMatchObject({ status: "applied" });
+  });
+
   it.each([
-    { button: "left" as const, domButton: 0, activation: "click" as const },
-    { button: "middle" as const, domButton: 1, activation: "auxclick" as const },
-    { button: "right" as const, domButton: 2, activation: "auxclick" as const }
-  ])("uses the native-canonical point and exact $activation for $button", async ({
-    activation,
+    { button: "left" as const, domButton: 0, activations: ["click"] as const },
+    { button: "middle" as const, domButton: 1, activations: ["auxclick"] as const },
+    { button: "right" as const, domButton: 2,
+      activations: ["contextmenu", "auxclick"] as const }
+  ])("uses the native-canonical point and exact activation for $button", async ({
+    activations,
     button,
     domButton
   }) => {
@@ -394,13 +471,15 @@ describe("Windows Chromium trusted-input adapter", () => {
       clickAction(button)
     ));
     const armedExpected = subject.arm().expectedEvents;
-    expect(armedExpected.map((event) => event.clientX)).toEqual([null, null, null]);
+    expect(armedExpected.map((event) => event.clientX)).toEqual(
+      Array.from({ length: 2 + activations.length }, () => null)
+    );
     expect(armedExpected.map((event) => event.type)).toEqual([
-      "mousedown", "mouseup", activation
+      "mousedown", "mouseup", ...activations
     ]);
-    expect(armedExpected.map((event) => event.button)).toEqual([
-      domButton, domButton, domButton
-    ]);
+    expect(armedExpected.map((event) => event.button)).toEqual(
+      Array.from({ length: 2 + activations.length }, () => domButton)
+    );
     subject.armed();
     expect(subject.mouseRequests).toEqual([
       expect.objectContaining({
@@ -410,7 +489,7 @@ describe("Windows Chromium trusted-input adapter", () => {
         zoomFactor: 1.25
       })
     ]);
-    for (const [index] of ["mousedown", "mouseup", activation].entries()) {
+    for (const [index] of ["mousedown", "mouseup", ...activations].entries()) {
       subject.dom({
         ...armedExpected[index]!,
         clientX: 100,
@@ -556,7 +635,7 @@ describe("Windows Chromium trusted-input adapter", () => {
     );
     subject.armed();
     expect(subject.keyRequests).toEqual([
-      expect.objectContaining({ deliveryMode: "background", eventType: "keyDown" })
+      expect.objectContaining({ deliveryMode: "background", eventType: "rawKeyDown" })
     ]);
     subject.dom(subject.arm().expectedEvents[0]!, 0);
     await expect(result).resolves.toEqual(expect.objectContaining({

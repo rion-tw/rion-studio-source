@@ -1376,7 +1376,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind."
+      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008",
@@ -1402,7 +1402,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions."
+      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",

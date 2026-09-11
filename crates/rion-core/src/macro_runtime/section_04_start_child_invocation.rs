@@ -590,6 +590,8 @@ fn release_held_keys(
                 key: held.code.clone(),
                 code: Some(held.code),
                 modifiers: held.modifiers,
+                exact_modifier_codes: None,
+                modifier_ownership: "synthetic".to_owned(),
                 owner_id: held.owner_id,
                 suppress_overlay_shortcut,
             },

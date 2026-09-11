@@ -38,7 +38,9 @@ function identity(kind) {
 
 function validExpectedEvent(candidate) {
   if (!candidate || typeof candidate !== "object") return false;
-  if (!["keydown", "keyup", "mousedown", "mouseup", "click"].includes(candidate.type)) {
+  if (![
+    "keydown", "keyup", "mousedown", "mouseup", "click", "auxclick", "contextmenu"
+  ].includes(candidate.type)) {
     return false;
   }
   if (candidate.type.startsWith("key")) {
@@ -61,7 +63,7 @@ ipcRenderer.on(armChannel, (_event, candidate) => {
     candidate.inputSequence.length > 128 ||
     !Array.isArray(candidate.expectedEvents) ||
     candidate.expectedEvents.length === 0 ||
-    candidate.expectedEvents.length > 4 ||
+    candidate.expectedEvents.length > 10 ||
     !candidate.expectedEvents.every(validExpectedEvent)
   ) {
     ipcRenderer.send(channel, {
@@ -120,7 +122,9 @@ function captureInput(event) {
   ipcRenderer.send(channel, receipt);
 }
 
-for (const type of ["keydown", "keyup", "mousedown", "mouseup", "click"]) {
+for (const type of [
+  "keydown", "keyup", "mousedown", "mouseup", "click", "auxclick", "contextmenu"
+]) {
   addEventListener(type, captureInput, { capture: true });
 }
 

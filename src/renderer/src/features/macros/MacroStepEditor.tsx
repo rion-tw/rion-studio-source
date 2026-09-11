@@ -19,7 +19,10 @@ import { DEFAULT_MACRO_KEY_HOLD_DURATION_MS, MACRO_KEY_HOLD_DURATION_MIN_MS } fr
 
 import type { MacroActivationMode, MacroCallMode, MacroClickAnchor, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroMouseButton, MacroStep } from "../../../../shared/types";
 
-import { commonMacroKeyCodes, createClientId, formatMacroCode, formatMacroKeyCombination, formatMacroModifierLabel, type MacroTargetOption, isPureModifierCode } from "./macroUtils";
+import { createClientId, formatMacroCode, formatMacroKeyCombination,
+  formatMacroModifierLabel, isMacroKeyCodeSupportedForCreation,
+  type MacroTargetOption, isPureModifierCode, selectableMacroKeyCodes } from
+  "./macroUtils";
 
 import { AffixedInput, RecordingButton, TimeUnitSelect, fromDisplayTime, getTimeUnitMax, getTimeUnitStep, toDisplayTime } from "./MacroEditorControls";
 
@@ -363,10 +366,7 @@ function MacroStepFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(commonMacroKeyCodes.includes(step.code as typeof commonMacroKeyCodes[number])
-                ? commonMacroKeyCodes
-                : [step.code, ...commonMacroKeyCodes]
-              ).map((code) => (
+              {selectableMacroKeyCodes(step.code).map((code) => (
                 <SelectItem
                   key={code}
                   value={code}
@@ -382,9 +382,11 @@ function MacroStepFields({
             isRecording={isRecording}
             t={t}
             onRecordingChange={setIsRecording}
-            onRecord={({ code, modifiers: recordedModifiers }) =>
-              updateKeyInput(code, recordedModifiers)
-            }
+            onRecord={({ code, modifiers: recordedModifiers }) => {
+              if (isMacroKeyCodeSupportedForCreation(code)) {
+                updateKeyInput(code, recordedModifiers);
+              }
+            }}
           />
           <Select
             disabled={isSaving}

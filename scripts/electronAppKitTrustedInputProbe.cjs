@@ -331,7 +331,7 @@ void (async () => {
             surfaceGeneration: 1,
             inputEpoch: "1",
             deadlineMs: String(Date.now() + 5_000),
-            eventType: "keyDown",
+            eventType: "rawKeyDown",
             code: "KeyA",
             modifierFlags: 0,
             repeat: false
@@ -369,19 +369,73 @@ void (async () => {
     if (!isolatedKeyReceipt.received || isolatedKeyReceipt.value.length !== 2) {
       throw new Error("The isolated preload did not acknowledge the exact key sequence.");
     }
+    let nativeChordReceipt = null;
+    let isolatedChordReceipt = null;
+    if (nativeDispatchMode === "direct-view") {
+      const chord = [
+        ["rawKeyDown", "ControlRight", 1 << 18, false],
+        ["rawKeyDown", "ShiftLeft", (1 << 18) | (1 << 17), false],
+        ["rawKeyDown", "KeyA", (1 << 18) | (1 << 17), false],
+        ["rawKeyDown", "KeyA", (1 << 18) | (1 << 17), true],
+        ["keyUp", "KeyA", (1 << 18) | (1 << 17), false],
+        ["keyUp", "ShiftLeft", 1 << 18, false],
+        ["keyUp", "ControlRight", 0, false]
+      ];
+      const isolatedChordPending = await armIsolatedInput(
+        "probe-chord-sequence",
+        chord.map(([eventType, code]) => ({
+          type: eventType === "keyUp" ? "keyup" : "keydown",
+          code
+        }))
+      );
+      nativeChordReceipt = chord.map(([eventType, code, modifierFlags, repeat], index) =>
+        nativeHost.submitNativeBackgroundKey(identity, {
+          requestId: `probe-chord-${index + 1}`,
+          roleId: "probe-role",
+          surfaceGeneration: 1,
+          inputEpoch: "2",
+          deadlineMs: String(Date.now() + 5_000),
+          eventType,
+          code,
+          modifierFlags,
+          repeat
+        }));
+      isolatedChordReceipt = await withDiagnosticDeadline(
+        isolatedChordPending.input,
+        2_000
+      );
+      if (!isolatedChordReceipt.received || isolatedChordReceipt.value.length !== chord.length) {
+        throw new Error(
+          `The AppKit modifier lifecycle was incomplete: ${JSON.stringify(isolatedChordReceipt)}`
+        );
+      }
+    }
     const mouseProbeReceipts = [];
-    for (const [index, zoomFactor] of [1, 1.25, 2].entries()) {
+    const mouseCases = [
+      { button: 0, expectedTypes: ["mousedown", "mouseup", "click"], zoomFactor: 1 },
+      { button: 0, expectedTypes: ["mousedown", "mouseup", "click"], zoomFactor: 1.25 },
+      { button: 0, expectedTypes: ["mousedown", "mouseup", "click"], zoomFactor: 2 },
+      { button: 1, expectedTypes: ["mousedown", "mouseup", "auxclick"], zoomFactor: 1 },
+      {
+        button: 2,
+        expectedTypes: ["mousedown", "contextmenu", "mouseup", "auxclick"],
+        zoomFactor: 1
+      }
+    ];
+    for (const [index, mouseCase] of mouseCases.entries()) {
       const clientX = 80;
       const clientY = 120;
+      const { button, expectedTypes, zoomFactor } = mouseCase;
       roleView.webContents.setZoomFactor(zoomFactor);
       if (roleView.webContents.getZoomFactor() !== zoomFactor) {
         throw new Error(`Chromium rejected probe zoom ${zoomFactor}.`);
       }
       await roleView.webContents.executeJavaScript(
         `(() => {
+          const expectedTypes = ${JSON.stringify(expectedTypes)};
           globalThis.__rionAppKitMouseEvents = [];
           globalThis.__rionAppKitMouseReceipt = new Promise((resolve) => {
-            for (const type of ["mousedown", "mouseup", "click"]) {
+            for (const type of expectedTypes) {
               addEventListener(type, (event) => {
                 const receipt = {
                   button: event.button,
@@ -391,7 +445,9 @@ void (async () => {
                   type: event.type
                 };
                 globalThis.__rionAppKitMouseEvents.push(receipt);
-                if (type === "click") resolve(receipt);
+                if (globalThis.__rionAppKitMouseEvents.length === expectedTypes.length) {
+                  resolve(receipt);
+                }
               }, { once: true });
             }
           });
@@ -412,9 +468,9 @@ void (async () => {
         "globalThis.__rionAppKitMouseReceipt",
         true
       );
-      const expectedMouseEvents = ["mousedown", "mouseup", "click"].map((type) => ({
+      const expectedMouseEvents = expectedTypes.map((type) => ({
         type,
-        button: 0,
+        button,
         clientX,
         clientY
       }));
@@ -431,7 +487,7 @@ void (async () => {
         clientX,
         clientY,
         zoomFactor,
-        button: 0,
+        button,
         modifierFlags: 0
       });
       const expectedAppKitPointX = nativeMouseReceipt.targetX +
@@ -461,7 +517,8 @@ void (async () => {
         isolatedMousePending.input,
         2_000
       );
-      if (!isolatedMouseReceipt.received || isolatedMouseReceipt.value.length !== 3 ||
+      if (!isolatedMouseReceipt.received ||
+          isolatedMouseReceipt.value.length !== expectedTypes.length ||
           !domMouseReceipt.received ||
           domMouseReceipt.value.clientX !== clientX ||
           domMouseReceipt.value.clientY !== clientY) {
@@ -484,6 +541,7 @@ void (async () => {
         isolatedMouseArmReceipt: isolatedMousePending.armReceipt,
         isolatedMouseReceipt,
         nativeMouseReceipt,
+        button,
         zoomFactor
       });
     }
@@ -512,10 +570,12 @@ void (async () => {
       hiddenCapturedRoot,
       isolatedKeyArmReceipt: isolatedKeyPending.armReceipt,
       isolatedKeyReceipt,
+      isolatedChordReceipt,
       isolatedReadyReceipt,
       isolatedReceipts,
       loadedAdded,
       nativeKeyReceipt,
+      nativeChordReceipt,
       mouseProbeReceipts,
       platform: process.platform,
       preDispatchDomState,

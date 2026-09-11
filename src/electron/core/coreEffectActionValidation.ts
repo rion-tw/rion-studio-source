@@ -248,12 +248,18 @@ const coordinate: Check = (value) => closed(value, {
 });
 const browserAction: Check = (value) => {
   if (closed(value, { type: oneOf("focus") })) return true;
+  if (closed(value, { type: oneOf("reassertHeldKeys") })) return true;
   if (closed(value, {
     type: oneOf("key"),
     phase: oneOf("tap", "hold", "release"),
     key: text,
     code: nullable(text),
     modifiers: arrayOf(oneOf("primary", "ctrl", "alt", "shift", "meta")),
+    exactModifierCodes: nullable(arrayOf(oneOf(
+      "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+      "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
+    ))),
+    modifierOwnership: oneOf("synthetic", "physical-pass-through"),
     ownerId: identity,
     suppressOverlayShortcut: bool
   })) return true;

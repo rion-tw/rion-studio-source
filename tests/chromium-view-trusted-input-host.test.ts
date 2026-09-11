@@ -19,7 +19,7 @@ function fixture(platform: "macos" | "windows") {
       surfaceGeneration: request.surfaceGeneration, inputEpoch: request.inputEpoch, status: "applied",
       completedAtMs: 100, errorCode: null, errorMessage: null, confirmedInputNeutrality: true })) });
   const key = { roleId: "role-one", surfaceGeneration: 1, requestId: "key", inputEpoch: "7", deadlineMs: "200",
-    deliveryMode: "background" as const, code: "KeyA", eventType: "keyDown" as const,
+    deliveryMode: "background" as const, code: "KeyA", eventType: "rawKeyDown" as const,
     ctrl: platform === "windows", meta: platform === "macos", shift: false, alt: false, repeat: false as const };
   return { host, contents, key, retire: () => { current = false; },
     change: (patch: Partial<ChromiumViewInputObservation>) => { observation = { ...observation, ...patch }; } };

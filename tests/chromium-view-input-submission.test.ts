@@ -21,9 +21,10 @@ function fixture(platform: "macos" | "windows", background = true) {
   const request = { roleId: identity.roleId, surfaceGeneration: 2, requestId: "request-a",
     inputEpoch: "7", deadlineMs: "200", deliveryMode: background ? "background" as const : "foreground" as const };
   return { owner, request, sendInputEvent, observation, contents,
-    key: { ...request, eventType: "keyDown" as const, code: "KeyB", ctrl: platform === "windows",
+    key: { ...request, eventType: "rawKeyDown" as const, code: "KeyB", ctrl: platform === "windows",
       meta: platform === "macos", alt: false, shift: true, repeat: false as const },
-    click: { ...request, clientX: 80, clientY: 96, zoomFactor: 1.25, button: 1 as const },
+    click: { ...request, clientX: 80, clientY: 96, zoomFactor: 1.25,
+      button: 1 as const, ctrl: false, alt: false, shift: false, meta: false },
     change: (patch: Partial<ChromiumViewInputObservation>) => { current = { ...current, ...patch }; },
     advance: () => { now = 200; }
   };
@@ -86,7 +87,7 @@ describe.each(["macos", "windows"] as const)("%s exact Chromium View input owner
     expect(click).not.toHaveProperty("childWindowStyle");
     expect(click).not.toHaveProperty("surfaceHandleToken");
     expect(f.sendInputEvent.mock.calls.map(([event]) => event.type)).toEqual([
-      "keyDown", "mouseDown", "mouseUp"
+      "rawKeyDown", "mouseDown", "mouseUp"
     ]);
   });
 
@@ -155,7 +156,7 @@ describe.each(["macos", "windows"] as const)("%s exact Chromium View input owner
     expect(f.owner.click(f.click).dispatchSequence).toBe("1");
     expect(f.owner.key(f.key).dispatchSequence).toBe("2");
     expect(f.sendInputEvent.mock.calls.map(([event]) => event.type)).toEqual([
-      "mouseDown", "mouseUp", "keyDown"
+      "mouseDown", "mouseUp", "rawKeyDown"
     ]);
   });
 

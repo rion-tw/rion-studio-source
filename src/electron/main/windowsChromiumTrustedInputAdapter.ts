@@ -7,7 +7,11 @@ import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } f
   "./chromiumTrustedInputPendingLane";
 import { randomUUID } from "node:crypto";
 
-import type { BrowserAction } from "../../shared/generated";
+import { activeChromiumModifierCodes, isChromiumModifierCode,
+  resolveChromiumModifierCodes } from
+  "./chromiumTrustedInputKeySequence";
+import { mergeChromiumPhysicalModifiers } from
+  "../ipc/chromiumTrustedInputPhysicalModifiers";
 import {
   CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
   type ChromiumRoleTrustedInputExpectedEvent,
@@ -70,7 +74,13 @@ export interface WindowsChromiumTrustedInputDeadlinePort {
 }
 
 type NativeTransition =
-  | Readonly<{ type: "key"; eventType: "keyDown" | "keyUp"; code: string }>
+  | Readonly<{
+    type: "key";
+    eventType: "rawKeyDown" | "keyUp";
+    code: string;
+    repeat: boolean;
+    modifierCodes: readonly string[];
+  }>
   | Readonly<{
     type: "mouse";
     clientX: number;
@@ -101,6 +111,7 @@ interface PendingDispatch {
   nativeComplete: boolean;
   terminal: boolean;
   lastNativeDispatchSequence: bigint;
+  physicalModifierCodes: readonly string[];
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -135,25 +146,26 @@ function sameHost(
   return left.native === right.native && sameIdentity(left.identity, right.identity);
 }
 
-function keyModifiers(action: BrowserAction): Readonly<{
+function keyModifiers(codes: readonly string[]): Readonly<{
   altKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
 }> {
-  const values = action.type === "key" ? new Set(action.modifiers) : new Set<string>();
+  const values = new Set(codes);
   return Object.freeze({
-    altKey: values.has("alt"),
-    ctrlKey: values.has("ctrl") || values.has("primary"),
-    metaKey: values.has("meta"),
-    shiftKey: values.has("shift")
+    altKey: values.has("AltLeft") || values.has("AltRight"),
+    ctrlKey: values.has("ControlLeft") || values.has("ControlRight"),
+    metaKey: values.has("MetaLeft") || values.has("MetaRight"),
+    shiftKey: values.has("ShiftLeft") || values.has("ShiftRight")
   });
 }
 
 function keyEvent(
   type: "keydown" | "keyup",
   code: string,
-  action: BrowserAction
+  modifierCodes: readonly string[],
+  repeat: boolean
 ): ChromiumRoleTrustedInputExpectedEvent {
   return Object.freeze({
     type,
@@ -161,13 +173,13 @@ function keyEvent(
     button: null,
     clientX: null,
     clientY: null,
-    ...keyModifiers(action),
-    repeat: false
+    ...keyModifiers(modifierCodes),
+    repeat
   });
 }
 
 function mouseEvent(
-  type: "mousedown" | "mouseup" | "click" | "auxclick",
+  type: "mousedown" | "mouseup" | "click" | "auxclick" | "contextmenu",
   clientX: number | null,
   clientY: number | null,
   button: number
@@ -201,6 +213,29 @@ function prepareDispatch(
       "Windows Chromium Focus admission is owned by the exact native Role host."
     );
   }
+  if (request.keyEffect) {
+    const effect = request.keyEffect;
+    if (!TRUSTED_KEY_CODE_SET.has(effect.code)) {
+      fail(
+        "SYSTEM_TRUSTED_INPUT_CODE_UNSUPPORTED",
+        "The DOM code has no supported Chromium key mapping."
+      );
+    }
+    const modifierCodes = activeChromiumModifierCodes(effect, []);
+    return Object.freeze({
+      expectedEvents: Object.freeze([
+        keyEvent(effect.phase === "rawKeyDown" ? "keydown" : "keyup",
+          effect.code, modifierCodes, effect.autoRepeat)
+      ]),
+      nativeTransitions: Object.freeze([Object.freeze({
+        type: "key" as const,
+        eventType: effect.phase,
+        code: effect.code,
+        repeat: effect.autoRepeat,
+        modifierCodes
+      })])
+    });
+  }
   if (action.type === "key") {
     if (!action.code) {
       fail(
@@ -214,20 +249,27 @@ function prepareDispatch(
         "The DOM code has no supported Chromium key mapping."
       );
     }
+    const modifierCodes = resolveChromiumModifierCodes(action, "win32");
     const down = action.phase !== "release";
     const up = action.phase !== "hold";
     return Object.freeze({
       expectedEvents: Object.freeze([
-        ...(down ? [keyEvent("keydown", action.code, action)] : []),
-        ...(up ? [keyEvent("keyup", action.code, action)] : [])
+        ...(down ? [keyEvent("keydown", action.code, modifierCodes, false)] : []),
+        ...(up ? [keyEvent("keyup", action.code, modifierCodes, false)] : [])
       ]),
       nativeTransitions: Object.freeze([
-        ...(down ? [{ type: "key" as const, eventType: "keyDown" as const,
-          code: action.code }] : []),
+        ...(down ? [{ type: "key" as const, eventType: "rawKeyDown" as const,
+          code: action.code, repeat: false, modifierCodes }] : []),
         ...(up ? [{ type: "key" as const, eventType: "keyUp" as const,
-          code: action.code }] : [])
+          code: action.code, repeat: false, modifierCodes }] : [])
       ])
     });
+  }
+  if (action.type === "reassertHeldKeys") {
+    fail(
+      "SYSTEM_TRUSTED_INPUT_CORE_TRANSITION_INVALID",
+      "Held-key reassertion requires one exact Rust effect."
+    );
   }
   const point = clicks.resolve(request, frame);
   if (
@@ -242,12 +284,14 @@ function prepareDispatch(
     );
   }
   const button = action.button === "left" ? 0 : action.button === "middle" ? 1 : 2;
-  const activationEvent = button === 0 ? "click" : "auxclick";
+  const activationEvents = button === 0 ? ["click" as const]
+    : button === 1 ? ["auxclick" as const]
+      : ["contextmenu" as const, "auxclick" as const];
   return Object.freeze({
     expectedEvents: Object.freeze([
       mouseEvent("mousedown", null, null, button),
       mouseEvent("mouseup", null, null, button),
-      mouseEvent(activationEvent, null, null, button)
+      ...activationEvents.map((type) => mouseEvent(type, null, null, button))
     ]),
     nativeTransitions: Object.freeze([Object.freeze({
       type: "mouse" as const,
@@ -490,7 +534,8 @@ implements ChromiumNativeTrustedInputPort {
       nextDomIndex: 0,
       nativeComplete: false,
       terminal: false,
-      lastNativeDispatchSequence: 0n
+      lastNativeDispatchSequence: 0n,
+      physicalModifierCodes: Object.freeze([])
     };
     if (!this.#pending.add(pending)) {
       return Promise.resolve(this.#immediateFailure(request,
@@ -542,10 +587,23 @@ implements ChromiumNativeTrustedInputPort {
     }
     if (receipt.kind === "armed") {
       if (receipt.expectedEventCount !== pending.expectedEvents.length ||
+        (pending.request.action.type === "key" &&
+          pending.request.action.phase === "hold" &&
+          pending.request.action.modifierOwnership === "physical-pass-through" &&
+          receipt.physicalModifierCodes.join("\n") !==
+            (pending.request.physicalModifierCodes ?? []).join("\n")) ||
         pending.nativeSubmitted > 0 || pending.nativeComplete) {
         this.#terminalizeMismatch(pending);
         return false;
       }
+      pending.physicalModifierCodes = Object.freeze([...receipt.physicalModifierCodes]);
+      const projectedCode = pending.request.keyEffect?.code ??
+        (pending.request.action.type === "key" ? pending.request.action.code : null);
+      pending.expectedEvents = mergeChromiumPhysicalModifiers(
+        pending.expectedEvents,
+        pending.physicalModifierCodes,
+        projectedCode
+      );
       this.#submitNative(pending);
       return true;
     }
@@ -668,8 +726,6 @@ implements ChromiumNativeTrustedInputPort {
     // Bind the submission to the freshly validated user focus. The synchronous
     // native edge and its receipt must still preserve this complete observation.
     pending.probe = liveProbe;
-    const action = pending.request.action;
-    const modifiers = keyModifiers(action);
     try {
       for (const [index, transition] of pending.nativeTransitions.entries()) {
         if (pending.terminal) return;
@@ -692,6 +748,13 @@ implements ChromiumNativeTrustedInputPort {
         }
         const nativeRequestId = `${pending.inputSequence}-${index + 1}`;
         if (transition.type === "key") {
+          const physicalCodes = isChromiumModifierCode(transition.code)
+            ? pending.physicalModifierCodes.filter(code => code !== transition.code)
+            : pending.physicalModifierCodes;
+          const modifiers = keyModifiers([
+            ...transition.modifierCodes,
+            ...physicalCodes
+          ]);
           pending.nativeInvoked = true;
           const receipt = pending.host.native.submitNativeBackgroundKey(
             pending.host.identity,
@@ -708,7 +771,7 @@ implements ChromiumNativeTrustedInputPort {
               alt: modifiers.altKey,
               shift: modifiers.shiftKey,
               meta: modifiers.metaKey,
-              repeat: false
+              repeat: transition.repeat
             }
           );
           pending.lastNativeDispatchSequence = validateNativeBase(
@@ -732,7 +795,11 @@ implements ChromiumNativeTrustedInputPort {
               clientX: transition.clientX,
               clientY: transition.clientY,
               zoomFactor: transition.zoomFactor,
-              button: transition.button
+              button: transition.button,
+              ctrl: keyModifiers(pending.physicalModifierCodes).ctrlKey,
+              alt: keyModifiers(pending.physicalModifierCodes).altKey,
+              shift: keyModifiers(pending.physicalModifierCodes).shiftKey,
+              meta: keyModifiers(pending.physicalModifierCodes).metaKey
             }
           );
           pending.lastNativeDispatchSequence = validateNativeBase(
@@ -772,6 +839,7 @@ implements ChromiumNativeTrustedInputPort {
       receipt.eventType !== transition.eventType || receipt.code !== transition.code ||
       receipt.ctrl !== modifiers.ctrlKey || receipt.alt !== modifiers.altKey ||
       receipt.shift !== modifiers.shiftKey || receipt.meta !== modifiers.metaKey ||
+      receipt.repeat !== transition.repeat ||
       receipt.dispatchedEventCount !== 1 ||
       receipt.probeRevision !== pending.probe.probeRevision
     ) {
@@ -787,6 +855,7 @@ implements ChromiumNativeTrustedInputPort {
     transition: Extract<NativeTransition, { type: "mouse" }>,
     receipt: WindowsNativeTrustedMouseSubmissionReceipt
   ): void {
+    const expectedModifiers = keyModifiers(pending.physicalModifierCodes);
     const nativePointValid = Number.isSafeInteger(receipt.inputX) &&
       receipt.inputX >= 0 && receipt.inputX === Math.round(transition.clientX * transition.zoomFactor) &&
       Number.isSafeInteger(receipt.inputY) &&
@@ -801,6 +870,10 @@ implements ChromiumNativeTrustedInputPort {
       receipt.button !== transition.button || receipt.clientX !== transition.clientX ||
       receipt.clientY !== transition.clientY ||
       receipt.zoomFactor !== transition.zoomFactor ||
+      receipt.ctrl !== expectedModifiers.ctrlKey ||
+      receipt.alt !== expectedModifiers.altKey ||
+      receipt.shift !== expectedModifiers.shiftKey ||
+      receipt.meta !== expectedModifiers.metaKey ||
       receipt.dispatchedEventCount !== 2 || !nativePointValid || !domPointValid ||
       receipt.probeRevision !== pending.probe.probeRevision
     ) {
@@ -809,13 +882,12 @@ implements ChromiumNativeTrustedInputPort {
         "The Chromium mouse receipt does not match the exact CSS-to-native point."
       );
     }
-    pending.expectedEvents = Object.freeze(pending.expectedEvents.map((event) =>
-      mouseEvent(
-        event.type as "mousedown" | "mouseup" | "click" | "auxclick",
-        receipt.expectedDomClientX,
-        receipt.expectedDomClientY,
-        transition.button
-      )
+    pending.expectedEvents = Object.freeze(pending.expectedEvents.map(event =>
+      Object.freeze({
+        ...event,
+        clientX: receipt.expectedDomClientX,
+        clientY: receipt.expectedDomClientY
+      })
     ));
   }
 

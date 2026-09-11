@@ -65,6 +65,13 @@ impl MacroRuntime {
                     key: dispatch.code.to_owned(),
                     code: Some(dispatch.code.to_owned()),
                     modifiers,
+                    exact_modifier_codes: Some(dispatch.modifier_codes.to_vec()),
+                    modifier_ownership: if dispatch.phase == "replay" {
+                        "synthetic"
+                    } else {
+                        "physical-pass-through"
+                    }
+                    .to_owned(),
                     owner_id: format!("managed-shortcut:{}", dispatch.press_id),
                     suppress_overlay_shortcut: true,
                 },
@@ -127,6 +134,8 @@ impl MacroRuntime {
                         key: code.clone(),
                         code: Some(code.clone()),
                         modifiers,
+                        exact_modifier_codes: Some(modifier_codes.clone()),
+                        modifier_ownership: "physical-pass-through".to_owned(),
                         owner_id: format!("managed-shortcut:{press_id}"),
                         suppress_overlay_shortcut: true,
                     },

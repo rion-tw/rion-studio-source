@@ -12,10 +12,12 @@ import {
   getCallableMacroTargets,
   getMacroTargetOptions,
   getMacroPartialStartCounts,
+  isMacroKeyCodeSupportedForCreation,
   isMacroIntervalPreset,
   isValidMacroInterval,
   MACRO_INTERVAL_OPTIONS,
   MACRO_INTERVAL_PRESETS,
+  selectableMacroKeyCodes,
   summarizeMacroSteps
 } from "../src/renderer/src/features/macros/macroUtils";
 import type { Translator } from "../src/renderer/src/i18n";
@@ -90,6 +92,14 @@ describe("macroUtils", () => {
     expect(removedCodes.some((code) => commonMacroKeyCodes.includes(code as typeof commonMacroKeyCodes[number]))).toBe(false);
     expect(commonMacroKeyCodes).toContain("KeyA");
     expect(commonMacroKeyCodes).toContain("F2");
+  });
+
+  it("blocks new macOS F21-F24 choices while preserving a loaded value", () => {
+    expect(isMacroKeyCodeSupportedForCreation("F20", "mac")).toBe(true);
+    expect(isMacroKeyCodeSupportedForCreation("F21", "mac")).toBe(false);
+    expect(selectableMacroKeyCodes(undefined, "mac")).not.toContain("F24");
+    expect(selectableMacroKeyCodes("F24", "mac")[0]).toBe("F24");
+    expect(selectableMacroKeyCodes(undefined, "windows")).toContain("F24");
   });
 
   it("formats shortcut labels from physical codes", () => {

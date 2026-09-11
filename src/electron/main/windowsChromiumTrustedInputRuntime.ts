@@ -22,6 +22,8 @@ import type {
   WindowsChromiumTrustedInputClickResolverPort,
   WindowsChromiumTrustedInputSurfacePort
 } from "./windowsChromiumTrustedInputContract";
+import type { ChromiumEmbeddedInputCorePort } from
+  "./chromiumTrustedInputSequenceExecutor";
 
 export interface WindowsChromiumTrustedInputRuntimeSurfacePort
   extends WindowsChromiumTrustedInputSurfacePort {
@@ -42,11 +44,12 @@ export interface WindowsChromiumTrustedInputRuntimeAdapter {
   readonly nativeAttachments: ChromiumViewAttachmentCoordinator;
   createTrustedInput: (
     surfaces: WindowsChromiumTrustedInputRuntimeSurfacePort,
-    preflightAutomaticInputContext?: (
+    preflightAutomaticInputContext: (
       roleId: string,
       surfaceGeneration: number
     ) => void | Promise<void>,
-    onRecoveryProof?: (proof: ChromiumTrustedInputRecoveryProof) => void
+    onRecoveryProof: ((proof: ChromiumTrustedInputRecoveryProof) => void) | undefined,
+    embeddedInput: ChromiumEmbeddedInputCorePort
   ) => ChromiumRuntimeTrustedInputPort;
   dispose: () => Promise<void>;
 }
@@ -117,8 +120,9 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
       preflightAutomaticInputContext: (
         roleId: string,
         surfaceGeneration: number
-      ) => void | Promise<void> = () => undefined,
-      onRecoveryProof?: (proof: ChromiumTrustedInputRecoveryProof) => void
+      ) => void | Promise<void>,
+      onRecoveryProof: ((proof: ChromiumTrustedInputRecoveryProof) => void) | undefined,
+      embeddedInput: ChromiumEmbeddedInputCorePort
     ) => {
       if (created || disposed) {
         throw runtimeError(
@@ -147,6 +151,8 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
       const coordinator = new ChromiumTrustedInputCoordinator({
         native,
         surfaces,
+        embeddedInput,
+        platform: "win32",
         nowMs: configuration.nowMs,
         preflightAutomaticInputContext,
         ...(onRecoveryProof ? { onRecoveryProof } : {})

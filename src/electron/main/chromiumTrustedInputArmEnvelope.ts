@@ -9,6 +9,8 @@ export function createTrustedInputArmEnvelope(
   inputSequence: string,
   expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[]
 ): ChromiumRoleTrustedInputArmEnvelope {
+  const legacyKey = request.action.type === "key" ? request.action : null;
+  const suppressionCode = request.keyEffect?.code ?? legacyKey?.code ?? null;
   return Object.freeze({
     kind: "arm",
     roleId: request.roleId,
@@ -18,10 +20,11 @@ export function createTrustedInputArmEnvelope(
     expectedEvents,
     // All keys in this lane are Macro-owned, even without a shortcut collision.
     // The page guard also excludes them from physical-key focus-loss cleanup.
-    shortcutSuppression: request.action.type === "key"
+    shortcutSuppression: suppressionCode
       ? Object.freeze({
-          code: request.action.code!,
-          phases: Object.freeze(expectedEvents.map(event => event.type as "keydown" | "keyup"))
+          code: suppressionCode,
+          phases: Object.freeze(expectedEvents.map(event => event.type as "keydown" | "keyup")),
+          repeat: request.keyEffect?.autoRepeat ?? false
         })
       : null
   });

@@ -292,11 +292,8 @@ function createMacosAppKitAdapter(
       lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
       rendererActions: eventBridge,
       nativeAttachments: attachments,
-      createTrustedInput: (
-        surfaces,
-        preflightAutomaticInputContext,
-        onRecoveryProof
-      ) => {
+      createTrustedInput: (surfaces, preflightAutomaticInputContext,
+        onRecoveryProof, embeddedInput) => {
         const native = new MacosAppKitTrustedInputAdapter({
           hosts: {
             resolve: (roleId, generation) => {
@@ -326,6 +323,8 @@ function createMacosAppKitAdapter(
         const coordinator = new ChromiumTrustedInputCoordinator({
           native,
           surfaces,
+          embeddedInput,
+          platform: "darwin",
           nowMs: addon.macroInputEpochMillis,
           preflightAutomaticInputContext,
           onRecoveryProof

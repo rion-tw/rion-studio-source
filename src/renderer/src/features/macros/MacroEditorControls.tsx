@@ -23,7 +23,10 @@ import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
 
 import type { Macro, MacroKeyModifier, MacroStep, MacroTrigger } from "../../../../shared/types";
 
-import { commonMacroKeyCodes, formatMacroCode, formatMacroIntervalPreset, formatMacroStep, isMacroIntervalPreset, isValidMacroInterval, MACRO_INTERVAL_CUSTOM_VALUE, MACRO_INTERVAL_OPTIONS, isPureModifierCode } from "./macroUtils";
+import { formatMacroCode, formatMacroIntervalPreset, formatMacroStep,
+  isMacroIntervalPreset, isValidMacroInterval, MACRO_INTERVAL_CUSTOM_VALUE,
+  MACRO_INTERVAL_OPTIONS, isMacroKeyCodeSupportedForCreation,
+  isPureModifierCode, selectableMacroKeyCodes } from "./macroUtils";
 
 import { MACRO_COMMAND_MAX_STEPS, parseMacroCommand, type MacroCommandIssue, type MacroCommandParseResult } from "./macroCommandParser";
 
@@ -422,7 +425,7 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
     code: selectedCode,
     ...getMacroTriggerModifierFlags(parseModifierComboValue(option.value))
   }));
-  const keyCodes = [...commonMacroKeyCodes, "MouseMiddle"].filter((code) => code === "MouseMiddle" || !isReservedRuntimeTabSwitchMacroTrigger({
+  const keyCodes = [...selectableMacroKeyCodes(selectedCode), "MouseMiddle"].filter((code) => code === "MouseMiddle" || !isReservedRuntimeTabSwitchMacroTrigger({
     code,
     ...getMacroTriggerModifierFlags(selectedModifiers)
   }));
@@ -457,6 +460,7 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
       if (isPureModifierCode(event.code)) {
         return;
       }
+      if (!isMacroKeyCodeSupportedForCreation(event.code)) return;
 
       const nextTrigger = {
         code: event.code,

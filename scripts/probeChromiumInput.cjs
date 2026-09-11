@@ -220,14 +220,15 @@ async function probe() {
       ["direct-hidden-sibling-key", ["keydown", "keyup"], () => {
         const request = { code: "KeyB", ctrl: true, alt: false, shift: true, meta: false, repeat: false };
         return [
-          viewOwner ? viewOwner.key({ ...inputFence("direct-key-down"), ...request, eventType: "keyDown" })
-            : sendChromiumKey(view.webContents, { ...request, eventType: "keyDown" }),
+          viewOwner ? viewOwner.key({ ...inputFence("direct-key-down"), ...request, eventType: "rawKeyDown" })
+            : sendChromiumKey(view.webContents, { ...request, eventType: "rawKeyDown" }),
           viewOwner ? viewOwner.key({ ...inputFence("direct-key-up"), ...request, eventType: "keyUp" })
             : sendChromiumKey(view.webContents, { ...request, eventType: "keyUp" })
         ];
       }],
       ["direct-hidden-sibling-middle", ["mousedown", "mouseup"], () => {
-        const request = { clientX: 80, clientY: 96, zoomFactor: 1.25, button: 1 };
+        const request = { clientX: 80, clientY: 96, zoomFactor: 1.25,
+          button: 1, ctrl: false, alt: false, shift: false, meta: false };
         return viewOwner ? viewOwner.click({ ...inputFence("direct-middle"), ...request })
           : sendChromiumClick(view.webContents, request, view.getBounds());
       }]

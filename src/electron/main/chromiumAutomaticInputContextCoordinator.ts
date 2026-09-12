@@ -168,6 +168,10 @@ export class ChromiumAutomaticInputContextCoordinator {
     roleId: string,
     surfaceGeneration: number
   ) => Promise<boolean>;
+  readonly #retireManagedShortcuts: (
+    roleId: string,
+    surfaceGeneration: number
+  ) => Promise<void>;
   #state: CoordinatorState = "open";
 
   constructor(input: Readonly<{
@@ -177,12 +181,18 @@ export class ChromiumAutomaticInputContextCoordinator {
       roleId: string,
       surfaceGeneration: number
     ) => Promise<boolean>;
+    retireManagedShortcuts?: (
+      roleId: string,
+      surfaceGeneration: number
+    ) => Promise<void>;
     onError: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
   }>) {
     this.#core = input.core;
     this.#onError = input.onError;
     this.#resumeNativeAfterDocumentReplacement =
       input.resumeNativeAfterDocumentReplacement;
+    this.#retireManagedShortcuts = input.retireManagedShortcuts ??
+      (() => Promise.resolve());
     this.#unsubscribe = input.surfaces.subscribeOverlayLifecycle(
       this.#onSurfaceLifecycle
     );
@@ -429,6 +439,15 @@ export class ChromiumAutomaticInputContextCoordinator {
           "Core did not drain the exact macro input recovery epoch."
         );
       }
+      if (cause === "native-indeterminate") {
+        // Recovery has already advanced and drained Core's input epoch. Retire
+        // any physical shortcut guard on the still-live surface so quarantine
+        // cannot steal the player's release or the next unbound press.
+        await this.#retireManagedShortcuts(
+          request.roleId,
+          context.surfaceGeneration
+        );
+      }
       const established = Object.freeze({
         ...context,
         ...identity,
@@ -502,10 +521,15 @@ export class ChromiumAutomaticInputContextCoordinator {
       }
       this.#recoveries.delete(identity.roleId);
     } catch (failureError) {
-      this.#onError(normalizeRionBridgeError(
+      const normalizedFailure = normalizeRionBridgeError(
         failureError,
         "ELECTRON_AUTOMATIC_INPUT_RECOVERY_FAILURE_UNKNOWN"
-      ));
+      );
+      // Role retirement can win the Core ticket terminality race. Core's stale
+      // result is then an exact cancellation/supersede outcome, not a shell
+      // error and not evidence that recovery itself failed.
+      if (normalizedFailure.code === "MACRO_INPUT_RECOVERY_STALE") return;
+      this.#onError(normalizedFailure);
     }
   }
 
@@ -582,6 +606,9 @@ export class ChromiumAutomaticInputContextCoordinator {
       this.#navigationPending.add(event.roleId);
       return;
     }
+    this.#recoveries.delete(event.roleId);
+    this.#neutralityProofs.delete(event.roleId);
+    this.#navigationPending.delete(event.roleId);
     void this.#enqueue(event.roleId, () => this.#fail(
       recovery,
       contextError(

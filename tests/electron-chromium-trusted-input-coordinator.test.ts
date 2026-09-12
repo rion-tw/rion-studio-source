@@ -142,6 +142,52 @@ function subject(
 }
 
 describe("Electron Chromium trusted-input coordinator", () => {
+  it("publishes one next-epoch neutrality proof after uncertain keydown cleanup", async () => {
+    const onRecoveryProof = vi.fn();
+    let submission = 0;
+    const harness = subject(async nativeRequest => {
+      submission += 1;
+      if (submission === 1) {
+        return receipt(nativeRequest, 1_100, {
+          status: "indeterminate",
+          errorCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_MISMATCH",
+          errorMessage: "Physical input raced the DOM receipt.",
+          confirmedInputNeutrality: false
+        });
+      }
+      return receipt(nativeRequest, 1_100);
+    }, undefined, onRecoveryProof);
+    const action = {
+      type: "key" as const,
+      phase: "hold" as const,
+      key: "j",
+      code: "KeyJ",
+      modifiers: [],
+      exactModifierCodes: null,
+      modifierOwnership: "synthetic" as const,
+      ownerId: "macro-1",
+      suppressOverlayShortcut: true
+    };
+
+    await expect(harness.coordinator.execute(request("uncertain-keydown", {
+      inputEpoch: 4,
+      action
+    }))).rejects.toMatchObject({
+      code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+      quarantine: false,
+      confirmedInputNeutrality: true
+    });
+    expect(harness.dispatch).toHaveBeenCalledTimes(2);
+    expect(onRecoveryProof).toHaveBeenCalledOnce();
+    expect(onRecoveryProof).toHaveBeenCalledWith({
+      kind: "cleanup-neutral",
+      requestId: "uncertain-keydown",
+      roleId: "role-1",
+      inputEpoch: 5,
+      surfaceGeneration: 1
+    });
+  });
+
   it("keeps exact receipt ordering in the supplied Core clock domain", async () => {
     const javascriptClock = vi.spyOn(Date, "now").mockReturnValue(999);
     try {
@@ -326,7 +372,7 @@ describe("Electron Chromium trusted-input coordinator", () => {
     ]);
   });
 
-  it("quarantines a native receipt that lies about the prepared terminal neutrality", async () => {
+  it("neutralizes a prepared hold whose first receipt lies about terminal neutrality", async () => {
     const harness = subject(async (nativeRequest) => receipt(nativeRequest, 1_100, {
       confirmedInputNeutrality: true
     }));
@@ -343,8 +389,9 @@ describe("Electron Chromium trusted-input coordinator", () => {
         suppressOverlayShortcut: false
       }
     }))).rejects.toMatchObject({ code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE" });
-    await expect(harness.coordinator.execute(request("quarantined")))
-      .rejects.toMatchObject({ code: "SYSTEM_TRUSTED_INPUT_QUARANTINED" });
+    await expect(harness.coordinator.execute(request("after-neutralization", {
+      inputEpoch: 2
+    }))).resolves.toMatchObject({ status: "applied" });
   });
 
   it("serializes one role while allowing independent role lanes to progress", async () => {

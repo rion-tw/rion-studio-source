@@ -29,27 +29,45 @@ export interface ChromiumEmbeddedInputCorePort {
 
 export class ChromiumTrustedInputSequenceFailure extends RionBridgeError {
   readonly quarantine: boolean;
+  readonly actionIndeterminate: boolean;
+  readonly possiblyAppliedEdges: readonly Readonly<{
+    phase: "rawKeyDown" | "keyUp";
+    code: string;
+  }>[];
+  readonly confirmedInputNeutrality: boolean;
 
-  constructor(code: string, message: string, quarantine: boolean) {
+  constructor(code: string, message: string, quarantine: boolean, input: Readonly<{
+    actionIndeterminate?: boolean;
+    possiblyAppliedEdges?: readonly EmbeddedKeyEffectRecord[];
+    confirmedInputNeutrality?: boolean;
+  }> = {}) {
     super({ code, message });
     this.quarantine = quarantine;
+    this.actionIndeterminate = input.actionIndeterminate ?? false;
+    this.possiblyAppliedEdges = Object.freeze((input.possiblyAppliedEdges ?? []).map(
+      edge => Object.freeze({ phase: edge.phase, code: edge.code })
+    ));
+    this.confirmedInputNeutrality = input.confirmedInputNeutrality ?? false;
   }
 }
 
 function sequenceFailure(
   receipt: ChromiumNativeTrustedInputReceipt,
-  compensationCertain: boolean,
-  forceQuarantine = false
+  confirmedInputNeutrality: boolean,
+  forceQuarantine = false,
+  possiblyAppliedEdges: readonly EmbeddedKeyEffectRecord[] = []
 ): ChromiumTrustedInputSequenceFailure {
-  const quarantine = forceQuarantine || receipt.status === "indeterminate" ||
-    !compensationCertain;
+  const actionIndeterminate = receipt.status === "indeterminate";
+  const quarantine = forceQuarantine || !confirmedInputNeutrality;
   const code = receipt.status === "superseded"
     ? "BROWSER_ACTION_STALE"
-    : quarantine ? "SYSTEM_TRUSTED_INPUT_INDETERMINATE" : receipt.errorCode!;
+    : actionIndeterminate || quarantine
+      ? "SYSTEM_TRUSTED_INPUT_INDETERMINATE" : receipt.errorCode!;
   return new ChromiumTrustedInputSequenceFailure(
     code,
     receipt.errorMessage ?? "The trusted key sequence did not complete.",
-    quarantine
+    quarantine,
+    { actionIndeterminate, possiblyAppliedEdges, confirmedInputNeutrality }
   );
 }
 
@@ -76,15 +94,15 @@ function nativeRequest(
   });
 }
 
-async function compensatePrefix(input: Readonly<{
+async function compensateEdges(input: Readonly<{
   request: BrowserActionRequest;
   surfaceGeneration: number;
   physicalModifierCodes: readonly string[];
-  applied: readonly EmbeddedKeyEffectRecord[];
+  edges: readonly EmbeddedKeyEffectRecord[];
   dispatch: (request: ChromiumNativeTrustedInputRequest) =>
     Promise<ChromiumNativeTrustedInputReceipt>;
 }>): Promise<boolean> {
-  for (const applied of [...input.applied].reverse()) {
+  for (const applied of [...input.edges].reverse()) {
     const inverse = inverseChromiumKeyEffect(applied);
     if (!inverse) continue;
     try {
@@ -151,6 +169,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
     );
   }
   const applied: EmbeddedKeyEffectRecord[] = [];
+  const neutralBefore = transition.effects[0]?.activeCodesBefore.length === 0;
   for (const effect of transition.effects) {
     let receipt: ChromiumNativeTrustedInputReceipt;
     try {
@@ -162,7 +181,10 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         request.intent
       ));
     } catch {
-      const compensated = await compensatePrefix({ ...input, physicalModifierCodes, applied });
+      const possiblyApplied = effect.phase === "rawKeyDown" ? [effect] : [];
+      const compensated = await compensateEdges({
+        ...input, physicalModifierCodes, edges: [...applied, ...possiblyApplied]
+      });
       let rolledBack = transitionId === null;
       if (transitionId) {
         try {
@@ -177,11 +199,20 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         compensated && rolledBack
           ? "The native key effect ended without an authoritative terminal receipt."
           : "The trusted key sequence ended without exact compensation and Core rollback.",
-        true
+        !(compensated && rolledBack && neutralBefore),
+        {
+          actionIndeterminate: true,
+          possiblyAppliedEdges: possiblyApplied,
+          confirmedInputNeutrality: compensated && rolledBack && neutralBefore
+        }
       );
     }
     if (receipt.status !== "applied") {
-      const compensated = await compensatePrefix({ ...input, physicalModifierCodes, applied });
+      const possiblyApplied = receipt.status === "indeterminate" &&
+        effect.phase === "rawKeyDown" ? [effect] : [];
+      const compensated = await compensateEdges({
+        ...input, physicalModifierCodes, edges: [...applied, ...possiblyApplied]
+      });
       let rolledBack = transitionId === null;
       if (transitionId) {
         try {
@@ -193,8 +224,9 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
       }
       throw sequenceFailure(
         receipt,
-        compensated && rolledBack,
-        action.type === "reassertHeldKeys"
+        compensated && rolledBack && neutralBefore,
+        action.type === "reassertHeldKeys",
+        possiblyApplied
       );
     }
     applied.push(effect);
@@ -203,7 +235,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
     try {
       await input.core.complete(transitionId, true);
     } catch {
-      const compensated = await compensatePrefix({ ...input, physicalModifierCodes, applied });
+      const compensated = await compensateEdges({ ...input, physicalModifierCodes, edges: applied });
       try {
         await input.core.complete(transitionId, false);
       } catch {

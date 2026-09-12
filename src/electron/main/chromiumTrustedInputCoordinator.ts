@@ -720,8 +720,18 @@ export class ChromiumTrustedInputCoordinator {
         }
         return result.receipt;
       } catch (error) {
-        if (error instanceof ChromiumTrustedInputSequenceFailure && error.quarantine) {
-          state.quarantined = true;
+        if (error instanceof ChromiumTrustedInputSequenceFailure) {
+          state.quarantined = error.quarantine;
+          if (error.confirmedInputNeutrality) {
+            state.hasHeldKeys = false;
+            this.#input.onRecoveryProof?.(Object.freeze({
+              kind: "cleanup-neutral",
+              requestId: request.requestId,
+              roleId: request.roleId,
+              inputEpoch: request.inputEpoch + 1,
+              surfaceGeneration: surface.surfaceGeneration
+            }));
+          }
         }
         throw error;
       }

@@ -218,14 +218,17 @@ describe("Chromium trusted-input key sequence executor", () => {
     expect(core.complete).toHaveBeenCalledWith("transition-3", false);
   });
 
-  it("quarantines an unknown submission without retrying another transport", async () => {
+  it("neutralizes an indeterminate first keydown through the same transport", async () => {
     const core = coreWithTransition({
       transitionId: "transition-4",
       effects: [effect("rawKeyDown", "KeyK", [], ["KeyK"])],
       hasHeldKeys: true
     });
-    const dispatch = vi.fn(async () => {
-      throw new Error("detached");
+    let submission = 0;
+    const dispatch = vi.fn(async (nativeRequest: ChromiumNativeTrustedInputRequest) => {
+      submission += 1;
+      if (submission === 1) throw new Error("receipt lane interrupted");
+      return applied(nativeRequest);
     });
 
     await expect(executeChromiumTrustedKeySequence({
@@ -237,10 +240,53 @@ describe("Chromium trusted-input key sequence executor", () => {
       nowMs: () => 1_100
     })).rejects.toMatchObject({
       code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
-      quarantine: true
+      quarantine: false,
+      actionIndeterminate: true,
+      confirmedInputNeutrality: true,
+      possiblyAppliedEdges: [{ phase: "rawKeyDown", code: "KeyK" }]
     });
-    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch.mock.calls.map(([value]) => [value.intent, value.keyEffect?.phase]))
+      .toEqual([["normal", "rawKeyDown"], ["cleanup", "keyUp"]]);
     expect(core.complete).toHaveBeenCalledWith("transition-4", false);
+  });
+
+  it("retains quarantine when the uncertain keydown cleanup is not authoritative", async () => {
+    const core = coreWithTransition({
+      transitionId: "transition-5",
+      effects: [effect("rawKeyDown", "KeyK", [], ["KeyK"])],
+      hasHeldKeys: true
+    });
+    let submission = 0;
+    const dispatch = vi.fn(async (nativeRequest: ChromiumNativeTrustedInputRequest) => {
+      submission += 1;
+      if (submission === 1) throw new Error("receipt lane interrupted");
+      return {
+        ...applied(nativeRequest),
+        status: "indeterminate" as const,
+        errorCode: "SYSTEM_TRUSTED_INPUT_CLEANUP_INDETERMINATE",
+        errorMessage: "The cleanup keyup was not observed.",
+        confirmedInputNeutrality: false
+      };
+    });
+
+    await expect(executeChromiumTrustedKeySequence({
+      request: request(keyAction({ phase: "hold", modifiers: [] })),
+      surfaceGeneration: 5,
+      platform: "win32",
+      core,
+      dispatch,
+      nowMs: () => 1_100
+    })).rejects.toMatchObject({
+      code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+      quarantine: true,
+      actionIndeterminate: true,
+      confirmedInputNeutrality: false,
+      possiblyAppliedEdges: [{ phase: "rawKeyDown", code: "KeyK" }]
+    });
+    expect(dispatch.mock.calls.map(([value]) => [value.intent, value.keyEffect?.phase]))
+      .toEqual([["normal", "rawKeyDown"], ["cleanup", "keyUp"]]);
+    expect(core.complete).toHaveBeenCalledWith("transition-5", false);
   });
 
   it("gets the complete held-key reassertion from Core once", async () => {

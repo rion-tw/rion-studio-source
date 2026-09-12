@@ -112,6 +112,7 @@ function harness() {
   });
   const onError = vi.fn();
   const resumeNativeAfterDocumentReplacement = vi.fn(async () => true);
+  const retireManagedShortcuts = vi.fn(async () => undefined);
   const coordinator = new ChromiumAutomaticInputContextCoordinator({
     core: { inspectRecovery, drainInput, completeRecovery, failRecovery },
     surfaces: {
@@ -121,6 +122,7 @@ function harness() {
       }
     },
     resumeNativeAfterDocumentReplacement,
+    retireManagedShortcuts,
     onError
   });
   return {
@@ -131,6 +133,7 @@ function harness() {
     failRecovery,
     failureObserved,
     onError,
+    retireManagedShortcuts,
     resumeNativeAfterDocumentReplacement,
     emitLifecycle: (event: ChromiumRoleOverlayLifecycleEvent) => lifecycle?.(event)
   };
@@ -161,6 +164,7 @@ describe("Electron Chromium automatic-input context coordinator", () => {
       expectedInputEpoch: 5
     });
     expect(test.drainInput).toHaveBeenCalledWith({ roleId: "role-1", inputEpoch: 5 });
+    expect(test.retireManagedShortcuts).not.toHaveBeenCalled();
     expect(test.completeRecovery).not.toHaveBeenCalled();
 
     await expect(test.coordinator.observe(identity(), context("game", 2)))
@@ -198,6 +202,26 @@ describe("Electron Chromium automatic-input context coordinator", () => {
       expectedInputEpoch: 5,
       message: "The Chromium input document changed before recovery completed."
     }));
+    expect(test.completeRecovery).not.toHaveBeenCalled();
+  });
+
+  it("treats a Role-close stale recovery ticket as cancellation without a shell error", async () => {
+    const test = harness();
+    await test.coordinator.observe(identity(), context("game", 1));
+    await test.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
+    test.failRecovery.mockRejectedValueOnce(new RionBridgeError({
+      code: "MACRO_INPUT_RECOVERY_STALE",
+      message: "The Role close retired this recovery ticket."
+    }));
+
+    test.emitLifecycle({
+      roleId: "role-1",
+      generation: 7,
+      reason: "surface-retired"
+    });
+
+    await vi.waitFor(() => expect(test.failRecovery).toHaveBeenCalledOnce());
+    expect(test.onError).not.toHaveBeenCalled();
     expect(test.completeRecovery).not.toHaveBeenCalled();
   });
 
@@ -288,6 +312,7 @@ describe("Electron Chromium automatic-input context coordinator", () => {
     const test = harness();
     await test.coordinator.observe(identity(), context("game", 1));
     await test.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
+    expect(test.retireManagedShortcuts).toHaveBeenCalledWith("role-1", 7);
     await test.coordinator.observeNeutralityProof({
       kind: "cleanup-neutral",
       requestId: "cleanup-wrong-epoch",

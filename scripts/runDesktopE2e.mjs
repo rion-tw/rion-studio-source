@@ -5,6 +5,10 @@ import { access, copyFile, mkdir, readFile, watch, writeFile } from "node:fs/pro
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import {
+  desktopE2eUserDataDir,
+  resolveDesktopE2eUserDataLayout
+} from "./desktopE2eUserDataPaths.mjs";
 import { observeElectronPhaseShutdown } from "./desktopE2eElectronShutdown.mjs";
 import { resolveDesktopE2eFocusedPhases } from "./desktopE2eFocusedPhases.mjs";
 import { createMacosGameModeDevelopmentBundle } from
@@ -35,13 +39,21 @@ import { verifyDesktopE2eBuild } from "./verifyDesktopE2eBuild.mjs";
 const root = resolve(import.meta.dirname, "..");
 const requireFromRepository = createRequire(resolve(root, "package.json"));
 const runId = new Date().toISOString().replaceAll(/[:.]/gu, "-");
+const artifactBase = resolve(
+  process.env.RION_STUDIO_E2E_ARTIFACT_ROOT ?? resolve(root, ".desktop-e2e-artifacts")
+);
 const artifactRoot = resolve(
-  process.env.RION_STUDIO_E2E_ARTIFACT_ROOT ?? resolve(root, ".desktop-e2e-artifacts"),
+  artifactBase,
   `${runId}-${process.platform}`
 );
-const userDataRoot = resolve(
-  process.env.RION_STUDIO_E2E_USER_DATA_ROOT ?? resolve(artifactRoot, "user-data")
-);
+const userDataLayout = resolveDesktopE2eUserDataLayout({
+  artifactBase,
+  artifactRoot,
+  configuredRoot: process.env.RION_STUDIO_E2E_USER_DATA_ROOT,
+  platform: process.platform,
+  runId
+});
+const userDataRoot = userDataLayout.userDataRoot;
 const token = randomBytes(32).toString("hex");
 const node = process.execPath;
 const wdio = resolve(root, "node_modules", "@wdio", "cli", "bin", "wdio.js");
@@ -188,7 +200,7 @@ phaseNamespaces.set("chromium-extensions-restart", "chromium-extensions");
 
 function userDataDirForPhase(phase) {
   const namespace = phaseNamespaces.get(phase) ?? phase;
-  return resolve(userDataRoot, namespace);
+  return desktopE2eUserDataDir(userDataLayout, namespace);
 }
 const checkoutCommit = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
@@ -818,11 +830,15 @@ async function captureSqlite(phase, userDataDir, validateEvidence) {
   const phaseDir = resolve(artifactRoot, "phases", phase);
   await mkdir(phaseDir, { recursive: true });
   const databasePath = resolve(userDataDir, "rion-studio.sqlite3");
-  await copyIfPresent(databasePath, resolve(phaseDir, "rion-studio.sqlite3"));
-  await copyIfPresent(`${databasePath}-wal`, resolve(phaseDir, "rion-studio.sqlite3-wal"));
-  await copyIfPresent(`${databasePath}-shm`, resolve(phaseDir, "rion-studio.sqlite3-shm"));
+  const evidenceDatabasePath = resolve(phaseDir, "rion-studio.sqlite3");
+  await copyIfPresent(databasePath, evidenceDatabasePath);
+  await copyIfPresent(`${databasePath}-wal`, `${evidenceDatabasePath}-wal`);
+  await copyIfPresent(`${databasePath}-shm`, `${evidenceDatabasePath}-shm`);
   try {
-    const database = new DatabaseSync(databasePath, { readOnly: true });
+    // Query the immutable phase snapshot. On Windows forced-termination phases,
+    // descendant handle teardown can briefly outlive the exact marked main PID;
+    // reading the live profile then races that OS boundary and may raise IOERR.
+    const database = new DatabaseSync(evidenceDatabasePath, { readOnly: true });
     const readEntities = (table) => database.prepare(
       `SELECT id, name, payload_json AS payloadJson FROM ${table} ORDER BY ordinal`
     ).all().map((row) => ({ ...row, payload: JSON.parse(String(row.payloadJson)) }));
@@ -1074,6 +1090,7 @@ const report = {
   requestedCommit,
   runtimeTarget: executionPlan.runtimeTargetName,
   startedAt: new Date().toISOString(),
+  userDataRoot,
   worktreeDirty
 };
 let fixture;

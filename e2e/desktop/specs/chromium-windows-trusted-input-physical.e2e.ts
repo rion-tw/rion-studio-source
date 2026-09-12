@@ -25,12 +25,6 @@ describe("Windows Chromium physical trusted-input candidate", () => {
     }
     const root = resolve(import.meta.dirname, "../../..");
     const electronBinary = createRequire(import.meta.url)("electron") as string;
-    const addonPath = resolve(
-      root,
-      "build/native",
-      `${process.platform}-${process.arch}`,
-      "rion-core.node"
-    );
     const artifactDir = required("RION_STUDIO_E2E_ARTIFACT_DIR");
     let output: Readonly<{ stdout: string; stderr: string }>;
     try {
@@ -40,10 +34,6 @@ describe("Windows Chromium physical trusted-input candidate", () => {
         {
           cwd: root,
           encoding: "utf8",
-          env: {
-            ...process.env,
-            RION_ELECTRON_ADDON_PATH: addonPath
-          },
           // External native/renderer liveness bound for this diagnostic phase.
           timeout: 120_000
         }

@@ -4,12 +4,13 @@ import { describe, expect, it } from "vitest";
 
 describe("Windows Chromium physical input candidate gate", () => {
   it("uses exact public Electron ownership plus read-only Win32 proof", async () => {
-    const [probe, preload, submission, parentBinding, loader] = await Promise.all([
+    const [probe, preload, submission, parentBinding, loader, phase] = await Promise.all([
       readFile("scripts/electronWindowsChromiumTrustedInputProbe.cjs", "utf8"),
       readFile("scripts/electronWindowsChromiumTrustedInputProbePreload.cjs", "utf8"),
       readFile("src/electron/main/chromiumViewInputSubmission.ts", "utf8"),
       readFile("src/electron/main/windowsChromiumViewParentBinding.ts", "utf8"),
-      readFile("scripts/electronLoadChromiumInputOwner.cjs", "utf8")
+      readFile("scripts/electronLoadChromiumInputOwner.cjs", "utf8"),
+      readFile("e2e/desktop/specs/chromium-windows-trusted-input-physical.e2e.ts", "utf8")
     ]);
     expect(probe.match(/new BrowserWindow\(/gu)).toHaveLength(1);
     for (const owner of ["ChromiumViewAttachmentCoordinator", "ChromiumViewTrustedInputHost", "ChromiumViewFocusAdmission", "windowsChromiumViewParentBinding"]) {
@@ -25,6 +26,9 @@ describe("Windows Chromium physical input candidate gate", () => {
     expect(probe).toContain("exactSiblingViews");
     expect(probe).toContain("viewportAcknowledgement");
     expect(probe).toContain("hiddenMouseDom");
+    expect(probe).toContain("`${process.platform}-${process.arch}`");
+    expect(phase).not.toContain("process.arch");
+    expect(phase).not.toContain("RION_ELECTRON_ADDON_PATH");
     expect(probe).toMatch(
       /const submitClick = request => baselineSubmission\.click\(\{\s+ctrl: false,\s+alt: false,\s+shift: false,\s+meta: false,\s+\.\.\.request/u
     );

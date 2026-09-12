@@ -148,6 +148,10 @@ describe("Chromium Macro paired cutover E2E source", () => {
     expect(support).toContain(
       "useAccessibilityAction || elementRole == physicalRole"
     );
+    expect(keyboard.indexOf('kind: "keyup"')).toBeLessThan(
+      keyboard.indexOf("await activateChromiumRoleVisible(context, tabB)")
+    );
+    expect(keyboard).toContain('id: "continuity-stable-gap", ms: 30_000');
     const topologyRestart = topology.slice(
       topology.indexOf("export async function restartChromiumMacroTopologyCutover"),
       topology.length

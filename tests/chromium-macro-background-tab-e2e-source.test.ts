@@ -62,6 +62,36 @@ function inputObservation(input: Readonly<{
   };
 }
 
+function continuityObservation(roleId: string, sequence: number) {
+  const requestId = `request-${sequence}`;
+  return {
+    receipt: {
+      completedAtMs: sequence * 10 + 1,
+      confirmedInputNeutrality: false,
+      errorCode: null,
+      errorMessage: null,
+      inputEpoch: 1,
+      requestId,
+      roleId,
+      status: "applied",
+      surfaceGeneration: 7
+    },
+    request: {
+      action: { type: "reassertHeldKeys" },
+      deadlineMs: sequence * 10 + 5,
+      documentInstanceId: "document-1",
+      inputEpoch: 1,
+      intent: "normal",
+      origin: "macro",
+      requestId,
+      roleId,
+      scheduledAtMs: sequence * 10,
+      surfaceGeneration: 7
+    },
+    sequence
+  };
+}
+
 function keyEvent(
   sequence: number,
   kind: "consumer-keydown" | "keydown" | "keyup",
@@ -137,10 +167,9 @@ function runtimeEvidence(platform: "macos" | "windows") {
     platform, roleAId, roleBId, tabA, tabB, windowId
   });
   return {
-    continuityHold: platform === "windows" ? inputObservation({
-      intent: "normal", ownerId: "owner-1", phase: "hold", roleId: roleAId,
-      sequence: 2
-    }) : null,
+    continuityHold: platform === "windows"
+      ? continuityObservation(roleAId, 2)
+      : null,
     finalConsumerPressedCodes: [],
     finalMacroStatuses: [],
     finalRoleStatuses: [
@@ -212,6 +241,7 @@ describe("Chromium Macro background-tab exact replacement source", () => {
       "submitElectronRoleKeyPhases",
       "firstConsumerKeydown",
       "firstHiddenKeydown",
+      "reassertHeldKeys",
       "secondHiddenStartHold",
       'kind: "consumer-keydown"',
       "roleBDigit2Events",

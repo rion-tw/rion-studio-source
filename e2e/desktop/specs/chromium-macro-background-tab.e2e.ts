@@ -171,6 +171,26 @@ async function waitInputObservation(input: Readonly<{
   return observation!;
 }
 
+async function waitContinuityObservation(input: Readonly<{
+  afterSequence: number;
+  roleId: string;
+}>): Promise<ElectronDesktopE2eTrustedInputObservation> {
+  let observation: ElectronDesktopE2eTrustedInputObservation | undefined;
+  await browser.waitUntil(async () => {
+    observation = [...await electronDesktopE2eTrustedInputRuntime(input.roleId)]
+      .reverse()
+      .find((entry) => entry.sequence > input.afterSequence &&
+        entry.request.intent === "normal" &&
+        entry.request.action.type === "reassertHeldKeys" &&
+        entry.receipt.status === "applied");
+    return observation !== undefined;
+  }, {
+    timeout: 20_000,
+    timeoutMsg: "Missing applied Digit2 held-key continuity receipt"
+  });
+  return observation!;
+}
+
 async function submitToggleShortcut(role: Role, mainWindowHandle: string): Promise<void> {
   await submitElectronRoleKeyPhases(role.launchUrl!, mainWindowHandle, [
     { key: Key.Shift, phase: "keyDown" },
@@ -330,18 +350,14 @@ describe("Chromium Macro background-tab exact replacement", () => {
         kind: "keydown",
         roleId: ROLE_A_FIXTURE
       });
-      continuityHold = await waitInputObservation({
+      continuityHold = await waitContinuityObservation({
         afterSequence: firstHold.sequence,
-        intent: "normal",
-        phase: "hold",
         roleId: scenario.roles[0].id
       });
-      expect(continuityHold.request.action.type).toBe("key");
-      if (continuityHold.request.action.type === "key" &&
-        firstHold.request.action.type === "key") {
-        expect(continuityHold.request.action.ownerId)
-          .toBe(firstHold.request.action.ownerId);
-      }
+      expect(continuityHold.request.action.type).toBe("reassertHeldKeys");
+      expect(continuityHold.request.inputEpoch).toBe(firstHold.request.inputEpoch);
+      expect(continuityHold.receipt.surfaceGeneration)
+        .toBe(continuityHold.request.surfaceGeneration);
     }
     expect((await fixtureState())[ROLE_A_FIXTURE]!.consumerPressedCodes)
       .toContain("Digit2");

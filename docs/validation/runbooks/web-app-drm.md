@@ -2,7 +2,7 @@
 
 ## Boundary
 
-Electron 43.6.0 remains the runtime. Contract 24 permits `mediaKeySystem` only
+Electron 43.6.0 remains the runtime. Contract 31 retains the v24 rule permitting `mediaKeySystem` only
 in the dedicated global-Web Session with HTTPS requesting and embedding origins.
 Journal policy version 2 records the permission callback stage, normalized
 origins, result and reason. Roles and local shell sessions keep denying DRM.
@@ -25,8 +25,9 @@ key-system request before the Rion permission policy was consulted. It is not
 evidence of successful playback. Origin rejection and session isolation have
 platform-explicit unit coverage even when the installed runtime has no CDM.
 
-The macOS AppKit host, sibling geometry, controlled-popup ownership and contained
-fullscreen remain covered by the paired `WORKSPACE-WEB-FULLSCREEN-017` journeys.
+The macOS AppKit parent host, sibling geometry, Electron BrowserWindow popup
+ownership and contained fullscreen remain covered by the paired
+`WORKSPACE-WEB-FULLSCREEN-017` journeys.
 Windows evidence must come from Windows; host-rejection on macOS is a pending
 Windows gate, not a passed test.
 

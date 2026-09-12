@@ -94,6 +94,29 @@ function normalizedFileUpload(input) {
   };
 }
 
+function normalizedOauth(input) {
+  if (!input || typeof input !== "object") return undefined;
+  const boolean = (value) => typeof value === "boolean" ? value : undefined;
+  const origin = typeof input.messageOrigin === "string"
+    && /^https?:\/\/[a-z0-9.:[\]-]+$/u.test(input.messageOrigin)
+    ? input.messageOrigin
+    : undefined;
+  const targetName = input.targetName === "thirdLoginWindow"
+    ? input.targetName
+    : undefined;
+  return {
+    callbackCookiePresent: boolean(input.callbackCookiePresent),
+    callbackStoragePresent: boolean(input.callbackStoragePresent),
+    messageOrigin: origin,
+    openerConnected: boolean(input.openerConnected),
+    providerCookiePresent: boolean(input.providerCookiePresent),
+    providerStoragePresent: boolean(input.providerStoragePresent),
+    storageEventObserved: boolean(input.storageEventObserved),
+    targetName,
+    windowProxyNonNull: boolean(input.windowProxyNonNull)
+  };
+}
+
 function recordFixtureEvent(input) {
   const event = {
     bodyBytes: Number.isSafeInteger(input.bodyBytes) && input.bodyBytes >= 0
@@ -125,6 +148,7 @@ function recordFixtureEvent(input) {
     kind: input.kind,
     method: typeof input.method === "string" ? input.method : undefined,
     modifiers: input.modifiers,
+    oauth: normalizedOauth(input.oauth),
     repeat: typeof input.repeat === "boolean" ? input.repeat : undefined,
     fullscreen: input.fullscreen,
     roleId: input.roleId,
@@ -266,7 +290,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       <p>Workspace Web contained fullscreen fixture</p>
       <button id="contained-fullscreen-enter" type="button">Enter contained fullscreen</button>
       <button id="contained-fullscreen-exit" type="button">Exit contained fullscreen</button>
-      <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="_blank" rel="noopener" hidden>Open fullscreen popup</a>
+      <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="thirdLoginWindow" hidden>Open fullscreen popup</a>
       <form id="contained-fullscreen-post-popup-form" method="post" target="_blank" hidden>
         <input name="rionAction" type="hidden" value="resume">
         <input name="contract" type="hidden" value="workspace-popup-post-v27">
@@ -276,6 +300,11 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       <button id="permission-geolocation" type="button" hidden>Request denied geolocation</button>
       <a id="blocked-download" href="/download/${roleId}" download hidden>Attempt blocked download</a>
       <input id="file-upload" type="file" accept="text/plain" aria-label="Choose upload fixture" hidden>
+    </section>
+    <section id="named-oauth-controls" hidden>
+      <button id="named-oauth-popup" type="button" hidden>Open named OAuth popup</button>
+      <button id="oauth-provider-continue" type="button" hidden>Continue OAuth callback</button>
+      <p id="oauth-status" hidden>OAuth pending</p>
     </section>
     <section id="workspace-window-open-controls" hidden>
       <p>Workspace Website window-open fixture</p>
@@ -309,6 +338,11 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       || roleId === "chromium-controlled-role-reload"
       || roleId === "e2e-workspace-popup";
     const containedFullscreenPopup = roleId === "e2e-workspace-popup";
+    const namedOauthParent = roleId === "chromium-workspace-web-fullscreen"
+      || roleId === "chromium-controlled-role-reload"
+      || roleId === "macro-keyboard-a";
+    const namedOauthProvider = roleId === "e2e-oauth-provider";
+    const namedOauthCallback = roleId === "e2e-oauth-callback";
     const workspaceWindowOpenEnabled = roleId === "chromium-workspace-web-slot";
     let verificationComplete = false;
     document.querySelector("#role-id").textContent = roleId;
@@ -333,6 +367,118 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       return recordQueue;
     };
     const qaTarget = document.querySelector("#qa-target");
+    const namedOauthControls = document.querySelector("#named-oauth-controls");
+    const namedOauthButton = document.querySelector("#named-oauth-popup");
+    const oauthProviderContinue = document.querySelector("#oauth-provider-continue");
+    const oauthStatus = document.querySelector("#oauth-status");
+    const oauthStorageKey = "rion-e2e-oauth-" +
+      (new URL(location.href).searchParams.get("parentRoleId") || roleId);
+    const oauthMarker = "callback-complete";
+    if (namedOauthParent) {
+      namedOauthControls.hidden = false;
+      namedOauthButton.hidden = false;
+      oauthStatus.hidden = false;
+      const oauthSignals = new Set();
+      let oauthComplete = false;
+      const completeOauth = () => {
+        if (oauthComplete || !oauthSignals.has("storage") || !oauthSignals.has("message")) return;
+        oauthComplete = true;
+        oauthStatus.textContent = "OAuth complete";
+        record("oauth-login-complete", {
+          oauth: {
+            callbackCookiePresent: document.cookie.includes("rion-e2e-oauth=complete"),
+            callbackStoragePresent: localStorage.getItem(oauthStorageKey) === oauthMarker
+          }
+        });
+      };
+      addEventListener("storage", (event) => {
+        if (event.key !== oauthStorageKey || event.newValue !== oauthMarker) return;
+        oauthSignals.add("storage");
+        record("oauth-storage-event", {
+          oauth: { storageEventObserved: true }
+        }).then(completeOauth);
+      });
+      addEventListener("message", (event) => {
+        if (event.origin !== location.origin || event.data?.kind !== "rion-oauth-callback") return;
+        oauthSignals.add("message");
+        record("oauth-post-message", {
+          oauth: { messageOrigin: event.origin, openerConnected: event.source !== null }
+        }).then(completeOauth);
+      });
+      namedOauthButton.addEventListener("click", (event) => {
+        oauthComplete = false;
+        oauthSignals.clear();
+        localStorage.removeItem(oauthStorageKey);
+        const callbackUrl = new URL("/role/e2e-oauth-callback", location.origin);
+        callbackUrl.searchParams.set("parentRoleId", roleId);
+        const providerUrl = new URL(
+          "/role/e2e-oauth-provider",
+          "https://rion-drm.fixture.test"
+        );
+        providerUrl.searchParams.set("callback", callbackUrl.href);
+        providerUrl.searchParams.set("parentRoleId", roleId);
+        const opened = window.open(
+          providerUrl.href,
+          "thirdLoginWindow",
+          "popup=yes,width=960,height=640,left=100,top=80,toolbar=no,location=yes,status=no,menubar=no,scrollbars=yes,resizable=yes"
+        );
+        record("oauth-popup-requested", {
+          isTrusted: event.isTrusted,
+          oauth: {
+            targetName: "thirdLoginWindow",
+            windowProxyNonNull: opened !== null
+          },
+          targetId: event.currentTarget.id
+        });
+      });
+    }
+    if (namedOauthProvider) {
+      namedOauthControls.hidden = false;
+      qaTarget.hidden = true;
+      oauthProviderContinue.hidden = false;
+      oauthStatus.hidden = false;
+      document.cookie = "rion-e2e-oauth-provider=ready; Path=/; SameSite=Lax";
+      localStorage.setItem("rion-e2e-oauth-provider", "ready");
+      addEventListener("load", () => {
+        oauthProviderContinue.focus();
+        record("oauth-provider-ready", {
+          oauth: {
+            openerConnected: window.opener !== null,
+            providerCookiePresent: document.cookie.includes("rion-e2e-oauth-provider=ready"),
+            providerStoragePresent: localStorage.getItem("rion-e2e-oauth-provider") === "ready"
+          }
+        });
+      }, { once: true });
+      oauthProviderContinue.addEventListener("click", async (event) => {
+        const callback = new URL(new URL(location.href).searchParams.get("callback"));
+        await record("oauth-provider-continue", {
+          isTrusted: event.isTrusted,
+          oauth: { openerConnected: window.opener !== null },
+          targetId: event.currentTarget.id
+        });
+        location.assign(callback.href);
+      });
+    }
+    if (namedOauthCallback) {
+      namedOauthControls.hidden = false;
+      qaTarget.hidden = true;
+      oauthStatus.hidden = false;
+      document.cookie = "rion-e2e-oauth=complete; Path=/; SameSite=Lax";
+      localStorage.setItem(oauthStorageKey, oauthMarker);
+      const openerConnected = window.opener !== null;
+      if (openerConnected) {
+        window.opener.postMessage({ kind: "rion-oauth-callback" }, location.origin);
+      }
+      addEventListener("load", () => {
+        record("oauth-callback-ready", {
+          oauth: {
+            callbackCookiePresent: document.cookie.includes("rion-e2e-oauth=complete"),
+            callbackStoragePresent: localStorage.getItem(oauthStorageKey) === oauthMarker,
+            openerConnected
+          }
+        }).then(() => window.close());
+      }, { once: true });
+    }
     const windowOpenControls = document.querySelector("#workspace-window-open-controls");
     if (workspaceWindowOpenEnabled) {
       qaTarget.hidden = true;

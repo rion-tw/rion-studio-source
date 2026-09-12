@@ -53,11 +53,16 @@ export interface ElectronDesktopE2eRuntimeTabReloadInspection {
       logicalWindowId: string;
       nativeGeneration: number;
     }> | null;
-    hostKind: "appkit-chromium" | "bundled-chromium";
+    currentUrl: string;
+    hostKind: "electronBrowserWindow";
     logicalWindowId: string;
     nativeHostId: number;
+    nativeParentId: number;
     openOperationId: string;
+    openerPolicy: "connectedOpener" | "isolatedNoopener";
     popupId: string;
+    sessionMatchesOwner: boolean;
+    title: string;
     visible: boolean;
   }>[];
   readonly roles: readonly Readonly<{
@@ -88,6 +93,17 @@ function positiveInteger(value: unknown): value is number {
 
 function identifier(value: unknown): value is string {
   return typeof value === "string" && IDENTIFIER.test(value);
+}
+
+function canonicalUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.href === value && parsed.username === "" && parsed.password === "";
+  } catch {
+    return false;
+  }
 }
 
 function validReceipt(
@@ -170,12 +186,13 @@ export function parseElectronDesktopE2eRuntimeTabReloadInspection(
     !identifier(popup.popupId) || !identifier(popup.openOperationId) ||
     popup.logicalWindowId !== `popup-${popup.popupId}` ||
     !positiveInteger(popup.nativeHostId) || typeof popup.visible !== "boolean" ||
-    popup.hostKind !== (expectsAppKit
-      ? "appkit-chromium"
-      : "bundled-chromium") ||
-    (expectsAppKit
-      ? !validAppKitIdentity(popup.appKitIdentity, popup.logicalWindowId)
-      : popup.appKitIdentity !== null)
+    !positiveInteger(popup.nativeParentId) ||
+    !canonicalUrl(popup.currentUrl) ||
+    !["connectedOpener", "isolatedNoopener"].includes(popup.openerPolicy) ||
+    popup.sessionMatchesOwner !== true ||
+    popup.title !== `Rion Popup — ${new URL(popup.currentUrl).hostname}` ||
+    popup.hostKind !== "electronBrowserWindow" ||
+    popup.appKitIdentity !== null
   )) {
     throw new Error("Electron desktop E2E runtime-tab Reload inspection is invalid.");
   }

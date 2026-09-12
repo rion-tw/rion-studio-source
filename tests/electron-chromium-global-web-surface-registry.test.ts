@@ -25,7 +25,8 @@ import type {
 } from "../src/electron/main/chromiumRoleSessionRegistry";
 import type {
   ChromiumPopupOwnerLifecyclePort,
-  ChromiumWindowOpenDetails
+  ChromiumWindowOpenDetails,
+  ChromiumWindowOpenHandlerResponse
 } from "../src/electron/main/chromiumPopupPorts";
 
 type Listener = (...arguments_: unknown[]) => unknown;
@@ -60,6 +61,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   readonly audioValues: boolean[] = [];
   readonly zoomFactors: number[] = [];
   readonly session: ChromiumRoleSessionPort;
+  readonly mainFrame = Object.freeze({ frameToken: "global-web-main-frame" });
   currentUrl = "";
   destroyed = false;
   audible = false;
@@ -67,7 +69,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   zoomFactor = 1;
   loadFailure: unknown = null;
   windowOpenHandler:
-    | ((details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>)
+    | ((details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse)
     | null = null;
 
   constructor(session: ChromiumRoleSessionPort) {
@@ -132,7 +134,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   send(): void {}
 
   setWindowOpenHandler(
-    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
+    handler: (details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse
   ): void {
     this.windowOpenHandler = handler;
   }
@@ -339,9 +341,10 @@ function harness(
 }
 
 function fakePopups() {
-  const requestOpen = vi.fn();
+  const requestOpen = vi.fn(() => ({ action: "deny" } as const));
   const port: ChromiumPopupOwnerLifecyclePort = {
-    requestOpen,
+    handleWindowOpen: requestOpen,
+    didCreateWindow: vi.fn(),
     retireOwner: async () => undefined,
     retireOwnerPopupsForMove: async () => undefined
   };

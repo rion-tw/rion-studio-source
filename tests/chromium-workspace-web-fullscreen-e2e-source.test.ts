@@ -125,9 +125,17 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "#contained-fullscreen-enter",
       "#contained-fullscreen-exit",
       "#contained-fullscreen-popup",
+      "#named-oauth-popup",
+      "oauthProviderUrl",
+      'targetName: "thirdLoginWindow"',
+      "windowProxyNonNull: true",
+      'hostKind: "electronBrowserWindow"',
+      'openerPolicy: "connectedOpener"',
+      "sessionMatchesOwner: true",
+      'kind: "oauth-login-complete"',
       "contained-popup-ready",
       "closeVisibleRuntimeTab",
-      "closeVisibleRuntimeWindow",
+      "closeVisibleElectronPopup",
       "readVisibleMacosRuntimeTabCloseEvidence",
       'fixtureRequest("/api/gate"',
       "/api/gates/${POPUP_FIXTURE_ID}/waiting",
@@ -188,6 +196,12 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(pageSurface).toContain('targetMode: "focused-runtime"');
     expect(pageSurface).toContain("await sendChromiumEscapeKey(browser, input.platform)");
     expect(fixture).toContain('target="_blank" rel="noopener"');
+    expect(fixture).toContain('"thirdLoginWindow"');
+    expect(fixture).toContain("const opened = window.open(");
+    expect(fixture).toContain('addEventListener("storage"');
+    expect(fixture).toContain('addEventListener("message"');
+    expect(fixture).toContain("window.opener.postMessage(");
+    expect(fixture).toContain("window.close()");
     expect(fixture).toContain('roleId === "chromium-workspace-web-fullscreen"');
     expect(fixture).toContain("navigator.geolocation.getCurrentPosition(");
     expect(fixture).toContain('response.once("close"');
@@ -278,9 +292,11 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(presentation).toContain("#readPairedProjection(");
     expect(presentation).toContain("CONTAINED_FULLSCREEN_COMPENSATION_FAILED");
     expect(presentation).toContain('record.state = "quarantined"');
-    expect(popup).toContain("sameHostEnvelope(projection, expected)");
-    expect(popup).toContain("record.host.getContentBounds()");
-    expect(popup).toContain("CONTAINED_FULLSCREEN_HOST_CHANGED");
+    expect(popup).toContain("handleWindowOpen(");
+    expect(popup).toContain("overrideBrowserWindowOptions: options");
+    expect(popup).toContain("didCreateWindow(");
+    expect(popup).toContain("popupWindow.getParentWindow() !== parent");
+    expect(popup).not.toContain("createWindow:");
     expect(popup).toContain("readLifecycleJournal()");
     expect(popup).toContain("operationTerminal: receipt.operationTerminal");
     expect(popupJournal).toContain("parentWindowGeneration");
@@ -288,7 +304,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(inspection).toContain("value.containedFullscreen");
     expect(inspection).toContain("sameBounds(content, slot)");
     expect(entry).toContain("workspaceRoleSurfaceOwners");
-    expect(entry).toContain("workspacePopupHostOwners");
+    expect(entry).toContain("originalDidCreateWindow");
     expect(entry).toContain("electron-workspace-web-fullscreen-observations.json");
     expect(appKit).not.toContain("runtime-windows-host.html");
   });
@@ -357,7 +373,8 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(evidence).toContain("topologyRevisionsAreMonotonic");
     expect(evidence).toContain("sameCoreSlotTopology(");
     expect(evidence).toContain('"appKitChrome", "appKitIdentity"');
-    expect(evidence).toContain("validAppKitChrome");
+    expect(evidence).toContain('popup.hostKind !== "electronBrowserWindow"');
+    expect(evidence).toContain("popup.appKitIdentity === null");
     expect(evidence).toContain(
       "web.contentBounds.height === web.slotBounds.height"
     );
@@ -372,7 +389,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     );
     expect(evidence).toContain('popup.logicalWindowId !== `popup-${popup.popupId}`');
     expect(evidence).toContain("sameValue(observation.role, first.role)");
-    expect(evidence).toContain("popupObservations.length >= 4");
+    expect(evidence).toContain("primaryPopupObservations.length >= 4");
     expect(evidence).toContain("electron-popup-lifecycle-journal.json");
     expect(spec).toContain('"chromium-workspace-web-slot-marker"');
     expect(evidence).toContain("validateChromiumWorkspaceWebPopupLifecycleEvidence(");

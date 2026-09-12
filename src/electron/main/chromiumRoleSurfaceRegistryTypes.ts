@@ -72,6 +72,7 @@ export interface ChromiumRoleSurfaceDeferred<Value> {
 
 export interface ChromiumRoleSurfaceListeners {
   readonly beforeInputEvent: ChromiumRoleSurfaceEventMap["before-input-event"];
+  readonly didCreateWindow: ChromiumRoleSurfaceEventMap["did-create-window"];
   readonly didStartNavigation: ChromiumRoleSurfaceEventMap[
     "did-start-navigation"
   ];

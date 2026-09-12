@@ -126,35 +126,32 @@ function validAppKitIdentity(identity, windowId, launchGeneration) {
     Number.isSafeInteger(identity.nativeGeneration) && identity.nativeGeneration > 0;
 }
 
-function validPopup(popup, platform, hostKind) {
+function validPopup(popup, parentNativeHostId) {
   if (!exactKeys(popup, [
-    "appKitChrome", "appKitIdentity", "bounds", "hostKind", "logicalWindowId",
-    "nativeHostId", "openOperationId", "popupId", "presentation",
+    "appKitChrome", "appKitIdentity", "bounds", "currentUrl", "hostKind",
+    "logicalWindowId", "nativeHostId", "nativeParentId", "openOperationId",
+    "openerPolicy", "popupId", "presentation", "sessionMatchesOwner", "title",
     "topologyRevision", "visible", "windowGeneration"
-  ]) || !validBounds(popup.bounds, true) || popup.hostKind !== hostKind ||
+  ]) || !validBounds(popup.bounds, true) ||
+      popup.hostKind !== "electronBrowserWindow" ||
       !Number.isSafeInteger(popup.nativeHostId) || popup.nativeHostId < 1 ||
-      typeof popup.openOperationId !== "string" || !IDENTIFIER.test(popup.popupId) ||
+      popup.nativeParentId !== parentNativeHostId ||
+      !IDENTIFIER.test(popup.openOperationId) || !IDENTIFIER.test(popup.popupId) ||
       popup.logicalWindowId !== `popup-${popup.popupId}` ||
+      !["connectedOpener", "isolatedNoopener"].includes(popup.openerPolicy) ||
       popup.presentation !== "normal" || popup.visible !== true ||
+      popup.sessionMatchesOwner !== true ||
       popup.topologyRevision !== 1 || popup.windowGeneration !== 1) {
     return false;
   }
-  const validAppKitChrome = exactKeys(popup.appKitChrome, [
-    "addButtonOnScreen", "tabStripOnScreen", "visibleTrafficLightCount",
-    "windowNameOnScreen"
-  ]) && typeof popup.appKitChrome.addButtonOnScreen === "boolean" &&
-    typeof popup.appKitChrome.tabStripOnScreen === "boolean" &&
-    Number.isSafeInteger(popup.appKitChrome.visibleTrafficLightCount) &&
-    popup.appKitChrome.visibleTrafficLightCount >= 0 &&
-    popup.appKitChrome.visibleTrafficLightCount <= 3 &&
-    typeof popup.appKitChrome.windowNameOnScreen === "boolean";
-  return platform === "macos"
-    ? validAppKitIdentity(
-        popup.appKitIdentity,
-        popup.logicalWindowId,
-        popup.openOperationId
-      ) && validAppKitChrome
-    : popup.appKitIdentity === null && popup.appKitChrome === null;
+  try {
+    const url = new URL(popup.currentUrl);
+    return ["http:", "https:"].includes(url.protocol) && url.href === popup.currentUrl &&
+      popup.title === `Rion Popup — ${url.hostname}` &&
+      popup.appKitIdentity === null && popup.appKitChrome === null;
+  } catch {
+    return false;
+  }
 }
 
 function positiveInteger(value) {
@@ -467,7 +464,8 @@ function validObservation(observation, platform) {
       !Number.isSafeInteger(observation.role.generation) ||
       observation.role.generation < 1 || observation.role.visible !== true ||
       !validWeb(observation.web, webSlots[0]) ||
-      !observation.popups.every((popup) => validPopup(popup, platform, hostKind))) {
+      !observation.popups.every((popup) =>
+        validPopup(popup, observation.parentNativeHostId))) {
     return false;
   }
   return platform === "macos"
@@ -607,21 +605,25 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
   const popupObservations = observations.filter(
     (observation) => observation.popups.length === 1
   );
+  const primaryPopupId = popupObservations[0]?.popups[0]?.popupId;
+  const primaryPopupObservations = popupObservations.filter(
+    (observation) => observation.popups[0]?.popupId === primaryPopupId
+  );
   const firstMainFullscreenIndex = observations.findIndex(
     (observation) => observation.web.containedFullscreen
   );
   const firstPopupIndex = observations.findIndex(
     (observation) => observation.popups.length === 1
   );
-  const lastPopupIndex = observations.findLastIndex(
-    (observation) => observation.popups.length === 1
+  const lastPrimaryPopupIndex = observations.findLastIndex(
+    (observation) => observation.popups[0]?.popupId === primaryPopupId
   );
   const mainFullscreenObservations = firstMainFullscreenIndex > 0 &&
-      firstMainFullscreenIndex > lastPopupIndex
+      firstMainFullscreenIndex > lastPrimaryPopupIndex
     ? observations.slice(firstMainFullscreenIndex - 1)
     : [];
   const mainTopologyRevision = mainFullscreenObservations[0]?.topologyRevision;
-  const popupTopologyRevision = popupObservations[0]?.topologyRevision;
+  const popupTopologyRevision = primaryPopupObservations[0]?.topologyRevision;
   const last = observations.at(-1);
   const topologyRevisionsAreMonotonic = observations.every(
     (observation, index) => index === 0 ||
@@ -638,17 +640,18 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
       ) &&
       revisions.every((revision, index) => index === 0 || revision >= revisions[index - 1]) &&
       Math.max(...revisions) >= 4 && contained.length >= 2 &&
-      popupObservations.length >= 4 && popupObservations.every((observation) =>
+      primaryPopupObservations.length >= 4 &&
+      primaryPopupObservations.every((observation) =>
         observation.topologyRevision === popupTopologyRevision &&
         observation.focused === false &&
-        sameValue(observation.popups, popupObservations[0].popups)
+        sameValue(observation.popups, primaryPopupObservations[0].popups)
       ) && last.focused === true && last.popups.length === 0,
     `${phase}: bounded fullscreen changed native host or crossed transient topology fences`
   );
   const popupRetirement = validateChromiumWorkspaceWebPopupLifecycleEvidence(
     popupLifecycle,
     observations[firstPopupIndex - 1],
-    popupObservations[0].popups[0]
+    primaryPopupObservations[0].popups[0]
   );
   requireRuntime(
     Array.isArray(securityPolicy) && securityPolicy.length >= 3 &&
@@ -707,7 +710,7 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
     downloadDenied: true,
     fileUploadSupported: true,
     geolocationDenied: true,
-    popupHostKind: popupObservations[0].popups[0].hostKind,
+    popupHostKind: primaryPopupObservations[0].popups[0].hostKind,
     popupParentRetired: popupRetirement.terminalSequence > 0,
     restartVerified: phase === "chromium-workspace-web-fullscreen-restart",
     windowId: first.windowId

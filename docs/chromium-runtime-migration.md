@@ -93,7 +93,7 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 29. Version 23 remains the first
+The active runtime contract is version 31. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -120,6 +120,13 @@ Workspace projection. macOS captures one adapter-sequenced AppKit host
 observation and carries its exact content bounds through Core layout, native
 divider validation, application, and receipt readback without a second geometry
 sample. Persisted data and portable schema remain unchanged.
+Version 30 promotes the bounded in-process CDP Input transport used by managed
+Role surfaces on both Chromium hosts. Version 31 changes controlled popup host
+ownership only: Electron creates the original `BrowserWindow` and WebContents
+after a synchronous `allow`, Rion observes it through `did-create-window`, and
+Core receipts identify `electronBrowserWindow`. The popup may retain a connected
+opener; it never carries an AppKit popup identity. SQLite and portable schema
+remain unchanged.
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the
 exact parent fence used by a later controlled popup.
@@ -203,42 +210,43 @@ remains inside the retained AppKit host and does not replace native window/tab
 chrome. Only this paired visible/native evidence permits both Chromium targets
 to register `fileUpload=supported`.
 
-The staged popup contract starts from Electron's exact owner WebContents
-`window-open` event and synchronously returns `deny`. Role surfaces retain their
-existing admission policy. A Workspace Website sends only the explicit
-`new-window` disposition to the bounded coordinator; `default`,
-`foreground-tab`, and `background-tab` navigate the same Website surface through
-an ordered EventBound lane. Core alone allocates popup/open-operation identity,
-admits the canonical HTTP(S) target, and owns lifecycle revision plus terminal
-receipt. A controlled popup accepts Electron's exact URL-encoded or multipart
-POST envelope after bounded structural validation; malformed content types,
-unsafe boundaries, excessive raw bytes or entry counts fail closed before Core
-admission. Core admits the `hasPostBody` policy bit but never receives the body.
-Nested popups, uncontrolled frame names or dispositions, unsupported window
-features, stale parent window/tab/surface generations, and external schemes are
-rejected. `about:blank` is only the hidden native-host creation transition; it
-is never an admitted final destination. The popup uses the exact parent role or
-global-Web `Session`, with isolated/noopener semantics.
+The controlled popup contract starts in the exact opener WebContents
+`setWindowOpenHandler`. Role and Workspace Website owners synchronously validate
+the HTTP(S) URL, disposition, bounded opaque features, frame name, capacity,
+Session, and native parent fence. An accepted request returns Electron `allow`,
+`outlivesOpener: false`, and security-first BrowserWindow overrides. It never
+supplies `createWindow`. Workspace Website tab dispositions continue through
+their ordered same-surface navigation lane; only explicit `new-window` enters
+popup admission.
 
-Windows projects the admitted popup into its exact Electron native host. macOS
-creates a hidden `BaseWindow` only as the Chromium surface carrier and attaches
-the retained Rust/N-API AppKit controller; the controller owns single-page popup
-chrome, layout, close action, and native identity receipt. Its exact one-popup
-projection exposes the admitted hostname title and traffic lights but no tab
-strip, tab menu, tab drag destination, tab close control, or launcher button.
-There is no
-macOS BrowserWindow/HTML-chrome fallback. Parent retirement, cancellation,
-failed navigation/load, unexpected native destruction, and application drain
-all terminalize the original unfinished open operation before owned Views and
-native hosts are detached. A separate close operation is created only after
-page-ready already terminalized the open. The paired `CHROMIUM-*-POPUP-012`
-journeys open and close one popup through visible native controls, then retire a
-second popup by visibly closing its exact parent tab. They accept only the same
-Core-issued popup/open-operation identity ending in `nativeClosed`,
-`parentRetired`, `nativeDestroyed`, and terminal operation/lifecycle receipts.
-This executable contract is what permits both Chromium targets to register
-`popup=supported`; the release gate still requires the independent macOS and
-Windows profile runs.
+Electron creates the original hidden, focus-disabled, non-modal BrowserWindow
+and starts the site's original request. Rion observes that same window through
+`did-create-window`; it never calls `stop()`, replays `loadURL()`, copies POST
+bytes, creates a replacement WebContents, or attaches an extra WebContentsView.
+Consequently Chromium retains its native WindowProxy, named-target, opener,
+POST/referrer, redirect, cookie, LocalStorage, storage-event, postMessage, and
+`window.close()` behavior. The popup shares the exact Role or global-Web Session.
+Ordinary names such as `thirdLoginWindow` are accepted; `_blank` remains valid,
+while other underscore-prefixed names, control characters, external schemes,
+and oversized names/features fail synchronously. Presentation features are
+parsed by Electron, while Rion's override fixes sandbox, context isolation, no
+Node/preload/webview, web security, standard frame, exact parent, and hidden
+initial presentation.
+
+After creation Rion verifies the exact Session, native parent, and Electron
+opener. A real opener records `connectedOpener`; `noopener`/`noreferrer` records
+`isolatedNoopener`. Core alone allocates popup/open-operation identity and owns
+lifecycle revision and terminal receipts. The network request may progress while
+hidden, but the BrowserWindow cannot show or focus until Core admission, Core
+bounds/zoom readback, and an `electronBrowserWindow` native-ready receipt all
+succeed. Early load, close, crash, parent retirement, cancellation, or shutdown
+is retained in event order and terminalizes the same lifecycle. Nested popups
+are denied. Canonical main-frame commits update the non-page-controlled
+`Rion Popup — <hostname>` native title; page titles and scripted move/resize are
+blocked. No popup registers macro shortcut ownership, attaches a CDP debugger,
+or joins the AppKit tab host. macOS retains AppKit identity only on the parent
+Game Window fence. The paired `CHROMIUM-*-POPUP-012` journeys validate the same
+native OAuth topology on both platforms; Windows remains an independent CI gate.
 
 The product must not expose a remote-debugging port, attach a public Chrome
 DevTools Protocol client, launch an external Chrome profile, rewrite content
@@ -387,11 +395,11 @@ main Workspace Web slot, only the paired local Rion chrome hides and the remote
 content expands to the already-authoritative slot. Website exit, Escape,
 navigation, retirement, and shutdown restore or terminalize that transient
 projection without changing Core topology. A controlled popup keeps its exact
-native host envelope throughout. Any bounds, visibility, presentation, or host
-identity mismatch fails closed and compensates or quarantines; renderer HTML
-never replaces retained AppKit window/tab chrome. The paired
-`CHROMIUM-*-WORKSPACE-WEB-FULLSCREEN-017` journeys exercise visible main and
-popup controls on macOS AppKit and Windows Chromium, including restart.
+Electron BrowserWindow envelope throughout; it is not an AppKit tab projection.
+Any bounds, visibility, presentation, or host identity mismatch fails closed.
+Renderer HTML never replaces retained AppKit parent window/tab chrome. The
+paired `CHROMIUM-*-WORKSPACE-WEB-FULLSCREEN-017` journeys exercise visible main
+and popup controls on macOS and Windows, including restart.
 
 The remaining Workspace cutover journeys keep the same physical-host boundary.
 `CHROMIUM-*-WORKSPACE-WEB-ONLY-024` proves an empty-Role Web topology, isolated

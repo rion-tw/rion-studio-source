@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
-  ChromiumPopupAdmissionRecord,
   EmbeddedLaunchTargetRecord,
   EmbeddedTabEffectRecord
 } from "../src/shared/generated";
@@ -413,40 +412,6 @@ function tab(
     roles: [],
     ...overrides
   } as EmbeddedTabEffectRecord;
-}
-
-function popupAdmission(): ChromiumPopupAdmissionRecord {
-  const popupId = "10000000-0000-4000-8000-000000000001";
-  const popupTarget = target({
-    windowId: `popup-${popupId}`,
-    persistedName: "popup.example.test",
-    bounds: { x: 120, y: 100, width: 800, height: 600 }
-  });
-  return {
-    requestId: "30000000-0000-4000-8000-000000000001",
-    popupId,
-    openOperationId: "20000000-0000-4000-8000-000000000001",
-    lifecycleRevision: 1,
-    parent: {
-      ownerKind: "role",
-      ownerId: "role-1",
-      ownerNativeGeneration: 3,
-      roleOwnerGeneration: 5,
-      parentWindowId: "window-1",
-      parentWindowGeneration: 1,
-      parentTopologyRevision: 9,
-      parentTabId: "tab-1",
-      parentAttemptGeneration: "attempt-1",
-      parentNativeHostId: 41
-    },
-    target: popupTarget,
-    title: "popup.example.test",
-    creationUrl: "about:blank",
-    targetUrl: "https://popup.example.test/path",
-    disposition: "newWindow",
-    openerPolicy: "isolatedNoopener",
-    hasPostBody: false
-  };
 }
 
 async function expectPending(promise: Promise<unknown>): Promise<void> {
@@ -1214,59 +1179,6 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     expect(() => host.getContentBounds()).toThrow();
   });
 
-  it("projects a hidden popup host and binds exact close/layout receipts", async () => {
-    const browserWindows = new FakeBrowserWindows();
-    const factory = new WindowsElectronChromiumRuntimeHostFactory(
-      browserWindows.port,
-      runtimeDocumentPath,
-      displays
-    );
-    const creation = factory.createPopup(popupAdmission());
-    const window = browserWindows.windows[0]!;
-    window.webContents.emit("did-finish-load");
-    window.emit("ready-to-show");
-    const created = await creation;
-    expect(created.receipt).toEqual({
-      platform: "windows",
-      nativeHostId: window.id,
-      logicalWindowId: popupAdmission().target.windowId,
-      windowGeneration: 1,
-      topologyRevision: 1
-    });
-    expect(created.host.isVisible()).toBe(false);
-    const observer = {
-      closeRequested: vi.fn(),
-      closed: vi.fn(),
-      layoutChanged: vi.fn()
-    };
-    created.host.bindPopupLifecycle?.(observer);
-    const closeEvent = preventableEvent();
-    window.emit("close", closeEvent);
-    expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
-    expect(observer.closeRequested).toHaveBeenCalledOnce();
-    const projection = window.webContents.sent.at(-1)![1] as {
-      projectionRevision: number;
-    };
-    window.webContents.emit("ipc-message", {}, WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL, {
-      projectionRevision: projection.projectionRevision,
-      type: "closeWindow",
-      windowId: popupAdmission().target.windowId
-    });
-    await vi.waitFor(() => expect(observer.closeRequested).toHaveBeenCalledTimes(2));
-    expect(observer.closed).not.toHaveBeenCalled();
-    window.emit("resize");
-    expect(observer.layoutChanged).toHaveBeenCalledWith({
-      x: 0,
-      y: WINDOWS_RUNTIME_CHROME_INSET,
-      width: 960,
-      height: 640
-    });
-    const close = created.host.close();
-    window.emit("closed");
-    await close;
-    expect(observer.closed).toHaveBeenCalledOnce();
-  });
-
   it("creates an invisible empty host from exact Core provision fences", async () => {
     const browserWindows = new FakeBrowserWindows();
     const factory = new WindowsElectronChromiumRuntimeHostFactory(
@@ -1748,7 +1660,6 @@ describe("macOS AppKit runtime-host boundary", () => {
       captureHostObservations: vi.fn(() => []),
       create: vi.fn(async () => appKitHost),
       createEmpty: vi.fn(async () => appKitHost),
-      createPopup: vi.fn(),
       quarantineHost: vi.fn()
     };
     const factory = new ChromiumPlatformRuntimeHostFactory({

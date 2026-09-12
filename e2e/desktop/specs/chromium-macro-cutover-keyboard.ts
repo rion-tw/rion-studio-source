@@ -3,9 +3,12 @@ import { Key } from "webdriverio";
 
 import type { Macro } from "../../../src/shared/types";
 import {
-  electronDesktopE2eTrustedInputRuntime
+  electronDesktopE2eRuntimeTabReload,
+  electronDesktopE2eTrustedInputRuntime,
+  type ElectronDesktopE2eTrustedInputObservation
 } from "../support/electron-driver";
 import {
+  clickVisibleElectronPageElement,
   submitElectronRoleKeyPhases,
   submitElectronRoleMiddleButtonPhase
 } from "../support/electron-role-surface";
@@ -42,6 +45,22 @@ const ROLE_A_FIXTURE = "macro-keyboard-a";
 const ROLE_B_FIXTURE = "macro-keyboard-b";
 const ROLE_A_CONTEXT_QUERY = "resetConsumerInputOnContextLoss=1";
 
+function popupOauthCallbackUrl(): string {
+  const url = new URL(macroFixtureUrl("e2e-oauth-callback"));
+  url.searchParams.set("parentRoleId", ROLE_A_FIXTURE);
+  return url.href;
+}
+
+function popupOauthProviderUrl(): string {
+  const url = new URL(
+    "/role/e2e-oauth-provider",
+    "https://rion-drm.fixture.test"
+  );
+  url.searchParams.set("callback", popupOauthCallbackUrl());
+  url.searchParams.set("parentRoleId", ROLE_A_FIXTURE);
+  return url.href;
+}
+
 async function waitExactKey(input: Readonly<{
   afterSequence: number;
   code: string;
@@ -62,6 +81,31 @@ async function waitExactKey(input: Readonly<{
 
 function exactTrustedKey(event: FixtureEvent, code: string): void {
   expect(event).toEqual(expect.objectContaining({ code, isTrusted: true }));
+}
+
+async function waitAppliedKeyObservation(input: Readonly<{
+  afterSequence: number;
+  code: string;
+  intent: "cleanup" | "normal";
+  phase: "hold" | "release" | "tap";
+  roleId: string;
+}>): Promise<ElectronDesktopE2eTrustedInputObservation> {
+  let observation: ElectronDesktopE2eTrustedInputObservation | undefined;
+  await browser.waitUntil(async () => {
+    observation = [...await electronDesktopE2eTrustedInputRuntime(input.roleId)]
+      .reverse()
+      .find((entry) => entry.sequence > input.afterSequence &&
+        entry.request.intent === input.intent &&
+        entry.request.action.type === "key" &&
+        entry.request.action.code === input.code &&
+        entry.request.action.phase === input.phase &&
+        entry.receipt.status === "applied");
+    return observation !== undefined;
+  }, {
+    timeout: 20_000,
+    timeoutMsg: `Missing applied ${input.code} ${input.intent} ${input.phase} receipt`
+  });
+  return observation!;
 }
 
 async function createKeyboardMacros(roleId: string): Promise<Readonly<{
@@ -158,6 +202,8 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const nativeBinding = await expectChromiumNativeRoleBinding(context, tabA);
 
   const reentryFixture = await fixtureCursor();
+  const reentryInputSequence = (await electronDesktopE2eTrustedInputRuntime(roleA.id))
+    .at(-1)?.sequence ?? 0;
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
     { key: Key.Shift, phase: "keyDown" },
     { key: "2", phase: "keyDown" }
@@ -180,6 +226,108 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   expect(firstChordEvents.filter((event) =>
     event.kind === "keydown" && event.code === "Digit1"
   )).toHaveLength(1);
+  const reentryCleanup = await waitAppliedKeyObservation({
+    afterSequence: reentryInputSequence,
+    code: "Digit1",
+    intent: "cleanup",
+    phase: "release",
+    roleId: roleA.id
+  });
+  expect(reentryCleanup.receipt.confirmedInputNeutrality).toBe(true);
+
+  const popupFenceFixture = await fixtureCursor();
+  const trustedInputBeforePopup = await electronDesktopE2eTrustedInputRuntime(roleA.id);
+  const trustedSurfaceGeneration = trustedInputBeforePopup.at(-1)?.receipt.surfaceGeneration;
+  expect(trustedSurfaceGeneration).toBe(nativeBinding.surfaceGeneration);
+  await clickVisibleElectronPageElement(
+    roleA.launchUrl!,
+    context.mainWindowHandle,
+    "#named-oauth-popup"
+  );
+  expect(await waitFixtureEvent({
+    afterSequence: popupFenceFixture,
+    kind: "oauth-popup-requested",
+    roleId: ROLE_A_FIXTURE
+  })).toEqual(expect.objectContaining({
+    isTrusted: true,
+    oauth: expect.objectContaining({ windowProxyNonNull: true })
+  }));
+  await waitFixtureEvent({
+    afterSequence: popupFenceFixture,
+    kind: "oauth-provider-ready",
+    roleId: "e2e-oauth-provider"
+  });
+  let focusedPopup: Awaited<ReturnType<
+    typeof electronDesktopE2eRuntimeTabReload
+  >>["popups"][number] | undefined;
+  let popupNativeParentId: number | undefined;
+  await browser.waitUntil(async () => {
+    const inspection = await electronDesktopE2eRuntimeTabReload(WINDOW_ID);
+    const popup = inspection.popups[0];
+    if (!popup?.visible || popup.currentUrl !== popupOauthProviderUrl()) return false;
+    focusedPopup = popup;
+    popupNativeParentId = inspection.nativeWindow.parentNativeHostId;
+    return true;
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The shortcut-fence OAuth popup did not become visible"
+  });
+  expect(focusedPopup).toEqual(expect.objectContaining({
+    appKitIdentity: null,
+    hostKind: "electronBrowserWindow",
+    nativeParentId: popupNativeParentId,
+    openerPolicy: "connectedOpener",
+    sessionMatchesOwner: true,
+    title: "Rion Popup — rion-drm.fixture.test"
+  }));
+
+  await submitElectronRoleKeyPhases(
+    popupOauthProviderUrl(),
+    context.mainWindowHandle,
+    [
+      { key: Key.Shift, phase: "keyDown" },
+      { key: "2", phase: "keyDown" },
+      { key: "2", phase: "keyUp" },
+      { key: Key.Shift, phase: "keyUp" }
+    ],
+    { focusCanvas: false, windowId: focusedPopup!.logicalWindowId }
+  );
+  expect(await waitExactKey({
+    afterSequence: popupFenceFixture,
+    code: "Digit2",
+    kind: "keyup",
+    roleId: "e2e-oauth-provider"
+  })).toEqual(expect.objectContaining({
+    code: "Digit2",
+    isTrusted: true,
+    roleId: "e2e-oauth-provider"
+  }));
+  expect((await fixtureEvents({
+    afterSequence: popupFenceFixture,
+    roleId: ROLE_A_FIXTURE
+  })).filter((event) => event.kind === "keydown" && event.code === "Digit1"))
+    .toEqual([]);
+  expect(await electronDesktopE2eTrustedInputRuntime(roleA.id))
+    .toEqual(trustedInputBeforePopup);
+
+  await clickVisibleElectronPageElement(
+    popupOauthProviderUrl(),
+    context.mainWindowHandle,
+    "#oauth-provider-continue"
+  );
+  await waitFixtureEvent({
+    afterSequence: popupFenceFixture,
+    kind: "oauth-login-complete",
+    roleId: ROLE_A_FIXTURE
+  });
+  await browser.waitUntil(async () =>
+    (await electronDesktopE2eRuntimeTabReload(WINDOW_ID)).popups.length === 0, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The shortcut-fence OAuth popup did not close"
+  });
+  expect(await expectChromiumNativeRoleBinding(context, tabA)).toEqual(nativeBinding);
 
   const releasedReentryFixture = await fixtureCursor();
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
@@ -194,6 +342,13 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     kind: "keydown",
     roleId: ROLE_A_FIXTURE
   }), "Digit1");
+  const trustedInputAfterPopup = await electronDesktopE2eTrustedInputRuntime(roleA.id);
+  expect(trustedInputAfterPopup.length).toBeGreaterThan(trustedInputBeforePopup.length);
+  expect(trustedInputAfterPopup.at(-1)?.receipt).toEqual(expect.objectContaining({
+    roleId: roleA.id,
+    status: "applied",
+    surfaceGeneration: trustedSurfaceGeneration
+  }));
 
   const continuityFixture = await fixtureCursor();
   const continuityProjection = await rendererEventCursor();

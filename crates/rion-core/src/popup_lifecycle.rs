@@ -125,7 +125,6 @@ impl ChromiumPopupLifecycleRuntime {
             parent: request.parent.clone(),
             target,
             title,
-            creation_url: "about:blank".to_owned(),
             target_url: request.target_url.clone(),
             disposition: request.disposition,
             opener_policy: request.opener_policy,
@@ -500,6 +499,7 @@ fn validate_native_host(
         rion_platform::Platform::Windows => "windows",
     };
     if host.platform != expected_platform
+        || host.host_kind != "electronBrowserWindow"
         || host.native_host_id < 1
         || host.logical_window_id != record.admission.target.window_id
         || host.window_generation != 1
@@ -509,32 +509,6 @@ fn validate_native_host(
             "CHROMIUM_POPUP_NATIVE_HOST_FENCE_MISMATCH",
             "The popup native-host receipt does not match its Rust-owned admission.",
         ));
-    }
-    match platform {
-        rion_platform::Platform::Macos => {
-            let identity = host.appkit_identity.as_ref().ok_or_else(|| {
-                domain(
-                    "CHROMIUM_POPUP_APPKIT_RECEIPT_REQUIRED",
-                    "The macOS popup requires an exact AppKit host identity receipt.",
-                )
-            })?;
-            if identity.logical_window_id != record.admission.target.window_id
-                || identity.launch_generation != record.admission.open_operation_id
-                || identity.native_generation < 1
-            {
-                return Err(domain(
-                    "CHROMIUM_POPUP_APPKIT_RECEIPT_MISMATCH",
-                    "The AppKit popup identity does not match its Rust-owned launch fence.",
-                ));
-            }
-        }
-        rion_platform::Platform::Windows if host.appkit_identity.is_some() => {
-            return Err(domain(
-                "CHROMIUM_POPUP_WINDOWS_HOST_INVALID",
-                "A Windows popup cannot claim an AppKit host identity.",
-            ));
-        }
-        _ => {}
     }
     Ok(())
 }
@@ -557,23 +531,22 @@ fn validate_open_request(request: &ChromiumPopupOpenRequestRecord) -> CoreResult
             "The popup request is missing an exact parent fence.",
         ));
     }
-    if request
-        .frame_name
-        .as_deref()
-        .is_some_and(|name| name != "_blank")
-    {
+    if request.frame_name.as_deref().is_some_and(|name| {
+        let normalized = name.to_ascii_lowercase();
+        name.len() > 256
+            || name.chars().any(char::is_control)
+            || (name.starts_with('_') && normalized != "_blank")
+    }) {
         return Err(domain(
-            "CHROMIUM_POPUP_NAMED_TARGET_UNSUPPORTED",
-            "Only an unnamed or _blank isolated popup target is supported.",
+            "CHROMIUM_POPUP_FRAME_NAME_INVALID",
+            "The popup requested an unsafe browsing-context name.",
         ));
     }
-    for feature in request.raw_features.split(',').map(str::trim) {
-        if !feature.is_empty() && feature != "noopener" && feature != "noreferrer" {
-            return Err(domain(
-                "CHROMIUM_POPUP_FEATURE_UNSUPPORTED",
-                "The popup requested an unsupported native window feature.",
-            ));
-        }
+    if request.raw_features.len() > 1_024 || request.raw_features.chars().any(char::is_control) {
+        return Err(domain(
+            "CHROMIUM_POPUP_FEATURES_INVALID",
+            "The popup feature envelope is malformed or exceeds its bounded policy.",
+        ));
     }
     canonical_remote_url(&request.target_url, "target")?;
     if let Some(referrer) = request.referrer_url.as_deref() {
@@ -595,7 +568,7 @@ fn validate_open_request(request: &ChromiumPopupOpenRequestRecord) -> CoreResult
     }) {
         return Err(domain(
             "CHROMIUM_POPUP_REFERRER_POLICY_INVALID",
-            "The popup referrer policy is not supported by the controlled loader.",
+            "The popup request contains an unsupported referrer policy.",
         ));
     }
     Ok(())
@@ -645,8 +618,10 @@ fn popup_target(
             "The popup parent target has invalid display scale evidence.",
         ));
     }
-    let width = parent.bounds.width.min(parent.work_area.width).max(640);
-    let height = parent.bounds.height.min(parent.work_area.height).max(480);
+    let parent_width = parent.bounds.width.min(parent.work_area.width);
+    let parent_height = parent.bounds.height.min(parent.work_area.height);
+    let width = (parent_width - parent_width / 5).max(640);
+    let height = (parent_height - parent_height / 5).max(480);
     if width > parent.work_area.width || height > parent.work_area.height {
         return Err(domain(
             "CHROMIUM_POPUP_WORK_AREA_TOO_SMALL",
@@ -655,8 +630,9 @@ fn popup_target(
     }
     let max_x = parent.work_area.x + parent.work_area.width - width;
     let max_y = parent.work_area.y + parent.work_area.height - height;
-    let x = (parent.bounds.x + 24).clamp(parent.work_area.x, max_x);
-    let y = (parent.bounds.y + 24).clamp(parent.work_area.y, max_y);
+    let x = (parent.bounds.x + (parent.bounds.width - width) / 2).clamp(parent.work_area.x, max_x);
+    let y =
+        (parent.bounds.y + (parent.bounds.height - height) / 2).clamp(parent.work_area.y, max_y);
     Ok(EmbeddedLaunchTargetRecord {
         window_id: format!("popup-{popup_id}"),
         persisted_name: Some("Popup".to_owned()),

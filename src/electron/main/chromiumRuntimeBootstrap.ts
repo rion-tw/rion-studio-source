@@ -128,12 +128,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 30;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 31;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 30 }> {
+): Readonly<Options & { runtimeContractVersion: 31 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
@@ -717,7 +717,6 @@ export class ChromiumRuntimeBootstrap {
       : null;
     const popupCoordinator = new ChromiumPopupLifecycleCoordinator({
       core: input.core,
-      hosts,
       onError: input.onError,
       platform: input.platform,
       runtimeSnapshot: () => {
@@ -728,8 +727,7 @@ export class ChromiumRuntimeBootstrap {
           );
         }
         return executor.snapshot();
-      },
-      views: input.views
+      }
     });
     const navigationFailureReporter = new ChromiumRoleNavigationFailureReporter({
       core: input.core,

@@ -32,12 +32,17 @@ function inspection(platform: "darwin" | "win32") {
     observations: [],
     platform,
     popups: [{
-      appKitIdentity: appKit ? appKitIdentity(POPUP_WINDOW_ID) : null,
-      hostKind: appKit ? "appkit-chromium" : "bundled-chromium",
+      appKitIdentity: null,
+      currentUrl: "https://example.test/popup",
+      hostKind: "electronBrowserWindow",
       logicalWindowId: POPUP_WINDOW_ID,
       nativeHostId: 42,
+      nativeParentId: 41,
       openOperationId: OPEN_OPERATION_ID,
+      openerPolicy: "connectedOpener",
       popupId: POPUP_ID,
+      sessionMatchesOwner: true,
+      title: "Rion Popup — example.test",
       visible: true
     }],
     roles: [],
@@ -63,7 +68,6 @@ describe("Electron desktop E2E runtime-tab Reload inspection", () => {
       ...inspection("darwin"),
       popups: [{
         ...inspection("darwin").popups[0],
-        appKitIdentity: null,
         hostKind: "bundled-chromium"
       }]
     })).toThrow(/inspection is invalid/u);

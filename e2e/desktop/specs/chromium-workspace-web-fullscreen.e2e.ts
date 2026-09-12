@@ -13,6 +13,7 @@ import {
   type ElectronDesktopE2eWorkspaceWebRuntimeInspection
 } from "../support/electron-driver";
 import {
+  closeVisibleElectronPopup,
   clickVisibleElectronPageElement,
   clickVisibleElectronPageElementWithWindowOpenModifier,
   clickVisibleElectronPageElementWithPointerKeepingTarget,
@@ -33,7 +34,6 @@ import {
 } from "../support/native-file-upload";
 import {
   closeVisibleRuntimeTab,
-  closeVisibleRuntimeWindow,
   readVisibleMacosRuntimeTabCloseEvidence,
   readVisibleWindowsRuntimeTabCloseEvidence,
   shiftClickVisibleMacosScreenPoint
@@ -90,6 +90,25 @@ function popupUrl(): string {
     `/role/${POPUP_FIXTURE_ID}`,
     "https://rion-drm.fixture.test"
   ).href;
+}
+
+function oauthCallbackUrl(parentRoleId: string): string {
+  const url = new URL(
+    "/role/e2e-oauth-callback",
+    required("RION_STUDIO_E2E_FIXTURE_ORIGIN")
+  );
+  url.searchParams.set("parentRoleId", parentRoleId);
+  return url.href;
+}
+
+function oauthProviderUrl(parentRoleId: string): string {
+  const url = new URL(
+    "/role/e2e-oauth-provider",
+    "https://rion-drm.fixture.test"
+  );
+  url.searchParams.set("callback", oauthCallbackUrl(parentRoleId));
+  url.searchParams.set("parentRoleId", parentRoleId);
+  return url.href;
 }
 
 function downloadUrl(): string {
@@ -600,6 +619,150 @@ async function exerciseDrmPermission(input: Readonly<{
   if (drmDecisions.length === 0) expect(drmResult.errorCode).toBe("NotSupportedError");
 }
 
+async function exerciseNamedOauthPopup(input: Readonly<{
+  inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection;
+  mainWindowHandle: string;
+}>): Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection> {
+  const before = input.inspection;
+  const afterSequence = await fixtureCursor();
+  await clickVisibleElectronPageElement(
+    configuredWebUrl(),
+    input.mainWindowHandle,
+    "#named-oauth-popup"
+  );
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-popup-requested",
+    roleId: WEB_FIXTURE_ID
+  })).toEqual(expect.objectContaining({
+    isTrusted: true,
+    oauth: expect.objectContaining({
+      targetName: "thirdLoginWindow",
+      windowProxyNonNull: true
+    }),
+    targetId: "named-oauth-popup"
+  }));
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-provider-ready",
+    roleId: "e2e-oauth-provider"
+  })).toEqual(expect.objectContaining({
+    oauth: expect.objectContaining({
+      openerConnected: true,
+      providerCookiePresent: true,
+      providerStoragePresent: true
+    })
+  }));
+
+  let provider: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
+  await browser.waitUntil(async () => {
+    const candidate = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
+    if (candidate.popups.length !== 1 || !candidate.popups[0]?.visible ||
+        candidate.popups[0].currentUrl !== oauthProviderUrl(WEB_FIXTURE_ID)) {
+      return false;
+    }
+    provider = candidate;
+    return true;
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The named OAuth provider popup did not become visible"
+  });
+  expectMainHostGeometryInvariant(before, provider!);
+  const popup = provider!.popups[0]!;
+  expect(popup).toEqual(expect.objectContaining({
+    appKitChrome: null,
+    appKitIdentity: null,
+    currentUrl: oauthProviderUrl(WEB_FIXTURE_ID),
+    hostKind: "electronBrowserWindow",
+    nativeParentId: before.parentNativeHostId,
+    openerPolicy: "connectedOpener",
+    presentation: "normal",
+    sessionMatchesOwner: true,
+    title: "Rion Popup — rion-drm.fixture.test",
+    visible: true
+  }));
+
+  await clickVisibleElectronPageElement(
+    oauthProviderUrl(WEB_FIXTURE_ID),
+    input.mainWindowHandle,
+    "#oauth-provider-continue"
+  );
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-provider-continue",
+    roleId: "e2e-oauth-provider"
+  })).toEqual(expect.objectContaining({
+    isTrusted: true,
+    oauth: expect.objectContaining({ openerConnected: true })
+  }));
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-callback-ready",
+    roleId: "e2e-oauth-callback"
+  })).toEqual(expect.objectContaining({
+    oauth: expect.objectContaining({
+      callbackCookiePresent: true,
+      callbackStoragePresent: true,
+      openerConnected: true
+    })
+  }));
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-storage-event",
+    roleId: WEB_FIXTURE_ID
+  })).toEqual(expect.objectContaining({
+    oauth: expect.objectContaining({ storageEventObserved: true })
+  }));
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-post-message",
+    roleId: WEB_FIXTURE_ID
+  })).toEqual(expect.objectContaining({
+    oauth: expect.objectContaining({
+      messageOrigin: new URL(configuredWebUrl()).origin,
+      openerConnected: true
+    })
+  }));
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-login-complete",
+    roleId: WEB_FIXTURE_ID
+  })).toEqual(expect.objectContaining({
+    oauth: expect.objectContaining({
+      callbackCookiePresent: true,
+      callbackStoragePresent: true
+    })
+  }));
+
+  let restored: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
+  await browser.waitUntil(async () => {
+    const candidate = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
+    if (candidate.popups.length !== 0 || !candidate.focused) return false;
+    restored = candidate;
+    return true;
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The named OAuth callback did not close and restore its parent"
+  });
+  expectMainHostGeometryInvariant(before, restored!);
+  const closed = await waitForPopupLifecycleObservation({
+    action: "nativeClosed",
+    afterSequence: 0,
+    openOperationId: popup.openOperationId,
+    popupId: popup.popupId,
+    windowId: before.windowId
+  });
+  expect(closed.observation).toEqual(expect.objectContaining({
+    completionScope: "nativeDestroyed",
+    lifecycleTerminal: true,
+    phase: "closed",
+    status: "applied"
+  }));
+  return restored!;
+}
+
 async function exerciseContainedFullscreen(input: Readonly<{
   inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection;
   mainWindowHandle: string;
@@ -686,28 +849,19 @@ async function exerciseContainedFullscreen(input: Readonly<{
   // Native focus events may advance that revision, but no advance is required.
   expect(popupBefore!.topologyRevision).toBeGreaterThanOrEqual(before.topologyRevision);
   expect(popupBefore!.popups[0]).toEqual(expect.objectContaining({
-    hostKind: before.hostKind,
+    appKitChrome: null,
+    appKitIdentity: null,
+    currentUrl: popupUrl(),
+    hostKind: "electronBrowserWindow",
+    nativeParentId: before.parentNativeHostId,
+    openerPolicy: "isolatedNoopener",
     presentation: "normal",
+    sessionMatchesOwner: true,
+    title: "Rion Popup — rion-drm.fixture.test",
     topologyRevision: 1,
     visible: true,
     windowGeneration: 1
   }));
-  if (platform === "macos") {
-    expect(popupBefore!.popups[0]!.appKitIdentity).toEqual({
-      launchGeneration: popupBefore!.popups[0]!.openOperationId,
-      logicalWindowId: popupBefore!.popups[0]!.logicalWindowId,
-      nativeGeneration: popupBefore!.popups[0]!.appKitIdentity?.nativeGeneration
-    });
-    expect(popupBefore!.popups[0]!.appKitChrome).toEqual({
-      addButtonOnScreen: false,
-      tabStripOnScreen: false,
-      visibleTrafficLightCount: 3,
-      windowNameOnScreen: true
-    });
-  } else {
-    expect(popupBefore!.popups[0]!.appKitIdentity).toBeNull();
-    expect(popupBefore!.popups[0]!.appKitChrome).toBeNull();
-  }
 
   await exerciseDrmPermission({ inspection: popupBefore!, mainWindowHandle });
 
@@ -756,9 +910,9 @@ async function exerciseContainedFullscreen(input: Readonly<{
   });
   const popupEscapeAfter = await fixtureCursor();
   await submitElectronPageEscape(popupUrl(), mainWindowHandle, {
+    hostKind: "electronBrowserWindow",
     platform,
     processId,
-    runtimeWindowId: popupBefore!.popups[0]!.logicalWindowId
   });
   expectFixtureFullscreen(await waitFixtureEvent({
     afterSequence: popupEscapeAfter,
@@ -770,12 +924,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expect(popupRestored.popups).toEqual(popupBefore!.popups);
 
   const popup = popupRestored.popups[0]!;
-  await closeVisibleRuntimeWindow({
-    mainWindowHandle,
-    platform,
-    windowId: popup.logicalWindowId,
-    tabName: new URL(popupUrl()).hostname
-  });
+  await closeVisibleElectronPopup(popupUrl(), mainWindowHandle);
   let restoredParent: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
     const candidate = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
@@ -804,6 +953,11 @@ async function exerciseContainedFullscreen(input: Readonly<{
     phase: "closed",
     status: "applied"
   }));
+
+  restoredParent = await exerciseNamedOauthPopup({
+    inspection: restoredParent!,
+    mainWindowHandle
+  });
 
   expect(await exerciseVisibleFileUpload({ mainWindowHandle, platform }))
     .toBe(processId);

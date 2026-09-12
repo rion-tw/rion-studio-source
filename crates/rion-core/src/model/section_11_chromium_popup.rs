@@ -17,6 +17,7 @@ pub enum ChromiumPopupDisposition {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum ChromiumPopupOpenerPolicy {
+    ConnectedOpener,
     IsolatedNoopener,
 }
 
@@ -97,8 +98,6 @@ pub struct ChromiumPopupAdmissionRecord {
     pub parent: ChromiumPopupParentFenceRecord,
     pub target: EmbeddedLaunchTargetRecord,
     pub title: String,
-    #[ts(type = "\"about:blank\"")]
-    pub creation_url: String,
     pub target_url: String,
     pub disposition: ChromiumPopupDisposition,
     pub opener_policy: ChromiumPopupOpenerPolicy,
@@ -112,11 +111,13 @@ pub struct ChromiumPopupAdmissionRecord {
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ChromiumPopupNativeHostReceiptRecord {
     #[ts(type = "\"macos\" | \"windows\"")]
     pub platform: String,
+    #[ts(type = "\"electronBrowserWindow\"")]
+    pub host_kind: String,
     #[ts(type = "number")]
     pub native_host_id: u64,
     pub logical_window_id: String,
@@ -124,9 +125,6 @@ pub struct ChromiumPopupNativeHostReceiptRecord {
     pub window_generation: u64,
     #[ts(type = "number")]
     pub topology_revision: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub appkit_identity: Option<AppKitRuntimeHostIdentityRecord>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]

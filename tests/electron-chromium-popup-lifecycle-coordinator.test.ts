@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-
 import { describe, expect, it, vi } from "vitest";
 
 import type {
@@ -16,24 +14,25 @@ import {
   resolveChromiumPopupParent,
   type ChromiumPopupLifecycleCoordinatorInput
 } from "../src/electron/main/chromiumPopupLifecycleCoordinator";
-import type { ChromiumPopupOwnerSource } from
-  "../src/electron/main/chromiumPopupPorts";
 import type {
+  ChromiumPopupOwnerSource,
+  ChromiumPopupWindowEventMap,
+  ChromiumPopupWindowPort,
+  ChromiumWindowOpenDetails,
+  ChromiumWindowOpenHandlerResponse
+} from "../src/electron/main/chromiumPopupPorts";
+import type {
+  ChromiumRoleSurfaceBounds,
   ChromiumRoleSurfaceEventMap,
-  ChromiumRoleSurfaceWebContentsPort,
-  ChromiumRoleWebContentsViewPort
+  ChromiumRoleSurfaceWebContentsPort
 } from "../src/electron/main/chromiumRoleSurfacePorts";
-import type { ChromiumRuntimeHostPort } from
-  "../src/electron/main/chromiumRuntimeEffectExecutor";
+import type { ChromiumRoleSessionPort } from
+  "../src/electron/main/chromiumRoleSessionRegistry";
 
 const POPUP_ID = "10000000-0000-4000-8000-000000000001";
 const OPEN_OPERATION_ID = "20000000-0000-4000-8000-000000000001";
 
-function indexedIdentifier(prefix: "1" | "2" | "3", index: number): string {
-  return `${prefix}0000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
-}
-
-function deferred(): { promise: Promise<void>; resolve: () => void } {
+function controlledPromise(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((resolvePromise) => {
     resolve = resolvePromise;
@@ -42,7 +41,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 async function eventually(assertion: () => boolean): Promise<void> {
-  for (let index = 0; index < 80; index += 1) {
+  for (let index = 0; index < 100; index += 1) {
     if (assertion()) return;
     await Promise.resolve();
   }
@@ -62,10 +61,8 @@ const parentTarget: EmbeddedLaunchTargetRecord = Object.freeze({
 class FakeCore {
   readonly commands: CoreCommand[] = [];
   readonly actions: ChromiumPopupLifecycleActionRecord[] = [];
-  readonly openOperations = new Map<string, string>();
   admissionGate: Promise<void> = Promise.resolve();
-  admissionCount = 0;
-  phase = "admitted";
+  phase: ChromiumPopupLifecycleReceiptRecord["phase"] = "admitted";
   revision = 1;
   closeReason: string | undefined;
 
@@ -82,27 +79,22 @@ class FakeCore {
   });
 
   #admission(request: ChromiumPopupOpenRequestRecord): ChromiumPopupAdmissionRecord {
-    this.admissionCount += 1;
-    const popupId = indexedIdentifier("1", this.admissionCount);
-    const openOperationId = indexedIdentifier("2", this.admissionCount);
-    this.openOperations.set(popupId, openOperationId);
     return {
       requestId: request.requestId,
-      popupId,
-      openOperationId,
+      popupId: POPUP_ID,
+      openOperationId: OPEN_OPERATION_ID,
       lifecycleRevision: 1,
       parent: request.parent,
       target: {
         ...request.parentTarget,
-        windowId: `popup-${popupId}`,
+        windowId: `popup-${POPUP_ID}`,
         persistedName: "popup.example.test",
         bounds: { x: 120, y: 100, width: 800, height: 600 }
       },
       title: "popup.example.test",
-      creationUrl: "about:blank",
       targetUrl: request.targetUrl,
       disposition: "newWindow",
-      openerPolicy: "isolatedNoopener",
+      openerPolicy: request.openerPolicy,
       referrerUrl: request.referrerUrl,
       referrerPolicy: request.referrerPolicy,
       hasPostBody: request.hasPostBody
@@ -135,33 +127,22 @@ class FakeCore {
     } else if (action.type === "closeRequested") {
       this.closeReason = action.reason;
       if (this.phase === "admitted") {
-        this.phase = "cancelled";
-        status = "cancelled";
+        const failed = action.reason === "loadFailed" ||
+          action.reason === "navigationRejected";
+        this.phase = failed ? "failed" : "cancelled";
+        status = failed ? "failed" : "cancelled";
         operationTerminal = true;
         lifecycleTerminal = true;
-        failureCode = "CHROMIUM_POPUP_CLOSED_BEFORE_READY";
       } else {
         this.phase = "closing";
         closeNative = true;
       }
     } else if (action.type === "nativeClosed") {
+      this.phase = this.closeReason === "user" ? "closed" : "cancelled";
+      status = this.closeReason === "user" ? "applied" : "cancelled";
       completionScope = "nativeDestroyed";
       operationTerminal = true;
       lifecycleTerminal = true;
-      if (this.phase === "closing") {
-        this.phase = this.closeReason === "user" ? "closed" : "cancelled";
-        status = this.closeReason === "user" ? "applied" : "cancelled";
-        if (
-          this.closeReason === "parentRetired" ||
-          this.closeReason === "applicationShutdown"
-        ) {
-          failureCode = "CHROMIUM_POPUP_OWNER_RETIRED";
-        }
-      } else {
-        this.phase = "indeterminate";
-        status = "indeterminate";
-        failureCode = "CHROMIUM_POPUP_UNREQUESTED_NATIVE_CLOSE";
-      }
     } else if (action.type === "failed") {
       this.phase = action.nativeStateUnknown ? "indeterminate" : "closing";
       status = action.nativeStateUnknown ? "indeterminate" : "failed";
@@ -174,9 +155,9 @@ class FakeCore {
     return {
       eventId: event.eventId,
       popupId: event.popupId,
-      operationId: this.openOperations.get(event.popupId) ?? OPEN_OPERATION_ID,
+      operationId: OPEN_OPERATION_ID,
       lifecycleRevision: this.revision,
-      phase: this.phase as ChromiumPopupLifecycleReceiptRecord["phase"],
+      phase: this.phase,
       status,
       completionScope,
       operationTerminal,
@@ -187,74 +168,50 @@ class FakeCore {
   }
 }
 
-class FakeView {
-  readonly listeners = new Map<string, Set<(...arguments_: never[]) => void>>();
-  readonly close = vi.fn(() => {
-    if (this.destroyed) return;
-    this.destroyed = true;
-    this.emit("destroyed");
-  });
-  readonly loadURL = vi.fn(async (
-    _url: string,
-    _options?: Parameters<ChromiumRoleSurfaceWebContentsPort["loadURL"]>[1]
+type Listener = (...arguments_: unknown[]) => unknown;
+
+class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
+  readonly listeners = new Map<keyof ChromiumRoleSurfaceEventMap, Set<Listener>>();
+  readonly loadURL = vi.fn(async () => undefined);
+  readonly reload = vi.fn();
+  readonly close = vi.fn();
+  readonly executeJavaScriptInIsolatedWorld = vi.fn(async () => undefined);
+  readonly send = vi.fn();
+  readonly setAudioMuted = vi.fn();
+  readonly setWindowOpenHandler = vi.fn((
+    _handler: (details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse
   ) => undefined);
-  readonly setBounds = vi.fn((bounds: Readonly<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }>) => {
-    this.bounds = { ...bounds };
-  });
-  readonly setVisible = vi.fn();
-  readonly windowOpen = vi.fn();
-  readonly webContents: ChromiumRoleSurfaceWebContentsPort;
-  readonly port: ChromiumRoleWebContentsViewPort;
-  dropPortWebContentsOnDestroy = false;
+  readonly stop = vi.fn();
   destroyed = false;
-  bounds = { x: 0, y: 0, width: 800, height: 560 };
-  url = "about:blank";
+  url = "https://popup.example.test/start";
   zoomFactor = 1;
 
-  constructor(readonly session: object) {
-    this.webContents = {
-      session,
-      close: this.close,
-      executeJavaScriptInIsolatedWorld: vi.fn(),
-      getURL: () => this.url,
-      getZoomFactor: () => this.zoomFactor,
-      isAudioMuted: () => false,
-      isCurrentlyAudible: () => false,
-      isDestroyed: () => this.destroyed,
-      loadURL: this.loadURL,
-      on: (event: string, listener: (...arguments_: never[]) => void) => {
-        const listeners = this.listeners.get(event) ?? new Set();
-        listeners.add(listener);
-        this.listeners.set(event, listeners);
-      },
-      removeListener: (event: string, listener: (...arguments_: never[]) => void) => {
-        this.listeners.get(event)?.delete(listener);
-      },
-      send: vi.fn(),
-      setWindowOpenHandler: this.windowOpen,
-      setAudioMuted: vi.fn(),
-      setZoomFactor: vi.fn((zoomFactor: number) => {
-        this.zoomFactor = zoomFactor;
-      })
-    } as unknown as ChromiumRoleSurfaceWebContentsPort;
-    const readPortWebContents = () =>
-      this.dropPortWebContentsOnDestroy && this.destroyed
-        ? undefined as unknown as ChromiumRoleSurfaceWebContentsPort
-        : this.webContents;
-    this.port = {
-      get webContents() {
-        return readPortWebContents();
-      },
-      getBounds: () => ({ ...this.bounds }),
-      getVisible: () => true,
-      setBounds: this.setBounds,
-      setVisible: this.setVisible
-    };
+  constructor(
+    readonly session: ChromiumRoleSessionPort,
+    readonly opener: ChromiumRoleSurfaceWebContentsPort["opener"]
+  ) {}
+
+  getURL(): string { return this.url; }
+  getZoomFactor(): number { return this.zoomFactor; }
+  isAudioMuted(): boolean { return false; }
+  isCurrentlyAudible(): boolean { return false; }
+  isDestroyed(): boolean { return this.destroyed; }
+  setZoomFactor(factor: number): void { this.zoomFactor = factor; }
+
+  on<EventName extends keyof ChromiumRoleSurfaceEventMap>(
+    event: EventName,
+    listener: ChromiumRoleSurfaceEventMap[EventName]
+  ): void {
+    const listeners = this.listeners.get(event) ?? new Set<Listener>();
+    listeners.add(listener as unknown as Listener);
+    this.listeners.set(event, listeners);
+  }
+
+  removeListener<EventName extends keyof ChromiumRoleSurfaceEventMap>(
+    event: EventName,
+    listener: ChromiumRoleSurfaceEventMap[EventName]
+  ): void {
+    this.listeners.get(event)?.delete(listener as unknown as Listener);
   }
 
   emit<EventName extends keyof ChromiumRoleSurfaceEventMap>(
@@ -262,812 +219,521 @@ class FakeView {
     ...arguments_: Parameters<ChromiumRoleSurfaceEventMap[EventName]>
   ): void {
     for (const listener of this.listeners.get(event) ?? []) {
-      (listener as (...values: unknown[]) => void)(...arguments_);
+      listener(...arguments_);
     }
   }
 }
 
-class FakeHost {
-  readonly addChildView = vi.fn();
-  readonly removeChildView = vi.fn();
-  readonly show = vi.fn(() => {
-    this.visible = true;
+class FakeWindow implements ChromiumPopupWindowPort {
+  readonly id = 71;
+  readonly listeners = new Map<keyof ChromiumPopupWindowEventMap, Set<Listener>>();
+  readonly setBounds = vi.fn((bounds: ChromiumRoleSurfaceBounds) => {
+    this.bounds = { ...bounds };
   });
-  observer: Parameters<NonNullable<ChromiumRuntimeHostPort["bindPopupLifecycle"]>>[0]
-    | null = null;
-  destroyed = false;
-  visible = false;
-  throwContentBounds = false;
-  bounds = { x: 120, y: 100, width: 800, height: 600 };
-
-  readonly host: ChromiumRuntimeHostPort = {
-    id: 71,
-    logicalWindowId: `popup-${POPUP_ID}`,
-    contentView: {
-      addChildView: this.addChildView,
-      removeChildView: this.removeChildView
-    },
-    bindPopupLifecycle: (observer) => {
-      this.observer = observer;
-    },
-    close: vi.fn(async () => {
-      if (this.destroyed) return;
-      this.destroyed = true;
-      this.observer?.closed();
-    }),
-    focus: vi.fn(),
-    hide: vi.fn(),
-    getContentBounds: () => {
-      if (this.throwContentBounds) throw new Error("layout failed");
-      return { x: 0, y: 40, width: 800, height: 560 };
-    },
-    readProjection: () => ({
-      displayId: 7,
-      bounds: { ...this.bounds },
-      visible: this.visible,
-      focused: false,
-      presentation: "normal"
-    }),
-    isDestroyed: () => this.destroyed,
-    isVisible: () => this.visible,
-    show: this.show
-  };
-
-  unexpectedClose(): void {
+  readonly setFocusable = vi.fn((focusable: boolean) => {
+    this.focusable = focusable;
+  });
+  readonly setTitle = vi.fn((title: string) => { this.title = title; });
+  readonly show = vi.fn(() => { this.visible = true; });
+  readonly destroy = vi.fn(() => {
+    if (this.destroyed) return;
     this.destroyed = true;
-    this.observer?.closed();
+    this.webContents.destroyed = true;
+    this.webContents.emit("destroyed");
+    this.emit("closed");
+  });
+  bounds = { x: 0, y: 0, width: 640, height: 480 };
+  destroyed = false;
+  focusable = false;
+  focused = false;
+  visible = false;
+  title = "Rion Popup — popup.example.test";
+
+  constructor(
+    readonly parent: Readonly<{ id: number; isDestroyed: () => boolean }>,
+    readonly webContents: FakeContents
+  ) {}
+
+  getBounds(): ChromiumRoleSurfaceBounds { return { ...this.bounds }; }
+  getContentBounds(): ChromiumRoleSurfaceBounds { return { ...this.bounds }; }
+  getParentWindow() { return this.parent; }
+  getTitle(): string { return this.title; }
+  isDestroyed(): boolean { return this.destroyed; }
+  isFocused(): boolean { return this.focused; }
+  isVisible(): boolean { return this.visible; }
+
+  on<EventName extends keyof ChromiumPopupWindowEventMap>(
+    event: EventName,
+    listener: ChromiumPopupWindowEventMap[EventName]
+  ): void {
+    const listeners = this.listeners.get(event) ?? new Set<Listener>();
+    listeners.add(listener as unknown as Listener);
+    this.listeners.set(event, listeners);
+  }
+
+  removeListener<EventName extends keyof ChromiumPopupWindowEventMap>(
+    event: EventName,
+    listener: ChromiumPopupWindowEventMap[EventName]
+  ): void {
+    this.listeners.get(event)?.delete(listener as unknown as Listener);
+  }
+
+  emit<EventName extends keyof ChromiumPopupWindowEventMap>(
+    event: EventName,
+    ...arguments_: Parameters<ChromiumPopupWindowEventMap[EventName]>
+  ): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(...arguments_);
+    }
+  }
+
+  userClose(): void {
+    if (this.destroyed) return;
+    this.emit("close");
+    this.destroy();
   }
 }
 
-interface RuntimeRoleFixture {
-  readonly generation: number;
-  readonly ownerGeneration: number;
-  readonly roleId: string;
-  readonly tabId: string;
-  readonly windowId: string;
+function runtimeSnapshot() {
+  return {
+    windows: [{
+      windowId: "window-1",
+      activeTabId: "tab-1",
+      tabIds: ["tab-1"],
+      displayId: 7,
+      bounds: parentTarget.bounds,
+      visible: true,
+      focused: true,
+      presentation: "normal" as const,
+      windowGeneration: 1,
+      topologyRevision: 9,
+      parentNativeHostId: 41,
+      target: parentTarget
+    }],
+    tabs: [{
+      tabId: "tab-1",
+      windowId: "window-1",
+      audioMuted: false,
+      audible: false,
+      attemptGeneration: "attempt-1"
+    }],
+    roles: [{
+      roleId: "role-1",
+      tabId: "tab-1",
+      windowId: "window-1",
+      generation: 3,
+      ownerGeneration: 5,
+      zoomFactor: 1.25
+    }],
+    webSurfaces: []
+  };
 }
 
-function harness(roleOwners: readonly RuntimeRoleFixture[] = [{
-  roleId: "role-1",
-  tabId: "tab-1",
-  windowId: "window-1",
-  generation: 3,
-  ownerGeneration: 5
-}]): {
-  core: FakeCore;
-  coordinator: ChromiumPopupLifecycleCoordinator;
-  host: FakeHost;
-  hostCreate: ReturnType<typeof vi.fn>;
-  onError: ReturnType<typeof vi.fn>;
-  source: ChromiumPopupOwnerSource;
-  view: FakeView;
-  viewPreferences: Array<Record<string, unknown>>;
-} {
+interface Harness {
+  readonly core: FakeCore;
+  readonly coordinator: ChromiumPopupLifecycleCoordinator;
+  readonly details: ChromiumWindowOpenDetails;
+  readonly nativeParent: Readonly<{ id: number; isDestroyed: () => boolean }>;
+  readonly onError: ReturnType<typeof vi.fn>;
+  readonly session: ChromiumRoleSessionPort;
+  readonly source: ChromiumPopupOwnerSource;
+  readonly snapshot: { current: ReturnType<typeof runtimeSnapshot> };
+}
+
+function harness(): Harness {
   const core = new FakeCore();
-  const session = {};
+  const session = {} as ChromiumRoleSessionPort;
+  const nativeParent = Object.freeze({ id: 41, isDestroyed: () => false });
   const parent = {
     id: 41,
+    nativeWindow: nativeParent,
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     isDestroyed: () => false
   };
-  const source = {
+  const openerFrame = Object.freeze({
+    frameToken: "parent-frame-token",
+    processId: 8,
+    routingId: 13
+  });
+  const source: ChromiumPopupOwnerSource = {
     ownerKind: "role",
     ownerId: "role-1",
     nativeGeneration: 3,
     parent,
-    session
-  } as unknown as ChromiumPopupOwnerSource;
-  const host = new FakeHost();
-  const view = new FakeView(session);
-  const hostCreate = vi.fn(async () => ({
-    host: host.host,
-    receipt: {
-      platform: "windows" as const,
-      nativeHostId: 71,
-      logicalWindowId: `popup-${POPUP_ID}`,
-      windowGeneration: 1,
-      topologyRevision: 1
-    }
-  }));
+    session,
+    openerFrame
+  } as ChromiumPopupOwnerSource;
+  const snapshot = { current: runtimeSnapshot() };
   const onError = vi.fn();
-  const viewPreferences: Array<Record<string, unknown>> = [];
   const coordinator = new ChromiumPopupLifecycleCoordinator({
-    core: { invoke: core.invoke } as unknown as ChromiumPopupLifecycleCoordinatorInput["core"],
-    hosts: { createPopup: hostCreate },
+    core: { invoke: core.invoke } as ChromiumPopupLifecycleCoordinatorInput["core"],
     onError,
     platform: "win32",
-    runtimeSnapshot: () => ({
-      windows: [{
-        windowId: "window-1",
-        activeTabId: "tab-1",
-        tabIds: ["tab-1"],
-        displayId: 7,
-        bounds: parentTarget.bounds,
-        visible: true,
-        focused: true,
-        presentation: "normal",
-        windowGeneration: 1,
-        topologyRevision: 9,
-        parentNativeHostId: 41,
-        target: parentTarget
-      }],
-      tabs: [{
-        tabId: "tab-1",
-        windowId: "window-1",
-        audioMuted: false,
-        audible: false,
-        attemptGeneration: "attempt-1"
-      }],
-      roles: roleOwners,
-      webSurfaces: []
-    }),
-    views: {
-      create: (options) => {
-        viewPreferences.push(
-          options.webPreferences as unknown as Record<string, unknown>
-        );
-        return view.port;
-      }
-    }
+    runtimeSnapshot: () => snapshot.current
   });
   return {
     core,
     coordinator,
-    host,
-    hostCreate,
+    details: {
+      url: "https://popup.example.test/start",
+      disposition: "new-window",
+      frameName: "thirdLoginWindow",
+      features: "width=800,height=600,left=120,top=100",
+      referrer: {
+        url: "https://parent.example.test/",
+        policy: "strict-origin-when-cross-origin"
+      },
+      postBody: null
+    },
+    nativeParent,
     onError,
+    session,
     source,
-    view,
-    viewPreferences
+    snapshot
   };
 }
 
-function open(coordinator: ChromiumPopupLifecycleCoordinator, source: ChromiumPopupOwnerSource) {
-  coordinator.requestOpen(source, {
-    url: "https://popup.example.test/path",
-    disposition: "new-window",
-    frameName: "_blank",
-    features: "noopener,noreferrer",
-    referrer: {
-      url: "https://parent.example.test/",
-      policy: "strict-origin-when-cross-origin"
-    },
-    postBody: null
-  });
+function createAllowedWindow(
+  subject: Harness,
+  details: ChromiumWindowOpenDetails = subject.details,
+  opener: ChromiumRoleSurfaceWebContentsPort["opener"] = subject.source.openerFrame
+): { decision: Extract<ChromiumWindowOpenHandlerResponse, { action: "allow" }>; window: FakeWindow } {
+  const decision = subject.coordinator.handleWindowOpen(subject.source, details);
+  expect(decision.action).toBe("allow");
+  if (decision.action !== "allow") throw new Error("Popup was unexpectedly denied.");
+  const contents = new FakeContents(subject.session, opener);
+  const window = new FakeWindow(subject.nativeParent, contents);
+  subject.coordinator.didCreateWindow(subject.source, window, details);
+  return { decision, window };
 }
 
 describe("ChromiumPopupLifecycleCoordinator", () => {
-  it("admits a normal target-blank left click and denies background dispositions", async () => {
-    const foreground = harness();
-    foreground.coordinator.requestOpen(foreground.source, {
-      url: "https://popup.example.test/left-click",
-      disposition: "foreground-tab",
-      frameName: "_blank",
-      features: "noopener"
+  it("returns Electron allow without createWindow and fixes security-critical options", () => {
+    const subject = harness();
+    const decision = subject.coordinator.handleWindowOpen(subject.source, {
+      ...subject.details,
+      features: "width=900,height=700,transparent=yes,frame=no,modal=yes,alwaysOnTop=yes,nodeIntegration=yes"
     });
-    await eventually(() => foreground.host.observer !== null);
-    expect(foreground.core.admissionCount).toBe(1);
-    expect(foreground.core.commands[0]).toMatchObject({
-      request: {
-        disposition: "newWindow",
-        openerPolicy: "isolatedNoopener",
-        targetUrl: "https://popup.example.test/left-click"
-      },
-      type: "browserPopupOpenAdmit"
+    expect(decision).toMatchObject({
+      action: "allow",
+      outlivesOpener: false,
+      overrideBrowserWindowOptions: {
+        alwaysOnTop: false,
+        focusable: false,
+        frame: true,
+        modal: false,
+        parent: subject.nativeParent,
+        show: false,
+        transparent: false,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          session: subject.session,
+          webSecurity: true,
+          webviewTag: false
+        }
+      }
     });
-    await foreground.coordinator.dispose();
-
-    const background = harness();
-    background.coordinator.requestOpen(background.source, {
-      url: "https://popup.example.test/background",
-      disposition: "background-tab",
-      frameName: "_blank",
-      features: "noopener"
-    });
-    await Promise.resolve();
-    expect(background.core.commands).toEqual([]);
-    expect(background.hostCreate).not.toHaveBeenCalled();
-    await background.coordinator.dispose();
+    expect(decision).not.toHaveProperty("createWindow");
+    expect(decision.action === "allow" && decision.overrideBrowserWindowOptions.webPreferences)
+      .not.toHaveProperty("preload");
   });
 
-  it("derives the exact macOS AppKit identity from the native host snapshot", () => {
-    const { source } = harness();
+  it.each([
+    [{ ...harness().details, disposition: "background-tab" }, "disposition"],
+    [{ ...harness().details, url: "file:///tmp/popup" }, "scheme"],
+    [{ ...harness().details, frameName: "_self" }, "reserved frame"],
+    [{ ...harness().details, frameName: `bad\u0000name` }, "control frame"],
+    [{ ...harness().details, frameName: `bad\u0085name` }, "Unicode control frame"],
+    [{ ...harness().details, frameName: "x".repeat(257) }, "long frame"],
+    [{ ...harness().details, features: `width=1\u0000` }, "control feature"],
+    [{ ...harness().details, features: `width=1\u0085` }, "Unicode control feature"],
+    [{ ...harness().details, features: "x".repeat(1025) }, "long feature"]
+  ])("denies an unsafe request (%s)", (details) => {
+    const subject = harness();
+    expect(subject.coordinator.handleWindowOpen(subject.source, details))
+      .toEqual({ action: "deny" });
+    expect(subject.core.commands).toEqual([]);
+  });
+
+  it("adopts Electron's same WebContents, commits nativeReady, then enables and shows it", async () => {
+    const subject = harness();
+    const gate = controlledPromise();
+    subject.core.admissionGate = gate.promise;
+    const { decision, window } = createAllowedWindow(subject);
+    await eventually(() => subject.core.commands.length === 1);
+    expect(window.visible).toBe(false);
+    expect(window.focusable).toBe(false);
+    expect(window.webContents.loadURL).not.toHaveBeenCalled();
+    expect(window.webContents.reload).not.toHaveBeenCalled();
+    expect(window.webContents.stop).not.toHaveBeenCalled();
+    expect(window.webContents.session).toBe(subject.session);
+    expect(decision.overrideBrowserWindowOptions.parent).toBe(subject.nativeParent);
+
+    gate.resolve();
+    await eventually(() => window.visible);
+    expect(subject.core.actions).toEqual([
+      expect.objectContaining({
+        type: "nativeReady",
+        host: expect.objectContaining({
+          hostKind: "electronBrowserWindow",
+          nativeHostId: window.id,
+          platform: "windows"
+        })
+      })
+    ]);
+    expect(window.setBounds).toHaveBeenCalledWith({
+      x: 120, y: 100, width: 800, height: 600
+    });
+    expect(window.webContents.zoomFactor).toBe(1.25);
+    expect(window.setFocusable).toHaveBeenCalledWith(true);
+    expect(window.show).toHaveBeenCalledOnce();
+    await subject.coordinator.dispose();
+  });
+
+  it("preserves connected opener, named target, referrer, and POST metadata", async () => {
+    const subject = harness();
+    const details = {
+      ...subject.details,
+      postBody: { data: [{ type: "rawData", bytes: new Uint8Array([1, 2, 3]) }] }
+    };
+    const { window } = createAllowedWindow(subject, details);
+    await eventually(() => window.visible);
+    expect(subject.core.commands[0]).toMatchObject({
+      type: "browserPopupOpenAdmit",
+      request: {
+        frameName: "thirdLoginWindow",
+        hasPostBody: true,
+        openerPolicy: "connectedOpener",
+        rawFeatures: subject.details.features,
+        referrerPolicy: "strict-origin-when-cross-origin",
+        referrerUrl: "https://parent.example.test/",
+        targetUrl: subject.details.url
+      }
+    });
+    expect(window.webContents.loadURL).not.toHaveBeenCalled();
+    await subject.coordinator.dispose();
+  });
+
+  it("preserves Electron's isolated noopener result", async () => {
+    const subject = harness();
+    const details = { ...subject.details, features: "noopener,noreferrer,width=800" };
+    const { window } = createAllowedWindow(subject, details, null);
+    await eventually(() => window.visible);
+    expect(subject.core.commands[0]).toMatchObject({
+      request: { openerPolicy: "isolatedNoopener" }
+    });
+    await subject.coordinator.dispose();
+  });
+
+  it("buffers an early page-ready event and commits it after nativeReady", async () => {
+    const subject = harness();
+    const gate = controlledPromise();
+    subject.core.admissionGate = gate.promise;
+    const { window } = createAllowedWindow(subject);
+    window.webContents.url = "https://callback.example.test/complete";
+    window.webContents.emit("did-finish-load");
+    expect(window.visible).toBe(false);
+    gate.resolve();
+    await eventually(() => subject.core.actions.length === 2);
+    expect(subject.core.actions).toEqual([
+      expect.objectContaining({ type: "nativeReady" }),
+      { type: "pageReady", finalUrl: "https://callback.example.test/complete" }
+    ]);
+    await subject.coordinator.dispose();
+  });
+
+  it("terminalizes an early script close without showing the provisional window", async () => {
+    const subject = harness();
+    const gate = controlledPromise();
+    subject.core.admissionGate = gate.promise;
+    const { window } = createAllowedWindow(subject);
+    window.userClose();
+    gate.resolve();
+    await eventually(() => subject.coordinator.activeCount === 0);
+    expect(window.show).not.toHaveBeenCalled();
+    expect(subject.core.actions).toEqual([
+      { type: "closeRequested", reason: "user" }
+    ]);
+    expect(subject.coordinator.readLifecycleJournal().observations).toEqual([
+      expect.objectContaining({
+        action: "closeRequested",
+        closeReason: "user",
+        lifecycleTerminal: true,
+        operationTerminal: true
+      })
+    ]);
+  });
+
+  it("preserves an early main-frame load failure as the first terminal event", async () => {
+    const subject = harness();
+    const gate = controlledPromise();
+    subject.core.admissionGate = gate.promise;
+    const { window } = createAllowedWindow(subject);
+    window.webContents.emit(
+      "did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED",
+      subject.details.url, true, 7, 11
+    );
+    window.userClose();
+    gate.resolve();
+    await eventually(() => subject.coordinator.activeCount === 0);
+    expect(window.show).not.toHaveBeenCalled();
+    expect(subject.core.actions).toEqual([
+      { type: "closeRequested", reason: "loadFailed" }
+    ]);
+  });
+
+  it.each(["opener", "session", "parent"] as const)(
+    "destroys a did-create-window with a mismatched %s identity",
+    async (mismatch) => {
+      const subject = harness();
+      const contents = new FakeContents(
+        mismatch === "session" ? {} as ChromiumRoleSessionPort : subject.session,
+        mismatch === "opener" ? { frameToken: "wrong" } : subject.source.openerFrame
+      );
+      const parent = mismatch === "parent"
+        ? { id: 99, isDestroyed: () => false }
+        : subject.nativeParent;
+      const window = new FakeWindow(parent, contents);
+      subject.coordinator.didCreateWindow(subject.source, window, subject.details);
+      expect(window.destroy).toHaveBeenCalledOnce();
+      expect(subject.core.commands).toEqual([]);
+      expect(subject.onError).toHaveBeenCalledWith(expect.objectContaining({
+        code: "ELECTRON_CHROMIUM_POPUP_NATIVE_IDENTITY_MISMATCH"
+      }));
+    }
+  );
+
+  it("blocks nested popup, scripted move/resize, untrusted title, and unsafe navigation", async () => {
+    const subject = harness();
+    const { window } = createAllowedWindow(subject);
+    await eventually(() => window.visible);
+    const nested = window.webContents.setWindowOpenHandler.mock.calls[0]?.[0];
+    expect(nested?.({ url: "https://nested.example.test/" }))
+      .toEqual({ action: "deny" });
+    const boundsEvent = { preventDefault: vi.fn() };
+    window.webContents.emit("content-bounds-updated", boundsEvent, {
+      x: 1, y: 1, width: 1, height: 1
+    });
+    const titleEvent = { preventDefault: vi.fn() };
+    window.webContents.emit("page-title-updated", titleEvent, "Spoofed", true);
+    expect(boundsEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(titleEvent.preventDefault).toHaveBeenCalledOnce();
+
+    window.webContents.url = "https://accounts.google.com/select";
+    window.webContents.emit("did-navigate", {}, window.webContents.url, 200, "OK");
+    expect(window.title).toBe("Rion Popup — accounts.google.com");
+    const navigationEvent = { preventDefault: vi.fn() };
+    window.webContents.emit("will-navigate", navigationEvent, "file:///tmp/escape");
+    await eventually(() => subject.coordinator.activeCount === 0);
+    expect(navigationEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(subject.core.actions.map((action) => action.type)).toEqual([
+      "nativeReady", "closeRequested", "nativeClosed"
+    ]);
+  });
+
+  it("terminalizes user close, crash, owner retirement, and shutdown", async () => {
+    const user = harness();
+    const userWindow = createAllowedWindow(user).window;
+    await eventually(() => userWindow.visible);
+    userWindow.userClose();
+    await eventually(() => user.coordinator.activeCount === 0);
+    expect(user.core.actions.map((action) => action.type)).toEqual([
+      "nativeReady", "closeRequested", "nativeClosed"
+    ]);
+
+    const crash = harness();
+    const crashWindow = createAllowedWindow(crash).window;
+    await eventually(() => crashWindow.visible);
+    crashWindow.webContents.emit("render-process-gone", {}, { reason: "crashed" });
+    await eventually(() => crash.coordinator.activeCount === 0);
+    expect(crash.core.closeReason).toBe("loadFailed");
+
+    const retired = harness();
+    const retiredWindow = createAllowedWindow(retired).window;
+    await eventually(() => retiredWindow.visible);
+    await retired.coordinator.retireOwner({
+      ownerKind: "role", ownerId: "role-1", nativeGeneration: 3
+    });
+    expect(retired.core.closeReason).toBe("parentRetired");
+    expect(retired.coordinator.readLifecycleJournal().observations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "closeRequested",
+          closeReason: "parentRetired"
+        })
+      ])
+    );
+    expect(retiredWindow.destroyed).toBe(true);
+
+    const shutdown = harness();
+    const shutdownWindow = createAllowedWindow(shutdown).window;
+    await eventually(() => shutdownWindow.visible);
+    await shutdown.coordinator.dispose();
+    expect(shutdown.core.closeReason).toBe("applicationShutdown");
+    expect(shutdownWindow.destroyed).toBe(true);
+  });
+
+  it("cancels admission when the exact parent becomes stale", async () => {
+    const subject = harness();
+    const gate = controlledPromise();
+    subject.core.admissionGate = gate.promise;
+    const { window } = createAllowedWindow(subject);
+    subject.snapshot.current = { ...subject.snapshot.current, roles: [] };
+    gate.resolve();
+    await eventually(() => subject.coordinator.activeCount === 0);
+    expect(window.show).not.toHaveBeenCalled();
+    expect(subject.core.actions).toEqual([
+      { type: "closeRequested", reason: "parentRetired" }
+    ]);
+  });
+
+  it("keeps AppKit identity only on the parent fence", () => {
+    const subject = harness();
     const identity = {
       logicalWindowId: "window-1",
       launchGeneration: "initial-host-tab-attempt",
       nativeGeneration: 6
     };
     const snapshot = {
+      ...subject.snapshot.current,
       windows: [{
-        windowId: "window-1",
-        activeTabId: "tab-1",
-        tabIds: ["tab-1"],
-        displayId: 7,
-        bounds: parentTarget.bounds,
-        visible: true,
-        focused: true,
-        presentation: "normal" as const,
-        windowGeneration: 2,
-        topologyRevision: 9,
-        parentNativeHostId: 41,
+        ...subject.snapshot.current.windows[0]!,
         appKitIdentity: identity,
-        target: parentTarget
+        windowGeneration: 2
       }],
       tabs: [{
-        tabId: "tab-1",
-        windowId: "window-1",
-        audioMuted: false,
-        audible: false,
+        ...subject.snapshot.current.tabs[0]!,
         attemptGeneration: "active-second-tab-attempt"
-      }],
-      roles: [{
-        roleId: "role-1",
-        tabId: "tab-1",
-        windowId: "window-1",
-        generation: 3,
-        ownerGeneration: 5
-      }],
-      webSurfaces: []
+      }]
     };
-    expect(resolveChromiumPopupParent(snapshot, source, "darwin"))
+    expect(resolveChromiumPopupParent(snapshot, subject.source, "darwin"))
       .toMatchObject({
         parent: {
-          parentWindowGeneration: 2,
-          parentTopologyRevision: 9,
+          parentAppkitIdentity: identity,
           parentAttemptGeneration: "active-second-tab-attempt",
           parentNativeHostId: 41,
-          parentAppkitIdentity: identity
+          parentWindowGeneration: 2
         }
       });
-    expect(resolveChromiumPopupParent(snapshot, {
-      ...source,
-      parent: { ...source.parent, id: 42 }
-    }, "darwin")).toBeNull();
   });
 
-  it("orders admission, native/page receipts, exact Session projection, and close", async () => {
-    const { core, coordinator, host, source, view, viewPreferences } = harness();
-    open(coordinator, source);
-    await eventually(() => host.observer !== null && view.loadURL.mock.calls.length === 1);
-    expect(view.webContents.session).toBe(source.session);
-    expect(core.commands[0]).toMatchObject({
-      request: { hasPostBody: false },
-      type: "browserPopupOpenAdmit"
-    });
-    expect(viewPreferences[0]).toMatchObject({
-      disableHtmlFullscreenWindowResize: true,
-      sandbox: true,
-      nodeIntegration: false
-    });
-    expect(host.addChildView).toHaveBeenCalledWith(view.port);
-    const nestedHandler = view.windowOpen.mock.calls[0]?.[0] as
-      ((details: { url: string }) => { action: "deny" }) | undefined;
-    expect(nestedHandler?.({ url: "https://nested.test/" }))
-      .toEqual({ action: "deny" });
-    view.url = "https://popup.example.test/ready";
-    view.emit("did-finish-load");
-    await eventually(() => core.actions.some((action) => action.type === "pageReady"));
-    host.observer!.closeRequested();
-    await eventually(() => coordinator.activeCount === 0);
-    expect(core.actions.map((action) => action.type)).toEqual([
-      "nativeReady",
-      "pageReady",
-      "closeRequested",
-      "nativeClosed"
-    ]);
-    const journal = coordinator.readLifecycleJournal();
-    expect(journal.capacity).toBe(256);
-    expect(journal.journalVersion).toBe(1);
-    expect(journal.observations.map((observation) => observation.action)).toEqual([
-      "nativeReady",
-      "pageReady",
-      "closeRequested",
-      "nativeClosed"
-    ]);
-    expect(journal.observations[0]).toMatchObject({
-      openOperationId: OPEN_OPERATION_ID,
-      operationTerminal: false,
-      parent: {
-        ownerId: "role-1",
-        ownerKind: "role",
-        ownerNativeGeneration: 3,
-        parentAttemptGeneration: "attempt-1",
-        parentNativeHostId: 41,
-        parentTabId: "tab-1",
-        parentTopologyRevision: 9,
-        parentWindowGeneration: 1,
-        parentWindowId: "window-1",
-        roleOwnerGeneration: 5
-      },
-      popupId: POPUP_ID,
-      sequence: 1,
-      terminalReason: null
-    });
-    expect(journal.observations.at(-1)).toMatchObject({
-      action: "nativeClosed",
-      closeReason: "user",
-      completionScope: "nativeDestroyed",
-      lifecycleTerminal: true,
-      operationTerminal: true,
-      phase: "closed",
-      status: "applied",
-      terminalReason: "user"
-    });
-    expect(Object.isFrozen(journal)).toBe(true);
-    expect(Object.isFrozen(journal.observations)).toBe(true);
-    expect(Object.isFrozen(journal.observations[0]?.parent)).toBe(true);
-    expect(host.removeChildView).toHaveBeenCalledWith(view.port);
-    expect(view.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
-  });
-
-  it("forwards an exact bounded POST envelope in the parent Session", async () => {
-    const { core, coordinator, host, source, view } = harness();
-    const sourceBytes = Buffer.from("return_to=%2Fdashboard&token=fixture");
-    let submittedBytes: Buffer | undefined;
-    let submittedOwnedBuffer: Buffer | undefined;
-    view.loadURL.mockImplementationOnce(async (_url, options) => {
-      const entry = options?.postData?.[0];
-      if (entry?.type === "rawData") {
-        submittedBytes = Buffer.from(entry.bytes);
-        submittedOwnedBuffer = entry.bytes;
-      }
-    });
-
-    coordinator.requestOpen(source, {
-      url: "https://popup.example.test/post",
-      disposition: "new-window",
-      frameName: "_blank",
-      referrer: {
-        url: "https://parent.example.test/",
-        policy: "strict-origin-when-cross-origin"
-      },
-      postBody: {
-        contentType: "application/x-www-form-urlencoded",
-        data: [{ type: "rawData", bytes: sourceBytes }]
-      }
-    });
-
-    await eventually(() => host.observer !== null && submittedBytes !== undefined);
-    expect(core.commands[0]).toMatchObject({
-      request: { hasPostBody: true },
-      type: "browserPopupOpenAdmit"
-    });
-    expect(view.webContents.session).toBe(source.session);
-    expect(view.loadURL).toHaveBeenCalledWith(
-      "https://popup.example.test/post",
-      {
-        extraHeaders: "Content-Type: application/x-www-form-urlencoded",
-        httpReferrer: {
-          url: "https://parent.example.test/",
-          policy: "strict-origin-when-cross-origin"
-        },
-        postData: [expect.objectContaining({ type: "rawData" })]
-      }
-    );
-    expect(submittedBytes?.toString("utf8")).toBe(sourceBytes.toString("utf8"));
-    expect(sourceBytes.toString("utf8")).toContain("token=fixture");
-    await eventually(() => submittedOwnedBuffer?.every((byte) => byte === 0) === true);
-    await coordinator.dispose();
-  });
-
-  it("preserves a multipart boundary and rejects unsafe POST envelopes", async () => {
-    const accepted = harness();
-    let submittedHeader: string | undefined;
-    accepted.view.loadURL.mockImplementationOnce(async (_url, options) => {
-      submittedHeader = options?.extraHeaders;
-    });
-    accepted.coordinator.requestOpen(accepted.source, {
-      url: "https://popup.example.test/multipart",
-      disposition: "new-window",
-      frameName: "_blank",
-      postBody: {
-        boundary: "----RionFixtureBoundary",
-        contentType: "multipart/form-data",
-        data: [{ type: "rawData", bytes: Buffer.from("fixture multipart") }]
-      }
-    });
-    await eventually(() => submittedHeader !== undefined);
-    expect(submittedHeader).toBe(
-      "Content-Type: multipart/form-data; boundary=----RionFixtureBoundary"
-    );
-    await accepted.coordinator.dispose();
-
-    const rejected = harness();
-    rejected.coordinator.requestOpen(rejected.source, {
-      url: "https://popup.example.test/unsafe",
-      disposition: "new-window",
-      frameName: "_blank",
-      postBody: {
-        boundary: "unsafe\r\nboundary",
-        contentType: "multipart/form-data",
-        data: []
-      }
-    });
-    await Promise.resolve();
-    expect(rejected.core.commands).toEqual([]);
-    expect(rejected.hostCreate).not.toHaveBeenCalled();
-    expect(rejected.onError).toHaveBeenCalledWith(expect.objectContaining({
-      code: "ELECTRON_CHROMIUM_POPUP_POST_BODY_INVALID"
-    }));
-    await rejected.coordinator.dispose();
-  });
-
-  it("retains only the latest 256 exact Core lifecycle receipts", async () => {
-    const roleOwners = Array.from({ length: 257 }, (_, index) => ({
-      generation: 3,
-      ownerGeneration: 5,
-      roleId: indexedIdentifier("3", index + 1),
-      tabId: "tab-1",
+  it("applies popup zoom on the existing WebContents", async () => {
+    const subject = harness();
+    const { window } = createAllowedWindow(subject);
+    await eventually(() => window.visible);
+    const transaction = await subject.coordinator.prepareWindowZoomTransaction({
+      nextZoomFactor: 1.2,
+      previousZoomFactor: 1,
+      topologyRevision: 9,
+      windowGeneration: 1,
       windowId: "window-1"
-    }));
-    const { coordinator, hostCreate, source } = harness(roleOwners);
-    for (const role of roleOwners) {
-      const owner = { ...source, ownerId: role.roleId };
-      open(coordinator, owner);
-      await coordinator.retireOwner({
-        ownerKind: "role",
-        ownerId: role.roleId,
-        nativeGeneration: role.generation
-      });
-    }
-
-    const journal = coordinator.readLifecycleJournal();
-    expect(journal.observations).toHaveLength(256);
-    expect(journal.observations[0]).toMatchObject({
-      action: "cancelled",
-      operationTerminal: true,
-      sequence: 2
     });
-    expect(journal.observations.at(-1)).toMatchObject({
-      action: "cancelled",
-      operationTerminal: true,
-      sequence: 257
-    });
-    expect(hostCreate).not.toHaveBeenCalled();
-  });
-
-  it("retains the exact WebContents handle through destructive View teardown", async () => {
-    const { coordinator, host, onError, source, view } = harness();
-    view.dropPortWebContentsOnDestroy = true;
-    open(coordinator, source);
-    await eventually(() => host.observer !== null && view.loadURL.mock.calls.length === 1);
-
-    host.observer!.closeRequested();
-
-    await eventually(() => coordinator.activeCount === 0 && view.destroyed);
-    expect(onError).not.toHaveBeenCalled();
-    expect(view.listeners.get("destroyed")?.size ?? 0).toBe(0);
-  });
-
-  it("contains HTML fullscreen inside the popup content envelope", async () => {
-    const { core, coordinator, host, onError, source, view } = harness();
-    open(coordinator, source);
-    await eventually(() => host.observer !== null && view.loadURL.mock.calls.length === 1);
-    view.url = "https://popup.example.test/ready";
-    view.emit("did-finish-load");
-    await eventually(() => core.actions.some((action) => action.type === "pageReady"));
-    const actionsBeforePresentation = core.actions.length;
-
-    view.emit("enter-html-full-screen");
-    await eventually(() => view.setBounds.mock.calls.length >= 2);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(onError).not.toHaveBeenCalled();
-    view.emit("leave-html-full-screen");
-    await eventually(() => view.setBounds.mock.calls.length >= 3);
-
-    expect(view.setBounds.mock.calls.slice(-2)).toEqual([
-      [{ x: 0, y: 40, width: 800, height: 560 }],
-      [{ x: 0, y: 40, width: 800, height: 560 }]
-    ]);
-    expect(host.host.readProjection()).toMatchObject({
-      bounds: { x: 120, y: 100, width: 800, height: 600 },
-      presentation: "normal"
-    });
-    expect(core.actions).toHaveLength(actionsBeforePresentation);
-    expect(onError).not.toHaveBeenCalled();
-
-    await coordinator.dispose();
-  });
-
-  it("fails closed when contained fullscreen mutates the native popup envelope", async () => {
-    const { coordinator, host, onError, source, view } = harness();
-    open(coordinator, source);
-    await eventually(() => host.observer !== null && view.loadURL.mock.calls.length === 1);
-    host.bounds = { x: 0, y: 0, width: 1440, height: 900 };
-
-    view.emit("enter-html-full-screen");
-
-    await eventually(() => onError.mock.calls.length === 1);
-    expect(onError.mock.calls[0]?.[0]).toMatchObject({
-      code: "ELECTRON_CHROMIUM_POPUP_CONTAINED_FULLSCREEN_HOST_CHANGED"
-    });
-    await eventually(() => coordinator.activeCount === 0);
-  });
-
-  it("retires the created View and host when projection fails after View creation", async () => {
-    const { core, coordinator, host, onError, source, view } = harness();
-    host.throwContentBounds = true;
-    open(coordinator, source);
-    await eventually(() => coordinator.activeCount === 0 && view.destroyed);
-    expect(core.actions.map((action) => action.type)).toContain("cancelled");
-    expect(host.host.close).toHaveBeenCalledOnce();
-    expect(view.close).toHaveBeenCalledOnce();
-    expect(onError).toHaveBeenCalled();
-  });
-
-  it("retires the owned View after an unexpected native-host destruction", async () => {
-    const { core, coordinator, host, source, view } = harness();
-    open(coordinator, source);
-    await eventually(() => host.observer !== null);
-    host.unexpectedClose();
-    await eventually(() => coordinator.activeCount === 0 && view.destroyed);
-    expect(core.actions.map((action) => action.type)).toEqual([
-      "nativeReady",
-      "nativeClosed"
-    ]);
-    expect(core.phase).toBe("indeterminate");
-    expect(host.removeChildView).toHaveBeenCalledWith(view.port);
-  });
-
-  it("fences an owner retired while its Core admission is in flight", async () => {
-    const { core, coordinator, hostCreate, source } = harness();
-    const gate = deferred();
-    core.admissionGate = gate.promise;
-    open(coordinator, source);
-    const retirement = coordinator.retireOwner({
-      ownerKind: "role",
-      ownerId: "role-1",
-      nativeGeneration: 3
-    });
-    gate.resolve();
-    await retirement;
-    expect(hostCreate).not.toHaveBeenCalled();
-    expect(core.actions.map((action) => action.type)).toEqual(["cancelled"]);
-    expect(coordinator.activeCount).toBe(0);
-    expect(coordinator.readLifecycleJournal().observations).toEqual([
-      expect.objectContaining({
-        action: "cancelled",
-        failureCode: "CHROMIUM_POPUP_OWNER_RETIRED",
-        lifecycleTerminal: true,
-        openOperationId: OPEN_OPERATION_ID,
-        operationTerminal: true,
-        phase: "cancelled",
-        status: "cancelled",
-        terminalReason: "CHROMIUM_POPUP_OWNER_RETIRED"
-      })
-    ]);
-  });
-
-  it("temporarily fences and retires in-flight popups during owner reparent", async () => {
-    const { core, coordinator, hostCreate, source } = harness();
-    const gate = deferred();
-    core.admissionGate = gate.promise;
-    open(coordinator, source);
-    const retirement = coordinator.retireOwnerPopupsForMove({
-      ownerKind: "role",
-      ownerId: "role-1",
-      nativeGeneration: 3
-    });
-    gate.resolve();
-    await retirement;
-    expect(hostCreate).not.toHaveBeenCalled();
-    expect(core.actions.map((action) => action.type)).toEqual(["cancelled"]);
-    expect(coordinator.activeCount).toBe(0);
-
-    // A move retires only the current popup generation; it must not permanently
-    // fence the still-live owner after its native parent has changed.
-    const secondGate = deferred();
-    core.admissionGate = secondGate.promise;
-    open(coordinator, source);
-    await eventually(() => core.commands.filter(
-      (command) => command.type === "browserPopupOpenAdmit"
-    ).length === 2);
-    const finalRetirement = coordinator.retireOwner({
-      ownerKind: "role",
-      ownerId: "role-1",
-      nativeGeneration: 3
-    });
-    secondGate.resolve();
-    await finalRetirement;
-    expect(core.admissionCount).toBe(2);
-    expect(hostCreate).not.toHaveBeenCalled();
-  });
-
-  it("rejects reload preparation after exact owner retirement without leaking a lease", async () => {
-    const { coordinator } = harness();
-    const owner = {
-      ownerKind: "role" as const,
-      ownerId: "role-1",
-      nativeGeneration: 3
-    };
-
-    await coordinator.retireOwner(owner);
-
-    await expect(coordinator.prepareOwnerReload(owner, "reload-after-retire"))
-      .rejects.toMatchObject({
-        code: "ELECTRON_CHROMIUM_POPUP_RELOAD_FENCE_INVALID"
-      });
-    expect(coordinator.releaseOwnerReload(owner, "reload-after-retire")).toBe(false);
-  });
-
-  it("rejects reload preparation while an owner move is active without leaking a lease", async () => {
-    const { core, coordinator, source } = harness();
-    const admissionGate = deferred();
-    core.admissionGate = admissionGate.promise;
-    open(coordinator, source);
-    await eventually(() => core.commands.some(
-      (command) => command.type === "browserPopupOpenAdmit"
-    ));
-    const owner = {
-      ownerKind: "role" as const,
-      ownerId: "role-1",
-      nativeGeneration: 3
-    };
-    const movement = coordinator.retireOwnerPopupsForMove(owner);
-
-    await expect(coordinator.prepareOwnerReload(owner, "reload-during-move"))
-      .rejects.toMatchObject({
-        code: "ELECTRON_CHROMIUM_POPUP_RELOAD_FENCE_INVALID"
-      });
-    expect(coordinator.releaseOwnerReload(owner, "reload-during-move")).toBe(false);
-
-    admissionGate.resolve();
-    await movement;
-  });
-
-  it("propagates an in-flight admission failure through reload drain evidence", async () => {
-    const { core, coordinator, onError, source } = harness();
-    const failure = {
-      code: "CHROMIUM_POPUP_ADMISSION_FAILED",
-      message: "Core could not terminalize popup admission."
-    };
-    core.admissionGate = Promise.reject(failure);
-    open(coordinator, source);
-    const owner = {
-      ownerKind: "role" as const,
-      ownerId: "role-1",
-      nativeGeneration: 3
-    };
-
-    await expect(coordinator.prepareOwnerReload(owner, "reload-admission-failed"))
-      .rejects.toBe(failure);
-    expect(coordinator.releaseOwnerReload(owner, "reload-admission-failed"))
-      .toBe(false);
-    await eventually(() => onError.mock.calls.length === 1);
-  });
-
-  it("includes an in-flight admission in the exact popup zoom fanout", async () => {
-    const { core, coordinator, source, view } = harness();
-    const gate = deferred();
-    core.admissionGate = gate.promise;
-    open(coordinator, source);
-    const transactionPromise = coordinator.prepareWindowZoomTransaction({
-      windowId: "window-1",
-      windowGeneration: 1,
-      topologyRevision: 9,
-      previousZoomFactor: 1,
-      nextZoomFactor: 1.05
-    });
-
-    gate.resolve();
-    const transaction = await transactionPromise;
-    expect(transaction.popupSurfaceCount).toBe(1);
     transaction.apply();
-    expect(view.zoomFactor).toBe(1.05);
-    transaction.rollback();
-    expect(view.zoomFactor).toBe(1);
-    await coordinator.dispose();
-  });
-
-  it("leases a window before draining popup sequences and rejects later admissions", async () => {
-    const { core, coordinator, host, hostCreate, source, view } = harness();
-    const materializeGate = deferred();
-    hostCreate.mockImplementationOnce(async () => {
-      await materializeGate.promise;
-      return {
-        host: host.host,
-        receipt: {
-          platform: "windows" as const,
-          nativeHostId: 71,
-          logicalWindowId: `popup-${POPUP_ID}`,
-          windowGeneration: 1,
-          topologyRevision: 1
-        }
-      };
-    });
-    open(coordinator, source);
-    await eventually(() => core.admissionCount === 1 && hostCreate.mock.calls.length === 1);
-
-    const transactionPromise = coordinator.prepareWindowZoomTransaction({
-      windowId: "window-1",
-      windowGeneration: 1,
-      topologyRevision: 9,
-      previousZoomFactor: 1,
-      nextZoomFactor: 1.05
-    });
-    open(coordinator, source);
-    await Promise.resolve();
-    expect(core.commands.filter(
-      (command) => command.type === "browserPopupOpenAdmit"
-    )).toHaveLength(1);
-
-    materializeGate.resolve();
-    const transaction = await transactionPromise;
-    expect(transaction.popupSurfaceCount).toBe(1);
-    transaction.apply();
-    expect(view.zoomFactor).toBe(1.05);
+    expect(window.webContents.zoomFactor).toBe(1.5);
     transaction.commit();
-
-    // Commit releases only the zoom lease; the live owner remains eligible.
-    const admissionGate = deferred();
-    core.admissionGate = admissionGate.promise;
-    open(coordinator, source);
-    await eventually(() => core.commands.filter(
-      (command) => command.type === "browserPopupOpenAdmit"
-    ).length === 2);
-    const retirement = coordinator.retireOwner({
-      ownerKind: "role",
-      ownerId: "role-1",
-      nativeGeneration: 3
-    });
-    admissionGate.resolve();
-    await retirement;
-    expect(core.admissionCount).toBe(2);
-    expect(hostCreate).toHaveBeenCalledOnce();
-  });
-
-  it("records exact Core terminal evidence when a native-ready parent retires", async () => {
-    const { coordinator, source, view } = harness();
-    open(coordinator, source);
-    await eventually(() => view.loadURL.mock.calls.length === 1);
-
-    await coordinator.retireOwner({
-      ownerKind: "role",
-      ownerId: "role-1",
-      nativeGeneration: 3
-    });
-
-    expect(coordinator.activeCount).toBe(0);
-    const observations = coordinator.readLifecycleJournal().observations;
-    expect(observations.map((observation) => observation.action)).toEqual([
-      "nativeReady",
-      "closeRequested",
-      "nativeClosed"
-    ]);
-    expect(observations.at(-1)).toMatchObject({
-      action: "nativeClosed",
-      closeNative: false,
-      closeReason: "parentRetired",
-      completionScope: "nativeDestroyed",
-      failureCode: "CHROMIUM_POPUP_OWNER_RETIRED",
-      lifecycleTerminal: true,
-      openOperationId: OPEN_OPERATION_ID,
-      operationId: OPEN_OPERATION_ID,
-      operationTerminal: true,
-      parent: {
-        ownerId: "role-1",
-        ownerNativeGeneration: 3,
-        parentTabId: "tab-1",
-        parentWindowGeneration: 1,
-        parentWindowId: "window-1"
-      },
-      phase: "cancelled",
-      popupId: POPUP_ID,
-      status: "cancelled",
-      terminalReason: "parentRetired"
-    });
-  });
-
-  it("fences disposal against an in-flight Core admission", async () => {
-    const { core, coordinator, hostCreate, source } = harness();
-    const gate = deferred();
-    core.admissionGate = gate.promise;
-    open(coordinator, source);
-    const disposal = coordinator.dispose();
-    gate.resolve();
-    await disposal;
-    expect(hostCreate).not.toHaveBeenCalled();
-    expect(core.actions.map((action) => action.type)).toEqual(["cancelled"]);
-    expect(coordinator.activeCount).toBe(0);
+    expect(window.webContents.loadURL).not.toHaveBeenCalled();
+    await subject.coordinator.dispose();
   });
 });

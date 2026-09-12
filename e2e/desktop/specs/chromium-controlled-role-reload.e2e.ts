@@ -119,6 +119,114 @@ function stableNativeWindowIdentity(
   return identity;
 }
 
+function roleOauthCallbackUrl(): string {
+  const url = new URL(macroFixtureUrl("e2e-oauth-callback"));
+  url.searchParams.set("parentRoleId", ROLE_FIXTURE);
+  return url.href;
+}
+
+function roleOauthProviderUrl(): string {
+  const url = new URL(
+    "/role/e2e-oauth-provider",
+    "https://rion-drm.fixture.test"
+  );
+  url.searchParams.set("callback", roleOauthCallbackUrl());
+  url.searchParams.set("parentRoleId", ROLE_FIXTURE);
+  return url.href;
+}
+
+async function exerciseRoleNamedOauthPopup(input: Readonly<{
+  mainWindowHandle: string;
+  platform: "macos" | "windows";
+}>): Promise<void> {
+  const before = await waitForReloads(WINDOW_ID, 0, input.platform);
+  const afterSequence = await fixtureCursor();
+  await clickVisibleElectronPageElement(
+    macroFixtureUrl(ROLE_FIXTURE, "mode=observe"),
+    input.mainWindowHandle,
+    "#named-oauth-popup"
+  );
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-popup-requested",
+    roleId: ROLE_FIXTURE
+  })).toEqual(expect.objectContaining({
+    isTrusted: true,
+    oauth: expect.objectContaining({
+      targetName: "thirdLoginWindow",
+      windowProxyNonNull: true
+    })
+  }));
+  await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-provider-ready",
+    roleId: "e2e-oauth-provider"
+  });
+  let provider: ElectronDesktopE2eRuntimeTabReloadInspection | undefined;
+  await browser.waitUntil(async () => {
+    const candidate = await electronDesktopE2eRuntimeTabReload(WINDOW_ID);
+    if (candidate.popups.length !== 1 || !candidate.popups[0]?.visible ||
+        candidate.popups[0].currentUrl !== roleOauthProviderUrl()) return false;
+    provider = candidate;
+    return true;
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The Role named OAuth popup did not expose its BrowserWindow"
+  });
+  expect(stableNativeWindowIdentity(provider!)).toEqual(stableNativeWindowIdentity(before));
+  const popup = provider!.popups[0]!;
+  expect(popup).toEqual(expect.objectContaining({
+    appKitIdentity: null,
+    currentUrl: roleOauthProviderUrl(),
+    hostKind: "electronBrowserWindow",
+    nativeParentId: before.nativeWindow.parentNativeHostId,
+    openerPolicy: "connectedOpener",
+    sessionMatchesOwner: true,
+    title: "Rion Popup — rion-drm.fixture.test",
+    visible: true
+  }));
+  await clickVisibleElectronPageElement(
+    roleOauthProviderUrl(),
+    input.mainWindowHandle,
+    "#oauth-provider-continue"
+  );
+  expect(await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-callback-ready",
+    roleId: "e2e-oauth-callback"
+  })).toEqual(expect.objectContaining({
+    oauth: expect.objectContaining({
+      callbackCookiePresent: true,
+      callbackStoragePresent: true,
+      openerConnected: true
+    })
+  }));
+  await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-storage-event",
+    roleId: ROLE_FIXTURE
+  });
+  await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-post-message",
+    roleId: ROLE_FIXTURE
+  });
+  await waitFixtureEvent({
+    afterSequence,
+    kind: "oauth-login-complete",
+    roleId: ROLE_FIXTURE
+  });
+  await browser.waitUntil(async () => {
+    const candidate = await electronDesktopE2eRuntimeTabReload(WINDOW_ID);
+    return candidate.popups.length === 0;
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The Role OAuth popup did not close itself after callback"
+  });
+}
+
 describe("Chromium controlled Role Reload", () => {
   it("reloads twice, fails once, and recovers through visible native menus", async () => {
     const context = await bootstrapChromiumMacroCutover();
@@ -127,6 +235,8 @@ describe("Chromium controlled Role Reload", () => {
     const gameWindow = await createChromiumMacroWindow(WINDOW_ID, WINDOW_NAME);
     const tab = await launchChromiumRoleVisible(role, ROLE_FIXTURE, gameWindow);
     expect(tab.windowId).toBe(WINDOW_ID);
+
+    await exerciseRoleNamedOauthPopup(context);
 
     const popupAfter = await fixtureCursor();
     await clickVisibleElectronPageElement(
@@ -171,10 +281,8 @@ describe("Chromium controlled Role Reload", () => {
         appKitIdentity: expect.objectContaining({ logicalWindowId: WINDOW_ID })
       }));
       expect(initial.popups[0]).toEqual(expect.objectContaining({
-        hostKind: "appkit-chromium",
-        appKitIdentity: expect.objectContaining({
-          logicalWindowId: initial.popups[0]!.logicalWindowId
-        })
+        appKitIdentity: null,
+        hostKind: "electronBrowserWindow"
       }));
     } else {
       expect(initial.platform).toBe("win32");
@@ -184,9 +292,16 @@ describe("Chromium controlled Role Reload", () => {
       }));
       expect(initial.popups[0]).toEqual(expect.objectContaining({
         appKitIdentity: null,
-        hostKind: "bundled-chromium"
+        hostKind: "electronBrowserWindow"
       }));
     }
+    expect(initial.popups[0]).toEqual(expect.objectContaining({
+      currentUrl: macroFixtureUrl(POPUP_FIXTURE),
+      nativeParentId: initial.nativeWindow.parentNativeHostId,
+      openerPolicy: "connectedOpener",
+      sessionMatchesOwner: true,
+      title: `Rion Popup — ${new URL(macroFixtureUrl(POPUP_FIXTURE)).hostname}`
+    }));
 
     await selectReload({ ...context, role, tabId: tab.tabId });
     const first = await waitForReloads(WINDOW_ID, 1, context.platform).catch(async (error: unknown) => {

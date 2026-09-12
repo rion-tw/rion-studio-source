@@ -153,11 +153,11 @@ fn popup_open_request(
         parent,
         target_url: "https://popup.example.test/path".to_owned(),
         disposition: crate::model::ChromiumPopupDisposition::NewWindow,
-        opener_policy: crate::model::ChromiumPopupOpenerPolicy::IsolatedNoopener,
-        frame_name: Some("_blank".to_owned()),
+        opener_policy: crate::model::ChromiumPopupOpenerPolicy::ConnectedOpener,
+        frame_name: Some("thirdLoginWindow".to_owned()),
         referrer_url: Some("https://parent.example.test/".to_owned()),
         referrer_policy: Some("strict-origin-when-cross-origin".to_owned()),
-        raw_features: "noopener,noreferrer".to_owned(),
+        raw_features: "popup=yes,width=960,height=640,left=100,top=80,toolbar=no,location=yes,status=no,menubar=no,scrollbars=yes,resizable=yes".to_owned(),
         has_post_body: false,
     }
 }
@@ -204,11 +204,20 @@ fn chromium_popup_admission_is_capability_and_parent_fenced_on_both_platforms() 
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(admission.creation_url, "about:blank");
         assert_eq!(admission.target_url, request.target_url);
+        assert_eq!(admission.opener_policy, request.opener_policy);
         assert!(!admission.has_post_body);
         assert_eq!(admission.lifecycle_revision, 1);
         assert!(admission.target.window_id.starts_with("popup-"));
+        assert_eq!(
+            admission.target.bounds,
+            StatePixelBoundsRecord {
+                x: 176,
+                y: 124,
+                width: 768,
+                height: 512,
+            }
+        );
         let replay: crate::model::ChromiumPopupAdmissionRecord = serde_json::from_value(
             core.invoke(CoreCommand::BrowserPopupOpenAdmit {
                 request: request.clone(),
@@ -307,17 +316,11 @@ fn chromium_popup_lifecycle_orders_native_page_close_and_terminal_receipts() {
         .unwrap();
         let host = crate::model::ChromiumPopupNativeHostReceiptRecord {
             platform: if platform == "darwin" { "macos" } else { "windows" }.to_owned(),
+            host_kind: "electronBrowserWindow".to_owned(),
             native_host_id: 71,
             logical_window_id: admission.target.window_id.clone(),
             window_generation: 1,
             topology_revision: 1,
-            appkit_identity: (platform == "darwin").then(|| {
-                crate::model::AppKitRuntimeHostIdentityRecord {
-                    logical_window_id: admission.target.window_id.clone(),
-                    launch_generation: admission.open_operation_id.clone(),
-                    native_generation: 1,
-                }
-            }),
         };
         let native_event = popup_event(
             &admission,
@@ -407,40 +410,25 @@ fn chromium_popup_lifecycle_orders_native_page_close_and_terminal_receipts() {
 }
 
 #[test]
-fn macos_popup_native_ready_requires_exact_appkit_identity() {
-    let (_directory, core) = core_for_runtime_contract("darwin", 23);
-    core.invoke(CoreCommand::BrowserRuntimeRegister {
-        registration: chromium_registration("darwin", true),
-    })
-    .unwrap();
-    let admission: crate::model::ChromiumPopupAdmissionRecord = serde_json::from_value(
-        core.invoke(CoreCommand::BrowserPopupOpenAdmit {
-            request: popup_open_request(seed_popup_role_parent(&core, "darwin")),
-        })
-        .unwrap(),
+fn electron_popup_receipt_schema_rejects_appkit_identity() {
+    let receipt = serde_json::json!({
+        "platform": "macos",
+        "hostKind": "electronBrowserWindow",
+        "nativeHostId": 1,
+        "logicalWindowId": "popup-window",
+        "windowGeneration": 1,
+        "topologyRevision": 1,
+        "appkitIdentity": {
+            "logicalWindowId": "popup-window",
+            "launchGeneration": "popup-attempt",
+            "nativeGeneration": 1
+        }
+    });
+    let error = serde_json::from_value::<crate::model::ChromiumPopupNativeHostReceiptRecord>(
+        receipt,
     )
-    .unwrap();
-    let missing = popup_event(
-        &admission,
-        1,
-        crate::model::ChromiumPopupLifecycleActionRecord::NativeReady {
-            host: crate::model::ChromiumPopupNativeHostReceiptRecord {
-                platform: "macos".to_owned(),
-                native_host_id: 1,
-                logical_window_id: admission.target.window_id.clone(),
-                window_generation: 1,
-                topology_revision: 1,
-                appkit_identity: None,
-            },
-        },
-    );
-    assert_eq!(
-        core.invoke(CoreCommand::BrowserPopupLifecycleCommit { event: missing })
-            .unwrap_err()
-            .code(),
-        "CHROMIUM_POPUP_APPKIT_RECEIPT_REQUIRED"
-    );
-    core.shutdown();
+    .unwrap_err();
+    assert!(error.to_string().contains("unknown field `appkitIdentity`"));
 }
 
 #[test]
@@ -496,11 +484,11 @@ fn unfinished_popup_open_terminalizes_on_cancel_or_native_teardown() {
                 crate::model::ChromiumPopupLifecycleActionRecord::NativeReady {
                     host: crate::model::ChromiumPopupNativeHostReceiptRecord {
                         platform: "windows".to_owned(),
+                        host_kind: "electronBrowserWindow".to_owned(),
                         native_host_id: 72,
                         logical_window_id: native_open.target.window_id.clone(),
                         window_generation: 1,
                         topology_revision: 1,
-                        appkit_identity: None,
                     },
                 },
             ),
@@ -560,11 +548,11 @@ fn unfinished_popup_open_terminalizes_on_cancel_or_native_teardown() {
                 crate::model::ChromiumPopupLifecycleActionRecord::NativeReady {
                     host: crate::model::ChromiumPopupNativeHostReceiptRecord {
                         platform: "windows".to_owned(),
+                        host_kind: "electronBrowserWindow".to_owned(),
                         native_host_id: 73,
                         logical_window_id: native_cancel.target.window_id.clone(),
                         window_generation: 1,
                         topology_revision: 1,
-                        appkit_identity: None,
                     },
                 },
             ),

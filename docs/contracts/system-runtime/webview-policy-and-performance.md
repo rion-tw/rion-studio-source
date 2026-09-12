@@ -74,11 +74,11 @@ dispositions synchronously deny creation of another WebContents and enter an
 ordered same-surface navigation lane. The lane accepts only canonical HTTP(S),
 an unnamed or `_blank` target, and no POST body; successful main-frame navigation
 creates ordinary Back history and updates `lastUrl`. `new-window` alone remains
-eligible for the controlled popup lifecycle. That path preserves a bounded
-URL-encoded or multipart POST envelope, referrer, and exact global-Web Session;
-its payload exists only in Electron memory and is cleared after initial load.
-Unsupported dispositions and targets fail closed. This policy applies only to
-Workspace Websites; Role popup semantics do not change.
+eligible for the controlled popup lifecycle. Electron receives the original
+URL-encoded or multipart POST envelope and referrer and creates the child in the
+exact global-Web Session; Rion does not copy, clear, stop, or replay that
+request. Unsupported dispositions and targets fail closed. This policy applies
+only to Workspace Websites; Role popup semantics do not change.
 
 All Workspace Websites and their controlled HTTP(S) popups share the single
 Rion-owned `global-web` session rooted at
@@ -123,21 +123,22 @@ proprietary DRM fullscreen path remain best-effort and must not fall back to
 owner-window fullscreen.
 
 Popups without a managed Role/Website owner, without an explicit `new-window`
-disposition for Website content, or with an unsupported scheme are denied before
-a native window is created. A created popup must install security, lifecycle,
-failure-monitor, zoom, ownership, and main-frame navigation handling before
-registration. Popup resource and subframe activity never participates in the
-role input-fence transaction. Failure at any stage closes the provisional window
-and records a failed receipt.
+disposition for Website content, or with an unsupported scheme are synchronously
+denied. Eligible requests return Electron `allow` with fixed security overrides;
+no custom `createWindow` callback exists. Electron creates one hidden,
+focus-disabled, standard BrowserWindow and the original WebContents. The
+opener's `did-create-window` observation installs nested-popup denial, lifecycle,
+failure, zoom, trusted-title, scripted-bounds, ownership, and canonical
+main-frame navigation handling before Core can permit visibility. Failure at
+any stage closes the provisional BrowserWindow and records the exact terminal
+receipt. Popup resource and subframe activity never participates in the Role
+input-fence transaction.
 
-On macOS, an exact native projection containing one `popup` tab uses the
-retained AppKit controller in single-page mode. The admitted hostname is shown
-beside the native traffic lights; the tab group, tab close control, context menu,
-drag source/destination, scrolling controls, and launcher button are hidden and
-removed from accessibility navigation. Presentation-only actions already queued
-before that projection may be ignored only when their popup, window, and drag
-identity remain exact. Foreign or topology-mutating actions fail closed. Windows
-keeps its existing standalone single-page popup chrome.
+Both platforms use this Electron BrowserWindow popup. On macOS its native parent
+is the exact retained AppKit Game Window BaseWindow, but the popup itself does
+not attach the AppKit controller, expose an AppKit identity, or join the tab
+projection. Its non-page-controlled title is `Rion Popup — <hostname>` and
+updates only after canonical main-frame commits. It has no HTML address bar.
 
 `capabilityEvidence` reports each capability's runtime probe, policy mode,
 evidence stage, and failure reason. `supported`, `degraded`, `unsupported`, and

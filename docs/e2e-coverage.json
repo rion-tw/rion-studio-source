@@ -714,7 +714,7 @@
         "failure",
         "cancel"
       ],
-      "description": "From a visible global-Web fixture form, use a real Shift+left click to request an explicit POST new window, preserve its URL-encoded body in one admitted HTTP(S) popup with the exact parent Session, and prove isolated/noopener final navigation plus retained AppKit window identity and layout receipts. Native evidence requires the admitted hostname and all three traffic lights while the tab strip and launcher button remain absent. Visibly close the exact native popup window, then gate a second GET popup and retire its visible parent tab to prove cancellation and terminal teardown. Lower-layer gates reject malformed POST envelopes, nested, external-scheme, stale-parent, and unsupported-disposition requests without a BrowserWindow or HTML-chrome fallback."
+      "description": "From a visible Workspace Website, preserve an explicit form POST in Electron's original request, then open an iQIYI-shaped named `thirdLoginWindow` popup and prove a non-null WindowProxy, connected opener, exact parent Session and native parent. Drive a cross-origin HTTPS provider to a same-origin callback, prove provider/callback cookie and LocalStorage state, a real storage event and postMessage in the parent, visible login completion, and automatic window.close teardown. Every admitted popup is the original Electron BrowserWindow/WebContents with fixed security overrides and a trusted hostname title; on macOS only the parent remains AppKit-hosted. Visibly close another popup, then retire a parent with a gated request to prove exact cancellation and terminal receipts. Lower-layer tests cover noopener, unsafe URL/name/features, nested opens, stale parent, crash, shutdown and early close without createWindow, navigation replay, an extra WebContentsView, or HTML chrome."
     },
     {
       "id": "CHROMIUM-WINDOWS-POPUP-012",
@@ -738,7 +738,51 @@
         "failure",
         "cancel"
       ],
-      "description": "From a visible global-Web fixture form, use a real Shift+left click to request an explicit POST new window, preserve its URL-encoded body in one admitted HTTP(S) popup with the exact parent Session, prove isolated/noopener final navigation on the existing standalone bundled Chromium native host, visibly close the exact native popup window, then gate a second GET popup and retire its visible parent tab to prove cancellation and terminal teardown. Lower-layer gates reject malformed POST envelopes, nested, external-scheme, stale-parent, and unsupported-disposition requests."
+      "description": "From a visible Workspace Website, preserve an explicit form POST in Electron's original request, then open an iQIYI-shaped named `thirdLoginWindow` popup and prove a non-null WindowProxy, connected opener, exact parent Session and native parent. Drive a cross-origin HTTPS provider to a same-origin callback, prove provider/callback cookie and LocalStorage state, a real storage event and postMessage in the parent, visible login completion, and automatic window.close teardown. Every admitted popup is the original Electron BrowserWindow/WebContents with fixed security overrides and a trusted hostname title; on macOS only the parent remains AppKit-hosted. Visibly close another popup, then retire a parent with a gated request to prove exact cancellation and terminal receipts. Lower-layer tests cover noopener, unsafe URL/name/features, nested opens, stale parent, crash, shutdown and early close without createWindow, navigation replay, an extra WebContentsView, or HTML chrome."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-POPUP-MACRO-FOCUS-039",
+      "coverageGroup": "chromium-v31-popup-macro-focus",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-macro-cutover-keyboard"
+      ],
+      "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Prove a managed Role shortcut and CDP output before opening an Electron named OAuth popup. While the popup owns the visible WebContents target, submit the same trusted chord and prove it remains local to the popup: no parent shortcut activation and no new trusted-input receipt. Complete the callback and automatic close, then prove the same Role surface generation/native binding produces the shortcut output again without rebuilding its CDP transport."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-POPUP-MACRO-FOCUS-039",
+      "coverageGroup": "chromium-v31-popup-macro-focus",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-macro-cutover-keyboard"
+      ],
+      "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Prove a managed Role shortcut and CDP output before opening an Electron named OAuth popup. While the popup owns the visible WebContents target, submit the same trusted chord and prove it remains local to the popup: no parent shortcut activation and no new trusted-input receipt. Complete the callback and automatic close, then prove the same Role surface generation/native binding produces the shortcut output again without rebuilding its CDP transport."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-CRUD-002",
@@ -2319,7 +2363,7 @@
         "success",
         "restart"
       ],
-      "description": "Create the setting-free Rion Website + Role Workspace, open the Rion entrance, navigate through the visible address control, then use real remote-page controls and Escape to prove main HTML fullscreen remains inside its exact slot. A real Shift+left click submits a visible POST form into the sole controlled popup and proves the exact body reached the fixture in the parent Session. The popup keeps its fullscreen envelope and retained AppKit identity while native evidence requires single-page hostname/traffic-light chrome with no tab strip or launcher button; visible close, parent retirement, and transient persistence remain covered."
+      "description": "Create the setting-free Rion Website + Role Workspace, open the Rion entrance, navigate through the visible address control, then use real remote-page controls and Escape to prove main HTML fullscreen remains inside its exact slot. A real Shift+left click submits a visible POST form into Electron's original popup request and proves the exact body reached the fixture in the parent Session. Popup fullscreen remains contained without replacing its Electron BrowserWindow; the macOS parent retains its exact AppKit identity while popup evidence requires an Electron host, exact native parent, shared Session and trusted hostname title. Visible close, parent retirement, named OAuth callback, and transient restart behavior remain covered."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-WEB-SECURITY-POLICY-027",
@@ -2988,7 +3032,7 @@
         "success",
         "failure"
       ],
-      "description": "Right-click the retained AppKit tab at its exact native anchor, open its visible NSMenu twice, and select Reload twice. Each newly captured source fence must receive an Applied EventBound input-ready terminal, advance the permanent Chromium document/navigation sequence, resume native and Core input, and retain the exact Role surface, tab, Game Window, AppKit host, and already-open popup. Then arm one exact E2E-only window/tab failure, select the real NSMenu Reload, prove exactly one classified shell error with no owner/document/popup mutation, and visibly retry successfully. Stable Tauri v22 remains outside this Chromium-only command. Retain an empty shell-error journal when a passive native window-state projection is superseded by a newer same-generation Core projection."
+      "description": "Open an iQIYI-shaped named OAuth BrowserWindow from the managed Role, prove a non-null WindowProxy, connected opener, exact Role Session/native parent, callback storage event and postMessage, and automatic close. Then keep a second Electron popup open while the retained AppKit tab is reloaded twice from its visible NSMenu. Each captured source fence must receive an Applied EventBound input-ready terminal, advance the Chromium document/navigation sequence, resume native and Core input, and retain the exact Role surface, tab, Game Window, AppKit parent and popup. Inject one exact failure with no owner/document/popup mutation and retry visibly; retain an empty shell-error journal when passive state is superseded."
     },
     {
       "id": "CHROMIUM-WINDOWS-RUNTIME-TAB-RELOAD-031",

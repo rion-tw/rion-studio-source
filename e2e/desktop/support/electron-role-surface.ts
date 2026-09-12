@@ -423,6 +423,7 @@ export async function submitElectronPageEscape(
   expectedUrl: string,
   mainWindowHandle: string,
   input: Readonly<{
+    hostKind?: "appKit" | "electronBrowserWindow";
     platform: "macos" | "windows";
     processId: number;
     runtimeTabName?: string;
@@ -434,7 +435,7 @@ export async function submitElectronPageEscape(
       () => browser.execute(() => document.hasFocus()),
       { timeout: 10_000, timeoutMsg: "The visible Chromium page did not gain focus" }
     );
-    if (input.platform === "macos") {
+    if (input.platform === "macos" && input.hostKind !== "electronBrowserWindow") {
       await pressVisibleMacosApplicationShortcut({
         command: "escape",
         processId: input.processId,
@@ -448,6 +449,20 @@ export async function submitElectronPageEscape(
       // submit complete native/Windows virtual key codes through ChromeDriver.
       await sendChromiumEscapeKey(browser, input.platform);
     }
+  });
+}
+
+/** Closes the exact selected top-level context and its Electron BrowserWindow. */
+export async function closeVisibleElectronPopup(
+  expectedUrl: string,
+  mainWindowHandle: string
+): Promise<void> {
+  await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
+    await browser.waitUntil(
+      () => browser.execute(() => document.hasFocus()),
+      { timeout: 10_000, timeoutMsg: "The visible Electron popup did not gain focus" }
+    );
+    await browser.closeWindow();
   });
 }
 

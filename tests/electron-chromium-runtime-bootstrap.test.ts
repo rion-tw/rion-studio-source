@@ -794,12 +794,12 @@ describe("Electron Chromium runtime bootstrap", () => {
 
   it("registers the exact conservative v27 capability fixtures", () => {
     const versions = { electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250" };
-    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(30);
+    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(31);
     expect(buildChromiumRuntimeRegistration({
       platform: "win32",
       ...versions
     })).toEqual({
-      contractVersion: 30,
+      contractVersion: 31,
       platform: "windows",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -827,7 +827,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       platform: "darwin",
       ...versions
     })).toEqual({
-      contractVersion: 30,
+      contractVersion: 31,
       platform: "macos",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -854,7 +854,6 @@ describe("Electron Chromium runtime bootstrap", () => {
           captureHostObservations: vi.fn(() => []),
           create: vi.fn(),
           createEmpty: vi.fn(),
-          createPopup: vi.fn(),
           quarantineHost: vi.fn()
         }
       }
@@ -866,14 +865,14 @@ describe("Electron Chromium runtime bootstrap", () => {
     });
   });
 
-  it("pins every Electron AppCore creation to runtime contract v30", () => {
+  it("pins every Electron AppCore creation to runtime contract v31", () => {
     const options = withElectronChromiumRuntimeContract({
       userDataDir: "/RionData",
       runtimeContractVersion: 22
     });
     expect(options).toEqual({
       userDataDir: "/RionData",
-      runtimeContractVersion: 30
+      runtimeContractVersion: 31
     });
     expect(Object.isFrozen(options)).toBe(true);
   });
@@ -1081,7 +1080,6 @@ describe("Electron Chromium runtime bootstrap", () => {
           captureHostObservations: vi.fn(() => []),
           create,
           createEmpty: vi.fn(),
-          createPopup: vi.fn(),
           quarantineHost: vi.fn()
         }
       },
@@ -1117,7 +1115,6 @@ describe("Electron Chromium runtime bootstrap", () => {
         captureHostObservations: vi.fn(() => []),
         create: vi.fn(),
         createEmpty: vi.fn(),
-        createPopup: vi.fn(),
         quarantineHost: vi.fn()
       }
     };
@@ -1249,7 +1246,6 @@ describe("Electron Chromium runtime bootstrap", () => {
         captureHostObservations: vi.fn(() => []),
         create: vi.fn(async () => host),
         createEmpty: vi.fn(async () => host),
-        createPopup: vi.fn(),
         quarantineHost: vi.fn()
       }
     };

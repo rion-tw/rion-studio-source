@@ -10,7 +10,11 @@ import type {
   ChromiumRoleSessionPort
 } from "./chromiumRoleSessionRegistry";
 import type { SandboxedRemoteContentWebPreferences } from "./security";
-import type { ChromiumWindowOpenDetails } from "./chromiumPopupPorts";
+import type {
+  ChromiumPopupWindowPort,
+  ChromiumWindowOpenDetails,
+  ChromiumWindowOpenHandlerResponse
+} from "./chromiumPopupPorts";
 import type { ChromiumCdpDebuggerPort } from "./chromiumCdpInputSession";
 
 export interface ChromiumRoleSurfaceBounds {
@@ -49,6 +53,10 @@ export interface ChromiumRoleSurfaceEventMap {
     }>
   ) => void;
   readonly "did-finish-load": () => void;
+  readonly "did-create-window": (
+    window: ChromiumPopupWindowPort,
+    details: ChromiumWindowOpenDetails
+  ) => void;
   readonly "did-navigate": (
     event: unknown,
     url: string,
@@ -73,6 +81,16 @@ export interface ChromiumRoleSurfaceEventMap {
   ) => void;
   readonly "enter-html-full-screen": () => void;
   readonly "leave-html-full-screen": () => void;
+  readonly "content-bounds-updated": (
+    event: ChromiumRoleSurfaceEvent,
+    bounds: ChromiumRoleSurfaceBounds
+  ) => void;
+  readonly "page-title-updated": (
+    event: ChromiumRoleSurfaceEvent,
+    title: string,
+    explicitSet: boolean
+  ) => void;
+  readonly "render-process-gone": (event: unknown, details: unknown) => void;
   readonly destroyed: () => void;
   readonly "will-attach-webview": (event: ChromiumRoleSurfaceEvent) => void;
   readonly "will-navigate": (
@@ -95,7 +113,16 @@ export interface ChromiumRoleSurfaceWebContentsPort {
   isFocused?: () => boolean;
   sendInputEvent?: (event: KeyboardInputEvent | MouseInputEvent) => void;
   readonly id?: number;
-  readonly mainFrame?: Readonly<{ readonly frameToken: string }>;
+  readonly mainFrame?: Readonly<{
+    readonly frameToken: string;
+    readonly processId?: number;
+    readonly routingId?: number;
+  }>;
+  readonly opener?: Readonly<{
+    readonly frameToken?: string;
+    readonly processId?: number;
+    readonly routingId?: number;
+  }> | null;
   readonly session: ChromiumRoleSessionPort;
   close: (options?: { readonly waitForBeforeUnload?: boolean }) => void;
   executeJavaScriptInIsolatedWorld: (
@@ -123,9 +150,9 @@ export interface ChromiumRoleSurfaceWebContentsPort {
     listener: ChromiumRoleSurfaceEventMap[EventName]
   ) => unknown;
   send: (channel: string, ...arguments_: unknown[]) => void;
-  setWindowOpenHandler: (
-    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
-  ) => void;
+  setWindowOpenHandler(
+    handler: (details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse
+  ): void;
   setAudioMuted: (muted: boolean) => void;
   setZoomFactor: (factor: number) => void;
 }
@@ -143,9 +170,16 @@ interface ChromiumRoleSurfaceParentContentPort {
   removeChildView: (view: ChromiumRoleWebContentsViewPort) => void;
 }
 
+export interface ChromiumRoleSurfaceNativeWindowPort {
+  readonly id: number;
+  isDestroyed: () => boolean;
+}
+
 export interface ChromiumRoleSurfaceParentPort {
   readonly id: number;
   readonly contentView: ChromiumRoleSurfaceParentContentPort;
+  /** Exact Electron BaseWindow used only for native popup parenting. */
+  readonly nativeWindow?: ChromiumRoleSurfaceNativeWindowPort;
   isDestroyed: () => boolean;
 }
 

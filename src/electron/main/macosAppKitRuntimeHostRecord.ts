@@ -3,7 +3,6 @@ import type {
   EmbeddedLaunchTargetRecord
 } from "../../shared/generated";
 import type { ChromiumRuntimeHostPort } from "./chromiumRuntimeHostPorts";
-import type { ChromiumPopupHostLifecycleObserver } from "./chromiumPopupPorts";
 import type { MacosAppKitInputHostBinding } from
   "./macosAppKitInputSurfaceAttachmentCoordinator";
 import type { MacosAppKitRuntimeHostPresentationGate } from
@@ -53,6 +52,4 @@ export interface MacosAppKitRuntimeHostRecord
   projectedActiveTabId: string | undefined;
   lastAdapterSequence: number;
   windowName: string;
-  readonly popupId: string | null;
-  popupObserver: ChromiumPopupHostLifecycleObserver | null;
 }

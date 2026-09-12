@@ -152,7 +152,8 @@ order. Successful compensation is `failed`; incomplete compensation is
 cannot overwrite a newer topology. Both platforms are tested with explicit
 platform inputs even when only one native shell is locally available.
 
-Chromium contract v29 makes normalized Workspace appearance changes EventBound.
+Chromium contract v31 retains the v29 normalized Workspace appearance projection
+and moves only controlled popup ownership to Electron BrowserWindow.
 Core holds one global lease and refreshes only changed appearances with a live
 Workspace. Windows projections carry the current `workspaceAppearance`. macOS
 obtains one `AppKitWorkspaceAppearanceObservationReceiptRecord` with one

@@ -3,9 +3,11 @@ import type {
   EmbeddedLaunchTargetRecord,
   EmbeddedTabEffectRecord
 } from "../../shared/generated";
-import type { ChromiumPopupHostLifecycleObserver } from "./chromiumPopupPorts";
 import type { CreateChromiumRoleSurfaceInput } from "./chromiumRoleSurfaceRegistry";
-import type { ChromiumRoleSurfaceBounds } from "./chromiumRoleSurfacePorts";
+import type {
+  ChromiumRoleSurfaceBounds,
+  ChromiumRoleSurfaceNativeWindowPort
+} from "./chromiumRoleSurfacePorts";
 import type { ChromiumRuntimeAppKitProjectionTransaction } from
   "./chromiumRuntimeProjectionTransaction";
 import type {
@@ -18,6 +20,7 @@ import type {
 export interface ChromiumRuntimeHostPort {
   readonly id: number;
   readonly logicalWindowId: string;
+  readonly nativeWindow?: ChromiumRoleSurfaceNativeWindowPort;
   readonly contentView: CreateChromiumRoleSurfaceInput["parent"]["contentView"];
   close: () => Promise<void>;
   focus: () => void;
@@ -38,7 +41,6 @@ export interface ChromiumRuntimeHostPort {
     observer: ChromiumRuntimeWindowStateObserver
   ) => () => void;
   readRuntimeWindowState?: () => ChromiumRuntimeWindowStateObservation;
-  bindPopupLifecycle?: (observer: ChromiumPopupHostLifecycleObserver) => void;
   readonly appKitIdentity?: AppKitRuntimeHostIdentityRecord;
   initializeAppKitTab?: (tab: EmbeddedTabEffectRecord) => void;
   releaseAppKitSurfaceAttachment?: (tabId: string) => void;

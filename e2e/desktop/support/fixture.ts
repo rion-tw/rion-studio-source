@@ -40,6 +40,17 @@ export interface FixtureEvent {
     viewport: { height: number; width: number };
   };
   modifiers?: { alt: boolean; control: boolean; meta: boolean; shift: boolean };
+  oauth?: {
+    callbackCookiePresent?: boolean;
+    callbackStoragePresent?: boolean;
+    messageOrigin?: string;
+    openerConnected?: boolean;
+    providerCookiePresent?: boolean;
+    providerStoragePresent?: boolean;
+    storageEventObserved?: boolean;
+    targetName?: "thirdLoginWindow";
+    windowProxyNonNull?: boolean;
+  };
   repeat?: boolean;
   roleId: string;
   rionAction?: string;

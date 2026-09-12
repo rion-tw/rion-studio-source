@@ -1051,6 +1051,26 @@ export class ChromiumRoleSurfaceRegistry {
           tabId: record.tabId
         });
       },
+      didCreateWindow: (popupWindow, details) => {
+        const openerFrame = record.contents.mainFrame;
+        if (
+          !this.#popups || !openerFrame || this.#state !== "open" ||
+          record.state !== "active" || record.destroyed ||
+          this.#recordsByRole.get(record.roleId) !== record ||
+          record.navigation.popupAdmissionFenced
+        ) {
+          if (!popupWindow.isDestroyed()) popupWindow.destroy();
+          return;
+        }
+        this.#popups.didCreateWindow(Object.freeze({
+          ownerKind: "role",
+          ownerId: record.roleId,
+          nativeGeneration: record.generation,
+          parent: record.parent,
+          session: record.sessionHandle.session,
+          openerFrame
+        }), popupWindow, details);
+      },
       didStartNavigation: (details) => {
         if (!details.isMainFrame || details.isSameDocument) return;
         if (
@@ -1120,22 +1140,26 @@ export class ChromiumRoleSurfaceRegistry {
   #installSecurityPolicy(record: SurfaceRecord): void {
     const contents = record.contents;
     contents.setWindowOpenHandler((details) => {
+      const openerFrame = contents.mainFrame;
       if (
-        this.#popups && this.#state === "open" && record.state === "active" &&
+        this.#popups && openerFrame && this.#state === "open" &&
+        record.state === "active" &&
         !record.destroyed && this.#recordsByRole.get(record.roleId) === record &&
         !record.navigation.popupAdmissionFenced
       ) {
-        this.#popups.requestOpen(Object.freeze({
+        return this.#popups.handleWindowOpen(Object.freeze({
           ownerKind: "role",
           ownerId: record.roleId,
           nativeGeneration: record.generation,
           parent: record.parent,
-          session: record.sessionHandle.session
+          session: record.sessionHandle.session,
+          openerFrame
         }), details);
       }
       return { action: "deny" };
     });
     contents.on("before-input-event", record.listeners.beforeInputEvent);
+    contents.on("did-create-window", record.listeners.didCreateWindow);
     contents.on("did-start-navigation", record.listeners.didStartNavigation);
     contents.on("will-attach-webview", record.listeners.willAttachWebview);
     contents.on("will-navigate", record.listeners.willNavigate);
@@ -1597,6 +1621,7 @@ export class ChromiumRoleSurfaceRegistry {
     this.#removeLoadListeners(record);
     const contents = record.contents;
     contents.removeListener("before-input-event", record.listeners.beforeInputEvent);
+    contents.removeListener("did-create-window", record.listeners.didCreateWindow);
     contents.removeListener("did-start-navigation", record.listeners.didStartNavigation);
     contents.removeListener("will-attach-webview", record.listeners.willAttachWebview);
     contents.removeListener("will-navigate", record.listeners.willNavigate);

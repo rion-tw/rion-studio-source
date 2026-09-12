@@ -5,6 +5,8 @@ import { isAbsolute, join } from "node:path";
 
 import { ChromiumGlobalWebSessionRegistry } from
   "../main/chromiumGlobalWebSessionRegistry";
+import { ChromiumRoleSessionRegistry } from
+  "../main/chromiumRoleSessionRegistry";
 import {
   readChromiumSessionSecurityPolicyJournal,
   type ChromiumSecuritySessionPort
@@ -55,6 +57,13 @@ export function installWorkspaceWebSecurityPolicyObserver(
       owners.delete(lease.surfaceId);
     }
     return released;
+  };
+  const roleSessions = ChromiumRoleSessionRegistry.prototype;
+  const originalEnsure = roleSessions.ensure;
+  roleSessions.ensure = function (roleId, rolePaths) {
+    const handle = originalEnsure.call(this, roleId, rolePaths);
+    installWorkspaceWebDrmFixture(handle.session as Session);
+    return handle;
   };
 }
 

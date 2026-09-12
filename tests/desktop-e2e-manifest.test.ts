@@ -94,7 +94,7 @@ describe("desktop E2E manifest resolution", () => {
       expect(extended.phases).toEqual(expect.arrayContaining([
         "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
       ]));
-      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended")).toHaveLength(59);
+      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-macos-appkit-hardware-extended")).toHaveLength(60);
     }
     {
       const extended = resolveDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended");
@@ -102,7 +102,7 @@ describe("desktop E2E manifest resolution", () => {
       expect(extended.phases).toEqual(expect.arrayContaining([
         "chromium-macro-standby-recovery", "chromium-native-window-display-extended"
       ]));
-      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended")).toHaveLength(61);
+      expect(journeysForDesktopE2eProfile(repositoryManifest, "chromium-windows-hardware-extended")).toHaveLength(62);
     }
 
     for (const profileName of [

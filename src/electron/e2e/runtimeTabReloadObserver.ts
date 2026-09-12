@@ -3,8 +3,6 @@ import { isAbsolute, join } from "node:path";
 
 import type {
   BrowserTabReloadReceiptRecord,
-  ChromiumPopupAdmissionRecord,
-  ChromiumPopupNativeHostReceiptRecord,
   CoreCommand,
   CoreCommandResult
 } from "../../shared/generated";
@@ -13,8 +11,8 @@ import { CoreAddonClient } from "../core/coreAddonClient";
 import { RionBridgeError } from "../ipc/errors";
 import type { ChromiumRuntimeBootstrap } from
   "../main/chromiumRuntimeBootstrap";
-import type { ChromiumRuntimeHostPort } from
-  "../main/chromiumRuntimeHostPorts";
+import type { ChromiumPopupNativeWindowSnapshot } from
+  "../main/chromiumPopupLifecycleCoordinator";
 import type { ChromiumRoleSurfaceRegistry } from
   "../main/chromiumRoleSurfaceRegistry";
 import { WindowsRuntimeHostChromeController } from
@@ -35,16 +33,10 @@ interface RoleSurfaceOwner {
   readonly tabId: string;
 }
 
-interface PopupHostOwner {
-  readonly admission: ChromiumPopupAdmissionRecord;
-  readonly host: ChromiumRuntimeHostPort;
-  readonly receipt: ChromiumPopupNativeHostReceiptRecord;
-}
-
 export interface ElectronDesktopE2eRuntimeTabReloadObserverInput {
   readonly artifactDirectory: string | undefined;
   readonly platform: () => "darwin" | "win32";
-  readonly popupHostOwners: ReadonlyMap<string, PopupHostOwner>;
+  readonly readPopupWindows: () => readonly ChromiumPopupNativeWindowSnapshot[];
   readonly readRuntime: () => Pick<ChromiumRuntimeBootstrap, "snapshot"> | null;
   readonly roleSurfaceOwners: ReadonlyMap<string, RoleSurfaceOwner>;
 }
@@ -239,22 +231,26 @@ export class ElectronDesktopE2eRuntimeTabReloadObserver {
         });
       })
       .sort((left, right) => left.roleId.localeCompare(right.roleId)));
-    const popups = Object.freeze([...this.#input.popupHostOwners.values()]
-      .filter(({ admission, host }) =>
-        admission.parent.parentWindowId === windowId && !host.isDestroyed()
+    const popups = Object.freeze(this.#input.readPopupWindows()
+      .filter(({ admission, window }) =>
+        admission.parent.parentWindowId === windowId && !window.isDestroyed()
       )
-      .map(({ admission, host, receipt }) => Object.freeze({
-        appKitIdentity: receipt.appkitIdentity
-          ? Object.freeze({ ...receipt.appkitIdentity })
-          : null,
-        hostKind: receipt.platform === "macos"
-          ? "appkit-chromium" as const
-          : "bundled-chromium" as const,
+      .map(({
+        admission, currentUrl, nativeParentId, openerPolicy,
+        sessionMatchesOwner, title, window, receipt
+      }) => Object.freeze({
+        appKitIdentity: null,
+        currentUrl,
+        hostKind: "electronBrowserWindow" as const,
         logicalWindowId: receipt.logicalWindowId,
         nativeHostId: receipt.nativeHostId,
+        nativeParentId,
         openOperationId: admission.openOperationId,
+        openerPolicy,
         popupId: admission.popupId,
-        visible: host.readProjection().visible
+        sessionMatchesOwner,
+        title,
+        visible: window.isVisible()
       }))
       .sort((left, right) => left.popupId.localeCompare(right.popupId)));
     const observations = Object.freeze(this.#observations.filter(

@@ -159,6 +159,7 @@ interface Deferred<Value> {
 }
 
 interface SurfaceListeners {
+  readonly didCreateWindow: ChromiumRoleSurfaceEventMap["did-create-window"];
   readonly didStartNavigation: ChromiumRoleSurfaceEventMap["did-start-navigation"];
   readonly didFinishLoad: () => void;
   readonly didNavigate: ChromiumRoleSurfaceEventMap["did-navigate"];
@@ -954,6 +955,26 @@ export class ChromiumGlobalWebSurfaceRegistry {
       windowOpenNavigationLane: Promise.resolve()
     };
     record.listeners = {
+      didCreateWindow: (popupWindow, details) => {
+        const openerFrame = record.contents.mainFrame;
+        if (
+          !this.#popups || !openerFrame || this.#state !== "open" ||
+          record.state !== "active" || record.destroyed ||
+          this.#records.get(record.surfaceId) !== record
+        ) {
+          if (!popupWindow.isDestroyed()) popupWindow.destroy();
+          return;
+        }
+        this.#popups.didCreateWindow(Object.freeze({
+          ownerKind: "globalWeb",
+          ownerId: record.surfaceId,
+          slotId: record.slotId,
+          nativeGeneration: record.generation,
+          parent: record.parent,
+          session: record.sessionLease.session,
+          openerFrame
+        }), popupWindow, details);
+      },
       didStartNavigation: (details) => {
         if (details.isMainFrame && !details.isSameDocument) {
           record.activeFailureReported = false;
@@ -1005,17 +1026,21 @@ export class ChromiumGlobalWebSurfaceRegistry {
         this.#popups && this.#state === "open" && record.state === "active" &&
         !record.destroyed && this.#records.get(record.surfaceId) === record
       ) {
-        this.#popups.requestOpen(Object.freeze({
+        const openerFrame = contents.mainFrame;
+        if (!openerFrame) return { action: "deny" };
+        return this.#popups.handleWindowOpen(Object.freeze({
           ownerKind: "globalWeb",
           ownerId: record.surfaceId,
           slotId: record.slotId,
           nativeGeneration: record.generation,
           parent: record.parent,
-          session: record.sessionLease.session
+          session: record.sessionLease.session,
+          openerFrame
         }), details);
       }
       return { action: "deny" };
     });
+    contents.on("did-create-window", record.listeners.didCreateWindow);
     contents.on("will-attach-webview", record.listeners.willAttachWebview);
     observeWorkspaceStartPage(contents);
     contents.on("will-navigate", record.listeners.willNavigate);
@@ -1564,6 +1589,10 @@ export class ChromiumGlobalWebSurfaceRegistry {
 
   #removeAllListeners(record: SurfaceRecord): void {
     this.#removeLoadListeners(record);
+    record.contents.removeListener(
+      "did-create-window",
+      record.listeners.didCreateWindow
+    );
     record.contents.removeListener(
       "will-attach-webview",
       record.listeners.willAttachWebview

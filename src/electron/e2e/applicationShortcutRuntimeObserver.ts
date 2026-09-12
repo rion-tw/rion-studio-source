@@ -7,7 +7,8 @@ import type { CoreAddonClient } from "../core/coreAddonClient";
 import type { ChromiumGlobalWebPresentationRegistry } from
   "../main/chromiumGlobalWebPresentationRegistry";
 import type { ChromiumRuntimeBootstrap } from "../main/chromiumRuntimeBootstrap";
-import type { ChromiumRuntimeHostPort } from "../main/chromiumRuntimeHostPorts";
+import type { ChromiumPopupNativeWindowSnapshot } from
+  "../main/chromiumPopupLifecycleCoordinator";
 import { MacosAppKitRuntimeEventBridge } from
   "../main/macosAppKitRuntimeEventBridge";
 import type { AppKitRuntimeActionEvent } from
@@ -38,13 +39,6 @@ interface GlobalWebSurfaceOwner {
   readonly slotId: string;
 }
 
-interface PopupHostOwner {
-  readonly admission: Readonly<{
-    parent: Readonly<{ parentWindowId: string }>;
-  }>;
-  readonly host: ChromiumRuntimeHostPort;
-}
-
 export interface ElectronDesktopE2eApplicationShortcutRuntimeObserverInput {
   readonly artifactDirectory: string | undefined;
   readonly platform: () => "darwin" | "win32";
@@ -54,7 +48,7 @@ export interface ElectronDesktopE2eApplicationShortcutRuntimeObserverInput {
     parentNativeHostId: number
   ) => WindowsRuntimeShortcutOwnerDiagnostic | null;
   readonly globalWebSurfaceOwners: ReadonlyMap<string, GlobalWebSurfaceOwner>;
-  readonly popupHostOwners: ReadonlyMap<string, PopupHostOwner>;
+  readonly readPopupWindows: () => readonly ChromiumPopupNativeWindowSnapshot[];
   readonly roleSurfaceOwners: ReadonlyMap<string, RoleSurfaceOwner>;
 }
 
@@ -291,9 +285,9 @@ export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
         });
       })
       .sort((left, right) => left.surfaceId.localeCompare(right.surfaceId)));
-    const livePopupCount = [...this.#input.popupHostOwners.values()].filter(
-      ({ admission, host }) => admission.parent.parentWindowId === windowId &&
-        !host.isDestroyed()
+    const livePopupCount = this.#input.readPopupWindows().filter(
+      ({ admission, window }) => admission.parent.parentWindowId === windowId &&
+        !window.isDestroyed()
     ).length;
     if (livePopupCount !== 0) {
       throw new Error(

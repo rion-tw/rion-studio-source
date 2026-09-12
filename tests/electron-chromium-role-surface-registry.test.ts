@@ -31,7 +31,8 @@ import type { ChromiumRoleActiveMainFrameFailurePort } from
   "../src/electron/main/chromiumRoleNavigationFailureReporter";
 import type {
   ChromiumPopupOwnerLifecyclePort,
-  ChromiumWindowOpenDetails
+  ChromiumWindowOpenDetails,
+  ChromiumWindowOpenHandlerResponse
 } from
   "../src/electron/main/chromiumPopupPorts";
 
@@ -72,7 +73,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   currentUrl = "";
   destroyed = false;
   windowOpenHandler:
-    | ((details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>)
+    | ((details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse)
     | null = null;
   loadResult: Promise<void> = Promise.resolve();
   currentAudioMuted = false;
@@ -148,7 +149,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   }
 
   setWindowOpenHandler(
-    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
+    handler: (details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse
   ): void {
     this.windowOpenHandler = handler;
   }
@@ -1032,7 +1033,11 @@ describe("Electron Chromium role-surface registry", () => {
   it("keeps controlled reload event-bound and fences only new popup admission", async () => {
     const requestOpen = vi.fn();
     const popups: ChromiumPopupOwnerLifecyclePort = {
-      requestOpen,
+      handleWindowOpen: (...arguments_) => {
+        requestOpen(...arguments_);
+        return { action: "deny" };
+      },
+      didCreateWindow: vi.fn(),
       retireOwner: async () => undefined,
       retireOwnerPopupsForMove: async () => undefined
     };

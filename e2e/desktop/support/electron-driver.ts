@@ -396,12 +396,17 @@ export interface ElectronDesktopE2eWorkspaceWebRuntimeInspection {
       nativeGeneration: number;
     } | null;
     bounds: { height: number; width: number; x: number; y: number };
-    hostKind: "appkit-chromium" | "bundled-chromium";
+    currentUrl: string;
+    hostKind: "electronBrowserWindow";
     logicalWindowId: string;
     nativeHostId: number;
+    nativeParentId: number;
     openOperationId: string;
+    openerPolicy: "connectedOpener" | "isolatedNoopener";
     popupId: string;
     presentation: "fullscreen" | "maximized" | "normal";
+    sessionMatchesOwner: boolean;
+    title: string;
     topologyRevision: number;
     visible: boolean;
     windowGeneration: number;

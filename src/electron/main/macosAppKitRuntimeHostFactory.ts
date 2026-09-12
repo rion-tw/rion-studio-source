@@ -3,7 +3,6 @@ import type {
   AppKitRuntimeHostObservationRecord,
   AppKitRuntimeTabProjectionRecord,
   AppKitRuntimeWindowProjectionRecord,
-  ChromiumPopupAdmissionRecord,
   EmbeddedLaunchTargetRecord,
   EmbeddedRuntimeWindowProjectionRecord,
   EmbeddedTabEffectRecord,
@@ -28,11 +27,8 @@ import { buildMacosAppKitRuntimeWindowOptions } from
   "./macosAppKitRuntimeWindowOptions";
 export { buildMacosAppKitRuntimeWindowOptions } from
   "./macosAppKitRuntimeWindowOptions";
-import type {
-  ChromiumRuntimePopupHostHandle,
-  MacosAppKitRuntimeHostFactoryPort
-} from "./chromiumRuntimeHostFactory";
-import type { ChromiumPopupHostLifecycleObserver } from "./chromiumPopupPorts";
+import type { MacosAppKitRuntimeHostFactoryPort } from
+  "./chromiumRuntimeHostFactory";
 import type { MacosAppKitInputHostBinding } from
   "./macosAppKitInputSurfaceAttachmentCoordinator";
 import {
@@ -43,12 +39,6 @@ import {
   validateMacosAppKitEmptyHostRequest,
   validateMacosAppKitRuntimeHostRequest
 } from "./macosAppKitRuntimeHostValidation";
-import {
-  bindPopupObserver,
-  classifyMacosPopupAction,
-  createMacosAppKitPopupHost,
-  popupTabProjection
-} from "./macosAppKitPopupHost";
 import {
   discardMacosAppKitSurfaceAttachment,
   MacosAppKitRuntimeHostPresentationGate,
@@ -365,19 +355,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
     return this.#createHost(target, fences);
   }
 
-  async createPopup(
-    admission: ChromiumPopupAdmissionRecord
-  ): Promise<ChromiumRuntimePopupHostHandle> {
-    return createMacosAppKitPopupHost(
-      admission,
-      (target, launchGeneration, popup) => this.#createHost(target, {
-        launchGeneration,
-        windowGeneration: 1,
-        topologyRevision: 1
-      }, undefined, popup)
-    );
-  }
-
   async #createHost(
     target: EmbeddedLaunchTargetRecord,
     fences: Readonly<{
@@ -385,8 +362,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       windowGeneration: number;
       topologyRevision: number;
     }>,
-    initialTab?: EmbeddedTabEffectRecord,
-    popupAdmission?: ChromiumPopupAdmissionRecord
+    initialTab?: EmbeddedTabEffectRecord
   ): Promise<ChromiumRuntimeHostPort> {
     const {
       launchGeneration,
@@ -427,8 +403,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       native,
       nativeId,
       windowGeneration,
-      topologyRevision,
-      popupAdmission?.popupId ?? null
+      topologyRevision
     );
     if (initialTab) record.presentationGate.begin(initialTab.tabId);
     this.#activeByLogicalWindow.set(target.windowId, record);
@@ -452,7 +427,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       record.controllerIdentityValidated = true;
       record.controller.setWindowName(
         record.identity,
-        popupAdmission?.title ?? target.persistedName ?? "Rion Studio"
+        target.persistedName ?? "Rion Studio"
       );
       record.controller.setFullscreenPolicy(
         record.identity,
@@ -483,14 +458,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         }),
         isFocused: () => this.#withCurrent(record, () => record.native.isFocused())
       });
-      if (popupAdmission) {
-        record.projectedTabs.set(
-          popupAdmission.popupId,
-          popupTabProjection(popupAdmission)
-        );
-        record.projectedActiveTabId = popupAdmission.popupId;
-        this.#commitNativeProjection(record);
-      } else if (initialTab) {
+      if (initialTab) {
         this.#initializeTab(record, initialTab);
       } else {
         // Establish an exact zero-tab native projection before exposing the
@@ -527,8 +495,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
     native: MacosAppKitBaseWindowPort,
     nativeId: number,
     windowGeneration: number,
-    topologyRevision: number,
-    popupId: string | null
+    topologyRevision: number
   ): HostRecord {
     const record = {
       identity,
@@ -561,8 +528,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       projectedActiveTabId: undefined,
       lastAdapterSequence: 0,
       windowName: target.persistedName ?? "Rion Studio",
-      popupId,
-      popupObserver: null as ChromiumPopupHostLifecycleObserver | null,
       host: undefined as unknown as ChromiumRuntimeHostPort,
       listeners: undefined as unknown as HostRecord["listeners"]
     } satisfies Omit<HostRecord, "host" | "listeners" | "presentation"> &
@@ -600,6 +565,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       id: nativeId,
       logicalWindowId: identity.logicalWindowId,
       appKitIdentity: identity,
+      nativeWindow: native,
       contentView: native.contentView,
       close: () => this.#close(record as HostRecord),
       focus: () => this.#withCurrent(record as HostRecord, () => {
@@ -724,18 +690,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         () => requireNativeController(record as HostRecord, "desktop E2E status presentation")
           .desktopE2eStatusPresentation?.(record.identity) ?? 0),
       show: () => this.#withCurrent(record as HostRecord, () => native.show()),
-      showInactive: () => this.#withCurrent(record as HostRecord, () => native.showInactive()),
-      ...(popupId
-        ? {
-            bindPopupLifecycle: (observer: ChromiumPopupHostLifecycleObserver) =>
-              this.#withCurrent(record as HostRecord, () => {
-                record.popupObserver = bindPopupObserver(
-                  record.popupObserver,
-                  observer
-                );
-              })
-          }
-        : {})
+      showInactive: () => this.#withCurrent(record as HostRecord, () => native.showInactive())
     });
     record.listeners = Object.freeze({
       close: (event: unknown) => this.#onNativeCloseRequested(
@@ -1183,27 +1138,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
             requireCapturedWindowFocusState(action)
           );
         }
-        if (record.popupId) {
-          switch (classifyMacosPopupAction(
-            record.popupId,
-            record.identity.logicalWindowId,
-            action
-          )) {
-            case "focus": record.native.focus(); break;
-            case "close": record.popupObserver?.closeRequested(); break;
-            case "layout": this.#refreshLayout(record); break;
-            case "ignore": break;
-            case "reject": {
-              const error = hostError(
-                "ELECTRON_MACOS_APPKIT_POPUP_ACTION_REJECTED",
-                "The retained AppKit popup emitted an unsupported tab/window action."
-              );
-              this.#input.onError(normalizeRionBridgeError(error));
-              record.popupObserver?.closeRequested();
-            }
-          }
-          return;
-        }
         if (
           action.type === "windowPlacementChanged" &&
           record.presentation.observeWindowPlacement()
@@ -1266,10 +1200,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
 
   #publishLayout(record: HostRecord): void {
     if (!record.layout) return;
-    if (record.popupId) {
-      record.popupObserver?.layoutChanged(this.#projectContentBounds(record));
-      return;
-    }
     if (!this.#input.onLayout) return;
     if (record.presentationGate.deferLayout()) return;
     this.#input.onLayout({
@@ -1409,10 +1339,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
     }
     (event as unknown as MacosAppKitPreventableWindowEvent).preventDefault();
     if (record.state === "active") {
-      if (record.popupId) {
-        record.popupObserver?.closeRequested();
-        return;
-      }
       this.#input.onCloseRequested(
         record.identity,
         Object.freeze([this.#snapshotObservation(record)])
@@ -1497,7 +1423,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       this.#ownerByNativeId.delete(record.nativeId);
     }
     this.#ownerByNativeWindow.delete(record.native);
-    record.popupObserver?.closed();
     if (!error) {
       record.closed.resolve();
     } else {

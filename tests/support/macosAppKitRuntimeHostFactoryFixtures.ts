@@ -1,5 +1,4 @@
 import type {
-  ChromiumPopupAdmissionRecord,
   EmbeddedLaunchTargetRecord,
   EmbeddedTabEffectRecord
 } from "../../src/shared/generated";
@@ -177,45 +176,6 @@ export function tab(
     slots: [],
     roles: []
   } as EmbeddedTabEffectRecord;
-}
-
-export function popupAdmission(): ChromiumPopupAdmissionRecord {
-  const popupId = "10000000-0000-4000-8000-000000000001";
-  const openOperationId = "20000000-0000-4000-8000-000000000001";
-  return {
-    requestId: "30000000-0000-4000-8000-000000000001",
-    popupId,
-    openOperationId,
-    lifecycleRevision: 1,
-    parent: {
-      ownerKind: "role",
-      ownerId: "role-1",
-      ownerNativeGeneration: 3,
-      roleOwnerGeneration: 5,
-      parentWindowId: "window-parent",
-      parentWindowGeneration: 2,
-      parentTopologyRevision: 9,
-      parentTabId: "tab-parent",
-      parentAttemptGeneration: "parent-attempt",
-      parentNativeHostId: 41,
-      parentAppkitIdentity: {
-        logicalWindowId: "window-parent",
-        launchGeneration: "initial-parent-tab-attempt",
-        nativeGeneration: 6
-      }
-    },
-    target: target({
-      windowId: `popup-${popupId}`,
-      persistedName: "Popup",
-      bounds: { x: 120, y: 100, width: 800, height: 600 }
-    }),
-    title: "popup.example.test",
-    creationUrl: "about:blank",
-    targetUrl: "https://popup.example.test/path",
-    disposition: "newWindow",
-    openerPolicy: "isolatedNoopener",
-    hasPostBody: false
-  };
 }
 
 export async function expectPending(promise: Promise<unknown>): Promise<void> {

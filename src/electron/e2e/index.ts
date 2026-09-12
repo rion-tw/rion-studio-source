@@ -10,8 +10,6 @@ import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
-  ChromiumPopupAdmissionRecord,
-  ChromiumPopupNativeHostReceiptRecord,
   CoreEffectResult,
   RolePathsRecord,
   RuntimeTabActivationPhaseRecord
@@ -44,10 +42,6 @@ import {
   ChromiumRuntimeRolePlaceholderRegistry,
   type ChromiumRuntimeRolePlaceholderDescriptor
 } from "../main/chromiumRuntimeRolePlaceholderRegistry";
-import { ChromiumPlatformRuntimeHostFactory } from
-  "../main/chromiumRuntimeHostFactory";
-import type { ChromiumRuntimeHostPort } from
-  "../main/chromiumRuntimeHostPorts";
 import { ChromiumRuntimeBootstrap } from
   "../main/chromiumRuntimeBootstrap";
 import { ChromiumRuntimeEffectExecutor } from
@@ -171,11 +165,6 @@ const rolePlaceholderIdsByRegistry = new WeakMap<
 >();
 const rolePlaceholderRuntimeObservations:
   ElectronDesktopE2eRolePlaceholderInspection[] = [];
-const workspacePopupHostOwners = new Map<string, Readonly<{
-  admission: ChromiumPopupAdmissionRecord;
-  host: ChromiumRuntimeHostPort;
-  receipt: ChromiumPopupNativeHostReceiptRecord;
-}>>();
 const runtimeTabPhases = new Map<string, Readonly<{
   phase: RuntimeTabActivationPhaseRecord;
   topologyRevision: number;
@@ -208,7 +197,8 @@ const applicationShortcutRuntimeObserver =
     artifactDirectory,
     globalWebSurfaceOwners: workspaceWebPresentationOwners,
     platform: () => e2ePlatform().platform,
-    popupHostOwners: workspacePopupHostOwners,
+    readPopupWindows: () =>
+      observedPopupLifecycle?.readNativeWindowSnapshot() ?? [],
     readCore: () => observedCore,
     readRuntime: () => observedRuntime,
     readWindowsShortcutOwner: (parentNativeHostId) =>
@@ -218,7 +208,8 @@ const applicationShortcutRuntimeObserver =
 const runtimeTabReloadObserver = new ElectronDesktopE2eRuntimeTabReloadObserver({
   artifactDirectory,
   platform: () => e2ePlatform().platform,
-  popupHostOwners: workspacePopupHostOwners,
+  readPopupWindows: () =>
+    observedPopupLifecycle?.readNativeWindowSnapshot() ?? [],
   readRuntime: () => observedRuntime,
   roleSurfaceOwners: workspaceRoleSurfaceOwners
 });
@@ -577,17 +568,6 @@ function installElectronDesktopE2eWorkspaceWebObserver(): void {
     });
   };
 
-  const hostFactory = ChromiumPlatformRuntimeHostFactory.prototype;
-  const originalCreatePopup = hostFactory.createPopup;
-  hostFactory.createPopup = async function (admission) {
-    const created = await originalCreatePopup.call(this, admission);
-    workspacePopupHostOwners.set(admission.popupId, Object.freeze({
-      admission,
-      host: created.host,
-      receipt: created.receipt
-    }));
-    return created;
-  };
 }
 
 function observePopupLifecycle(
@@ -598,11 +578,16 @@ function observePopupLifecycle(
 
 function installElectronDesktopE2ePopupLifecycleObserver(): void {
   const coordinator = ChromiumPopupLifecycleCoordinator.prototype;
-  const originalRequestOpen = coordinator.requestOpen;
+  const originalHandleWindowOpen = coordinator.handleWindowOpen;
+  const originalDidCreateWindow = coordinator.didCreateWindow;
   const originalRetireOwner = coordinator.retireOwner;
-  coordinator.requestOpen = function (source, details) {
+  coordinator.handleWindowOpen = function (source, details) {
     observePopupLifecycle(this);
-    return originalRequestOpen.call(this, source, details);
+    return originalHandleWindowOpen.call(this, source, details);
+  };
+  coordinator.didCreateWindow = function (source, popupWindow, details) {
+    observePopupLifecycle(this);
+    return originalDidCreateWindow.call(this, source, popupWindow, details);
   };
   coordinator.retireOwner = function (owner) {
     observePopupLifecycle(this);
@@ -1065,50 +1050,41 @@ async function readWorkspaceWebRuntime(
   const roleProjection = roleSlot?.roleId && roleOwner
     ? roleOwner.registry.readProjection(roleSlot.roleId, roleOwner.generation)
     : null;
-  const popups = Object.freeze([...workspacePopupHostOwners.values()]
-    .filter(({ admission, host }) =>
-      admission.parent.parentWindowId === windowId && !host.isDestroyed()
+  const popups = Object.freeze(
+    (observedPopupLifecycle?.readNativeWindowSnapshot() ?? [])
+    .filter(({ admission, window }) =>
+      admission.parent.parentWindowId === windowId && !window.isDestroyed()
     )
-    .map(({ admission, host, receipt }) => {
-      const projection = host.readProjection();
-      const appKitChrome = receipt.platform === "macos"
-        ? host.readFullscreenToolbar?.().appKit
-        : undefined;
+    .map(({
+      admission, currentUrl, nativeParentId, openerPolicy, sessionMatchesOwner,
+      title, window, receipt
+    }) => {
       if (
-        host.id !== receipt.nativeHostId ||
-        host.logicalWindowId !== receipt.logicalWindowId ||
+        window.id !== receipt.nativeHostId ||
         receipt.logicalWindowId !== admission.target.windowId ||
-        JSON.stringify(host.appKitIdentity ?? null) !==
-        JSON.stringify(receipt.appkitIdentity ?? null) ||
-        (receipt.platform === "macos" && !appKitChrome)
+        receipt.hostKind !== "electronBrowserWindow"
       ) {
         throw new Error(
           `Workspace Web popup ${admission.popupId} lost its native ownership fence.`
         );
       }
       return Object.freeze({
-        appKitChrome: appKitChrome
-          ? Object.freeze({
-              addButtonOnScreen: appKitChrome.addButtonOnScreen,
-              tabStripOnScreen: appKitChrome.tabStripOnScreen,
-              visibleTrafficLightCount: appKitChrome.visibleTrafficLightCount,
-              windowNameOnScreen: appKitChrome.windowNameOnScreen
-            })
-          : null,
-        appKitIdentity: receipt.appkitIdentity
-          ? Object.freeze({ ...receipt.appkitIdentity })
-          : null,
-        bounds: Object.freeze({ ...projection.bounds }),
-        hostKind: receipt.platform === "macos"
-          ? "appkit-chromium" as const
-          : "bundled-chromium" as const,
+        appKitChrome: null,
+        appKitIdentity: null,
+        bounds: Object.freeze({ ...window.getBounds() }),
+        currentUrl,
+        hostKind: "electronBrowserWindow" as const,
         logicalWindowId: receipt.logicalWindowId,
         nativeHostId: receipt.nativeHostId,
+        nativeParentId,
         openOperationId: admission.openOperationId,
+        openerPolicy,
         popupId: admission.popupId,
-        presentation: projection.presentation,
+        presentation: "normal" as const,
+        sessionMatchesOwner,
+        title,
         topologyRevision: receipt.topologyRevision,
-        visible: projection.visible,
+        visible: window.isVisible(),
         windowGeneration: receipt.windowGeneration
       });
     })

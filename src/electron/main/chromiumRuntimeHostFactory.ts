@@ -9,8 +9,6 @@ import type {
   AppKitRuntimeHostObservationRecord,
   BrowserWorkspaceDividerPointerReceiptRecord,
   BrowserWorkspaceDividerPointerRecord,
-  ChromiumPopupAdmissionRecord,
-  ChromiumPopupNativeHostReceiptRecord,
   EmbeddedLaunchTargetRecord,
   EmbeddedTabEffectRecord,
   RuntimeWindowPreferencesRecord
@@ -18,7 +16,6 @@ import type {
 import { RionBridgeError } from "../ipc/errors";
 import type { ChromiumRoleSurfaceBounds } from "./chromiumRoleSurfacePorts";
 import type { ChromiumRoleSurfaceParentPort } from "./chromiumRoleSurfacePorts";
-import type { ChromiumPopupHostLifecycleObserver } from "./chromiumPopupPorts";
 import type {
   WindowsChromiumInputBaseWindowPort,
   WindowsChromiumInputRuntimeParentBinding
@@ -130,14 +127,6 @@ export interface MacosAppKitRuntimeHostFactoryPort
     expected: AppKitRuntimeHostIdentityRecord,
     error: unknown
   ) => void;
-  createPopup: (
-    admission: ChromiumPopupAdmissionRecord
-  ) => Promise<ChromiumRuntimePopupHostHandle>;
-}
-
-export interface ChromiumRuntimePopupHostHandle {
-  readonly host: ChromiumRuntimeHostPort;
-  readonly receipt: ChromiumPopupNativeHostReceiptRecord;
 }
 
 export type ChromiumPlatformRuntimeHostFactoryInput =
@@ -225,8 +214,6 @@ interface WindowsHostRecord {
   readyToShow: boolean;
   closePromise: Promise<void> | null;
   creationError: RionBridgeError | null;
-  readonly popupId: string | null;
-  popupObserver: ChromiumPopupHostLifecycleObserver | null;
   chrome: WindowsRuntimeHostChromeController;
   windowState: WindowsRuntimeWindowStateStream;
   shortcutOwnerInstalled: boolean;
@@ -381,46 +368,6 @@ function validateEmptyRuntimeHostRequest(
   }
   return launchGeneration;
 }
-
-export function validateChromiumPopupHostAdmission(
-  admission: ChromiumPopupAdmissionRecord
-): void {
-  if (
-    !admission ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
-      .test(admission.popupId) ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u
-      .test(admission.openOperationId) ||
-    admission.lifecycleRevision !== 1 ||
-    admission.creationUrl !== "about:blank" ||
-    admission.openerPolicy !== "isolatedNoopener" ||
-    admission.disposition !== "newWindow" ||
-    admission.target.windowId !== `popup-${admission.popupId}` ||
-    admission.title.length === 0 || admission.title.length > 256
-  ) {
-    fail(
-      "ELECTRON_CHROMIUM_POPUP_ADMISSION_INVALID",
-      "An exact Rust-owned popup host admission is required."
-    );
-  }
-  validateRuntimeHostTarget(admission.target);
-}
-
-function validatePopupObserver(
-  observer: ChromiumPopupHostLifecycleObserver
-): void {
-  if (
-    !observer || typeof observer.closeRequested !== "function" ||
-    typeof observer.closed !== "function" ||
-    typeof observer.layoutChanged !== "function"
-  ) {
-    fail(
-      "ELECTRON_CHROMIUM_POPUP_OBSERVER_INVALID",
-      "The controlled popup requires exact native lifecycle observers."
-    );
-  }
-}
-
 
 function windowsInputParent(
   native: WindowsRuntimeHostWindowPort
@@ -664,45 +611,6 @@ implements ChromiumRuntimeHostFactoryPort {
     });
   }
 
-  async createPopup(
-    admission: ChromiumPopupAdmissionRecord
-  ): Promise<ChromiumRuntimePopupHostHandle> {
-    validateChromiumPopupHostAdmission(admission);
-    const host = await this.#createHost(
-      admission.target,
-      admission.openOperationId,
-      admission.popupId
-    );
-    if (host.isVisible()) {
-      await host.close();
-      throw hostError(
-        "ELECTRON_CHROMIUM_POPUP_HOST_VISIBLE",
-        "The provisional Windows popup host became visible before Core native-ready."
-      );
-    }
-    // Popup admission owns a standalone window, with no Game Window tab rows.
-    host.applyWindowsChromeProjection?.({
-      activeTabId: null,
-      contentBounds: host.getContentBounds(),
-      moveTargets: [],
-      tabs: [],
-      topologyRevision: 1,
-      windowGeneration: 1,
-      windowId: admission.target.windowId,
-      workspaceDividers: []
-    });
-    return Object.freeze({
-      host,
-      receipt: Object.freeze({
-        platform: "windows",
-        nativeHostId: host.id,
-        logicalWindowId: admission.target.windowId,
-        windowGeneration: 1,
-        topologyRevision: 1
-      })
-    });
-  }
-
   resolveInputParent(
     parent: ChromiumRoleSurfaceParentPort
   ): WindowsChromiumInputRuntimeParentBinding | null {
@@ -729,8 +637,7 @@ implements ChromiumRuntimeHostFactoryPort {
 
   #createHost(
     target: EmbeddedLaunchTargetRecord,
-    launchGeneration: string,
-    popupId: string | null = null
+    launchGeneration: string
   ): Promise<ChromiumRuntimeHostPort> {
     if (this.#activeByLogicalWindow.has(target.windowId)) {
       fail(
@@ -788,8 +695,7 @@ implements ChromiumRuntimeHostFactoryPort {
       this.#nextOwnerRevision(),
       native,
       nativeId,
-      nativeHandle,
-      popupId
+      nativeHandle
     );
     const nativeOwner = this.#ownerByNativeWindow.get(native);
     const idOwner = this.#ownerByNativeId.get(nativeId);
@@ -851,8 +757,7 @@ implements ChromiumRuntimeHostFactoryPort {
     ownerRevision: string,
     native: WindowsRuntimeHostWindowPort,
     nativeId: number,
-    nativeHandle: Buffer,
-    popupId: string | null
+    nativeHandle: Buffer
   ): WindowsHostRecord {
     const record: WindowsHostRecord = {
       logicalWindowId: target.windowId,
@@ -875,8 +780,6 @@ implements ChromiumRuntimeHostFactoryPort {
       readyToShow: false,
       closePromise: null,
       creationError: null,
-      popupId,
-      popupObserver: null,
       chrome: undefined as unknown as WindowsRuntimeHostChromeController,
       windowState: undefined as unknown as WindowsRuntimeWindowStateStream,
       shortcutOwnerInstalled: false,
@@ -890,21 +793,8 @@ implements ChromiumRuntimeHostFactoryPort {
       ...(this.#readCursorScreenPoint
         ? { readCursorScreenPoint: this.#readCursorScreenPoint }
         : {}),
-      requestWindowControl: (action) => {
-        if (record.popupId && action === "closeWindow") {
-          return this.#withCurrent(record, () => {
-            if (!record.popupObserver) {
-              throw hostError(
-                "ELECTRON_CHROMIUM_POPUP_OBSERVER_UNAVAILABLE",
-                "The popup close requires its exact Core lifecycle observer."
-              );
-            }
-            record.popupObserver.closeRequested();
-            return record.closed.promise;
-          });
-        }
-        return this.#onWindowControl(record.logicalWindowId, action);
-      },
+      requestWindowControl: (action) =>
+        this.#onWindowControl(record.logicalWindowId, action),
       requestTabControl: this.#onTabControl,
       requestTabReload: this.#onTabReload,
       readLifecycleEpoch: this.#lifecycleEpoch,
@@ -931,6 +821,7 @@ implements ChromiumRuntimeHostFactoryPort {
     record.host = Object.freeze({
       id: nativeId,
       logicalWindowId: target.windowId,
+      nativeWindow: native,
       contentView: native.contentView,
       close: () => this.#close(record),
       focus: () => this.#withCurrent(record, () => native.focus()),
@@ -986,22 +877,7 @@ implements ChromiumRuntimeHostFactoryPort {
       ) => this.#withCurrent(
         record,
         () => record.chrome.setPresentation(request)
-      ),
-      ...(popupId
-        ? {
-            bindPopupLifecycle: (observer: ChromiumPopupHostLifecycleObserver) =>
-              this.#withCurrent(record, () => {
-                validatePopupObserver(observer);
-                if (record.popupObserver) {
-                  fail(
-                    "ELECTRON_CHROMIUM_POPUP_OBSERVER_ALREADY_BOUND",
-                    "The Windows popup host lifecycle observer is already bound."
-                  );
-                }
-                record.popupObserver = observer;
-              })
-          }
-        : {})
+      )
     });
     if (this.#onRuntimeWindowPlacement) {
       record.chrome.bindPlacement(() => this.#onRuntimeWindowPlacement!(record.host));
@@ -1030,9 +906,6 @@ implements ChromiumRuntimeHostFactoryPort {
       close: (event) => {
         if (record.state === "closing" || record.state === "closed") return;
         event.preventDefault();
-        if (record.popupId && record.state === "active") {
-          record.popupObserver?.closeRequested();
-        }
       },
       closed: () => this.#onClosed(record),
       didFailLoad: (
@@ -1474,7 +1347,6 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#ownerByNativeWindow.delete(record.native);
     record.chrome.close();
     record.closed.resolve();
-    record.popupObserver?.closed();
     if (record.creationError) {
       record.creation.reject(record.creationError);
     } else if (wasOpening) {
@@ -1491,17 +1363,6 @@ implements ChromiumRuntimeHostFactoryPort {
     );
   }
 
-  #publishPopupLayout(record: WindowsHostRecord): void {
-    if (record.state !== "active" || !record.popupObserver) return;
-    try {
-      record.popupObserver.layoutChanged(this.#contentBounds(record));
-    } catch {
-      // The coordinator owns lifecycle failure classification; native geometry
-      // events must never escape Electron's event emitter.
-      record.popupObserver.closeRequested();
-    }
-  }
-
   #publishNativeLayout(record: WindowsHostRecord): void {
     const signature = JSON.stringify([
       record.native.getBounds(),
@@ -1514,7 +1375,6 @@ implements ChromiumRuntimeHostFactoryPort {
     ]);
     if (record.lastNativeLayoutSignature === signature) return;
     record.lastNativeLayoutSignature = signature;
-    this.#publishPopupLayout(record);
     void record.chrome.nativeBoundsChanged().catch((error) =>
       this.#onPresentationFailure(record, error)
     );
@@ -1721,38 +1581,6 @@ implements ChromiumRuntimeHostFactoryPort {
         );
       }
       return host;
-    });
-  }
-
-  createPopup(
-    admission: ChromiumPopupAdmissionRecord
-  ): Promise<ChromiumRuntimePopupHostHandle> {
-    validateChromiumPopupHostAdmission(admission);
-    if (this.#platform === "win32") return this.#windows!.createPopup(admission);
-    if (!this.#appKit || this.#appKit.nativeHostKind !== "rust-napi-appkit") {
-      return Promise.reject(hostError(
-        "ELECTRON_MACOS_APPKIT_HOST_UNAVAILABLE",
-        "The Rust/N-API AppKit popup-host adapter is unavailable."
-      ));
-    }
-    return this.#appKit.createPopup(admission).then(async (created) => {
-      const { host, receipt } = created;
-      if (
-        host.logicalWindowId !== admission.target.windowId ||
-        host.id !== receipt.nativeHostId ||
-        receipt.platform !== "macos" ||
-        receipt.logicalWindowId !== admission.target.windowId ||
-        receipt.windowGeneration !== 1 || receipt.topologyRevision !== 1 ||
-        !receipt.appkitIdentity || host.appKitIdentity !== receipt.appkitIdentity ||
-        host.isDestroyed() || host.isVisible() || !host.bindPopupLifecycle
-      ) {
-        if (!host.isDestroyed()) await host.close();
-        throw hostError(
-          "ELECTRON_MACOS_APPKIT_POPUP_HOST_INVALID",
-          "The AppKit adapter returned a mismatched popup host receipt."
-        );
-      }
-      return created;
     });
   }
 

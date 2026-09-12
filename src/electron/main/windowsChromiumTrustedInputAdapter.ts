@@ -290,9 +290,9 @@ function prepareDispatch(
   return Object.freeze({
     expectedEvents: Object.freeze([
       mouseEvent("mousedown", null, null, button),
-      ...(button === 2 ? [mouseEvent("contextmenu", null, null, button)] : []),
       mouseEvent("mouseup", null, null, button),
-      ...activationEvents.map((type) => mouseEvent(type, null, null, button))
+      ...activationEvents.map((type) => mouseEvent(type, null, null, button)),
+      ...(button === 2 ? [mouseEvent("contextmenu", null, null, button)] : [])
     ]),
     nativeTransitions: Object.freeze([Object.freeze({
       type: "mouse" as const,

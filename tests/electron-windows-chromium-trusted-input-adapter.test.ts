@@ -536,7 +536,7 @@ describe("Windows Chromium trusted-input adapter", () => {
     { button: "left" as const, domButton: 0, activations: ["click"] as const },
     { button: "middle" as const, domButton: 1, activations: ["auxclick"] as const },
     { button: "right" as const, domButton: 2,
-      activations: ["contextmenu", "auxclick"] as const }
+      activations: ["auxclick", "contextmenu"] as const }
   ])("uses the native-canonical point and exact activation for $button", async ({
     activations,
     button,
@@ -551,11 +551,8 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(armedExpected.map((event) => event.clientX)).toEqual(
       Array.from({ length: 2 + activations.length }, () => null)
     );
-    expect(armedExpected.map((event) => event.type)).toEqual(
-      button === "right"
-        ? ["mousedown", "contextmenu", "mouseup", "auxclick"]
-        : ["mousedown", "mouseup", ...activations]
-    );
+    const chromiumSequence = ["mousedown", "mouseup", ...activations] as const;
+    expect(armedExpected.map((event) => event.type)).toEqual(chromiumSequence);
     expect(armedExpected.map((event) => event.button)).toEqual(
       Array.from({ length: 2 + activations.length }, () => domButton)
     );
@@ -568,9 +565,10 @@ describe("Windows Chromium trusted-input adapter", () => {
         zoomFactor: 1.25
       })
     ]);
-    for (const [index] of ["mousedown", "mouseup", ...activations].entries()) {
+    for (const [index, type] of chromiumSequence.entries()) {
       subject.dom({
         ...armedExpected[index]!,
+        type,
         clientX: 100,
         clientY: 200
       }, index);

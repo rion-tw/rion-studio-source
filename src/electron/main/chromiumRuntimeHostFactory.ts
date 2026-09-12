@@ -695,6 +695,7 @@ implements ChromiumRuntimeHostFactoryPort {
       host,
       receipt: Object.freeze({
         platform: "windows",
+        hostKind: "electronBrowserWindow",
         nativeHostId: host.id,
         logicalWindowId: admission.target.windowId,
         windowGeneration: 1,

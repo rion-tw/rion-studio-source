@@ -232,6 +232,19 @@ export async function readVisibleElectronPageElementPoint(
   );
 }
 
+/** Reads text rendered by one exact visible managed Chromium document. */
+export async function readVisibleElectronPageElementText(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string
+): Promise<string> {
+  return withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
+    const element = await $(selector);
+    await element.waitForDisplayed({ timeout: 10_000 });
+    return element.getText();
+  });
+}
+
 /** Reads the visible verification control point across its exact iframe boundary. */
 export async function readVisibleElectronRoleVerificationPoint(
   expectedUrl: string,
@@ -267,17 +280,40 @@ export async function restoreElectronMainWindowTarget(
 }
 
 /** Clicks an exact visible control in a managed Chromium document. */
-export async function clickVisibleElectronPageElement(
+async function clickVisibleElectronPageElementTarget(
   expectedUrl: string,
   mainWindowHandle: string,
-  selector: string
+  selector: string,
+  restoreMainWindow: boolean
 ): Promise<void> {
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const element = await $(selector);
     await element.waitForDisplayed({ timeout: 10_000 });
     await scrollLayoutControlIntoView(element);
     await element.click();
-  });
+  }, restoreMainWindow);
+}
+
+/** Clicks an exact visible control and restores the launcher target. */
+export async function clickVisibleElectronPageElement(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string
+): Promise<void> {
+  await clickVisibleElectronPageElementTarget(
+    expectedUrl, mainWindowHandle, selector, true
+  );
+}
+
+/** Keeps the current native page selected while an Electron popup is live. */
+export async function clickVisibleElectronPageElementKeepingTarget(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  selector: string
+): Promise<void> {
+  await clickVisibleElectronPageElementTarget(
+    expectedUrl, mainWindowHandle, selector, false
+  );
 }
 
 async function clickVisibleElectronPageElementWithWindowOpenModifierTarget(
@@ -296,12 +332,17 @@ async function clickVisibleElectronPageElementWithWindowOpenModifierTarget(
     const key = modifier === "shift"
       ? Key.Shift
       : platform === "macos" ? Key.Command : Key.Ctrl;
-    await browser.action("key").down(key).perform(true);
-    try {
-      await element.click();
-    } finally {
-      await browser.releaseActions();
-    }
+    await browser.actions([
+      browser.action("key")
+        .down(key)
+        .pause(100)
+        .pause(0)
+        .up(key),
+      browser.action("pointer", { parameters: { pointerType: "mouse" } })
+        .move({ duration: 100, origin: element })
+        .down("left")
+        .up("left")
+    ]);
   }, restoreMainWindow);
 }
 
@@ -427,6 +468,7 @@ export async function submitElectronPageEscape(
     processId: number;
     runtimeTabName?: string;
     runtimeWindowId?: string;
+    restoreMainWindow?: boolean;
   }>
 ): Promise<void> {
   await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
@@ -448,7 +490,7 @@ export async function submitElectronPageEscape(
       // submit complete native/Windows virtual key codes through ChromeDriver.
       await sendChromiumEscapeKey(browser, input.platform);
     }
-  });
+  }, input.restoreMainWindow ?? true);
 }
 
 /**

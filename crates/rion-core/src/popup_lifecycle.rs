@@ -500,6 +500,7 @@ fn validate_native_host(
         rion_platform::Platform::Windows => "windows",
     };
     if host.platform != expected_platform
+        || host.host_kind != "electronBrowserWindow"
         || host.native_host_id < 1
         || host.logical_window_id != record.admission.target.window_id
         || host.window_generation != 1
@@ -510,31 +511,11 @@ fn validate_native_host(
             "The popup native-host receipt does not match its Rust-owned admission.",
         ));
     }
-    match platform {
-        rion_platform::Platform::Macos => {
-            let identity = host.appkit_identity.as_ref().ok_or_else(|| {
-                domain(
-                    "CHROMIUM_POPUP_APPKIT_RECEIPT_REQUIRED",
-                    "The macOS popup requires an exact AppKit host identity receipt.",
-                )
-            })?;
-            if identity.logical_window_id != record.admission.target.window_id
-                || identity.launch_generation != record.admission.open_operation_id
-                || identity.native_generation < 1
-            {
-                return Err(domain(
-                    "CHROMIUM_POPUP_APPKIT_RECEIPT_MISMATCH",
-                    "The AppKit popup identity does not match its Rust-owned launch fence.",
-                ));
-            }
-        }
-        rion_platform::Platform::Windows if host.appkit_identity.is_some() => {
-            return Err(domain(
-                "CHROMIUM_POPUP_WINDOWS_HOST_INVALID",
-                "A Windows popup cannot claim an AppKit host identity.",
-            ));
-        }
-        _ => {}
+    if host.appkit_identity.is_some() {
+        return Err(domain(
+            "CHROMIUM_POPUP_ELECTRON_HOST_INVALID",
+            "An Electron BrowserWindow popup cannot claim an AppKit host identity.",
+        ));
     }
     Ok(())
 }
@@ -557,24 +538,24 @@ fn validate_open_request(request: &ChromiumPopupOpenRequestRecord) -> CoreResult
             "The popup request is missing an exact parent fence.",
         ));
     }
-    if request
-        .frame_name
-        .as_deref()
-        .is_some_and(|name| name != "_blank")
-    {
+    if request.frame_name.as_deref().is_some_and(|name| {
+        name.len() > 128
+            || matches!(
+                name.to_ascii_lowercase().as_str(),
+                "_self" | "_parent" | "_top"
+            )
+            || (!name.is_empty()
+                && name != "_blank"
+                && !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_.:-".contains(&byte)))
+    }) {
         return Err(domain(
-            "CHROMIUM_POPUP_NAMED_TARGET_UNSUPPORTED",
-            "Only an unnamed or _blank isolated popup target is supported.",
+            "CHROMIUM_POPUP_NAMED_TARGET_INVALID",
+            "The popup requested an invalid or reserved named target.",
         ));
     }
-    for feature in request.raw_features.split(',').map(str::trim) {
-        if !feature.is_empty() && feature != "noopener" && feature != "noreferrer" {
-            return Err(domain(
-                "CHROMIUM_POPUP_FEATURE_UNSUPPORTED",
-                "The popup requested an unsupported native window feature.",
-            ));
-        }
-    }
+    validate_popup_features(&request.raw_features)?;
     canonical_remote_url(&request.target_url, "target")?;
     if let Some(referrer) = request.referrer_url.as_deref() {
         canonical_remote_url(referrer, "referrer")?;
@@ -597,6 +578,62 @@ fn validate_open_request(request: &ChromiumPopupOpenRequestRecord) -> CoreResult
             "CHROMIUM_POPUP_REFERRER_POLICY_INVALID",
             "The popup referrer policy is not supported by the controlled loader.",
         ));
+    }
+    Ok(())
+}
+
+fn validate_popup_features(raw: &str) -> CoreResult<()> {
+    if raw.len() > 1_024 {
+        return Err(domain(
+            "CHROMIUM_POPUP_FEATURE_UNSUPPORTED",
+            "The popup requested an unsupported native window feature.",
+        ));
+    }
+    const PRESENTATION_FEATURES: &[&str] = &[
+        "width",
+        "height",
+        "left",
+        "top",
+        "screenx",
+        "screeny",
+        "outerwidth",
+        "outerheight",
+        "popup",
+        "toolbar",
+        "location",
+        "status",
+        "menubar",
+        "scrollbars",
+        "resizable",
+        "copyhistory",
+        "noopener",
+        "noreferrer",
+    ];
+    for feature in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let (name, value) = feature
+            .split_once('=')
+            .map_or((feature, None), |(name, value)| {
+                (name.trim(), Some(value.trim()))
+            });
+        let canonical = name.to_ascii_lowercase();
+        if !PRESENTATION_FEATURES.contains(&canonical.as_str())
+            || value.is_some_and(|candidate| {
+                candidate.is_empty()
+                    || candidate.len() > 32
+                    || !candidate.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')
+                    })
+            })
+        {
+            return Err(domain(
+                "CHROMIUM_POPUP_FEATURE_UNSUPPORTED",
+                "The popup requested an unsupported native window feature.",
+            ));
+        }
     }
     Ok(())
 }

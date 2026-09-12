@@ -32,8 +32,8 @@ function inspection(platform: "darwin" | "win32") {
     observations: [],
     platform,
     popups: [{
-      appKitIdentity: appKit ? appKitIdentity(POPUP_WINDOW_ID) : null,
-      hostKind: appKit ? "appkit-chromium" : "bundled-chromium",
+      appKitIdentity: null,
+      hostKind: "electronBrowserWindow",
       logicalWindowId: POPUP_WINDOW_ID,
       nativeHostId: 42,
       openOperationId: OPEN_OPERATION_ID,

@@ -636,6 +636,115 @@ export async function closeVisibleRuntimeWindow(input: Readonly<{
   }, input.windowId);
 }
 
+async function sendMacosElectronPopupKey(input: Readonly<{
+  command: boolean;
+  keyCode: number;
+  processId: number;
+  title: string;
+}>): Promise<void> {
+  if (process.platform !== "darwin" || !Number.isSafeInteger(input.processId) ||
+      input.processId <= 1 || !Number.isSafeInteger(input.keyCode) ||
+      input.keyCode < 0 || input.keyCode > 127 ||
+      !/^Rion Popup — [A-Za-z0-9.-]+$/u.test(input.title)) {
+    throw new Error("The exact Electron popup key identity is invalid");
+  }
+  const script = `
+import AppKit
+import CoreGraphics
+import Foundation
+let targetPid = pid_t(${input.processId})
+let targetTitle = ${JSON.stringify(input.title)}
+guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid else {
+  fatalError("exact Electron popup process is not foreground")
+}
+let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+  as? [[String: Any]] else { fatalError("native window inventory unavailable") }
+let owned = windows.filter { entry in
+  (entry[kCGWindowOwnerPID as String] as? Int32) == targetPid &&
+    (entry[kCGWindowLayer as String] as? Int) == 0
+}
+let matches = owned.filter {
+  ($0[kCGWindowName as String] as? String) == targetTitle
+}
+guard matches.count == 1, let firstOwned = owned.first,
+  (firstOwned[kCGWindowNumber as String] as? Int) ==
+    (matches[0][kCGWindowNumber as String] as? Int) else {
+  fatalError("exact Electron popup is not the front native window")
+}
+guard let source = CGEventSource(stateID: .hidSystemState) else {
+  fatalError("system keyboard source unavailable")
+}
+func post(_ down: Bool) {
+  let event = CGEvent(keyboardEventSource: source,
+    virtualKey: CGKeyCode(${input.keyCode}), keyDown: down)
+  event?.flags = ${input.command ? "[.maskCommand]" : "[]"}
+  event?.post(tap: .cghidEventTap)
+}
+post(true)
+usleep(50_000)
+post(false)
+usleep(100_000)
+`;
+  await executeFile("/usr/bin/xcrun", ["swift", "-e", script], {
+    encoding: "utf8",
+    timeout: 30_000
+  });
+}
+
+/** Closes one exact Electron popup through the platform's native window path. */
+export async function closeVisibleElectronPopupWindow(input: Readonly<{
+  platform: "macos" | "windows";
+  processId: number;
+  title: string;
+}>): Promise<void> {
+  const processId = input.processId;
+  if (input.platform === "macos") {
+    await sendMacosElectronPopupKey({
+      command: true,
+      keyCode: 13,
+      processId,
+      title: input.title
+    });
+    return;
+  }
+  const script = String.raw`
+Add-Type -AssemblyName UIAutomationClient
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$processCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]$payload.processId)
+$titleCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, [string]$payload.title)
+$condition = New-Object System.Windows.Automation.AndCondition($processCondition, $titleCondition)
+$windows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)
+if ($windows.Count -ne 1 -or $windows[0].Current.IsOffscreen -or -not $windows[0].Current.IsEnabled) { throw 'exact Electron popup unavailable' }
+$buttonType = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+$closeName = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Close')
+$closeCondition = New-Object System.Windows.Automation.AndCondition($buttonType, $closeName)
+$button = $windows[0].FindFirst([System.Windows.Automation.TreeScope]::Descendants, $closeCondition)
+if ($null -eq $button -or $button.Current.IsOffscreen -or -not $button.Current.IsEnabled) { throw 'exact Electron popup close unavailable' }
+$pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+$pattern.Invoke()
+Write-Output 'closed'
+`;
+  const closed = await runEncodedPowerShellJson(script, {
+    processId,
+    title: input.title
+  }, { timeoutMilliseconds: 10_000 });
+  if (closed !== "closed") throw new Error("Electron popup native close was not acknowledged");
+}
+
+/** Sends native Escape to one exact standard Electron popup on macOS. */
+export async function pressVisibleMacosElectronPopupEscape(input: Readonly<{
+  processId: number;
+  title: string;
+}>): Promise<void> {
+  await sendMacosElectronPopupKey({
+    command: false,
+    keyCode: 53,
+    processId: input.processId,
+    title: input.title
+  });
+}
+
 /** Reads the visible native phase adornment without mutating runtime state. */
 export async function visibleRuntimeTabPhase(input: Readonly<{
   mainWindowHandle: string;

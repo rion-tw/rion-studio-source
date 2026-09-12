@@ -14,10 +14,11 @@ import {
 } from "../support/electron-driver";
 import {
   clickVisibleElectronPageElement,
-  clickVisibleElectronPageElementWithWindowOpenModifier,
+  clickVisibleElectronPageElementKeepingTarget,
   clickVisibleElectronPageElementWithPointerKeepingTarget,
   navigateVisibleElectronWorkspaceWebChrome,
   readVisibleElectronPageElementPoint,
+  readVisibleElectronPageElementText,
   restoreElectronMainWindowTarget,
   submitElectronPageEscape
 } from "../support/electron-role-surface";
@@ -32,12 +33,19 @@ import {
   writeVisibleFileUploadEvidence
 } from "../support/native-file-upload";
 import {
+  closeVisibleElectronPopupWindow,
   closeVisibleRuntimeTab,
-  closeVisibleRuntimeWindow,
+  pressVisibleMacosElectronPopupEscape,
   readVisibleMacosRuntimeTabCloseEvidence,
   readVisibleWindowsRuntimeTabCloseEvidence,
   shiftClickVisibleMacosScreenPoint
 } from "../support/native-runtime-tabs";
+import { clickVisibleMacosElectronPopupCenter } from
+  "../support/electron-popup-native-input";
+import {
+  clickMacosVisibleRoleControl,
+  clickMacosVisibleWebControl
+} from "../support/macos-appkit-ui";
 import { focusVisibleMacosAppKitRuntime } from
   "../support/native-application-actions";
 import { closeWindowsRuntimeTabFromEvidence } from "../support/windows-runtime-tab-close";
@@ -90,6 +98,30 @@ function popupUrl(): string {
     `/role/${POPUP_FIXTURE_ID}`,
     "https://rion-drm.fixture.test"
   ).href;
+}
+
+function fixtureRoleId(pageUrl: string): string {
+  const match = new URL(pageUrl).pathname.match(/^\/role\/([a-z0-9-]+)$/u);
+  if (!match) throw new Error(`Expected a fixture Role URL, received ${pageUrl}`);
+  return match[1]!;
+}
+
+function oauthCallbackUrl(
+  parentUrl = configuredWebUrl(),
+  roleId = WEB_FIXTURE_ID
+): string {
+  const url = new URL("/oauth/callback", parentUrl);
+  url.searchParams.set("roleId", roleId);
+  return url.href;
+}
+
+function oauthAuthorizeUrl(
+  parentUrl = configuredWebUrl(),
+  roleId = WEB_FIXTURE_ID
+): string {
+  const url = new URL("/oauth/authorize", "https://rion-drm.fixture.test");
+  url.searchParams.set("callback", oauthCallbackUrl(parentUrl, roleId));
+  return url.href;
 }
 
 function downloadUrl(): string {
@@ -290,23 +322,38 @@ async function waitForPopupLifecycleObservation(input: Readonly<{
     journal: ElectronDesktopE2ePopupLifecycleJournalInspection;
     observation: PopupLifecycleObservation;
   }> | undefined;
-  await browser.waitUntil(async () => {
-    const journal = await electronDesktopE2ePopupLifecycleJournal(input.windowId);
-    const matches = journal.observations.filter((observation) =>
-      observation.sequence > input.afterSequence &&
-      observation.action === input.action &&
-      (input.popupId === undefined || observation.popupId === input.popupId) &&
-      (input.openOperationId === undefined ||
-        observation.openOperationId === input.openOperationId)
+  let lastJournal: ElectronDesktopE2ePopupLifecycleJournalInspection | undefined;
+  try {
+    await browser.waitUntil(async () => {
+      const journal = await electronDesktopE2ePopupLifecycleJournal(input.windowId);
+      lastJournal = journal;
+      const matches = journal.observations.filter((observation) =>
+        observation.sequence > input.afterSequence &&
+        observation.action === input.action &&
+        (input.popupId === undefined || observation.popupId === input.popupId) &&
+        (input.openOperationId === undefined ||
+          observation.openOperationId === input.openOperationId)
+      );
+      if (matches.length !== 1) return false;
+      result = Object.freeze({ journal, observation: matches[0]! });
+      return true;
+    }, {
+      interval: 100,
+      timeout: 20_000,
+      timeoutMsg: `Popup ${input.action} Core receipt was not observed`
+    });
+  } catch (error) {
+    const observations = lastJournal?.observations
+      .filter((observation) => observation.sequence > input.afterSequence)
+      .map(({ action, phase, popupId, sequence, status }) => ({
+        action, phase, popupId, sequence, status
+      })) ?? [];
+    throw new Error(
+      `Popup ${input.action} Core receipt was not observed; ` +
+      `afterSequence=${input.afterSequence}; observations=${JSON.stringify(observations)}`,
+      { cause: error }
     );
-    if (matches.length !== 1) return false;
-    result = Object.freeze({ journal, observation: matches[0]! });
-    return true;
-  }, {
-    interval: 100,
-    timeout: 20_000,
-    timeoutMsg: `Popup ${input.action} Core receipt was not observed`
-  });
+  }
   return result!;
 }
 
@@ -381,8 +428,20 @@ async function escapeAndObserveFullscreen(input: Readonly<{
   processId: number;
   roleId: string;
   runtimeTabName: string;
+  webSurfaceId: string;
   windowId: string;
 }>): Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection> {
+  if (input.platform === "macos") {
+    await clickMacosVisibleWebControl(
+      input.windowId,
+      input.webSurfaceId,
+      await readVisibleElectronPageElementPoint(
+        input.expectedUrl,
+        input.mainWindowHandle,
+        "#contained-fullscreen-controls > p"
+      )
+    );
+  }
   const afterSequence = await fixtureCursor();
   await submitElectronPageEscape(input.expectedUrl, input.mainWindowHandle, {
     platform: input.platform,
@@ -575,10 +634,11 @@ async function exerciseDrmPermission(input: Readonly<{
   inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection;
   mainWindowHandle: string;
 }>): Promise<void> {
+  await restoreElectronMainWindowTarget(input.mainWindowHandle);
   const before = await electronDesktopE2eWorkspaceWebSecurityPolicy(input.inspection.windowId);
   const priorSequence = before.observations.at(-1)?.sequence ?? 0;
   const drmCursor = await fixtureCursor();
-  await clickVisibleElectronPageElement(popupUrl(), input.mainWindowHandle,
+  await clickVisibleElectronPageElementKeepingTarget(popupUrl(), input.mainWindowHandle,
     "#permission-drm");
   expect(await waitFixtureEvent({ afterSequence: drmCursor, kind: "drm-requested",
     roleId: POPUP_FIXTURE_ID })).toEqual(expect.objectContaining({ isTrusted: true }));
@@ -586,6 +646,7 @@ async function exerciseDrmPermission(input: Readonly<{
     kind: "drm-result", roleId: POPUP_FIXTURE_ID });
   expect(["key-system-access-granted", "NotSupportedError", "NotAllowedError"])
     .toContain(drmResult.errorCode);
+  await restoreElectronMainWindowTarget(input.mainWindowHandle);
   const drmPolicy = await electronDesktopE2eWorkspaceWebSecurityPolicy(input.inspection.windowId);
   const drmDecisions = drmPolicy.observations.filter((entry) =>
     entry.sequence > priorSequence && entry.kind === "drm-permission");
@@ -604,6 +665,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
   inspection: ElectronDesktopE2eWorkspaceWebRuntimeInspection;
   mainWindowHandle: string;
   platform: "macos" | "windows";
+  role: Role;
   tabId: string;
 }>): Promise<void> {
   const { inspection: launched, mainWindowHandle, platform } = input;
@@ -613,13 +675,215 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expect(launched.presentation).toBe("normal");
   expect(launched.popups).toEqual([]);
   expectNormalPairedProjection(launched);
-  await exerciseDeniedPermissionAndDownload({
-    inspection: launched,
-    mainWindowHandle
-  });
   const runtimeProbe = await electronDesktopE2eProbe();
   expect(runtimeProbe.platform).toBe(platform);
   const processId = runtimeProbe.processId;
+  let before = launched;
+
+  const oauthAfter = await fixtureCursor();
+  const oauthJournalSequence = 0;
+  if (platform === "macos") {
+    await clickMacosVisibleWebControl(
+      launched.windowId,
+      launched.web.surfaceId,
+      await readVisibleElectronPageElementPoint(
+        configuredWebUrl(), mainWindowHandle, "#named-oauth-popup"
+      )
+    );
+  } else {
+    await clickVisibleElectronPageElementWithPointerKeepingTarget(
+      configuredWebUrl(), mainWindowHandle, "#named-oauth-popup"
+    );
+  }
+  expect(await waitFixtureEvent({
+    afterSequence: oauthAfter,
+    kind: "named-oauth-popup-requested",
+    roleId: WEB_FIXTURE_ID
+  })).toEqual(expect.objectContaining({
+    isTrusted: true,
+    targetId: "named-oauth-popup",
+    windowProxyNonNull: true
+  }));
+  await waitFixtureEvent({
+    afterSequence: oauthAfter,
+    kind: "named-oauth-auth-ready",
+    roleId: POPUP_FIXTURE_ID
+  });
+  let oauthPopup: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
+  await browser.waitUntil(async () => {
+    const candidate = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
+    if (candidate.popups.length !== 1 || !candidate.popups[0]?.visible) return false;
+    oauthPopup = candidate;
+    return true;
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The named OAuth BrowserWindow did not become visible"
+  });
+  expect(oauthPopup!.popups[0]).toEqual(expect.objectContaining({
+    currentUrl: oauthAuthorizeUrl(),
+    hostKind: "electronBrowserWindow",
+    openerPolicy: "connectedOpener",
+    ownerKind: "globalWeb",
+    title: "Rion Popup — rion-drm.fixture.test"
+  }));
+  expectMainHostGeometryInvariant(before, oauthPopup!);
+  if (platform === "macos") {
+    expect(oauthPopup!.appKitIdentity).toEqual(before.appKitIdentity);
+  }
+
+  if (platform === "macos") {
+    await clickVisibleMacosElectronPopupCenter({
+      processId,
+      title: oauthPopup!.popups[0]!.title
+    });
+  } else {
+    await clickVisibleElectronPageElementWithPointerKeepingTarget(
+      oauthAuthorizeUrl(),
+      mainWindowHandle,
+      "#oauth-account"
+    );
+  }
+  for (const [kind, roleId] of [
+    ["named-oauth-auth-selected", POPUP_FIXTURE_ID],
+    ["named-oauth-callback-ready", WEB_FIXTURE_ID],
+    ["named-oauth-storage-observed", WEB_FIXTURE_ID],
+    ["named-oauth-message-observed", WEB_FIXTURE_ID]
+  ] as const) {
+    await waitFixtureEvent({ afterSequence: oauthAfter, kind, roleId });
+  }
+  expect(await readVisibleElectronPageElementText(
+    configuredWebUrl(),
+    mainWindowHandle,
+    "#named-oauth-status"
+  )).toBe("signed-in");
+  await browser.waitUntil(async () =>
+    (await electronDesktopE2eWorkspaceWebRuntime(before.windowId)).popups.length === 0,
+  {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The named OAuth callback did not close its BrowserWindow"
+  });
+  await restoreElectronMainWindowTarget(mainWindowHandle);
+  const oauthTerminal = await waitForPopupLifecycleObservation({
+    action: "nativeClosed",
+    afterSequence: oauthJournalSequence,
+    windowId: before.windowId
+  });
+  expect(oauthTerminal.observation).toEqual(expect.objectContaining({
+    closeReason: "user",
+    lifecycleTerminal: true,
+    operationTerminal: true,
+    phase: "closed"
+  }));
+
+  const roleFixtureId = fixtureRoleId(input.role.launchUrl);
+  const roleOauthUrl = oauthAuthorizeUrl(input.role.launchUrl, roleFixtureId);
+  const roleOauthControlPoint = platform === "macos"
+    ? await readVisibleElectronPageElementPoint(
+      input.role.launchUrl,
+      mainWindowHandle,
+      "#named-oauth-popup"
+    )
+    : null;
+  if (platform === "macos") {
+    // The retained AppKit host intentionally consumes the first click that
+    // transfers focus between sibling Chromium surfaces. Focus a benign Role
+    // heading before the user-action cursor, then click the OAuth control.
+    await clickMacosVisibleRoleControl(
+      before.windowId,
+      input.role.id,
+      await readVisibleElectronPageElementPoint(
+        input.role.launchUrl,
+        mainWindowHandle,
+        "#role-id"
+      )
+    );
+  }
+  const roleOauthAfter = await fixtureCursor();
+  if (platform === "macos") {
+    await clickMacosVisibleRoleControl(
+      before.windowId,
+      input.role.id,
+      roleOauthControlPoint!
+    );
+  } else {
+    await clickVisibleElectronPageElementWithPointerKeepingTarget(
+      input.role.launchUrl,
+      mainWindowHandle,
+      "#named-oauth-popup"
+    );
+  }
+  expect(await waitFixtureEvent({
+    afterSequence: roleOauthAfter,
+    kind: "named-oauth-popup-requested",
+    roleId: roleFixtureId
+  })).toEqual(expect.objectContaining({
+    isTrusted: true,
+    windowProxyNonNull: true
+  }));
+  let rolePopup: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
+  await browser.waitUntil(async () => {
+    const candidate = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
+    if (candidate.popups.length !== 1 || !candidate.popups[0]?.visible) return false;
+    rolePopup = candidate;
+    return true;
+  }, {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The Role-owned OAuth BrowserWindow did not become visible"
+  });
+  expect(rolePopup!.popups[0]).toEqual(expect.objectContaining({
+    currentUrl: roleOauthUrl,
+    hostKind: "electronBrowserWindow",
+    openerPolicy: "connectedOpener",
+    ownerKind: "role",
+    title: "Rion Popup — rion-drm.fixture.test"
+  }));
+  expectMainHostGeometryInvariant(before, rolePopup!);
+  await waitFixtureEvent({
+    afterSequence: roleOauthAfter,
+    kind: "named-oauth-auth-ready",
+    roleId: POPUP_FIXTURE_ID
+  });
+  if (platform === "macos") {
+    await clickVisibleMacosElectronPopupCenter({
+      processId,
+      title: rolePopup!.popups[0]!.title
+    });
+  } else {
+    await clickVisibleElectronPageElementWithPointerKeepingTarget(
+      roleOauthUrl,
+      mainWindowHandle,
+      "#oauth-account"
+    );
+  }
+  for (const [kind, roleId] of [
+    ["named-oauth-auth-selected", POPUP_FIXTURE_ID],
+    ["named-oauth-callback-ready", roleFixtureId],
+    ["named-oauth-storage-observed", roleFixtureId],
+    ["named-oauth-message-observed", roleFixtureId]
+  ] as const) {
+    await waitFixtureEvent({ afterSequence: roleOauthAfter, kind, roleId });
+  }
+  expect(await readVisibleElectronPageElementText(
+    input.role.launchUrl,
+    mainWindowHandle,
+    "#named-oauth-status"
+  )).toBe("signed-in");
+  await browser.waitUntil(async () =>
+    (await electronDesktopE2eWorkspaceWebRuntime(before.windowId)).popups.length === 0,
+  {
+    interval: 100,
+    timeout: 20_000,
+    timeoutMsg: "The Role OAuth callback did not close its BrowserWindow"
+  });
+  await restoreElectronMainWindowTarget(mainWindowHandle);
+
+  await exerciseDeniedPermissionAndDownload({
+    inspection: before,
+    mainWindowHandle
+  });
   let restoredHost: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
     const candidate = await electronDesktopE2eWorkspaceWebRuntime(
@@ -633,17 +897,23 @@ async function exerciseContainedFullscreen(input: Readonly<{
     timeout: 20_000,
     timeoutMsg: "The AppKit/Windows host did not restore focus after security exercises"
   });
-  const before = restoredHost!;
+  before = restoredHost!;
   expectMainHostGeometryInvariant(launched, before);
 
   const popupReadyAfter = await fixtureCursor();
-  await clickVisibleElectronPageElementWithWindowOpenModifier(
-    configuredWebUrl(),
-    mainWindowHandle,
-    "#contained-fullscreen-post-popup",
-    "shift",
-    platform
-  );
+  if (platform === "macos") {
+    await clickMacosVisibleWebControl(
+      before.windowId,
+      before.web.surfaceId,
+      await readVisibleElectronPageElementPoint(
+        configuredWebUrl(), mainWindowHandle, "#contained-fullscreen-post-popup"
+      )
+    );
+  } else {
+    await clickVisibleElectronPageElementWithPointerKeepingTarget(
+      configuredWebUrl(), mainWindowHandle, "#contained-fullscreen-post-popup"
+    );
+  }
   const popupRequest = await waitFixtureEvent({
     afterSequence: popupReadyAfter,
     kind: "contained-popup-post-requested",
@@ -652,7 +922,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expect(popupRequest).toEqual(expect.objectContaining({
     button: 0,
     isTrusted: true,
-    modifiers: { alt: false, control: false, meta: false, shift: true }
+    modifiers: { alt: false, control: false, meta: false, shift: false }
   }));
   expect(await waitFixtureEvent({
     afterSequence: popupReadyAfter,
@@ -673,46 +943,43 @@ async function exerciseContainedFullscreen(input: Readonly<{
   let popupBefore: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
     const candidate = await electronDesktopE2eWorkspaceWebRuntime(before.windowId);
-    if (candidate.popups.length !== 1 || !candidate.popups[0]?.visible) return false;
+    if (
+      candidate.popups.length !== 1 || !candidate.popups[0]?.visible ||
+      candidate.popups[0].currentUrl !== popupUrl()
+    ) return false;
     popupBefore = candidate;
     return true;
   }, {
     interval: 100,
     timeout: 20_000,
-    timeoutMsg: "The controlled Chromium popup did not expose its native host"
+    timeoutMsg: "The controlled Chromium popup did not commit its POST response"
   });
   expectMainHostGeometryInvariant(before, popupBefore!);
   // Popup creation captures the parent fence; it does not mutate parent topology.
   // Native focus events may advance that revision, but no advance is required.
   expect(popupBefore!.topologyRevision).toBeGreaterThanOrEqual(before.topologyRevision);
   expect(popupBefore!.popups[0]).toEqual(expect.objectContaining({
-    hostKind: before.hostKind,
+    appKitChrome: null,
+    appKitIdentity: null,
+    currentUrl: popupUrl(),
+    hostKind: "electronBrowserWindow",
+    openerPolicy: "connectedOpener",
+    ownerKind: "globalWeb",
     presentation: "normal",
+    title: `Rion Popup — ${new URL(popupUrl()).hostname}`,
     topologyRevision: 1,
     visible: true,
     windowGeneration: 1
   }));
   if (platform === "macos") {
-    expect(popupBefore!.popups[0]!.appKitIdentity).toEqual({
-      launchGeneration: popupBefore!.popups[0]!.openOperationId,
-      logicalWindowId: popupBefore!.popups[0]!.logicalWindowId,
-      nativeGeneration: popupBefore!.popups[0]!.appKitIdentity?.nativeGeneration
-    });
-    expect(popupBefore!.popups[0]!.appKitChrome).toEqual({
-      addButtonOnScreen: false,
-      tabStripOnScreen: false,
-      visibleTrafficLightCount: 3,
-      windowNameOnScreen: true
-    });
-  } else {
-    expect(popupBefore!.popups[0]!.appKitIdentity).toBeNull();
-    expect(popupBefore!.popups[0]!.appKitChrome).toBeNull();
+    expect(before.appKitIdentity).not.toBeNull();
+    expect(popupBefore!.appKitIdentity).toEqual(before.appKitIdentity);
   }
 
   await exerciseDrmPermission({ inspection: popupBefore!, mainWindowHandle });
 
   const popupEnterAfter = await fixtureCursor();
-  await clickVisibleElectronPageElement(
+  await clickVisibleElectronPageElementKeepingTarget(
     popupUrl(),
     mainWindowHandle,
     "#contained-fullscreen-enter"
@@ -727,7 +994,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expect(popupEntered.popups).toEqual(popupBefore!.popups);
 
   const popupSiteExitAfter = await fixtureCursor();
-  await clickVisibleElectronPageElement(
+  await clickVisibleElectronPageElementKeepingTarget(
     popupUrl(),
     mainWindowHandle,
     "#contained-fullscreen-exit"
@@ -744,7 +1011,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expect(popupSiteRestored.popups).toEqual(popupBefore!.popups);
 
   const popupSecondEnterAfter = await fixtureCursor();
-  await clickVisibleElectronPageElement(
+  await clickVisibleElectronPageElementKeepingTarget(
     popupUrl(),
     mainWindowHandle,
     "#contained-fullscreen-enter"
@@ -755,11 +1022,18 @@ async function exerciseContainedFullscreen(input: Readonly<{
     roleId: POPUP_FIXTURE_ID
   });
   const popupEscapeAfter = await fixtureCursor();
-  await submitElectronPageEscape(popupUrl(), mainWindowHandle, {
-    platform,
-    processId,
-    runtimeWindowId: popupBefore!.popups[0]!.logicalWindowId
-  });
+  if (platform === "macos") {
+    await pressVisibleMacosElectronPopupEscape({
+      processId,
+      title: popupBefore!.popups[0]!.title
+    });
+  } else {
+    await submitElectronPageEscape(popupUrl(), mainWindowHandle, {
+      platform,
+      processId,
+      restoreMainWindow: false
+    });
+  }
   expectFixtureFullscreen(await waitFixtureEvent({
     afterSequence: popupEscapeAfter,
     kind: "contained-fullscreen-exit",
@@ -770,11 +1044,10 @@ async function exerciseContainedFullscreen(input: Readonly<{
   expect(popupRestored.popups).toEqual(popupBefore!.popups);
 
   const popup = popupRestored.popups[0]!;
-  await closeVisibleRuntimeWindow({
-    mainWindowHandle,
+  await closeVisibleElectronPopupWindow({
     platform,
-    windowId: popup.logicalWindowId,
-    tabName: new URL(popupUrl()).hostname
+    processId,
+    title: popup.title
   });
   let restoredParent: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
@@ -804,6 +1077,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
     phase: "closed",
     status: "applied"
   }));
+  await restoreElectronMainWindowTarget(mainWindowHandle);
 
   expect(await exerciseVisibleFileUpload({ mainWindowHandle, platform }))
     .toBe(processId);
@@ -857,6 +1131,7 @@ async function exerciseContainedFullscreen(input: Readonly<{
     processId,
     roleId: WEB_FIXTURE_ID,
     runtimeTabName: WORKSPACE_NAME,
+    webSurfaceId: reentered.web.surfaceId,
     windowId: before.windowId
   });
   expectMainHostInvariant(mainFullscreenBaseline, escapeRestored);
@@ -910,12 +1185,10 @@ async function exerciseContainedFullscreen(input: Readonly<{
       );
       await shiftClickVisibleMacosScreenPoint(pendingPopupScreenPoint!);
     } else {
-      await clickVisibleElectronPageElementWithWindowOpenModifier(
+      await clickVisibleElectronPageElementKeepingTarget(
         configuredWebUrl(),
         mainWindowHandle,
-        "#contained-fullscreen-popup",
-        "shift",
-        platform
+        "#contained-fullscreen-popup"
       );
     }
     expect(await waitFixtureEvent({
@@ -925,7 +1198,12 @@ async function exerciseContainedFullscreen(input: Readonly<{
     })).toEqual(expect.objectContaining({
       button: 0,
       isTrusted: true,
-      modifiers: { alt: false, control: false, meta: false, shift: true }
+      modifiers: {
+        alt: false,
+        control: false,
+        meta: false,
+        shift: platform === "macos"
+      }
     }));
     const waiting = await fetch(
       `${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}` +
@@ -1073,6 +1351,7 @@ async function runPhase(
     inspection,
     mainWindowHandle: launched.mainWindowHandle,
     platform,
+    role,
     tabId: launched.tabId
   });
 }

@@ -124,20 +124,22 @@ owner-window fullscreen.
 
 Popups without a managed Role/Website owner, without an explicit `new-window`
 disposition for Website content, or with an unsupported scheme are denied before
-a native window is created. A created popup must install security, lifecycle,
-failure-monitor, zoom, ownership, and main-frame navigation handling before
-registration. Popup resource and subframe activity never participates in the
-role input-fence transaction. Failure at any stage closes the provisional window
-and records a failed receipt.
+a native window is created. `createWindow` creates one hidden, non-focusable
+Electron BrowserWindow synchronously, installs security/lifecycle/failure/title
+and main-frame navigation handling, and returns its WebContents. The first
+remote navigation is prevented until Core admission; `nativeReady` precedes
+focus enablement, show and loading that URL in the same WebContents. Popup
+resource and subframe activity never participates in the Role input-fence
+transaction. Failure at any stage destroys the provisional BrowserWindow and
+terminalizes an admitted operation exactly.
 
-On macOS, an exact native projection containing one `popup` tab uses the
-retained AppKit controller in single-page mode. The admitted hostname is shown
-beside the native traffic lights; the tab group, tab close control, context menu,
-drag source/destination, scrolling controls, and launcher button are hidden and
-removed from accessibility navigation. Presentation-only actions already queued
-before that projection may be ignored only when their popup, window, and drag
-identity remain exact. Foreign or topology-mutating actions fail closed. Windows
-keeps its existing standalone single-page popup chrome.
+The popup BrowserWindow uses a standard native frame on both platforms. Core
+owns work-area-clamped placement; presentation features do not place it and web
+`moveTo`/`resizeTo` updates are prevented. Page title updates are prevented and
+the main process derives `Rion Popup — <hostname>` from each canonical
+main-frame commit. v31 receipts use `hostKind=electronBrowserWindow` and never
+carry AppKit identity. macOS AppKit remains the parent Game Window/tab host and
+trusted-input boundary only.
 
 `capabilityEvidence` reports each capability's runtime probe, policy mode,
 evidence stage, and failure reason. `supported`, `degraded`, `unsupported`, and

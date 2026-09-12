@@ -39,30 +39,30 @@ async function readSystemEvents(script: string, ...arguments_: string[]): Promis
   return result.stdout.trim();
 }
 
-/** Clicks one exact visible Role-page point through the retained AppKit host. */
-export async function clickMacosVisibleRoleControl(
+async function clickMacosVisibleChromiumSurfaceControl(
   windowId: string,
-  roleId: string,
-  point: VisibleElectronPagePoint
+  surfaceId: string,
+  point: VisibleElectronPagePoint,
+  surfaceKind: "role" | "web"
 ): Promise<void> {
   if (
     process.platform !== "darwin" ||
     !windowId || windowId !== windowId.trim() ||
-    !roleId || roleId !== roleId.trim() ||
+    !surfaceId || surfaceId !== surfaceId.trim() ||
     ![point.x, point.y, point.viewport.width, point.viewport.height]
       .every(Number.isFinite) ||
     point.viewport.width <= 0 || point.viewport.height <= 0 ||
     point.x < 0 || point.x > point.viewport.width ||
     point.y < 0 || point.y > point.viewport.height
   ) {
-    throw new Error("The retained AppKit Role control identity is invalid");
+    throw new Error("The retained AppKit Chromium control identity is invalid");
   }
   const [probe, inspection] = await Promise.all([
     electronDesktopE2eProbe(),
     electronDesktopE2eFullscreenToolbarRuntime(windowId)
   ]);
   const surface = inspection.surfaces.find((candidate) =>
-    candidate.kind === "role" && candidate.id === roleId && candidate.visible
+    candidate.kind === surfaceKind && candidate.id === surfaceId && candidate.visible
   );
   const appKit = inspection.native.appKit;
   const visibleSurfaceTop = Math.min(
@@ -73,7 +73,7 @@ export async function clickMacosVisibleRoleControl(
   if (inspection.hostKind !== "appkit" || !appKit || !surface ||
       !Number.isFinite(visibleSurfaceTop) ||
       appKit.accessoryVisibleHeight < visibleSurfaceTop) {
-    throw new Error("The exact visible AppKit Role surface is unavailable");
+    throw new Error("The exact visible AppKit Chromium surface is unavailable");
   }
   const processId = probe.processId;
   await focusVisibleMacosAppKitRuntime({ processId, windowId });
@@ -87,7 +87,7 @@ export async function clickMacosVisibleRoleControl(
   const windowGeometry = [geometry.x, geometry.y, geometry.width, geometry.height];
   if (windowGeometry.some((value) => !Number.isFinite(value)) ||
       windowGeometry[2]! <= 0 || windowGeometry[3]! <= 0) {
-    throw new Error("The exact AppKit Role window geometry is invalid");
+    throw new Error("The exact AppKit Chromium window geometry is invalid");
   }
   const scaleX = surface.bounds.width / point.viewport.width;
   const scaleY = surface.bounds.height / point.viewport.height;
@@ -99,10 +99,10 @@ export async function clickMacosVisibleRoleControl(
   const windowBottom = windowGeometry[1]! + windowGeometry[3]!;
   if (clickX < windowGeometry[0]! || clickX > windowRight ||
       clickY < windowGeometry[1]! || clickY > windowBottom) {
-    throw new Error("The exact AppKit Role click point escaped its native window");
+    throw new Error("The exact AppKit Chromium click point escaped its native window");
   }
-  console.info("AppKit native Role control geometry", JSON.stringify({
-    windowId, roleId, point, surfaceBounds: surface.bounds,
+  console.info("AppKit native Chromium control geometry", JSON.stringify({
+    windowId, surfaceId, surfaceKind, point, surfaceBounds: surface.bounds,
     windowGeometry, nativeFrameInsetY, clickX, clickY
   }));
   const script = `
@@ -117,6 +117,7 @@ CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
 usleep(50_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
   mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+usleep(50_000)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
   mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
 usleep(100_000)
@@ -125,6 +126,24 @@ usleep(100_000)
     encoding: "utf8",
     timeout: 30_000
   });
+}
+
+/** Clicks one exact visible Role-page point through the retained AppKit host. */
+export function clickMacosVisibleRoleControl(
+  windowId: string,
+  roleId: string,
+  point: VisibleElectronPagePoint
+): Promise<void> {
+  return clickMacosVisibleChromiumSurfaceControl(windowId, roleId, point, "role");
+}
+
+/** Clicks one exact visible Workspace Website point through the AppKit host. */
+export function clickMacosVisibleWebControl(
+  windowId: string,
+  surfaceId: string,
+  point: VisibleElectronPagePoint
+): Promise<void> {
+  return clickMacosVisibleChromiumSurfaceControl(windowId, surfaceId, point, "web");
 }
 
 /** Presses the visible green AppKit fullscreen traffic-light control. */

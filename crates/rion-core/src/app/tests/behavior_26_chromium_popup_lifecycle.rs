@@ -237,7 +237,51 @@ fn chromium_popup_admission_is_capability_and_parent_fenced_on_both_platforms() 
             )
             .unwrap();
         assert!(post_admission.has_post_body);
+
+        let mut named_oauth = popup_open_request(parent.clone());
+        named_oauth.request_id = uuid::Uuid::new_v4().to_string();
+        named_oauth.opener_policy = crate::model::ChromiumPopupOpenerPolicy::ConnectedOpener;
+        named_oauth.frame_name = Some("thirdLoginWindow".to_owned());
+        named_oauth.raw_features =
+            "height=450,width=500,top=100,left=200,toolbar=no,menubar=no,scrollbars=yes,resizable=yes,location=no,status=no"
+                .to_owned();
+        let named_admission: crate::model::ChromiumPopupAdmissionRecord =
+            serde_json::from_value(
+                core.invoke(CoreCommand::BrowserPopupOpenAdmit {
+                    request: named_oauth,
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            named_admission.opener_policy,
+            crate::model::ChromiumPopupOpenerPolicy::ConnectedOpener
+        );
+
+        for (frame_name, raw_features, expected_code) in [
+            (Some("_top"), "width=500", "CHROMIUM_POPUP_NAMED_TARGET_INVALID"),
+            (
+                Some("thirdLoginWindow"),
+                "nodeIntegration=yes",
+                "CHROMIUM_POPUP_FEATURE_UNSUPPORTED",
+            ),
+        ] {
+            let mut unsafe_request = popup_open_request(parent.clone());
+            unsafe_request.request_id = uuid::Uuid::new_v4().to_string();
+            unsafe_request.frame_name = frame_name.map(str::to_owned);
+            unsafe_request.raw_features = raw_features.to_owned();
+            assert_eq!(
+                core.invoke(CoreCommand::BrowserPopupOpenAdmit {
+                    request: unsafe_request,
+                })
+                .unwrap_err()
+                .code(),
+                expected_code
+            );
+        }
+
         let mut external = popup_open_request(parent);
+        external.request_id = uuid::Uuid::new_v4().to_string();
         external.target_url = "mailto:blocked@example.test".to_owned();
         assert_eq!(
             core.invoke(CoreCommand::BrowserPopupOpenAdmit { request: external })
@@ -307,17 +351,12 @@ fn chromium_popup_lifecycle_orders_native_page_close_and_terminal_receipts() {
         .unwrap();
         let host = crate::model::ChromiumPopupNativeHostReceiptRecord {
             platform: if platform == "darwin" { "macos" } else { "windows" }.to_owned(),
+            host_kind: "electronBrowserWindow".to_owned(),
             native_host_id: 71,
             logical_window_id: admission.target.window_id.clone(),
             window_generation: 1,
             topology_revision: 1,
-            appkit_identity: (platform == "darwin").then(|| {
-                crate::model::AppKitRuntimeHostIdentityRecord {
-                    logical_window_id: admission.target.window_id.clone(),
-                    launch_generation: admission.open_operation_id.clone(),
-                    native_generation: 1,
-                }
-            }),
+            appkit_identity: None,
         };
         let native_event = popup_event(
             &admission,
@@ -407,7 +446,7 @@ fn chromium_popup_lifecycle_orders_native_page_close_and_terminal_receipts() {
 }
 
 #[test]
-fn macos_popup_native_ready_requires_exact_appkit_identity() {
+fn popup_native_ready_requires_electron_host_and_rejects_appkit_identity() {
     let (_directory, core) = core_for_runtime_contract("darwin", 23);
     core.invoke(CoreCommand::BrowserRuntimeRegister {
         registration: chromium_registration("darwin", true),
@@ -426,6 +465,7 @@ fn macos_popup_native_ready_requires_exact_appkit_identity() {
         crate::model::ChromiumPopupLifecycleActionRecord::NativeReady {
             host: crate::model::ChromiumPopupNativeHostReceiptRecord {
                 platform: "macos".to_owned(),
+                host_kind: "invalid".to_owned(),
                 native_host_id: 1,
                 logical_window_id: admission.target.window_id.clone(),
                 window_generation: 1,
@@ -438,7 +478,31 @@ fn macos_popup_native_ready_requires_exact_appkit_identity() {
         core.invoke(CoreCommand::BrowserPopupLifecycleCommit { event: missing })
             .unwrap_err()
             .code(),
-        "CHROMIUM_POPUP_APPKIT_RECEIPT_REQUIRED"
+        "CHROMIUM_POPUP_NATIVE_HOST_FENCE_MISMATCH"
+    );
+
+    let appkit_identity = popup_event(
+        &admission,
+        1,
+        crate::model::ChromiumPopupLifecycleActionRecord::NativeReady {
+            host: crate::model::ChromiumPopupNativeHostReceiptRecord {
+                platform: "macos".to_owned(),
+                host_kind: "electronBrowserWindow".to_owned(),
+                native_host_id: 1,
+                logical_window_id: admission.target.window_id.clone(),
+                window_generation: 1,
+                topology_revision: 1,
+                appkit_identity: admission.parent.parent_appkit_identity.clone(),
+            },
+        },
+    );
+    assert_eq!(
+        core.invoke(CoreCommand::BrowserPopupLifecycleCommit {
+            event: appkit_identity,
+        })
+        .unwrap_err()
+        .code(),
+        "CHROMIUM_POPUP_ELECTRON_HOST_INVALID"
     );
     core.shutdown();
 }
@@ -496,6 +560,7 @@ fn unfinished_popup_open_terminalizes_on_cancel_or_native_teardown() {
                 crate::model::ChromiumPopupLifecycleActionRecord::NativeReady {
                     host: crate::model::ChromiumPopupNativeHostReceiptRecord {
                         platform: "windows".to_owned(),
+                        host_kind: "electronBrowserWindow".to_owned(),
                         native_host_id: 72,
                         logical_window_id: native_open.target.window_id.clone(),
                         window_generation: 1,
@@ -560,6 +625,7 @@ fn unfinished_popup_open_terminalizes_on_cancel_or_native_teardown() {
                 crate::model::ChromiumPopupLifecycleActionRecord::NativeReady {
                     host: crate::model::ChromiumPopupNativeHostReceiptRecord {
                         platform: "windows".to_owned(),
+                        host_kind: "electronBrowserWindow".to_owned(),
                         native_host_id: 73,
                         logical_window_id: native_cancel.target.window_id.clone(),
                         window_generation: 1,

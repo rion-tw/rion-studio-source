@@ -53,7 +53,7 @@ export interface ElectronDesktopE2eRuntimeTabReloadInspection {
       logicalWindowId: string;
       nativeGeneration: number;
     }> | null;
-    hostKind: "appkit-chromium" | "bundled-chromium";
+    hostKind: "electronBrowserWindow";
     logicalWindowId: string;
     nativeHostId: number;
     openOperationId: string;
@@ -170,12 +170,8 @@ export function parseElectronDesktopE2eRuntimeTabReloadInspection(
     !identifier(popup.popupId) || !identifier(popup.openOperationId) ||
     popup.logicalWindowId !== `popup-${popup.popupId}` ||
     !positiveInteger(popup.nativeHostId) || typeof popup.visible !== "boolean" ||
-    popup.hostKind !== (expectsAppKit
-      ? "appkit-chromium"
-      : "bundled-chromium") ||
-    (expectsAppKit
-      ? !validAppKitIdentity(popup.appKitIdentity, popup.logicalWindowId)
-      : popup.appKitIdentity !== null)
+    popup.hostKind !== "electronBrowserWindow" ||
+    popup.appKitIdentity !== null
   )) {
     throw new Error("Electron desktop E2E runtime-tab Reload inspection is invalid.");
   }

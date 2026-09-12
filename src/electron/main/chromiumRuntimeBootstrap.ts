@@ -84,6 +84,7 @@ import type { MacosAppKitRendererActionPort } from
   "./macosAppKitRuntimeEventBridge";
 import { ChromiumPopupLifecycleCoordinator } from
   "./chromiumPopupLifecycleCoordinator";
+import type { ChromiumPopupWindowFactoryPort } from "./chromiumPopupPorts";
 import {
   createWindowsChromiumTrustedInputRuntime,
   type WindowsChromiumTrustedInputRuntimeConfiguration
@@ -128,12 +129,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 30;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 31;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 30 }> {
+): Readonly<Options & { runtimeContractVersion: 31 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
@@ -333,6 +334,7 @@ export interface ChromiumRuntimeBootstrapInput {
   ) => void;
   readonly platform: RuntimePlatform;
   readonly rolePreloadPath: string;
+  readonly popupWindows?: ChromiumPopupWindowFactoryPort;
   /** Main-process startup quit fence; production supplies it before Core recovery. */
   readonly startupSignal?: AbortSignal;
   /** Required by production bootstrap; optional only for lower-layer harnesses. */
@@ -717,7 +719,6 @@ export class ChromiumRuntimeBootstrap {
       : null;
     const popupCoordinator = new ChromiumPopupLifecycleCoordinator({
       core: input.core,
-      hosts,
       onError: input.onError,
       platform: input.platform,
       runtimeSnapshot: () => {
@@ -729,7 +730,7 @@ export class ChromiumRuntimeBootstrap {
         }
         return executor.snapshot();
       },
-      views: input.views
+      popupWindows: input.popupWindows
     });
     const navigationFailureReporter = new ChromiumRoleNavigationFailureReporter({
       core: input.core,

@@ -357,15 +357,18 @@ type WorkspaceWindowOpenDecision =
 function classifyWorkspaceWindowOpen(
   details: ChromiumWindowOpenDetails
 ): WorkspaceWindowOpenDecision {
-  if (details.disposition === "new-window") return Object.freeze({ action: "popup" });
+  const explicitPopup = hasChromiumWindowOpenPostBody(details) ||
+    Boolean(details.features?.trim()) ||
+    (details.frameName !== undefined && details.frameName !== "" &&
+      details.frameName !== "_blank");
+  if (
+    details.disposition === "new-window" ||
+    details.disposition === "foreground-tab" && explicitPopup
+  ) return Object.freeze({ action: "popup" });
   if (!SAME_SURFACE_WINDOW_OPEN_DISPOSITIONS.has(details.disposition ?? "")) {
     return Object.freeze({ action: "deny" });
   }
-  if (
-    hasChromiumWindowOpenPostBody(details) ||
-    (details.frameName !== undefined && details.frameName !== "" &&
-      details.frameName !== "_blank")
-  ) {
+  if (explicitPopup) {
     return Object.freeze({ action: "deny" });
   }
   try {
@@ -1005,14 +1008,19 @@ export class ChromiumGlobalWebSurfaceRegistry {
         this.#popups && this.#state === "open" && record.state === "active" &&
         !record.destroyed && this.#records.get(record.surfaceId) === record
       ) {
-        this.#popups.requestOpen(Object.freeze({
+        const source = Object.freeze({
           ownerKind: "globalWeb",
           ownerId: record.surfaceId,
           slotId: record.slotId,
           nativeGeneration: record.generation,
           parent: record.parent,
-          session: record.sessionLease.session
-        }), details);
+          session: record.sessionLease.session,
+          openerFrame: contents.mainFrame ?? Object.freeze({})
+        } as const);
+        if (this.#popups.handleWindowOpen) {
+          return this.#popups.handleWindowOpen(source, details);
+        }
+        this.#popups.requestOpen(source, details);
       }
       return { action: "deny" };
     });

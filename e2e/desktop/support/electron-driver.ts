@@ -24,7 +24,8 @@ export interface ElectronDesktopE2eRolePlaceholderInspection {
   }>;
   readonly coreStatus: Readonly<{
     automationState: "ready" | "unavailable" | null;
-    hostKind: "appkit-chromium" | "bundled-chromium";
+    currentUrl: string;
+    hostKind: "electronBrowserWindow";
     issueReason: "macro-input-unavailable" | "runtime-crashed" |
       "runtime-creation-failed" | "session-migration-required" |
       "trusted-input-unavailable" | null;
@@ -396,13 +397,17 @@ export interface ElectronDesktopE2eWorkspaceWebRuntimeInspection {
       nativeGeneration: number;
     } | null;
     bounds: { height: number; width: number; x: number; y: number };
-    hostKind: "appkit-chromium" | "bundled-chromium";
+    currentUrl: string;
+    hostKind: "electronBrowserWindow";
     logicalWindowId: string;
     nativeHostId: number;
     openOperationId: string;
+    openerPolicy: "connectedOpener" | "isolatedNoopener";
+    ownerKind: "globalWeb" | "role";
     popupId: string;
     presentation: "fullscreen" | "maximized" | "normal";
     topologyRevision: number;
+    title: string;
     visible: boolean;
     windowGeneration: number;
   }[];
@@ -1002,37 +1007,21 @@ export async function electronDesktopE2eWorkspaceWebRuntime(
   windowId: string
 ): Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection> {
   const token = required("RION_STUDIO_E2E_SESSION_TOKEN");
-  const result = await browser.executeAsync(
-    (
-      sessionToken: string,
-      targetWindowId: string,
-      done: (
-        result: ElectronBridgeResult<ElectronDesktopE2eWorkspaceWebRuntimeInspection>
-      ) => void
-    ) => {
-      const api = (window as typeof window & {
-        rionStudioDesktopE2e?: {
-          workspaceWebRuntime: (
-            token: string,
-            windowId: string
-          ) => Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection>;
-        };
-      }).rionStudioDesktopE2e;
-      if (!api) {
-        done({ error: "Electron desktop E2E preload bridge is unavailable", ok: false });
-        return;
-      }
-      void api.workspaceWebRuntime(sessionToken, targetWindowId).then(
-        (value) => done({ ok: true, value }),
-        (error: unknown) => done({
-          error: error instanceof Error ? error.message : String(error),
-          ok: false
-        })
-      );
-    },
-    token,
-    windowId
-  ) as ElectronBridgeResult<ElectronDesktopE2eWorkspaceWebRuntimeInspection>;
+  const result = await browser.electron.execute(async (_electron, input) => {
+    const api = (globalThis as typeof globalThis & {
+      __rionStudioDesktopE2eMainInspectionV1?: {
+        workspaceWebRuntime: (token: string, windowId: string) => Promise<unknown>;
+      };
+    }).__rionStudioDesktopE2eMainInspectionV1;
+    if (!api) return { error: "Electron desktop E2E main inspection is unavailable", ok: false };
+    try {
+      return { ok: true, value: await api.workspaceWebRuntime(input.token, input.windowId) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error), ok: false };
+    }
+  }, { token, windowId }) as ElectronBridgeResult<
+    ElectronDesktopE2eWorkspaceWebRuntimeInspection
+  >;
   if (!result.ok || !result.value) {
     throw new Error(result.error ?? "Electron desktop E2E Workspace Web inspection failed");
   }
@@ -1043,37 +1032,21 @@ export async function electronDesktopE2ePopupLifecycleJournal(
   windowId: string
 ): Promise<ElectronDesktopE2ePopupLifecycleJournalInspection> {
   const token = required("RION_STUDIO_E2E_SESSION_TOKEN");
-  const result = await browser.executeAsync(
-    (
-      sessionToken: string,
-      targetWindowId: string,
-      done: (
-        result: ElectronBridgeResult<ElectronDesktopE2ePopupLifecycleJournalInspection>
-      ) => void
-    ) => {
-      const api = (window as typeof window & {
-        rionStudioDesktopE2e?: {
-          popupLifecycleJournal: (
-            token: string,
-            windowId: string
-          ) => Promise<ElectronDesktopE2ePopupLifecycleJournalInspection>;
-        };
-      }).rionStudioDesktopE2e;
-      if (!api) {
-        done({ error: "Electron desktop E2E preload bridge is unavailable", ok: false });
-        return;
-      }
-      void api.popupLifecycleJournal(sessionToken, targetWindowId).then(
-        (value) => done({ ok: true, value }),
-        (error: unknown) => done({
-          error: error instanceof Error ? error.message : String(error),
-          ok: false
-        })
-      );
-    },
-    token,
-    windowId
-  ) as ElectronBridgeResult<ElectronDesktopE2ePopupLifecycleJournalInspection>;
+  const result = await browser.electron.execute(async (_electron, input) => {
+    const api = (globalThis as typeof globalThis & {
+      __rionStudioDesktopE2eMainInspectionV1?: {
+        popupLifecycleJournal: (token: string, windowId: string) => unknown;
+      };
+    }).__rionStudioDesktopE2eMainInspectionV1;
+    if (!api) return { error: "Electron desktop E2E main inspection is unavailable", ok: false };
+    try {
+      return { ok: true, value: api.popupLifecycleJournal(input.token, input.windowId) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error), ok: false };
+    }
+  }, { token, windowId }) as ElectronBridgeResult<
+    ElectronDesktopE2ePopupLifecycleJournalInspection
+  >;
   if (!result.ok || !result.value) {
     throw new Error(result.error ?? "Electron desktop E2E popup lifecycle journal failed");
   }

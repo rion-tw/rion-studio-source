@@ -422,7 +422,7 @@ waitAndOpen(fixtureName, application: application, browserOnly: true)
         RION_DESKTOP_E2E_NATIVE_UPLOAD_PID: String(processId),
         RION_DESKTOP_E2E_NATIVE_UPLOAD_STAGING_NAME: basename(stagingDirectory)
       },
-      timeout: 15_000
+      timeout: 30_000
     });
     await executeFile("/usr/bin/osascript", [
       "-e",

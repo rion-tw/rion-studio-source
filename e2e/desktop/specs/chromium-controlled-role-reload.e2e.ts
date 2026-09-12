@@ -171,10 +171,8 @@ describe("Chromium controlled Role Reload", () => {
         appKitIdentity: expect.objectContaining({ logicalWindowId: WINDOW_ID })
       }));
       expect(initial.popups[0]).toEqual(expect.objectContaining({
-        hostKind: "appkit-chromium",
-        appKitIdentity: expect.objectContaining({
-          logicalWindowId: initial.popups[0]!.logicalWindowId
-        })
+        appKitIdentity: null,
+        hostKind: "electronBrowserWindow"
       }));
     } else {
       expect(initial.platform).toBe("win32");
@@ -184,7 +182,7 @@ describe("Chromium controlled Role Reload", () => {
       }));
       expect(initial.popups[0]).toEqual(expect.objectContaining({
         appKitIdentity: null,
-        hostKind: "bundled-chromium"
+        hostKind: "electronBrowserWindow"
       }));
     }
 

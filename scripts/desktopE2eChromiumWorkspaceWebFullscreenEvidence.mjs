@@ -126,35 +126,32 @@ function validAppKitIdentity(identity, windowId, launchGeneration) {
     Number.isSafeInteger(identity.nativeGeneration) && identity.nativeGeneration > 0;
 }
 
-function validPopup(popup, platform, hostKind) {
+function validPopup(popup) {
   if (!exactKeys(popup, [
     "appKitChrome", "appKitIdentity", "bounds", "hostKind", "logicalWindowId",
-    "nativeHostId", "openOperationId", "popupId", "presentation",
-    "topologyRevision", "visible", "windowGeneration"
-  ]) || !validBounds(popup.bounds, true) || popup.hostKind !== hostKind ||
+    "currentUrl", "nativeHostId", "openOperationId", "openerPolicy", "ownerKind",
+    "popupId", "presentation", "title", "topologyRevision", "visible",
+    "windowGeneration"
+  ]) || !validBounds(popup.bounds, true) ||
+      popup.hostKind !== "electronBrowserWindow" ||
       !Number.isSafeInteger(popup.nativeHostId) || popup.nativeHostId < 1 ||
-      typeof popup.openOperationId !== "string" || !IDENTIFIER.test(popup.popupId) ||
+      !IDENTIFIER.test(popup.openOperationId) || !IDENTIFIER.test(popup.popupId) ||
       popup.logicalWindowId !== `popup-${popup.popupId}` ||
+      !["connectedOpener", "isolatedNoopener"].includes(popup.openerPolicy) ||
+      !["globalWeb", "role"].includes(popup.ownerKind) ||
       popup.presentation !== "normal" || popup.visible !== true ||
       popup.topologyRevision !== 1 || popup.windowGeneration !== 1) {
     return false;
   }
-  const validAppKitChrome = exactKeys(popup.appKitChrome, [
-    "addButtonOnScreen", "tabStripOnScreen", "visibleTrafficLightCount",
-    "windowNameOnScreen"
-  ]) && typeof popup.appKitChrome.addButtonOnScreen === "boolean" &&
-    typeof popup.appKitChrome.tabStripOnScreen === "boolean" &&
-    Number.isSafeInteger(popup.appKitChrome.visibleTrafficLightCount) &&
-    popup.appKitChrome.visibleTrafficLightCount >= 0 &&
-    popup.appKitChrome.visibleTrafficLightCount <= 3 &&
-    typeof popup.appKitChrome.windowNameOnScreen === "boolean";
-  return platform === "macos"
-    ? validAppKitIdentity(
-        popup.appKitIdentity,
-        popup.logicalWindowId,
-        popup.openOperationId
-      ) && validAppKitChrome
-    : popup.appKitIdentity === null && popup.appKitChrome === null;
+  try {
+    const url = new URL(popup.currentUrl);
+    return popup.appKitIdentity === null && popup.appKitChrome === null &&
+      ["http:", "https:"].includes(url.protocol) && url.href === popup.currentUrl &&
+      url.username === "" && url.password === "" &&
+      popup.title === `Rion Popup — ${url.hostname}`;
+  } catch {
+    return false;
+  }
 }
 
 function positiveInteger(value) {
@@ -467,7 +464,7 @@ function validObservation(observation, platform) {
       !Number.isSafeInteger(observation.role.generation) ||
       observation.role.generation < 1 || observation.role.visible !== true ||
       !validWeb(observation.web, webSlots[0]) ||
-      !observation.popups.every((popup) => validPopup(popup, platform, hostKind))) {
+      !observation.popups.every(validPopup)) {
     return false;
   }
   return platform === "macos"
@@ -607,6 +604,29 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
   const popupObservations = observations.filter(
     (observation) => observation.popups.length === 1
   );
+  const popupIdentityById = new Map();
+  const popupIdentitiesAreStable = popupObservations.every((observation) => {
+    const popup = observation.popups[0];
+    const identity = {
+      appKitChrome: popup.appKitChrome,
+      appKitIdentity: popup.appKitIdentity,
+      hostKind: popup.hostKind,
+      logicalWindowId: popup.logicalWindowId,
+      nativeHostId: popup.nativeHostId,
+      openOperationId: popup.openOperationId,
+      openerPolicy: popup.openerPolicy,
+      ownerKind: popup.ownerKind,
+      popupId: popup.popupId,
+      topologyRevision: popup.topologyRevision,
+      windowGeneration: popup.windowGeneration
+    };
+    const prior = popupIdentityById.get(popup.popupId);
+    if (prior !== undefined && !sameValue(prior, identity)) return false;
+    popupIdentityById.set(popup.popupId, identity);
+    return true;
+  });
+  const popupOwnerCoverage = new Set(popupObservations.map(({ popups }) =>
+    `${popups[0].ownerKind}:${popups[0].openerPolicy}`));
   const firstMainFullscreenIndex = observations.findIndex(
     (observation) => observation.web.containedFullscreen
   );
@@ -638,11 +658,11 @@ export async function validateChromiumWorkspaceWebFullscreenRuntimeEvidence({
       ) &&
       revisions.every((revision, index) => index === 0 || revision >= revisions[index - 1]) &&
       Math.max(...revisions) >= 4 && contained.length >= 2 &&
-      popupObservations.length >= 4 && popupObservations.every((observation) =>
-        observation.topologyRevision === popupTopologyRevision &&
-        observation.focused === false &&
-        sameValue(observation.popups, popupObservations[0].popups)
-      ) && last.focused === true && last.popups.length === 0,
+      popupObservations.length >= 4 && popupIdentitiesAreStable &&
+      popupOwnerCoverage.has("globalWeb:connectedOpener") &&
+      popupOwnerCoverage.has("role:connectedOpener") &&
+      popupObservations.every((observation) => observation.focused === false) &&
+      last.focused === true && last.popups.length === 0,
     `${phase}: bounded fullscreen changed native host or crossed transient topology fences`
   );
   const popupRetirement = validateChromiumWorkspaceWebPopupLifecycleEvidence(

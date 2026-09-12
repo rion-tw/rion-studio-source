@@ -11,6 +11,7 @@ import type {
 } from "./chromiumRoleSessionRegistry";
 import type { SandboxedRemoteContentWebPreferences } from "./security";
 import type { ChromiumWindowOpenDetails } from "./chromiumPopupPorts";
+import type { ChromiumWindowOpenHandlerResponse } from "./chromiumPopupPorts";
 import type { ChromiumCdpDebuggerPort } from "./chromiumCdpInputSession";
 
 export interface ChromiumRoleSurfaceBounds {
@@ -71,13 +72,29 @@ export interface ChromiumRoleSurfaceEventMap {
     frameProcessId: number,
     frameRoutingId: number
   ) => void;
+  readonly "content-bounds-updated": (
+    event: ChromiumRoleSurfaceEvent,
+    bounds: ChromiumRoleSurfaceBounds
+  ) => void;
   readonly "enter-html-full-screen": () => void;
   readonly "leave-html-full-screen": () => void;
+  readonly "page-title-updated": (
+    event: ChromiumRoleSurfaceEvent,
+    title: string,
+    explicitSet: boolean
+  ) => void;
+  readonly "render-process-gone": (event: unknown, details: unknown) => void;
   readonly destroyed: () => void;
   readonly "will-attach-webview": (event: ChromiumRoleSurfaceEvent) => void;
   readonly "will-navigate": (
     event: ChromiumRoleSurfaceEvent,
     url: string
+  ) => void;
+  readonly "will-frame-navigate": (
+    details: ChromiumRoleSurfaceEvent & Readonly<{
+      isMainFrame: boolean;
+      url: string;
+    }>
   ) => void;
   readonly "will-redirect": (
     event: ChromiumRoleSurfaceEvent,
@@ -96,6 +113,7 @@ export interface ChromiumRoleSurfaceWebContentsPort {
   sendInputEvent?: (event: KeyboardInputEvent | MouseInputEvent) => void;
   readonly id?: number;
   readonly mainFrame?: Readonly<{ readonly frameToken: string }>;
+  readonly opener?: Readonly<{ readonly frameToken?: string }> | null;
   readonly session: ChromiumRoleSessionPort;
   close: (options?: { readonly waitForBeforeUnload?: boolean }) => void;
   executeJavaScriptInIsolatedWorld: (
@@ -124,8 +142,10 @@ export interface ChromiumRoleSurfaceWebContentsPort {
   ) => unknown;
   send: (channel: string, ...arguments_: unknown[]) => void;
   setWindowOpenHandler: (
-    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
+    handler: (details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse
   ) => void;
+  /** Stops an in-flight navigation; required by direct popup adoption. */
+  stop?: () => void;
   setAudioMuted: (muted: boolean) => void;
   setZoomFactor: (factor: number) => void;
 }

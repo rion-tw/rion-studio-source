@@ -1,7 +1,12 @@
 import { Buffer } from "node:buffer";
 
 import type { ChromiumRoleSessionPort } from "./chromiumRoleSessionRegistry";
-import type { ChromiumRoleSurfaceParentPort } from "./chromiumRoleSurfacePorts";
+import type {
+  ChromiumRoleSurfaceBounds,
+  ChromiumRoleSurfaceParentPort,
+  ChromiumRoleSurfaceWebContentsPort
+} from "./chromiumRoleSurfacePorts";
+import type { SandboxedRemoteContentWebPreferences } from "./security";
 
 const MAX_POST_DATA_ENTRIES = 64;
 const MAX_POST_FILE_ENTRIES = 16;
@@ -148,9 +153,80 @@ export type ChromiumPopupOwnerSource = Readonly<{
   nativeGeneration: number;
   parent: ChromiumRoleSurfaceParentPort;
   session: ChromiumRoleSessionPort;
+  /** Exact Electron main-frame object used to validate the child's opener. */
+  openerFrame: object;
 }>;
 
+export interface ChromiumPopupWindowCreateOptions {
+  readonly autoHideMenuBar: true;
+  readonly focusable: false;
+  readonly frame: true;
+  readonly fullscreenable: false;
+  readonly height: number;
+  readonly show: false;
+  readonly title: string;
+  /** Electron-created guest that preserves the returned WindowProxy/opener. */
+  readonly webContents?: ChromiumRoleSurfaceWebContentsPort;
+  readonly webPreferences: SandboxedRemoteContentWebPreferences & Readonly<{
+    readonly paintWhenInitiallyHidden: false;
+    session: ChromiumRoleSessionPort;
+  }>;
+  readonly width: number;
+}
+
+export interface ChromiumPopupWindowEventMap {
+  readonly close: (event: Readonly<{ preventDefault: () => void }>) => void;
+  readonly closed: () => void;
+  readonly move: () => void;
+  readonly resize: () => void;
+}
+
+/** Direct Electron BrowserWindow used only for Core-admitted remote popups. */
+export interface ChromiumPopupWindowPort {
+  readonly id: number;
+  readonly webContents: ChromiumRoleSurfaceWebContentsPort;
+  destroy: () => void;
+  focus: () => void;
+  getBounds: () => ChromiumRoleSurfaceBounds;
+  getContentBounds: () => ChromiumRoleSurfaceBounds;
+  getTitle: () => string;
+  hide: () => void;
+  isDestroyed: () => boolean;
+  isFocused: () => boolean;
+  isVisible: () => boolean;
+  on: <EventName extends keyof ChromiumPopupWindowEventMap>(
+    event: EventName,
+    listener: ChromiumPopupWindowEventMap[EventName]
+  ) => unknown;
+  removeListener: <EventName extends keyof ChromiumPopupWindowEventMap>(
+    event: EventName,
+    listener: ChromiumPopupWindowEventMap[EventName]
+  ) => unknown;
+  setBounds: (bounds: ChromiumRoleSurfaceBounds) => void;
+  setFocusable: (focusable: boolean) => void;
+  setTitle: (title: string) => void;
+  show: () => void;
+  showInactive: () => void;
+}
+
+export interface ChromiumPopupWindowFactoryPort {
+  create: (options: ChromiumPopupWindowCreateOptions) => ChromiumPopupWindowPort;
+}
+
+export type ChromiumWindowOpenHandlerResponse =
+  | Readonly<{ action: "deny" }>
+  | Readonly<{
+      action: "allow";
+      outlivesOpener: false;
+      createWindow: (options: unknown) => ChromiumRoleSurfaceWebContentsPort;
+      overrideBrowserWindowOptions: ChromiumPopupWindowCreateOptions;
+    }>;
+
 export interface ChromiumPopupOwnerLifecyclePort {
+  handleWindowOpen?: (
+    source: ChromiumPopupOwnerSource,
+    details: ChromiumWindowOpenDetails
+  ) => ChromiumWindowOpenHandlerResponse;
   requestOpen: (
     source: ChromiumPopupOwnerSource,
     details: ChromiumWindowOpenDetails

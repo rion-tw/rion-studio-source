@@ -2,7 +2,13 @@ import { seedRetainedV22Role } from "./retainedRoleSeed";
 import { installGraphicsSettingsViewport } from "./graphicsSettingsViewport";
 import { installElectronDesktopE2eViewInputObservationObserver } from "./viewInputObservationObserver";
 import { installElectronDesktopE2eTrustedInputDiagnostics } from "./trustedInputDiagnosticsObserver";
-import { app, BrowserWindow, ipcMain, powerMonitor } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  powerMonitor,
+  type Session
+} from "electron";
 import { emitObservedApplicationPowerSignal } from "./applicationPowerSignal";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
@@ -92,6 +98,7 @@ import {
   installWorkspaceWebSecurityPolicyObserver,
   readWorkspaceWebSecurityPolicy as readObservedWorkspaceWebSecurityPolicy
 } from "./workspaceWebSecurityPolicyObserver";
+import { installWorkspaceWebDrmFixture } from "./workspaceWebDrmFixture";
 import { ElectronDesktopE2eApplicationShortcutRuntimeObserver } from
   "./applicationShortcutRuntimeObserver";
 import { ElectronDesktopE2eRuntimeTabReloadObserver } from
@@ -208,7 +215,7 @@ const applicationShortcutRuntimeObserver =
     artifactDirectory,
     globalWebSurfaceOwners: workspaceWebPresentationOwners,
     platform: () => e2ePlatform().platform,
-    popupHostOwners: workspacePopupHostOwners,
+    readPopupHostOwners: () => popupHostOwnersSnapshot(),
     readCore: () => observedCore,
     readRuntime: () => observedRuntime,
     readWindowsShortcutOwner: (parentNativeHostId) =>
@@ -218,7 +225,7 @@ const applicationShortcutRuntimeObserver =
 const runtimeTabReloadObserver = new ElectronDesktopE2eRuntimeTabReloadObserver({
   artifactDirectory,
   platform: () => e2ePlatform().platform,
-  popupHostOwners: workspacePopupHostOwners,
+  readPopupHostOwners: () => popupHostOwnersSnapshot(),
   readRuntime: () => observedRuntime,
   roleSurfaceOwners: workspaceRoleSurfaceOwners
 });
@@ -359,6 +366,7 @@ function installElectronDesktopE2eRoleRuntimeObserver(): void {
   const originalEnsure = sessions.ensure;
   sessions.ensure = function (roleId, rolePaths) {
     const handle = originalEnsure.call(this, roleId, rolePaths);
+    installWorkspaceWebDrmFixture(handle.session as Session);
     const nativeSession = handle.session as object;
     let nativeSessionInstance = nativeSessionInstances.get(nativeSession);
     if (nativeSessionInstance === undefined) {
@@ -596,10 +604,30 @@ function observePopupLifecycle(
   observedPopupLifecycle = coordinator;
 }
 
+function popupHostOwnersSnapshot(): ReadonlyMap<string, Readonly<{
+  admission: ChromiumPopupAdmissionRecord;
+  currentUrl?: string;
+  host: ChromiumRuntimeHostPort;
+  ownerKind?: "globalWeb" | "role";
+  receipt: ChromiumPopupNativeHostReceiptRecord;
+  title?: string;
+}>> {
+  const snapshot = new Map(workspacePopupHostOwners);
+  for (const popup of observedPopupLifecycle?.readNativeWindowSnapshot() ?? []) {
+    snapshot.set(popup.admission.popupId, popup);
+  }
+  return snapshot;
+}
+
 function installElectronDesktopE2ePopupLifecycleObserver(): void {
   const coordinator = ChromiumPopupLifecycleCoordinator.prototype;
+  const originalHandleWindowOpen = coordinator.handleWindowOpen;
   const originalRequestOpen = coordinator.requestOpen;
   const originalRetireOwner = coordinator.retireOwner;
+  coordinator.handleWindowOpen = function (source, details) {
+    observePopupLifecycle(this);
+    return originalHandleWindowOpen.call(this, source, details);
+  };
   coordinator.requestOpen = function (source, details) {
     observePopupLifecycle(this);
     return originalRequestOpen.call(this, source, details);
@@ -1065,49 +1093,40 @@ async function readWorkspaceWebRuntime(
   const roleProjection = roleSlot?.roleId && roleOwner
     ? roleOwner.registry.readProjection(roleSlot.roleId, roleOwner.generation)
     : null;
-  const popups = Object.freeze([...workspacePopupHostOwners.values()]
+  const popups = Object.freeze([...popupHostOwnersSnapshot().values()]
     .filter(({ admission, host }) =>
       admission.parent.parentWindowId === windowId && !host.isDestroyed()
     )
-    .map(({ admission, host, receipt }) => {
+    .map(({ admission, currentUrl, host, ownerKind, receipt, title }) => {
       const projection = host.readProjection();
-      const appKitChrome = receipt.platform === "macos"
-        ? host.readFullscreenToolbar?.().appKit
-        : undefined;
       if (
+        receipt.hostKind !== "electronBrowserWindow" ||
         host.id !== receipt.nativeHostId ||
         host.logicalWindowId !== receipt.logicalWindowId ||
         receipt.logicalWindowId !== admission.target.windowId ||
         JSON.stringify(host.appKitIdentity ?? null) !==
         JSON.stringify(receipt.appkitIdentity ?? null) ||
-        (receipt.platform === "macos" && !appKitChrome)
+        receipt.appkitIdentity !== undefined
       ) {
         throw new Error(
           `Workspace Web popup ${admission.popupId} lost its native ownership fence.`
         );
       }
       return Object.freeze({
-        appKitChrome: appKitChrome
-          ? Object.freeze({
-              addButtonOnScreen: appKitChrome.addButtonOnScreen,
-              tabStripOnScreen: appKitChrome.tabStripOnScreen,
-              visibleTrafficLightCount: appKitChrome.visibleTrafficLightCount,
-              windowNameOnScreen: appKitChrome.windowNameOnScreen
-            })
-          : null,
-        appKitIdentity: receipt.appkitIdentity
-          ? Object.freeze({ ...receipt.appkitIdentity })
-          : null,
+        appKitChrome: null,
+        appKitIdentity: null,
         bounds: Object.freeze({ ...projection.bounds }),
-        hostKind: receipt.platform === "macos"
-          ? "appkit-chromium" as const
-          : "bundled-chromium" as const,
+        currentUrl: currentUrl ?? "about:blank",
+        hostKind: "electronBrowserWindow" as const,
         logicalWindowId: receipt.logicalWindowId,
         nativeHostId: receipt.nativeHostId,
         openOperationId: admission.openOperationId,
+        openerPolicy: admission.openerPolicy,
+        ownerKind: ownerKind ?? admission.parent.ownerKind,
         popupId: admission.popupId,
         presentation: projection.presentation,
         topologyRevision: receipt.topologyRevision,
+        title: title ?? admission.title,
         visible: projection.visible,
         windowGeneration: receipt.windowGeneration
       });
@@ -1623,4 +1642,27 @@ const registration = registerElectronDesktopE2eBridge({
   signalApplicationLifecycle
 });
 
-app.once("will-quit", () => registration.dispose());
+const mainInspectionKey = "__rionStudioDesktopE2eMainInspectionV1";
+const requireInspectionToken = (token: string): void => {
+  const expected = process.env.RION_STUDIO_E2E_SESSION_TOKEN;
+  if (!expected || token !== expected) {
+    throw new Error("Electron desktop E2E main inspection token is invalid.");
+  }
+};
+Object.defineProperty(globalThis, mainInspectionKey, {
+  configurable: true,
+  value: Object.freeze({
+    popupLifecycleJournal: (token: string, windowId: string) => {
+      requireInspectionToken(token);
+      return readPopupLifecycleJournal(windowId);
+    },
+    workspaceWebRuntime: (token: string, windowId: string) => {
+      requireInspectionToken(token);
+      return readWorkspaceWebRuntime(windowId);
+    }
+  })
+});
+app.once("will-quit", () => {
+  Reflect.deleteProperty(globalThis, mainInspectionKey);
+  registration.dispose();
+});

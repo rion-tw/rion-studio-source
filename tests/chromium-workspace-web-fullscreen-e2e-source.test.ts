@@ -114,10 +114,16 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "data-workspace-role-id",
       "button[aria-label='Open workspace']",
       "clickVisibleElectronPageElement",
-      "clickVisibleElectronPageElementWithWindowOpenModifier",
       "readVisibleElectronPageElementPoint",
       "focusVisibleMacosAppKitRuntime",
       "popupParentBeforeOpen",
+      "#named-oauth-popup",
+      "windowProxyNonNull: true",
+      'hostKind: "electronBrowserWindow"',
+      'ownerKind: "globalWeb"',
+      'ownerKind: "role"',
+      "named-oauth-storage-observed",
+      "named-oauth-message-observed",
       "shiftClickVisibleMacosScreenPoint",
       "clickVisibleElectronPageElementWithPointerKeepingTarget",
       "restoreElectronMainWindowTarget",
@@ -127,7 +133,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "#contained-fullscreen-popup",
       "contained-popup-ready",
       "closeVisibleRuntimeTab",
-      "closeVisibleRuntimeWindow",
+      "closeVisibleElectronPopupWindow",
       "readVisibleMacosRuntimeTabCloseEvidence",
       'fixtureRequest("/api/gate"',
       "/api/gates/${POPUP_FIXTURE_ID}/waiting",
@@ -173,7 +179,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(nativeTabs).toContain("[.maskShift]");
     expect(nativeUpload).not.toContain("System.Windows.Automation");
     expect(spec).toContain("isTrusted: true");
-    expect(spec).toContain('"shift"');
+    expect(spec).toContain('shift: platform === "macos"');
     expect(spec).not.toContain("runtimeUiAction(");
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("keyboardInput(");
@@ -188,6 +194,10 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(pageSurface).toContain('targetMode: "focused-runtime"');
     expect(pageSurface).toContain("await sendChromiumEscapeKey(browser, input.platform)");
     expect(fixture).toContain('target="_blank" rel="noopener"');
+    expect(fixture).toContain('"thirdLoginWindow"');
+    expect(fixture).toContain("rion-e2e-oauth-result");
+    expect(fixture).toContain("opener.postMessage");
+    expect(fixture).toContain("window.close()");
     expect(fixture).toContain('roleId === "chromium-workspace-web-fullscreen"');
     expect(fixture).toContain("navigator.geolocation.getCurrentPosition(");
     expect(fixture).toContain('response.once("close"');
@@ -357,7 +367,9 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     expect(evidence).toContain("topologyRevisionsAreMonotonic");
     expect(evidence).toContain("sameCoreSlotTopology(");
     expect(evidence).toContain('"appKitChrome", "appKitIdentity"');
-    expect(evidence).toContain("validAppKitChrome");
+    expect(evidence).toContain(
+      "popup.appKitIdentity === null && popup.appKitChrome === null"
+    );
     expect(evidence).toContain(
       "web.contentBounds.height === web.slotBounds.height"
     );
@@ -368,7 +380,7 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
       "observation.topologyRevision === mainTopologyRevision"
     );
     expect(evidence).toContain(
-      "observation.topologyRevision === popupTopologyRevision"
+      'popupOwnerCoverage.has("role:connectedOpener")'
     );
     expect(evidence).toContain('popup.logicalWindowId !== `popup-${popup.popupId}`');
     expect(evidence).toContain("sameValue(observation.role, first.role)");

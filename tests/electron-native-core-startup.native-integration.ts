@@ -250,7 +250,7 @@ async function createCore(
     platform,
     appVersion: "23.0.0-native-integration",
     packaged: false,
-    runtimeContractVersion: 30
+    runtimeContractVersion: 31
   }, observer);
   activeClients.add(client);
   const core = new Proxy(client, {
@@ -465,7 +465,7 @@ describe("real native Core startup integration", () => {
     activeDirectories.add(directory);
     const binding = await nativeAddon().createAppCore({
       userDataDir: directory, platform: runtimePlatform, appVersion: "23.0.0-test",
-      packaged: false, runtimeContractVersion: 30
+      packaged: false, runtimeContractVersion: 31
     });
     try {
       binding.subscribeCoreEvents(() => {}, () => {});
@@ -799,7 +799,7 @@ describe("real native Core startup integration", () => {
         platform: oppositePlatform,
         appVersion: "23.0.0-native-integration",
         packaged: false,
-        runtimeContractVersion: 30
+        runtimeContractVersion: 31
       }
     )).rejects.toMatchObject({ code: "CORE_HOST_PLATFORM_MISMATCH" });
     await expectCoreError(

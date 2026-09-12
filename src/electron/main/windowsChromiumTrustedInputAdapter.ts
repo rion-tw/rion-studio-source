@@ -31,6 +31,8 @@ import type {
   ChromiumCdpInputTerminalEvent,
   ChromiumCdpInputTransportPort
 } from "./chromiumCdpInputTransport";
+import { ChromiumPhysicalInputEvidenceLane } from
+  "./chromiumPhysicalInputEvidence";
 import {
   WINDOWS_CHROMIUM_TRUSTED_KEY_CODES,
   type WindowsChromiumInputDeliveryMode,
@@ -109,10 +111,13 @@ interface PendingDispatch {
   nativeInvoked: boolean;
   nativeSubmitted: number;
   nextDomIndex: number;
+  nextObservationSequence: number;
   nativeComplete: boolean;
   terminal: boolean;
   physicalModifierCodes: readonly string[];
-  readonly nativePhysicalModifierCodes: readonly string[];
+  physicalInterleave: import("./chromiumTrustedInputPendingLane")
+    .ChromiumPhysicalInterleaveClassification;
+  readonly physicalEvidence: ChromiumPhysicalInputEvidenceLane;
 }
 
 function deferred<Value>(): Deferred<Value> {
@@ -448,7 +453,6 @@ implements ChromiumNativeTrustedInputPort {
     let host: WindowsChromiumTrustedInputHostBinding | null;
     let probe: WindowsChromiumInputSurfaceProbeReceipt;
     let deliveryMode: WindowsChromiumInputDeliveryMode;
-    let nativePhysicalModifierCodes: readonly string[];
     let prepared: ReturnType<typeof prepareDispatch>;
     try {
       frame = this.#surfaces.currentTrustedInputFrame(
@@ -486,7 +490,6 @@ implements ChromiumNativeTrustedInputPort {
           "The Windows host returned malformed physical modifier evidence."
         );
       }
-      nativePhysicalModifierCodes = Object.freeze([...observedPhysicalModifierCodes]);
       prepared = prepareDispatch(request, frame, this.#clicks);
     } catch (error) {
       const bridge = error instanceof RionBridgeError ? error : inputError(
@@ -526,10 +529,16 @@ implements ChromiumNativeTrustedInputPort {
       nativeInvoked: false,
       nativeSubmitted: 0,
       nextDomIndex: 0,
+      nextObservationSequence: 1,
       nativeComplete: false,
       terminal: false,
       physicalModifierCodes: Object.freeze([]),
-      nativePhysicalModifierCodes
+      physicalInterleave: "none",
+      physicalEvidence: new ChromiumPhysicalInputEvidenceLane({
+        sequence: probe.observation.physicalInputSequence,
+        targetReceivesPhysicalInput: deliveryMode === "foreground" &&
+          probe.observation.parentForeground && probe.observation.contentsFocused
+      })
     };
     if (!this.#pending.add(pending)) {
       return Promise.resolve(this.#immediateFailure(request,
@@ -611,9 +620,52 @@ implements ChromiumNativeTrustedInputPort {
       );
       return true;
     }
-    if (receipt.kind !== "input" || !pending.nativeInvoked ||
-      receipt.observedIndex !== pending.nextDomIndex ||
+    if (receipt.kind !== "input" ||
+      receipt.observationSequence !== pending.nextObservationSequence) {
+      this.#terminalizeMismatch(pending);
+      return false;
+    }
+    pending.nextObservationSequence += 1;
+    let evidence: "automatic" | "physical" | "indeterminate";
+    try {
+      const liveHost = this.#hosts.resolve(
+        pending.request.roleId, pending.request.surfaceGeneration
+      );
+      if (!liveHost || !sameHost(liveHost, pending.host)) {
+        throw new Error("The native physical-input owner was superseded.");
+      }
+      const mode = liveHost.native.currentInputDeliveryMode(liveHost.identity);
+      if (mode !== pending.deliveryMode) {
+        throw new Error("The Windows delivery mode changed during receipt correlation.");
+      }
+      const probe = validateProbe(liveHost.native.probeExactInputSurface(
+        liveHost.identity, mode
+      ), liveHost.identity, mode);
+      if (chromiumViewInputArmingKey(probe.observation) !==
+          chromiumViewInputArmingKey(pending.probe.observation)) {
+        throw new Error("The Windows input surface changed during receipt correlation.");
+      }
+      evidence = pending.physicalEvidence.classify({
+        sequence: probe.observation.physicalInputSequence,
+        targetReceivesPhysicalInput: mode === "foreground" &&
+          probe.observation.parentForeground && probe.observation.contentsFocused
+      });
+      pending.probe = probe;
+    } catch {
+      evidence = "indeterminate";
+    }
+    if (evidence === "physical") {
+      const expected = pending.expectedEvents[pending.nextDomIndex];
+      pending.physicalInterleave = receipt.code && isChromiumModifierCode(receipt.code)
+        ? "modifier-change"
+        : expected && receipt.type === expected.type && receipt.code === expected.code &&
+          receipt.button === expected.button
+          ? "same-identity" : "unrelated";
+      return true;
+    }
+    if (evidence === "indeterminate" || !pending.nativeInvoked ||
       !sameExpected(receipt, pending.expectedEvents[pending.nextDomIndex]!)) {
+      if (evidence === "indeterminate") pending.physicalInterleave = "indeterminate";
       this.#terminalizeMismatch(pending);
       return false;
     }
@@ -722,22 +774,6 @@ implements ChromiumNativeTrustedInputPort {
     // native edge and its receipt must still preserve this complete observation.
     pending.probe = liveProbe;
     try {
-      const observed = this.#physicalModifierCodes();
-      if (!validChromiumPhysicalModifierCodes(observed) ||
-        observed.join("\n") !== pending.nativePhysicalModifierCodes.join("\n")) {
-        throw new Error("The physical modifier snapshot changed before CDP submission.");
-      }
-    } catch {
-      this.#terminalize(
-        pending,
-        "superseded",
-        "BROWSER_ACTION_STALE",
-        "The Windows physical modifier state changed before CDP submission.",
-        pending.request.expectedInputNeutralityBefore
-      );
-      return;
-    }
-    try {
       for (const transition of pending.nativeTransitions) {
         if (pending.terminal) return;
         if (!pending.host.native.isInputReady(
@@ -817,12 +853,6 @@ implements ChromiumNativeTrustedInputPort {
         if (chromiumViewInputArmingKey(afterProbe.observation) !==
           chromiumViewInputArmingKey(pending.probe.observation)) {
           throw new Error("Windows foreground ownership changed during CDP submission.");
-        }
-        const afterPhysicalModifiers = this.#physicalModifierCodes();
-        if (!validChromiumPhysicalModifierCodes(afterPhysicalModifiers) ||
-          afterPhysicalModifiers.join("\n") !==
-            pending.nativePhysicalModifierCodes.join("\n")) {
-          throw new Error("Windows physical modifiers changed during CDP submission.");
         }
         pending.probe = afterProbe;
         pending.nativeSubmitted += 1;

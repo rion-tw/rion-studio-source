@@ -55,7 +55,7 @@ export interface ChromiumRoleTrustedInputEventTargetPort {
 interface PendingInput {
   readonly identity: ChromiumRoleTrustedInputIdentity;
   expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[];
-  nextIndex: number;
+  observationSequence: number;
   shortcutSuppressionArmed: boolean;
 }
 
@@ -388,18 +388,6 @@ function observedEvent(
   return parseExpectedEvent(candidate);
 }
 
-function sameExpectedEvent(
-  left: ChromiumRoleTrustedInputExpectedEvent,
-  right: ChromiumRoleTrustedInputExpectedEvent
-): boolean {
-  const coordinatesMatch = right.clientX === null && right.clientY === null ||
-    left.clientX === right.clientX && left.clientY === right.clientY;
-  return left.type === right.type && left.code === right.code &&
-    left.button === right.button && coordinatesMatch && left.altKey === right.altKey &&
-    left.ctrlKey === right.ctrlKey && left.metaKey === right.metaKey &&
-    left.shiftKey === right.shiftKey && left.repeat === right.repeat;
-}
-
 /**
  * Installs a private, main-frame-only trusted DOM receipt lane. It exposes no
  * contextBridge value to page JavaScript; the random in-flight sequence is
@@ -453,7 +441,7 @@ export function installChromiumRoleTrustedInput(
         inputSequence: control.inputSequence
       }),
       expectedEvents: control.expectedEvents,
-      nextIndex: 0,
+      observationSequence: 0,
       shortcutSuppressionArmed: false
     };
     pending = candidate;
@@ -528,29 +516,16 @@ export function installChromiumRoleTrustedInput(
     const observed = observedEvent(event);
     if (!observed) return;
     const current = pending;
-    const observedIndex = current.nextIndex;
-    const expected = current.expectedEvents[observedIndex]!;
-    const matches = event.isTrusted === true && sameExpectedEvent(observed, expected);
     const receipt: ChromiumRoleTrustedInputDomReceipt = Object.freeze({
       ...current.identity,
       ...observed,
       kind: "input",
-      observedIndex,
-      isTrusted: event.isTrusted,
-      matches
+      observationSequence: ++current.observationSequence,
+      isTrusted: event.isTrusted
     });
-    if (!matches) {
-      pending = null;
-      if (current.shortcutSuppressionArmed) {
-        void overlayGuards?.clear({
-          frameToken: current.identity.frameToken,
-          inputSequence: current.identity.inputSequence
-        }).catch(() => false);
-      }
-    } else {
-      current.nextIndex += 1;
-      if (current.nextIndex === current.expectedEvents.length) pending = null;
-    }
+    // Main correlates the raw ordered DOM stream with the native physical
+    // evidence journal. The preload must not let an unrelated player event
+    // consume or terminalize the expected CDP sequence.
     queueMicrotask(() => send(receipt));
   };
   for (const type of EVENT_TYPES) {

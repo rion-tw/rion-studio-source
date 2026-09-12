@@ -250,7 +250,7 @@ async function createCore(
     platform,
     appVersion: "23.0.0-native-integration",
     packaged: false,
-    runtimeContractVersion: 31
+    runtimeContractVersion: 32
   }, observer);
   activeClients.add(client);
   const core = new Proxy(client, {
@@ -341,7 +341,8 @@ function windowsTrustedInput(): WindowsChromiumTrustedInputRuntimeConfiguration 
     nowMs: nativeAddon().macroInputEpochMillis,
     addon: {
       readWindowsRuntimeForeground: () => { throw new Error("No native parent in this fixture."); },
-      readWindowsPhysicalModifierCodes: () => []
+      readWindowsPhysicalModifierCodes: () => [],
+      readWindowsPhysicalInputSequence: () => "0"
     },
     focusedWebContentsId: () => null,
     deadlines: {
@@ -465,7 +466,7 @@ describe("real native Core startup integration", () => {
     activeDirectories.add(directory);
     const binding = await nativeAddon().createAppCore({
       userDataDir: directory, platform: runtimePlatform, appVersion: "23.0.0-test",
-      packaged: false, runtimeContractVersion: 31
+      packaged: false, runtimeContractVersion: 32
     });
     try {
       binding.subscribeCoreEvents(() => {}, () => {});
@@ -799,7 +800,7 @@ describe("real native Core startup integration", () => {
         platform: oppositePlatform,
         appVersion: "23.0.0-native-integration",
         packaged: false,
-        runtimeContractVersion: 31
+        runtimeContractVersion: 32
       }
     )).rejects.toMatchObject({ code: "CORE_HOST_PLATFORM_MISMATCH" });
     await expectCoreError(

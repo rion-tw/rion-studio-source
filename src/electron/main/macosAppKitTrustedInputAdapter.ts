@@ -34,6 +34,8 @@ import type {
   ChromiumCdpInputTerminalEvent,
   ChromiumCdpInputTransportPort
 } from "./chromiumCdpInputTransport";
+import { ChromiumPhysicalInputEvidenceLane } from
+  "./chromiumPhysicalInputEvidence";
 
 const INPUT_SEQUENCE_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -273,9 +275,13 @@ interface PendingDispatch {
   nativeInvoked: boolean;
   nativeSubmitted: number;
   nextDomIndex: number;
+  nextObservationSequence: number;
   nativeComplete: boolean;
   terminal: boolean;
   physicalModifierCodes: readonly string[];
+  physicalInterleave: import("./chromiumTrustedInputPendingLane")
+    .ChromiumPhysicalInterleaveClassification;
+  readonly physicalEvidence: ChromiumPhysicalInputEvidenceLane;
 }
 
 interface Deferred<Value> {
@@ -337,6 +343,8 @@ function validateAppKitProbe(
     !validAddress(receipt.keyWindowFirstResponderAddress) ||
     !validAddress(receipt.targetWindowAddress, true) ||
     !validAddress(receipt.targetWindowFirstResponderAddress) ||
+    !validAddress(receipt.physicalInputSequence) ||
+    typeof receipt.targetReceivesPhysicalInput !== "boolean" ||
     !Array.isArray(receipt.physicalModifierCodes) ||
     new Set(receipt.physicalModifierCodes).size !== receipt.physicalModifierCodes.length ||
     receipt.physicalModifierCodes.some((code) => !modifierCodes.has(code)) ||
@@ -360,9 +368,9 @@ function sameAppKitFocusProof(
     left.keyWindowFirstResponderAddress === right.keyWindowFirstResponderAddress &&
     left.targetWindowAddress === right.targetWindowAddress &&
     left.targetWindowFirstResponderAddress === right.targetWindowFirstResponderAddress &&
+    left.targetReceivesPhysicalInput === right.targetReceivesPhysicalInput &&
     left.targetX === right.targetX && left.targetY === right.targetY &&
-    left.targetWidth === right.targetWidth && left.targetHeight === right.targetHeight &&
-    left.physicalModifierCodes.join("\n") === right.physicalModifierCodes.join("\n");
+    left.targetWidth === right.targetWidth && left.targetHeight === right.targetHeight;
 }
 
 function modifiers(codes: readonly string[]): Readonly<{
@@ -706,9 +714,15 @@ implements ChromiumNativeTrustedInputPort {
       nativeInvoked: false,
       nativeSubmitted: 0,
       nextDomIndex: 0,
+      nextObservationSequence: 1,
       nativeComplete: false,
       terminal: false,
-      physicalModifierCodes: Object.freeze([])
+      physicalModifierCodes: Object.freeze([]),
+      physicalInterleave: "none",
+      physicalEvidence: new ChromiumPhysicalInputEvidenceLane({
+        sequence: nativeProbe.physicalInputSequence,
+        targetReceivesPhysicalInput: nativeProbe.targetReceivesPhysicalInput
+      })
     };
     if (!this.#pending.add(pending)) {
       return Promise.resolve(this.#immediateFailure(request,
@@ -790,9 +804,46 @@ implements ChromiumNativeTrustedInputPort {
       );
       return true;
     }
-    if (receipt.kind !== "input" || !pending.nativeInvoked ||
-      receipt.observedIndex !== pending.nextDomIndex ||
+    if (receipt.kind !== "input" ||
+      receipt.observationSequence !== pending.nextObservationSequence) {
+      this.#terminalizeMismatch(pending);
+      return false;
+    }
+    pending.nextObservationSequence += 1;
+    let evidence: "automatic" | "physical" | "indeterminate";
+    try {
+      const liveHost = this.#hosts.resolve(
+        pending.request.roleId, pending.request.surfaceGeneration
+      );
+      if (!liveHost || !sameHost(liveHost, pending.host)) {
+        throw new Error("The native physical-input owner was superseded.");
+      }
+      const probe = validateAppKitProbe(liveHost.native.probeCdpInputSurface(
+        liveHost.identity, pending.request.roleId, pending.request.surfaceGeneration
+      ), liveHost, pending.request.roleId, pending.request.surfaceGeneration);
+      if (!sameAppKitFocusProof(probe, pending.nativeProbe)) {
+        throw new Error("The AppKit input surface changed during receipt correlation.");
+      }
+      evidence = pending.physicalEvidence.classify({
+        sequence: probe.physicalInputSequence,
+        targetReceivesPhysicalInput: probe.targetReceivesPhysicalInput
+      });
+      pending.nativeProbe = probe;
+    } catch {
+      evidence = "indeterminate";
+    }
+    if (evidence === "physical") {
+      const expected = pending.expectedEvents[pending.nextDomIndex];
+      pending.physicalInterleave = receipt.code && isChromiumModifierCode(receipt.code)
+        ? "modifier-change"
+        : expected && receipt.type === expected.type && receipt.code === expected.code &&
+          receipt.button === expected.button
+          ? "same-identity" : "unrelated";
+      return true;
+    }
+    if (evidence === "indeterminate" || !pending.nativeInvoked ||
       !sameExpected(receipt, pending.expectedEvents[pending.nextDomIndex]!)) {
+      if (evidence === "indeterminate") pending.physicalInterleave = "indeterminate";
       this.#terminalizeMismatch(pending);
       return false;
     }
@@ -867,7 +918,7 @@ implements ChromiumNativeTrustedInputPort {
       );
       if (!sameAppKitFocusProof(liveProbe, pending.nativeProbe)) {
         throw new Error(
-          "The AppKit focus or native physical modifier proof changed before CDP submission."
+          "The AppKit focus or native input-owner proof changed before CDP submission."
         );
       }
       pending.nativeProbe = liveProbe;
@@ -950,7 +1001,7 @@ implements ChromiumNativeTrustedInputPort {
           pending.request.surfaceGeneration
         );
         if (!sameAppKitFocusProof(afterProbe, pending.nativeProbe)) {
-          throw new Error("AppKit focus or physical modifiers changed during CDP submission.");
+          throw new Error("AppKit focus or native input ownership changed during CDP submission.");
         }
         pending.nativeProbe = afterProbe;
         pending.nativeSubmitted += 1;

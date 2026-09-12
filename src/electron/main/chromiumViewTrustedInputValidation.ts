@@ -22,7 +22,10 @@ export function validChromiumViewInputObservation(
 ): boolean {
   if ((mode !== "foreground" && mode !== "background") || !value || !value.identity || !value.bounds) return false;
   return validChromiumViewInputIdentity(value.identity) && sameChromiumViewInputIdentity(value.identity, expected) &&
-    token(value.focusIdentity) && typeof value.parentForeground === "boolean" && value.parentVisible === true &&
+    token(value.focusIdentity) && typeof value.physicalInputSequence === "string" &&
+    /^(0|[1-9][0-9]*)$/u.test(value.physicalInputSequence) &&
+    BigInt(value.physicalInputSequence) <= 18_446_744_073_709_551_615n &&
+    typeof value.parentForeground === "boolean" && value.parentVisible === true &&
     value.parentMinimized === false && value.viewAttached === true && value.contentsDestroyed === false &&
     value.viewVisible === (mode === "foreground") &&
     typeof value.contentsFocused === "boolean" &&

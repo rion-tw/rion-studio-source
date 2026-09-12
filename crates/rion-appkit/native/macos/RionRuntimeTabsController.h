@@ -84,11 +84,13 @@ typedef struct {
 typedef struct {
   uint8_t targetAttached;
   uint8_t targetWindowIsKey;
+  uint8_t targetReceivesPhysicalInput;
   uintptr_t keyWindowAddress;
   uintptr_t keyWindowFirstResponderAddress;
   uintptr_t targetWindowAddress;
   uintptr_t targetWindowFirstResponderAddress;
   uint16_t physicalModifierMask;
+  uint64_t physicalInputSequence;
   double targetX;
   double targetY;
   double targetWidth;

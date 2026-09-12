@@ -119,6 +119,8 @@ function harness(options: Readonly<{
   const mouseReceipts: AppKitNativeMouseSubmissionReceipt[] = [];
   let nativeFocusNeutral = true;
   let nativePhysicalModifierCodes: readonly string[] = [];
+  let nativePhysicalInputSequence = 0;
+  let targetReceivesPhysicalInput = false;
   let nativeMouseOffset = { x: 0, y: 0 };
   let nativeAppKitPointOffset = { x: 0, y: 0 };
   const zoomFactor = options.zoomFactor ?? 1.25;
@@ -141,6 +143,8 @@ function harness(options: Readonly<{
       targetWindowAddress: "13",
       targetWindowFirstResponderAddress: nativeFocusNeutral ? "14" : "15",
       physicalModifierCodes: nativePhysicalModifierCodes,
+      physicalInputSequence: String(nativePhysicalInputSequence),
+      targetReceivesPhysicalInput,
       targetX: 0,
       targetY: 0,
       targetWidth: 800,
@@ -375,9 +379,8 @@ function harness(options: Readonly<{
       generation: control.generation,
       frameToken: control.frameToken,
       inputSequence: control.inputSequence,
-      observedIndex: index,
+      observationSequence: index + 1,
       isTrusted: true,
-      matches: true,
       ...expected,
       ...(expected.type === "mousedown" || expected.type === "mouseup" ||
         expected.type === "click" || expected.type === "auxclick" ||
@@ -411,6 +414,12 @@ function harness(options: Readonly<{
     setNativePhysicalModifierCodes: (codes: readonly string[]) => {
       nativePhysicalModifierCodes = Object.freeze([...codes]);
     },
+    recordPhysicalInput: (projectedDomEvents = 1) => {
+      nativePhysicalInputSequence += projectedDomEvents;
+    },
+    setTargetReceivesPhysicalInput: (value: boolean) => {
+      targetReceivesPhysicalInput = value;
+    },
     setNativeFocusNeutral: (value: boolean) => { nativeFocusNeutral = value; },
     setNativeMouseOffset: (x: number, y: number) => {
       nativeMouseOffset = { x, y };
@@ -426,6 +435,57 @@ function harness(options: Readonly<{
 }
 
 describe("macOS AppKit trusted-input adapter", () => {
+  it("keeps a KeyJ sequence alive while an exact physical KeyW receipt passes through", async () => {
+    const subject = harness();
+    subject.setTargetReceivesPhysicalInput(true);
+    const completion = subject.adapter.dispatch(
+      nativeRequest("physical-key-interleave", {
+        ...keyAction(), key: "j", code: "KeyJ", modifiers: []
+      })
+    );
+    const control = subject.arm();
+    subject.recordPhysicalInput();
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
+      observationSequence: 1,
+      type: "keydown",
+      code: "KeyW"
+    }));
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
+      observationSequence: 2
+    }));
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 1, {
+      observationSequence: 3
+    }));
+
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: true
+    });
+  });
+
+  it("does not let a same-identity physical KeyJ consume the CDP KeyJ receipt", async () => {
+    const subject = harness();
+    subject.setTargetReceivesPhysicalInput(true);
+    const completion = subject.adapter.dispatch(
+      nativeRequest("same-key-interleave", {
+        ...keyAction(), key: "j", code: "KeyJ", modifiers: []
+      })
+    );
+    const control = subject.arm();
+    subject.recordPhysicalInput();
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
+      observationSequence: 1
+    }));
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
+      observationSequence: 2
+    }));
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 1, {
+      observationSequence: 3
+    }));
+
+    await expect(completion).resolves.toMatchObject({ status: "applied" });
+  });
+
   it("accepts every CDP-backed UI key code on macOS", async () => {
     const supported = new Set<string>(MACOS_APPKIT_TRUSTED_KEY_CODES);
     expect(commonMacroKeyCodes.every((code) => supported.has(code))).toBe(true);

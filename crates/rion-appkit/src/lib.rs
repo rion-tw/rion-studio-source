@@ -9,7 +9,7 @@ use std::ffi::c_void;
 #[cfg(target_os = "macos")]
 use std::{ffi::CStr, ptr::NonNull};
 
-pub const RUNTIME_TABS_ABI_VERSION: u32 = 7;
+pub const RUNTIME_TABS_ABI_VERSION: u32 = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElectronViewWindowResolutionError {
@@ -192,11 +192,13 @@ pub struct AppKitChromiumMouseDispatchResult {
 pub struct AppKitChromiumInputSurfaceProbeResult {
     pub target_attached: u8,
     pub target_window_is_key: u8,
+    pub target_receives_physical_input: u8,
     pub key_window_address: usize,
     pub key_window_first_responder_address: usize,
     pub target_window_address: usize,
     pub target_window_first_responder_address: usize,
     pub physical_modifier_mask: u16,
+    pub physical_input_sequence: u64,
     pub target_x: f64,
     pub target_y: f64,
     pub target_width: f64,

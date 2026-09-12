@@ -128,12 +128,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 31;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 32;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 31 }> {
+): Readonly<Options & { runtimeContractVersion: 32 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
@@ -855,6 +855,9 @@ export class ChromiumRuntimeBootstrap {
       resumeNativeAfterDocumentReplacement: (roleId, surfaceGeneration) =>
         trustedInput?.resumeAfterDocumentReplacement(roleId, surfaceGeneration) ??
         Promise.resolve(false),
+      retireManagedShortcuts: (roleId, surfaceGeneration) =>
+        managedShortcuts?.retireSurface(roleId, surfaceGeneration) ??
+        Promise.resolve(),
       onError: input.onError
     });
     const rolePlaceholders = input.rolePlaceholderShell

@@ -13,6 +13,7 @@ export interface ChromiumViewParentBinding {
   readonly read: () => Readonly<{
     parentIdentity: string; focusIdentity: string; parentForeground: boolean;
     parentVisible: boolean; parentMinimized: boolean; focusedWebContentsId: number | null;
+    physicalInputSequence: string;
   }>;
   readonly contentsFocused: (view: ChromiumRoleWebContentsViewPort) => boolean;
   readonly subscribe: (listener: (event: "changed" | "focused" | "closed") => void) => () => void;

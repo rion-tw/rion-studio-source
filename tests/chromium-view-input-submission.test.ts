@@ -6,7 +6,8 @@ function fixture(platform: "macos" | "windows", background = true) {
   const identity = { roleId: "role-a", surfaceGeneration: 2, nativeGeneration: 3,
     bindingRevision: "4", parentIdentity: "a".repeat(64), webContentsId: 5 };
   const observation: ChromiumViewInputObservation = {
-    identity, focusIdentity: "b".repeat(64), parentForeground: true,
+    identity, focusIdentity: "b".repeat(64), physicalInputSequence: "0",
+    parentForeground: true,
     parentVisible: true, parentMinimized: false, viewAttached: true,
     viewVisible: !background, contentsDestroyed: false, contentsFocused: !background,
     focusedWebContentsId: background ? 6 : 5,

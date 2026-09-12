@@ -15,6 +15,7 @@ export interface ChromiumViewInputIdentity {
 export interface ChromiumViewInputObservation {
   readonly identity: ChromiumViewInputIdentity;
   readonly focusIdentity: string;
+  readonly physicalInputSequence: string;
   readonly parentForeground: boolean;
   readonly parentVisible: boolean;
   readonly parentMinimized: boolean;

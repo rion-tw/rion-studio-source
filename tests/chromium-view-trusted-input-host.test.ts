@@ -7,6 +7,7 @@ function fixture(_platform: "macos" | "windows") {
   const identity = { roleId: "role-one", surfaceGeneration: 1, nativeGeneration: 2,
     bindingRevision: "3", parentIdentity: "a".repeat(64), webContentsId: 4 };
   let observation: ChromiumViewInputObservation = { identity, focusIdentity: "b".repeat(64),
+    physicalInputSequence: "0",
     parentForeground: true, parentVisible: true, parentMinimized: false,
     viewAttached: true, viewVisible: false, contentsDestroyed: false, contentsFocused: false,
     focusedWebContentsId: 5, bounds: { x: 0, y: 0, width: 300, height: 200 }, zoomFactor: 1.25 };

@@ -66,11 +66,11 @@ export function parseTrustedInputDomReceipt(
   }
   if (record.kind === "input" && exactKeys(record, [
     ...baseKeys, "altKey", "button", "clientX", "clientY", "code", "ctrlKey",
-    "isTrusted", "matches", "metaKey", "observedIndex", "repeat", "shiftKey", "type"
+    "isTrusted", "metaKey", "observationSequence", "repeat", "shiftKey", "type"
   ])) {
-    const valid = Number.isSafeInteger(record.observedIndex) &&
-      (record.observedIndex as number) >= 0 &&
-      typeof record.isTrusted === "boolean" && typeof record.matches === "boolean" &&
+    const valid = Number.isSafeInteger(record.observationSequence) &&
+      (record.observationSequence as number) >= 1 &&
+      typeof record.isTrusted === "boolean" &&
       typeof record.altKey === "boolean" && typeof record.ctrlKey === "boolean" &&
       typeof record.metaKey === "boolean" && typeof record.shiftKey === "boolean" &&
       typeof record.repeat === "boolean" && typeof record.type === "string";
@@ -82,7 +82,7 @@ export function matchesTrustedInputExpectedEvent(
   receipt: ChromiumRoleTrustedInputDomReceipt,
   expected: ChromiumRoleTrustedInputExpectedEvent
 ): boolean {
-  return receipt.matches === true && receipt.isTrusted === true &&
+  return receipt.isTrusted === true &&
     receipt.type === expected.type && receipt.code === expected.code &&
     receipt.button === expected.button && receipt.clientX === expected.clientX &&
     receipt.clientY === expected.clientY && receipt.altKey === expected.altKey &&

@@ -13,6 +13,7 @@ describe.each(["macos", "windows"] as const)("%s exact input admission observati
       bindingRevision: "3", parentIdentity: "a".repeat(64), webContentsId: 4 };
     const bounds = { x: 0, y: 0, width: 400, height: 300 };
     const sample: ChromiumViewInputObservation = { identity, focusIdentity: "b".repeat(64),
+      physicalInputSequence: "0",
       parentForeground: false, parentVisible: true, parentMinimized: false,
       viewAttached: true, viewVisible: true, contentsDestroyed: false, contentsFocused: true,
       focusedWebContentsId: 4, bounds, zoomFactor: 1 };

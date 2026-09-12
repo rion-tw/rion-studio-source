@@ -78,9 +78,9 @@ export interface ChromiumRoleTrustedInputDomReceipt
   extends ChromiumRoleTrustedInputIdentity,
     ChromiumRoleTrustedInputExpectedEvent {
   readonly kind: "input";
-  readonly observedIndex: number;
+  /** Monotonic for every trusted/untrusted DOM observation in this arm. */
+  readonly observationSequence: number;
   readonly isTrusted: boolean;
-  readonly matches: boolean;
 }
 
 export type ChromiumRoleTrustedInputReceipt =

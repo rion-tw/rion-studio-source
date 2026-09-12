@@ -151,7 +151,7 @@ describe("Chromium native tab exact replacements", () => {
     expect(native).toContain("_tabItems[index].activeTab !=");
     expect(native).toContain("item.activeTab = active");
     expect(factory).toContain("phase: tab.phase");
-    expect(factory).toContain("RION_APPKIT_RUNTIME_ABI_VERSION = 7");
+    expect(factory).toContain("RION_APPKIT_RUNTIME_ABI_VERSION = 8");
     expect(eventBridge).toContain('case "modifierHandoffStarted":');
     expect(eventBridge).toContain("#recordModifierHandoffTransition");
     expect(factory).toContain("#applyPhaseProjection");

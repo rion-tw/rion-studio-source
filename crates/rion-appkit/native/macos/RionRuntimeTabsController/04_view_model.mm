@@ -569,6 +569,7 @@ NS_ASSUME_NONNULL_BEGIN
   __weak RionRuntimeTabsController *weakShortcutSelf = self;
   _tabShortcutMonitor = [NSEvent
       addLocalMonitorForEventsMatchingMask:(NSEventMaskKeyDown |
+                                             NSEventMaskKeyUp |
                                              NSEventMaskFlagsChanged)
                                 handler:^NSEvent *(NSEvent *event) {
     // Targeted macro input has already reached its explicit browser surface.
@@ -579,6 +580,10 @@ NS_ASSUME_NONNULL_BEGIN
     if (!strongSelf || strongSelf->_destroyed || event.window != strongSelf->_window) {
       return event;
     }
+    NSResponder *firstResponder = strongSelf->_window.firstResponder;
+    NSView *physicalTarget = [firstResponder isKindOfClass:NSView.class]
+        ? RionRuntimePhysicalInputTarget((NSView *)firstResponder) : nil;
+    RionRuntimeRecordPhysicalInput(physicalTarget, 1);
     if (event.type == NSEventTypeFlagsChanged) {
       [strongSelf trackPhysicalModifierEvent:event];
       [strongSelf handleTabShortcutModifierEvent:event];
@@ -612,10 +617,38 @@ NS_ASSUME_NONNULL_BEGIN
   _fullscreenToolbarPointerMonitor = [NSEvent
       addLocalMonitorForEventsMatchingMask:(NSEventMaskMouseMoved |
                                              NSEventMaskLeftMouseDown |
+                                             NSEventMaskLeftMouseUp |
                                              NSEventMaskRightMouseDown |
-                                             NSEventMaskOtherMouseDown)
+                                             NSEventMaskRightMouseUp |
+                                             NSEventMaskOtherMouseDown |
+                                             NSEventMaskOtherMouseUp)
                                 handler:^NSEvent *(NSEvent *event) {
-    [weakPointerSelf handleFullscreenToolbarPointerEvent:event];
+    RionRuntimeTabsController *strongSelf = weakPointerSelf;
+    if (strongSelf && !strongSelf->_destroyed && event.window == strongSelf->_window &&
+        !RionRuntimeIsMacroKeyEvent(event)) {
+      uint64_t projected = 0;
+      switch (event.type) {
+        case NSEventTypeLeftMouseDown:
+        case NSEventTypeOtherMouseDown:
+          projected = 1;
+          break;
+        case NSEventTypeRightMouseDown:
+        case NSEventTypeLeftMouseUp:
+        case NSEventTypeRightMouseUp:
+        case NSEventTypeOtherMouseUp:
+          projected = 2;
+          break;
+        default:
+          break;
+      }
+      NSView *contentView = strongSelf->_window.contentView;
+      NSPoint contentPoint = [contentView convertPoint:event.locationInWindow
+                                               fromView:nil];
+      NSView *hitView = [contentView hitTest:contentPoint];
+      RionRuntimeRecordPhysicalInput(
+          RionRuntimePhysicalInputTarget(hitView), projected);
+    }
+    [strongSelf handleFullscreenToolbarPointerEvent:event];
     return event;
   }];
   // A controller can be created for a window that is already fullscreen

@@ -123,8 +123,11 @@ mod platform {
             Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
             WindowsAndMessaging::{
                 CallNextHookEx, GetForegroundWindow, GetWindowThreadProcessId, HC_ACTION, HHOOK,
-                IsWindow, KBDLLHOOKSTRUCT, LLKHF_UP, SetWindowsHookExW, UnhookWindowsHookEx,
-                WA_INACTIVE, WH_KEYBOARD_LL, WM_ACTIVATE, WM_KEYDOWN, WM_NCDESTROY, WM_SYSKEYDOWN,
+                IsWindow, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLKHF_UP, LLMHF_INJECTED,
+                MSLLHOOKSTRUCT, SetWindowsHookExW, UnhookWindowsHookEx, WA_INACTIVE,
+                WH_KEYBOARD_LL, WH_MOUSE_LL, WM_ACTIVATE, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+                WM_MBUTTONDOWN, WM_MBUTTONUP, WM_NCDESTROY, WM_RBUTTONDOWN, WM_RBUTTONUP,
+                WM_SYSKEYDOWN,
             },
         },
     };
@@ -261,6 +264,7 @@ mod platform {
         foreground_matches: u32,
         owner_revision: u64,
         plain_key_downs: u32,
+        physical_input_sequence: u64,
     }
 
     impl ShortcutOwner {
@@ -272,7 +276,8 @@ mod platform {
     #[derive(Default)]
     struct ShortcutRegistry {
         f11_events: u32,
-        hook: Option<HHOOK>,
+        keyboard_hook: Option<HHOOK>,
+        mouse_hook: Option<HHOOK>,
         hook_callbacks: u32,
         owners: HashMap<usize, ShortcutOwner>,
     }
@@ -309,12 +314,15 @@ mod platform {
         let owner = SHORTCUT_REGISTRY.with(|registry| {
             let mut registry = registry.borrow_mut();
             let owner = registry.owners.remove(&hwnd_key(hwnd));
-            if registry.owners.is_empty()
-                && let Some(hook) = registry.hook.take()
-            {
-                // SAFETY: the hook was installed by this registry on this UI
-                // thread and is retired exactly when its final HWND dies.
-                let _ = unsafe { UnhookWindowsHookEx(hook) };
+            if registry.owners.is_empty() {
+                if let Some(hook) = registry.keyboard_hook.take() {
+                    // SAFETY: the hook was installed by this registry on this
+                    // UI thread and retires with its final exact HWND.
+                    let _ = unsafe { UnhookWindowsHookEx(hook) };
+                }
+                if let Some(hook) = registry.mouse_hook.take() {
+                    let _ = unsafe { UnhookWindowsHookEx(hook) };
+                }
             }
             owner
         });
@@ -365,10 +373,10 @@ mod platform {
             SHORTCUT_REGISTRY.with(|registry| {
                 let mut registry = registry.borrow_mut();
                 registry.hook_callbacks = registry.hook_callbacks.saturating_add(1);
-                if keyboard.vkCode != VK_F11.0 as u32 {
-                    return false;
+                let is_f11 = keyboard.vkCode == VK_F11.0 as u32;
+                if is_f11 {
+                    registry.f11_events = registry.f11_events.saturating_add(1);
                 }
-                registry.f11_events = registry.f11_events.saturating_add(1);
                 // SAFETY: this hook reads only the exact current foreground
                 // HWND and never enumerates or guesses Chromium HWNDs.
                 let foreground = unsafe { GetForegroundWindow() };
@@ -376,6 +384,13 @@ mod platform {
                     return false;
                 };
                 owner.foreground_matches = owner.foreground_matches.saturating_add(1);
+                if keyboard.flags.contains(LLKHF_INJECTED) {
+                    return false;
+                }
+                if !is_f11 {
+                    owner.physical_input_sequence = owner.physical_input_sequence.saturating_add(1);
+                    return false;
+                }
                 let released = keyboard.flags.contains(LLKHF_UP)
                     || (wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize);
                 let plain = plain_f11();
@@ -388,6 +403,9 @@ mod platform {
                 if action == WindowsRuntimeF11Action::EmitAndConsume {
                     owner.emit()
                 }
+                if action == WindowsRuntimeF11Action::PassThrough {
+                    owner.physical_input_sequence = owner.physical_input_sequence.saturating_add(1);
+                }
                 action != WindowsRuntimeF11Action::PassThrough
             })
         }))
@@ -397,6 +415,44 @@ mod platform {
         }
         // SAFETY: unmatched messages must continue through the current thread's
         // keyboard-hook chain. Passing None is documented for this operation.
+        unsafe { CallNextHookEx(None, code, wparam, lparam) }
+    }
+
+    unsafe extern "system" fn runtime_low_level_mouse_hook(
+        code: i32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            if code != HC_ACTION as i32 {
+                return;
+            }
+            // SAFETY: WH_MOUSE_LL supplies this structure for HC_ACTION and
+            // retains it through the callback.
+            let mouse = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+            if mouse.flags.contains(LLMHF_INJECTED) {
+                return;
+            }
+            let projected = match wparam.0 as u32 {
+                WM_LBUTTONDOWN | WM_MBUTTONDOWN | WM_RBUTTONDOWN => 1,
+                WM_LBUTTONUP | WM_MBUTTONUP => 2,
+                WM_RBUTTONUP => 3,
+                _ => 0,
+            };
+            if projected == 0 {
+                return;
+            }
+            // SAFETY: the exact current foreground HWND is the sole registry
+            // key. The hook never consumes or redirects player input.
+            let foreground = unsafe { GetForegroundWindow() };
+            SHORTCUT_REGISTRY.with(|registry| {
+                if let Some(owner) = registry.borrow_mut().owners.get_mut(&hwnd_key(foreground)) {
+                    owner.physical_input_sequence =
+                        owner.physical_input_sequence.saturating_add(projected);
+                }
+            });
+        }));
+        // SAFETY: physical mouse input is evidence only and always continues.
         unsafe { CallNextHookEx(None, code, wparam, lparam) }
     }
 
@@ -467,7 +523,7 @@ mod platform {
                 ));
             }
 
-            let installed_hook = if registry.hook.is_none() {
+            let installed_hooks = if registry.keyboard_hook.is_none() {
                 let module = hook_module()?;
                 // SAFETY: WH_KEYBOARD_LL is desktop-scoped but owned by
                 // Electron's message-loop thread. The static callback forwards
@@ -490,7 +546,23 @@ mod platform {
                 })?;
                 registry.hook_callbacks = 0;
                 registry.f11_events = 0;
-                registry.hook = Some(hook);
+                let mouse_hook = unsafe {
+                    SetWindowsHookExW(
+                        WH_MOUSE_LL,
+                        Some(runtime_low_level_mouse_hook),
+                        Some(module),
+                        0,
+                    )
+                }
+                .map_err(|_| {
+                    let _ = unsafe { UnhookWindowsHookEx(hook) };
+                    probe_error(
+                        Status::GenericFailure,
+                        "Win32 could not install the runtime physical mouse evidence owner.",
+                    )
+                })?;
+                registry.keyboard_hook = Some(hook);
+                registry.mouse_hook = Some(mouse_hook);
                 true
             } else {
                 false
@@ -508,9 +580,13 @@ mod platform {
                 .as_bool()
             };
             if !subclassed {
-                if installed_hook && let Some(hook) = registry.hook.take() {
-                    // SAFETY: this call compensates the hook installed above.
-                    let _ = unsafe { UnhookWindowsHookEx(hook) };
+                if installed_hooks {
+                    if let Some(hook) = registry.keyboard_hook.take() {
+                        let _ = unsafe { UnhookWindowsHookEx(hook) };
+                    }
+                    if let Some(hook) = registry.mouse_hook.take() {
+                        let _ = unsafe { UnhookWindowsHookEx(hook) };
+                    }
                 }
                 return Err(probe_error(
                     Status::GenericFailure,
@@ -531,8 +607,13 @@ mod platform {
                                 RION_RUNTIME_SHORTCUT_SUBCLASS_ID,
                             )
                         };
-                        if installed_hook && let Some(hook) = registry.hook.take() {
-                            let _ = unsafe { UnhookWindowsHookEx(hook) };
+                        if installed_hooks {
+                            if let Some(hook) = registry.keyboard_hook.take() {
+                                let _ = unsafe { UnhookWindowsHookEx(hook) };
+                            }
+                            if let Some(hook) = registry.mouse_hook.take() {
+                                let _ = unsafe { UnhookWindowsHookEx(hook) };
+                            }
                         }
                         return Err(error);
                     }
@@ -546,6 +627,7 @@ mod platform {
                     foreground_matches: 0,
                     owner_revision,
                     plain_key_downs: 0,
+                    physical_input_sequence: 0,
                 },
             );
             Ok(ui_thread_id)
@@ -584,16 +666,19 @@ mod platform {
                 ));
             }
             let owner = registry.owners.remove(&key);
-            if registry.owners.is_empty()
-                && let Some(hook) = registry.hook.take()
-            {
-                // SAFETY: this is the current thread's registry-owned hook.
-                unsafe { UnhookWindowsHookEx(hook) }.map_err(|_| {
-                    probe_error(
-                        Status::GenericFailure,
-                        "Win32 could not remove the runtime keyboard shortcut owner.",
-                    )
-                })?;
+            if registry.owners.is_empty() {
+                for hook in [registry.keyboard_hook.take(), registry.mouse_hook.take()]
+                    .into_iter()
+                    .flatten()
+                {
+                    // SAFETY: this is the current thread's registry-owned hook.
+                    unsafe { UnhookWindowsHookEx(hook) }.map_err(|_| {
+                        probe_error(
+                            Status::GenericFailure,
+                            "Win32 could not remove the runtime physical-input owner.",
+                        )
+                    })?;
+                }
             }
             Ok(owner)
         })?;
@@ -646,6 +731,23 @@ mod platform {
             }
             owner.callback_deliveries = owner.callback_deliveries.saturating_add(1);
             Ok(ui_thread_id)
+        })
+    }
+
+    pub(super) fn physical_input_sequence(parent: HWND) -> Result<u64> {
+        validate_parent(parent)?;
+        SHORTCUT_REGISTRY.with(|registry| {
+            registry
+                .borrow()
+                .owners
+                .get(&hwnd_key(parent))
+                .map(|owner| owner.physical_input_sequence)
+                .ok_or_else(|| {
+                    probe_error(
+                        Status::InvalidArg,
+                        "The Windows runtime HWND has no physical-input evidence owner.",
+                    )
+                })
         })
     }
 
@@ -728,6 +830,13 @@ pub fn read_windows_runtime_shortcut_owner(
 }
 
 #[cfg(windows)]
+#[napi(js_name = "readWindowsPhysicalInputSequence")]
+pub fn read_windows_physical_input_sequence(parent_handle: Buffer) -> Result<String> {
+    let parent_address = parse_electron_native_handle(&parent_handle, "parent")?;
+    Ok(platform::physical_input_sequence(platform::hwnd(parent_address))?.to_string())
+}
+
+#[cfg(windows)]
 #[napi(js_name = "acknowledgeWindowsRuntimeShortcutOwner")]
 pub fn acknowledge_windows_runtime_shortcut_owner(
     parent_handle: Buffer,
@@ -751,6 +860,15 @@ pub fn read_windows_runtime_shortcut_owner(
     Err(probe_error(
         Status::GenericFailure,
         "The Win32 runtime shortcut owner is available only on Windows.",
+    ))
+}
+
+#[cfg(not(windows))]
+#[napi(js_name = "readWindowsPhysicalInputSequence")]
+pub fn read_windows_physical_input_sequence(_parent_handle: Buffer) -> Result<String> {
+    Err(probe_error(
+        Status::GenericFailure,
+        "The Win32 physical-input evidence owner is available only on Windows.",
     ))
 }
 

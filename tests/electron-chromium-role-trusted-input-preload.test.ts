@@ -254,7 +254,7 @@ describe("Chromium role trusted-input preload", () => {
     await Promise.resolve();
     expect(subject.send).toHaveBeenLastCalledWith(
       CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
-      expect.objectContaining({ kind: "input", matches: true, shiftKey: true })
+      expect.objectContaining({ kind: "input", observationSequence: 1, shiftKey: true })
     );
   });
 
@@ -285,10 +285,10 @@ describe("Chromium role trusted-input preload", () => {
       physicalModifierCodes: []
     });
     expect(subject.send.mock.calls.slice(1).map(([, receipt]) => receipt)).toEqual([
-      expect.objectContaining({ kind: "input", observedIndex: 0, type: "keydown",
-        code: "KeyA", isTrusted: true, matches: true }),
-      expect.objectContaining({ kind: "input", observedIndex: 1, type: "keyup",
-        code: "KeyA", isTrusted: true, matches: true })
+      expect.objectContaining({ kind: "input", observationSequence: 1, type: "keydown",
+        code: "KeyA", isTrusted: true }),
+      expect.objectContaining({ kind: "input", observationSequence: 2, type: "keyup",
+        code: "KeyA", isTrusted: true })
     ]);
   });
 
@@ -304,9 +304,9 @@ describe("Chromium role trusted-input preload", () => {
     }
     await Promise.resolve();
     expect(subject.send.mock.calls.slice(1).map(([, receipt]) => receipt)).toEqual([
-      expect.objectContaining({ clientX: 100.25, clientY: 200.75, matches: true }),
-      expect.objectContaining({ clientX: 100.25, clientY: 200.75, matches: true }),
-      expect.objectContaining({ clientX: 100.25, clientY: 200.75, matches: true })
+      expect.objectContaining({ clientX: 100.25, clientY: 200.75, observationSequence: 1 }),
+      expect.objectContaining({ clientX: 100.25, clientY: 200.75, observationSequence: 2 }),
+      expect.objectContaining({ clientX: 100.25, clientY: 200.75, observationSequence: 3 })
     ]);
   });
 
@@ -330,7 +330,7 @@ describe("Chromium role trusted-input preload", () => {
     expect(subject.send.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
       button,
       isTrusted: true,
-      matches: true,
+      observationSequence: 3,
       type: activation
     }));
   });
@@ -343,7 +343,7 @@ describe("Chromium role trusted-input preload", () => {
     expect(subject.send.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({
       kind: "input",
       isTrusted: false,
-      matches: false
+      observationSequence: 1
     }));
 
     subject.arm([keyEvent("keydown")], { frameToken: "stale-frame" });

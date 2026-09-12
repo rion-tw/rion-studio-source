@@ -3,6 +3,14 @@ import type { ChromiumRoleOverlayFrameIdentity, ChromiumRoleOverlayLifecycleEven
   "./chromiumRoleSurfaceRegistry";
 import type { ChromiumNativeTrustedInputReceipt, ChromiumNativeTrustedInputRequest } from
   "./chromiumTrustedInputCoordinator";
+import { recordTrustedInputTerminal } from "./chromiumTrustedInputTerminalJournal";
+
+export type ChromiumPhysicalInterleaveClassification =
+  | "none"
+  | "unrelated"
+  | "same-identity"
+  | "modifier-change"
+  | "indeterminate";
 
 export interface PendingChromiumTrustedInput {
   readonly request: ChromiumNativeTrustedInputRequest;
@@ -14,6 +22,7 @@ export interface PendingChromiumTrustedInput {
   nativeComplete: boolean;
   nextDomIndex: number;
   readonly expectedEvents: readonly unknown[];
+  physicalInterleave: ChromiumPhysicalInterleaveClassification;
   terminal: boolean;
 }
 
@@ -67,17 +76,37 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
     try { this.#ports.cancelDeadline(pending.timer); } catch {
       // The terminal flag fences a deadline callback even if cancellation fails.
     }
-    if (status !== "applied") {
-      try {
-        this.#ports.sendCancel(pending.frame, Object.freeze({
-          kind: "cancel", roleId: pending.request.roleId,
-          generation: pending.request.surfaceGeneration,
-          frameToken: pending.frame.frameToken, inputSequence: pending.inputSequence
-        }));
-      } catch {
-        // Navigation or retirement may already have destroyed the exact frame.
-      }
+    try {
+      // The preload now retains the raw observation lane until main has an
+      // authoritative terminal outcome, including successful completion.
+      this.#ports.sendCancel(pending.frame, Object.freeze({
+        kind: "cancel", roleId: pending.request.roleId,
+        generation: pending.request.surfaceGeneration,
+        frameToken: pending.frame.frameToken, inputSequence: pending.inputSequence
+      }));
+    } catch {
+      // Navigation or retirement may already have destroyed the exact frame.
     }
+    recordTrustedInputTerminal({
+      capturedAt: new Date().toISOString(),
+      requestId: pending.request.requestId,
+      roleId: pending.request.roleId,
+      inputEpoch: pending.request.inputEpoch,
+      surfaceGeneration: pending.request.surfaceGeneration,
+      intent: pending.request.intent,
+      cdpSubmissionCertainty: pending.nativeInvoked
+        ? status === "applied" ? "confirmed" : "possibly-submitted"
+        : "not-invoked",
+      physicalInterleave: pending.physicalInterleave,
+      terminalCode: errorCode ?? "APPLIED",
+      cleanupOutcome: pending.request.intent !== "cleanup"
+        ? "not-attempted"
+        : status === "applied" && confirmedInputNeutrality
+          ? "neutral" : "indeterminate",
+      recoveryOutcome: status === "applied" && confirmedInputNeutrality
+        ? "cleanup-neutral" : status === "indeterminate"
+          ? "restart-required" : "not-required"
+    });
     pending.completion.resolve(Object.freeze({
       requestId: pending.request.requestId, roleId: pending.request.roleId,
       inputEpoch: pending.request.inputEpoch, surfaceGeneration: pending.request.surfaceGeneration,

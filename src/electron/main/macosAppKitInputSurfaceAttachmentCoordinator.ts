@@ -32,6 +32,8 @@ export interface AppKitCdpInputSurfaceProbeReceipt {
   readonly targetWindowAddress: string;
   readonly targetWindowFirstResponderAddress: string;
   readonly physicalModifierCodes: readonly string[];
+  readonly physicalInputSequence: string;
+  readonly targetReceivesPhysicalInput: boolean;
   readonly targetX: number;
   readonly targetY: number;
   readonly targetWidth: number;

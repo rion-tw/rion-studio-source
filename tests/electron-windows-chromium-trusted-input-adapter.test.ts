@@ -113,12 +113,14 @@ function harness() {
   let preserveForeground = true;
   let exactParent = true;
   let nativePhysicalModifierCodes: readonly string[] = [];
+  let nativePhysicalInputSequence = 0;
   let viewFocus: Partial<Pick<ChromiumViewInputObservation,
     "focusIdentity" | "parentForeground" | "contentsFocused" | "focusedWebContentsId">> = {};
 
   const observation = () => {
     if (identity.ownerKind !== "view") throw new Error("View observation requires View identity.");
-    return { identity, focusIdentity: "b".repeat(64), parentForeground: true, parentVisible: true,
+    return { identity, focusIdentity: "b".repeat(64), physicalInputSequence: String(nativePhysicalInputSequence),
+      parentForeground: true, parentVisible: true,
       parentMinimized: false, viewAttached: exactParent, viewVisible: deliveryMode === "foreground",
       contentsDestroyed: false, contentsFocused: deliveryMode === "foreground",
       focusedWebContentsId: deliveryMode === "foreground" ? 91 : 92,
@@ -322,9 +324,8 @@ function harness() {
     generation: 3,
     frameToken: frame.frameToken,
     inputSequence: INPUT_SEQUENCE,
-    observedIndex,
+    observationSequence: observedIndex + 1,
     isTrusted: true,
-    matches: true,
     ...expected,
     ...overrides
   });
@@ -333,6 +334,9 @@ function harness() {
     adapter,
     arm,
     armed,
+    recordPhysicalInput: (projectedDomEvents = 1) => {
+      nativePhysicalInputSequence += projectedDomEvents;
+    },
     controls,
     cdp,
     dom,
@@ -366,6 +370,41 @@ function harness() {
 }
 
 describe("Windows Chromium trusted-input adapter", () => {
+  it("passes physical KeyW and then accepts the pending CDP KeyJ sequence", async () => {
+    const subject = harness();
+    const completion = subject.adapter.dispatch(nativeRequest(
+      "physical-key-interleave",
+      { ...keyAction(), key: "j", code: "KeyJ", modifiers: [] }
+    ));
+    subject.armed();
+    const expected = subject.arm().expectedEvents;
+    subject.recordPhysicalInput();
+    subject.dom(expected[0]!, 0, { type: "keydown", code: "KeyW" });
+    subject.dom(expected[0]!, 1);
+    subject.dom(expected[1]!, 2);
+
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: true
+    });
+  });
+
+  it("uses native provenance when physical and CDP events are both KeyJ", async () => {
+    const subject = harness();
+    const completion = subject.adapter.dispatch(nativeRequest(
+      "same-key-interleave",
+      { ...keyAction(), key: "j", code: "KeyJ", modifiers: [] }
+    ));
+    subject.armed();
+    const expected = subject.arm().expectedEvents;
+    subject.recordPhysicalInput();
+    subject.dom(expected[0]!, 0);
+    subject.dom(expected[0]!, 1);
+    subject.dom(expected[1]!, 2);
+
+    await expect(completion).resolves.toMatchObject({ status: "applied" });
+  });
+
   it("keeps CDP inside the common production transport and Win32 read-only", () => {
     const adapter = readFileSync(new URL(
       "../src/electron/main/windowsChromiumTrustedInputAdapter.ts",
@@ -424,7 +463,7 @@ describe("Windows Chromium trusted-input adapter", () => {
       status: "applied",
       confirmedInputNeutrality: true
     }));
-    expect(subject.native.probeExactInputSurface).toHaveBeenCalledTimes(4);
+    expect(subject.native.probeExactInputSurface).toHaveBeenCalledTimes(6);
   });
 
   it.each(["hold", "release"] as const)(
@@ -649,7 +688,7 @@ describe("Windows Chromium trusted-input adapter", () => {
     const dom = harness();
     const domResult = dom.adapter.dispatch(nativeRequest("request-untrusted", keyAction()));
     dom.armed();
-    dom.dom(dom.arm().expectedEvents[0]!, 0, { isTrusted: false, matches: false });
+    dom.dom(dom.arm().expectedEvents[0]!, 0, { isTrusted: false });
     await expect(domResult).resolves.toEqual(expect.objectContaining({
       status: "indeterminate",
       errorCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_MISMATCH"
@@ -802,16 +841,22 @@ describe("Windows adapter with exact View receipts", () => {
     await expect(result).resolves.toMatchObject({ status: "indeterminate" });
   });
 
-  it("terminalizes changed Windows physical modifiers after CDP acceptance", async () => {
+  it("keeps CDP receipt correlation alive across a physical modifier edge", async () => {
     const subject = harness();
     const result = subject.adapter.dispatch(nativeRequest("physical-changed", keyAction()));
     subject.armed([]);
+    const expected = subject.arm().expectedEvents;
+    subject.recordPhysicalInput();
     subject.setNativePhysicalModifierCodes(["ControlRight"]);
+    subject.dom(expected[0]!, 0, {
+      type: "keydown", code: "ControlRight", ctrlKey: true
+    });
+    subject.dom(expected[0]!, 1);
+    subject.dom(expected[1]!, 2);
 
     await expect(result).resolves.toMatchObject({
-      status: "indeterminate",
-      errorCode: "SYSTEM_TRUSTED_INPUT_PARTIAL_NATIVE_SUBMISSION",
-      confirmedInputNeutrality: false
+      status: "applied",
+      confirmedInputNeutrality: true
     });
   });
 });

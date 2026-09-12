@@ -25,6 +25,7 @@ async function fixture(platform: "macos" | "windows", visible = true) {
   const binding: ChromiumViewParentBinding = { parent, nativeGeneration: 1, revision: "1",
     children: () => children, contentsFocused: () => focused,
     read: () => ({ parentIdentity: "a".repeat(64), focusIdentity: "b".repeat(64),
+      physicalInputSequence: "0",
       parentForeground: foreground, parentVisible: true, parentMinimized: false,
       focusedWebContentsId: focused ? 12 : 13 }),
     subscribe: callback => { parentEvents.on("event", callback); return () => { parentEvents.off("event", callback); }; } };

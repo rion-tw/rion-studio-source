@@ -45,6 +45,44 @@ static NSToolbarItemIdentifier const RionRuntimeToolbarSpacerIdentifier =
     @"com.rionstudio.runtime-tabs.layout-spacer";
 static NSPasteboardType const RionRuntimeTabPasteboardType =
     @"com.rionstudio.runtime-tab";
+static char RionRuntimePhysicalInputSequenceAssociationKey;
+
+static void RionRuntimeRegisterPhysicalInputTarget(NSView *target) {
+  if (!target || objc_getAssociatedObject(
+      target, &RionRuntimePhysicalInputSequenceAssociationKey)) return;
+  objc_setAssociatedObject(target,
+                           &RionRuntimePhysicalInputSequenceAssociationKey,
+                           @(0),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static NSView *RionRuntimePhysicalInputTarget(NSView *view) {
+  for (NSView *candidate = view; candidate; candidate = candidate.superview) {
+    if (objc_getAssociatedObject(
+        candidate, &RionRuntimePhysicalInputSequenceAssociationKey)) {
+      return candidate;
+    }
+  }
+  return nil;
+}
+
+static uint64_t RionRuntimePhysicalInputSequence(NSView *target) {
+  NSNumber *value = target ? objc_getAssociatedObject(
+      target, &RionRuntimePhysicalInputSequenceAssociationKey) : nil;
+  return value ? value.unsignedLongLongValue : 0;
+}
+
+static void RionRuntimeRecordPhysicalInput(NSView *target,
+                                           uint64_t projectedDOMEvents) {
+  if (!target || projectedDOMEvents == 0) return;
+  uint64_t current = RionRuntimePhysicalInputSequence(target);
+  uint64_t next = UINT64_MAX - current < projectedDOMEvents
+      ? UINT64_MAX : current + projectedDOMEvents;
+  objc_setAssociatedObject(target,
+                           &RionRuntimePhysicalInputSequenceAssociationKey,
+                           @(next),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 static CGFloat RionRuntimeWindowNameWidth(CGFloat intrinsicWidth) {
   return MIN(kRionWindowNameMaximumWidth,

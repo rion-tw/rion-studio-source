@@ -12,7 +12,7 @@ function pending(requestId: string, generation = 1): PendingChromiumTrustedInput
       documentInstanceId: "document" },
     inputSequence: requestId, completion: { resolve: vi.fn() }, timer: {},
     nativeInvoked: false, nativeComplete: false, nextDomIndex: 0,
-    expectedEvents: [{}], terminal: false
+    expectedEvents: [{}], physicalInterleave: "none", terminal: false
   };
 }
 
@@ -64,7 +64,7 @@ describe.each(["macos", "windows"] as const)("%s shared trusted-input pending ow
     active.nextDomIndex = 1;
     lane.maybeApply(active);
     expect(active.completion.resolve).toHaveBeenCalledWith(expect.objectContaining({ status: "applied" }));
-    expect(sendCancel).not.toHaveBeenCalled();
+    expect(sendCancel).toHaveBeenCalledWith(active.frame, expect.objectContaining({ kind: "cancel" }));
     expect(lane.busy("role", "active")).toBe(false);
   });
 

@@ -19,6 +19,7 @@ function fixture(_platform: "macos" | "windows") {
     const binding: ChromiumViewParentBinding = { parent: window, nativeGeneration: 1, revision: "1",
       children: () => children, contentsFocused: () => false,
       read: () => ({ parentIdentity: String(id).repeat(64), focusIdentity: "a".repeat(64),
+        physicalInputSequence: "0",
         parentForeground: true, parentVisible: true, parentMinimized: false, focusedWebContentsId: null }),
       subscribe: listener => { events.on("event", listener); return () => { events.off("event", listener); }; } };
     bindings.set(window, binding);

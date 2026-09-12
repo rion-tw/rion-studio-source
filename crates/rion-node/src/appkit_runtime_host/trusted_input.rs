@@ -35,11 +35,13 @@ pub struct AppKitCdpInputSurfaceProbeReceipt {
     pub native_generation: u32,
     pub target_attached: bool,
     pub target_window_is_key: bool,
+    pub target_receives_physical_input: bool,
     pub key_window_address: String,
     pub key_window_first_responder_address: String,
     pub target_window_address: String,
     pub target_window_first_responder_address: String,
     pub physical_modifier_codes: Vec<String>,
+    pub physical_input_sequence: String,
     pub target_x: f64,
     pub target_y: f64,
     pub target_width: f64,
@@ -414,6 +416,7 @@ impl NativeAppKitRuntimeHost {
             || !probe.target_height.is_finite()
             || probe.target_height <= 0.0
             || probe.physical_modifier_mask & !0xff != 0
+            || probe.target_receives_physical_input > 1
         {
             return Err(adapter_error(
                 Status::GenericFailure,
@@ -426,6 +429,7 @@ impl NativeAppKitRuntimeHost {
             native_generation: self.identity.native_generation,
             target_attached: true,
             target_window_is_key: probe.target_window_is_key != 0,
+            target_receives_physical_input: probe.target_receives_physical_input != 0,
             key_window_address: probe.key_window_address.to_string(),
             key_window_first_responder_address: probe
                 .key_window_first_responder_address
@@ -435,6 +439,7 @@ impl NativeAppKitRuntimeHost {
                 .target_window_first_responder_address
                 .to_string(),
             physical_modifier_codes: physical_modifier_codes(probe.physical_modifier_mask),
+            physical_input_sequence: probe.physical_input_sequence.to_string(),
             target_x: probe.target_x,
             target_y: probe.target_y,
             target_width: probe.target_width,

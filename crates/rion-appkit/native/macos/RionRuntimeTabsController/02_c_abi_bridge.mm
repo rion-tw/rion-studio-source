@@ -6,7 +6,7 @@ static const int32_t kRionAppKitWindowResolutionNotMainThread = 2;
 static const int32_t kRionAppKitWindowResolutionDetachedView = 3;
 
 uint32_t rion_appkit_runtime_tabs_abi_version(void) {
-  return 7;
+  return 8;
 }
 
 int32_t rion_appkit_resolve_electron_native_view_window(

@@ -110,6 +110,7 @@ export type { SystemRuntimeDiagnosticsRecord } from "./SystemRuntimeDiagnosticsR
 export type { SystemRuntimeFailureRecord } from "./SystemRuntimeFailureRecord";
 export type { SystemRuntimeInputFenceEventRecord } from "./SystemRuntimeInputFenceEventRecord";
 export type { SystemRuntimeInputFenceRecord } from "./SystemRuntimeInputFenceRecord";
+export type { TrustedInputTerminalEvidenceRecord } from "./TrustedInputTerminalEvidenceRecord";
 export type { SystemRuntimeOperationCompletionScope } from "./SystemRuntimeOperationCompletionScope";
 export type { SystemRuntimeOperationStatus } from "./SystemRuntimeOperationStatus";
 export type { SystemRuntimeOperationSubsystem } from "./SystemRuntimeOperationSubsystem";

@@ -26,6 +26,7 @@ export interface WindowsRuntimeForegroundProbePort {
     parentHandle: Buffer
   ) => WindowsRuntimeForegroundReadback;
   readWindowsPhysicalModifierCodes: () => readonly string[];
+  readWindowsPhysicalInputSequence: (parentHandle: Buffer) => string;
 }
 
 interface WindowsRuntimeWindowStateStreamInput {

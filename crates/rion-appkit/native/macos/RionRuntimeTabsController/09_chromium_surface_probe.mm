@@ -248,6 +248,7 @@ extern "C" int32_t rion_appkit_probe_chromium_input_surface(
   RionCollectChromiumRendererTargets(webContentsRoot, 0, &visited, targets);
   if (targets.count != 1) return 9;
   NSView *target = targets.firstObject;
+  RionRuntimeRegisterPhysicalInputTarget(target);
   NSRect bounds = target.bounds;
   if (!std::isfinite(bounds.origin.x) || !std::isfinite(bounds.origin.y) ||
       !std::isfinite(bounds.size.width) || !std::isfinite(bounds.size.height) ||
@@ -256,6 +257,11 @@ extern "C" int32_t rion_appkit_probe_chromium_input_surface(
   NSWindow *keyWindow = NSApp.keyWindow;
   result->targetAttached = 1;
   result->targetWindowIsKey = targetWindow.isKeyWindow ? 1 : 0;
+  id firstResponder = targetWindow.firstResponder;
+  result->targetReceivesPhysicalInput =
+      targetWindow.isKeyWindow && [firstResponder isKindOfClass:NSView.class] &&
+      (firstResponder == target || [(NSView *)firstResponder isDescendantOf:target])
+          ? 1 : 0;
   result->keyWindowAddress =
       reinterpret_cast<uintptr_t>((__bridge void *)keyWindow);
   result->keyWindowFirstResponderAddress =
@@ -265,6 +271,7 @@ extern "C" int32_t rion_appkit_probe_chromium_input_surface(
   result->targetWindowFirstResponderAddress =
       reinterpret_cast<uintptr_t>((__bridge void *)targetWindow.firstResponder);
   result->physicalModifierMask = RionPhysicalModifierMask();
+  result->physicalInputSequence = RionRuntimePhysicalInputSequence(target);
   result->targetX = bounds.origin.x;
   result->targetY = bounds.origin.y;
   result->targetWidth = bounds.size.width;

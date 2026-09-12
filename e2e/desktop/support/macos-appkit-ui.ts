@@ -349,21 +349,17 @@ print("\\(settled.x),\\(settled.y)")
 
 /** Drags the retained native NSSplitter hit surface with platform CGEvents. */
 export async function dragMacosVisibleWorkspaceDivider(
-  input: number | Readonly<{
+  input: Readonly<{
     axis: "horizontal" | "vertical";
     dividerIndex: number;
     deltaScreenPixels?: number;
     expectedThickness?: number;
-  }> = 72
+    windowId: string;
+  }>
 ): Promise<void> {
-  const axis = typeof input === "number" ? "vertical" : input.axis;
-  const dividerIndex = typeof input === "number" ? 0 : input.dividerIndex;
-  const deltaScreenPixels = typeof input === "number"
-    ? input
-    : input.deltaScreenPixels ?? 72;
-  const expectedThickness = typeof input === "number"
-    ? undefined
-    : input.expectedThickness;
+  const { axis, dividerIndex, windowId } = input;
+  const deltaScreenPixels = input.deltaScreenPixels ?? 72;
+  const expectedThickness = input.expectedThickness;
   const processId = String((await electronDesktopE2eProbe()).processId);
   let geometry = "";
   let pendingDiagnostic = "";
@@ -371,7 +367,7 @@ export async function dragMacosVisibleWorkspaceDivider(
     await browser.waitUntil(async () => {
       const result = await executeFile("/usr/bin/xcrun", [
         "swift", resolve(import.meta.dirname, "macos-native-divider-geometry.swift"),
-        processId, axis, String(dividerIndex)
+        processId, windowId, axis, String(dividerIndex)
       ], { encoding: "utf8", timeout: 10_000 });
       const candidate = result.stdout.trim();
       if (candidate.startsWith("PENDING|")) {
@@ -398,6 +394,9 @@ export async function dragMacosVisibleWorkspaceDivider(
   };
   if (divider.axis !== axis || divider.dividerIndex !== dividerIndex) {
     throw new Error("The AppKit workspace-divider accessibility identity is stale");
+  }
+  if (divider.windowId !== windowId) {
+    throw new Error("The AppKit workspace-divider window identity is stale");
   }
   await focusVisibleMacosAppKitRuntime({ processId: Number(processId), windowId: divider.windowId });
   const values = [divider.x, divider.y, divider.width, divider.height];

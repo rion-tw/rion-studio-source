@@ -37,6 +37,7 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
       "button=New game window",
       "listGameWindows",
       "dragMacosVisibleWorkspaceDivider",
+      "windowId: input.before.windowId",
       "dragWindowsVisibleWorkspaceDivider",
       "electronDesktopE2eWorkspaceWebRuntime",
       "electronDesktopE2eRoleSessionRuntime",
@@ -67,7 +68,7 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(dividerGeometry).toContain('text(candidate, "AXRole") == "AXSplitter"');
     expect(dividerGeometry).toContain("owner == targetPid");
     expect(dividerGeometry).toContain("AXIsProcessTrusted()");
-    expect(dividerGeometry).toContain('identifier.hasPrefix(prefix)');
+    expect(dividerGeometry).toContain("identifier != prefix + targetWindowId");
     expect(appKitPointer).toContain("windowId: divider.windowId");
     expect(dividerGeometry).toContain(
       'text(candidate, "AXDescription") == expectedLabel'

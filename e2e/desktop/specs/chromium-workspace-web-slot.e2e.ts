@@ -469,7 +469,11 @@ async function dragVisibleNativeDivider(input: Readonly<{
   platform: "macos" | "windows";
 }>): Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection> {
   if (input.platform === "macos") {
-    await dragMacosVisibleWorkspaceDivider();
+    await dragMacosVisibleWorkspaceDivider({
+      axis: "vertical",
+      dividerIndex: 0,
+      windowId: input.before.windowId
+    });
   } else {
     await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, {
       axis: "vertical",

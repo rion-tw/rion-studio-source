@@ -311,7 +311,8 @@ async function dragDivider(input: Readonly<{
       ...request,
       // Remains inside the 960x640 host while crossing Core's 5% snap even
       // when the CI display reports a scaled accessibility coordinate.
-      deltaScreenPixels: 192
+      deltaScreenPixels: 192,
+      windowId: input.windowId
     });
   } else {
     await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, {

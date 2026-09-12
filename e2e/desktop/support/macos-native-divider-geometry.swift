@@ -5,12 +5,14 @@ func fail(_ message: String) -> Never {
   FileHandle.standardError.write(Data((message + "\n").utf8))
   exit(1)
 }
-guard CommandLine.arguments.count == 4,
+guard CommandLine.arguments.count == 5,
       let targetPid = Int32(CommandLine.arguments[1]), targetPid > 0,
-      ["horizontal", "vertical"].contains(CommandLine.arguments[2]),
-      let dividerIndex = Int(CommandLine.arguments[3]), dividerIndex >= 0,
+      !CommandLine.arguments[2].isEmpty,
+      ["horizontal", "vertical"].contains(CommandLine.arguments[3]),
+      let dividerIndex = Int(CommandLine.arguments[4]), dividerIndex >= 0,
       AXIsProcessTrusted() else { fail("native divider input or Accessibility grant unavailable") }
-let axis = CommandLine.arguments[2]
+let targetWindowId = CommandLine.arguments[2]
+let axis = CommandLine.arguments[3]
 let expectedLabel = axis == "vertical"
   ? "Resize workspace columns"
   : "Resize workspace rows"
@@ -46,7 +48,7 @@ let windows = attribute(application, "AXWindows") as? [AXUIElement] ?? []
 var matches: [(String, AXUIElement)] = []
 for window in windows {
   let identifier = text(window, "AXIdentifier")
-  if !identifier.hasPrefix(prefix) { continue }
+  if identifier != prefix + targetWindowId { continue }
   for candidate in descendants(window) where text(candidate, "AXRole") == "AXSplitter" {
     if text(candidate, "AXTitle") == expectedLabel ||
        text(candidate, "AXDescription") == expectedLabel,

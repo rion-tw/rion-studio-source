@@ -641,7 +641,14 @@
     }
   }
 
-  function runAction(action, macroId, details, queueBehindPending, bypassPendingTail = false) {
+  function runAction(
+    action,
+    macroId,
+    details,
+    queueBehindPending,
+    bypassPendingTail = false,
+    onDispatch = null
+  ) {
     if (!queueBehindPending && pendingMacroActions.has(macroId)) {
       return Promise.resolve();
     }
@@ -653,6 +660,7 @@
       : macroActionTails.get(macroId) ?? Promise.resolve();
     const actionPromise = previous.catch(() => undefined).then(async () => {
       try {
+        onDispatch?.();
         const nextState = await binding({ type: action, macroId, ...details });
         if (requestVersion !== state.requestVersion) {
           return;

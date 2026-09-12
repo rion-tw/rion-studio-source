@@ -276,7 +276,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const triggerRelease = await waitAppliedKeyObservation({
     afterSequence: reentryInputSequence,
     code: "Digit3",
-    intent: "normal",
+    intent: "cleanup",
     phase: "release",
     roleId: roleA.id
   });

@@ -1577,7 +1577,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+2 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, release permits the next invocation, and no residual key ownership or recursive macro start remains. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+3 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007",
@@ -1603,7 +1603,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+2 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, release permits the next invocation, and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+3 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-TERMINAL-CLEANUP-006",

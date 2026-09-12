@@ -80,6 +80,6 @@ describe("Electron operational log hooks", () => {
     dispose();
     app.emit("child-process-gone", {}, { type: "GPU", reason: "crashed" });
     await logger.flush();
-    expect(invoke).toHaveBeenCalledTimes(6);
+    expect(invoke).toHaveBeenCalledOnce();
   });
 });

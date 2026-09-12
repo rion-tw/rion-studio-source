@@ -65,9 +65,16 @@ A `press` captures a non-repeat physical main-key `keydown`, sends the managed
 `keyDown`, and dispatches the macro `press` immediately after that trusted DOM
 acknowledgement. A later physical `keyup` performs only the matching managed
 `keyUp` cleanup. It does not decide whether the accepted press runs and cannot
-cancel the action if it arrives before the macro response. The completed keyup
-retires the cycle and permits the next press, which preserves the existing
-second-press stop behavior at Core.
+cancel the action if it arrives before the macro response. A rapid keyup waits
+only until the activation IPC has been submitted, not until the macro finishes,
+so cleanup cannot overtake the accepted press. The completed keyup retires the
+cycle and permits the next press, which preserves the existing second-press stop
+behavior at Core. The exact `keyUp` uses cleanup intent, so it remains admissible
+after a concurrent input failure has fenced the Role. If its native receipt is
+indeterminate, both Core and Electron retire that exact physical cycle while the
+Role remains quarantined for recovery. Any later physical `keydown` observed
+before cleanup terminality is rejected instead of being queued for replay after
+recovery.
 
 A `hold` also waits for the managed `keyDown` acknowledgement before dispatching
 `hold-start`. Its physical `keyup` immediately dispatches `hold-release` with the

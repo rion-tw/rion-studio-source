@@ -271,6 +271,106 @@ fn managed_shortcut_exact_key_up_remains_admitted_after_tab_blur() {
 }
 
 #[test]
+fn managed_shortcut_exact_key_up_crosses_the_input_recovery_fence_as_cleanup() {
+    let (_directory, core) = managed_shortcut_core();
+    let (down, down_actions) = drive_command(
+        Arc::clone(&core),
+        managed_shortcut_command("shortcut-recovery-down", "cycle-recovery", "keyDown"),
+        None,
+    );
+    assert_eq!(down.unwrap()["status"], json!("accepted"));
+    assert_eq!(down_actions.len(), 1);
+
+    let fence = core.fence_macro_input("role-shortcut").unwrap();
+    let (released, release_actions) = drive_command(
+        Arc::clone(&core),
+        managed_shortcut_command("shortcut-recovery-up", "cycle-recovery", "keyUp"),
+        None,
+    );
+    assert_eq!(released.unwrap()["status"], json!("accepted"));
+    assert_eq!(release_actions.len(), 1);
+    assert!(matches!(
+        &release_actions[0],
+        CoreEffectAction::BrowserAction { request }
+            if request.intent == "cleanup" && request.input_epoch == fence.input_epoch &&
+                matches!(&request.action, crate::model::BrowserAction::Key {
+                    phase,
+                    code: Some(code),
+                    ..
+                } if phase == "release" && code == "Digit2")
+    ));
+
+    assert!(core
+        .resume_macro_input("role-shortcut", fence.input_epoch)
+        .unwrap()
+        .current);
+    let (next, next_actions) = drive_command(
+        Arc::clone(&core),
+        managed_shortcut_command("shortcut-recovery-next", "cycle-next", "keyDown"),
+        None,
+    );
+    assert_eq!(next.unwrap()["status"], json!("accepted"));
+    assert_eq!(next_actions.len(), 1);
+}
+
+#[test]
+fn managed_shortcut_indeterminate_key_up_retires_the_released_cycle() {
+    let (_directory, core) = managed_shortcut_core();
+    let (down, down_actions) = drive_command(
+        Arc::clone(&core),
+        managed_shortcut_command("shortcut-release-failure-down", "cycle-release", "keyDown"),
+        None,
+    );
+    assert_eq!(down.unwrap()["status"], json!("accepted"));
+    assert_eq!(down_actions.len(), 1);
+
+    let (failed, release_actions) = drive_command_with(
+        Arc::clone(&core),
+        managed_shortcut_command("shortcut-release-failure-up", "cycle-release", "keyUp"),
+        |effect| CoreEffectResult {
+            effect_id: effect.effect_id,
+            operation_id: effect.operation_id,
+            ok: false,
+            value_json: None,
+            error: Some(CoreErrorPayload {
+                code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE".to_owned(),
+                message: "The cleanup receipt was lost.".to_owned(),
+            }),
+        },
+    );
+    assert_eq!(failed.unwrap_err().code(), "SYSTEM_TRUSTED_INPUT_INDETERMINATE");
+    assert_eq!(release_actions.len(), 1);
+    assert!(matches!(
+        &release_actions[0],
+        CoreEffectAction::BrowserAction { request } if request.intent == "cleanup"
+    ));
+
+    let recovery = core
+        .macro_input_recovery_for_role("role-shortcut")
+        .unwrap()
+        .expect("indeterminate cleanup starts exact input recovery");
+    core.drain_macro_input("role-shortcut", recovery.input_epoch)
+        .unwrap();
+    assert!(
+        core.complete_macro_input_recovery_exact(
+            &recovery.recovery_id,
+            "role-shortcut",
+            recovery.input_epoch,
+        )
+        .unwrap()
+        .terminal
+    );
+
+    let (next, next_actions) = drive_command(
+        Arc::clone(&core),
+        managed_shortcut_command("shortcut-release-failure-next", "cycle-next", "keyDown"),
+        None,
+    );
+    assert_eq!(next.unwrap()["status"], json!("accepted"));
+    assert_eq!(next_actions.len(), 1);
+}
+
+#[test]
 fn managed_shortcut_distinct_keys_have_independent_active_cycles() {
     let (_directory, core) = managed_shortcut_core();
     let (first, first_actions) = drive_command(

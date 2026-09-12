@@ -330,11 +330,11 @@ impl AppCore {
                 }) {
                 Ok(request_ids) => request_ids,
                 Err(error) => {
+                    let mut runtime = self.managed_shortcut_runtime.lock().map_err(|_| {
+                        CoreError::Internal("managed shortcut runtime lock poisoned".to_owned())
+                    })?;
+                    let shortcut_key = input.shortcut_key();
                     if input.phase == "keyDown" {
-                        let mut runtime = self.managed_shortcut_runtime.lock().map_err(|_| {
-                            CoreError::Internal("managed shortcut runtime lock poisoned".to_owned())
-                        })?;
-                        let shortcut_key = input.shortcut_key();
                         if let Some(active) = runtime.active_by_shortcut.get_mut(&shortcut_key)
                             && input.matches_active(active)
                         {
@@ -344,6 +344,12 @@ impl AppCore {
                                 runtime.active_by_shortcut.remove(&shortcut_key);
                             }
                         }
+                    } else if runtime
+                        .active_by_shortcut
+                        .get(&shortcut_key)
+                        .is_some_and(|active| input.matches_active(active))
+                    {
+                        runtime.active_by_shortcut.remove(&shortcut_key);
                     }
                     return Err(error);
                 }

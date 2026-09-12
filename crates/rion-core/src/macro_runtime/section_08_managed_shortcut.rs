@@ -70,7 +70,7 @@ impl MacroRuntime {
                     suppress_overlay_shortcut: true,
                 },
             )],
-            false,
+            dispatch.phase == "keyUp",
             Some(&exact_surface),
         )
         .map_err(|failure| CoreError::Effect {

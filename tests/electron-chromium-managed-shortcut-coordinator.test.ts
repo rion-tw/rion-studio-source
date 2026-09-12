@@ -32,10 +32,12 @@ function request(phase: "keyDown" | "keyUp", shortcutCycleId = "cycle-1") {
 }
 
 function harness(
-  status: "accepted" | "duplicate" | "superseded" | "indeterminate" = "accepted"
+  status: "accepted" | "duplicate" | "superseded" | "indeterminate" = "accepted",
+  dispatchGate: Promise<void> = Promise.resolve()
 ) {
   let operation = 0;
   const dispatch = vi.fn(async ({ operationId, surface: target, request: phase }) => {
+    await dispatchGate;
     if (status === "indeterminate") {
       throw {
         code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
@@ -108,6 +110,37 @@ describe("Electron Chromium managed shortcut coordinator", () => {
     await subject.coordinator.dispose();
   });
 
+  it("rejects queued reentry without replacing the original active cycle", async () => {
+    const subject = harness();
+    await subject.coordinator.dispatch(identity, request("keyDown", "cycle-1"));
+
+    await expect(subject.coordinator.dispatch(identity, request("keyDown", "cycle-2")))
+      .rejects.toMatchObject({ code: "ELECTRON_MANAGED_SHORTCUT_SUPERSEDED" });
+    expect(subject.dispatch).toHaveBeenCalledOnce();
+    await expect(subject.coordinator.retireSurface("role-1", 7)).resolves.toBeUndefined();
+    expect(subject.retireSurface).toHaveBeenCalledWith({
+      roleId: "role-1",
+      surfaceGeneration: 7,
+      documentInstanceId: "document-1"
+    });
+    await subject.coordinator.dispose();
+  });
+
+  it("rejects a second keyDown while the first cycle is still awaiting Core", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const subject = harness("accepted", gate);
+    const first = subject.coordinator.dispatch(identity, request("keyDown", "cycle-1"));
+    await vi.waitFor(() => expect(subject.dispatch).toHaveBeenCalledOnce());
+
+    await expect(subject.coordinator.dispatch(identity, request("keyDown", "cycle-2")))
+      .rejects.toMatchObject({ code: "ELECTRON_MANAGED_SHORTCUT_SUPERSEDED" });
+    expect(subject.dispatch).toHaveBeenCalledOnce();
+    release();
+    await expect(first).resolves.toMatchObject({ status: "accepted" });
+    await subject.coordinator.dispose();
+  });
+
   it("accepts duplicate terminal semantics only with the original exact request identity", async () => {
     const subject = harness("duplicate");
 
@@ -128,6 +161,23 @@ describe("Electron Chromium managed shortcut coordinator", () => {
       surfaceGeneration: 7,
       documentInstanceId: "document-1"
     });
+    await subject.coordinator.dispose();
+  });
+
+  it("retires the exact physical cycle when its keyUp cleanup is indeterminate", async () => {
+    const subject = harness();
+    await expect(subject.coordinator.dispatch(identity, request("keyDown", "cycle-1")))
+      .resolves.toMatchObject({ status: "accepted" });
+    subject.dispatch.mockRejectedValueOnce({
+      code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+      message: "Cleanup receipt was lost."
+    });
+
+    await expect(subject.coordinator.dispatch(identity, request("keyUp", "cycle-1")))
+      .rejects.toMatchObject({ code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE" });
+    await expect(subject.coordinator.dispatch(identity, request("keyDown", "cycle-2")))
+      .resolves.toMatchObject({ status: "accepted" });
+    expect(subject.dispatch).toHaveBeenCalledTimes(3);
     await subject.coordinator.dispose();
   });
 

@@ -304,9 +304,33 @@ describe("Electron operational logger", () => {
     logger.info("main", "after_failure", "The capture lane remains usable.");
     await expect(logger.flush()).resolves.toBeUndefined();
 
-    expect(core.invoke).toHaveBeenCalledTimes(2);
-    expect(writeCaptureFailure).toHaveBeenCalledTimes(2);
+    expect(core.invoke).toHaveBeenCalledOnce();
+    expect(writeCaptureFailure).toHaveBeenCalledOnce();
     expect(writeCaptureFailure).toHaveBeenCalledWith("CORE_LOG_DATABASE_FAILED");
+  });
+
+  it("batches observations that arrive behind one in-flight capture", async () => {
+    const first = deferred<unknown>();
+    let calls = 0;
+    const core = corePort(async (entries) => {
+      calls += 1;
+      if (calls === 1) return first.promise;
+      return { inserted: entries.length };
+    });
+    const logger = new ElectronOperationalLogger();
+    logger.bindCore(core.port);
+    logger.info("main", "first", "first");
+    await vi.waitFor(() => expect(core.invoke).toHaveBeenCalledOnce());
+
+    logger.debug("macro", "second", "second");
+    logger.debug("macro", "third", "third");
+    first.resolve({ inserted: 1 });
+    await logger.flush();
+
+    expect(core.invoke).toHaveBeenCalledTimes(2);
+    expect(core.invoke.mock.calls[1][0].entries.map(
+      (entry: LogCaptureRecord) => entry.event
+    )).toEqual(["second", "third"]);
   });
 
   it("drains admitted captures on dispose and rejects later observations", async () => {

@@ -11,6 +11,7 @@ import type { CoreAddonClient } from "../core/coreAddonClient";
 import { normalizeRionBridgeError } from "../ipc/errors";
 
 const STARTUP_BUFFER_CAPACITY = 256;
+const CORE_CAPTURE_BATCH_CAPACITY = 256;
 
 type LogContext = Readonly<Record<string, unknown>>;
 
@@ -30,10 +31,12 @@ export interface ElectronOperationalLoggerInput {
  */
 export class ElectronOperationalLogger {
   readonly #input: ElectronOperationalLoggerInput;
+  readonly #pendingCaptures: LogCaptureRecord[] = [];
   readonly #startupBuffer: LogCaptureRecord[] = [];
   readonly #macroStates = new Map<string, string>();
   #browserState: string | null = null;
   #core: ElectronOperationalLogCorePort | null = null;
+  #draining = false;
   #disposed = false;
   #lane: Promise<void> = Promise.resolve();
   #lifecycleRevision = 0;
@@ -406,15 +409,23 @@ export class ElectronOperationalLogger {
   #enqueue(entries: LogCaptureRecord[]): void {
     const core = this.#core;
     if (!core || entries.length === 0) return;
-    this.#lane = this.#lane.then(async () => {
-      try {
-        await core.invoke({ type: "logsCapture", entries });
-      } catch (error) {
-        this.#writeCaptureFailure(stableErrorCode(
-          error,
-          "ELECTRON_OPERATIONAL_LOG_CAPTURE_FAILED"
-        ));
+    this.#pendingCaptures.push(...entries);
+    if (this.#draining) return;
+    this.#draining = true;
+    this.#lane = Promise.resolve().then(async () => {
+      while (this.#pendingCaptures.length > 0) {
+        const batch = this.#pendingCaptures.splice(0, CORE_CAPTURE_BATCH_CAPACITY);
+        try {
+          await core.invoke({ type: "logsCapture", entries: batch });
+        } catch (error) {
+          this.#writeCaptureFailure(stableErrorCode(
+            error,
+            "ELECTRON_OPERATIONAL_LOG_CAPTURE_FAILED"
+          ));
+        }
       }
+    }).finally(() => {
+      this.#draining = false;
     });
   }
 

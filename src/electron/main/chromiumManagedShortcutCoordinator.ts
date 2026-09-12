@@ -144,6 +144,7 @@ export class ChromiumManagedShortcutCoordinator {
   readonly #onError: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
   readonly #onDiagnostic: ((context: Readonly<Record<string, unknown>>) => void) | null;
   readonly #active = new Map<string, ActiveManagedShortcut>();
+  readonly #pendingKeyDowns = new Map<string, string>();
   readonly #documentReplacementFences = new Map<
     string,
     Map<string, ManagedShortcutDocumentReplacementFence>
@@ -199,7 +200,22 @@ export class ChromiumManagedShortcutCoordinator {
         "The managed shortcut belongs to an obsolete Chromium role surface."
       );
     }
-    return this.#enqueue(surface.roleId, async () => {
+    const shortcutKey = this.#shortcutKey(surface.roleId, request.macroId, request.code);
+    if (request.phase === "keyDown" && (
+      this.#active.has(shortcutKey) || this.#pendingKeyDowns.has(shortcutKey)
+    )) {
+      const operationId = this.#createOperationId();
+      this.#diagnose(surface, request, operationId, "superseded",
+        "ELECTRON_MANAGED_SHORTCUT_SUPERSEDED");
+      throw shortcutError(
+        "ELECTRON_MANAGED_SHORTCUT_SUPERSEDED",
+        "The exact physical shortcut is already held."
+      );
+    }
+    if (request.phase === "keyDown") {
+      this.#pendingKeyDowns.set(shortcutKey, request.shortcutCycleId);
+    }
+    const operation = this.#enqueue(surface.roleId, async () => {
       if (this.#documentReplacementFences.get(surface.roleId)?.size) {
         throw shortcutError(
           "ELECTRON_MANAGED_SHORTCUT_DOCUMENT_REPLACING",
@@ -207,9 +223,8 @@ export class ChromiumManagedShortcutCoordinator {
         );
       }
       const operationId = this.#createOperationId();
-      const shortcutKey = this.#shortcutKey(surface.roleId, request.macroId, request.code);
       this.#diagnose(surface, request, operationId, "admitted");
-      if (request.phase === "keyDown") {
+      if (request.phase === "keyDown" && !this.#active.has(shortcutKey)) {
         this.#active.set(shortcutKey, {
           code: request.code,
           documentInstanceId: surface.documentInstanceId,
@@ -236,6 +251,8 @@ export class ChromiumManagedShortcutCoordinator {
               this.#active.delete(shortcutKey);
             }
           }
+        } else {
+          this.#retireExactCycle(shortcutKey, request.shortcutCycleId);
         }
         throw error;
       }
@@ -245,6 +262,8 @@ export class ChromiumManagedShortcutCoordinator {
         if (request.phase === "keyDown") {
           const active = this.#active.get(shortcutKey);
           if (active?.shortcutCycleId === request.shortcutCycleId) active.state = "uncertain";
+        } else {
+          this.#retireExactCycle(shortcutKey, request.shortcutCycleId);
         }
         throw shortcutError(
           "ELECTRON_MANAGED_SHORTCUT_RECEIPT_INVALID",
@@ -253,7 +272,7 @@ export class ChromiumManagedShortcutCoordinator {
       }
       if (receipt.status !== "accepted") {
         this.#diagnose(surface, request, operationId, receipt.status);
-        if (request.phase === "keyDown") this.#active.delete(shortcutKey);
+        this.#retireExactCycle(shortcutKey, request.shortcutCycleId);
         throw shortcutError(
           receipt.status === "duplicate"
             ? "ELECTRON_MANAGED_SHORTCUT_DUPLICATE"
@@ -264,13 +283,26 @@ export class ChromiumManagedShortcutCoordinator {
         );
       }
       if (request.phase === "keyDown") {
-        const active = this.#active.get(shortcutKey);
-        if (active?.shortcutCycleId === request.shortcutCycleId) active.state = "held";
+        this.#active.set(shortcutKey, {
+          code: request.code,
+          documentInstanceId: surface.documentInstanceId,
+          macroId: request.macroId,
+          shortcutCycleId: request.shortcutCycleId,
+          roleId: surface.roleId,
+          surfaceGeneration: surface.surfaceGeneration,
+          state: "held"
+        });
       } else if (request.phase === "keyUp") {
-        this.#active.delete(shortcutKey);
+        this.#retireExactCycle(shortcutKey, request.shortcutCycleId);
       }
       this.#diagnose(surface, request, operationId, "accepted");
       return Object.freeze({ ...receipt, requestIds: [...receipt.requestIds] });
+    });
+    return operation.finally(() => {
+      if (request.phase === "keyDown" &&
+        this.#pendingKeyDowns.get(shortcutKey) === request.shortcutCycleId) {
+        this.#pendingKeyDowns.delete(shortcutKey);
+      }
     });
   }
 
@@ -281,6 +313,7 @@ export class ChromiumManagedShortcutCoordinator {
     await Promise.allSettled([...this.#tails.values()]);
     this.#tails.clear();
     this.#active.clear();
+    this.#pendingKeyDowns.clear();
     this.#documentReplacementFences.clear();
     this.#documentReplacementRetirements.clear();
   }
@@ -495,6 +528,12 @@ export class ChromiumManagedShortcutCoordinator {
     return JSON.stringify([roleId, macroId, code]);
   }
 
+  #retireExactCycle(shortcutKey: string, shortcutCycleId: string): void {
+    if (this.#active.get(shortcutKey)?.shortcutCycleId === shortcutCycleId) {
+      this.#active.delete(shortcutKey);
+    }
+  }
+
   #diagnose(
     surface: ChromiumManagedShortcutSurfaceIdentity,
     request: ManagedShortcutRequest,
@@ -505,6 +544,7 @@ export class ChromiumManagedShortcutCoordinator {
     if (!this.#onDiagnostic) return;
     try {
       this.#onDiagnostic({
+        capturedAt: new Date().toISOString(),
         operationId,
         roleId: surface.roleId,
         tabId: surface.tabId,

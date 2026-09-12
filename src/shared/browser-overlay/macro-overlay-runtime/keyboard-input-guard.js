@@ -658,6 +658,7 @@
   function beginManagedShortcutKeyUp(active) {
     if (active.keyUpPromise) return active.keyUpPromise;
     active.keyUpPromise = active.keyDownPromise
+      .then(() => active.activationDispatchedPromise)
       .then(() => dispatchManagedShortcutPhase(active, "keyUp"))
       .then(() => {
         // EventBound fallback: an exact native receipt may terminalize after
@@ -934,6 +935,10 @@
     consumeShortcutEvent(event);
     if (activeKeyboardShortcuts.has(macro.id)) return;
     const activationMode = macro.activationMode ?? "press";
+    let markActivationDispatched;
+    const activationDispatchedPromise = new Promise((resolve) => {
+      markActivationDispatched = resolve;
+    });
     reportMacroShortcutLifecycle(
       macro.id,
       event.code,
@@ -941,6 +946,7 @@
     );
     const active = {
       activationMode,
+      activationDispatchedPromise,
       actionPromise: null,
       code: event.code,
       epoch: physicalShortcutEpoch,
@@ -965,7 +971,9 @@
         activationMode === "hold" ? "hold-start" : "press",
         macro.id,
         { shortcutCycleId: active.shortcutCycleId },
-        true
+        true,
+        false,
+        markActivationDispatched
       );
     }).catch(() => undefined);
   }

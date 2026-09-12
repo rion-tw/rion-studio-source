@@ -491,6 +491,44 @@ describe("macro overlay native key guard", () => {
     )).toHaveLength(1);
   });
 
+  it("submits a rapid press activation before its managed keyUp cleanup", async () => {
+    const macro = {
+      id: "rapid-press",
+      enabled: true,
+      name: "Rapid press",
+      roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" },
+      trigger: { code: "Digit3", ctrl: false, alt: false, shift: true, meta: false },
+      repeat: { type: "once" },
+      steps: []
+    };
+    const timeline: string[] = [];
+    const binding = vi.fn(async (request: unknown) => {
+      if (typeof request === "object" && request !== null &&
+        (request as { type?: string }).type === "press") timeline.push("press");
+      return { macros: [macro], shortcutMacroIds: [macro.id], statuses: [] };
+    }) as OverlayBinding;
+    let acknowledgeKeyDown!: () => void;
+    const keyDownAcknowledged = new Promise<void>((resolve) => {
+      acknowledgeKeyDown = resolve;
+    });
+    binding.managedShortcutKeyPhase = vi.fn(async (request) => {
+      timeline.push(request.phase);
+      if (request.phase === "keyDown") await keyDownAcknowledged;
+    });
+    const controller = installOverlay(binding);
+    await controller.refresh();
+
+    document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    document.dispatchEvent(keyEvent("keydown", "Digit3", "#", { shiftKey: true }));
+    document.dispatchEvent(keyEvent("keyup", "Digit3", "#", { shiftKey: true }));
+    document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+    acknowledgeKeyDown();
+
+    await vi.waitFor(() => expect(timeline).toEqual(["keyDown", "press", "keyUp"]));
+    controller.dispose();
+  });
+
   it("fails closed without managed shortcut acknowledgement", async () => {
     const macro = {
       id: "macro-two",

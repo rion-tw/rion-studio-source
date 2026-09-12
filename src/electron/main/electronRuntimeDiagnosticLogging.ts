@@ -13,9 +13,11 @@ function installTrustedInputDiagnosticLogging(
 ): void {
   subscribeTrustedInputTerminals((record) => {
     logger.trustedInputTerminal({
+      capturedAt: record.capturedAt,
       requestId: record.requestId,
       roleId: record.roleId,
       inputEpoch: record.inputEpoch,
+      intent: record.intent,
       surfaceGeneration: record.surfaceGeneration,
       actionType: record.actionType,
       ...(record.keyCode ? { code: record.keyCode } : {}),

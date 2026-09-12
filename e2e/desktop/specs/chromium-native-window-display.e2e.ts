@@ -8,7 +8,7 @@ import {
   electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eProbe
 } from "../support/electron-driver";
-import { submitElectronRolePageFullscreenShortcut } from
+import { submitElectronRoleKeyPhases, submitElectronRolePageFullscreenShortcut } from
   "../support/electron-role-surface";
 import { clickMacosVisibleFullscreenControl } from "../support/macos-appkit-ui";
 import {
@@ -199,6 +199,13 @@ describe("Chromium native Game Window and real display parity", () => {
       (role) => role.id === activeSourceId
     )!;
     const activeRoleUrl = activeRole.launchUrl;
+    await submitElectronRoleKeyPhases(activeRoleUrl, mainWindowHandle, [
+      { key: "y", phase: "keyDown" },
+      { key: "y", phase: "keyUp" }
+    ], { windowId: gameWindow.id });
+    await waitNative(gameWindow.id, (runtime) =>
+      runtime.nativeDisplay.presentation === "normal",
+    "A plain Role key unexpectedly changed native window placement");
     if (platform === "macos") {
       await clickMacosVisibleFullscreenControl(gameWindow.id);
     } else {

@@ -6,7 +6,7 @@ static const int32_t kRionAppKitWindowResolutionNotMainThread = 2;
 static const int32_t kRionAppKitWindowResolutionDetachedView = 3;
 
 uint32_t rion_appkit_runtime_tabs_abi_version(void) {
-  return 8;
+  return 9;
 }
 
 int32_t rion_appkit_resolve_electron_native_view_window(
@@ -135,6 +135,18 @@ static void RionForwardRuntimeTabsAction(
                                                  encoding:NSUTF8StringEncoding];
     }
   }
+  NSDictionary<NSString *, id> *placementDiagnostics =
+      action[@"placementDiagnostics"];
+  NSString *placementDiagnosticsJSON = nil;
+  if ([placementDiagnostics isKindOfClass:NSDictionary.class]) {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:placementDiagnostics
+                                                   options:0
+                                                     error:nil];
+    if (data) {
+      placementDiagnosticsJSON = [[NSString alloc] initWithData:data
+                                                       encoding:NSUTF8StringEncoding];
+    }
+  }
   NSString *sourceWindowID = action[@"sourceWindowId"];
   NSString *targetWindowID = action[@"windowId"];
   NSNumber *screenX = action[@"screenX"];
@@ -151,7 +163,7 @@ static void RionForwardRuntimeTabsAction(
   actionHandler(context, type.UTF8String, sessionID.UTF8String, tabID.UTF8String,
                 sourceWindowID.UTF8String, targetWindowID.UTF8String,
                 beforeTabID.UTF8String, orderedTabIDsJSON.UTF8String,
-                statusIdentityJSON.UTF8String,
+                statusIdentityJSON.UTF8String, placementDiagnosticsJSON.UTF8String,
                 screenX ? screenX.doubleValue : NAN,
                 screenY ? screenY.doubleValue : NAN,
                 grabRatioX ? grabRatioX.doubleValue : NAN,
@@ -710,6 +722,7 @@ bool rion_runtime_tabs_drag_anchor(void * _Nullable rawController,
 struct RionRuntimeTabsActionScopeProbe {
   std::string sourceWindowID;
   std::string targetWindowID;
+  std::string placementDiagnosticsJSON;
   uint32_t modifierCount;
   bool focused;
   bool minimized;
@@ -722,7 +735,7 @@ static void RionRuntimeTabsActionScopeProbeCallback(
     const char *tabIdentifier,
     const char *sourceWindowID, const char *targetWindowID,
     const char *beforeTabIdentifier, const char *orderedTabIdentifiersJSON,
-    const char *statusIdentityJSON,
+    const char *statusIdentityJSON, const char *placementDiagnosticsJSON,
     double screenX, double screenY,
     double grabRatioX, double grabRatioY, double tabWidth, double tabHeight,
     uint32_t modifierCount, bool cancelled, bool focused, bool minimized,
@@ -745,9 +758,11 @@ static void RionRuntimeTabsActionScopeProbeCallback(
                            strcmp(type, "move") == 0 ||
                            strcmp(type, "modifierHandoffStarted") == 0 ||
                            strcmp(type, "modifierFocusNeutralized") == 0 ||
+                           strcmp(type, "windowPlacementChanged") == 0 ||
                            strcmp(type, "windowFocusChanged") == 0);
   probe->sourceWindowID = sourceWindowID ?: "";
   probe->targetWindowID = targetWindowID ?: "";
+  probe->placementDiagnosticsJSON = placementDiagnosticsJSON ?: "";
   probe->modifierCount = modifierCount;
   probe->focused = focused;
   probe->minimized = minimized;
@@ -757,33 +772,33 @@ static void RionRuntimeTabsActionScopeProbeCallback(
 bool rion_runtime_tabs_action_scope_self_test(void) {
   @autoreleasepool {
     RionRuntimeTabsActionScopeProbe launcherProbe = {
-        "", "", 0, false, false, false, false};
+        "", "", "", 0, false, false, false, false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"openLauncher", @"sourceWindowId" : @"window-a" },
         &launcherProbe, RionRuntimeTabsActionScopeProbeCallback);
     RionRuntimeTabsActionScopeProbe moveProbe = {
-        "", "", 0, false, false, false, false};
+        "", "", "", 0, false, false, false, false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"move",
            @"sourceWindowId" : @"window-a",
            @"windowId" : @"window-b" },
         &moveProbe, RionRuntimeTabsActionScopeProbeCallback);
     RionRuntimeTabsActionScopeProbe modifierProbe = {
-        "", "", 0, false, false, false, false};
+        "", "", "", 0, false, false, false, false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"modifierFocusNeutralized",
            @"sourceWindowId" : @"window-a",
            @"modifierCount" : @3 },
         &modifierProbe, RionRuntimeTabsActionScopeProbeCallback);
     RionRuntimeTabsActionScopeProbe handoffProbe = {
-        "", "", 0, false, false, false, false};
+        "", "", "", 0, false, false, false, false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"modifierHandoffStarted",
            @"tabId" : @"tab-a",
            @"sourceWindowId" : @"window-a" },
         &handoffProbe, RionRuntimeTabsActionScopeProbeCallback);
     RionRuntimeTabsActionScopeProbe focusProbe = {
-        "", "", 0, false, false, false, false};
+        "", "", "", 0, false, false, false, false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"windowFocusChanged",
            @"sourceWindowId" : @"window-a",
@@ -791,13 +806,35 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
            @"minimized" : @NO,
            @"visible" : @YES },
         &focusProbe, RionRuntimeTabsActionScopeProbeCallback);
+    RionRuntimeTabsActionScopeProbe placementProbe = {
+        "", "", "", 0, false, false, false, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"windowPlacementChanged",
+           @"sourceWindowId" : @"window-a",
+           @"placementDiagnostics" : @{
+             @"zoomed" : @NO,
+             @"fullScreen" : @NO,
+             @"minimized" : @NO,
+             @"frameX" : @10,
+             @"frameY" : @20,
+             @"frameWidth" : @1280,
+             @"frameHeight" : @720,
+             @"triggerEventType" : @10,
+             @"triggerKeyCode" : @16,
+             @"triggerModifierFlags" : @0,
+             @"firstResponderCategory" : @"roleSurface",
+             @"physicalInputSequence" : @"4"
+           } },
+        &placementProbe, RionRuntimeTabsActionScopeProbeCallback);
     return launcherProbe.called && launcherProbe.sourceWindowID == "window-a" &&
            launcherProbe.targetWindowID.empty() && moveProbe.called &&
            moveProbe.sourceWindowID == "window-a" &&
            moveProbe.targetWindowID == "window-b" && modifierProbe.called &&
            modifierProbe.modifierCount == 3 && handoffProbe.called &&
            handoffProbe.sourceWindowID == "window-a" && focusProbe.called &&
-           focusProbe.focused &&
+           focusProbe.focused && placementProbe.called &&
+           placementProbe.placementDiagnosticsJSON.find(
+               "\"firstResponderCategory\":\"roleSurface\"") != std::string::npos &&
            !focusProbe.minimized && focusProbe.visible;
   }
 }

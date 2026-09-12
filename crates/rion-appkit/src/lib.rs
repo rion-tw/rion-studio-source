@@ -9,7 +9,7 @@ use std::ffi::c_void;
 #[cfg(target_os = "macos")]
 use std::{ffi::CStr, ptr::NonNull};
 
-pub const RUNTIME_TABS_ABI_VERSION: u32 = 8;
+pub const RUNTIME_TABS_ABI_VERSION: u32 = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElectronViewWindowResolutionError {
@@ -274,6 +274,7 @@ pub enum RuntimeTabsControllerError {
 
 pub type RuntimeTabsActionCallback = unsafe extern "C" fn(
     *mut c_void,
+    *const std::ffi::c_char,
     *const std::ffi::c_char,
     *const std::ffi::c_char,
     *const std::ffi::c_char,

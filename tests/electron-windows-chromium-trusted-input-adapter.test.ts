@@ -311,6 +311,7 @@ function harness() {
       frameToken: frame.frameToken,
       inputSequence: INPUT_SEQUENCE,
       expectedEventCount: arm().expectedEvents.length,
+      modifierDisposition: "dispatch",
       physicalModifierCodes
     });
   };
@@ -370,6 +371,50 @@ function harness() {
 }
 
 describe("Windows Chromium trusted-input adapter", () => {
+  it("adopts an exact physical Shift without submitting a duplicate CDP keydown", async () => {
+    const subject = harness();
+    subject.setNativePhysicalModifierCodes(["ShiftLeft"]);
+    const action = {
+      ...keyAction("hold", []),
+      key: "Shift",
+      code: "ShiftLeft",
+      exactModifierCodes: []
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const completion = subject.adapter.dispatch(nativeRequest("adopt-shift", action, {
+      keyEffect: {
+        phase: "rawKeyDown",
+        code: "ShiftLeft",
+        activeCodesBefore: [],
+        activeCodes: ["ShiftLeft"],
+        autoRepeat: false,
+        suppressShortcut: true
+      }
+    }));
+    expect(subject.arm()).toEqual(expect.objectContaining({
+      modifierTransition: { code: "ShiftLeft", phase: "rawKeyDown" }
+    }));
+    subject.receive({
+      kind: "armed",
+      roleId: "role-1",
+      generation: 3,
+      frameToken: "frame-token-1",
+      inputSequence: INPUT_SEQUENCE,
+      expectedEventCount: 0,
+      modifierDisposition: "adoptPhysical",
+      physicalModifierCodes: ["ShiftLeft"]
+    });
+
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: false
+    });
+    expect(subject.keyRequests).toEqual([]);
+    expect(subject.controls.at(-1)).toEqual(expect.objectContaining({
+      kind: "cancel",
+      committed: true
+    }));
+  });
+
   it("passes physical KeyW and then accepts the pending CDP KeyJ sequence", async () => {
     const subject = harness();
     const completion = subject.adapter.dispatch(nativeRequest(
@@ -718,6 +763,38 @@ describe("Windows Chromium trusted-input adapter", () => {
       status: "failed",
       errorCode: "ELECTRON_WINDOWS_CHROMIUM_INPUT_ARM_RECEIPT_DEADLINE",
       confirmedInputNeutrality: true
+    }));
+
+    const modifierArmDeadline = harness();
+    modifierArmDeadline.setNativePhysicalModifierCodes(["ShiftLeft"]);
+    const modifierAction = {
+      ...keyAction("hold", []),
+      key: "Shift",
+      code: "ShiftLeft",
+      exactModifierCodes: []
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const modifierArmDeadlineResult = modifierArmDeadline.adapter.dispatch(
+      nativeRequest("request-modifier-arm-deadline", modifierAction, {
+        keyEffect: {
+          phase: "rawKeyDown",
+          code: "ShiftLeft",
+          activeCodesBefore: [],
+          activeCodes: ["ShiftLeft"],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      })
+    );
+    modifierArmDeadline.fireDeadline();
+    await expect(modifierArmDeadlineResult).resolves.toEqual(expect.objectContaining({
+      status: "indeterminate",
+      errorCode: "SYSTEM_TRUSTED_INPUT_MODIFIER_APPLICATION_RECEIPT_DEADLINE",
+      confirmedInputNeutrality: false
+    }));
+    expect(modifierArmDeadline.keyRequests).toEqual([]);
+    expect(modifierArmDeadline.controls.at(-1)).toEqual(expect.objectContaining({
+      kind: "cancel",
+      committed: false
     }));
 
     const lifecycle = harness();

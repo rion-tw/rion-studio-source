@@ -175,7 +175,8 @@ import { runElectronReadyPhase } from "./electronReadyGate";
 import { runInternalChromeProfileImportHelper } from
   "./electronChromeProfileImportHelperRuntime";
 import { installElectronOperationalLogHooks } from "./electronOperationalLogHooks";
-import { ElectronOperationalLogger } from "./electronOperationalLogger";
+import { logMacosAppKitWindowPlacement, runtimeLogs } from
+  "./electronRuntimeDiagnosticLogging";
 
 const APP_NAME = "Rion Studio";
 let core: CoreAddonClient | null = null;
@@ -201,7 +202,6 @@ let fatalTermination: ElectronFatalTerminationCoordinator | null = null;
 let fatalEventStreamDetected = false;
 let applicationIcon: ReturnType<typeof initializeIcon> | null = null;
 let quickMenu: ElectronQuickMenuComposition | null = null;
-const operationalLogs = new ElectronOperationalLogger();
 let disposeOperationalLogHooks: (() => void) | null = null;
 const identities = new RendererIdentityRegistry((contents) =>
   BrowserWindow.fromWebContents(contents as Electron.WebContents)
@@ -259,7 +259,10 @@ function createMacosAppKitAdapter(
       BaseWindow,
       {
             displays: { displayMatching },
-        onAction: (event) => eventBridge.receiveAction(event),
+        onAction: (event) => {
+          logMacosAppKitWindowPlacement(runtimeLogs, event);
+          eventBridge.receiveAction(event);
+        },
         onCloseRequested: (identity, hosts) =>
           eventBridge.receiveCloseRequested(identity, hosts),
         onHostClosing: (binding) => {
@@ -463,7 +466,7 @@ function activeOverlayShellEffects(): ElectronOverlayShellEffects {
 }
 
 function revealShellError(error: ReturnType<typeof normalizeRionBridgeError>): void {
-  operationalLogs.shellError(error);
+  runtimeLogs.shellError(error);
   console.error(`[${error.code}] ${error.message}`);
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
   if (mainIdentity) ipcBridge?.publish(mainIdentity, "onShellError", error);
@@ -479,7 +482,7 @@ async function disposeShellAfterFatalTermination(): Promise<void> {
   coreRendererEvents?.dispose();
   chromiumLaunchCompletions?.dispose(); chromiumLaunchCompletions = null;
   ipcBridge?.dispose(); ipcBridge = null;
-  await operationalLogs.dispose();
+  await runtimeLogs.dispose();
 }
 function fatalTerminationCoordinator(): ElectronFatalTerminationCoordinator {
   return fatalTermination ??= new ElectronFatalTerminationCoordinator({
@@ -487,7 +490,7 @@ function fatalTerminationCoordinator(): ElectronFatalTerminationCoordinator {
     disposeShell: disposeShellAfterFatalTermination,
     quit: () => app.quit(), forceExit: (code) => app.exit(code),
     onError: (error) => {
-      operationalLogs.fatalTerminationError(error);
+      runtimeLogs.fatalTerminationError(error);
       console.error(`[${error.code}] ${error.message}`);
     }
   });
@@ -505,7 +508,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
       applyRuntimeSuspended: (suspended) =>
         activeCore().invoke({ type: "browserRuntimeSuspend", suspended }),
       publish: (status) => {
-        operationalLogs.observeApplicationLifecycle(status);
+        runtimeLogs.observeApplicationLifecycle(status);
         chromiumRuntime?.advanceLifecycle(status.lifecycleEpoch);
         if (mainIdentity) {
           ipcBridge?.publish(mainIdentity, "onApplicationLifecycleChanged", status);
@@ -715,7 +718,7 @@ async function bootstrapReadyPhase(
   userDataDirectory: string,
   startupQuitFence: ElectronStartupQuitFence
 ): Promise<void> {
-  operationalLogs.electronReady();
+  runtimeLogs.electronReady();
   applyElectronAccessibilityStartupRequest(app);
   const runtimePlatform = platform();
   applicationIcon = initializeIcon(
@@ -724,8 +727,8 @@ async function bootstrapReadyPhase(
   installChromiumCertificatePolicy(app);
   displayTopology = startElectronDisplayTopology(screen, revealShellError);
   core = await createCore(userDataDirectory);
-  operationalLogs.bindCore(core);
-  operationalLogs.rustCoreReady();
+  runtimeLogs.bindCore(core);
+  runtimeLogs.rustCoreReady();
   graphicsHost?.attach(core);
   runtimeRestoreSession = new ChromiumRuntimeRestoreSessionCoordinator({ core });
   overlayShellEffects = new ElectronOverlayShellEffects({
@@ -813,7 +816,7 @@ async function bootstrapReadyPhase(
       lifecycle?.beginFatalQuit();
       const bridge = ipcBridge;
       ipcBridge = null;
-      return operationalLogs.fatalEventStreamFailure(
+      return runtimeLogs.fatalEventStreamFailure(
         bridge?.closeAndDrain() ?? Promise.resolve()
       );
     },
@@ -971,6 +974,8 @@ async function bootstrapReadyPhase(
         }
       : { appKit: appKit! }),
     onFatalEventStreamFailure: (terminal) => fatalEventStream.route(terminal),
+    onManagedShortcutDiagnostic: (context) =>
+      runtimeLogs.managedShortcutTransition(context),
     onError: revealShellError
   });
   const singleDialogPath = (
@@ -1043,7 +1048,7 @@ async function bootstrapReadyPhase(
         if (failure === "handoff") await fatalTerminationCoordinator().forceTerminate();
       },
       publishStatus: (status) => {
-        operationalLogs.observeUpdateStatus(status);
+        runtimeLogs.observeUpdateStatus(status);
         if (mainIdentity) {
           ipcBridge?.publish(mainIdentity, "onUpdateStatusChanged", status);
         }
@@ -1136,7 +1141,7 @@ async function bootstrapReadyPhase(
     },
     executeApplicationShortcut: (identity, command) =>
       applicationShortcuts.execute(identity, command),
-    exportDiagnostics: (identity) => operationalLogs.runDiagnosticsExport(
+    exportDiagnostics: (identity) => runtimeLogs.runDiagnosticsExport(
       () => diagnosticsExport.export(identity)
     ),
     exportPortableData: (input) => nativeShellActions.exportPortableData(input),
@@ -1176,7 +1181,7 @@ async function bootstrapReadyPhase(
       if (window.isMaximized()) window.unmaximize();
       else window.maximize();
     },
-    reportRendererLog: (event) => operationalLogs.captureRendererError(
+    reportRendererLog: (event) => runtimeLogs.captureRendererError(
       event.event, event.message, event.stack
     )
   });
@@ -1503,7 +1508,7 @@ async function bootstrapReadyPhase(
     identities,
     dispatcher,
     onInvocationError: (method, errorCode) => {
-      operationalLogs.observeInvocationFailure(method, errorCode);
+      runtimeLogs.observeInvocationFailure(method, errorCode);
     },
     onNotificationError: revealShellError
   });
@@ -1557,18 +1562,18 @@ async function bootstrapReadyPhase(
         graphicsHost?.dispose();
         chromiumLaunchCompletions?.dispose();
         chromiumLaunchCompletions = null;
-        await operationalLogs.flush();
+        await runtimeLogs.flush();
         try {
           if (chromiumRuntime) await chromiumRuntime.shutdown();
           else await core?.shutdown();
         } finally {
-          await operationalLogs.dispose();
+          await runtimeLogs.dispose();
         }
       }
     },
     createMainWindow,
     prepareCleanExit: async () => {
-      await operationalLogs.applicationQuitting();
+      await runtimeLogs.applicationQuitting();
       await prepareElectronCleanExit({
         core: activeCore(),
         runtime: chromiumRuntime,
@@ -1612,7 +1617,7 @@ async function bootstrapReadyPhase(
   });
   await fatalEventStream.waitForStartup(lifecycleStart);
   fatalEventStream.completeStartup();
-  await operationalLogs.applicationSessionReady();
+  await runtimeLogs.applicationSessionReady();
 }
 
 async function runInternalMacosUpdateRelaunchHelper(
@@ -1648,7 +1653,7 @@ const startup = Promise.resolve().then(async () => {
     disposeOperationalLogHooks = installElectronOperationalLogHooks(
       app as unknown as Parameters<typeof installElectronOperationalLogHooks>[0],
       process as unknown as Parameters<typeof installElectronOperationalLogHooks>[1],
-      operationalLogs
+      runtimeLogs
     );
   }
   enforceChromiumCommandLinePolicy({
@@ -1685,7 +1690,7 @@ void startup.catch(async (error: unknown) => {
     return;
   }
   const payload = normalizeRionBridgeError(error, "ELECTRON_STARTUP_FAILED");
-  await operationalLogs.applicationStartupFailed(error, payload.code);
+  await runtimeLogs.applicationStartupFailed(error, payload.code);
   console.error(`[${payload.code}] ${payload.message}`);
   if (!new Set([
     "ELECTRON_CHROMIUM_BOOTSTRAP_CANCELLED",

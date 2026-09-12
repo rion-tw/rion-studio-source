@@ -66,6 +66,17 @@ static NSView *RionRuntimePhysicalInputTarget(NSView *view) {
   return nil;
 }
 
+static BOOL RionRuntimeShouldDirectRoleKeyEvent(
+    NSEvent *event, NSView *physicalTarget) {
+  if (!event || !physicalTarget ||
+      (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp)) {
+    return NO;
+  }
+  NSEventModifierFlags flags = event.modifierFlags &
+      NSEventModifierFlagDeviceIndependentFlagsMask;
+  return (flags & NSEventModifierFlagCommand) == 0;
+}
+
 static uint64_t RionRuntimePhysicalInputSequence(NSView *target) {
   NSNumber *value = target ? objc_getAssociatedObject(
       target, &RionRuntimePhysicalInputSequenceAssociationKey) : nil;

@@ -89,3 +89,43 @@ fn logs_clear_bypasses_level_filter_and_publishes_its_audit_entry() {
     )));
     assert!(events.iter().any(|event| matches!(event, CoreEvent::LogsChanged)));
 }
+
+#[test]
+fn log_level_change_is_audited_and_debug_status_proves_debug_capture() {
+    let (_directory, core) = core();
+    core.invoke(CoreCommand::LogsSetLevel {
+        level: LogLevel::Debug,
+    })
+    .unwrap();
+    core.invoke(CoreCommand::LogsCapture {
+        entries: vec![LogCaptureRecord {
+            level: LogLevel::Debug,
+            source: crate::model::LogSource::Macro,
+            event: "trusted_input_terminal".to_owned(),
+            message: "Trusted input reached a terminal outcome.".to_owned(),
+            context_raw_json: Some(r#"{"applicationPath":"cdp"}"#.to_owned()),
+            error: None,
+        }],
+    })
+    .unwrap();
+
+    let page = core
+        .invoke(command(json!({
+            "type": "logsQuery",
+            "query": { "limit": 100 }
+        })))
+        .unwrap();
+    let entries = page["entries"].as_array().unwrap();
+    let audit = entries
+        .iter()
+        .find(|entry| entry["event"] == "log_level_changed")
+        .unwrap();
+    assert_eq!(audit["context"]["previousLevel"], "debug");
+    assert_eq!(audit["context"]["newLevel"], "debug");
+
+    let status = core.invoke(CoreCommand::LogsStatus).unwrap();
+    assert_eq!(status["currentLevel"], "debug");
+    assert_eq!(status["debugEntryCount"], 2);
+    assert_eq!(status["infoEntryCount"], 1);
+    assert!(status["newestDebugTimestamp"].is_string());
+}

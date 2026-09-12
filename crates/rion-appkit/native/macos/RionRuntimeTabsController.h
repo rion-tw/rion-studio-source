@@ -255,7 +255,8 @@ typedef void (*RionRuntimeTabsCActionHandler)(
     const char * _Nullable targetWindowID,
     const char * _Nullable beforeTabIdentifier,
     const char * _Nullable orderedTabIdentifiersJSON,
-    const char * _Nullable statusIdentityJSON, double screenX,
+    const char * _Nullable statusIdentityJSON,
+    const char * _Nullable placementDiagnosticsJSON, double screenX,
     double screenY, double grabRatioX, double grabRatioY,
     double tabWidth, double tabHeight, uint32_t modifierCount,
     bool cancelled, bool focused, bool minimized, bool visible);

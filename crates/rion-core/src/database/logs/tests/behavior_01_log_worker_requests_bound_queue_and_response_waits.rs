@@ -517,6 +517,13 @@ use serde_json::json;
         let directory = tempdir().unwrap();
         let path = directory.path().join("logs.sqlite3");
         let mut worker = LogDatabaseWorker::start(path.clone()).unwrap();
+        let empty = worker.status().unwrap();
+        assert_eq!(empty.entry_count, 0);
+        assert_eq!(empty.debug_entry_count, 0);
+        assert_eq!(empty.info_entry_count, 0);
+        assert_eq!(empty.warn_entry_count, 0);
+        assert_eq!(empty.error_entry_count, 0);
+        assert_eq!(empty.newest_debug_timestamp, None);
         worker.append(vec![entry("info", "queued")]).unwrap();
         let reader = Connection::open(&path).unwrap();
         assert_eq!(
@@ -549,6 +556,11 @@ use serde_json::json;
         let storage = worker.storage_status(LogLevel::Info).unwrap();
         assert_eq!(storage.entry_count, 3);
         assert_eq!(storage.file_count, status.file_count);
+        assert_eq!(storage.debug_entry_count, 0);
+        assert_eq!(storage.info_entry_count, 2);
+        assert_eq!(storage.warn_entry_count, 1);
+        assert_eq!(storage.error_entry_count, 0);
+        assert_eq!(storage.newest_debug_timestamp, None);
         worker.shutdown().unwrap();
     }
 

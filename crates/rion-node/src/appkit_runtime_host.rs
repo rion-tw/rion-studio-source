@@ -1484,6 +1484,7 @@ unsafe extern "C" fn appkit_action_callback(
     before_tab_identifier: *const c_char,
     ordered_tab_identifiers_json: *const c_char,
     status_identity_json: *const c_char,
+    placement_diagnostics_json: *const c_char,
     screen_x: f64,
     screen_y: f64,
     grab_ratio_x: f64,
@@ -1524,6 +1525,10 @@ unsafe extern "C" fn appkit_action_callback(
                         status_identity_json,
                         serde_json::Value::is_object,
                     ) }?,
+                    "placementDiagnostics": unsafe { optional_native_json(
+                        placement_diagnostics_json,
+                        valid_placement_diagnostics,
+                    ) }?,
                     "screenX": finite_number(screen_x),
                     "screenY": finite_number(screen_y),
                     "grabRatioX": finite_number(grab_ratio_x),
@@ -1552,6 +1557,70 @@ unsafe extern "C" fn appkit_action_callback(
     if emitted.is_err() {
         context.fail(CallbackFailure::PanicContained);
     }
+}
+
+fn valid_placement_diagnostics(value: &serde_json::Value) -> bool {
+    const FIELDS: [&str; 12] = [
+        "zoomed",
+        "fullScreen",
+        "minimized",
+        "frameX",
+        "frameY",
+        "frameWidth",
+        "frameHeight",
+        "triggerEventType",
+        "triggerKeyCode",
+        "triggerModifierFlags",
+        "firstResponderCategory",
+        "physicalInputSequence",
+    ];
+    let Some(value) = value.as_object() else {
+        return false;
+    };
+    let finite = |field: &str| {
+        value
+            .get(field)
+            .and_then(serde_json::Value::as_f64)
+            .is_some_and(f64::is_finite)
+    };
+    let sequence = value
+        .get("physicalInputSequence")
+        .and_then(serde_json::Value::as_str);
+    value.len() == FIELDS.len()
+        && value.keys().all(|field| FIELDS.contains(&field.as_str()))
+        && ["zoomed", "fullScreen", "minimized"].iter().all(|field| {
+            value
+                .get(*field)
+                .and_then(serde_json::Value::as_bool)
+                .is_some()
+        })
+        && ["frameX", "frameY", "frameWidth", "frameHeight"]
+            .iter()
+            .all(|field| finite(field))
+        && value.get("frameWidth").and_then(serde_json::Value::as_f64) > Some(0.0)
+        && value.get("frameHeight").and_then(serde_json::Value::as_f64) > Some(0.0)
+        && value
+            .get("triggerEventType")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+        && value
+            .get("triggerKeyCode")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|code| code <= u16::MAX.into())
+        && value
+            .get("triggerModifierFlags")
+            .and_then(serde_json::Value::as_u64)
+            .is_some()
+        && matches!(
+            value
+                .get("firstResponderCategory")
+                .and_then(serde_json::Value::as_str),
+            Some("roleSurface" | "nativeText" | "nativeChrome")
+        )
+        && sequence.is_some_and(|raw| {
+            raw.parse::<u64>()
+                .is_ok_and(|parsed| parsed.to_string() == raw)
+        })
 }
 
 fn retain_native_action_fields(
@@ -1612,7 +1681,7 @@ fn retain_native_action_fields(
         "modifierHandoffStarted" | "modifierHandoffCompleted" | "modifierHandoffAbandoned" => {
             &["type", "tabId", "sourceWindowId"]
         }
-        "windowPlacementChanged" => &["type", "sourceWindowId"],
+        "windowPlacementChanged" => &["type", "sourceWindowId", "placementDiagnostics"],
         "windowFocusChanged" => &["type", "sourceWindowId", "focused", "minimized", "visible"],
         _ => &["type"],
     };

@@ -11,7 +11,8 @@ function pending(requestId: string, generation = 1): PendingChromiumTrustedInput
     frame: { roleId: "role", generation, frame: {}, frameToken: "frame-token",
       documentInstanceId: "document" },
     inputSequence: requestId, completion: { resolve: vi.fn() }, timer: {},
-    nativeInvoked: false, nativeComplete: false, nextDomIndex: 0,
+    nativeInvoked: false, cdpInvoked: false, applicationPath: "none",
+    nativeComplete: false, nextDomIndex: 0,
     expectedEvents: [{}], physicalInterleave: "none", terminal: false
   };
 }

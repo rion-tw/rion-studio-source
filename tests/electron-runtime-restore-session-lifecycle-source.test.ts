@@ -23,8 +23,8 @@ describe("Electron Chromium runtime recovery lifecycle wiring", () => {
     expect(main).toContain("chromiumLaunchCompletions?.dispose();");
     expect(main).toContain("restoreSession: activeRuntimeRestoreSession()");
     expect(main).toContain("prepareCleanExit: async () => {");
-    expect(main).toContain("await operationalLogs.applicationQuitting();");
-    expect(main.indexOf("await operationalLogs.applicationQuitting();"))
+    expect(main).toContain("await runtimeLogs.applicationQuitting();");
+    expect(main.indexOf("await runtimeLogs.applicationQuitting();"))
       .toBeLessThan(main.indexOf("await prepareElectronCleanExit({"));
     expect(main).toContain("runtime: chromiumRuntime");
     expect(main).toContain(

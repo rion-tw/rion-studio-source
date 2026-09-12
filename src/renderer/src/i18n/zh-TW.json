@@ -1289,6 +1289,7 @@
   "settings.diagnosticsDescription": "檢視本機應用程式活動，並匯出經隱私遮罩的診斷包。",
   "settings.logsStorage": "日誌儲存",
   "settings.logsStorageSummary": "{entries} 筆紀錄 · {size} · 保留 14 天，上限 {limit}。",
+  "settings.logsLevelEvidence": "目前：{level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}",
   "settings.logsLoading": "正在載入日誌狀態。",
   "settings.logsOpenFolder": "開啟資料夾",
   "settings.logsExport": "匯出診斷包",

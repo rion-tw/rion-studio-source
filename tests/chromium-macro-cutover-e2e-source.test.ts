@@ -279,7 +279,10 @@ describe("Chromium Macro paired cutover E2E source", () => {
           {
             id: "shortcut",
             name: "Chromium Shortcut Reentry",
-            payload: { trigger: { code: "Digit2" } }
+            payload: {
+              steps: [{ code: "Digit1", modifiers: ["shift"], type: "key" }],
+              trigger: { code: "Digit3" }
+            }
           },
           {
             id: "continuity",

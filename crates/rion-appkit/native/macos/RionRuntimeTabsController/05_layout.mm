@@ -96,9 +96,40 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)emitWindowPlacementObservation {
   if (_destroyed || !_actionHandler || _windowID.length == 0) return;
+  NSEvent *currentEvent = NSApp.currentEvent;
+  BOOL keyboardTrigger = currentEvent.type == NSEventTypeKeyDown ||
+      currentEvent.type == NSEventTypeKeyUp ||
+      currentEvent.type == NSEventTypeFlagsChanged;
+  NSResponder *firstResponder = _window.firstResponder;
+  NSView *physicalTarget = [firstResponder isKindOfClass:NSView.class]
+      ? RionRuntimePhysicalInputTarget((NSView *)firstResponder) : nil;
+  NSString *responderCategory = physicalTarget
+      ? @"roleSurface"
+      : ([firstResponder isKindOfClass:NSText.class] ||
+         [firstResponder isKindOfClass:NSTextView.class])
+          ? @"nativeText"
+          : @"nativeChrome";
+  NSRect frame = _window.frame;
   _actionHandler(@{
     @"type" : @"windowPlacementChanged",
-    @"sourceWindowId" : _windowID
+    @"sourceWindowId" : _windowID,
+    @"placementDiagnostics" : @{
+      @"zoomed" : @(_window.isZoomed),
+      @"fullScreen" : @((_window.styleMask & NSWindowStyleMaskFullScreen) != 0),
+      @"minimized" : @(_window.isMiniaturized),
+      @"frameX" : @(frame.origin.x),
+      @"frameY" : @(frame.origin.y),
+      @"frameWidth" : @(frame.size.width),
+      @"frameHeight" : @(frame.size.height),
+      @"triggerEventType" : @(currentEvent ? currentEvent.type : 0),
+      @"triggerKeyCode" : @(keyboardTrigger ? currentEvent.keyCode : UINT16_MAX),
+      @"triggerModifierFlags" : @(keyboardTrigger
+          ? currentEvent.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask
+          : 0),
+      @"firstResponderCategory" : responderCategory,
+      @"physicalInputSequence" : [@(RionRuntimePhysicalInputSequence(
+          physicalTarget)) stringValue]
+    }
   });
 }
 

@@ -686,6 +686,21 @@ pub struct TrustedInputTerminalEvidenceRecord {
     pub surface_generation: u64,
     #[ts(type = "\"normal\" | \"cleanup\"")]
     pub intent: String,
+    #[ts(type = "\"focus\" | \"key\" | \"click\" | \"reassertHeldKeys\"")]
+    pub action_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub key_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"rawKeyDown\" | \"keyUp\"")]
+    pub key_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"synthetic\" | \"physical-pass-through\"")]
+    pub modifier_ownership: Option<String>,
+    #[ts(type = "\"none\" | \"cdp\" | \"physical-modifier-adoption\" | \"modifier-ownership-release\"")]
+    pub application_path: String,
+    pub expected_dom_event_count: u32,
+    pub observed_dom_event_count: u32,
     #[ts(type = "\"not-invoked\" | \"possibly-submitted\" | \"confirmed\"")]
     pub cdp_submission_certainty: String,
     #[ts(type = "\"none\" | \"unrelated\" | \"same-identity\" | \"modifier-change\" | \"indeterminate\"")]

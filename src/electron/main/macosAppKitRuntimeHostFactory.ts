@@ -99,7 +99,7 @@ export type {
   RawNativeAppKitRuntimeHost
 } from "./macosAppKitRuntimePorts";
 
-export const RION_APPKIT_RUNTIME_ABI_VERSION = 8;
+export const RION_APPKIT_RUNTIME_ABI_VERSION = 9;
 const MAX_NATIVE_EVENT_BYTES = 96 * 1024;
 function requireNativeController(
   record: HostRecord,

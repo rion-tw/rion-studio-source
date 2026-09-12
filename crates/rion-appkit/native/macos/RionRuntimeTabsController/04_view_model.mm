@@ -589,29 +589,42 @@ NS_ASSUME_NONNULL_BEGIN
       [strongSelf handleTabShortcutModifierEvent:event];
       return event;
     }
-    if (event.keyCode != 48) return event;
     NSEventModifierFlags flags = event.modifierFlags &
         NSEventModifierFlagDeviceIndependentFlagsMask;
-    if ((flags & NSEventModifierFlagControl) == 0 ||
+    if (event.keyCode == 48 &&
+        (flags & NSEventModifierFlagControl) != 0 &&
         (flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption |
-                  NSEventModifierFlagFunction)) != 0 ||
-        strongSelf->_tabItems.count < 2) {
-      return event;
+                  NSEventModifierFlagFunction)) == 0 &&
+        strongSelf->_tabItems.count >= 2) {
+      NSUInteger activeIndex = [strongSelf->_tabItems indexOfObjectPassingTest:
+          ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
+        (void)index;
+        if (item.activeTab) *stop = YES;
+        return item.activeTab;
+      }];
+      if (activeIndex == NSNotFound) activeIndex = 0;
+      BOOL previous = (flags & NSEventModifierFlagShift) != 0;
+      NSUInteger count = strongSelf->_tabItems.count;
+      NSUInteger targetIndex = previous ? (activeIndex + count - 1) % count
+                                        : (activeIndex + 1) % count;
+      [strongSelf beginTabShortcutModifierHandoff:flags];
+      [strongSelf activateTab:strongSelf->_tabItems[targetIndex].tabIdentifier];
+      return nil;
     }
-    NSUInteger activeIndex = [strongSelf->_tabItems indexOfObjectPassingTest:
-        ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
-      (void)index;
-      if (item.activeTab) *stop = YES;
-      return item.activeTab;
-    }];
-    if (activeIndex == NSNotFound) activeIndex = 0;
-    BOOL previous = (flags & NSEventModifierFlagShift) != 0;
-    NSUInteger count = strongSelf->_tabItems.count;
-    NSUInteger targetIndex = previous ? (activeIndex + count - 1) % count
-                                      : (activeIndex + 1) % count;
-    [strongSelf beginTabShortcutModifierHandoff:flags];
-    [strongSelf activateTab:strongSelf->_tabItems[targetIndex].tabIdentifier];
-    return nil;
+    // Role Chromium owns plain physical keys end-to-end. Dispatch the exact
+    // event to its registered responder and consume NSApp's fallback so menu
+    // key equivalents and window actions cannot observe an unhandled game key.
+    // Command shortcuts remain AppKit-owned, and native text/titlebar fields
+    // never resolve to a registered physical target.
+    if (RionRuntimeShouldDirectRoleKeyEvent(event, physicalTarget)) {
+      if (event.type == NSEventTypeKeyDown) {
+        [physicalTarget keyDown:event];
+      } else {
+        [physicalTarget keyUp:event];
+      }
+      return nil;
+    }
+    return event;
   }];
   __weak RionRuntimeTabsController *weakPointerSelf = self;
   _fullscreenToolbarPointerMonitor = [NSEvent

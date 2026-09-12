@@ -581,8 +581,39 @@ impl AppCore {
                 Ok(json!({ "inserted": inserted }))
             }
             CoreCommand::LogsSetLevel { level } => {
+                let previous_level = self.log_capture()?.current_level();
                 self.replace_scalar_state("logLevel", level)?;
                 self.log_capture()?.set_level(level);
+                let mut captures = vec![LogCaptureRecord {
+                    level: LogLevel::Info,
+                    source: crate::model::LogSource::Main,
+                    event: "log_level_changed".to_owned(),
+                    message: "Application log capture level changed.".to_owned(),
+                    context_raw_json: serde_json::to_string(&json!({
+                        "previousLevel": previous_level,
+                        "newLevel": level,
+                    }))
+                    .ok(),
+                    error: None,
+                }];
+                if level == LogLevel::Debug {
+                    captures.push(LogCaptureRecord {
+                        level: LogLevel::Debug,
+                        source: crate::model::LogSource::Main,
+                        event: "debug_capture_enabled".to_owned(),
+                        message: "Debug capture is enabled.".to_owned(),
+                        context_raw_json: None,
+                        error: None,
+                    });
+                }
+                let entries = self.capture_logs_unfiltered(captures)?;
+                let inserted = self.with_runtime(|runtime| runtime.logs.append(entries.clone()))?;
+                if inserted > 0 {
+                    self.emit(vec![
+                        CoreEvent::LogEntriesCaptured { entries },
+                        CoreEvent::LogsChanged,
+                    ]);
+                }
                 Ok(json!({ "level": level }))
             }
             CoreCommand::LogsQuery { query } => self.with_runtime(|runtime| {

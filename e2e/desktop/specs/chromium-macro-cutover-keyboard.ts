@@ -139,8 +139,14 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
     repeat: { type: "once" },
     roleIds: [roleId],
     shortcutSourceScope: { roleIds: [roleId], type: "selected_roles" },
-    steps: [{ action: "tap", code: "Digit1", id: "reentry-one", type: "key" }],
-    trigger: { alt: false, code: "Digit2", ctrl: false, meta: false, shift: true }
+    steps: [{
+      action: "tap",
+      code: "Digit1",
+      id: "reentry-one",
+      modifiers: ["shift"],
+      type: "key"
+    }],
+    trigger: { alt: false, code: "Digit3", ctrl: false, meta: false, shift: true }
   });
   const continuity = await rendererCall("createMacro", {
     activationMode: "hold",
@@ -227,11 +233,11 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     context.mainWindowHandle,
     [
       { key: Key.Shift, phase: "keyDown" },
-      { key: "2", phase: "keyDown" }
+      { key: "3", phase: "keyDown" }
     ],
     1_000,
     [
-      { key: "2", phase: "keyUp" },
+      { key: "3", phase: "keyUp" },
       { key: Key.Shift, phase: "keyUp" }
     ],
     { windowId: WINDOW_ID }
@@ -243,13 +249,14 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     roleId: ROLE_A_FIXTURE
   });
   exactTrustedKey(pressedOne, "Digit1");
+  expect(pressedOne.modifiers).toEqual(expect.objectContaining({ shift: true }));
   const triggerUp = await waitExactKey({
     afterSequence: reentryFixture,
-    code: "Digit2",
+    code: "Digit3",
     kind: "keyup",
     roleId: ROLE_A_FIXTURE
   });
-  exactTrustedKey(triggerUp, "Digit2");
+  exactTrustedKey(triggerUp, "Digit3");
   expect(pressedOne.sequence).toBeLessThan(triggerUp.sequence);
   const firstChordEvents = await fixtureEvents({
     afterSequence: reentryFixture,
@@ -268,13 +275,30 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   expect(reentryRelease.receipt.confirmedInputNeutrality).toBe(false);
   const triggerRelease = await waitAppliedKeyObservation({
     afterSequence: reentryInputSequence,
-    code: "Digit2",
+    code: "Digit3",
     intent: "normal",
     phase: "release",
     roleId: roleA.id
   });
   expect(triggerRelease.receipt.confirmedInputNeutrality).toBe(true);
   expect(reentryRelease.sequence).toBeLessThan(triggerRelease.sequence);
+  let modifierApplicationPaths: unknown[] = [];
+  await browser.waitUntil(async () => {
+    const entries = (await rendererCall("queryLogs", {
+      levels: ["debug"],
+      limit: 100,
+      search: "trusted_input_terminal"
+    })).entries;
+    modifierApplicationPaths = entries
+      .filter((entry) => entry.event === "trusted_input_terminal" &&
+        entry.context?.roleId === roleA.id)
+      .map((entry) => entry.context?.applicationPath);
+    return modifierApplicationPaths.includes("physical-modifier-adoption") &&
+      modifierApplicationPaths.includes("modifier-ownership-release");
+  }, {
+    timeout: 10_000,
+    timeoutMsg: "Shift+3 did not persist modifier adoption and release terminal evidence"
+  });
 
   const popupFenceFixture = await fixtureCursor();
   const trustedInputBeforePopup = await electronDesktopE2eTrustedInputRuntime(roleA.id);
@@ -328,19 +352,19 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     context.mainWindowHandle,
     [
       { key: Key.Shift, phase: "keyDown" },
-      { key: "2", phase: "keyDown" },
-      { key: "2", phase: "keyUp" },
+      { key: "3", phase: "keyDown" },
+      { key: "3", phase: "keyUp" },
       { key: Key.Shift, phase: "keyUp" }
     ],
     { focusCanvas: false, windowId: focusedPopup!.logicalWindowId }
   );
   expect(await waitExactKey({
     afterSequence: popupFenceFixture,
-    code: "Digit2",
+    code: "Digit3",
     kind: "keyup",
     roleId: "e2e-oauth-provider"
   })).toEqual(expect.objectContaining({
-    code: "Digit2",
+    code: "Digit3",
     isTrusted: true,
     roleId: "e2e-oauth-provider"
   }));
@@ -373,8 +397,8 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const releasedReentryFixture = await fixtureCursor();
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
     { key: Key.Shift, phase: "keyDown" },
-    { key: "2", phase: "keyDown" },
-    { key: "2", phase: "keyUp" },
+    { key: "3", phase: "keyDown" },
+    { key: "3", phase: "keyUp" },
     { key: Key.Shift, phase: "keyUp" }
   ], { windowId: WINDOW_ID });
   exactTrustedKey(await waitExactKey({

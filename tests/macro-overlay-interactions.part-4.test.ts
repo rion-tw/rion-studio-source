@@ -35,8 +35,14 @@ const MACRO_OVERLAY_SCRIPT = runtimeSource
 
 interface OverlayController {
   clearSuppressedShortcut: (dispatchId: string) => boolean;
+  completeMacroModifierTransition: (dispatchId: string, committed: boolean) => boolean;
   dispose: () => void;
   physicalModifierCodes: () => string[];
+  prepareMacroModifierTransition: (
+    dispatchId: string,
+    code: string,
+    phase: "rawKeyDown" | "keyUp"
+  ) => "dispatch" | "adoptPhysical" | "releaseOwnership" | null;
   refresh: () => Promise<void>;
   releaseForwardedMacroKey: (code: string) => boolean;
   suppressNextModifierProjection: (dispatchId: string, code: string) => boolean;
@@ -995,6 +1001,55 @@ describe("macro overlay native key guard", () => {
     expect(macroUp.defaultPrevented).toBe(true);
     canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
 
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+    expect(controller.physicalModifierCodes()).toEqual([]);
+  });
+
+  it("adopts an exact physical modifier without requiring a duplicate DOM keydown", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    expect(controller.prepareMacroModifierTransition(
+      "adopt-shift", "ShiftLeft", "rawKeyDown"
+    )).toBe("adoptPhysical");
+    expect(controller.completeMacroModifierTransition("adopt-shift", true)).toBe(true);
+
+    const physicalUp = keyEvent("keyup", "ShiftLeft", "Shift");
+    expect(canvas.dispatchEvent(physicalUp)).toBe(false);
+    expect(controller.physicalModifierCodes()).toEqual([]);
+    expect(controller.prepareMacroModifierTransition(
+      "release-shift", "ShiftLeft", "keyUp"
+    )).toBe("dispatch");
+    armShortcut(controller, "ShiftLeft", "keyup");
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+  });
+
+  it("releases macro ownership while the same physical modifier stays held", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    expect(controller.prepareMacroModifierTransition(
+      "adopt-shift", "ShiftLeft", "rawKeyDown"
+    )).toBe("adoptPhysical");
+    controller.completeMacroModifierTransition("adopt-shift", true);
+    expect(controller.prepareMacroModifierTransition(
+      "release-shift", "ShiftLeft", "keyUp"
+    )).toBe("releaseOwnership");
+    expect(controller.completeMacroModifierTransition("release-shift", true)).toBe(true);
+
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
     expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
     expect(controller.physicalModifierCodes()).toEqual([]);
   });

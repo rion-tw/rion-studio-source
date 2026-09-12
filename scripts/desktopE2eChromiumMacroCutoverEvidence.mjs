@@ -242,7 +242,10 @@ export function validateChromiumMacroCutoverSqliteEvidence(input) {
     ]);
     requireEvidence(macros.length === 4,
       `${phase}: exact shortcut/modifier/middle Macro cohort is absent`);
-    requireEvidence(macros.some((macro) => macro.payload?.trigger?.code === "Digit2")
+    const shortcut = macros.find((macro) => macro.name === "Chromium Shortcut Reentry");
+    requireEvidence(shortcut?.payload?.trigger?.code === "Digit3"
+      && shortcut.payload?.steps?.some((step) => step.code === "Digit1"
+        && step.modifiers?.join("|") === "shift")
       && macros.some((macro) => macro.payload?.trigger?.code === "Digit5")
       && macros.some((macro) => macro.payload?.trigger?.button === "middle")
       && macros.some((macro) => macro.payload?.steps?.map((step) =>

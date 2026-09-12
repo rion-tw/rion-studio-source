@@ -322,6 +322,9 @@ export interface ChromiumRuntimeBootstrapInput {
   readonly electronVersion: string;
   readonly ipcMain: ChromiumRoleOverlayIpcMainPort;
   readonly onError: ConstructorParameters<typeof CoreEffectCoordinator>[0]["onError"];
+  readonly onManagedShortcutDiagnostic?: (
+    context: Readonly<Record<string, unknown>>
+  ) => void;
   readonly onFatalEventStreamFailure?: (
     terminal: CoreEffectEventStreamFailureTerminal
   ) => void;
@@ -1217,7 +1220,8 @@ export class ChromiumRuntimeBootstrap {
           }),
         subscribeSurfaceLifecycle: (listener) =>
           surfaces.subscribeOverlayLifecycle(listener),
-        onError: input.onError
+        onError: input.onError,
+        onDiagnostic: input.onManagedShortcutDiagnostic
       });
       const createdOverlayCoordinator = new ChromiumRoleOverlayCoordinator({
         core: {

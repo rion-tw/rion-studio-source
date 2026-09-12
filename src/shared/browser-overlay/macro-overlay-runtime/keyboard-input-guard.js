@@ -2,6 +2,7 @@
   const consumedPhysicalShortcutCodes = new Set();
   const forwardedMacroGameEvents = new WeakSet();
   const macroModifierOwnership = new Map();
+  const pendingMacroModifierTransitions = new Map();
   const pendingMacroObservationListeners = new Map();
   const physicalGameKeys = new Map();
   const physicalModifierCodeSet = new Set([
@@ -92,6 +93,67 @@
       "keydown",
       "modifier-projection"
     );
+  }
+
+  function prepareMacroModifierTransition(dispatchId, code, phase) {
+    const normalizedDispatchId = String(dispatchId);
+    const normalizedCode = String(code);
+    if (
+      isDisposed ||
+      !normalizedDispatchId ||
+      !physicalModifierCodeSet.has(normalizedCode) ||
+      (phase !== "rawKeyDown" && phase !== "keyUp") ||
+      pendingMacroModifierTransitions.has(normalizedDispatchId)
+    ) {
+      return null;
+    }
+    const physical = physicalGameKeys.get(normalizedCode);
+    const ownership = macroModifierOwnership.get(normalizedCode);
+    if (phase === "rawKeyDown" && physical && !ownership) {
+      macroModifierOwnership.set(normalizedCode, {
+        acquisitionSequence: normalizedDispatchId,
+        delivered: false
+      });
+      pendingMacroModifierTransitions.set(normalizedDispatchId, {
+        code: normalizedCode,
+        disposition: "adoptPhysical",
+        physical
+      });
+      return "adoptPhysical";
+    }
+    if (phase === "keyUp" && physical && ownership) {
+      macroModifierOwnership.delete(normalizedCode);
+      pendingMacroModifierTransitions.set(normalizedDispatchId, {
+        code: normalizedCode,
+        disposition: "releaseOwnership",
+        ownership,
+        physical
+      });
+      return "releaseOwnership";
+    }
+    return "dispatch";
+  }
+
+  function completeMacroModifierTransition(dispatchId, committed) {
+    const normalizedDispatchId = String(dispatchId);
+    const transition = pendingMacroModifierTransitions.get(normalizedDispatchId);
+    if (!transition) return false;
+    pendingMacroModifierTransitions.delete(normalizedDispatchId);
+    if (committed) return true;
+    // Roll back only while the exact physical owner is unchanged. A native
+    // key transition during the lane makes ownership indeterminate and Core
+    // recovery remains responsible for neutralization.
+    const physical = physicalGameKeys.get(transition.code);
+    if (physical !== transition.physical) return true;
+    if (transition.disposition === "adoptPhysical") {
+      const ownership = macroModifierOwnership.get(transition.code);
+      if (ownership?.acquisitionSequence === normalizedDispatchId) {
+        macroModifierOwnership.delete(transition.code);
+      }
+    } else if (!macroModifierOwnership.has(transition.code)) {
+      macroModifierOwnership.set(transition.code, transition.ownership);
+    }
+    return true;
   }
 
   function clearSuppressedShortcut(dispatchId) {
@@ -187,6 +249,7 @@
       observation.target.removeEventListener(observation.type, observation.listener);
     }
     pendingMacroObservationListeners.clear();
+    pendingMacroModifierTransitions.clear();
   }
 
   function isConnectedGameCanvas(candidate) {

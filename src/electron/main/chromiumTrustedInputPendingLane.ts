@@ -19,6 +19,9 @@ export interface PendingChromiumTrustedInput {
   readonly completion: { resolve: (receipt: ChromiumNativeTrustedInputReceipt) => void };
   timer: unknown;
   nativeInvoked: boolean;
+  cdpInvoked: boolean;
+  applicationPath: "none" | "cdp" | "physical-modifier-adoption" |
+    "modifier-ownership-release";
   nativeComplete: boolean;
   nextDomIndex: number;
   readonly expectedEvents: readonly unknown[];
@@ -82,11 +85,14 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
       this.#ports.sendCancel(pending.frame, Object.freeze({
         kind: "cancel", roleId: pending.request.roleId,
         generation: pending.request.surfaceGeneration,
-        frameToken: pending.frame.frameToken, inputSequence: pending.inputSequence
+        frameToken: pending.frame.frameToken, inputSequence: pending.inputSequence,
+        committed: status === "applied"
       }));
     } catch {
       // Navigation or retirement may already have destroyed the exact frame.
     }
+    const keyCode = pending.request.keyEffect?.code ??
+      (pending.request.action.type === "key" ? pending.request.action.code : null);
     recordTrustedInputTerminal({
       capturedAt: new Date().toISOString(),
       requestId: pending.request.requestId,
@@ -94,7 +100,18 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
       inputEpoch: pending.request.inputEpoch,
       surfaceGeneration: pending.request.surfaceGeneration,
       intent: pending.request.intent,
-      cdpSubmissionCertainty: pending.nativeInvoked
+      actionType: pending.request.action.type,
+      ...(keyCode ? { keyCode } : {}),
+      ...(pending.request.keyEffect ? {
+        keyPhase: pending.request.keyEffect.phase
+      } : {}),
+      ...(pending.request.action.type === "key" ? {
+        modifierOwnership: pending.request.action.modifierOwnership
+      } : {}),
+      applicationPath: pending.applicationPath,
+      expectedDomEventCount: pending.expectedEvents.length,
+      observedDomEventCount: pending.nextDomIndex,
+      cdpSubmissionCertainty: pending.cdpInvoked
         ? status === "applied" ? "confirmed" : "possibly-submitted"
         : "not-invoked",
       physicalInterleave: pending.physicalInterleave,

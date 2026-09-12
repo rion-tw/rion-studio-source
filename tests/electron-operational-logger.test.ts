@@ -5,6 +5,8 @@ import {
   ElectronOperationalLogger,
   type ElectronOperationalLogCorePort
 } from "../src/electron/main/electronOperationalLogger";
+import { logMacosAppKitWindowPlacement } from
+  "../src/electron/main/electronRuntimeDiagnosticLogging";
 
 function deferred<Value>() {
   let resolve!: (value: Value) => void;
@@ -38,6 +40,78 @@ function captured(invoke: ReturnType<typeof vi.fn>): LogCaptureRecord[] {
 }
 
 describe("Electron operational logger", () => {
+  it("projects validated AppKit placement provenance into one bounded debug record", () => {
+    const nativeWindowPlacement = vi.fn();
+    logMacosAppKitWindowPlacement({
+      nativeWindowPlacement,
+      trustedInputTerminal: vi.fn()
+    }, {
+      identity: {
+        logicalWindowId: "window-1",
+        launchGeneration: "launch-1",
+        nativeGeneration: 3
+      },
+      action: {
+        type: "windowPlacementChanged",
+        sourceWindowId: "window-1",
+        placementDiagnostics: {
+          zoomed: false,
+          fullScreen: false,
+          minimized: false,
+          frameX: 10,
+          frameY: 20,
+          frameWidth: 1280,
+          frameHeight: 720,
+          triggerEventType: 10,
+          triggerKeyCode: 65_535,
+          triggerModifierFlags: 131_072,
+          firstResponderCategory: "roleSurface",
+          physicalInputSequence: "4"
+        }
+      },
+      hosts: []
+    });
+
+    expect(nativeWindowPlacement).toHaveBeenCalledWith({
+      windowId: "window-1",
+      nativeGeneration: 3,
+      zoomed: false,
+      fullScreen: false,
+      minimized: false,
+      frame: { x: 10, y: 20, width: 1280, height: 720 },
+      triggerEventType: 10,
+      triggerKeyCode: null,
+      triggerModifierFlags: 131_072,
+      firstResponderCategory: "roleSurface",
+      physicalInputSequence: "4"
+    });
+  });
+
+  it("emits bounded debug evidence for session, shortcut, input, and placement paths", async () => {
+    const core = corePort();
+    const logger = new ElectronOperationalLogger();
+    logger.bindCore(core.port);
+    logger.managedShortcutTransition({ roleId: "role-1", phase: "keyDown" });
+    logger.trustedInputTerminal({
+      roleId: "role-1",
+      applicationPath: "physical-modifier-adoption"
+    });
+    logger.nativeWindowPlacement({
+      windowId: "window-1",
+      zoomed: false,
+      triggerKeyCode: 16
+    });
+    await logger.applicationSessionReady();
+
+    expect(captured(core.invoke).map((entry) => [entry.level, entry.event])).toEqual([
+      ["debug", "managed_shortcut_transition"],
+      ["debug", "trusted_input_terminal"],
+      ["debug", "native_window_placement"],
+      ["info", "application_session_ready"],
+      ["debug", "debug_capture_active"]
+    ]);
+  });
+
   it("bounds the pre-Core buffer and flushes it before later observations", async () => {
     const core = corePort();
     const logger = new ElectronOperationalLogger();

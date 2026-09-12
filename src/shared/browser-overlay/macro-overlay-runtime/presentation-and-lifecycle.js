@@ -862,6 +862,7 @@
       automaticInputContext,
       clearSuppressedMiddleButtonShortcut,
       clearSuppressedShortcut,
+      completeMacroModifierTransition,
       dispose,
       inputContextLossVersion: typeof binding.inputContextLost === "function"
         ? inputContextLossVersion
@@ -870,6 +871,7 @@
       refreshExact,
       refreshFromNative,
       physicalModifierCodes,
+      prepareMacroModifierTransition,
       releaseForwardedMacroKey,
       suppressNextModifierProjection,
       suppressNextMiddleButtonShortcut,

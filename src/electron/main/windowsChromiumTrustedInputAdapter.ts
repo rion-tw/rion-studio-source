@@ -15,6 +15,7 @@ import { mergeChromiumPhysicalModifiers, validChromiumPhysicalModifierCodes } fr
 import {
   CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
   type ChromiumRoleTrustedInputExpectedEvent,
+  type ChromiumRoleTrustedInputModifierDisposition,
   type ChromiumRoleTrustedInputReceipt
 } from "../ipc/chromiumRoleTrustedInputProtocol";
 import { RionBridgeError } from "../ipc/errors";
@@ -109,12 +110,16 @@ interface PendingDispatch {
   readonly completion: Deferred<ChromiumNativeTrustedInputReceipt>;
   timer: unknown;
   nativeInvoked: boolean;
+  cdpInvoked: boolean;
+  applicationPath: "none" | "cdp" | "physical-modifier-adoption" |
+    "modifier-ownership-release";
   nativeSubmitted: number;
   nextDomIndex: number;
   nextObservationSequence: number;
   nativeComplete: boolean;
   terminal: boolean;
   physicalModifierCodes: readonly string[];
+  modifierDisposition: ChromiumRoleTrustedInputModifierDisposition;
   physicalInterleave: import("./chromiumTrustedInputPendingLane")
     .ChromiumPhysicalInterleaveClassification;
   readonly physicalEvidence: ChromiumPhysicalInputEvidenceLane;
@@ -454,6 +459,7 @@ implements ChromiumNativeTrustedInputPort {
     let probe: WindowsChromiumInputSurfaceProbeReceipt;
     let deliveryMode: WindowsChromiumInputDeliveryMode;
     let prepared: ReturnType<typeof prepareDispatch>;
+    let observedPhysicalModifierCodes: readonly string[];
     try {
       frame = this.#surfaces.currentTrustedInputFrame(
         request.roleId,
@@ -483,7 +489,7 @@ implements ChromiumNativeTrustedInputPort {
         host.identity,
         deliveryMode
       );
-      const observedPhysicalModifierCodes = this.#physicalModifierCodes();
+      observedPhysicalModifierCodes = this.#physicalModifierCodes();
       if (!validChromiumPhysicalModifierCodes(observedPhysicalModifierCodes)) {
         fail(
           "SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID",
@@ -515,6 +521,13 @@ implements ChromiumNativeTrustedInputPort {
       ));
     }
     const completion = deferred<ChromiumNativeTrustedInputReceipt>();
+    const modifierApplicationPossible = Boolean(
+      request.keyEffect &&
+      request.action.type === "key" &&
+      request.action.modifierOwnership === "synthetic" &&
+      isChromiumModifierCode(request.keyEffect.code) &&
+      observedPhysicalModifierCodes.includes(request.keyEffect.code)
+    );
     const pending: PendingDispatch = {
       request,
       frame,
@@ -526,13 +539,20 @@ implements ChromiumNativeTrustedInputPort {
       nativeTransitions: prepared.nativeTransitions,
       completion,
       timer: undefined,
-      nativeInvoked: false,
+      nativeInvoked: modifierApplicationPossible,
+      cdpInvoked: false,
+      applicationPath: modifierApplicationPossible
+        ? request.keyEffect!.phase === "rawKeyDown"
+          ? "physical-modifier-adoption"
+          : "modifier-ownership-release"
+        : "none",
       nativeSubmitted: 0,
       nextDomIndex: 0,
       nextObservationSequence: 1,
       nativeComplete: false,
       terminal: false,
       physicalModifierCodes: Object.freeze([]),
+      modifierDisposition: "dispatch",
       physicalInterleave: "none",
       physicalEvidence: new ChromiumPhysicalInputEvidenceLane({
         sequence: probe.observation.physicalInputSequence,
@@ -545,13 +565,19 @@ implements ChromiumNativeTrustedInputPort {
         "ELECTRON_WINDOWS_CHROMIUM_INPUT_LANE_BUSY", "The role already has one exact trusted-input request in flight."));
     }
     pending.timer = this.#deadlines.schedule(() => {
+      const uncertainModifierApplication = pending.nativeInvoked &&
+        !pending.cdpInvoked && pending.nativeSubmitted === 0;
       this.#terminalize(
         pending,
         pending.nativeInvoked ? "indeterminate" : "failed",
-        pending.nativeInvoked
+        uncertainModifierApplication
+          ? "SYSTEM_TRUSTED_INPUT_MODIFIER_APPLICATION_RECEIPT_DEADLINE"
+          : pending.nativeInvoked
           ? "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_DEADLINE"
           : "ELECTRON_WINDOWS_CHROMIUM_INPUT_ARM_RECEIPT_DEADLINE",
-        pending.nativeInvoked
+        uncertainModifierApplication
+          ? "The physical modifier ownership application receipt is uncertain."
+          : pending.nativeInvoked
           ? "The authoritative trusted DOM receipt did not arrive before the Core deadline."
           : "The private preload did not acknowledge arming before the Core deadline.",
         !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
@@ -589,7 +615,21 @@ implements ChromiumNativeTrustedInputPort {
       return false;
     }
     if (receipt.kind === "armed") {
-      if (receipt.expectedEventCount !== pending.expectedEvents.length ||
+      const modifierEffect = pending.request.keyEffect;
+      const modifierDispositionValid = receipt.modifierDisposition === "dispatch"
+        ? receipt.expectedEventCount === pending.expectedEvents.length
+        : Boolean(
+            modifierEffect &&
+            pending.request.action.type === "key" &&
+            pending.request.action.modifierOwnership === "synthetic" &&
+            isChromiumModifierCode(modifierEffect.code) &&
+            receipt.expectedEventCount === 0 &&
+            receipt.physicalModifierCodes.includes(modifierEffect.code) &&
+            (receipt.modifierDisposition === "adoptPhysical"
+              ? modifierEffect.phase === "rawKeyDown"
+              : modifierEffect.phase === "keyUp")
+          );
+      if (!modifierDispositionValid ||
         (pending.request.action.type === "key" &&
           pending.request.action.phase === "hold" &&
           pending.request.action.modifierOwnership === "physical-pass-through" &&
@@ -600,23 +640,30 @@ implements ChromiumNativeTrustedInputPort {
         return false;
       }
       pending.physicalModifierCodes = Object.freeze([...receipt.physicalModifierCodes]);
-      const projectedCode = pending.request.keyEffect?.code ??
-        (pending.request.action.type === "key" ? pending.request.action.code : null);
-      pending.expectedEvents = mergeChromiumPhysicalModifiers(
-        pending.expectedEvents,
-        pending.physicalModifierCodes,
-        projectedCode
-      );
+      pending.modifierDisposition = receipt.modifierDisposition;
+      if (receipt.modifierDisposition === "dispatch") {
+        pending.nativeInvoked = false;
+        pending.applicationPath = "none";
+        const projectedCode = pending.request.keyEffect?.code ??
+          (pending.request.action.type === "key" ? pending.request.action.code : null);
+        pending.expectedEvents = mergeChromiumPhysicalModifiers(
+          pending.expectedEvents,
+          pending.physicalModifierCodes,
+          projectedCode
+        );
+      } else {
+        pending.expectedEvents = Object.freeze([]);
+      }
       void this.#submitCdp(pending);
       return true;
     }
     if (receipt.kind === "rejected") {
       this.#terminalize(
         pending,
-        "failed",
+        pending.nativeInvoked ? "indeterminate" : "failed",
         "ELECTRON_WINDOWS_CHROMIUM_INPUT_ARM_REJECTED",
         "The exact role preload rejected trusted-input arming.",
-        pending.request.expectedInputNeutralityBefore
+        !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
       return true;
     }
@@ -763,16 +810,26 @@ implements ChromiumNativeTrustedInputPort {
     } catch {
       this.#terminalize(
         pending,
-        "superseded",
+        pending.nativeInvoked ? "indeterminate" : "superseded",
         "BROWSER_ACTION_STALE",
         "The trusted-input frame or exact input owner was superseded.",
-        pending.request.expectedInputNeutralityBefore
+        !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
       return;
     }
     // Bind the submission to the freshly validated user focus. The synchronous
     // native edge and its receipt must still preserve this complete observation.
     pending.probe = liveProbe;
+    if (pending.modifierDisposition !== "dispatch") {
+      pending.nativeInvoked = true;
+      pending.applicationPath = pending.modifierDisposition === "adoptPhysical"
+        ? "physical-modifier-adoption"
+        : "modifier-ownership-release";
+      pending.nativeSubmitted = 1;
+      pending.nativeComplete = true;
+      this.#maybeApply(pending);
+      return;
+    }
     try {
       for (const transition of pending.nativeTransitions) {
         if (pending.terminal) return;
@@ -803,6 +860,8 @@ implements ChromiumNativeTrustedInputPort {
             ...(transition.eventType === "rawKeyDown" ? [transition.code] : [])
           ])]);
           pending.nativeInvoked = true;
+          pending.cdpInvoked = true;
+          pending.applicationPath = "cdp";
           const receipt = await this.#cdp.dispatchKey(pending.frame, {
             phase: transition.eventType,
             code: transition.code,
@@ -817,6 +876,8 @@ implements ChromiumNativeTrustedInputPort {
           }
         } else {
           pending.nativeInvoked = true;
+          pending.cdpInvoked = true;
+          pending.applicationPath = "cdp";
           pending.expectedEvents = Object.freeze(pending.expectedEvents.map(event =>
             Object.freeze({
               ...event,

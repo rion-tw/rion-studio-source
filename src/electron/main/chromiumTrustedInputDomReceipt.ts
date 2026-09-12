@@ -47,11 +47,15 @@ export function parseTrustedInputDomReceipt(
     invalid("The trusted-input preload receipt has an invalid identity.");
   }
   if (record.kind === "armed" && exactKeys(record, [
-    ...baseKeys, "expectedEventCount", "physicalModifierCodes"
+    ...baseKeys, "expectedEventCount", "modifierDisposition", "physicalModifierCodes"
   ])) {
     if (!Number.isSafeInteger(record.expectedEventCount) ||
-      (record.expectedEventCount as number) < 1 ||
+      (record.expectedEventCount as number) < 0 ||
       (record.expectedEventCount as number) > 10 ||
+      !["dispatch", "adoptPhysical", "releaseOwnership"]
+        .includes(String(record.modifierDisposition)) ||
+      (record.modifierDisposition === "dispatch" && record.expectedEventCount === 0) ||
+      (record.modifierDisposition !== "dispatch" && record.expectedEventCount !== 0) ||
       !validChromiumPhysicalModifierCodes(record.physicalModifierCodes)) {
       invalid("The arm receipt is invalid.");
     }

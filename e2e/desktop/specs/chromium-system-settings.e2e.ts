@@ -130,11 +130,34 @@ async function verifyDiagnosticsLogs(
     const info = await $("[role='option']=Info");
     await info.waitForClickable({ timeout: 10_000 });
     await info.click();
+    await browser.waitUntil(
+      async () => (await rendererCall("getLogStatus")).currentLevel === "info",
+      {
+        timeout: 10_000,
+        timeoutMsg: "Info recording level was not persisted before Debug verification"
+      }
+    );
+    await level.click();
+    const debug = await $("[role='option']=Debug");
+    await debug.waitForClickable({ timeout: 10_000 });
+    await debug.click();
+    await browser.waitUntil(async () => {
+      const status = await rendererCall("getLogStatus");
+      return status.currentLevel === "debug" && status.debugEntryCount > 0 &&
+        status.newestDebugTimestamp !== null;
+    }, {
+      timeout: 10_000,
+      timeoutMsg: "Debug recording level did not produce persisted debug evidence"
+    });
+    await $("summary*=Debug capture is enabled.").waitForDisplayed({ timeout: 10_000 });
     await $("summary*=Core state changed.").waitForDisplayed({ timeout: 10_000 });
     return;
   }
 
   const persistedEntries = (await rendererCall("queryLogs", { limit: 100 })).entries;
+  const persistedStatus = await rendererCall("getLogStatus");
+  expect(persistedStatus.currentLevel).toBe("debug");
+  expect(persistedStatus.debugEntryCount).toBeGreaterThan(0);
   const currentSessionId = persistedEntries.find(
     (entry) => entry.event === "electron_ready"
   )?.sessionId;

@@ -18,6 +18,11 @@ const logStatus = {
   totalBytes: 512,
   oldestTimestamp: "2026-08-01T00:00:00Z",
   newestTimestamp: "2026-08-02T00:00:00Z",
+  newestDebugTimestamp: "2026-08-02T00:00:00Z",
+  debugEntryCount: 1,
+  infoEntryCount: 1,
+  warnEntryCount: 0,
+  errorEntryCount: 0,
   retentionDays: 14,
   maxBytes: 1024,
   directory: "/logs"
@@ -62,6 +67,8 @@ describe("diagnostic export log cleanup", () => {
     expect(screen.getByRole("button", { name: "Export diagnostics" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Measure presentation FPS" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel measurement" })).toBeNull();
+    expect(screen.getByText("Active: DEBUG · Debug 1 · Info 1 · Warn 0 · Error 0"))
+      .toBeTruthy();
   });
 
   it.each([

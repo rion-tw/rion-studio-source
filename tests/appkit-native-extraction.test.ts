@@ -27,10 +27,10 @@ describe("shared AppKit runtime controller", () => {
     expect(appKitBuild).toContain('rustc-link-lib=framework=AppKit');
     expect(appKitBuild).toContain('rustc-link-lib=framework=QuartzCore');
     expect(appKitBuild).not.toContain("WebKit");
-    expect(appKitRust).toContain("RUNTIME_TABS_ABI_VERSION: u32 = 8");
+    expect(appKitRust).toContain("RUNTIME_TABS_ABI_VERSION: u32 = 9");
     expect(controllerHeader).not.toContain("safe_tao");
     expect(controllerBridge).toMatch(
-      /rion_appkit_runtime_tabs_abi_version\(void\)\s*\{\s*return 8;\s*\}/u
+      /rion_appkit_runtime_tabs_abi_version\(void\)\s*\{\s*return 9;\s*\}/u
     );
     expect(controllerBridge).not.toContain("TaoWindow");
   });
@@ -138,6 +138,32 @@ describe("shared AppKit runtime controller", () => {
     expect(settle).toContain("[self detachAccessoryController]");
     expect(settle).toContain("[self installFreshToolbarForWindowedMode]");
     expect(settle).not.toContain("orderOut:");
+  });
+
+  it("routes plain Role keys directly and records placement trigger provenance", async () => {
+    const [geometry, controller, layout] = await Promise.all([
+      readFile(
+        "crates/rion-appkit/native/macos/RionRuntimeTabsController/01_geometry.mm",
+        "utf8"
+      ),
+      readFile(
+        "crates/rion-appkit/native/macos/RionRuntimeTabsController/04_view_model.mm",
+        "utf8"
+      ),
+      readFile(
+        "crates/rion-appkit/native/macos/RionRuntimeTabsController/05_layout.mm",
+        "utf8"
+      )
+    ]);
+
+    expect(geometry).toContain("RionRuntimeShouldDirectRoleKeyEvent");
+    expect(geometry).toContain("NSEventModifierFlagCommand) == 0");
+    expect(controller).toContain("[physicalTarget keyDown:event]");
+    expect(controller).toContain("[physicalTarget keyUp:event]");
+    expect(layout).toContain('@"placementDiagnostics"');
+    expect(layout).toContain('@"triggerKeyCode"');
+    expect(layout).toContain('@"firstResponderCategory"');
+    expect(layout).toContain('@"physicalInputSequence"');
   });
 
   it("retires all native tab projection indexes after a visible close", async () => {

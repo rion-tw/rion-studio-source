@@ -1394,5 +1394,6 @@
   "recovery.platformPending": "此平台尚待原生验证。",
   "recovery.ineligible": "此角色不适用失败会话恢复。",
   "recovery.sourceGap": "无法确认来源身份或数据完整性。",
-  "recovery.unknown": "未验证"
+  "recovery.unknown": "未验证",
+  "settings.logsLevelEvidence": "当前：{level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}"
 }

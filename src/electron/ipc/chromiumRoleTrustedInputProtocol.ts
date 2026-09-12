@@ -39,17 +39,31 @@ export interface ChromiumRoleTrustedInputShortcutSuppression {
   readonly repeat: boolean;
 }
 
+export interface ChromiumRoleTrustedInputModifierTransition {
+  readonly code: string;
+  readonly phase: "rawKeyDown" | "keyUp";
+}
+
+export type ChromiumRoleTrustedInputModifierDisposition =
+  | "dispatch"
+  | "adoptPhysical"
+  | "releaseOwnership";
+
 export interface ChromiumRoleTrustedInputArmEnvelope
   extends ChromiumRoleTrustedInputIdentity {
   readonly kind: "arm";
   readonly expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[];
   /** Exact isolated-world guard acknowledged before native input submission. */
   readonly shortcutSuppression: ChromiumRoleTrustedInputShortcutSuppression | null;
+  /** Exact-side macro ownership transition resolved inside the isolated world. */
+  readonly modifierTransition: ChromiumRoleTrustedInputModifierTransition | null;
 }
 
 export interface ChromiumRoleTrustedInputCancelEnvelope
   extends ChromiumRoleTrustedInputIdentity {
   readonly kind: "cancel";
+  /** True only after main reached the exact authoritative applied terminal. */
+  readonly committed: boolean;
 }
 
 export type ChromiumRoleTrustedInputControlEnvelope =
@@ -61,6 +75,7 @@ export interface ChromiumRoleTrustedInputArmedReceipt
   readonly kind: "armed";
   readonly expectedEventCount: number;
   readonly physicalModifierCodes: readonly string[];
+  readonly modifierDisposition: ChromiumRoleTrustedInputModifierDisposition;
 }
 
 export interface ChromiumRoleTrustedInputRejectedReceipt

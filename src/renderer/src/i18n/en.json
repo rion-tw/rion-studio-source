@@ -1289,6 +1289,7 @@
   "settings.diagnosticsDescription": "Inspect local application activity and export a privacy-safe diagnostic bundle.",
   "settings.logsStorage": "Log storage",
   "settings.logsStorageSummary": "{entries} entries · {size} · kept for 14 days with a {limit} limit.",
+  "settings.logsLevelEvidence": "Active: {level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}",
   "settings.logsLoading": "Loading log status.",
   "settings.logsOpenFolder": "Open folder",
   "settings.logsExport": "Export diagnostics",

@@ -2,6 +2,7 @@ import type { TrustedInputTerminalEvidenceRecord } from "../../shared/generated"
 
 const MAX_RECENT_TERMINALS = 128;
 const terminals: TrustedInputTerminalEvidenceRecord[] = [];
+const listeners = new Set<(record: TrustedInputTerminalEvidenceRecord) => void>();
 
 export function recordTrustedInputTerminal(
   record: TrustedInputTerminalEvidenceRecord
@@ -26,6 +27,18 @@ export function recordTrustedInputTerminal(
   if (terminals.length > MAX_RECENT_TERMINALS) {
     terminals.splice(0, terminals.length - MAX_RECENT_TERMINALS);
   }
+  for (const listener of listeners) {
+    try { listener(frozen); } catch {
+      // Diagnostics observers never affect the authoritative terminal lane.
+    }
+  }
+}
+
+export function subscribeTrustedInputTerminals(
+  listener: (record: TrustedInputTerminalEvidenceRecord) => void
+): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
 }
 
 export function recentTrustedInputTerminals(): TrustedInputTerminalEvidenceRecord[] {

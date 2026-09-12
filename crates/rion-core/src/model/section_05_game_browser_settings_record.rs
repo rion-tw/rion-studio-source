@@ -497,6 +497,15 @@ pub struct LogStorageStatusRecord {
     pub total_bytes: u64,
     pub oldest_timestamp: Option<String>,
     pub newest_timestamp: Option<String>,
+    pub newest_debug_timestamp: Option<String>,
+    #[ts(type = "number")]
+    pub debug_entry_count: u64,
+    #[ts(type = "number")]
+    pub info_entry_count: u64,
+    #[ts(type = "number")]
+    pub warn_entry_count: u64,
+    #[ts(type = "number")]
+    pub error_entry_count: u64,
     pub retention_days: u32,
     #[ts(type = "number")]
     pub max_bytes: u64,

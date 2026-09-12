@@ -118,6 +118,14 @@ export function DiagnosticsSettingsSection({
                   .replace("{days}", String(status.retentionDays))
                   .replace("{limit}", formatBytes(status.maxBytes)) : t("settings.logsLoading")}
               </p>
+              {status ? <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                {t("settings.logsLevelEvidence")
+                  .replace("{level}", status.currentLevel.toUpperCase())
+                  .replace("{debug}", String(status.debugEntryCount))
+                  .replace("{info}", String(status.infoEntryCount))
+                  .replace("{warn}", String(status.warnEntryCount))
+                  .replace("{error}", String(status.errorEntryCount))}
+              </p> : null}
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="outline" disabled={busy} onClick={() => void window.rionStudio.revealLogs().catch(onError)}><ExternalLink size={14} />{t("settings.logsOpenFolder")}</Button>

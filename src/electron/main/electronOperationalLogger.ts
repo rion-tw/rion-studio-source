@@ -88,7 +88,23 @@ export class ElectronOperationalLogger {
 
   async applicationSessionReady(): Promise<void> {
     this.info("main", "application_session_ready", "Application session is ready.");
+    this.debug("main", "debug_capture_active", "Debug capture is active for this session.", {
+      startupBufferCapacity: STARTUP_BUFFER_CAPACITY
+    });
     await this.flush();
+  }
+
+  trustedInputTerminal(context: LogContext): void {
+    this.debug("macro", "trusted_input_terminal", "Trusted input reached a terminal outcome.",
+      context);
+  }
+
+  managedShortcutTransition(context: LogContext): void {
+    this.debug("macro", "managed_shortcut_transition", "Managed shortcut advanced.", context);
+  }
+
+  nativeWindowPlacement(context: LogContext): void {
+    this.debug("browser", "native_window_placement", "Native window placement changed.", context);
   }
 
   async applicationQuitting(): Promise<void> {

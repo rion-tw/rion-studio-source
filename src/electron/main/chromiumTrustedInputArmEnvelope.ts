@@ -11,6 +11,15 @@ export function createTrustedInputArmEnvelope(
 ): ChromiumRoleTrustedInputArmEnvelope {
   const legacyKey = request.action.type === "key" ? request.action : null;
   const suppressionCode = request.keyEffect?.code ?? legacyKey?.code ?? null;
+  const modifierTransition = request.keyEffect &&
+    request.action.type === "key" &&
+    request.action.modifierOwnership === "synthetic" &&
+    /^(Alt|Control|Meta|Shift)(Left|Right)$/u.test(request.keyEffect.code)
+    ? Object.freeze({
+        code: request.keyEffect.code,
+        phase: request.keyEffect.phase
+      })
+    : null;
   return Object.freeze({
     kind: "arm",
     roleId: request.roleId,
@@ -18,6 +27,7 @@ export function createTrustedInputArmEnvelope(
     frameToken,
     inputSequence,
     expectedEvents,
+    modifierTransition,
     // All keys in this lane are Macro-owned, even without a shortcut collision.
     // The page guard also excludes them from physical-key focus-loss cleanup.
     shortcutSuppression: suppressionCode

@@ -142,6 +142,7 @@ export class ChromiumManagedShortcutCoordinator {
   readonly #createOperationId: () => string;
   readonly #retireSurface: ManagedShortcutSurfaceRetire;
   readonly #onError: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
+  readonly #onDiagnostic: ((context: Readonly<Record<string, unknown>>) => void) | null;
   readonly #active = new Map<string, ActiveManagedShortcut>();
   readonly #documentReplacementFences = new Map<
     string,
@@ -163,12 +164,14 @@ export class ChromiumManagedShortcutCoordinator {
       listener: (event: ChromiumRoleOverlayLifecycleEvent) => void
     ) => () => void;
     onError: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
+    onDiagnostic?: (context: Readonly<Record<string, unknown>>) => void;
     createOperationId?: () => string;
   }>) {
     this.#dispatch = input.dispatch;
     this.#resolveSurface = input.resolveSurface;
     this.#retireSurface = input.retireSurface;
     this.#onError = input.onError;
+    this.#onDiagnostic = input.onDiagnostic ?? null;
     this.#createOperationId = input.createOperationId ?? randomUUID;
     this.#unsubscribe = input.subscribeSurfaceLifecycle((event) => {
       void this.retireSurface(event.roleId, event.generation, event.reason)
@@ -205,6 +208,7 @@ export class ChromiumManagedShortcutCoordinator {
       }
       const operationId = this.#createOperationId();
       const shortcutKey = this.#shortcutKey(surface.roleId, request.macroId, request.code);
+      this.#diagnose(surface, request, operationId, "admitted");
       if (request.phase === "keyDown") {
         this.#active.set(shortcutKey, {
           code: request.code,
@@ -220,6 +224,8 @@ export class ChromiumManagedShortcutCoordinator {
       try {
         receipt = await this.#dispatch({ operationId, surface, request });
       } catch (error) {
+        this.#diagnose(surface, request, operationId, "failed",
+          normalizeRionBridgeError(error).code);
         if (request.phase === "keyDown") {
           const active = this.#active.get(shortcutKey);
           if (active?.shortcutCycleId === request.shortcutCycleId) {
@@ -234,6 +240,8 @@ export class ChromiumManagedShortcutCoordinator {
         throw error;
       }
       if (!exactReceipt(receipt, operationId, surface, request)) {
+        this.#diagnose(surface, request, operationId, "receipt-mismatch",
+          "ELECTRON_MANAGED_SHORTCUT_RECEIPT_INVALID");
         if (request.phase === "keyDown") {
           const active = this.#active.get(shortcutKey);
           if (active?.shortcutCycleId === request.shortcutCycleId) active.state = "uncertain";
@@ -244,6 +252,7 @@ export class ChromiumManagedShortcutCoordinator {
         );
       }
       if (receipt.status !== "accepted") {
+        this.#diagnose(surface, request, operationId, receipt.status);
         if (request.phase === "keyDown") this.#active.delete(shortcutKey);
         throw shortcutError(
           receipt.status === "duplicate"
@@ -260,6 +269,7 @@ export class ChromiumManagedShortcutCoordinator {
       } else if (request.phase === "keyUp") {
         this.#active.delete(shortcutKey);
       }
+      this.#diagnose(surface, request, operationId, "accepted");
       return Object.freeze({ ...receipt, requestIds: [...receipt.requestIds] });
     });
   }
@@ -483,6 +493,34 @@ export class ChromiumManagedShortcutCoordinator {
 
   #shortcutKey(roleId: string, macroId: string, code: string): string {
     return JSON.stringify([roleId, macroId, code]);
+  }
+
+  #diagnose(
+    surface: ChromiumManagedShortcutSurfaceIdentity,
+    request: ManagedShortcutRequest,
+    operationId: string,
+    state: string,
+    errorCode?: string
+  ): void {
+    if (!this.#onDiagnostic) return;
+    try {
+      this.#onDiagnostic({
+        operationId,
+        roleId: surface.roleId,
+        tabId: surface.tabId,
+        surfaceGeneration: surface.surfaceGeneration,
+        ownerGeneration: surface.ownerGeneration,
+        macroId: request.macroId,
+        code: request.code,
+        phase: request.phase,
+        modifierCodes: [...request.modifierCodes],
+        shortcutCycleId: request.shortcutCycleId,
+        state,
+        ...(errorCode ? { errorCode } : {})
+      });
+    } catch {
+      // Diagnostic observers cannot affect managed shortcut admission.
+    }
   }
 
   #sameRetirementReceipt(

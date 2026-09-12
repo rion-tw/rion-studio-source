@@ -1394,5 +1394,6 @@
   "recovery.platformPending": "このプラットフォームのネイティブ検証は未完了です。",
   "recovery.ineligible": "このロールは失敗したセッションの復元対象ではありません。",
   "recovery.sourceGap": "移行元の識別またはデータの完全性を確認できません。",
-  "recovery.unknown": "未検証"
+  "recovery.unknown": "未検証",
+  "settings.logsLevelEvidence": "現在：{level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}"
 }

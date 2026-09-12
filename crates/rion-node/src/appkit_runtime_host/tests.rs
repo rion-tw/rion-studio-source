@@ -259,6 +259,44 @@ fn native_action_serialization_retains_only_fields_owned_by_the_action_type() {
             "sourceWindowId": "window-1"
         })
     );
+
+    let diagnostics = serde_json::json!({
+        "zoomed": false,
+        "fullScreen": false,
+        "minimized": false,
+        "frameX": 10.0,
+        "frameY": 20.0,
+        "frameWidth": 1280.0,
+        "frameHeight": 720.0,
+        "triggerEventType": 10,
+        "triggerKeyCode": 16,
+        "triggerModifierFlags": 0,
+        "firstResponderCategory": "roleSurface",
+        "physicalInputSequence": "4"
+    });
+    assert!(valid_placement_diagnostics(&diagnostics));
+    let mut malformed = diagnostics.clone();
+    malformed
+        .as_object_mut()
+        .unwrap()
+        .insert("physicalInputSequence".to_owned(), serde_json::json!(4));
+    assert!(!valid_placement_diagnostics(&malformed));
+
+    let mut placement = dense();
+    placement.insert(
+        "type".to_owned(),
+        serde_json::Value::String("windowPlacementChanged".to_owned()),
+    );
+    placement.insert("placementDiagnostics".to_owned(), diagnostics.clone());
+    retain_native_action_fields("windowPlacementChanged", &mut placement);
+    assert_eq!(
+        serde_json::Value::Object(placement),
+        serde_json::json!({
+            "type": "windowPlacementChanged",
+            "sourceWindowId": "window-1",
+            "placementDiagnostics": diagnostics
+        })
+    );
 }
 
 #[cfg(feature = "desktop-e2e")]

@@ -62,6 +62,11 @@ pub struct LogStatus {
     pub total_bytes: u64,
     pub oldest_timestamp: Option<String>,
     pub newest_timestamp: Option<String>,
+    pub newest_debug_timestamp: Option<String>,
+    pub debug_entry_count: u64,
+    pub info_entry_count: u64,
+    pub warn_entry_count: u64,
+    pub error_entry_count: u64,
     pub retention_days: u32,
     pub max_bytes: u64,
     pub database_path: String,
@@ -146,6 +151,11 @@ impl LogDatabaseWorker {
             total_bytes: status.total_bytes,
             oldest_timestamp: status.oldest_timestamp,
             newest_timestamp: status.newest_timestamp,
+            newest_debug_timestamp: status.newest_debug_timestamp,
+            debug_entry_count: status.debug_entry_count,
+            info_entry_count: status.info_entry_count,
+            warn_entry_count: status.warn_entry_count,
+            error_entry_count: status.error_entry_count,
             retention_days: status.retention_days,
             max_bytes: status.max_bytes,
             directory,
@@ -685,15 +695,27 @@ fn clear_and_append_entries(
 }
 
 fn read_status(connection: &Connection, path: &Path) -> CoreResult<LogStatus> {
-    let (entry_count, oldest, newest) = connection
+    let (entry_count, oldest, newest, newest_debug, debug_count, info_count, warn_count,
+        error_count) = connection
         .query_row(
-            "SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM log_entries",
+            "SELECT COUNT(*), MIN(timestamp), MAX(timestamp), \
+             MAX(CASE WHEN level = 'debug' THEN timestamp END), \
+             COALESCE(SUM(CASE WHEN level = 'debug' THEN 1 ELSE 0 END), 0), \
+             COALESCE(SUM(CASE WHEN level = 'info' THEN 1 ELSE 0 END), 0), \
+             COALESCE(SUM(CASE WHEN level = 'warn' THEN 1 ELSE 0 END), 0), \
+             COALESCE(SUM(CASE WHEN level = 'error' THEN 1 ELSE 0 END), 0) \
+             FROM log_entries",
             [],
             |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
                 ))
             },
         )
@@ -705,6 +727,11 @@ fn read_status(connection: &Connection, path: &Path) -> CoreResult<LogStatus> {
         total_bytes,
         oldest_timestamp: oldest,
         newest_timestamp: newest,
+        newest_debug_timestamp: newest_debug,
+        debug_entry_count: debug_count.max(0) as u64,
+        info_entry_count: info_count.max(0) as u64,
+        warn_entry_count: warn_count.max(0) as u64,
+        error_entry_count: error_count.max(0) as u64,
         retention_days: RETENTION_DAYS as u32,
         max_bytes: MAX_BYTES as u64,
         database_path: path.to_string_lossy().into_owned(),

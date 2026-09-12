@@ -1420,7 +1420,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. The v32 provenance journal classifies live left/right modifier edges as player input without terminating an unrelated CDP receipt."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. The v33 exact-side ownership lane adopts an already delivered physical modifier without requiring a duplicate Chromium keydown, and its provenance journal classifies live modifier edges without terminating an unrelated CDP receipt."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008",
@@ -1446,7 +1446,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. The v32 exact-HWND journal classifies live left/right modifier edges as player input without terminating an unrelated CDP receipt."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. The v33 exact-side ownership lane adopts an already delivered physical modifier without requiring a duplicate Chromium keydown and retains exact-HWND provenance."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",
@@ -1788,7 +1788,7 @@
         "cancel",
         "restart"
       ],
-      "description": "Through visible macOS Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, a non-empty structured log viewer with live Core state activity, cross-restart log persistence, and the legal-document close boundary."
+      "description": "Through visible macOS Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, persisted Debug recording with non-zero level-count and newest-Debug evidence, a non-empty structured log viewer with live Core state activity, cross-restart log persistence, and the legal-document close boundary."
     },
     {
       "id": "CHROMIUM-WINDOWS-SYSTEM-SETTINGS-013",
@@ -1815,7 +1815,7 @@
         "cancel",
         "restart"
       ],
-      "description": "Through visible Windows Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, a non-empty structured log viewer with live Core state activity, cross-restart log persistence, and the legal-document close boundary."
+      "description": "Through visible Windows Chromium UI, prove absence of the retired high-refresh selector and persisted performance settings, font preview layout, non-destructive portable-export boundary, disabled unpackaged updater boundary, absence of retired performance-diagnostic controls with retained diagnostics export, persisted Debug recording with non-zero level-count and newest-Debug evidence, a non-empty structured log viewer with live Core state activity, cross-restart log persistence, and the legal-document close boundary."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-EXPORT-029",
@@ -3240,7 +3240,7 @@
         "failure",
         "restart"
       ],
-      "description": "Composite native journey: permanent-window UI and fullscreen-toolbar phases plus retained AppKit drag, resize, zoom, fullscreen, minimize, and event-bound loading status on real hardware."
+      "description": "Composite native journey: permanent-window UI and fullscreen-toolbar phases plus retained AppKit drag, resize, zoom, fullscreen, minimize, event-bound loading status, and proof that a plain Role key cannot fall through to a native window-placement command on real hardware."
     },
     {
       "id": "CHROMIUM-WINDOWS-GAME-WINDOWS-NATIVE-001",
@@ -3270,7 +3270,7 @@
         "failure",
         "restart"
       ],
-      "description": "Composite native journey: permanent-window UI and fullscreen-toolbar phases plus bundled Chromium drag, resize, maximize, F11 fullscreen, minimize, and Core phase-bound loading chrome on real hardware."
+      "description": "Composite native journey: permanent-window UI and fullscreen-toolbar phases plus bundled Chromium drag, resize, maximize, F11 fullscreen, minimize, Core phase-bound loading chrome, and proof that a plain Role key cannot change native window placement on real hardware."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-NATIVE-DISPLAY-001",

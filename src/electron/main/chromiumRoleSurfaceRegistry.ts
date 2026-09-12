@@ -1125,18 +1125,13 @@ export class ChromiumRoleSurfaceRegistry {
         !record.destroyed && this.#recordsByRole.get(record.roleId) === record &&
         !record.navigation.popupAdmissionFenced
       ) {
-        const source = Object.freeze({
+        this.#popups.requestOpen(Object.freeze({
           ownerKind: "role",
           ownerId: record.roleId,
           nativeGeneration: record.generation,
           parent: record.parent,
-          session: record.sessionHandle.session,
-          openerFrame: contents.mainFrame ?? Object.freeze({})
-        } as const);
-        if (this.#popups.handleWindowOpen) {
-          return this.#popups.handleWindowOpen(source, details);
-        }
-        this.#popups.requestOpen(source, details);
+          session: record.sessionHandle.session
+        }), details);
       }
       return { action: "deny" };
     });

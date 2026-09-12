@@ -240,12 +240,10 @@ the target Chromium document owns focus. Read-only evidence must show the Rion-o
 chrome hidden while remote content exactly fills its existing slot, with the
 Core revision, sibling Role bounds, window bounds, and window presentation
 unchanged. The same visible flow repeats inside a Core-admitted controlled
-popup opened by a real Shift+left click. Both platforms require the same
-`electronBrowserWindow` popup host, exact Session/opener and native hostname
-title; macOS additionally proves that the parent retains its exact AppKit
-identity. A named OAuth fixture crosses origin, returns to a same-origin
-callback, delivers real storage/postMessage signals and script-closes after the
-parent renders completion. Both website exit and Escape restore the paired
+popup opened by a real Shift+left click; macOS additionally proves the exact
+retained AppKit identities for both the parent and popup hosts, plus native
+single-page popup chrome with its title and traffic lights visible and its tab
+strip and launcher absent. Both website exit and Escape restore the paired
 projection, and the restart phase proves this transient presentation never
 became durable state. Windows retains a separate CI verdict.
 

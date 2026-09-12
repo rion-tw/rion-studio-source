@@ -123,9 +123,6 @@ function recordFixtureEvent(input) {
     isTrusted: typeof input.isTrusted === "boolean" ? input.isTrusted : undefined,
     key: typeof input.key === "string" ? input.key : undefined,
     kind: input.kind,
-    loginComplete: typeof input.loginComplete === "boolean"
-      ? input.loginComplete
-      : undefined,
     method: typeof input.method === "string" ? input.method : undefined,
     modifiers: input.modifiers,
     repeat: typeof input.repeat === "boolean" ? input.repeat : undefined,
@@ -135,10 +132,6 @@ function recordFixtureEvent(input) {
     sequence: nextEventSequence++,
     session: input.session,
     targetId: typeof input.targetId === "string" ? input.targetId : undefined,
-    url: typeof input.url === "string" ? input.url : undefined,
-    windowProxyNonNull: typeof input.windowProxyNonNull === "boolean"
-      ? input.windowProxyNonNull
-      : undefined,
     timestamp: new Date().toISOString()
   };
   events.push(event);
@@ -269,16 +262,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     <button id="font-evidence" type="button" hidden>Read page font evidence</button>
     <button id="qa-target" type="button">Macro click target</button>
     <button id="active-navigation-failure" type="button" hidden>Navigate active page</button>
-    <section id="named-oauth-controls">
-      <button id="named-oauth-popup" type="button">Open named OAuth popup</button>
-      <output id="named-oauth-status">signed-out</output>
-    </section>
     <section id="contained-fullscreen-controls" hidden>
       <p>Workspace Web contained fullscreen fixture</p>
       <button id="contained-fullscreen-enter" type="button">Enter contained fullscreen</button>
       <button id="contained-fullscreen-exit" type="button">Exit contained fullscreen</button>
       <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="_blank" rel="noopener" hidden>Open fullscreen popup</a>
-      <form id="contained-fullscreen-post-popup-form" method="post" target="containedPostPopup" hidden>
+      <form id="contained-fullscreen-post-popup-form" method="post" target="_blank" hidden>
         <input name="rionAction" type="hidden" value="resume">
         <input name="contract" type="hidden" value="workspace-popup-post-v27">
         <button id="contained-fullscreen-post-popup" type="submit">Open POST popup</button>
@@ -342,18 +331,6 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         }))
         .then(() => undefined, () => undefined);
       return recordQueue;
-    };
-    const recordImmediately = (kind, details = {}) => {
-      if (kind in counts) counts[kind] += 1;
-      render(kind);
-      const request = fetch("/api/event", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ roleId, kind, ...details }),
-        keepalive: true
-      }).then(() => undefined, () => undefined);
-      recordQueue = Promise.all([recordQueue, request]).then(() => undefined);
-      return request;
     };
     const qaTarget = document.querySelector("#qa-target");
     const windowOpenControls = document.querySelector("#workspace-window-open-controls");
@@ -449,46 +426,6 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         window.location.assign(window.location.href);
       });
     }
-    const namedOauthControls = document.querySelector("#named-oauth-controls");
-    const namedOauthButton = document.querySelector("#named-oauth-popup");
-    const namedOauthStatus = document.querySelector("#named-oauth-status");
-    const namedOauthTarget = roleId === "chromium-workspace-web-fullscreen"
-      ? "thirdLoginWindow"
-      : "thirdLoginRoleWindow";
-    namedOauthControls.hidden = roleId === "e2e-workspace-popup";
-    namedOauthButton.addEventListener("click", (event) => {
-      const callback = new URL("/oauth/callback", location.origin);
-      callback.searchParams.set("roleId", roleId);
-      const authorize = new URL("https://rion-drm.fixture.test/oauth/authorize");
-      authorize.searchParams.set("callback", callback.href);
-      const popup = window.open(
-        authorize.href,
-        namedOauthTarget,
-        "height=450,width=500,top=100,left=200,toolbar=no,menubar=no,scrollbars=yes,resizable=yes,location=no,status=no"
-      );
-      // The popup takes native focus synchronously. Do not place this WindowProxy
-      // result behind an earlier page fetch that Chromium may suspend on blur.
-      recordImmediately("named-oauth-popup-requested", {
-        isTrusted: event.isTrusted,
-        targetId: event.currentTarget.id,
-        windowProxyNonNull: popup !== null
-      });
-    });
-    addEventListener("storage", (event) => {
-      if (event.key !== "rion-e2e-oauth-result" || !event.newValue) return;
-      namedOauthStatus.textContent = "signed-in";
-      record("named-oauth-storage-observed", {
-        key: event.key,
-        loginComplete: true,
-        url: event.url
-      });
-    });
-    addEventListener("message", (event) => {
-      if (event.origin !== location.origin || event.data?.type !== "rion-e2e-oauth") return;
-      namedOauthStatus.textContent = "signed-in";
-      record("named-oauth-message-observed", { loginComplete: true })
-        .then(() => event.source?.postMessage({ type: "rion-e2e-oauth-ack" }, event.origin));
-    });
     const containedFullscreenControls = document.querySelector("#contained-fullscreen-controls");
     if (containedFullscreenEnabled) {
       qaTarget.classList.add("contained-fullscreen-layout");
@@ -531,7 +468,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       downloadLink.hidden = !securityPolicyEnabled;
       fileUpload.hidden = !securityPolicyEnabled;
       let popupRequestCount = 0;
-      const recordPopupRequest = (event) => {
+      popupButton.addEventListener("click", (event) => {
         popupRequestCount += 1;
         // Keep the later gated-navigation cancellation on Chromium's native HTTP transport.
         if (securityPolicyEnabled && popupRequestCount > 1) {
@@ -547,23 +484,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
             shift: event.shiftKey
           }
         });
-      };
-      let popupOpenedFromPointerDown = false;
-      popupButton.addEventListener("mousedown", (event) => {
-        if (!event.isTrusted || event.button !== 0 || !event.shiftKey) return;
-        popupOpenedFromPointerDown = true;
-        recordPopupRequest(event);
-        window.open(popupButton.href, "_blank", "noopener");
-      });
-      popupButton.addEventListener("click", (event) => {
-        if (popupOpenedFromPointerDown) {
-          event.preventDefault();
-          return;
-        }
-        recordPopupRequest(event);
       });
       postPopupButton.addEventListener("click", (event) => {
-        event.preventDefault();
         record("contained-popup-post-requested", {
           button: event.button,
           isTrusted: event.isTrusted,
@@ -574,16 +496,6 @@ function rolePage(roleId, sessionMode, sessionMarker) {
             shift: event.shiftKey
           }
         });
-        const bootstrap = new URL(postPopupForm.action);
-        bootstrap.searchParams.set("postBootstrap", "1");
-        const opened = window.open(
-          bootstrap.href,
-          postPopupForm.target,
-          "popup,width=640,height=480,resizable=yes,scrollbars=yes"
-        );
-        if (!opened) {
-          record("contained-popup-post-bootstrap-blocked");
-        }
       });
       permissionButton.addEventListener("click", (event) => {
         record("permission-requested", {
@@ -675,23 +587,6 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         addEventListener("load", () => {
           document.querySelector("#contained-fullscreen-enter").focus();
           record("contained-popup-ready");
-          if (new URL(location.href).searchParams.get("postBootstrap") === "1") {
-            const form = document.createElement("form");
-            form.method = "post";
-            form.action = location.origin + location.pathname;
-            for (const [name, value] of [
-              ["rionAction", "resume"],
-              ["contract", "workspace-popup-post-v27"]
-            ]) {
-              const input = document.createElement("input");
-              input.type = "hidden";
-              input.name = name;
-              input.value = value;
-              form.append(input);
-            }
-            document.body.append(form);
-            form.submit();
-          }
         }, { once: true });
       }
     }
@@ -838,47 +733,6 @@ function sendRolePage(response, roleId, sessionMode = "observe", sessionMarker =
   const page = rolePageResponse(roleId, sessionMode, sessionMarker);
   if (!response.headersSent) response.writeHead(200, page.headers);
   response.end(page.body);
-}
-
-function sendOAuthPage(response, body) {
-  response.writeHead(200, {
-    "cache-control": "no-store",
-    "content-length": Buffer.byteLength(body),
-    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
-    "content-type": "text/html; charset=utf-8",
-    "x-content-type-options": "nosniff"
-  });
-  response.end(body);
-}
-
-function oauthAuthorizePage(callbackUrl) {
-  const callback = JSON.stringify(callbackUrl).replaceAll("<", "\\u003c");
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>OAuth account chooser</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center}button{width:240px;height:72px;font:18px system-ui}</style></head>
-<body><button id="oauth-account" type="button">Continue fixture account</button><script>
-document.querySelector("#oauth-account").addEventListener("click", async (event) => {
-  document.cookie = "rion-e2e-oauth-auth=present; Path=/; SameSite=Lax";
-  localStorage.setItem("rion-e2e-oauth-auth", "present");
-  await fetch("/api/event", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roleId: "e2e-workspace-popup", kind: "named-oauth-auth-selected", isTrusted: event.isTrusted }) });
-  location.replace(${callback});
-});
-fetch("/api/event", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roleId: "e2e-workspace-popup", kind: "named-oauth-auth-ready" }) });
-</script></body></html>`;
-}
-
-function oauthCallbackPage(roleId) {
-  const safeRoleId = JSON.stringify(roleId).replaceAll("<", "\\u003c");
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>OAuth callback</title></head>
-<body><p>Completing sign in…</p><script>
-const roleId = ${safeRoleId};
-const result = crypto.randomUUID();
-document.cookie = "rion-e2e-oauth-callback=present; Path=/; SameSite=Strict";
-localStorage.setItem("rion-e2e-oauth-result", result);
-addEventListener("message", (event) => {
-  if (event.origin === location.origin && event.data?.type === "rion-e2e-oauth-ack") window.close();
-});
-opener.postMessage({ type: "rion-e2e-oauth", result }, location.origin);
-fetch("/api/event", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roleId, kind: "named-oauth-callback-ready" }) });
-</script></body></html>`;
 }
 
 function beginGatedRolePage(
@@ -1255,35 +1109,6 @@ const server = createServer(async (request, response) => {
       }
       const { event, state } = recordFixtureEvent(body);
       json(response, 200, { event, state });
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/oauth/authorize") {
-      const callbackValue = url.searchParams.get("callback");
-      let callback;
-      try {
-        callback = new URL(callbackValue ?? "");
-      } catch {
-        json(response, 400, { error: "invalid OAuth callback" });
-        return;
-      }
-      if (
-        !["http:", "https:"].includes(callback.protocol) ||
-        callback.username !== "" || callback.password !== "" ||
-        callback.pathname !== "/oauth/callback"
-      ) {
-        json(response, 400, { error: "invalid OAuth callback" });
-        return;
-      }
-      sendOAuthPage(response, oauthAuthorizePage(callback.href));
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/oauth/callback") {
-      const roleId = url.searchParams.get("roleId");
-      if (!roleId || !/^[a-z0-9-]+$/.test(roleId)) {
-        json(response, 400, { error: "invalid OAuth callback owner" });
-        return;
-      }
-      sendOAuthPage(response, oauthCallbackPage(roleId));
       return;
     }
     const postRoleMatch = request.method === "POST"

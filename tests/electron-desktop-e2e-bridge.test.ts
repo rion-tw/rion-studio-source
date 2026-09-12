@@ -1140,19 +1140,24 @@ describe("Electron desktop E2E-only bridge", () => {
   it("accepts exact popup logical ownership and rejects a mismatched popup scope", async () => {
     const logicalWindowId = `popup-${POPUP_ID}`;
     const popup = Object.freeze({
-      appKitChrome: null,
-      appKitIdentity: null,
+      appKitChrome: Object.freeze({
+        addButtonOnScreen: false,
+        tabStripOnScreen: false,
+        visibleTrafficLightCount: 3,
+        windowNameOnScreen: true
+      }),
+      appKitIdentity: Object.freeze({
+        launchGeneration: POPUP_OPEN_OPERATION_ID,
+        logicalWindowId,
+        nativeGeneration: 1
+      }),
       bounds: Object.freeze({ height: 640, width: 960, x: 100, y: 80 }),
-      currentUrl: "https://accounts.example.test/oauth/authorize",
-      hostKind: "electronBrowserWindow" as const,
+      hostKind: "appkit-chromium" as const,
       logicalWindowId,
       nativeHostId: 42,
       openOperationId: POPUP_OPEN_OPERATION_ID,
-      openerPolicy: "connectedOpener" as const,
-      ownerKind: "globalWeb" as const,
       popupId: POPUP_ID,
       presentation: "normal" as const,
-      title: "Rion Popup — accounts.example.test",
       topologyRevision: 1,
       visible: true,
       windowGeneration: 1
@@ -1173,6 +1178,10 @@ describe("Electron desktop E2E-only bridge", () => {
         ...inspection,
         popups: [{
           ...popup,
+          appKitIdentity: {
+            ...popup.appKitIdentity,
+            logicalWindowId: mismatchedLogicalWindowId
+          },
           logicalWindowId: mismatchedLogicalWindowId
         }]
       }))

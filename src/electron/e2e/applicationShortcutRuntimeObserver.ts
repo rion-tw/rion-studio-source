@@ -54,7 +54,7 @@ export interface ElectronDesktopE2eApplicationShortcutRuntimeObserverInput {
     parentNativeHostId: number
   ) => WindowsRuntimeShortcutOwnerDiagnostic | null;
   readonly globalWebSurfaceOwners: ReadonlyMap<string, GlobalWebSurfaceOwner>;
-  readonly readPopupHostOwners: () => ReadonlyMap<string, PopupHostOwner>;
+  readonly popupHostOwners: ReadonlyMap<string, PopupHostOwner>;
   readonly roleSurfaceOwners: ReadonlyMap<string, RoleSurfaceOwner>;
 }
 
@@ -291,7 +291,7 @@ export class ElectronDesktopE2eApplicationShortcutRuntimeObserver {
         });
       })
       .sort((left, right) => left.surfaceId.localeCompare(right.surfaceId)));
-    const livePopupCount = [...this.#input.readPopupHostOwners().values()].filter(
+    const livePopupCount = [...this.#input.popupHostOwners.values()].filter(
       ({ admission, host }) => admission.parent.parentWindowId === windowId &&
         !host.isDestroyed()
     ).length;

@@ -23,7 +23,6 @@ describe("macOS AppKit Chromium runtime host", () => {
     const created = await fixture.factory.createPopup(admission);
     const identity = created.host.appKitIdentity!;
     expect(created.receipt).toEqual({
-      hostKind: "electronBrowserWindow",
       platform: "macos",
       nativeHostId: 1,
       logicalWindowId: admission.target.windowId,

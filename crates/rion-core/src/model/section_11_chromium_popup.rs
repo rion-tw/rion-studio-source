@@ -18,7 +18,6 @@ pub enum ChromiumPopupDisposition {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum ChromiumPopupOpenerPolicy {
     IsolatedNoopener,
-    ConnectedOpener,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -118,8 +117,6 @@ pub struct ChromiumPopupAdmissionRecord {
 pub struct ChromiumPopupNativeHostReceiptRecord {
     #[ts(type = "\"macos\" | \"windows\"")]
     pub platform: String,
-    #[ts(type = "\"electronBrowserWindow\"")]
-    pub host_kind: String,
     #[ts(type = "number")]
     pub native_host_id: u64,
     pub logical_window_id: String,
@@ -127,7 +124,6 @@ pub struct ChromiumPopupNativeHostReceiptRecord {
     pub window_generation: u64,
     #[ts(type = "number")]
     pub topology_revision: u64,
-    // Retained only for older in-process decoding; v31 receipts omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub appkit_identity: Option<AppKitRuntimeHostIdentityRecord>,

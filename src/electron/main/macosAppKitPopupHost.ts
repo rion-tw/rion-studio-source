@@ -40,7 +40,6 @@ export async function createMacosAppKitPopupHost(
   }
   const receipt: ChromiumPopupNativeHostReceiptRecord = Object.freeze({
     platform: "macos",
-    hostKind: "electronBrowserWindow",
     nativeHostId: host.id,
     logicalWindowId: admission.target.windowId,
     windowGeneration: 1,

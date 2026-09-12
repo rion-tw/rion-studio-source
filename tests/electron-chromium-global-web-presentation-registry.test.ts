@@ -22,10 +22,6 @@ import type {
 } from "../src/electron/main/chromiumRoleSurfacePorts";
 import type { ChromiumRoleSessionPort } from
   "../src/electron/main/chromiumRoleSessionRegistry";
-import type {
-  ChromiumWindowOpenDetails,
-  ChromiumWindowOpenHandlerResponse
-} from "../src/electron/main/chromiumPopupPorts";
 
 type Listener = (...arguments_: unknown[]) => unknown;
 
@@ -41,9 +37,7 @@ class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
   zoomFactor = 1;
   historyIndex = 0;
   history = ["https://fixture.test/start"];
-  windowOpenHandler: ((
-    details: ChromiumWindowOpenDetails
-  ) => ChromiumWindowOpenHandlerResponse) | null = null;
+  windowOpenHandler: ((details: { url: string }) => { action: "deny" }) | null = null;
   readonly navigationHistory = {
     canGoBack: () => this.historyIndex > 0,
     canGoForward: () => this.historyIndex < this.history.length - 1,
@@ -98,9 +92,7 @@ class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
   }
 
   setWindowOpenHandler(
-    handler: (
-      details: ChromiumWindowOpenDetails
-    ) => ChromiumWindowOpenHandlerResponse
+    handler: (details: { url: string }) => { action: "deny" }
   ): void {
     this.windowOpenHandler = handler;
   }

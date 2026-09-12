@@ -56,8 +56,6 @@ describe("Chromium controlled Role Reload source contract", () => {
     expect(spec).toContain("selectMacosVisibleRuntimeTabMenuAction");
     expect(spec).toContain("selectVisibleWindowsRuntimeTabMenuAction");
     expect(spec).toContain("electronDesktopE2eRuntimeTabReload");
-    expect(spec).toContain('hostKind: "electronBrowserWindow"');
-    expect(spec).toContain("appKitIdentity: null");
     expect(spec).toContain("stableNativeWindowIdentity");
     expect(spec).toContain("toBeGreaterThanOrEqual(");
     expect(spec).not.toContain('rendererCall("browserRuntimeTabReload"');

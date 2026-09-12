@@ -31,8 +31,7 @@ import type { ChromiumRoleActiveMainFrameFailurePort } from
   "../src/electron/main/chromiumRoleNavigationFailureReporter";
 import type {
   ChromiumPopupOwnerLifecyclePort,
-  ChromiumWindowOpenDetails,
-  ChromiumWindowOpenHandlerResponse
+  ChromiumWindowOpenDetails
 } from
   "../src/electron/main/chromiumPopupPorts";
 
@@ -73,7 +72,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   currentUrl = "";
   destroyed = false;
   windowOpenHandler:
-    | ((details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse)
+    | ((details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>)
     | null = null;
   loadResult: Promise<void> = Promise.resolve();
   currentAudioMuted = false;
@@ -149,9 +148,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   }
 
   setWindowOpenHandler(
-    handler: (
-      details: ChromiumWindowOpenDetails
-    ) => ChromiumWindowOpenHandlerResponse
+    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
   ): void {
     this.windowOpenHandler = handler;
   }

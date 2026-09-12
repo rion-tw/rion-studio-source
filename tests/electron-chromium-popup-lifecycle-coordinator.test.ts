@@ -16,12 +16,8 @@ import {
   resolveChromiumPopupParent,
   type ChromiumPopupLifecycleCoordinatorInput
 } from "../src/electron/main/chromiumPopupLifecycleCoordinator";
-import type {
-  ChromiumPopupOwnerSource,
-  ChromiumPopupWindowCreateOptions,
-  ChromiumPopupWindowEventMap,
-  ChromiumPopupWindowPort
-} from "../src/electron/main/chromiumPopupPorts";
+import type { ChromiumPopupOwnerSource } from
+  "../src/electron/main/chromiumPopupPorts";
 import type {
   ChromiumRoleSurfaceEventMap,
   ChromiumRoleSurfaceWebContentsPort,
@@ -106,7 +102,7 @@ class FakeCore {
       creationUrl: "about:blank",
       targetUrl: request.targetUrl,
       disposition: "newWindow",
-      openerPolicy: request.openerPolicy,
+      openerPolicy: "isolatedNoopener",
       referrerUrl: request.referrerUrl,
       referrerPolicy: request.referrerPolicy,
       hasPostBody: request.hasPostBody
@@ -211,7 +207,6 @@ class FakeView {
     this.bounds = { ...bounds };
   });
   readonly setVisible = vi.fn();
-  readonly stop = vi.fn();
   readonly windowOpen = vi.fn();
   readonly webContents: ChromiumRoleSurfaceWebContentsPort;
   readonly port: ChromiumRoleWebContentsViewPort;
@@ -221,9 +216,8 @@ class FakeView {
   url = "about:blank";
   zoomFactor = 1;
 
-  constructor(readonly session: object, opener: object | null = null) {
+  constructor(readonly session: object) {
     this.webContents = {
-      opener,
       session,
       close: this.close,
       executeJavaScriptInIsolatedWorld: vi.fn(),
@@ -243,7 +237,6 @@ class FakeView {
       },
       send: vi.fn(),
       setWindowOpenHandler: this.windowOpen,
-      stop: this.stop,
       setAudioMuted: vi.fn(),
       setZoomFactor: vi.fn((zoomFactor: number) => {
         this.zoomFactor = zoomFactor;
@@ -267,100 +260,6 @@ class FakeView {
   emit<EventName extends keyof ChromiumRoleSurfaceEventMap>(
     event: EventName,
     ...arguments_: Parameters<ChromiumRoleSurfaceEventMap[EventName]>
-  ): void {
-    for (const listener of this.listeners.get(event) ?? []) {
-      (listener as (...values: unknown[]) => void)(...arguments_);
-    }
-  }
-}
-
-class FakePopupWindow implements ChromiumPopupWindowPort {
-  readonly id = 72;
-  readonly listeners = new Map<
-    keyof ChromiumPopupWindowEventMap,
-    Set<(...arguments_: never[]) => void>
-  >();
-  readonly titles: string[] = [];
-  readonly focusableValues: boolean[] = [false];
-  readonly webContents: ChromiumRoleSurfaceWebContentsPort;
-  destroyed = false;
-  focused = false;
-  visible = false;
-  bounds = { x: 0, y: 0, width: 640, height: 480 };
-
-  constructor(readonly view: FakeView) {
-    this.webContents = view.webContents;
-  }
-
-  destroy(): void {
-    if (this.destroyed) return;
-    this.destroyed = true;
-    this.visible = false;
-    this.focused = false;
-    this.view.destroyed = true;
-    this.view.emit("destroyed");
-    this.emit("closed");
-  }
-
-  focus(): void {
-    if (!this.destroyed && this.visible) this.focused = true;
-  }
-
-  getBounds(): typeof this.bounds {
-    return { ...this.bounds };
-  }
-
-  getContentBounds(): typeof this.bounds {
-    return { ...this.bounds };
-  }
-
-  getTitle(): string { return this.titles.at(-1) ?? ""; }
-
-  hide(): void {
-    this.visible = false;
-    this.focused = false;
-  }
-
-  isDestroyed(): boolean { return this.destroyed; }
-  isFocused(): boolean { return this.focused; }
-  isVisible(): boolean { return this.visible; }
-
-  on<EventName extends keyof ChromiumPopupWindowEventMap>(
-    event: EventName,
-    listener: ChromiumPopupWindowEventMap[EventName]
-  ): void {
-    const listeners = this.listeners.get(event) ?? new Set();
-    listeners.add(listener as unknown as (...arguments_: never[]) => void);
-    this.listeners.set(event, listeners);
-  }
-
-  removeListener<EventName extends keyof ChromiumPopupWindowEventMap>(
-    event: EventName,
-    listener: ChromiumPopupWindowEventMap[EventName]
-  ): void {
-    this.listeners.get(event)?.delete(
-      listener as unknown as (...arguments_: never[]) => void
-    );
-  }
-
-  setBounds(bounds: typeof this.bounds): void {
-    this.bounds = { ...bounds };
-  }
-
-  setFocusable(focusable: boolean): void {
-    this.focusableValues.push(focusable);
-  }
-
-  setTitle(title: string): void {
-    this.titles.push(title);
-  }
-
-  show(): void { this.visible = true; }
-  showInactive(): void { this.visible = true; }
-
-  emit<EventName extends keyof ChromiumPopupWindowEventMap>(
-    event: EventName,
-    ...arguments_: Parameters<ChromiumPopupWindowEventMap[EventName]>
   ): void {
     for (const listener of this.listeners.get(event) ?? []) {
       (listener as (...values: unknown[]) => void)(...arguments_);
@@ -434,17 +333,12 @@ function harness(roleOwners: readonly RuntimeRoleFixture[] = [{
   windowId: "window-1",
   generation: 3,
   ownerGeneration: 5
-}], options: Readonly<{
-  opener?: "connected" | "equivalent" | "isolated" | "mismatch";
-  ownerKind?: "globalWeb" | "role";
-}> = {}): {
+}]): {
   core: FakeCore;
   coordinator: ChromiumPopupLifecycleCoordinator;
   host: FakeHost;
   hostCreate: ReturnType<typeof vi.fn>;
   onError: ReturnType<typeof vi.fn>;
-  popupCreate: ReturnType<typeof vi.fn>;
-  popupWindow: FakePopupWindow;
   source: ChromiumPopupOwnerSource;
   view: FakeView;
   viewPreferences: Array<Record<string, unknown>>;
@@ -456,32 +350,19 @@ function harness(roleOwners: readonly RuntimeRoleFixture[] = [{
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     isDestroyed: () => false
   };
-  const openerFrame = Object.freeze({ frameToken: "parent-main-frame" });
   const source = {
-    ownerKind: options.ownerKind ?? "role",
-    ownerId: options.ownerKind === "globalWeb" ? "web-surface-1" : "role-1",
-    ...(options.ownerKind === "globalWeb" ? { slotId: "slot-1" } : {}),
+    ownerKind: "role",
+    ownerId: "role-1",
     nativeGeneration: 3,
     parent,
-    session,
-    openerFrame
+    session
   } as unknown as ChromiumPopupOwnerSource;
   const host = new FakeHost();
-  const popupOpener = options.opener === "mismatch"
-      ? Object.freeze({ frameToken: "wrong-frame" })
-      : options.opener === "equivalent"
-        ? Object.freeze({ frameToken: "parent-main-frame" })
-        : options.opener === "isolated" ? null : openerFrame;
-  const view = new FakeView(session, popupOpener);
-  const popupWindow = new FakePopupWindow(view);
-  const popupCreate = vi.fn((
-    _options: ChromiumPopupWindowCreateOptions
-  ): ChromiumPopupWindowPort => popupWindow);
+  const view = new FakeView(session);
   const hostCreate = vi.fn(async () => ({
     host: host.host,
     receipt: {
       platform: "windows" as const,
-      hostKind: "electronBrowserWindow" as const,
       nativeHostId: 71,
       logicalWindowId: `popup-${POPUP_ID}`,
       windowGeneration: 1,
@@ -495,7 +376,6 @@ function harness(roleOwners: readonly RuntimeRoleFixture[] = [{
     hosts: { createPopup: hostCreate },
     onError,
     platform: "win32",
-    popupWindows: { create: popupCreate },
     runtimeSnapshot: () => ({
       windows: [{
         windowId: "window-1",
@@ -518,17 +398,8 @@ function harness(roleOwners: readonly RuntimeRoleFixture[] = [{
         audible: false,
         attemptGeneration: "attempt-1"
       }],
-      roles: options.ownerKind === "globalWeb" ? [] : roleOwners,
-      webSurfaces: options.ownerKind === "globalWeb"
-        ? [{
-            surfaceId: "web-surface-1",
-            slotId: "slot-1",
-            tabId: "tab-1",
-            windowId: "window-1",
-            generation: 3,
-            zoomFactor: 1
-          }]
-        : []
+      roles: roleOwners,
+      webSurfaces: []
     }),
     views: {
       create: (options) => {
@@ -545,8 +416,6 @@ function harness(roleOwners: readonly RuntimeRoleFixture[] = [{
     host,
     hostCreate,
     onError,
-    popupCreate,
-    popupWindow,
     source,
     view,
     viewPreferences
@@ -568,268 +437,6 @@ function open(coordinator: ChromiumPopupLifecycleCoordinator, source: ChromiumPo
 }
 
 describe("ChromiumPopupLifecycleCoordinator", () => {
-  it("returns a connected WindowProxy for an iQIYI-style named OAuth popup", async () => {
-    const {
-      coordinator,
-      core,
-      popupCreate,
-      popupWindow,
-      source,
-      view
-    } = harness(undefined, { ownerKind: "globalWeb" });
-    const oauthUrl = "https://accounts.google.com/v3/signin/accountchooser";
-    const admissionGate = deferred();
-    core.admissionGate = admissionGate.promise;
-    const features = [
-      "height=450",
-      "width=500",
-      "top=100",
-      "left=200",
-      "toolbar=no",
-      "menubar=no",
-      "scrollbars=yes",
-      "resizable=yes",
-      "location=no",
-      "status=no"
-    ].join(",");
-    const response = coordinator.handleWindowOpen(source, {
-      url: oauthUrl,
-      disposition: "new-window",
-      frameName: "thirdLoginWindow",
-      features,
-      referrer: {
-        url: "https://www.iq.com/",
-        policy: "strict-origin-when-cross-origin"
-      }
-    });
-    expect(response.action).toBe("allow");
-    if (response.action !== "allow") throw new Error("Expected popup admission.");
-    const returnedContents = response.createWindow({
-      webContents: view.webContents,
-      webPreferences: { nodeIntegration: true, preload: "/unsafe" }
-    });
-    expect(returnedContents).toBe(view.webContents);
-    expect(view.stop).toHaveBeenCalledOnce();
-    expect(response.outlivesOpener).toBe(false);
-    expect(response.overrideBrowserWindowOptions).toEqual(expect.objectContaining({
-      show: false,
-      webPreferences: expect.objectContaining({
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        session: source.session
-      })
-    }));
-    expect(core.commands).toEqual([]);
-    expect(popupWindow.visible).toBe(false);
-    expect(popupWindow.focused).toBe(false);
-    expect(popupCreate).toHaveBeenCalledWith(expect.objectContaining({
-      autoHideMenuBar: true,
-      focusable: false,
-      frame: true,
-      fullscreenable: false,
-      show: false,
-      title: "Rion Popup — accounts.google.com",
-      webContents: view.webContents,
-      webPreferences: expect.objectContaining({
-        contextIsolation: true,
-        nodeIntegration: false,
-        paintWhenInitiallyHidden: false,
-        sandbox: true,
-        session: source.session,
-        webviewTag: false
-      })
-    }));
-
-    const initialNavigation = {
-      isMainFrame: true,
-      preventDefault: vi.fn(),
-      url: oauthUrl
-    };
-    view.emit("will-frame-navigate", initialNavigation);
-    expect(initialNavigation.preventDefault).toHaveBeenCalledOnce();
-    expect(popupWindow.visible).toBe(false);
-    await eventually(() => core.commands.length === 1);
-    expect(view.loadURL).not.toHaveBeenCalled();
-    expect(core.actions).toEqual([]);
-    admissionGate.resolve();
-    await eventually(() => view.loadURL.mock.calls.length === 1);
-
-    expect(core.commands[0]).toMatchObject({
-      request: {
-        frameName: "thirdLoginWindow",
-        openerPolicy: "connectedOpener",
-        parent: expect.objectContaining({ ownerKind: "globalWeb" }),
-        rawFeatures: features,
-        referrerPolicy: "strict-origin-when-cross-origin",
-        referrerUrl: "https://www.iq.com/",
-        targetUrl: oauthUrl
-      },
-      type: "browserPopupOpenAdmit"
-    });
-    expect(core.actions[0]).toMatchObject({
-      host: {
-        hostKind: "electronBrowserWindow",
-        nativeHostId: popupWindow.id,
-        platform: "windows"
-      },
-      type: "nativeReady"
-    });
-    expect(popupWindow.focusableValues).toEqual([false, true]);
-    expect(popupWindow.visible).toBe(true);
-    expect(view.loadURL).toHaveBeenCalledWith(oauthUrl, {
-      httpReferrer: {
-        policy: "strict-origin-when-cross-origin",
-        url: "https://www.iq.com/"
-      }
-    });
-
-    view.emit("did-navigate", {}, "https://passport.iq.com/intl/callback", 200, "OK");
-    expect(popupWindow.titles.at(-1)).toBe("Rion Popup — passport.iq.com");
-    const titleEvent = { preventDefault: vi.fn() };
-    view.emit("page-title-updated", titleEvent, "Untrusted title", true);
-    expect(titleEvent.preventDefault).toHaveBeenCalledOnce();
-
-    view.url = "https://passport.iq.com/intl/callback";
-    view.emit("did-finish-load");
-    await eventually(() => core.actions.some((action) => action.type === "pageReady"));
-    view.emit(
-      "did-fail-load",
-      {},
-      -3,
-      "ERR_ABORTED",
-      "",
-      true,
-      1,
-      1
-    );
-    await Promise.resolve();
-    expect(core.actions.some((action) => action.type === "closeRequested"))
-      .toBe(false);
-    const scriptClose = { preventDefault: vi.fn() };
-    popupWindow.emit("close", scriptClose);
-    expect(scriptClose.preventDefault).toHaveBeenCalledOnce();
-    await eventually(() => coordinator.activeCount === 0);
-    expect(core.actions.map((action) => action.type)).toEqual([
-      "nativeReady",
-      "pageReady",
-      "closeRequested",
-      "nativeClosed"
-    ]);
-    await coordinator.dispose();
-    expect(popupWindow.destroyed).toBe(true);
-  });
-
-  it("admits after synchronously stopping an initial navigation event missed by Electron", async () => {
-    const { coordinator, core, popupWindow, source, view } = harness(
-      undefined,
-      { ownerKind: "globalWeb" }
-    );
-    const response = coordinator.handleWindowOpen(source, {
-      url: "https://popup.example.test/early-navigation",
-      disposition: "new-window",
-      frameName: "earlyPopup",
-      features: "width=500,height=450"
-    });
-    if (response.action !== "allow") throw new Error("Expected popup admission.");
-    response.createWindow({ webContents: view.webContents });
-
-    expect(view.stop).toHaveBeenCalledOnce();
-    expect(core.commands).toEqual([]);
-    await eventually(() => core.admissionCount === 1);
-    await eventually(() => view.loadURL.mock.calls.length === 1);
-    expect(core.commands[0]).toMatchObject({
-      request: {
-        openerPolicy: "connectedOpener",
-        targetUrl: "https://popup.example.test/early-navigation"
-      }
-    });
-    expect(popupWindow.visible).toBe(true);
-    await coordinator.dispose();
-  });
-
-  it("preserves explicit noopener and rejects unsafe named popup inputs", async () => {
-    const isolated = harness(undefined, { opener: "equivalent" });
-    const response = isolated.coordinator.handleWindowOpen(isolated.source, {
-      url: "https://accounts.example.test/oauth",
-      disposition: "new-window",
-      frameName: "oauthWindow",
-      features: "noopener,noreferrer,width=500,height=450"
-    });
-    expect(response.action).toBe("allow");
-    if (response.action !== "allow") throw new Error("Expected popup admission.");
-    response.createWindow({ webContents: isolated.view.webContents });
-    isolated.view.emit("will-frame-navigate", {
-      isMainFrame: true,
-      preventDefault: vi.fn(),
-      url: "https://accounts.example.test/oauth"
-    });
-    await eventually(() => isolated.core.admissionCount === 1);
-    expect(isolated.core.commands[0]).toMatchObject({
-      request: { openerPolicy: "isolatedNoopener" }
-    });
-    await isolated.coordinator.dispose();
-
-    const relIsolated = harness(undefined, { opener: "isolated" });
-    const relResponse = relIsolated.coordinator.handleWindowOpen(relIsolated.source, {
-      url: "https://accounts.example.test/rel-noopener",
-      disposition: "new-window",
-      frameName: "",
-      features: "width=500,height=450"
-    });
-    if (relResponse.action !== "allow") throw new Error("Expected popup admission.");
-    relResponse.createWindow({ webContents: relIsolated.view.webContents });
-    await eventually(() => relIsolated.core.admissionCount === 1);
-    expect(relIsolated.core.commands[0]).toMatchObject({
-      request: { openerPolicy: "isolatedNoopener" }
-    });
-    await relIsolated.coordinator.dispose();
-
-    const rejected = harness();
-    for (const details of [
-      {
-        url: "https://popup.example.test/",
-        disposition: "new-window",
-        frameName: "_top",
-        features: "width=500"
-      },
-      {
-        url: "https://popup.example.test/",
-        disposition: "new-window",
-        frameName: "thirdLoginWindow",
-        features: "nodeIntegration=yes"
-      }
-    ]) {
-      expect(rejected.coordinator.handleWindowOpen(rejected.source, details))
-        .toEqual({ action: "deny" });
-    }
-    expect(rejected.popupCreate).not.toHaveBeenCalled();
-    await rejected.coordinator.dispose();
-  });
-
-  it("destroys a provisional BrowserWindow whose opener is not the parent frame", async () => {
-    const mismatch = harness(undefined, { opener: "mismatch" });
-    const response = mismatch.coordinator.handleWindowOpen(mismatch.source, {
-      url: "https://popup.example.test/oauth",
-      disposition: "new-window",
-      frameName: "oauthWindow",
-      features: "width=500,height=450"
-    });
-    if (response.action !== "allow") throw new Error("Expected popup admission.");
-    response.createWindow({ webContents: mismatch.view.webContents });
-    mismatch.view.emit("will-frame-navigate", {
-      isMainFrame: true,
-      preventDefault: vi.fn(),
-      url: "https://popup.example.test/oauth"
-    });
-    expect(mismatch.popupWindow.destroyed).toBe(true);
-    expect(mismatch.core.commands).toEqual([]);
-    expect(mismatch.onError).toHaveBeenCalledWith(expect.objectContaining({
-      code: "ELECTRON_CHROMIUM_POPUP_OPENER_MISMATCH"
-    }));
-    await mismatch.coordinator.dispose();
-  });
-
   it("admits a normal target-blank left click and denies background dispositions", async () => {
     const foreground = harness();
     foreground.coordinator.requestOpen(foreground.source, {
@@ -1361,7 +968,6 @@ describe("ChromiumPopupLifecycleCoordinator", () => {
         host: host.host,
         receipt: {
           platform: "windows" as const,
-          hostKind: "electronBrowserWindow" as const,
           nativeHostId: 71,
           logicalWindowId: `popup-${POPUP_ID}`,
           windowGeneration: 1,

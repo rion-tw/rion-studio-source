@@ -54,7 +54,7 @@ function harness(input: Readonly<{
   const observer = new ElectronDesktopE2eRuntimeTabReloadObserver({
     artifactDirectory: undefined,
     platform: () => input.platform ?? "darwin",
-    readPopupHostOwners: () => new Map(),
+    popupHostOwners: new Map(),
     readRuntime: () => ({ snapshot: () => snapshot as never }),
     roleSurfaceOwners: new Map([[ROLE_ID, {
       generation: 5,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  AppKitRuntimeHostIdentityRecord,
   ChromiumPopupAdmissionRecord,
   ChromiumPopupCloseReason,
   ChromiumPopupLifecycleActionRecord,
@@ -10,7 +11,8 @@ import type {
   ChromiumPopupOpenRequestRecord,
   ChromiumPopupParentFenceRecord,
   CoreCommand,
-  CoreCommandResult
+  CoreCommandResult,
+  EmbeddedLaunchTargetRecord
 } from "../../shared/generated";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import {
@@ -22,10 +24,6 @@ import type {
   ChromiumPopupOwnerLifecyclePort,
   ChromiumPopupOwnerSource,
   ChromiumPopupPostBody,
-  ChromiumPopupWindowCreateOptions,
-  ChromiumPopupWindowFactoryPort,
-  ChromiumPopupWindowPort,
-  ChromiumWindowOpenHandlerResponse,
   ChromiumWindowOpenDetails
 } from "./chromiumPopupPorts";
 import type {
@@ -40,36 +38,14 @@ import type {
   ChromiumRuntimeExecutorSnapshot,
   ChromiumRuntimeHostPort
 } from "./chromiumRuntimeEffectExecutor";
-import {
-  exactChromiumPopupOpenerFrameEqual,
-  exactChromiumPopupParentResolutionEqual,
-  resolveChromiumPopupParent
-} from "./chromiumPopupParent";
-import type { ChromiumPopupParentResolution } from "./chromiumPopupParent";
-export { resolveChromiumPopupParent } from "./chromiumPopupParent";
-export type { ChromiumPopupParentResolution } from "./chromiumPopupParent";
 import type { ChromiumRuntimeHostProjection } from
   "./chromiumRuntimeHostPorts";
 import { buildUnprivilegedRemoteContentWebPreferences } from "./security";
-import {
-  buildChromiumPopupOpenRequest,
-  canonicalChromiumPopupRemoteUrl,
-  chromiumPopupRequestsNoopener,
-  chromiumPopupLoadOptions,
-  createChromiumPopupBrowserWindowHost,
-  supportedChromiumWindowOpen,
-  trustedChromiumPopupTitle
-} from "./chromiumPopupBrowserWindow";
 import type {
   ChromiumRuntimePopupZoomInput,
   ChromiumRuntimePopupZoomPort,
   ChromiumRuntimePopupZoomTransaction
 } from "./chromiumRuntimeWindowZoomPorts";
-import {
-  chromiumPopupZoomContext,
-  effectiveChromiumPopupZoom,
-  finiteChromiumPopupZoom
-} from "./chromiumPopupZoomPolicy";
 
 type CoordinatorState = "open" | "draining" | "closed";
 type PopupState = "opening" | "nativeReady" | "ready" | "closing" | "terminal";
@@ -104,15 +80,6 @@ export interface ChromiumPopupLifecycleJournalSnapshot {
   readonly observations: readonly ChromiumPopupLifecycleJournalObservation[];
 }
 
-export interface ChromiumPopupNativeWindowSnapshot {
-  readonly admission: ChromiumPopupAdmissionRecord;
-  readonly currentUrl: string;
-  readonly host: ChromiumRuntimeHostPort;
-  readonly ownerKind: ChromiumPopupOwnerSource["ownerKind"];
-  readonly receipt: ChromiumPopupNativeHostReceiptRecord;
-  readonly title: string;
-}
-
 interface Deferred<Value> {
   readonly promise: Promise<Value>;
   readonly resolve: (value: Value) => void;
@@ -132,29 +99,26 @@ export interface ChromiumPopupHostFactoryPort {
   }>>;
 }
 
+export interface ChromiumPopupParentResolution {
+  readonly parent: ChromiumPopupParentFenceRecord;
+  readonly parentTarget: EmbeddedLaunchTargetRecord;
+}
+
 export interface ChromiumPopupLifecycleCoordinatorInput {
   readonly core: ChromiumPopupCorePort;
-  /** Legacy lower-layer harness only; production popup creation is BrowserWindow-only. */
-  readonly hosts?: ChromiumPopupHostFactoryPort;
+  readonly hosts: ChromiumPopupHostFactoryPort;
   readonly onError: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
   readonly platform: "darwin" | "win32";
   readonly runtimeSnapshot: () => ChromiumRuntimeExecutorSnapshot;
-  /** Legacy lower-layer harness only; production does not attach an extra View. */
-  readonly views?: ChromiumWebContentsViewFactoryPort;
-  /** Required by production; legacy unit harnesses may exercise requestOpen only. */
-  readonly popupWindows?: ChromiumPopupWindowFactoryPort;
+  readonly views: ChromiumWebContentsViewFactoryPort;
 }
 
 interface PopupListeners {
-  readonly contentBoundsUpdated: ChromiumRoleSurfaceEventMap["content-bounds-updated"];
   readonly destroyed: () => void;
   readonly didFailLoad: ChromiumRoleSurfaceEventMap["did-fail-load"];
   readonly didFinishLoad: () => void;
-  readonly didNavigate: ChromiumRoleSurfaceEventMap["did-navigate"];
   readonly enteredHtmlFullscreen: () => void;
   readonly leftHtmlFullscreen: () => void;
-  readonly pageTitleUpdated: ChromiumRoleSurfaceEventMap["page-title-updated"];
-  readonly renderProcessGone: ChromiumRoleSurfaceEventMap["render-process-gone"];
   readonly willAttachWebview: (event: ChromiumRoleSurfaceEvent) => void;
   readonly willNavigate: (event: ChromiumRoleSurfaceEvent, url: string) => void;
   readonly willRedirect: ChromiumRoleSurfaceEventMap["will-redirect"];
@@ -178,24 +142,6 @@ interface PopupRecord {
   containedFullscreen: boolean;
   containedFullscreenHostProjection: ChromiumRuntimeHostProjection | null;
   closeReason: ChromiumPopupCloseReason | null;
-  directWindow: ChromiumPopupWindowPort | null;
-  nativeReceipt: ChromiumPopupNativeHostReceiptRecord | null;
-}
-
-interface ProvisionalPopup {
-  readonly details: ChromiumWindowOpenDetails;
-  readonly ownerKey: string;
-  readonly postBody: ChromiumPopupPostBody | undefined;
-  readonly resolution: ChromiumPopupParentResolution;
-  readonly source: ChromiumPopupOwnerSource;
-  readonly window: ChromiumPopupWindowPort;
-  readonly closeRequested: (event: ChromiumRoleSurfaceEvent) => void;
-  readonly closed: () => void;
-  readonly willAttachWebview: (event: ChromiumRoleSurfaceEvent) => void;
-  readonly willFrameNavigate: ChromiumRoleSurfaceEventMap["will-frame-navigate"];
-  admissionStarted: boolean;
-  adopted: boolean;
-  disposed: boolean;
 }
 
 interface AdmissionFlight {
@@ -250,6 +196,35 @@ function terminalReason(
   return receipt.failureCode ?? (action.type === "pageReady" ? "pageReady" : receipt.phase);
 }
 
+function exactParentResolutionEqual(
+  left: ChromiumPopupParentResolution,
+  right: ChromiumPopupParentResolution
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function canonicalRemoteUrl(value: unknown): string | null {
+  if (
+    typeof value !== "string" || value.length === 0 || value.length > 8_192 ||
+    value !== value.trim() || value.includes("\\") || /\s/u.test(value)
+  ) {
+    return null;
+  }
+  try {
+    const parsed = new URL(value);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.hostname.length === 0 || parsed.username.length > 0 ||
+      parsed.password.length > 0 || parsed.href !== value
+    ) {
+      return null;
+    }
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
 function sameBounds(
   left: ChromiumRoleSurfaceBounds,
   right: ChromiumRoleSurfaceBounds
@@ -266,12 +241,198 @@ function sameHostEnvelope(
     left.presentation === right.presentation && sameBounds(left.bounds, right.bounds);
 }
 
+function supportedWindowOpen(details: ChromiumWindowOpenDetails): boolean {
+  // Role surfaces may forward foreground-tab or explicit new-window requests.
+  // The Workspace Website registry forwards only new-window; its tab
+  // dispositions are consumed as same-surface navigation before this policy.
+  return (details.disposition === "foreground-tab" ||
+      details.disposition === "new-window") &&
+    details.url !== "about:blank" &&
+    typeof details.url === "string" && details.url.length <= 8_192 &&
+    (details.frameName === undefined || details.frameName === "" ||
+      details.frameName === "_blank") &&
+    (details.features?.length ?? 0) <= 1_024;
+}
+
+function appKitIdentityMatches(
+  identity: AppKitRuntimeHostIdentityRecord,
+  windowId: string
+): boolean {
+  return identity.logicalWindowId === windowId &&
+    identity.launchGeneration.length > 0 &&
+    Number.isSafeInteger(identity.nativeGeneration) &&
+    identity.nativeGeneration > 0;
+}
+
+function effectiveWindowZoom(base: number, windowFactor: number): number {
+  return Math.min(5, Math.max(0.25, base * windowFactor));
+}
+
+function finiteZoom(value: unknown, fallback?: number): number {
+  const candidate = value === undefined ? fallback : value;
+  if (
+    typeof candidate !== "number" || !Number.isFinite(candidate) ||
+    candidate < 0.25 || candidate > 5
+  ) {
+    throw popupError(
+      "ELECTRON_CHROMIUM_POPUP_ZOOM_FENCE_INVALID",
+      "The controlled popup lost its exact runtime-window zoom fence."
+    );
+  }
+  return candidate;
+}
+
+function popupZoomContext(
+  snapshot: ChromiumRuntimeExecutorSnapshot,
+  admission: ChromiumPopupAdmissionRecord
+): Readonly<{ base: number; windowFactor: number }> {
+  const parent = admission.parent;
+  const window = snapshot.windows.find((candidate) =>
+    candidate.windowId === parent.parentWindowId &&
+    candidate.windowGeneration === parent.parentWindowGeneration);
+  const owner = parent.ownerKind === "role"
+    ? snapshot.roles.find((candidate) =>
+        candidate.roleId === parent.ownerId &&
+        candidate.generation === parent.ownerNativeGeneration &&
+        candidate.windowId === parent.parentWindowId)
+    : snapshot.webSurfaces.find((candidate) =>
+        candidate.surfaceId === parent.ownerId &&
+        candidate.generation === parent.ownerNativeGeneration &&
+        candidate.windowId === parent.parentWindowId);
+  if (!window || !owner) {
+    throw popupError(
+      "ELECTRON_CHROMIUM_POPUP_ZOOM_OWNER_STALE",
+      "The controlled popup no longer has its exact live window owner."
+    );
+  }
+  return Object.freeze({
+    base: finiteZoom(owner.zoomFactor, 1),
+    windowFactor: finiteZoom(window.windowZoomFactor, 1)
+  });
+}
+
+/** Resolves only Electron-owned native handles; Core revalidates logical fences. */
+export function resolveChromiumPopupParent(
+  snapshot: ChromiumRuntimeExecutorSnapshot,
+  source: ChromiumPopupOwnerSource,
+  platform: "darwin" | "win32"
+): ChromiumPopupParentResolution | null {
+  if (
+    source.parent.isDestroyed() || !Number.isSafeInteger(source.parent.id) ||
+    source.parent.id < 1 || !Number.isSafeInteger(source.nativeGeneration) ||
+    source.nativeGeneration < 1
+  ) {
+    return null;
+  }
+  const owner = source.ownerKind === "role"
+    ? snapshot.roles.find((candidate) =>
+        candidate.roleId === source.ownerId &&
+        candidate.generation === source.nativeGeneration)
+    : snapshot.webSurfaces.find((candidate) =>
+        candidate.surfaceId === source.ownerId &&
+        candidate.slotId === source.slotId &&
+        candidate.generation === source.nativeGeneration);
+  if (!owner) return null;
+  const tab = snapshot.tabs.find((candidate) => candidate.tabId === owner.tabId);
+  const window = snapshot.windows.find((candidate) =>
+    candidate.windowId === owner.windowId &&
+    candidate.parentNativeHostId === source.parent.id &&
+    candidate.tabIds.includes(owner.tabId));
+  if (
+    !tab || !window || tab.windowId !== window.windowId ||
+    !tab.attemptGeneration || !window.target ||
+    !Number.isSafeInteger(window.parentNativeHostId) ||
+    (window.parentNativeHostId ?? 0) < 1
+  ) return null;
+  if (
+    platform === "darwin" &&
+    (!window.appKitIdentity || !appKitIdentityMatches(
+      window.appKitIdentity,
+      window.windowId
+    ))
+  ) {
+    return null;
+  }
+  if (platform === "win32" && window.appKitIdentity) return null;
+  const role = source.ownerKind === "role"
+    ? snapshot.roles.find((candidate) =>
+        candidate.roleId === source.ownerId &&
+        candidate.generation === source.nativeGeneration)
+    : undefined;
+  return Object.freeze({
+    parent: Object.freeze({
+      ownerKind: source.ownerKind,
+      ownerId: source.ownerId,
+      ...(source.ownerKind === "globalWeb" ? { slotId: source.slotId! } : {}),
+      ownerNativeGeneration: source.nativeGeneration,
+      ...(role ? { roleOwnerGeneration: role.ownerGeneration } : {}),
+      parentWindowId: window.windowId,
+      parentWindowGeneration: window.windowGeneration,
+      parentTopologyRevision: window.topologyRevision,
+      parentTabId: owner.tabId,
+      parentAttemptGeneration: tab.attemptGeneration,
+      parentNativeHostId: window.parentNativeHostId!,
+      ...(window.appKitIdentity
+        ? { parentAppkitIdentity: Object.freeze({ ...window.appKitIdentity }) }
+        : {})
+    }),
+    parentTarget: Object.freeze({
+      ...window.target,
+      bounds: Object.freeze({ ...window.target.bounds }),
+      workArea: Object.freeze({ ...window.target.workArea })
+    })
+  });
+}
+
+function openRequest(
+  details: ChromiumWindowOpenDetails,
+  resolution: ChromiumPopupParentResolution,
+  hasPostBody: boolean
+): ChromiumPopupOpenRequestRecord {
+  const referrerUrl = details.referrer?.url || undefined;
+  const referrerPolicy = details.referrer?.policy || undefined;
+  return Object.freeze({
+    requestId: randomUUID(),
+    parent: resolution.parent,
+    parentTarget: resolution.parentTarget,
+    targetUrl: details.url,
+    disposition: "newWindow",
+    openerPolicy: "isolatedNoopener",
+    ...(details.frameName ? { frameName: details.frameName } : {}),
+    ...(referrerUrl ? { referrerUrl } : {}),
+    ...(referrerPolicy ? { referrerPolicy } : {}),
+    rawFeatures: details.features ?? "",
+    hasPostBody
+  });
+}
+
+function popupLoadOptions(
+  admission: ChromiumPopupAdmissionRecord,
+  postBody: ChromiumPopupPostBody | undefined
+): Parameters<ChromiumRoleSurfaceWebContentsPort["loadURL"]>[1] {
+  const httpReferrer = admission.referrerUrl
+    ? {
+        url: admission.referrerUrl,
+        policy: admission.referrerPolicy ?? "default"
+      }
+    : undefined;
+  if (!postBody) return httpReferrer ? { httpReferrer } : undefined;
+  const contentType = postBody.contentType === "multipart/form-data"
+    ? `${postBody.contentType}; boundary=${postBody.boundary!}`
+    : postBody.contentType;
+  return {
+    ...(httpReferrer ? { httpReferrer } : {}),
+    extraHeaders: `Content-Type: ${contentType}`,
+    postData: [...postBody.data]
+  };
+}
+
+/** Event-bound owner for controlled Chromium popup native projections. */
 export class ChromiumPopupLifecycleCoordinator
 implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
   readonly #input: ChromiumPopupLifecycleCoordinatorInput;
   readonly #records = new Map<string, PopupRecord>();
   readonly #popupIdsByOwner = new Map<string, Set<string>>();
-  readonly #provisionals = new Set<ProvisionalPopup>();
   readonly #admissionFlights = new Set<AdmissionFlight>();
   readonly #retiredOwnerFences = new Set<string>();
   readonly #movingOwnerFences = new Map<string, number>();
@@ -288,7 +449,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
   }
 
   get activeCount(): number {
-    return this.#records.size + this.#provisionals.size;
+    return this.#records.size;
   }
 
   /** Detached evidence sourced only from exact Core lifecycle receipts. */
@@ -300,24 +461,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     });
   }
 
-  /** Exact live native popup evidence used by the desktop E2E observer. */
-  readNativeWindowSnapshot(): readonly ChromiumPopupNativeWindowSnapshot[] {
-    return Object.freeze([...this.#records.values()].flatMap((record) => {
-      if (
-        !record.host || !record.nativeReceipt || record.host.isDestroyed() ||
-        record.state === "terminal"
-      ) return [];
-      return [Object.freeze({
-        admission: record.admission,
-        currentUrl: record.contents?.getURL() ?? "about:blank",
-        host: record.host,
-        ownerKind: record.source.ownerKind,
-        receipt: record.nativeReceipt,
-        title: record.directWindow?.getTitle() ?? record.admission.title
-      })];
-    }));
-  }
-
   async prepareWindowZoomTransaction(
     input: ChromiumRuntimePopupZoomInput
   ): Promise<ChromiumRuntimePopupZoomTransaction> {
@@ -327,8 +470,8 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
         "Controlled popup zoom is unavailable while the runtime is draining."
       );
     }
-    finiteChromiumPopupZoom(input.previousZoomFactor);
-    finiteChromiumPopupZoom(input.nextZoomFactor);
+    finiteZoom(input.previousZoomFactor);
+    finiteZoom(input.nextZoomFactor);
     const releaseAdmissionLease = this.#acquireWindowZoomAdmissionLease(
       input.windowId
     );
@@ -352,10 +495,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
       const snapshot = this.#input.runtimeSnapshot();
       const window = snapshot.windows.find((candidate) =>
         candidate.windowId === input.windowId);
-      const currentWindowFactor = finiteChromiumPopupZoom(
-        window?.windowZoomFactor,
-        1
-      );
+      const currentWindowFactor = finiteZoom(window?.windowZoomFactor, 1);
       if (
         !window || window.windowGeneration !== input.windowGeneration ||
         window.topologyRevision !== input.topologyRevision ||
@@ -373,7 +513,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
           (record.state !== "nativeReady" && record.state !== "ready") ||
           !record.view || !record.contents || record.contents.isDestroyed()
         ) return [];
-        const context = chromiumPopupZoomContext(snapshot, record.admission);
+        const context = popupZoomContext(snapshot, record.admission);
         if (context.windowFactor !== currentWindowFactor) {
           throw popupError(
             "ELECTRON_CHROMIUM_POPUP_ZOOM_FENCE_STALE",
@@ -381,10 +521,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
           );
         }
         const previousNativeZoom = record.contents.getZoomFactor();
-        const expectedCurrent = effectiveChromiumPopupZoom(
-          context.base,
-          currentWindowFactor
-        );
+        const expectedCurrent = effectiveWindowZoom(context.base, currentWindowFactor);
         if (previousNativeZoom !== expectedCurrent) {
           throw popupError(
             "ELECTRON_CHROMIUM_POPUP_ZOOM_READBACK_STALE",
@@ -394,10 +531,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
         return [{
           contents: record.contents,
           previousNativeZoom,
-          nextNativeZoom: effectiveChromiumPopupZoom(
-            context.base,
-            input.nextZoomFactor
-          )
+          nextNativeZoom: effectiveWindowZoom(context.base, input.nextZoomFactor)
         }];
       });
       const applied: typeof candidates = [];
@@ -472,128 +606,14 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     }
   }
 
-  handleWindowOpen(
-    source: ChromiumPopupOwnerSource,
-    details: ChromiumWindowOpenDetails
-  ): ChromiumWindowOpenHandlerResponse {
-    const key = ownerKey(source);
-    const factory = this.#input.popupWindows;
-    if (
-      !factory || this.#state !== "open" || this.#ownerAdmissionFenced(key) ||
-      !supportedChromiumWindowOpen(details) ||
-      canonicalChromiumPopupRemoteUrl(details.url) === null ||
-      !source.openerFrame ||
-      this.#records.size + this.#admissionFlights.size + this.#provisionals.size >=
-        MAX_POPUPS
-    ) return { action: "deny" };
-    const postBody = normalizeChromiumWindowOpenPostBody(details);
-    if (postBody === null) {
-      this.#input.onError(normalizeRionBridgeError(popupError(
-        "ELECTRON_CHROMIUM_POPUP_POST_BODY_INVALID",
-        "The popup POST envelope is malformed or exceeds Rion's bounded transfer policy."
-      )));
-      return { action: "deny" };
-    }
-    const resolution = resolveChromiumPopupParent(
-      this.#input.runtimeSnapshot(),
-      source,
-      this.#input.platform
-    );
-    if (
-      !resolution ||
-      this.#windowZoomAdmissionLeases.has(resolution.parent.parentWindowId)
-    ) {
-      clearChromiumPopupPostBody(postBody);
-      return { action: "deny" };
-    }
-    const frozenDetails: ChromiumWindowOpenDetails = Object.freeze({
-      url: details.url,
-      disposition: details.disposition,
-      frameName: details.frameName,
-      features: details.features,
-      ...(details.referrer
-        ? { referrer: Object.freeze({ ...details.referrer }) }
-        : {})
-    });
-    const windowOptions: ChromiumPopupWindowCreateOptions = Object.freeze({
-      autoHideMenuBar: true,
-      focusable: false,
-      frame: true,
-      fullscreenable: false,
-      height: 480,
-      show: false,
-      title: trustedChromiumPopupTitle(details.url),
-      webPreferences: Object.freeze({
-        ...buildUnprivilegedRemoteContentWebPreferences(),
-        paintWhenInitiallyHidden: false,
-        session: source.session
-      }),
-      width: 640
-    });
-    let consumed = false;
-    return Object.freeze({
-      action: "allow" as const,
-      outlivesOpener: false as const,
-      overrideBrowserWindowOptions: windowOptions,
-      createWindow: (options: unknown) => {
-        if (consumed) {
-          clearChromiumPopupPostBody(postBody);
-          throw popupError(
-            "ELECTRON_CHROMIUM_POPUP_CREATE_REPLAYED",
-            "Electron replayed a one-shot controlled popup constructor."
-          );
-        }
-        consumed = true;
-        let popupWindow: ChromiumPopupWindowPort;
-        try {
-          const suppliedContents = options && typeof options === "object"
-            ? (options as { webContents?: unknown }).webContents
-            : undefined;
-          if (!suppliedContents || typeof suppliedContents !== "object") {
-            throw popupError(
-              "ELECTRON_CHROMIUM_POPUP_WEBCONTENTS_MISSING",
-              "Electron did not provide the connected popup WebContents."
-            );
-          }
-          popupWindow = factory.create({
-            ...windowOptions,
-            webContents: suppliedContents as ChromiumRoleSurfaceWebContentsPort
-          });
-          if (popupWindow.webContents !== suppliedContents) {
-            if (!popupWindow.isDestroyed()) popupWindow.destroy();
-            throw popupError(
-              "ELECTRON_CHROMIUM_POPUP_WEBCONTENTS_MISMATCH",
-              "The popup BrowserWindow did not adopt Electron's connected WebContents."
-            );
-          }
-          return this.#registerProvisionalPopup(
-            popupWindow,
-            source,
-            frozenDetails,
-            resolution,
-            postBody
-          );
-        } catch (error) {
-          clearChromiumPopupPostBody(postBody);
-          this.#input.onError(normalizeRionBridgeError(
-            error,
-            "ELECTRON_CHROMIUM_POPUP_WINDOW_CREATE_FAILED"
-          ));
-          throw error;
-        }
-      }
-    });
-  }
-
   requestOpen(
     source: ChromiumPopupOwnerSource,
     details: ChromiumWindowOpenDetails
   ): void {
     const key = ownerKey(source);
     if (
-      !this.#input.hosts || !this.#input.views ||
       this.#state !== "open" || this.#ownerAdmissionFenced(key) ||
-      !supportedChromiumWindowOpen(details) ||
+      !supportedWindowOpen(details) ||
       this.#records.size + this.#admissionFlights.size >= MAX_POPUPS
     ) return;
     const postBody = normalizeChromiumWindowOpenPostBody(details);
@@ -622,11 +642,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
       promise: Promise.resolve()
     };
     this.#admissionFlights.add(flight);
-    const request = buildChromiumPopupOpenRequest(
-      details,
-      resolution,
-      postBody !== undefined
-    );
+    const request = openRequest(details, resolution, postBody !== undefined);
     const terminal = this.#admitAndOpen(source, request, resolution, postBody);
     flight.promise = terminal;
     void terminal.catch((error: unknown) => {
@@ -637,162 +653,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     }).finally(() => {
       this.#admissionFlights.delete(flight);
     });
-  }
-
-  #registerProvisionalPopup(
-    popupWindow: ChromiumPopupWindowPort,
-    source: ChromiumPopupOwnerSource,
-    details: ChromiumWindowOpenDetails,
-    resolution: ChromiumPopupParentResolution,
-    postBody: ChromiumPopupPostBody | undefined
-  ): ChromiumRoleSurfaceWebContentsPort {
-    const contents = popupWindow.webContents;
-    if (
-      !Number.isSafeInteger(popupWindow.id) || popupWindow.id < 1 ||
-      popupWindow.isDestroyed() || popupWindow.isVisible() ||
-      popupWindow.isFocused() || contents.isDestroyed() ||
-      contents.session !== source.session || typeof contents.stop !== "function"
-    ) {
-      if (!popupWindow.isDestroyed()) popupWindow.destroy();
-      throw popupError(
-        "ELECTRON_CHROMIUM_POPUP_PROVISIONAL_INVALID",
-        "Electron returned a visible, focused, destroyed, or wrong-Session popup."
-      );
-    }
-    // Callbacks close over the record before its one-time construction below.
-    // eslint-disable-next-line prefer-const
-    let provisional!: ProvisionalPopup;
-    const willAttachWebview = (event: ChromiumRoleSurfaceEvent) =>
-      event.preventDefault();
-    const closeRequested = (event: ChromiumRoleSurfaceEvent) => {
-      event.preventDefault();
-      this.#disposeProvisional(provisional, true);
-    };
-    const closed = () => this.#disposeProvisional(provisional, false);
-    const beginAdmission = () => {
-      if (provisional.disposed || provisional.admissionStarted) return;
-      const openerPolicy = contents.opener === null || contents.opener === undefined
-        ? "isolatedNoopener" as const
-        : exactChromiumPopupOpenerFrameEqual(source.openerFrame, contents.opener)
-          ? chromiumPopupRequestsNoopener(details.features)
-            ? "isolatedNoopener" as const
-            : "connectedOpener" as const
-          : null;
-      if (!openerPolicy) {
-        this.#input.onError(normalizeRionBridgeError(popupError(
-          "ELECTRON_CHROMIUM_POPUP_OPENER_MISMATCH",
-          "The provisional popup did not retain its exact parent opener frame."
-        )));
-        this.#disposeProvisional(provisional, true);
-        return;
-      }
-      provisional.admissionStarted = true;
-      this.#beginDirectAdmission(provisional, openerPolicy);
-    };
-    const willFrameNavigate: ChromiumRoleSurfaceEventMap["will-frame-navigate"] =
-      (event) => {
-        if (!event.isMainFrame || provisional.disposed) return;
-        event.preventDefault();
-        if (canonicalChromiumPopupRemoteUrl(event.url) !== details.url) {
-          this.#input.onError(normalizeRionBridgeError(popupError(
-            "ELECTRON_CHROMIUM_POPUP_INITIAL_NAVIGATION_MISMATCH",
-            "The provisional popup attempted an unexpected initial navigation."
-          )));
-          this.#disposeProvisional(provisional, true);
-          return;
-        }
-        beginAdmission();
-      };
-    provisional = {
-      admissionStarted: false,
-      adopted: false,
-      closeRequested,
-      closed,
-      details,
-      disposed: false,
-      ownerKey: ownerKey(source),
-      postBody,
-      resolution,
-      source,
-      willAttachWebview,
-      willFrameNavigate,
-      window: popupWindow
-    };
-    this.#provisionals.add(provisional);
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
-    contents.on("will-attach-webview", willAttachWebview);
-    contents.on("will-frame-navigate", willFrameNavigate);
-    popupWindow.on("close", closeRequested);
-    popupWindow.on("closed", closed);
-    // Electron can begin the guest's first request before createWindow returns.
-    // Stop it synchronously, then admit from the captured URL/POST/referrer even
-    // when Chromium emitted will-frame-navigate before the listener was attached.
-    contents.stop();
-    queueMicrotask(beginAdmission);
-    return contents;
-  }
-
-  #beginDirectAdmission(
-    provisional: ProvisionalPopup,
-    openerPolicy: ChromiumPopupOpenRequestRecord["openerPolicy"]
-  ): void {
-    const request = buildChromiumPopupOpenRequest(
-      provisional.details,
-      provisional.resolution,
-      provisional.postBody !== undefined,
-      openerPolicy
-    );
-    const flight: AdmissionFlight = {
-      ownerKey: provisional.ownerKey,
-      windowId: provisional.resolution.parent.parentWindowId,
-      promise: Promise.resolve()
-    };
-    this.#admissionFlights.add(flight);
-    const terminal = this.#admitAndOpenDirect(provisional, request);
-    flight.promise = terminal.then(() => undefined);
-    void terminal.catch((error: unknown) => {
-      this.#input.onError(normalizeRionBridgeError(
-        error,
-        "ELECTRON_CHROMIUM_POPUP_OPEN_FAILED"
-      ));
-    }).finally(() => {
-      this.#admissionFlights.delete(flight);
-      if (provisional.adopted) this.#releaseProvisional(provisional);
-      else this.#disposeProvisional(provisional, true);
-    });
-  }
-
-  #releaseProvisional(provisional: ProvisionalPopup): void {
-    if (provisional.disposed) return;
-    provisional.disposed = true;
-    this.#provisionals.delete(provisional);
-    const contents = provisional.window.webContents;
-    if (!contents.isDestroyed()) {
-      contents.removeListener("will-attach-webview", provisional.willAttachWebview);
-      contents.removeListener("will-frame-navigate", provisional.willFrameNavigate);
-    }
-    if (!provisional.window.isDestroyed()) {
-      provisional.window.removeListener("close", provisional.closeRequested);
-      provisional.window.removeListener("closed", provisional.closed);
-    }
-  }
-
-  #disposeProvisional(
-    provisional: ProvisionalPopup,
-    destroyWindow: boolean
-  ): void {
-    if (provisional.disposed) return;
-    this.#releaseProvisional(provisional);
-    clearChromiumPopupPostBody(provisional.postBody);
-    if (destroyWindow && !provisional.window.isDestroyed()) {
-      provisional.window.destroy();
-    }
-  }
-
-  #disposeOwnerProvisionals(key: string): void {
-    for (const provisional of [...this.#provisionals]) {
-      if (provisional.ownerKey === key) this.#disposeProvisional(provisional, true);
-    }
   }
 
   async prepareOwnerReload(
@@ -866,7 +726,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     const key = ownerKey(owner);
     this.#retireOwnerFence(key);
     this.#ownerReloadAdmissionLeases.delete(key);
-    this.#disposeOwnerProvisionals(key);
     await Promise.all(
       [...this.#admissionFlights]
         .filter((flight) => flight.ownerKey === key)
@@ -890,7 +749,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     const key = ownerKey(owner);
     this.#movingOwnerFences.set(key, (this.#movingOwnerFences.get(key) ?? 0) + 1);
     this.#ownerReloadAdmissionLeases.delete(key);
-    this.#disposeOwnerProvisionals(key);
     try {
       await Promise.all(
         [...this.#admissionFlights]
@@ -916,9 +774,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     if (this.#state === "closed") return Promise.resolve();
     this.#state = "draining";
     this.#disposePromise = (async () => {
-      for (const provisional of [...this.#provisionals]) {
-        this.#disposeProvisional(provisional, true);
-      }
       await Promise.all([...this.#admissionFlights].map((flight) => flight.promise));
       const records = [...this.#records.values()];
       for (const record of records) {
@@ -935,103 +790,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
       throw error;
     });
     return this.#disposePromise;
-  }
-
-  async #admitAndOpenDirect(
-    provisional: ProvisionalPopup,
-    request: ChromiumPopupOpenRequestRecord
-  ): Promise<void> {
-    const key = provisional.ownerKey;
-    if (
-      provisional.disposed || provisional.window.isDestroyed() ||
-      this.#state !== "open" || this.#ownerAdmissionFenced(key)
-    ) return;
-    const admission = await this.#input.core.invoke({
-      type: "browserPopupOpenAdmit",
-      request
-    });
-    if (
-      admission.requestId !== request.requestId ||
-      admission.lifecycleRevision !== 1 ||
-      admission.creationUrl !== "about:blank" ||
-      admission.targetUrl !== request.targetUrl ||
-      admission.openerPolicy !== request.openerPolicy ||
-      admission.hasPostBody !== request.hasPostBody
-    ) {
-      throw popupError(
-        "ELECTRON_CHROMIUM_POPUP_ADMISSION_MISMATCH",
-        "Core returned a mismatched Chromium popup admission."
-      );
-    }
-    if (
-      provisional.disposed || provisional.window.isDestroyed() ||
-      this.#state !== "open" || this.#ownerAdmissionFenced(key)
-    ) {
-      await this.#cancelAdmission(
-        admission,
-        this.#state === "open"
-          ? this.#ownerReloadAdmissionLeases.has(key)
-            ? "CHROMIUM_POPUP_RELOAD_FENCED"
-            : "CHROMIUM_POPUP_OWNER_RETIRED"
-          : "CHROMIUM_POPUP_APPLICATION_DRAINING"
-      );
-      return;
-    }
-    const current = resolveChromiumPopupParent(
-      this.#input.runtimeSnapshot(),
-      provisional.source,
-      this.#input.platform
-    );
-    if (
-      !current ||
-      !exactChromiumPopupParentResolutionEqual(provisional.resolution, current)
-    ) {
-      await this.#cancelAdmission(admission, "CHROMIUM_POPUP_PARENT_SUPERSEDED");
-      return;
-    }
-    const record = this.#createDirectRecord(admission, provisional);
-    provisional.adopted = true;
-    this.#releaseProvisional(provisional);
-    void record.terminal.promise.catch(() => undefined);
-    this.#records.set(admission.popupId, record);
-    const ownerPopups = this.#popupIdsByOwner.get(record.ownerKey) ?? new Set();
-    ownerPopups.add(admission.popupId);
-    this.#popupIdsByOwner.set(record.ownerKey, ownerPopups);
-    record.sequence = this.#materialize(record).catch((error: unknown) =>
-      this.#failRecord(record, error));
-  }
-
-  #createDirectRecord(
-    admission: ChromiumPopupAdmissionRecord,
-    provisional: ProvisionalPopup
-  ): PopupRecord {
-    const popupWindow = provisional.window;
-    const contents = popupWindow.webContents;
-    const { host, view } = createChromiumPopupBrowserWindowHost(
-      admission,
-      popupWindow
-    );
-    return {
-      admission,
-      ownerKey: provisional.ownerKey,
-      source: provisional.source,
-      terminal: deferred<void>(),
-      postBody: provisional.postBody,
-      host,
-      view,
-      contents,
-      listeners: null,
-      revision: 1,
-      state: "opening",
-      sequence: Promise.resolve(),
-      viewAttached: false,
-      viewDestroyed: null,
-      containedFullscreen: false,
-      containedFullscreenHostProjection: null,
-      closeReason: null,
-      directWindow: popupWindow,
-      nativeReceipt: null
-    };
   }
 
   async #admitAndOpen(
@@ -1077,7 +835,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
         source,
         this.#input.platform
       );
-      if (!current || !exactChromiumPopupParentResolutionEqual(resolution, current)) {
+      if (!current || !exactParentResolutionEqual(resolution, current)) {
         await this.#cancelAdmission(
           admission,
           "CHROMIUM_POPUP_PARENT_SUPERSEDED"
@@ -1101,9 +859,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
         viewDestroyed: null,
         containedFullscreen: false,
         containedFullscreenHostProjection: null,
-        closeReason: null,
-        directWindow: null,
-        nativeReceipt: null
+        closeReason: null
       };
       ownsPostBody = false;
       void record.terminal.promise.catch(() => undefined);
@@ -1119,28 +875,8 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
   }
 
   async #materialize(record: PopupRecord): Promise<void> {
-    const created = record.directWindow
-      ? (() => {
-          record.directWindow!.setBounds(record.admission.target.bounds);
-          record.directWindow!.setTitle(
-            trustedChromiumPopupTitle(record.admission.targetUrl)
-          );
-          return {
-            host: record.host!,
-            receipt: {
-              platform: this.#input.platform === "darwin" ? "macos" as const :
-                "windows" as const,
-              hostKind: "electronBrowserWindow" as const,
-              nativeHostId: record.directWindow!.id,
-              logicalWindowId: record.admission.target.windowId,
-              windowGeneration: 1,
-              topologyRevision: 1
-            } satisfies ChromiumPopupNativeHostReceiptRecord
-          };
-        })()
-      : await this.#input.hosts!.createPopup(record.admission);
+    const created = await this.#input.hosts.createPopup(record.admission);
     record.host = created.host;
-    record.nativeReceipt = created.receipt;
     if (
       created.receipt.logicalWindowId !== record.admission.target.windowId ||
       created.host.logicalWindowId !== record.admission.target.windowId ||
@@ -1159,14 +895,12 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
       await this.#cancelOpeningRecord(record);
       return;
     }
-    const view = record.directWindow
-      ? record.view!
-      : this.#input.views!.create({
-          webPreferences: {
-            ...buildUnprivilegedRemoteContentWebPreferences(),
-            session: record.source.session
-          }
-        });
+    const view = this.#input.views.create({
+      webPreferences: {
+        ...buildUnprivilegedRemoteContentWebPreferences(),
+        session: record.source.session
+      }
+    });
     record.view = view;
     const contents = view.webContents;
     record.contents = contents;
@@ -1180,14 +914,11 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
         "The popup did not retain its exact parent role/global-Web Session."
       );
     }
-    const zoom = chromiumPopupZoomContext(
+    const zoom = popupZoomContext(
       this.#input.runtimeSnapshot(),
       record.admission
     );
-    const popupZoomFactor = effectiveChromiumPopupZoom(
-      zoom.base,
-      zoom.windowFactor
-    );
+    const popupZoomFactor = effectiveWindowZoom(zoom.base, zoom.windowFactor);
     contents.setZoomFactor(popupZoomFactor);
     if (contents.getZoomFactor() !== popupZoomFactor) {
       throw popupError(
@@ -1197,10 +928,8 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     }
     view.setVisible(false);
     view.setBounds(created.host.getContentBounds());
-    if (!record.directWindow) {
-      created.host.contentView.addChildView(view);
-      record.viewAttached = true;
-    }
+    created.host.contentView.addChildView(view);
+    record.viewAttached = true;
     if (this.#mustRetire(record)) {
       await this.#cancelOpeningRecord(record);
       return;
@@ -1221,11 +950,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
         record,
         () => this.#requestClose(record, "user")
       ),
-      closed: () => this.#enqueue(record, () =>
-        record.directWindow && record.state !== "closing" &&
-          record.state !== "terminal"
-          ? this.#requestClose(record, "user")
-          : this.#nativeClosed(record)),
+      closed: () => this.#enqueue(record, () => this.#nativeClosed(record)),
       layoutChanged: (bounds: ChromiumRoleSurfaceBounds) =>
         this.#applyLayout(record, bounds)
     });
@@ -1246,7 +971,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     try {
       const load = contents.loadURL(
         record.admission.targetUrl,
-        chromiumPopupLoadOptions(record.admission, record.postBody)
+        popupLoadOptions(record.admission, record.postBody)
       );
       // EventBound: did-finish-load/did-fail-load is authoritative.
       void load.catch(() => undefined).finally(() => this.#clearPostBody(record));
@@ -1260,7 +985,7 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
   #installViewPolicy(record: PopupRecord): void {
     const contents = record.contents!;
     const rejectNavigation = (event: ChromiumRoleSurfaceEvent, url: string) => {
-      if (canonicalChromiumPopupRemoteUrl(url)) return;
+      if (canonicalRemoteUrl(url)) return;
       event.preventDefault();
       this.#enqueue(record, () => this.#requestClose(
         record,
@@ -1268,28 +993,25 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
       ));
     };
     const listeners: PopupListeners = {
-      contentBoundsUpdated: (event) => event.preventDefault(),
       destroyed: () => {
         record.viewDestroyed?.resolve();
-        if (record.directWindow) return;
         if (record.state !== "closing" && record.state !== "terminal") {
           this.#enqueue(record, () => this.#requestClose(record, "loadFailed"));
         }
       },
       didFailLoad: (
         _event,
-        errorCode,
+        _errorCode,
         _errorDescription,
         _validatedUrl,
         isMainFrame
       ) => {
-        if (errorCode === -3) return;
         if (isMainFrame) {
           this.#enqueue(record, () => this.#requestClose(record, "loadFailed"));
         }
       },
       didFinishLoad: () => {
-        const finalUrl = canonicalChromiumPopupRemoteUrl(contents.getURL());
+        const finalUrl = canonicalRemoteUrl(contents.getURL());
         if (!finalUrl) {
           if (contents.getURL() !== "about:blank") {
             this.#enqueue(record, () => this.#requestClose(
@@ -1299,7 +1021,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
           }
           return;
         }
-        record.directWindow?.setTitle(trustedChromiumPopupTitle(finalUrl));
         this.#enqueue(record, async () => {
           if (record.state !== "nativeReady") return;
           const receipt = await this.#commit(record, {
@@ -1315,11 +1036,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
           record.state = "ready";
         });
       },
-      didNavigate: (_event, url) => {
-        if (canonicalChromiumPopupRemoteUrl(url)) {
-          record.directWindow?.setTitle(trustedChromiumPopupTitle(url));
-        }
-      },
       enteredHtmlFullscreen: () => this.#enqueue(
         record,
         () => this.#applyContainedFullscreen(record, true)
@@ -1328,26 +1044,17 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
         record,
         () => this.#applyContainedFullscreen(record, false)
       ),
-      pageTitleUpdated: (event) => event.preventDefault(),
-      renderProcessGone: () => this.#enqueue(
-        record,
-        () => this.#requestClose(record, "loadFailed")
-      ),
       willAttachWebview: (event) => event.preventDefault(),
       willNavigate: rejectNavigation,
       willRedirect: (event, url) => rejectNavigation(event, url)
     };
     record.listeners = listeners;
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
-    contents.on("content-bounds-updated", listeners.contentBoundsUpdated);
     contents.on("destroyed", listeners.destroyed);
     contents.on("did-fail-load", listeners.didFailLoad);
     contents.on("did-finish-load", listeners.didFinishLoad);
-    contents.on("did-navigate", listeners.didNavigate);
     contents.on("enter-html-full-screen", listeners.enteredHtmlFullscreen);
     contents.on("leave-html-full-screen", listeners.leftHtmlFullscreen);
-    contents.on("page-title-updated", listeners.pageTitleUpdated);
-    contents.on("render-process-gone", listeners.renderProcessGone);
     contents.on("will-attach-webview", listeners.willAttachWebview);
     contents.on("will-navigate", listeners.willNavigate);
     contents.on("will-redirect", listeners.willRedirect);
@@ -1440,12 +1147,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     const contents = record.contents;
     if (!view || !contents) return;
     let teardownError: unknown;
-    if (record.directWindow) {
-      if (!contents.isDestroyed()) this.#removeViewListeners(record, contents);
-      record.view = null;
-      record.contents = null;
-      return;
-    }
     if (record.viewAttached) {
       try {
         record.host?.contentView.removeChildView(view);
@@ -1759,14 +1460,9 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
     contents: ChromiumRoleSurfaceWebContentsPort
   ): void {
     if (!record.listeners) return;
-    contents.removeListener(
-      "content-bounds-updated",
-      record.listeners.contentBoundsUpdated
-    );
     contents.removeListener("destroyed", record.listeners.destroyed);
     contents.removeListener("did-fail-load", record.listeners.didFailLoad);
     contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
-    contents.removeListener("did-navigate", record.listeners.didNavigate);
     contents.removeListener(
       "enter-html-full-screen",
       record.listeners.enteredHtmlFullscreen
@@ -1775,8 +1471,6 @@ implements ChromiumPopupOwnerLifecyclePort, ChromiumRuntimePopupZoomPort {
       "leave-html-full-screen",
       record.listeners.leftHtmlFullscreen
     );
-    contents.removeListener("page-title-updated", record.listeners.pageTitleUpdated);
-    contents.removeListener("render-process-gone", record.listeners.renderProcessGone);
     contents.removeListener("will-attach-webview", record.listeners.willAttachWebview);
     contents.removeListener("will-navigate", record.listeners.willNavigate);
     contents.removeListener("will-redirect", record.listeners.willRedirect);

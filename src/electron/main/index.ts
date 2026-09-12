@@ -912,9 +912,6 @@ async function bootstrapReadyPhase(
         return view as unknown as ChromiumRoleWebContentsViewPort;
       }
     },
-    popupWindows: {
-      create: (options) => new BrowserWindow(options as never) as never
-    },
     ...(runtimePlatform === "win32"
       ? {
           windows: {

@@ -25,8 +25,7 @@ import type {
 } from "../src/electron/main/chromiumRoleSessionRegistry";
 import type {
   ChromiumPopupOwnerLifecyclePort,
-  ChromiumWindowOpenDetails,
-  ChromiumWindowOpenHandlerResponse
+  ChromiumWindowOpenDetails
 } from "../src/electron/main/chromiumPopupPorts";
 
 type Listener = (...arguments_: unknown[]) => unknown;
@@ -68,7 +67,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   zoomFactor = 1;
   loadFailure: unknown = null;
   windowOpenHandler:
-    | ((details: ChromiumWindowOpenDetails) => ChromiumWindowOpenHandlerResponse)
+    | ((details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>)
     | null = null;
 
   constructor(session: ChromiumRoleSessionPort) {
@@ -133,9 +132,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
   send(): void {}
 
   setWindowOpenHandler(
-    handler: (
-      details: ChromiumWindowOpenDetails
-    ) => ChromiumWindowOpenHandlerResponse
+    handler: (details: ChromiumWindowOpenDetails) => Readonly<{ action: "deny" }>
   ): void {
     this.windowOpenHandler = handler;
   }
@@ -574,35 +571,6 @@ describe("Electron Chromium global Web surface registry", () => {
     ]);
   });
 
-  it.each([
-    { frameName: "_blank", features: "noopener", postBody: null },
-    { frameName: "thirdLoginWindow", features: "", postBody: null },
-    { frameName: "containedPostPopup", features: "", postBody: { data: [] } }
-  ])("routes explicit foreground-tab popup semantics through Core admission",
-    async (popupDetails) => {
-      const popups = fakePopups();
-      const subject = harness(null, null, null, popups.port);
-      const created = subject.surfaces.create(subject.input());
-      const contents = subject.views[0]!.webContents;
-      contents.finish("https://web-tab-1-1.example.test/start");
-      await created;
-      const details = {
-        url: "https://popup.example.test/path",
-        disposition: "foreground-tab",
-        ...popupDetails
-      };
-
-      expect(contents.windowOpenHandler?.(details)).toEqual({ action: "deny" });
-      expect(popups.requestOpen).toHaveBeenCalledOnce();
-      expect(popups.requestOpen).toHaveBeenCalledWith(expect.objectContaining({
-        ownerKind: "globalWeb",
-        ownerId: "web-tab-1-1"
-      }), details);
-      expect(contents.loadedUrls).toEqual([
-        "https://web-tab-1-1.example.test/start"
-      ]);
-    });
-
   it("reports failed same-slot navigation without committing continuation", async () => {
     const reportFailure = vi.fn();
     const commits: unknown[] = [];
@@ -684,6 +652,8 @@ describe("Electron Chromium global Web surface registry", () => {
         disposition: "foreground-tab" },
       { url: `https://large.example.test/${"a".repeat(2_100)}`,
         disposition: "foreground-tab" },
+      { url: "https://post.example.test/", disposition: "foreground-tab",
+        postBody: { data: [] } },
       { url: "https://named.example.test/", disposition: "background-tab",
         frameName: "reports" },
       { url: "https://other.example.test/", disposition: "other" },

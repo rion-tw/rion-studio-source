@@ -1227,7 +1227,6 @@ describe("Windows Electron Chromium runtime-host factory", () => {
     window.emit("ready-to-show");
     const created = await creation;
     expect(created.receipt).toEqual({
-      hostKind: "electronBrowserWindow",
       platform: "windows",
       nativeHostId: window.id,
       logicalWindowId: popupAdmission().target.windowId,

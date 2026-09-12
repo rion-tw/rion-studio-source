@@ -44,7 +44,7 @@ interface PopupHostOwner {
 export interface ElectronDesktopE2eRuntimeTabReloadObserverInput {
   readonly artifactDirectory: string | undefined;
   readonly platform: () => "darwin" | "win32";
-  readonly readPopupHostOwners: () => ReadonlyMap<string, PopupHostOwner>;
+  readonly popupHostOwners: ReadonlyMap<string, PopupHostOwner>;
   readonly readRuntime: () => Pick<ChromiumRuntimeBootstrap, "snapshot"> | null;
   readonly roleSurfaceOwners: ReadonlyMap<string, RoleSurfaceOwner>;
 }
@@ -239,7 +239,7 @@ export class ElectronDesktopE2eRuntimeTabReloadObserver {
         });
       })
       .sort((left, right) => left.roleId.localeCompare(right.roleId)));
-    const popups = Object.freeze([...this.#input.readPopupHostOwners().values()]
+    const popups = Object.freeze([...this.#input.popupHostOwners.values()]
       .filter(({ admission, host }) =>
         admission.parent.parentWindowId === windowId && !host.isDestroyed()
       )
@@ -247,7 +247,9 @@ export class ElectronDesktopE2eRuntimeTabReloadObserver {
         appKitIdentity: receipt.appkitIdentity
           ? Object.freeze({ ...receipt.appkitIdentity })
           : null,
-        hostKind: "electronBrowserWindow" as const,
+        hostKind: receipt.platform === "macos"
+          ? "appkit-chromium" as const
+          : "bundled-chromium" as const,
         logicalWindowId: receipt.logicalWindowId,
         nativeHostId: receipt.nativeHostId,
         openOperationId: admission.openOperationId,

@@ -32,17 +32,13 @@ export interface ElectronDesktopE2eWorkspaceWebInspection {
       nativeGeneration: number;
     }> | null;
     bounds: Readonly<{ height: number; width: number; x: number; y: number }>;
-    currentUrl: string;
-    hostKind: "electronBrowserWindow";
+    hostKind: "appkit-chromium" | "bundled-chromium";
     logicalWindowId: string;
     nativeHostId: number;
     openOperationId: string;
-    openerPolicy: "connectedOpener" | "isolatedNoopener";
-    ownerKind: "globalWeb" | "role";
     popupId: string;
     presentation: "fullscreen" | "maximized" | "normal";
     topologyRevision: number;
-    title: string;
     visible: boolean;
     windowGeneration: number;
   }>[];
@@ -213,28 +209,38 @@ function roleSurface(
 }
 
 function popup(
-  value: unknown
+  value: unknown,
+  platform: "appkit-chromium" | "bundled-chromium"
 ): value is ElectronDesktopE2eWorkspaceWebInspection["popups"][number] {
   if (!record(value) || !exact(value, [
     "appKitChrome", "appKitIdentity", "bounds", "hostKind", "logicalWindowId",
-    "currentUrl", "nativeHostId", "openOperationId", "openerPolicy", "ownerKind",
-    "popupId", "presentation", "title", "topologyRevision", "visible",
-    "windowGeneration"
-  ]) || !nativeBounds(value.bounds) || value.hostKind !== "electronBrowserWindow" ||
+    "nativeHostId", "openOperationId", "popupId", "presentation",
+    "topologyRevision", "visible", "windowGeneration"
+  ]) || !nativeBounds(value.bounds) || value.hostKind !== platform ||
       !positiveInteger(value.nativeHostId) || !identifier(value.openOperationId) ||
       !identifier(value.popupId) ||
       value.logicalWindowId !== `popup-${value.popupId}` ||
-      !["connectedOpener", "isolatedNoopener"].includes(String(value.openerPolicy)) ||
-      !["globalWeb", "role"].includes(String(value.ownerKind)) ||
-      !canonicalUrl(value.currentUrl, ["about:", "http:", "https:"]) ||
-      typeof value.title !== "string" ||
-      !/^Rion Popup — [A-Za-z0-9.-]+$/u.test(value.title) ||
       !["fullscreen", "maximized", "normal"].includes(String(value.presentation)) ||
       !positiveInteger(value.topologyRevision) || typeof value.visible !== "boolean" ||
       !positiveInteger(value.windowGeneration)) {
     return false;
   }
-  return value.appKitIdentity === null && value.appKitChrome === null;
+  const validAppKitChrome = record(value.appKitChrome) && exact(
+    value.appKitChrome,
+    [
+      "addButtonOnScreen", "tabStripOnScreen", "visibleTrafficLightCount",
+      "windowNameOnScreen"
+    ]
+  ) && typeof value.appKitChrome.addButtonOnScreen === "boolean" &&
+    typeof value.appKitChrome.tabStripOnScreen === "boolean" &&
+    Number.isSafeInteger(value.appKitChrome.visibleTrafficLightCount) &&
+    Number(value.appKitChrome.visibleTrafficLightCount) >= 0 &&
+    Number(value.appKitChrome.visibleTrafficLightCount) <= 3 &&
+    typeof value.appKitChrome.windowNameOnScreen === "boolean";
+  return platform === "appkit-chromium"
+    ? appKitIdentity(value.appKitIdentity, value.logicalWindowId, value.openOperationId) &&
+      validAppKitChrome
+    : value.appKitIdentity === null && value.appKitChrome === null;
 }
 
 function workspaceWeb(
@@ -338,7 +344,9 @@ export function parseElectronDesktopE2eWorkspaceWebInspection(
       candidate.appKitIdentity !== null) {
     throw new Error("Electron desktop E2E Workspace Web inspection is invalid.");
   }
-  const invalidPopup = candidate.popups.find((value) => !popup(value));
+  const hostKind = candidate.hostKind as
+    "appkit-chromium" | "bundled-chromium";
+  const invalidPopup = candidate.popups.find((value) => !popup(value, hostKind));
   if (invalidPopup !== undefined) {
     throw new Error(
       "Electron desktop E2E Workspace Web inspection has an invalid popup: " +

@@ -2,7 +2,7 @@
 
 Contract version 22 preserves the shared compatibility semantics documented in
 the linked parts. The active Electron registration uses Chromium contract
-version 31; Core retains version 22 only for consumed legacy data and fixtures.
+version 29; Core retains version 22 only for consumed legacy data and fixtures.
 
 The System Runtime contract retains Rust-owned semantics across the migration
 from v22 WebView2/WKWebView to v23 Chromium. Electron is now the sole repository

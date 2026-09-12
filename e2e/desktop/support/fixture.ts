@@ -30,7 +30,6 @@ export interface FixtureEvent {
   isTrusted?: boolean;
   key?: string;
   kind: string;
-  loginComplete?: boolean;
   method?: string;
   fullscreen?: {
     active: boolean;
@@ -53,8 +52,6 @@ export interface FixtureEvent {
   };
   targetId?: string;
   timestamp: string;
-  url?: string;
-  windowProxyNonNull?: boolean;
 }
 
 export interface FixtureRoleState {

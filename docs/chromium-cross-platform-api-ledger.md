@@ -21,6 +21,11 @@ retired backlog as prerequisites.
 
 ## Current work
 
+The v32 CDP/physical-input regression, all active P0/P1 classifications, and
+current baseline workflow receipts are maintained only in the
+[Electron Chromium regression audit](electron-chromium-regression-audit.md).
+This historical ledger does not duplicate those per-journey verdicts.
+
 | Item | State | Evidence |
 | --- | --- | --- |
 | Final v22 configuration delta | Comparison complete; no new remote configuration needed | [Observed settings and required repository changes](v22-configuration-delta.md) |

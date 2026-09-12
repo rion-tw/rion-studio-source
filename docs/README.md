@@ -13,12 +13,14 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Chromium Migration Execution Ledger](chromium-migration-execution-ledger.md) | Active, non-normative ledger | Remaining work count, gate status, or migration handoff |
 | [v22 Configuration Delta](v22-configuration-delta.md) | Active, observed configuration comparison | Reusing existing release settings for the sole Electron entry |
 | [Chromium Cross-Platform API Ledger](chromium-cross-platform-api-ledger.md) | Active, non-normative ledger | Shared Chromium API adoption, retained native boundaries, maintenance tasks and equivalence evidence |
+| [Electron Chromium Regression Audit](electron-chromium-regression-audit.md) | Active, non-normative audit | v8.4-to-v32 regression verdicts, baseline evidence, and paired-journey disposition |
 | [Chromium Capability Ownership Audit](chromium-capability-ownership-audit.md) | Active, non-normative audit | Browser API owners, authoritative receipts, behavior evidence and native coverage gaps |
 | [Chromium Platform Data Boundaries](chromium-platform-data-audit.md) | Active, non-normative audit | Retained filesystem, lock, encryption and Chrome-import adapters with native validation limits |
 | [Operations and Receipts](contracts/system-runtime/operations-and-receipts.md) | Active, normative | Operation identity, completion, revisions, diagnostics |
 | [Ownership and Activation](contracts/system-runtime/ownership-and-activation.md) | Active, normative | Window/tab ownership, launch, activation, topology |
 | [Native Projections and Placement](contracts/system-runtime/native-projections-and-placement.md) | Active, normative | Native chrome, destructive stop, persistence, placement |
 | [Lifecycle and Recovery](contracts/system-runtime/lifecycle-and-recovery.md) | Active, normative | Navigation, input fences, process recovery, power, shutdown |
+| [Trusted Input Receipts](contracts/system-runtime/trusted-input-receipts.md) | Active, normative | CDP/physical provenance, uncertain-edge cleanup, quarantine, and terminal diagnostics |
 | [Managed Macro Shortcuts](contracts/system-runtime/managed-macro-shortcuts.md) | Active, normative | Physical shortcut ownership, trusted replay, toggle and while-held ordering |
 | [WebView Policy and Performance](contracts/system-runtime/webview-policy-and-performance.md) | Active, normative | WebGL, popup security, capabilities |
 | [Updater Install Transaction](updater-transaction-contract.md) | Active, normative | Updater, drain, restart, or release recovery work |

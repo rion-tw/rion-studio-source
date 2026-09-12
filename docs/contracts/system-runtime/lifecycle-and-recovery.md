@@ -102,6 +102,10 @@ zero.
 
 ### Indeterminate macro-input recovery
 
+Chromium v32 receipt provenance, neutralization, quarantine, and retained
+terminal-evidence rules are normative in
+[Trusted Input Receipts](trusted-input-receipts.md).
+
 An actually focused iframe is a temporary non-game automatic-input context.
 The overlay reports only focus, pointer-lock, and Canvas focus/pointer events as
 the authoritative `game`, `embedded-frame`, or `document` context stream. It
@@ -119,13 +123,9 @@ context never resumes automatically. Eligible toggle and loop roots restart
 once from their beginning; while-held roots remain stopped. Multi-role restart
 intent remains deferred until every involved role is input-admissible.
 
-Role, tab, and window teardown advances the native input epoch and drains the
-exact per-role input lane before native surface isolation. An input callback
-that was already admitted must terminalize while its WebView is still attached;
-cleanup from an older Core epoch that has not started is superseded. Native
-surface release never overtakes either outcome.
-
-Live blur/tab-hide held-key continuity follows the managed macro-shortcut contract. Game Window focus loss also neutralizes pass-through momentary modifiers through the platform adapter before the page fallback runs; focus return restores only the exact left/right modifier sides still physically held on the same live window generation, while Caps Lock and Fn remain outside this handoff.
+Held-key continuity and teardown ordering are governed by
+[Trusted Input Receipts](trusted-input-receipts.md) and
+[Managed Macro Shortcuts](managed-macro-shortcuts.md).
 
 This context recovery never reloads or replaces the live page, changes surface
 generation, or marks the role restart-required. Main-frame navigation

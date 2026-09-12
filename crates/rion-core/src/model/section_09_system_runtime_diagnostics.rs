@@ -673,6 +673,30 @@ pub struct RuntimeOperationTraceRecord {
     pub window_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct TrustedInputTerminalEvidenceRecord {
+    pub captured_at: String,
+    pub request_id: String,
+    pub role_id: String,
+    #[ts(type = "number")]
+    pub input_epoch: u64,
+    #[ts(type = "number")]
+    pub surface_generation: u64,
+    #[ts(type = "\"normal\" | \"cleanup\"")]
+    pub intent: String,
+    #[ts(type = "\"not-invoked\" | \"possibly-submitted\" | \"confirmed\"")]
+    pub cdp_submission_certainty: String,
+    #[ts(type = "\"none\" | \"unrelated\" | \"same-identity\" | \"modifier-change\" | \"indeterminate\"")]
+    pub physical_interleave: String,
+    pub terminal_code: String,
+    #[ts(type = "\"not-attempted\" | \"neutral\" | \"indeterminate\"")]
+    pub cleanup_outcome: String,
+    #[ts(type = "\"not-required\" | \"cleanup-neutral\" | \"restart-required\"")]
+    pub recovery_outcome: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -735,6 +759,9 @@ pub struct SystemRuntimeDiagnosticsRecord {
     pub active_input_fences: Vec<SystemRuntimeInputFenceRecord>,
     #[serde(default)]
     pub recent_input_fence_events: Vec<SystemRuntimeInputFenceEventRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub recent_trusted_input_terminals: Option<Vec<TrustedInputTerminalEvidenceRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub active_macro_invocation_count: Option<u32>,

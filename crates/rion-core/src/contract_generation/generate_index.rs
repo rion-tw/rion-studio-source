@@ -145,6 +145,7 @@ fn export_bindings_index() {
                 "export type { SystemRuntimeFailureRecord } from \"./SystemRuntimeFailureRecord\";\n",
                 "export type { SystemRuntimeInputFenceEventRecord } from \"./SystemRuntimeInputFenceEventRecord\";\n",
                 "export type { SystemRuntimeInputFenceRecord } from \"./SystemRuntimeInputFenceRecord\";\n",
+                "export type { TrustedInputTerminalEvidenceRecord } from \"./TrustedInputTerminalEvidenceRecord\";\n",
                 "export type { SystemRuntimeOperationCompletionScope } from \"./SystemRuntimeOperationCompletionScope\";\n",
                 "export type { SystemRuntimeOperationStatus } from \"./SystemRuntimeOperationStatus\";\n",
                 "export type { SystemRuntimeOperationSubsystem } from \"./SystemRuntimeOperationSubsystem\";\n",

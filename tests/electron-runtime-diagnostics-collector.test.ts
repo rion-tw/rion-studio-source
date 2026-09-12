@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ElectronRuntimeDiagnosticsCollector } from
   "../src/electron/main/electronRuntimeDiagnosticsCollector";
+import {
+  recordTrustedInputTerminal,
+  resetTrustedInputTerminalJournalForTest
+} from "../src/electron/main/chromiumTrustedInputTerminalJournal";
 
 const registration = {
   contractVersion: 23,
@@ -27,6 +31,45 @@ const registration = {
 };
 
 describe("Electron runtime diagnostics collector", () => {
+  it("retains bounded input terminal evidence after the Role is gone", async () => {
+    resetTrustedInputTerminalJournalForTest();
+    recordTrustedInputTerminal({
+      capturedAt: "2026-09-13T01:00:00.000Z",
+      requestId: "request-1",
+      roleId: "closed-role",
+      inputEpoch: 7,
+      surfaceGeneration: 4,
+      intent: "normal",
+      cdpSubmissionCertainty: "possibly-submitted",
+      physicalInterleave: "unrelated",
+      terminalCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_MISMATCH",
+      cleanupOutcome: "not-attempted",
+      recoveryOutcome: "restart-required"
+    });
+    const collector = new ElectronRuntimeDiagnosticsCollector({
+      applicationLifecycle: () => ({ phase: "running" }) as never,
+      projectCoherentSnapshot: vi.fn(() => ({})) as never,
+      readCoreSnapshot: async () => ({ browserRuntime: { roles: [] } }) as never,
+      readNativeSnapshot: () => ({ windows: [], tabs: [], roles: [], webSurfaces: [] }),
+      registration: () => registration
+    });
+
+    const result = await collector.capture();
+
+    expect(result.collectionErrorCodes).not.toContain(
+      "ELECTRON_RUNTIME_INPUT_DIAGNOSTICS_UNAVAILABLE"
+    );
+    expect(result.recentTrustedInputTerminals).toEqual([
+      expect.objectContaining({
+        requestId: "request-1",
+        roleId: "closed-role",
+        physicalInterleave: "unrelated",
+        recoveryOutcome: "restart-required"
+      })
+    ]);
+    resetTrustedInputTerminalJournalForTest();
+  });
+
   it("exports exact observable counts and conservative unavailable fields", async () => {
     const core = {
       browserRuntime: {

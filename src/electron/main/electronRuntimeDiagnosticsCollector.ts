@@ -8,12 +8,13 @@ import type {
 import type { AppSnapshot } from "../../shared/types";
 import type { ChromiumRuntimeExecutorSnapshot } from
   "./chromiumRuntimeEffectExecutor";
+import { recentTrustedInputTerminals } from
+  "./chromiumTrustedInputTerminalJournal";
 
 const INCOMPLETE_COLLECTION_CODES = Object.freeze([
   "ELECTRON_RUNTIME_SURFACE_PHASE_DIAGNOSTICS_UNAVAILABLE",
   "ELECTRON_RUNTIME_HEALTH_DIAGNOSTICS_UNAVAILABLE",
   "ELECTRON_RUNTIME_RECOVERY_DIAGNOSTICS_UNAVAILABLE",
-  "ELECTRON_RUNTIME_INPUT_DIAGNOSTICS_UNAVAILABLE",
   "ELECTRON_RUNTIME_MACRO_DIAGNOSTICS_UNAVAILABLE",
   "ELECTRON_RUNTIME_LAUNCH_DIAGNOSTICS_UNAVAILABLE",
   "ELECTRON_RUNTIME_NATIVE_CREATION_DIAGNOSTICS_UNAVAILABLE",
@@ -61,12 +62,11 @@ function capabilityEvidence(
 }
 
 /**
- * Captures the exact v23 state currently observable by Electron main.
+ * Captures the exact current Chromium-contract state observable by Electron main.
  *
- * Historical input, operation, and kernel diagnostics do not yet have a v23
- * producer. They are therefore explicitly classified as unavailable instead
- * of being represented by invented zero counts. Required arrays remain empty
- * transport fields while `snapshotComplete` stays false.
+ * The bounded trusted-input terminal journal remains available after a Role
+ * closes. Other historical operation and kernel producers that do not yet
+ * exist remain explicitly unavailable instead of receiving invented values.
  */
 export class ElectronRuntimeDiagnosticsCollector {
   readonly #input: ElectronRuntimeDiagnosticsCollectorInput;
@@ -98,6 +98,7 @@ export class ElectronRuntimeDiagnosticsCollector {
       nativeCreationLimit: UNKNOWN_NATIVE_CREATION_LIMIT,
       activeInputFences: [],
       recentInputFenceEvents: [],
+      recentTrustedInputTerminals: recentTrustedInputTerminals(),
       recentMacroStartAttempts: [],
       recentFailures: [],
       recentOperations: [],

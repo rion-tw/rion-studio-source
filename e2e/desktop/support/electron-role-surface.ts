@@ -755,8 +755,12 @@ export async function dragWindowsVisibleWorkspaceDivider(
         `expected ${expectedThickness}`
       );
     }
-    const startX = Math.round(location.x + size.width / 2);
-    const startY = Math.round(location.y + size.height / 2);
+    // Avoid the geometric center where a perpendicular divider can overlap
+    // this hit surface in a three-or-more-slot Workspace.
+    const startX = Math.round(location.x + size.width *
+      (exactAxis === "horizontal" ? 0.25 : 0.5));
+    const startY = Math.round(location.y + size.height *
+      (exactAxis === "vertical" ? 0.25 : 0.5));
     await runEncodedPowerShellJson(String.raw`
 Add-Type @'
 using System;

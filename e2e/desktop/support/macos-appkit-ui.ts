@@ -411,8 +411,10 @@ export async function dragMacosVisibleWorkspaceDivider(
       `expected ${expectedThickness}`
     );
   }
-  const startX = values[0]! + values[2]! / 2;
-  const startY = values[1]! + values[3]! / 2;
+  // Avoid the geometric center where a perpendicular splitter can overlap
+  // this hit surface in a three-or-more-slot Workspace.
+  const startX = values[0]! + values[2]! * (axis === "horizontal" ? 0.25 : 0.5);
+  const startY = values[1]! + values[3]! * (axis === "vertical" ? 0.25 : 0.5);
   const endX = startX + (axis === "vertical" ? deltaScreenPixels : 0);
   const endY = startY + (axis === "horizontal" ? deltaScreenPixels : 0);
   const hitTestScript = `

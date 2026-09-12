@@ -62,6 +62,8 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(windowsPointer).toContain("GetCursorPos");
     expect(windowsPointer).toContain("mouse_event(0x0002");
     expect(windowsPointer).toContain("mouse_event(0x0004");
+    expect(windowsPointer).toContain('exactAxis === "horizontal" ? 0.25 : 0.5');
+    expect(appKitPointer).toContain('axis === "vertical" ? 0.25 : 0.5');
     const dividerGeometry = await readFile(
       "e2e/desktop/support/macos-native-divider-geometry.swift", "utf8"
     );

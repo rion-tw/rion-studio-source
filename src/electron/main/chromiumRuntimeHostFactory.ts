@@ -169,6 +169,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
       onRuntimeTabQuickAccess?: (tabId: string) => void;
       runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
       runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort;
+      readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>;
     }>
   | Readonly<{
       platform: "darwin";
@@ -476,6 +477,7 @@ implements ChromiumRuntimeHostFactoryPort {
   readonly #onRuntimeTabQuickAccess: (tabId: string) => void;
   readonly #runtimeForegroundProbe: WindowsRuntimeForegroundProbePort | null;
   readonly #runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort | null;
+  readonly #readCursorScreenPoint: (() => Readonly<{ x: number; y: number }>) | null;
   #windowPreferences: RuntimeWindowPreferencesRecord = Object.freeze({
     alwaysHideTabCloseButton: false,
     alwaysShowToolbarInFullScreen: false,
@@ -526,7 +528,8 @@ implements ChromiumRuntimeHostFactoryPort {
       focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
     ) => void,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
-    onRuntimeTabQuickAccess?: (tabId: string) => void
+    onRuntimeTabQuickAccess?: (tabId: string) => void,
+    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>
   ) {
     this.#windows = windows;
     this.#displays = displays;
@@ -547,6 +550,7 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#onCommandError = onCommandError ?? (() => undefined);
     this.#runtimeForegroundProbe = runtimeForegroundProbe ?? null;
     this.#runtimeShortcutOwner = runtimeShortcutOwner ?? null;
+    this.#readCursorScreenPoint = readCursorScreenPoint ?? null;
     this.#onRuntimeTabQuickAccess = onRuntimeTabQuickAccess ?? (() => {
       throw hostError("ELECTRON_RUNTIME_HOST_QUICK_ACCESS_UNAVAILABLE",
         "The Core-owned Windows Quick Access lane is unavailable.");
@@ -585,7 +589,8 @@ implements ChromiumRuntimeHostFactoryPort {
       focusAdmission?: ChromiumRuntimeFullscreenFocusAdmission
     ) => void,
     runtimeShortcutOwner?: WindowsRuntimeShortcutOwnerPort,
-    onRuntimeTabQuickAccess?: (tabId: string) => void
+    onRuntimeTabQuickAccess?: (tabId: string) => void,
+    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>
   ): WindowsElectronChromiumRuntimeHostFactory {
     return new WindowsElectronChromiumRuntimeHostFactory({
       create: (options) => new BrowserWindowConstructor(options) as unknown as
@@ -593,7 +598,8 @@ implements ChromiumRuntimeHostFactoryPort {
     }, runtimeDocumentPath, displays, runtimeHostPreloadPath, onWindowControl,
     onWorkspaceDividerPointer, onTabControl, onRuntimeWindowPlacement,
     onTabReload, lifecycleEpoch, onCommandError, runtimeForegroundProbe,
-    onRuntimeTabFullscreen, runtimeShortcutOwner, onRuntimeTabQuickAccess);
+    onRuntimeTabFullscreen, runtimeShortcutOwner, onRuntimeTabQuickAccess,
+    readCursorScreenPoint);
   }
 
   async applyWindowPreferences(
@@ -881,6 +887,9 @@ implements ChromiumRuntimeHostFactoryPort {
       documentUrl: record.documentUrl,
       native,
       readProjection: () => this.#readProjection(record),
+      ...(this.#readCursorScreenPoint
+        ? { readCursorScreenPoint: this.#readCursorScreenPoint }
+        : {}),
       requestWindowControl: (action) => {
         if (record.popupId && action === "closeWindow") {
           return this.#withCurrent(record, () => {
@@ -1647,7 +1656,8 @@ implements ChromiumRuntimeHostFactoryPort {
           input.runtimeForegroundProbe,
           input.onRuntimeTabFullscreen,
           input.runtimeShortcutOwner,
-          input.onRuntimeTabQuickAccess
+          input.onRuntimeTabQuickAccess,
+          input.readCursorScreenPoint
         )
       : null;
     this.#appKit = input.platform === "darwin" ? input.appKit ?? null : null;

@@ -1,5 +1,7 @@
 import { $, browser } from "@wdio/globals";
 import { Key } from "webdriverio";
+import { runEncodedPowerShellJson } from
+  "../../../scripts/encodedPowerShell.mjs";
 import { fixtureCursor, waitFixtureEvent } from "./fixture";
 import { sendChromiumEscapeKey } from "./chromium-escape-key";
 import { visibleCanvasPoint } from "./visible-canvas-point";
@@ -686,24 +688,25 @@ export async function movePointerToWindowsRuntimeContent(windowId: string): Prom
   await moveWindowsRuntimePointer(windowId, "content");
 }
 
-/** Drags the visible bundled-host separator with a real WebDriver pointer. */
+/** Drags the visible bundled-host separator with a native Windows pointer. */
 export async function dragWindowsVisibleWorkspaceDivider(
   mainWindowHandle: string,
-  input: number | Readonly<{
+  input: Readonly<{
     axis: "horizontal" | "vertical";
     dividerIndex: number;
     deltaCssPixels?: number;
     expectedThickness?: number;
-  }> = 72
+    windowId: string;
+  }>
 ): Promise<void> {
-  const axis = typeof input === "number" ? "vertical" : input.axis;
-  const dividerIndex = typeof input === "number" ? 0 : input.dividerIndex;
-  const deltaCssPixels = typeof input === "number"
-    ? input
-    : input.deltaCssPixels ?? 72;
-  const expectedThickness = typeof input === "number"
-    ? undefined
-    : input.expectedThickness;
+  const { axis, dividerIndex } = input;
+  const deltaCssPixels = input.deltaCssPixels ?? 72;
+  const expectedThickness = input.expectedThickness;
+  const { processId } = await electronDesktopE2eProbe();
+  const { nativeWindowHandle } = await electronDesktopE2eFullscreenToolbarRuntime(
+    input.windowId
+  );
+  if (!nativeWindowHandle) throw new Error("The exact Windows runtime handle is missing");
   let hostHandle: string | undefined;
   await browser.waitUntil(async () => {
     for (const handle of await browser.getWindowHandles()) {
@@ -752,19 +755,71 @@ export async function dragWindowsVisibleWorkspaceDivider(
     }
     const startX = Math.round(location.x + size.width / 2);
     const startY = Math.round(location.y + size.height / 2);
-    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
-      .move({ duration: 250, origin: "viewport", x: startX, y: startY })
-      .down("left")
-      .move({
-        // A short absolute move emits the destination coordinate before the
-        // pointer crosses from the 16px host divider into a child WebContents.
-        duration: 1,
-        origin: "viewport",
-        x: startX + (exactAxis === "vertical" ? deltaCssPixels : 0),
-        y: startY + (exactAxis === "horizontal" ? deltaCssPixels : 0)
-      })
-      .up("left")
-      .perform();
+    await runEncodedPowerShellJson(String.raw`
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+public static class RionWorkspaceDividerDrag {
+  [StructLayout(LayoutKind.Sequential)] public struct Point { public int x, y; }
+  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point point);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
+  public static void Drag(Point start, Point end) {
+    if (!SetCursorPos(start.x, start.y)) throw new InvalidOperationException("divider start placement failed");
+    mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+    Thread.Sleep(16);
+    if (!SetCursorPos(end.x, end.y)) throw new InvalidOperationException("divider end placement failed");
+    mouse_event(0x0001, 0, 0, 0, UIntPtr.Zero);
+    Thread.Sleep(16);
+    mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+  }
+}
+'@
+[RionWorkspaceDividerDrag]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
+$handle = [IntPtr]::new([long]$payload.nativeWindowHandle)
+$owner = [uint32]0
+[RionWorkspaceDividerDrag]::GetWindowThreadProcessId($handle, [ref]$owner) | Out-Null
+if ($owner -ne [uint32]$payload.processId -or -not [RionWorkspaceDividerDrag]::IsWindowVisible($handle)) {
+  throw 'exact divider HWND is no longer visible or owned by Rion'
+}
+[RionWorkspaceDividerDrag]::SetForegroundWindow($handle) | Out-Null
+if ([RionWorkspaceDividerDrag]::GetForegroundWindow() -ne $handle) {
+  throw 'exact divider HWND did not become foreground'
+}
+$scale = [RionWorkspaceDividerDrag]::GetDpiForWindow($handle) / 96.0
+if ($scale -le 0) { throw 'exact divider HWND has no native DPI' }
+$start = New-Object RionWorkspaceDividerDrag+Point
+$start.x = [int][Math]::Round([double]$payload.startX * $scale)
+$start.y = [int][Math]::Round([double]$payload.startY * $scale)
+$end = New-Object RionWorkspaceDividerDrag+Point
+$end.x = [int][Math]::Round([double]$payload.endX * $scale)
+$end.y = [int][Math]::Round([double]$payload.endY * $scale)
+if (-not [RionWorkspaceDividerDrag]::ClientToScreen($handle, [ref]$start) -or
+    -not [RionWorkspaceDividerDrag]::ClientToScreen($handle, [ref]$end)) {
+  throw 'exact divider client coordinates could not be mapped to screen'
+}
+[RionWorkspaceDividerDrag]::Drag($start, $end)
+$actual = New-Object RionWorkspaceDividerDrag+Point
+if (-not [RionWorkspaceDividerDrag]::GetCursorPos([ref]$actual) -or
+    $actual.x -ne $end.x -or $actual.y -ne $end.y) {
+  throw 'exact divider endpoint was not preserved'
+}
+`, {
+      endX: startX + (exactAxis === "vertical" ? deltaCssPixels : 0),
+      endY: startY + (exactAxis === "horizontal" ? deltaCssPixels : 0),
+      nativeWindowHandle,
+      processId,
+      startX,
+      startY
+    }, { timeoutMilliseconds: 10_000 });
     await browser.waitUntil(async () =>
       (await divider.getAttribute("data-dragging")) !== "true", {
       timeout: 10_000,

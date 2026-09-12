@@ -299,6 +299,7 @@ async function dragDivider(input: Readonly<{
   dividerIndex: number;
   mainWindowHandle: string;
   platform: "macos" | "windows";
+  windowId: string;
 }>): Promise<void> {
   const request = {
     axis: input.axis,
@@ -315,7 +316,8 @@ async function dragDivider(input: Readonly<{
   } else {
     await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, {
       ...request,
-      deltaCssPixels: 192
+      deltaCssPixels: 192,
+      windowId: input.windowId
     });
   }
 }
@@ -378,7 +380,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   )!;
   await dragDivider({
     axis: "vertical", dividerIndex: 0,
-    mainWindowHandle: launched.mainWindowHandle, platform
+    mainWindowHandle: launched.mainWindowHandle, platform, windowId: gameWindow.id
   });
   let afterVertical: ElectronDesktopE2eFullscreenToolbarRuntimeInspection | undefined;
   await browser.waitUntil(async () => {
@@ -396,7 +398,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   )!.slots;
   await dragDivider({
     axis: "horizontal", dividerIndex: 1,
-    mainWindowHandle: launched.mainWindowHandle, platform
+    mainWindowHandle: launched.mainWindowHandle, platform, windowId: gameWindow.id
   });
   let finalInspection: ElectronDesktopE2eFullscreenToolbarRuntimeInspection | undefined;
   await browser.waitUntil(async () => {

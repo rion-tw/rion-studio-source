@@ -258,12 +258,7 @@ function createMacosAppKitAdapter(
       addon,
       BaseWindow,
       {
-        displays: {
-          displayMatching: (bounds) => {
-            const display = screen.getDisplayMatching(bounds);
-            return { id: display.id, workArea: display.workArea };
-          }
-        },
+            displays: { displayMatching },
         onAction: (event) => eventBridge.receiveAction(event),
         onCloseRequested: (identity, hosts) =>
           eventBridge.receiveCloseRequested(identity, hosts),
@@ -452,6 +447,11 @@ function activeDisplayTopology(): ElectronDisplayTopologyController {
     code: "ELECTRON_DISPLAY_TOPOLOGY_UNAVAILABLE",
     message: "The Electron display-topology projection is unavailable."
   });
+}
+
+function displayMatching(bounds: Electron.Rectangle) {
+  const display = screen.getDisplayMatching(bounds);
+  return { id: display.id, workArea: display.workArea };
 }
 
 function activeOverlayShellEffects(): ElectronOverlayShellEffects {
@@ -922,14 +922,10 @@ async function bootstrapReadyPhase(
                   ...(applicationIcon ? { icon: applicationIcon.path } : {})
                 }) as unknown as WindowsRuntimeHostWindowPort
             },
-            displays: {
-              displayMatching: (bounds) => {
-                const display = screen.getDisplayMatching(bounds);
-                return { id: display.id, workArea: display.workArea };
-              }
-            },
+        displays: { displayMatching },
             displayTopology: () => activeDisplayTopology().snapshot(),
             lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
+            readCursorScreenPoint: () => screen.getCursorScreenPoint(),
             runtimeForegroundProbe: nativeAddon,
             runtimeShortcutOwner: nativeAddon,
             runtimeDocumentPath: join(

@@ -53,9 +53,13 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(windowsPointer).toContain("button.runtime-workspace-divider[data-axis='");
     expect(windowsPointer).toContain("[data-divider-index='");
     expect(windowsPointer).toContain(":not([hidden])");
-    expect(windowsPointer).toContain('browser.action("pointer"');
-    expect(windowsPointer).toContain('.down("left")');
-    expect(windowsPointer).toContain('.up("left")');
+    expect(windowsPointer).toContain("runEncodedPowerShellJson");
+    expect(windowsPointer).toContain("SetThreadDpiAwarenessContext");
+    expect(windowsPointer).toContain("GetWindowThreadProcessId");
+    expect(windowsPointer).toContain("SetCursorPos");
+    expect(windowsPointer).toContain("GetCursorPos");
+    expect(windowsPointer).toContain("mouse_event(0x0002");
+    expect(windowsPointer).toContain("mouse_event(0x0004");
     const dividerGeometry = await readFile(
       "e2e/desktop/support/macos-native-divider-geometry.swift", "utf8"
     );

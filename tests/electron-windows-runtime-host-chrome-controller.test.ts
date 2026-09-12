@@ -36,7 +36,7 @@ function projection(active = tabId) {
   };
 }
 
-function harness() {
+function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>) {
   const state = {
     destroyed: false,
     fullscreen: false,
@@ -45,6 +45,7 @@ function harness() {
     minimizeThrows: false
   };
   const native = {
+    getContentBounds: () => ({ height: 680, width: 960, x: 100, y: 80 }),
     isDestroyed: () => state.destroyed,
     isFullScreen: () => state.fullscreen,
     isMaximized: () => state.maximized,
@@ -91,6 +92,7 @@ function harness() {
     native,
     nativeHostId: 41,
     readProjection,
+    ...(readCursorScreenPoint ? { readCursorScreenPoint } : {}),
     readLifecycleEpoch: () => 3,
     requestWindowControl,
     requestTabControl,
@@ -682,7 +684,7 @@ describe("Windows runtime-host chrome controller", () => {
   });
 
   it("routes a real Windows divider gesture through exact Core host fences", async () => {
-    const subject = harness();
+    const subject = harness(() => ({ x: 820, y: 440 }));
     await subject.controller.applyCoreProjection({
       activeTabId: tabId,
       contentBounds: { height: 640, width: 960, x: 0, y: 40 },
@@ -739,6 +741,8 @@ describe("Windows runtime-host chrome controller", () => {
       { phase: "move", pointerSequence: 2, topologyRevision: 9 },
       { phase: "end", pointerSequence: 3, topologyRevision: 10 }
     ]);
+    expect(subject.requestWorkspaceDividerPointer.mock.calls[1]![0])
+      .toMatchObject({ requestedPosition: 0.75 });
     expect(subject.requestWorkspaceDividerPointer.mock.calls[0]![0]).toMatchObject({
       hostIdentity: { kind: "windows", nativeHostId: 41, hostGeneration: 1 },
       platform: "windows",

@@ -34,6 +34,12 @@ export const WINDOWS_RUNTIME_CHROME_INSET = 40;
 export const WINDOWS_RUNTIME_REVEAL_EDGE_INSET = 2;
 
 interface WindowsRuntimeHostChromeNativePort {
+  getContentBounds: () => Readonly<{
+    height: number;
+    width: number;
+    x: number;
+    y: number;
+  }>;
   isDestroyed: () => boolean;
   isFullScreen: () => boolean;
   isMaximized: () => boolean;
@@ -95,6 +101,7 @@ export class WindowsRuntimeHostChromeController {
   readonly #windowId: string;
   readonly #documentUrl: string;
   readonly #native: WindowsRuntimeHostChromeNativePort;
+  readonly #readCursorScreenPoint: (() => Readonly<{ x: number; y: number }>) | null;
   readonly #readProjection: () => ChromiumRuntimeHostProjection;
   readonly #send: (channel: string, projection: WindowsRuntimeHostProjection) => void;
   readonly #requestWindowControl: (
@@ -142,6 +149,7 @@ export class WindowsRuntimeHostChromeController {
     documentUrl: string;
     native: WindowsRuntimeHostChromeNativePort;
     readProjection: () => ChromiumRuntimeHostProjection;
+    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>;
     requestWindowControl: (
       action: "closeWindow" | "toggleMaximizeWindow"
     ) => Promise<void>;
@@ -164,6 +172,7 @@ export class WindowsRuntimeHostChromeController {
     this.#windowId = input.windowId;
     this.#documentUrl = input.documentUrl;
     this.#native = input.native;
+    this.#readCursorScreenPoint = input.readCursorScreenPoint ?? null;
     this.#readProjection = input.readProjection;
     this.#requestWindowControl = input.requestWindowControl;
     this.#requestTabControl = input.requestTabControl ?? (() => Promise.reject(chromeError(
@@ -369,6 +378,11 @@ export class WindowsRuntimeHostChromeController {
   }
 
   async handleCommand(url: string, candidate: unknown): Promise<void> {
+    const validCandidate = isWindowsRuntimeHostCommand(candidate);
+    const observedDividerPosition = validCandidate &&
+      candidate.type === "workspaceDividerPointer" && candidate.phase === "move"
+      ? this.#readNativeDividerPosition(candidate)
+      : null;
     const isReload = typeof candidate === "object" && candidate !== null &&
       "type" in candidate && candidate.type === "reloadTab";
     let reloadCommand: Extract<
@@ -377,7 +391,7 @@ export class WindowsRuntimeHostChromeController {
     > | null = null;
     let reloadTerminal: Promise<void> | null = null;
     const operation = this.#commandLane.then(() => {
-      const validCommand = isWindowsRuntimeHostCommand(candidate);
+      const validCommand = validCandidate;
       const activeDividerContinuation = validCommand &&
         candidate.type === "workspaceDividerPointer" &&
         candidate.phase !== "start" &&
@@ -394,7 +408,7 @@ export class WindowsRuntimeHostChromeController {
         );
       }
       if (candidate.type === "workspaceDividerPointer") {
-        return this.#applyWorkspaceDividerCommand(candidate);
+        return this.#applyWorkspaceDividerCommand(candidate, observedDividerPosition);
       } else if (
         candidate.type === "activateTab" || candidate.type === "closeTab" ||
         candidate.type === "hideTab" || candidate.type === "moveTab" ||
@@ -760,8 +774,40 @@ export class WindowsRuntimeHostChromeController {
     this.#publish();
   }
 
-  async #applyWorkspaceDividerCommand(
+  #readNativeDividerPosition(
     command: WindowsRuntimeWorkspaceDividerPointerCommand
+  ): number | null {
+    if (!this.#readCursorScreenPoint || !this.#contentBounds ||
+        this.#native.isDestroyed()) return null;
+    const divider = this.#workspaceDividers.find((candidate) =>
+      candidate.visible && candidate.tabId === command.tabId &&
+      candidate.attemptGeneration === command.attemptGeneration &&
+      candidate.dividerIndex === command.dividerIndex
+    );
+    if (!divider) return null;
+    try {
+      const cursor = this.#readCursorScreenPoint();
+      const nativeBounds = this.#native.getContentBounds();
+      if (![cursor.x, cursor.y, nativeBounds.x, nativeBounds.y,
+        nativeBounds.width, nativeBounds.height].every(Number.isFinite) ||
+        nativeBounds.width <= 0 || nativeBounds.height <= 0 ||
+        cursor.x < nativeBounds.x || cursor.y < nativeBounds.y ||
+        cursor.x >= nativeBounds.x + nativeBounds.width ||
+        cursor.y >= nativeBounds.y + nativeBounds.height) return null;
+      const localX = cursor.x - nativeBounds.x;
+      const localY = cursor.y - nativeBounds.y;
+      const raw = divider.axis === "vertical"
+        ? (localX - this.#contentBounds.x) / this.#contentBounds.width
+        : (localY - this.#contentBounds.y) / this.#contentBounds.height;
+      return Math.max(0, Math.min(1, raw));
+    } catch {
+      return null;
+    }
+  }
+
+  async #applyWorkspaceDividerCommand(
+    command: WindowsRuntimeWorkspaceDividerPointerCommand,
+    observedPosition: number | null = null
   ): Promise<void> {
     const divider = this.#workspaceDividers.find((candidate) =>
       candidate.visible && candidate.tabId === command.tabId &&
@@ -824,7 +870,7 @@ export class WindowsRuntimeHostChromeController {
       topologyRevision: gesture!.topologyRevision,
       dividerIndex: command.dividerIndex,
       ...(command.phase === "move"
-        ? { requestedPosition: command.requestedPosition }
+        ? { requestedPosition: observedPosition ?? command.requestedPosition }
         : {})
     });
     try {

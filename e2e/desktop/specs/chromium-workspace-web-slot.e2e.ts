@@ -471,7 +471,11 @@ async function dragVisibleNativeDivider(input: Readonly<{
   if (input.platform === "macos") {
     await dragMacosVisibleWorkspaceDivider();
   } else {
-    await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle);
+    await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, {
+      axis: "vertical",
+      dividerIndex: 0,
+      windowId: input.before.windowId
+    });
   }
   let after: ElectronDesktopE2eWorkspaceWebRuntimeInspection | undefined;
   const beforeWebSlot = input.before.coreSlots.find((slot) => slot.web !== null)!;

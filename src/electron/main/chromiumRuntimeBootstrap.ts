@@ -358,6 +358,7 @@ export interface ChromiumRuntimeBootstrapInput {
       action: ChromiumRuntimeNativeTabAction
     ) => Promise<void>;
     runtimeForegroundProbe?: WindowsRuntimeForegroundProbePort;
+    readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>;
     runtimeShortcutOwner: WindowsRuntimeShortcutOwnerPort;
     trustedInput?: WindowsChromiumTrustedInputRuntimeConfiguration;
   }>;
@@ -685,6 +686,7 @@ export class ChromiumRuntimeBootstrap {
             runtimeForegroundProbe: input.windows!.runtimeForegroundProbe,
             runtimeShortcutOwner: input.windows!.runtimeShortcutOwner,
             lifecycleEpoch: input.windows!.lifecycleEpoch,
+            readCursorScreenPoint: input.windows!.readCursorScreenPoint,
             onTabReload: (fence) => {
               requireNativeActionIngress();
               return nativeActionIngress.run(() => executeControlledRuntimeTabReload(input.core, fence).then(

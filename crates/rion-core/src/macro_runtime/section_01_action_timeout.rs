@@ -17,9 +17,9 @@ use crate::{
         BrowserAction, BrowserActionRequest, BrowserActionResult, CoreEffectDispatchReport,
         CoreEvent, MacroDefinition, MacroInputDiagnosticsRecord, MacroInputEpochRecord,
         MacroInputRoleDiagnosticRecord, MacroLastClick,
-        MacroStartAttemptDiagnosticRecord,
-        MacroPressRequest, MacroReleaseRequest, MacroRepeat, MacroRunStatus, MacroRuntimeSettings,
-        MacroStartRequest, MacroStepDefinition,
+        MacroActivationMode, MacroHoldReleaseRequest, MacroHoldStartRequest, MacroRepeat,
+        MacroRunStatus, MacroRuntimeSettings, MacroStartAttemptDiagnosticRecord, MacroStartRequest,
+        MacroStepDefinition,
     },
 };
 
@@ -157,8 +157,8 @@ struct Inner {
     held_key_continuity_revisions: HashMap<(String, String), HeldKeyContinuityRevision>,
     held_keys: HashMap<String, HeldKey>,
     invocations: HashMap<String, Arc<InvocationControl>>,
-    leases: HashMap<String, HeldLease>,
-    early_releases: HashMap<String, String>,
+    hold_leases: HashMap<String, HoldLease>,
+    early_hold_releases: HashSet<String>,
     mutation_leases: HashMap<String, HashSet<String>>,
     mutating_macro_ids: HashSet<String>,
     input_epochs: HashMap<String, u64>,
@@ -173,9 +173,9 @@ struct Inner {
     statuses: HashMap<String, MacroRunStatus>,
 }
 
-struct HeldLease {
+struct HoldLease {
     invocation_id: String,
-    press_id: String,
+    shortcut_cycle_id: String,
 }
 
 struct InvocationControl {

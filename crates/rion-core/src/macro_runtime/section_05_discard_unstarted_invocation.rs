@@ -154,7 +154,7 @@ fn discard_unstarted_invocation(shared: &Arc<Shared>, control: &Arc<InvocationCo
         let prefix = format!("{}|", control.id);
         inner.statuses.retain(|key, _| !key.starts_with(&prefix));
         inner
-            .leases
+            .hold_leases
             .retain(|_, lease| lease.invocation_id != control.id);
     }
     if let Ok(mut outcome) = control.outcome.lock() {
@@ -589,10 +589,10 @@ fn validate_macro_dependencies(macros: &[MacroDefinition]) -> CoreResult<()> {
     Ok(())
 }
 
-fn validate_press_id(press_id: &str) -> CoreResult<()> {
-    if press_id.trim().is_empty() || press_id.len() > 160 {
+pub(crate) fn validate_shortcut_cycle_id(shortcut_cycle_id: &str) -> CoreResult<()> {
+    if shortcut_cycle_id.trim().is_empty() || shortcut_cycle_id.len() > 160 {
         Err(CoreError::InvalidInput(
-            "macro shortcut press id is invalid".to_owned(),
+            "macro shortcut cycle id is invalid".to_owned(),
         ))
     } else {
         Ok(())
@@ -629,13 +629,13 @@ fn lease_key(role_id: &str, macro_id: &str) -> String {
     format!("{role_id}|{macro_id}")
 }
 
-fn early_release_key(role_id: &str, macro_id: &str, press_id: &str) -> String {
-    format!("{role_id}|{macro_id}|{press_id}")
+fn early_hold_release_key(role_id: &str, macro_id: &str, shortcut_cycle_id: &str) -> String {
+    format!("{role_id}|{macro_id}|{shortcut_cycle_id}")
 }
 
-fn trim_early_releases(releases: &mut HashMap<String, String>) {
+fn trim_early_hold_releases(releases: &mut HashSet<String>) {
     while releases.len() > 256 {
-        let Some(key) = releases.keys().next().cloned() else {
+        let Some(key) = releases.iter().next().cloned() else {
             break;
         };
         releases.remove(&key);

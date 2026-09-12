@@ -24,7 +24,7 @@ fn admit_source_start(
 }
 
 #[test]
-fn source_roles_start_toggle_and_stop_independently() {
+fn source_roles_start_press_and_stop_independently() {
     let (events, receiver) = mpsc::channel();
     let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
         let _ = events.send(batch);
@@ -43,11 +43,11 @@ fn source_roles_start_toggle_and_stop_independently() {
     let b_wait = next_wait(&waits);
     assert!(runtime.start(a.clone()).is_err());
     assert_eq!(
-        runtime.toggle(source_request(None)).unwrap_err().code(),
+        runtime.press(source_request(None)).unwrap_err().code(),
         "MACRO_SOURCE_ROLE_REQUIRED"
     );
     assert_eq!(runtime.statuses().unwrap().len(), 2);
-    assert!(runtime.toggle(a).unwrap().is_empty());
+    assert!(runtime.press(a).unwrap().is_empty());
     assert!(
         runtime
             .statuses()
@@ -120,12 +120,12 @@ fn source_role_held_release_and_stale_release_do_not_cancel_another_role() {
     let mut held_waits = Vec::new();
     for role in ["r1", "r2"] {
         let mut start = source_request(Some(role));
-        start.macros[0].activation_mode = Some("while_held".into());
+        start.macros[0].activation_mode = Some(MacroActivationMode::Hold);
         let pressing_runtime = runtime.clone();
         let pressing = thread::spawn(move || {
-            pressing_runtime.press(MacroPressRequest {
+            pressing_runtime.hold_start(MacroHoldStartRequest {
                 start,
-                press_id: "press".into(),
+                shortcut_cycle_id: "press".into(),
             })
         });
         let focus = next_browser_actions(&receiver);
@@ -135,20 +135,18 @@ fn source_role_held_release_and_stale_release_do_not_cancel_another_role() {
         held_waits.push(next_wait(&waits));
     }
     runtime
-        .release(MacroReleaseRequest {
+        .hold_release(MacroHoldReleaseRequest {
             macro_id: "m1".into(),
             source_role_id: "r1".into(),
-            press_id: "stale".into(),
-            mode: "immediate".into(),
+            shortcut_cycle_id: "stale".into(),
         })
         .unwrap();
     assert_eq!(runtime.statuses().unwrap().len(), 2);
     runtime
-        .release(MacroReleaseRequest {
+        .hold_release(MacroHoldReleaseRequest {
             macro_id: "m1".into(),
             source_role_id: "r1".into(),
-            press_id: "press".into(),
-            mode: "immediate".into(),
+            shortcut_cycle_id: "press".into(),
         })
         .unwrap();
     assert!(

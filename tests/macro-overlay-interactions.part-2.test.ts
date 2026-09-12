@@ -295,10 +295,10 @@ it("shows controller-role running badges without exposing execution-role click m
     expect(root.querySelectorAll(".click-marker")).toHaveLength(0);
 
     dispatchShortcut(window, "F2", "F2");
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
-      type: "toggle",
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
       macroId: clickMacro.id
-    }));
+    })));
   });
 
 it("keeps local execution status visible while passing an unavailable shortcut to the game", async () => {
@@ -330,7 +330,7 @@ it("keeps local execution status visible while passing an unavailable shortcut t
     });
     expect(document.dispatchEvent(event)).toBe(true);
     expect(binding.mock.calls.some(([request]) =>
-      isRecord(request) && request.type === "toggle"
+      isRecord(request) && request.type === "press"
     )).toBe(false);
   });
 
@@ -494,10 +494,10 @@ it("independently hides overlay visuals while preserving macro shortcuts", async
     }));
     dispatchShortcut(window, "F2", "F2");
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "open" }));
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
-      type: "toggle",
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
       macroId: clickMacro.id
-    }));
+    })));
 
     macroOverlay = {
       showClickMarkers: true,
@@ -644,11 +644,11 @@ it("does not poll for reconciliation while an event-driven refresh is pending", 
     expect(binding).toHaveBeenCalledTimes(2);
   });
 
-it("starts and stops macros from their in-game shortcuts while updating the badge", async () => {
+it("starts and stops press macros from consecutive in-game keydown cycles", async () => {
     createGameSurface(document);
     let statuses: Array<Record<string, unknown>> = [];
     const binding = vi.fn(async (request: unknown) => {
-      if (isRecord(request) && request.type === "toggle") {
+      if (isRecord(request) && request.type === "press") {
         statuses = statuses.length === 0 ? [runningStatus()] : [];
       }
       return { macros: [assignedMacro], statuses };
@@ -657,7 +657,10 @@ it("starts and stops macros from their in-game shortcuts while updating the badg
     await controller.refresh();
 
     dispatchShortcut(window, "F2", "F2");
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: assignedMacro.id
+    })));
     await vi.waitFor(() => {
       expect(getOverlayRoot(document).querySelector(".active-badge-name")?.textContent).toBe(assignedMacro.name);
     });
@@ -665,21 +668,24 @@ it("starts and stops macros from their in-game shortcuts while updating the badg
     dispatchShortcut(window, "F2", "F2");
     await vi.waitFor(() =>
       expect(binding.mock.calls.filter(([request]) =>
-        isRecord(request) && request.type === "toggle"
+        isRecord(request) && request.type === "press"
       )).toHaveLength(2)
     );
     await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull());
-    expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
+    expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: assignedMacro.id
+    }));
   });
 
-it("queues dense toggle intents instead of dropping a shortcut while the prior toggle is pending", async () => {
+it("queues dense press intents instead of dropping a shortcut while the prior press is pending", async () => {
     createGameSurface(document);
-    const firstToggle = createDeferred<unknown>();
-    let toggleCount = 0;
+    const firstPress = createDeferred<unknown>();
+    let pressCount = 0;
     const binding = vi.fn(async (request: unknown) => {
-      if (isRecord(request) && request.type === "toggle") {
-        toggleCount += 1;
-        if (toggleCount === 1) return firstToggle.promise;
+      if (isRecord(request) && request.type === "press") {
+        pressCount += 1;
+        if (pressCount === 1) return firstPress.promise;
         return { macros: [assignedMacro], statuses: [] };
       }
       return { macros: [assignedMacro], statuses: [] };
@@ -689,12 +695,12 @@ it("queues dense toggle intents instead of dropping a shortcut while the prior t
 
     dispatchShortcut(window, "F2", "F2");
     dispatchShortcut(window, "F2", "F2");
-    await vi.waitFor(() => expect(toggleCount).toBe(1));
+    await vi.waitFor(() => expect(pressCount).toBe(1));
 
-    firstToggle.resolve({ macros: [assignedMacro], statuses: [runningStatus()] });
-    await vi.waitFor(() => expect(toggleCount).toBe(2));
+    firstPress.resolve({ macros: [assignedMacro], statuses: [runningStatus()] });
+    await vi.waitFor(() => expect(pressCount).toBe(2));
     expect(binding.mock.calls.filter(([request]) =>
-      isRecord(request) && request.type === "toggle"
+      isRecord(request) && request.type === "press"
     )).toHaveLength(2);
   });
 
@@ -740,7 +746,7 @@ it("lets unmatched physical key events pass through without macro actions", asyn
     expect(pageKeyDown).toHaveBeenCalledTimes(2);
     expect(pageKeyUp).toHaveBeenCalledOnce();
     expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({
-      type: expect.stringMatching(/^(?:start|stop|press|release)$/)
+      type: expect.stringMatching(/^(?:start|stop|press|hold-start|hold-release)$/)
     }));
   });
 

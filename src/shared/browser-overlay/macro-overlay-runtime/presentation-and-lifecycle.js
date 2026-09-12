@@ -196,8 +196,8 @@
   function formatMacroBehavior(macro) {
     const text = getText();
     const parts = [];
-    if ((macro.activationMode ?? "toggle") === "while_held") {
-      parts.push(text.tapOrHold);
+    if ((macro.activationMode ?? "press") === "hold") {
+      parts.push(text.hold);
     }
     if (macro.steps?.some((step) => step.type === "key" && step.action === "hold_until_stop")) {
       parts.push(text.holdUntilStop);
@@ -723,11 +723,10 @@
   function cleanupInputContext({ deferModifierRelease = false } = {}) {
     runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext("document");
-    cancelPendingPhysicalToggleShortcuts();
     const physicalRelease = releasePhysicalGameKeys({
       deferModifiers: deferModifierRelease
     });
-    const shortcutRelease = releaseActiveHeldShortcuts();
+    const shortcutRelease = releaseActiveKeyboardShortcuts();
     destroyCoordinateMeasurement();
     return Promise.all([physicalRelease, shortcutRelease]);
   }
@@ -754,9 +753,8 @@
     if (document.visibilityState === "hidden") {
       runtimeTabShortcutModifierCodes.clear();
       reportGameInputContext("document");
-      cancelPendingPhysicalToggleShortcuts();
       releasePhysicalGameKeys();
-      releaseActiveHeldShortcuts();
+      releaseActiveKeyboardShortcuts();
       destroyCoordinateMeasurement();
       return;
     }
@@ -782,8 +780,7 @@
     destroyCoordinateMeasurement();
     resetCoordinateMeasurementModuleLoader();
     reportGameInputContext("document");
-    cancelPendingPhysicalToggleShortcuts();
-    releaseActiveHeldShortcuts();
+    releaseActiveKeyboardShortcuts();
     releaseAllForwardedMacroKeys();
     releasePhysicalGameKeys();
     window.removeEventListener("keydown", handleKeyDown, true);
@@ -811,7 +808,7 @@
     }
     retainedClickStatuses.clear();
     seenClickStatusEvents.clear();
-    activeHeldShortcuts.clear();
+    activeKeyboardShortcuts.clear();
     consumedPhysicalShortcutCodes.clear();
     runtimeTabShortcutModifierCodes.clear();
     clickMarkerEvents.clear();

@@ -178,7 +178,7 @@ export function validateChromiumMacroStandbySqliteEvidence(input) {
   const macro = macros[0].payload;
   requireEvidence(
     JSON.stringify(macro?.roleIds) === JSON.stringify([roleA?.id]) &&
-      macro?.activationMode === "toggle" && macro?.enabled === true &&
+      macro?.activationMode === "press" && macro?.enabled === true &&
       macro?.repeat?.type === "once" && macro?.steps?.length === 1,
     `${input.phase}: Macro authority drifted`
   );

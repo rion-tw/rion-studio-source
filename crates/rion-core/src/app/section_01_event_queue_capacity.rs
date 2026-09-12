@@ -46,8 +46,8 @@ use crate::{
         GameWindowRuntimeSnapshotCommitInputRecord, GameWindowSaveRuntimeInputRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
         MacroInputDiagnosticsRecord, MacroInputEpochRecord, MacroOverlayRequestRecord,
-        MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressRequest,
-        MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest, OperationCancelResultRecord,
+        MacroHoldReleaseRequest, MacroHoldStartRequest, MacroOverlayStartSummaryRecord,
+        MacroOverlayViewModelRecord, MacroSettingsRecord, MacroStartRequest, OperationCancelResultRecord,
         RolePathsRecord, RuntimeRestoreSessionRecord, RuntimeRoleSlotInputRecord,
         RuntimeWindowPersistenceBatchReceiptRecord, RuntimeWindowPersistenceReceiptRecord,
         RuntimeWindowPreferencesRecord, RuntimeWindowStopRequestRecord, StateCollection,
@@ -68,9 +68,11 @@ const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // 28 retains native macOS popup presentation; 29 adds exact live Workspace
 // appearance projection and AppKit geometry fencing; 30 promotes one bounded
 // in-process CDP Input transport on both Chromium hosts; 31 adopts Electron's
-// native BrowserWindow popup path and connected-opener lifecycle receipts.
+// native BrowserWindow popup path and connected-opener lifecycle receipts; 32
+// binds physical-input provenance to trusted DOM receipts; 33 changes managed
+// macro shortcuts to press/hold activation with keyDown/keyUp-only ordering.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 32;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 33;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.

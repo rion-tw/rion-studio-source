@@ -33,6 +33,11 @@ export type ElectronRoleKeyPhase = Readonly<{
   phase: "keyDown" | "keyUp";
 }>;
 
+type ElectronRoleKeySubmissionOptions = Readonly<{
+  windowId: string;
+  focusCanvas?: boolean;
+}>;
+
 export type VisibleElectronPagePoint = Readonly<{
   viewport: Readonly<{ height: number; width: number }>;
   x: number;
@@ -586,17 +591,13 @@ export async function completeVisibleElectronRoleVerification(
   });
 }
 
-/**
- * Sends an exact physical-key lifecycle to the visible managed Role document.
- * WebDriver owns the input source; the E2E fixture remains responsible for
- * proving that Chromium delivered trusted DOM events to this exact document.
- */
-export async function submitElectronRoleKeyPhases(
+/** Establishes the exact Role target and native focus used for keyboard input. */
+async function withElectronRoleKeyboardTarget<Value>(
   expectedUrl: string,
   mainWindowHandle: string,
-  phases: readonly ElectronRoleKeyPhase[],
-  options: Readonly<{ windowId: string; focusCanvas?: boolean }>
-): Promise<void> {
+  options: ElectronRoleKeySubmissionOptions,
+  action: () => Promise<Value>
+): Promise<Value> {
   const probe = options.focusCanvas === false ? null : await electronDesktopE2eProbe();
   const nativeWindowHandle = probe?.platform === "windows"
     ? (await electronDesktopE2eFullscreenToolbarRuntime(options.windowId)).nativeWindowHandle
@@ -604,7 +605,7 @@ export async function submitElectronRoleKeyPhases(
   if (probe?.platform === "windows" && !nativeWindowHandle) {
     throw new Error("The exact Windows runtime handle is missing");
   }
-  await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
+  return withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
     const canvas = await $("#game-input-canvas");
     await canvas.waitForDisplayed({ timeout: 10_000 });
     if (options.focusCanvas !== false) {
@@ -627,12 +628,55 @@ export async function submitElectronRoleKeyPhases(
       );
       if (!focused) throw new Error("The visible canvas click did not establish keyboard focus");
     }
+    return action();
+  });
+}
+
+/**
+ * Sends an exact physical-key lifecycle to the visible managed Role document.
+ * WebDriver owns the input source; the E2E fixture remains responsible for
+ * proving that Chromium delivered trusted DOM events to this exact document.
+ */
+export async function submitElectronRoleKeyPhases(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  phases: readonly ElectronRoleKeyPhase[],
+  options: ElectronRoleKeySubmissionOptions
+): Promise<void> {
+  await withElectronRoleKeyboardTarget(expectedUrl, mainWindowHandle, options, async () => {
     for (const phase of phases) {
       const action = browser.action("key", { id: ROLE_KEY_INPUT_SOURCE });
       if (phase.phase === "keyDown") action.down(phase.key);
       else action.up(phase.key);
       await action.perform(true);
     }
+  });
+}
+
+/** Keeps one WebDriver input sequence active across a bounded observation window. */
+export async function submitElectronRoleKeySequenceWithPause(
+  expectedUrl: string,
+  mainWindowHandle: string,
+  beforePause: readonly ElectronRoleKeyPhase[],
+  pauseMs: number,
+  afterPause: readonly ElectronRoleKeyPhase[],
+  options: ElectronRoleKeySubmissionOptions
+): Promise<void> {
+  if (!Number.isSafeInteger(pauseMs) || pauseMs < 0) {
+    throw new Error(`Invalid Role key sequence pause: ${pauseMs}`);
+  }
+  await withElectronRoleKeyboardTarget(expectedUrl, mainWindowHandle, options, async () => {
+    const action = browser.action("key", { id: ROLE_KEY_INPUT_SOURCE });
+    for (const phase of beforePause) {
+      if (phase.phase === "keyDown") action.down(phase.key);
+      else action.up(phase.key);
+    }
+    action.pause(pauseMs);
+    for (const phase of afterPause) {
+      if (phase.phase === "keyDown") action.down(phase.key);
+      else action.up(phase.key);
+    }
+    await action.perform(true);
   });
 }
 

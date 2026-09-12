@@ -11,14 +11,14 @@ import type {
 } from
   "./chromiumRoleSurfaceRegistry";
 
-type ManagedShortcutPhase = "replay" | "keyDown" | "keyUp";
+type ManagedShortcutPhase = "keyDown" | "keyUp";
 
 interface ManagedShortcutRequest {
   readonly code: string;
   readonly macroId: string;
   readonly modifierCodes: readonly string[];
   readonly phase: ManagedShortcutPhase;
-  readonly pressId: string;
+  readonly shortcutCycleId: string;
 }
 
 export interface ChromiumManagedShortcutSurfaceIdentity {
@@ -46,7 +46,7 @@ interface ActiveManagedShortcut {
   readonly code: string;
   readonly documentInstanceId: string;
   readonly macroId: string;
-  readonly pressId: string;
+  readonly shortcutCycleId: string;
   readonly roleId: string;
   readonly surfaceGeneration: number;
   state: "provisional" | "held" | "uncertain";
@@ -84,7 +84,7 @@ function parseRequest(raw: unknown): ManagedShortcutRequest {
   }
   const record = raw as Record<string, unknown>;
   const keys = Object.keys(record).sort();
-  const expected = ["code", "macroId", "modifierCodes", "phase", "pressId"].sort();
+  const expected = ["code", "macroId", "modifierCodes", "phase", "shortcutCycleId"].sort();
   const allowedModifiers = new Set([
     "AltLeft", "AltRight", "ControlLeft", "ControlRight",
     "MetaLeft", "MetaRight", "ShiftLeft", "ShiftRight"
@@ -92,9 +92,8 @@ function parseRequest(raw: unknown): ManagedShortcutRequest {
   if (keys.length !== expected.length ||
     keys.some((key, index) => key !== expected[index]) ||
     !identifier(record.code, 64) || !identifier(record.macroId, 256) ||
-    !identifier(record.pressId, 160) ||
-    !(record.phase === "replay" || record.phase === "keyDown" ||
-      record.phase === "keyUp") ||
+    !identifier(record.shortcutCycleId, 160) ||
+    !(record.phase === "keyDown" || record.phase === "keyUp") ||
     !Array.isArray(record.modifierCodes) || record.modifierCodes.length > 4 ||
     new Set(record.modifierCodes).size !== record.modifierCodes.length ||
     record.modifierCodes.some((code) =>
@@ -110,7 +109,7 @@ function parseRequest(raw: unknown): ManagedShortcutRequest {
     macroId: record.macroId,
     modifierCodes: Object.freeze([...record.modifierCodes]) as readonly string[],
     phase: record.phase,
-    pressId: record.pressId
+    shortcutCycleId: record.shortcutCycleId
   });
 }
 
@@ -125,7 +124,7 @@ function exactReceipt(
     receipt.surfaceGeneration === surface.surfaceGeneration &&
     receipt.documentInstanceId === surface.documentInstanceId &&
     receipt.expectedOwnerGeneration === surface.ownerGeneration &&
-    receipt.pressId === request.pressId && receipt.macroId === request.macroId &&
+    receipt.shortcutCycleId === request.shortcutCycleId && receipt.macroId === request.macroId &&
     receipt.code === request.code && receipt.phase === request.phase &&
     Array.isArray(receipt.requestIds) && (
       receipt.status === "superseded"
@@ -211,7 +210,7 @@ export class ChromiumManagedShortcutCoordinator {
           code: request.code,
           documentInstanceId: surface.documentInstanceId,
           macroId: request.macroId,
-          pressId: request.pressId,
+          shortcutCycleId: request.shortcutCycleId,
           roleId: surface.roleId,
           surfaceGeneration: surface.surfaceGeneration,
           state: "provisional"
@@ -223,7 +222,7 @@ export class ChromiumManagedShortcutCoordinator {
       } catch (error) {
         if (request.phase === "keyDown") {
           const active = this.#active.get(shortcutKey);
-          if (active?.pressId === request.pressId) {
+          if (active?.shortcutCycleId === request.shortcutCycleId) {
             const normalized = normalizeRionBridgeError(error);
             if (normalized.code === "SYSTEM_TRUSTED_INPUT_INDETERMINATE") {
               active.state = "uncertain";
@@ -237,7 +236,7 @@ export class ChromiumManagedShortcutCoordinator {
       if (!exactReceipt(receipt, operationId, surface, request)) {
         if (request.phase === "keyDown") {
           const active = this.#active.get(shortcutKey);
-          if (active?.pressId === request.pressId) active.state = "uncertain";
+          if (active?.shortcutCycleId === request.shortcutCycleId) active.state = "uncertain";
         }
         throw shortcutError(
           "ELECTRON_MANAGED_SHORTCUT_RECEIPT_INVALID",
@@ -257,7 +256,7 @@ export class ChromiumManagedShortcutCoordinator {
       }
       if (request.phase === "keyDown") {
         const active = this.#active.get(shortcutKey);
-        if (active?.pressId === request.pressId) active.state = "held";
+        if (active?.shortcutCycleId === request.shortcutCycleId) active.state = "held";
       } else if (request.phase === "keyUp") {
         this.#active.delete(shortcutKey);
       }
@@ -391,30 +390,31 @@ export class ChromiumManagedShortcutCoordinator {
       fence.documentInstanceId !== input.documentInstanceId) return false;
     const byOperation = this.#documentReplacementRetirements.get(input.roleId) ??
       new Map<string, ManagedShortcutSurfaceRetirementReceiptRecord>();
-    const replay = byOperation.get(input.operationId);
-    if (replay) return this.#sameRetirementReceipt(replay, receipt);
-    const expectedPressIds = [...this.#active.values()]
+    const existing = byOperation.get(input.operationId);
+    if (existing) return this.#sameRetirementReceipt(existing, receipt);
+    const expectedShortcutCycleIds = [...this.#active.values()]
       .filter((entry) => entry.roleId === input.roleId &&
         entry.surfaceGeneration === input.surfaceGeneration &&
         entry.documentInstanceId === input.documentInstanceId)
-      .map((entry) => entry.pressId)
+      .map((entry) => entry.shortcutCycleId)
       .sort();
-    const retiredPressIds = [...receipt.retiredPressIds].sort();
+    const retiredShortcutCycleIds = [...receipt.retiredShortcutCycleIds].sort();
     if (
       receipt.roleId !== input.roleId ||
       receipt.surfaceGeneration !== input.surfaceGeneration ||
       receipt.documentInstanceId !== input.documentInstanceId ||
       receipt.terminal !== true ||
-      receipt.cleanupRequestIds.length !== expectedPressIds.length ||
+      receipt.cleanupRequestIds.length !== expectedShortcutCycleIds.length ||
       new Set(receipt.cleanupRequestIds).size !== receipt.cleanupRequestIds.length ||
       receipt.cleanupRequestIds.some((requestId) => !identifier(requestId, 256)) ||
-      retiredPressIds.length !== expectedPressIds.length ||
-      retiredPressIds.some((pressId, index) => pressId !== expectedPressIds[index])
+      retiredShortcutCycleIds.length !== expectedShortcutCycleIds.length ||
+      retiredShortcutCycleIds.some((shortcutCycleId, index) =>
+        shortcutCycleId !== expectedShortcutCycleIds[index])
     ) return false;
     const retained = Object.freeze({
       ...receipt,
       cleanupRequestIds: Object.freeze([...receipt.cleanupRequestIds]),
-      retiredPressIds: Object.freeze([...receipt.retiredPressIds])
+      retiredShortcutCycleIds: Object.freeze([...receipt.retiredShortcutCycleIds])
     }) as ManagedShortcutSurfaceRetirementReceiptRecord;
     byOperation.set(input.operationId, retained);
     this.#documentReplacementRetirements.set(input.roleId, byOperation);
@@ -496,9 +496,9 @@ export class ChromiumManagedShortcutCoordinator {
       left.cleanupRequestIds.length === right.cleanupRequestIds.length &&
       left.cleanupRequestIds.every((value, index) =>
         value === right.cleanupRequestIds[index]) &&
-      left.retiredPressIds.length === right.retiredPressIds.length &&
-      left.retiredPressIds.every((value, index) =>
-        value === right.retiredPressIds[index]);
+      left.retiredShortcutCycleIds.length === right.retiredShortcutCycleIds.length &&
+      left.retiredShortcutCycleIds.every((value, index) =>
+        value === right.retiredShortcutCycleIds[index]);
   }
 
   #enqueue<Value>(roleId: string, operation: () => Promise<Value>): Promise<Value> {
@@ -519,24 +519,25 @@ export class ChromiumManagedShortcutCoordinator {
     );
     const documents = [...new Set(active.map((entry) => entry.documentInstanceId))].sort();
     for (const documentInstanceId of documents) {
-      const expectedPressIds = active
+      const expectedShortcutCycleIds = active
         .filter((entry) => entry.documentInstanceId === documentInstanceId)
-        .map((entry) => entry.pressId)
+        .map((entry) => entry.shortcutCycleId)
         .sort();
       const receipt = await this.#retireSurface({
         roleId: event.roleId,
         surfaceGeneration: event.generation,
         documentInstanceId
       });
-      const retiredPressIds = [...receipt.retiredPressIds].sort();
+      const retiredShortcutCycleIds = [...receipt.retiredShortcutCycleIds].sort();
       if (receipt.roleId !== event.roleId ||
         receipt.surfaceGeneration !== event.generation ||
         receipt.documentInstanceId !== documentInstanceId ||
         receipt.terminal !== true ||
-        receipt.cleanupRequestIds.length !== expectedPressIds.length ||
+        receipt.cleanupRequestIds.length !== expectedShortcutCycleIds.length ||
         receipt.cleanupRequestIds.some((requestId) => !identifier(requestId, 256)) ||
-        retiredPressIds.length !== expectedPressIds.length ||
-        retiredPressIds.some((pressId, index) => pressId !== expectedPressIds[index])) {
+        retiredShortcutCycleIds.length !== expectedShortcutCycleIds.length ||
+        retiredShortcutCycleIds.some((shortcutCycleId, index) =>
+          shortcutCycleId !== expectedShortcutCycleIds[index])) {
         throw shortcutError(
           "ELECTRON_MANAGED_SHORTCUT_RETIREMENT_INVALID",
           "Core returned a mismatched managed shortcut surface retirement receipt."

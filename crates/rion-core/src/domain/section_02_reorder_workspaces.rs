@@ -538,9 +538,7 @@ pub fn create_macro(
         execution_mode,
         id: Uuid::new_v4().to_string(),
         enabled: input.enabled.unwrap_or(true),
-        activation_mode: Some(normalize_macro_activation_mode(
-            input.activation_mode.as_deref(),
-        )?),
+        activation_mode: Some(normalize_macro_activation_mode(input.activation_mode)),
         name: normalize_name(&input.name, "MACRO_NAME_REQUIRED", "MACRO_NAME_TOO_LONG")?,
         role_ids: if execution_mode == Some(crate::model::MacroExecutionMode::SourceRole) { Vec::new() } else { normalize_macro_role_ids(input.role_ids)? },
         shortcut_source_scope,
@@ -587,11 +585,8 @@ pub fn update_macro(
         enabled: input.enabled.unwrap_or(current.enabled),
         activation_mode: input
             .activation_mode
-            .as_deref()
-            .map(|mode| normalize_macro_activation_mode(Some(mode)))
-            .transpose()?
-            .map(Some)
-            .unwrap_or(current.activation_mode.clone()),
+            .map(|mode| Some(normalize_macro_activation_mode(Some(mode))))
+            .unwrap_or(current.activation_mode),
         name: input
             .name
             .as_deref()
@@ -710,8 +705,8 @@ pub fn clear_macro_role(macros: &mut [StateMacroRecord], role_id: &str) {
         if removed_last_selected_source {
             macro_record.trigger = None;
             if macro_record.execution_mode != Some(crate::model::MacroExecutionMode::SourceRole) { macro_record.shortcut_source_scope = MacroShortcutSourceScope::AllExecutionRoles; }
-            if macro_record.activation_mode.as_deref() == Some("while_held") {
-                macro_record.activation_mode = Some("toggle".to_owned());
+            if macro_record.activation_mode == Some(MacroActivationMode::Hold) {
+                macro_record.activation_mode = Some(MacroActivationMode::Press);
             }
         }
         if macro_record.role_ids != before.role_ids

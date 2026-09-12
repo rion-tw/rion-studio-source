@@ -865,7 +865,7 @@ fn finish_invocation(
             .held_keys
             .retain(|owner_id, _| !owner_id.starts_with(&format!("{}:", control.id)));
         inner
-            .leases
+            .hold_leases
             .retain(|_, lease| lease.invocation_id != control.id);
     }
     emit_statuses(shared, true);

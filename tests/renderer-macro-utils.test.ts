@@ -37,8 +37,8 @@ const t: Translator = (key) =>
       "macroForm.intervalMilliseconds": "{value} ms",
       "macroForm.intervalSeconds": "{value} sec",
       "macroForm.intervalNone": "0 ms · No extra wait",
-      "macroForm.activation.toggle": "Tap to toggle",
-      "macroForm.activation.whileHeld": "Tap or hold",
+      "macroForm.activation.press": "Press",
+      "macroForm.activation.hold": "Hold",
       "macroForm.modifier.primary": "Primary ({value})",
       "macros.noShortcut": "No shortcut",
       "macros.repeat.loop": "Wait {ms} ms after completion",
@@ -180,12 +180,12 @@ describe("macroUtils", () => {
   it("creates a new macro form without default steps", () => {
     const result = createEmptyMacroForm([], [] as Role[], t);
     expect(result.steps).toEqual([]);
-    expect(result.activationMode).toBe("toggle");
+    expect(result.activationMode).toBe("press");
   });
 
   it("formats repeat settings and run keys", () => {
-    expect(formatMacroActivationMode(undefined, t)).toBe("Tap to toggle");
-    expect(formatMacroActivationMode("while_held", t)).toBe("Tap or hold");
+    expect(formatMacroActivationMode(undefined, t)).toBe("Press");
+    expect(formatMacroActivationMode("hold", t)).toBe("Hold");
     expect(formatMacroRepeat({ type: "once" }, t)).toBe("Once");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 500 }, t)).toBe("Wait 500 ms after completion");
     expect(formatMacroRepeat({ type: "loop", intervalMs: 0 }, t)).toBe("Schedule the next run after completion");

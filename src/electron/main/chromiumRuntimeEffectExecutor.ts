@@ -300,7 +300,7 @@ export class ChromiumRuntimeEffectExecutor {
 
   overlayManagedShortcutIdentity(
     identity: ChromiumRoleOverlayFrameIdentity,
-    phase: "replay" | "keyDown" | "keyUp"
+    phase: "keyDown" | "keyUp"
   ): Readonly<{
     roleId: string;
     tabId: string;

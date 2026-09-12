@@ -119,8 +119,8 @@ same context snapshot. `embedded-frame` fails admission with
 keyup and mouseup remain admissible. Core captures restart intent before the
 blocked action wakes its invocation, drains the old tree, and remains
 event-bound until the same document and generation report `game`. A `document`
-context never resumes automatically. Eligible toggle and loop roots restart
-once from their beginning; while-held roots remain stopped. Multi-role restart
+context never resumes automatically. Eligible press and loop roots restart
+once from their beginning; hold roots remain stopped. Multi-role restart
 intent remains deferred until every involved role is input-admissible.
 
 Held-key continuity and teardown ordering are governed by

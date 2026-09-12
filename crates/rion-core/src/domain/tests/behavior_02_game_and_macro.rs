@@ -187,14 +187,14 @@
             let held = create_macro(
                 &mut macros,
                 macro_input(json!({
-                    "activationMode":"while_held",
+                    "activationMode":"hold",
                     "name":"Held","roleIds":["r1"],
                     "trigger":{"code":"F6","ctrl":false,"alt":false,"shift":false,"meta":false},
                     "steps":[{"type":"key","code":"KeyW","action":"hold_until_stop"}]
                 })),
             )
             .unwrap();
-            assert_eq!(held.activation_mode.as_deref(), Some("while_held"));
+            assert_eq!(held.activation_mode, Some(MacroActivationMode::Hold));
             assert!(matches!(
                 &held.steps[0],
                 MacroStepDefinition::Key { action: Some(action), .. } if action == "hold_until_stop"
@@ -203,7 +203,7 @@
                 create_macro(
                     &mut macros,
                     macro_input(json!({
-                        "activationMode":"while_held","name":"Invalid","roleIds":["r2"],
+                        "activationMode":"hold","name":"Invalid","roleIds":["r2"],
                         "steps":[{"type":"delay","ms":1}]
                     }))
                 )
@@ -582,7 +582,7 @@
             let selected = create_macro(
                 &mut macros,
                 macro_input(json!({
-                    "activationMode":"while_held","name":"Delete source","roleIds":["r1"],
+                    "activationMode":"hold","name":"Delete source","roleIds":["r1"],
                     "trigger":{"code":"F5","ctrl":false,"alt":false,"shift":false,"meta":false},
                     "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller"]},
                     "steps":[{"type":"delay","ms":1}]
@@ -592,7 +592,7 @@
             clear_macro_role(&mut macros, "controller");
             let selected = macros.iter().find(|item| item.id == selected.id).unwrap();
             assert!(selected.trigger.is_none());
-            assert_eq!(selected.activation_mode.as_deref(), Some("toggle"));
+            assert_eq!(selected.activation_mode, Some(MacroActivationMode::Press));
             assert!(matches!(
                 selected.shortcut_source_scope,
                 MacroShortcutSourceScope::AllExecutionRoles

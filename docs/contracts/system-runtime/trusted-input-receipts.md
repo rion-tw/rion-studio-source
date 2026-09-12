@@ -1,6 +1,6 @@
 # Trusted Input Receipts
 
-This document is the normative Chromium contract v32 source for trusted-input
+This document is the normative Chromium contract v33 source for trusted-input
 receipt provenance, uncertain-edge neutralization, quarantine, and retained
 terminal evidence. The broader recovery transaction remains defined by
 [Lifecycle and Recovery](lifecycle-and-recovery.md).
@@ -49,8 +49,8 @@ submission follows the same rule when a button-down can be proven to have been
 issued and the session remains capable of accepting guarded cleanup.
 
 Only exact cleanup receipts, an empty active set, and exact Core rollback may
-publish `cleanup-neutral`. Eligible toggle and loop roots may then restart once
-from their beginning. While-held roots are not reconstructed. An uncertain
+publish `cleanup-neutral`. Eligible press and loop roots may then restart once
+from their beginning. Hold roots are not reconstructed. An uncertain
 cleanup, unavailable provenance, terminal CDP session, or uncertain Core
 rollback leaves the Role `restart-required`; the original effect is never
 retried.
@@ -58,7 +58,7 @@ retried.
 ## Quarantine and teardown
 
 Quarantine and restart-required projection release the managed shortcut guard,
-while-held lease, and pass-through ownership for the affected Role. Automatic
+hold lease, and pass-through ownership for the affected Role. Automatic
 input remains disabled, while player keyboard and pointer input fail open.
 
 Role, tab, and window teardown advances the native input epoch and drains the
@@ -88,4 +88,4 @@ The journal never stores typed text. Physical observations are exported only as
 relationship classes such as `unrelated`, `same-identity`, and
 `modifier-change`. Individual unavailable native collectors do not replace the
 remaining runtime diagnostics with `INPUT_DIAGNOSTICS_UNAVAILABLE`. Older
-diagnostic fixtures may omit the v32 field; a v32 runtime provides it.
+diagnostic fixtures may omit the v32 provenance field; a v33 runtime provides it.

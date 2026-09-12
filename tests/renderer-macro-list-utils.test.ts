@@ -14,8 +14,8 @@ const translations: Partial<Record<Parameters<Translator>[0], string>> = {
   "macro.step.hold": "Hold",
   "macro.step.key": "Key",
   "macro.step.macro": "Run macro",
-  "macroForm.activation.toggle": "Tap to toggle",
-  "macroForm.activation.whileHeld": "Tap or hold",
+  "macroForm.activation.press": "Press",
+  "macroForm.activation.hold": "Hold",
   "macros.noShortcut": "No shortcut",
   "macros.noRoles": "Unassigned role",
   "macros.repeat.loop": "Every {ms} ms",
@@ -56,17 +56,17 @@ describe("renderer macro list helpers", () => {
     expect(listIds({ macros: [controlled], roleFilterId: "role-1", roles })).toEqual(["controlled"]);
   });
 
-  it("searches tap-or-hold activation and held-key summaries", () => {
+  it("searches hold activation and held-key summaries", () => {
     const roles = [role({ id: "role-1", name: "Main" })];
     const held = macro({
       id: "held",
-      activationMode: "while_held",
+      activationMode: "hold",
       roleIds: ["role-1"],
       shortcutSourceScope: { type: "all_execution_roles" as const },
       steps: [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }]
     });
 
-    expect(listIds({ macros: [held], query: "tap or hold", roles })).toEqual(["held"]);
+    expect(listIds({ macros: [held], query: "hold", roles })).toEqual(["held"]);
     expect(listIds({ macros: [held], query: "hold:w", roles })).toEqual(["held"]);
   });
 

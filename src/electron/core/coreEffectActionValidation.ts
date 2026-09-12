@@ -224,7 +224,7 @@ const reloadPreparation: Check = (value) => closed(value, {
 const retirement: Check = (value) => closed(value, {
   cleanupRequestIds: arrayOf(identity),
   documentInstanceId: identity,
-  retiredPressIds: arrayOf(identity),
+  retiredShortcutCycleIds: arrayOf(identity),
   roleId: identity,
   surfaceGeneration: nonnegativeInteger,
   terminal: oneOf(true)

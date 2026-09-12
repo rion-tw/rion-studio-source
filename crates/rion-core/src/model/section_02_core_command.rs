@@ -378,8 +378,11 @@ pub enum CoreCommand {
     MacroPress {
         request: MacroPressInvocationRequest,
     },
-    MacroRelease {
-        request: MacroReleaseRequest,
+    MacroHoldStart {
+        request: MacroHoldStartInvocationRequest,
+    },
+    MacroHoldRelease {
+        request: MacroHoldReleaseRequest,
     },
     MacroStop {
         #[ts(rename = "macroId")]
@@ -453,12 +456,12 @@ pub enum CoreCommand {
         document_instance_id: String,
         #[ts(type = "number", rename = "expectedOwnerGeneration")]
         expected_owner_generation: u64,
-        #[ts(rename = "pressId")]
-        press_id: String,
+        #[ts(rename = "shortcutCycleId")]
+        shortcut_cycle_id: String,
         #[ts(rename = "macroId")]
         macro_id: String,
         code: String,
-        #[ts(type = "\"replay\" | \"keyDown\" | \"keyUp\"")]
+        #[ts(type = "\"keyDown\" | \"keyUp\"")]
         phase: String,
         #[ts(rename = "modifierCodes")]
         modifier_codes: Vec<String>,
@@ -954,8 +957,7 @@ pub struct PortableMacroRecord {
     pub execution_mode: Option<MacroExecutionMode>,
     pub id: String,
     pub enabled: bool,
-    #[ts(type = "\"toggle\" | \"while_held\"")]
-    pub activation_mode: String,
+    pub activation_mode: MacroActivationMode,
     pub name: String,
     pub role_ids: Vec<String>,
     #[serde(default)]

@@ -222,9 +222,11 @@ export type { MacroOverlaySettingsPatchRecord } from "./MacroOverlaySettingsPatc
 export type { MacroOverlaySettingsRecord } from "./MacroOverlaySettingsRecord";
 export type { MacroOverlayStartSummaryRecord } from "./MacroOverlayStartSummaryRecord";
 export type { MacroOverlayViewModelRecord } from "./MacroOverlayViewModelRecord";
+export type { MacroActivationMode } from "./MacroActivationMode";
+export type { MacroHoldReleaseRequest } from "./MacroHoldReleaseRequest";
+export type { MacroHoldStartInvocationRequest } from "./MacroHoldStartInvocationRequest";
+export type { MacroHoldStartRequest } from "./MacroHoldStartRequest";
 export type { MacroPressInvocationRequest } from "./MacroPressInvocationRequest";
-export type { MacroPressRequest } from "./MacroPressRequest";
-export type { MacroReleaseRequest } from "./MacroReleaseRequest";
 export type { MacroRepeat } from "./MacroRepeat";
 export type { MacroRunStatus } from "./MacroRunStatus";
 export type { MacroRuntimeSettings } from "./MacroRuntimeSettings";

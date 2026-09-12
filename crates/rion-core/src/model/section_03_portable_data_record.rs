@@ -4,7 +4,7 @@
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "19")]
+    #[ts(type = "23")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
@@ -294,8 +294,8 @@ pub struct MacroCreateRequest {
     #[ts(optional)]
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
-    pub activation_mode: Option<String>,
+    #[ts(optional)]
+    pub activation_mode: Option<MacroActivationMode>,
     pub name: String,
     pub role_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -321,8 +321,8 @@ pub struct MacroUpdateRequest {
     #[ts(optional)]
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
-    pub activation_mode: Option<String>,
+    #[ts(optional)]
+    pub activation_mode: Option<MacroActivationMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub name: Option<String>,
@@ -601,7 +601,7 @@ pub struct MacroCreateInputRecord {
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub activation_mode: Option<String>,
+    pub activation_mode: Option<MacroActivationMode>,
     pub name: String,
     pub role_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -628,7 +628,7 @@ pub struct MacroUpdateInputRecord {
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub activation_mode: Option<String>,
+    pub activation_mode: Option<MacroActivationMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub name: Option<String>,

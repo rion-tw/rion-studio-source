@@ -23,7 +23,7 @@
             execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
             shortcut_source_scope: Default::default(),
@@ -109,23 +109,23 @@
     }
 
     #[test]
-    fn atomic_toggle_converges_without_a_phantom_invocation() {
+    fn atomic_press_start_stop_converges_without_a_phantom_invocation() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
         }));
-        let toggle_request = request(vec![MacroStepDefinition::Delay {
+        let press_request = request(vec![MacroStepDefinition::Delay {
             id: "wait".to_owned(),
             ms: 60_000,
         }]);
-        let stop_request = toggle_request.clone();
+        let stop_request = press_request.clone();
         let starting_runtime = runtime.clone();
-        let starting = thread::spawn(move || starting_runtime.toggle(toggle_request));
+        let starting = thread::spawn(move || starting_runtime.press(press_request));
         let focus = next_browser_actions(&receiver);
         runtime.dispatch_results(success_results(focus)).unwrap();
         assert_eq!(starting.join().unwrap().unwrap().len(), 1);
 
-        assert!(runtime.toggle(stop_request).unwrap().is_empty());
+        assert!(runtime.press(stop_request).unwrap().is_empty());
         assert!(runtime.statuses().unwrap().is_empty());
         assert!(runtime.shared.inner.lock().unwrap().invocations.is_empty());
     }
@@ -255,7 +255,7 @@
         assert!(inner.invocations.is_empty());
         assert!(inner.statuses.is_empty());
         assert!(inner.held_keys.is_empty());
-        assert!(inner.leases.is_empty());
+        assert!(inner.hold_leases.is_empty());
         drop(inner);
         assert!(runtime
             .shared
@@ -286,7 +286,7 @@
                 execution_mode: None,
                 id: "child".to_owned(),
                 enabled: child_enabled,
-                activation_mode: Some("toggle".to_owned()),
+                activation_mode: Some(MacroActivationMode::Press),
                 name: "Child".to_owned(),
                 role_ids: vec!["r2".to_owned()],
                 shortcut_source_scope: Default::default(),
@@ -338,7 +338,7 @@
             execution_mode: None,
             id: "parent".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "Parent".to_owned(),
             role_ids: vec!["r1".to_owned()],
             shortcut_source_scope: Default::default(),
@@ -354,7 +354,7 @@
             execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
             shortcut_source_scope: Default::default(),
@@ -443,7 +443,7 @@
             execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "Child".to_owned(),
             role_ids: vec!["r3".to_owned()],
             shortcut_source_scope: Default::default(),
@@ -515,7 +515,7 @@
             execution_mode: None,
             id: "c".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "C".to_owned(),
             role_ids: vec!["r3".to_owned()],
             shortcut_source_scope: Default::default(),
@@ -534,7 +534,7 @@
             execution_mode: None,
             id: "b".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "B".to_owned(),
             role_ids: vec!["r2".to_owned()],
             shortcut_source_scope: Default::default(),
@@ -616,7 +616,7 @@
             execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
             shortcut_source_scope: Default::default(),

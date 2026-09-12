@@ -1,4 +1,4 @@
-import { Check, ListChecks, Plus, Pointer, Repeat, Repeat1, Save, ToggleRight } from "lucide-react";
+import { Check, Hand, ListChecks, Plus, Pointer, Repeat, Repeat1, Save } from "lucide-react";
 
 import { type FormEvent, type JSX, useMemo, useRef, useState } from "react";
 
@@ -137,7 +137,7 @@ function MacroEditor({
   ))
     ? t("macroForm.saveHint.invalidHoldDuration")
     : undefined;
-  const activationError = form.activationMode === "while_held" && !form.trigger
+  const activationError = form.activationMode === "hold" && !form.trigger
     ? t("macroForm.saveHint.holdNeedsShortcut")
     : undefined;
   const shortcutSourceError = (form.trigger || form.executionMode === "source_role") &&
@@ -374,6 +374,7 @@ function MacroForm({
                     return {
                       ...current,
                       trigger,
+                      activationMode: trigger ? current.activationMode : "press",
                       shortcutSourceScope: current.executionMode === "source_role" ? current.shortcutSourceScope : trigger
                         ? current.trigger
                           ? current.shortcutSourceScope
@@ -401,10 +402,10 @@ function MacroForm({
                     )}
                     aria-disabled={isSaving}
                     items={[
-                      { value: "toggle", label: t("macroForm.activation.toggle"), icon: ToggleRight },
-                      { value: "while_held", label: t("macroForm.activation.whileHeld"), icon: Pointer }
+                      { value: "press", label: t("macroForm.activation.press"), icon: Pointer },
+                      { value: "hold", label: t("macroForm.activation.hold"), icon: Hand }
                     ]}
-                    value={form.activationMode ?? "toggle"}
+                    value={form.activationMode ?? "press"}
                     onValueChange={(activationMode) => {
                       if (!isSaving) update((current) => ({ ...current, activationMode }));
                     }}

@@ -14,7 +14,7 @@ use crate::{
         GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord,
         GameWindowSaveRuntimeInputRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, MacroBadgePositionRecord,
-        MacroCreateInputRecord, MacroOverlaySettingsRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
+        MacroActivationMode, MacroCreateInputRecord, MacroOverlaySettingsRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
         MacroShortcutSourceScope, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
         RoleCreateInputRecord,
         QuickAccessItemRefRecord, QuickAccessPreferencesRecord,

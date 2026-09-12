@@ -74,8 +74,18 @@ impl MacroRuntime {
             .map(|(statuses, _)| statuses)
     }
 
-    pub fn toggle(&self, request: MacroStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
+    pub fn press(&self, request: MacroStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
         validate_shortcut_source(&request)?;
+        let macro_definition = request
+            .macros
+            .iter()
+            .find(|definition| definition.id == request.macro_id)
+            .ok_or_else(|| CoreError::InvalidInput("macro was not found".to_owned()))?;
+        if macro_definition.activation_mode.unwrap_or_default() != MacroActivationMode::Press {
+            return Err(CoreError::InvalidInput(
+                "macro does not use press activation".to_owned(),
+            ));
+        }
         let run_lock = macro_run_lock(&self.shared, &request.macro_id)?;
         let _run = run_lock
             .lock()
@@ -99,23 +109,26 @@ impl MacroRuntime {
             .map(|(statuses, _)| statuses)
     }
 
-    pub fn press(&self, request: MacroPressRequest) -> CoreResult<Vec<MacroRunStatus>> {
-        validate_press_id(&request.press_id)?;
+    pub fn hold_start(&self, request: MacroHoldStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
+        validate_shortcut_cycle_id(&request.shortcut_cycle_id)?;
         validate_shortcut_source(&request.start)?;
         let source_role_id = request.start.source_role_id.as_deref().ok_or_else(|| {
-            CoreError::InvalidInput("macro press requires sourceRoleId".to_owned())
+            CoreError::InvalidInput("macro hold-start requires sourceRoleId".to_owned())
         })?;
         let lease_key = lease_key(source_role_id, &request.start.macro_id);
-        let release_key =
-            early_release_key(source_role_id, &request.start.macro_id, &request.press_id);
-        let mut early_release = self
+        let release_key = early_hold_release_key(
+            source_role_id,
+            &request.start.macro_id,
+            &request.shortcut_cycle_id,
+        );
+        if self
             .shared
             .inner
             .lock()
             .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
-            .early_releases
-            .remove(&release_key);
-        if early_release.as_deref() == Some("immediate") {
+            .early_hold_releases
+            .remove(&release_key)
+        {
             return Ok(Vec::new());
         }
         {
@@ -124,8 +137,8 @@ impl MacroRuntime {
                 .inner
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
-            if let Some(existing) = inner.leases.get(&lease_key) {
-                if existing.press_id == request.press_id {
+            if let Some(existing) = inner.hold_leases.get(&lease_key) {
+                if existing.shortcut_cycle_id == request.shortcut_cycle_id {
                     return Ok(inner
                         .statuses
                         .values()
@@ -146,60 +159,45 @@ impl MacroRuntime {
             .ok_or_else(|| CoreError::InvalidInput("macro was not found".to_owned()))?;
         if macro_definition
             .activation_mode
-            .as_deref()
-            .unwrap_or("toggle")
-            != "while_held"
+            .unwrap_or_default()
+            != MacroActivationMode::Hold
         {
             return Err(CoreError::InvalidInput(
-                "macro does not use while-held activation".to_owned(),
+                "macro does not use hold activation".to_owned(),
             ));
         }
-        let press_id = request.press_id;
+        let shortcut_cycle_id = request.shortcut_cycle_id;
         let (statuses, control) = self.start_tracked(request.start, true)?;
+        if self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
+            .early_hold_releases
+            .remove(&release_key)
         {
-            let mut inner = self
-                .shared
-                .inner
-                .lock()
-                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
-            early_release = inner.early_releases.remove(&release_key).or(early_release);
-        }
-        if early_release.as_deref() == Some("immediate") {
             cancel_control(&control);
             wait_finished(&control)?;
             return Ok(Vec::new());
-        }
-        if early_release.as_deref() == Some("complete_first_iteration") {
-            control
-                .stop_after_first_iteration
-                .store(true, Ordering::Release);
         }
         self.shared
             .inner
             .lock()
             .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
-            .leases
+            .hold_leases
             .insert(
                 lease_key,
-                HeldLease {
+                HoldLease {
                     invocation_id: control.id.clone(),
-                    press_id,
+                    shortcut_cycle_id,
                 },
             );
         mark_invocation_ready(&control);
         Ok(statuses)
     }
 
-    pub fn release(&self, request: MacroReleaseRequest) -> CoreResult<()> {
-        validate_press_id(&request.press_id)?;
-        if !matches!(
-            request.mode.as_str(),
-            "complete_first_iteration" | "immediate"
-        ) {
-            return Err(CoreError::InvalidInput(
-                "macro release mode is invalid".to_owned(),
-            ));
-        }
+    pub fn hold_release(&self, request: MacroHoldReleaseRequest) -> CoreResult<()> {
+        validate_shortcut_cycle_id(&request.shortcut_cycle_id)?;
         let key = lease_key(&request.source_role_id, &request.macro_id);
         let control = {
             let mut inner = self
@@ -207,47 +205,37 @@ impl MacroRuntime {
                 .inner
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
-            let Some(lease) = inner.leases.get(&key) else {
-                inner.early_releases.insert(
-                    early_release_key(
+            let Some(lease) = inner.hold_leases.get(&key) else {
+                inner.early_hold_releases.insert(
+                    early_hold_release_key(
                         &request.source_role_id,
                         &request.macro_id,
-                        &request.press_id,
+                        &request.shortcut_cycle_id,
                     ),
-                    request.mode,
                 );
-                trim_early_releases(&mut inner.early_releases);
+                trim_early_hold_releases(&mut inner.early_hold_releases);
                 return Ok(());
             };
-            if lease.press_id != request.press_id {
-                inner.early_releases.insert(
-                    early_release_key(
+            if lease.shortcut_cycle_id != request.shortcut_cycle_id {
+                inner.early_hold_releases.insert(
+                    early_hold_release_key(
                         &request.source_role_id,
                         &request.macro_id,
-                        &request.press_id,
+                        &request.shortcut_cycle_id,
                     ),
-                    request.mode,
                 );
-                trim_early_releases(&mut inner.early_releases);
+                trim_early_hold_releases(&mut inner.early_hold_releases);
                 return Ok(());
             }
             let invocation_id = lease.invocation_id.clone();
-            inner.leases.remove(&key);
+            inner.hold_leases.remove(&key);
             inner.invocations.get(&invocation_id).cloned()
         };
         let Some(control) = control else {
             return Ok(());
         };
-        if request.mode == "immediate" || control.first_iteration_completed.load(Ordering::Acquire)
-        {
-            cancel_control(&control);
-            wait_finished(&control)?;
-        } else {
-            control
-                .stop_after_first_iteration
-                .store(true, Ordering::Release);
-            wait_finished(&control)?;
-        }
+        cancel_control(&control);
+        wait_finished(&control)?;
         Ok(())
     }
 
@@ -702,7 +690,7 @@ impl MacroRuntime {
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
             inner
-                .leases
+                .hold_leases
                 .iter()
                 .filter(|(key, _)| key.starts_with(&format!("{role_id}|")))
                 .map(|(key, lease)| (key.clone(), lease.invocation_id.clone()))
@@ -717,7 +705,7 @@ impl MacroRuntime {
             releases
                 .into_iter()
                 .filter_map(|(key, invocation_id)| {
-                    inner.leases.remove(&key);
+                    inner.hold_leases.remove(&key);
                     inner.invocations.get(&invocation_id).cloned()
                 })
                 .collect::<Vec<_>>()
@@ -918,8 +906,8 @@ impl MacroRuntime {
             inner.application_suspend_epochs.clear();
             inner.held_keys.clear();
             inner.invocations.clear();
-            inner.leases.clear();
-            inner.early_releases.clear();
+            inner.hold_leases.clear();
+            inner.early_hold_releases.clear();
             inner.mutation_leases.clear();
             inner.mutating_macro_ids.clear();
             inner.input_epochs.clear();

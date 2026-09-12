@@ -8,7 +8,7 @@ fn fixture(schema: u64) -> String {
             "roles":[{"id":"r1","gameId": if schema >= 2 { "g1" } else { "" },"name":"Role","launchUrl":"https://example.test/play","notes":""}],
             "launchWorkspaces":[{"id":"w1","name":"Workspace","template":"single","browserZoomPercent":100,"slots":[{"id":"s1","roleId":"r1","rect":{"x":0,"y":0,"width":1,"height":1}}]}],
             "gameWindows":[],
-            "macros":[{"id":"m1","name":"Macro","roleIds":["r1"],"repeat":{"type":"once"},"steps":[{"id":"step","type":"delay","ms":1}]}]
+            "macros":[{"id":"m1","activationMode": if schema >= 23 { json!("press") } else { Value::Null },"name":"Macro","roleIds":["r1"],"repeat":{"type":"once"},"steps":[{"id":"step","type":"delay","ms":1}]}]
         }).to_string()
 }
 
@@ -86,7 +86,7 @@ fn state_fixture() -> CoreStateSnapshotRecord {
         }],
         "launchWorkspaces": [],
         "macros": [{
-            "id":"m","enabled":true,"activationMode":"toggle","name":"Macro","roleIds":["r"],
+            "id":"m","enabled":true,"activationMode":"press","name":"Macro","roleIds":["r"],
             "repeat":{"type":"once"},"steps":[{"id":"delay","type":"delay","ms":1}],
             "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
         }],
@@ -382,7 +382,7 @@ fn portable_macro_schema_and_dependency_contracts() {
             "id":"hold","type":"key","code":"KeyW","action":"hold_until_stop"
         }]);
         let normalized = normalize(&source.to_string()).unwrap();
-        assert_eq!(normalized["macros"][0]["activationMode"], "while_held");
+        assert_eq!(normalized["macros"][0]["activationMode"], "hold");
         assert_eq!(
             normalized["macros"][0]["steps"][0]["action"],
             "hold_until_stop"
@@ -437,7 +437,7 @@ fn portable_macro_schema_and_dependency_contracts() {
             step,
             MacroStepDefinition::Macro { macro_id, .. } if macro_id == &child.id
         )));
-        assert_eq!(child.activation_mode.as_deref(), Some("while_held"));
+        assert_eq!(child.activation_mode, Some(MacroActivationMode::Hold));
     };
 
     {
@@ -806,7 +806,7 @@ fn workspace_start_page_portable_roundtrip_and_legacy_import() {
         source["launchWorkspaces"][0]["slots"][0]["web"] =
             json!({"name": "Website", "startUrl": "  "});
         let normalized = normalize(&source.to_string()).unwrap();
-        assert_eq!(normalized["schemaVersion"], 22);
+        assert_eq!(normalized["schemaVersion"], PORTABLE_SCHEMA_VERSION);
         assert_eq!(
             normalized["launchWorkspaces"][0]["slots"][0]["web"],
             json!({})
@@ -831,5 +831,5 @@ fn workspace_start_page_portable_roundtrip_and_legacy_import() {
         "https://example.test/path?q=1#part"
     );
     assert_eq!(normalize(&normalized.to_string()).unwrap(), normalized);
-    assert!(normalize(&fixture(23)).is_err());
+    assert!(normalize(&fixture(PORTABLE_SCHEMA_VERSION + 1)).is_err());
 }

@@ -64,7 +64,7 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
     name: NAMES.roleB
   });
   const multiMacro = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: NAMES.multiMacro,
     repeat: { intervalMs: 120, type: "loop" },
@@ -72,7 +72,7 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
     steps: [{ action: "tap", code: "KeyM", id: "multirole-key", type: "key" }]
   });
   const singleMacro = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: NAMES.singleMacro,
     repeat: { type: "once" },

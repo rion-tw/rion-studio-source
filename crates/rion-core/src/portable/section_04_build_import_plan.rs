@@ -465,7 +465,7 @@ fn build_import_plan(
                     macro_record.shortcut_source_scope =
                         MacroShortcutSourceScope::AllExecutionRoles;
                     macro_record.trigger = None;
-                    macro_record.activation_mode = "toggle".to_owned();
+                    macro_record.activation_mode = MacroActivationMode::Press;
                 } else {
                     macro_record.shortcut_source_scope =
                         MacroShortcutSourceScope::SelectedRoles {
@@ -645,9 +645,9 @@ fn build_import_plan(
                 id: item.destination_id,
                 enabled: item.macro_record.enabled,
                 activation_mode: Some(if trigger.is_some() {
-                    item.macro_record.activation_mode.clone()
+                    item.macro_record.activation_mode
                 } else {
-                    "toggle".to_owned()
+                    MacroActivationMode::Press
                 }),
                 name: item.name,
                 role_ids: item.role_ids,

@@ -188,16 +188,16 @@ describe("shell-neutral macro overlay runtime", () => {
     expect(host?.style.getPropertyValue("color-scheme")).toBe("light");
   });
 
-  it("owns middle-button toggle and while-held shortcuts without exposing them to the page", async () => {
+  it("owns middle-button press and hold shortcuts without exposing them to the page", async () => {
     const canvas = document.createElement("canvas");
     canvas.tabIndex = 0;
     document.body.append(canvas);
     canvas.focus();
     let macros = [{
-      activationMode: "toggle",
+      activationMode: "press",
       enabled: true,
-      id: "middle-toggle",
-      name: "Middle toggle",
+      id: "middle-press",
+      name: "Middle press",
       steps: [],
       trigger: { alt: false, button: "middle", ctrl: true, meta: false, shift: false }
     }];
@@ -233,21 +233,22 @@ describe("shell-neutral macro overlay runtime", () => {
       cancelable: true,
       ctrlKey: true
     }))).toBe(false);
+    await vi.waitFor(() => expect(requests.some((request) =>
+      request.type === "press" && request.macroId === "middle-press"
+    )).toBe(true));
     expect(canvas.dispatchEvent(new MouseEvent("mouseup", {
       bubbles: true,
       button: 1,
       cancelable: true,
       ctrlKey: true
     }))).toBe(false);
-    expect(requests.some((request) => request.type === "toggle")).toBe(false);
     canvas.dispatchEvent(new KeyboardEvent("keyup", {
       bubbles: true,
       code: "ControlLeft"
     }));
-    await vi.waitFor(() => expect(requests).toContainEqual({
-      type: "toggle",
-      macroId: "middle-toggle"
-    }));
+    expect(requests.filter((request) =>
+      request.type === "press" && request.macroId === "middle-press"
+    )).toHaveLength(1);
     expect(canvas.dispatchEvent(new MouseEvent("auxclick", {
       bubbles: true,
       button: 1,
@@ -256,7 +257,7 @@ describe("shell-neutral macro overlay runtime", () => {
     expect(pageEvents).toEqual([]);
 
     macros = [{
-      activationMode: "while_held",
+      activationMode: "hold",
       enabled: true,
       id: "middle-held",
       name: "Middle held",
@@ -270,7 +271,7 @@ describe("shell-neutral macro overlay runtime", () => {
       cancelable: true
     }));
     await vi.waitFor(() => expect(requests.some((request) =>
-      request.type === "press" && request.macroId === "middle-held"
+      request.type === "hold-start" && request.macroId === "middle-held"
     )).toBe(true));
     canvas.dispatchEvent(new MouseEvent("mouseup", {
       bubbles: true,
@@ -278,13 +279,11 @@ describe("shell-neutral macro overlay runtime", () => {
       cancelable: true
     }));
     await vi.waitFor(() => expect(requests.some((request) =>
-      request.type === "release" &&
-      request.macroId === "middle-held" &&
-      request.releaseMode === "complete_first_iteration"
+      request.type === "hold-release" && request.macroId === "middle-held"
     )).toBe(true));
 
-    const pressCount = requests.filter((request) =>
-      request.type === "press" && request.macroId === "middle-held"
+    const holdStartCount = requests.filter((request) =>
+      request.type === "hold-start" && request.macroId === "middle-held"
     ).length;
     canvas.dispatchEvent(new MouseEvent("mousedown", {
       bubbles: true,
@@ -298,14 +297,13 @@ describe("shell-neutral macro overlay runtime", () => {
       cancelable: true
     }));
     await vi.waitFor(() => expect(requests.filter((request) =>
-      request.type === "press" && request.macroId === "middle-held"
-    )).toHaveLength(pressCount + 1));
+      request.type === "hold-start" && request.macroId === "middle-held"
+    )).toHaveLength(holdStartCount + 1));
     window.dispatchEvent(new Event("blur"));
-    await vi.waitFor(() => expect(requests.some((request) =>
-      request.type === "release" &&
-      request.macroId === "middle-held" &&
-      request.releaseMode === "immediate"
-    )).toBe(true));
+    await vi.waitFor(() => expect(requests.filter((request) =>
+      request.type === "hold-release" && request.macroId === "middle-held"
+    )).toHaveLength(2));
+    await Promise.resolve();
 
     pageEvents.length = 0;
     macros = [
@@ -372,7 +370,7 @@ describe("shell-neutral macro overlay runtime", () => {
     expect(pageEvents).toEqual(["mousedown", "mouseup", "auxclick"]);
   });
 
-  it("preserves coordinate, shortcut, held-release, canvas, editable, and dense queue behavior", async () => {
+  it("preserves coordinate, shortcut, hold-release, canvas, editable, and dense queue behavior", async () => {
     await installCoordinateModuleUrl();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
@@ -383,14 +381,14 @@ describe("shell-neutral macro overlay runtime", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
 
     const macros = [{
-      activationMode: "toggle",
+      activationMode: "press",
       enabled: true,
-      id: "toggle",
-      name: "Toggle",
+      id: "pressed",
+      name: "Pressed",
       steps: [],
       trigger: { alt: false, code: "KeyA", ctrl: false, meta: false, shift: false }
     }, {
-      activationMode: "while_held",
+      activationMode: "hold",
       enabled: true,
       id: "held",
       name: "Held",
@@ -398,21 +396,21 @@ describe("shell-neutral macro overlay runtime", () => {
       trigger: { alt: false, code: "KeyH", ctrl: false, meta: false, shift: false }
     }];
     const requests: OverlayRequest[] = [];
-    let activeToggleActions = 0;
-    let maximumActiveToggleActions = 0;
+    let activePressActions = 0;
+    let maximumActivePressActions = 0;
     const binding = vi.fn(async (request: OverlayRequest) => {
       requests.push(request);
       if (request.type === "coordinate-context") {
         return { appliedPageZoom: 1, surfaceGeneration: 4, topologyRevision: 9 };
       }
-      if (request.type === "toggle") {
-        activeToggleActions += 1;
-        maximumActiveToggleActions = Math.max(
-          maximumActiveToggleActions,
-          activeToggleActions
+      if (request.type === "press") {
+        activePressActions += 1;
+        maximumActivePressActions = Math.max(
+          maximumActivePressActions,
+          activePressActions
         );
         await Promise.resolve();
-        activeToggleActions -= 1;
+        activePressActions -= 1;
       }
       return {
         language: "zh-TW",
@@ -458,7 +456,7 @@ describe("shell-neutral macro overlay runtime", () => {
       code: "KeyA",
       key: "a"
     }));
-    expect(requests.filter((request) => request.type === "toggle")).toHaveLength(0);
+    expect(requests.filter((request) => request.type === "press")).toHaveLength(0);
 
     const canvas = document.createElement("canvas");
     canvas.tabIndex = 0;
@@ -481,8 +479,7 @@ describe("shell-neutral macro overlay runtime", () => {
     }));
     window.dispatchEvent(new Event("blur"));
     await vi.waitFor(() => expect(requests.some((request) =>
-      request.type === "release" && request.macroId === "held" &&
-      request.releaseMode === "immediate"
+      request.type === "hold-release" && request.macroId === "held"
     )).toBe(true));
 
     canvas.blur();
@@ -497,9 +494,9 @@ describe("shell-neutral macro overlay runtime", () => {
       }
     }
     await vi.waitFor(() => expect(
-      requests.filter((request) => request.type === "toggle" && request.macroId === "toggle")
+      requests.filter((request) => request.type === "press" && request.macroId === "pressed")
     ).toHaveLength(20));
-    expect(maximumActiveToggleActions).toBe(1);
+    expect(maximumActivePressActions).toBe(1);
 
     const runtimeShortcut = new KeyboardEvent("keydown", {
       bubbles: true,
@@ -522,7 +519,7 @@ describe("shell-neutral macro overlay runtime", () => {
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
 
     const macro = {
-      activationMode: "toggle",
+      activationMode: "press",
       enabled: true,
       id: "loop",
       name: "Loop",

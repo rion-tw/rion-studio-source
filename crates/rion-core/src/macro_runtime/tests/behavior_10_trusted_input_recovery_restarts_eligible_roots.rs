@@ -71,7 +71,7 @@ fn embedded_frame_context_block_captures_root_before_waking_the_failed_action() 
 }
 
 #[test]
-fn while_held_input_recovery_does_not_create_a_restart_intent() {
+fn hold_input_recovery_does_not_create_a_restart_intent() {
     let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
     let runtime = MacroRuntime::new(Arc::new(move |batch| {
         let _ = events.send(batch);
@@ -80,13 +80,13 @@ fn while_held_input_recovery_does_not_create_a_restart_intent() {
         id: "wait".to_owned(),
         ms: 60_000,
     }]);
-    start.macros[0].activation_mode = Some("while_held".to_owned());
+    start.macros[0].activation_mode = Some(MacroActivationMode::Hold);
     start.source_role_id = Some("r1".to_owned());
     let pressing_runtime = runtime.clone();
     let pressing = thread::spawn(move || {
-        pressing_runtime.press(MacroPressRequest {
+        pressing_runtime.hold_start(MacroHoldStartRequest {
             start,
-            press_id: "held-recovery".to_owned(),
+            shortcut_cycle_id: "held-recovery".to_owned(),
         })
     });
     let focus = next_browser_actions(&receiver);

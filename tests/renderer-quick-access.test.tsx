@@ -444,7 +444,7 @@ function macro(): Macro {
   return {
     id: "m1",
     enabled: true,
-    activationMode: "toggle",
+    activationMode: "press",
     name: "Macro One",
     roleIds: ["r1"],
     shortcutSourceScope: { type: "all_execution_roles" },

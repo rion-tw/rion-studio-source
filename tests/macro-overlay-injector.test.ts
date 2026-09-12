@@ -4,7 +4,7 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-type OverlayRequest = { macroId?: string; pressId?: string; type: string };
+type OverlayRequest = { macroId?: string; shortcutCycleId?: string; type: string };
 type OverlayController = {
   dispose(): void;
   inputContextLossVersion?: number;
@@ -19,8 +19,8 @@ type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
     code: string;
     macroId: string;
     modifierCodes: string[];
-    phase: "replay" | "keyDown" | "keyUp";
-    pressId: string;
+    phase: "keyDown" | "keyUp";
+    shortcutCycleId: string;
   }): Promise<unknown>;
   macroBadgeTiming(observation: {
     clientMonotonicMs: number;
@@ -38,13 +38,13 @@ type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
   shortcutLifecycle(event: {
     code: string;
     macroId: string;
-    phase: "physical-keydown-managed" | "chord-released" | "managed-replay-acknowledged"
-      | "managed-keydown-acknowledged" | "managed-keyup-acknowledged" | "macro-dispatched";
+    phase: "physical-keydown-managed" | "managed-keydown-acknowledged"
+      | "managed-keyup-acknowledged" | "macro-dispatched";
   }): Promise<unknown>;
 };
 
 const macro = {
-  activationMode: "toggle",
+  activationMode: "press",
   enabled: true,
   id: "macro-1",
   name: "Regression macro",
@@ -176,12 +176,13 @@ describe("Tauri macro overlay injector", () => {
     const invoke = vi.fn(async () => ({ language: "zh-TW", macros: [], statuses: [] }));
     installTauriInternals(invoke);
     const binding = nativeBinding(bridge, "test-capability");
-    await expect(binding({ macroId: "macro-1", type: "toggle" })).resolves.toEqual(
+    const request = { macroId: "macro-1", shortcutCycleId: "cycle-1", type: "press" };
+    await expect(binding(request)).resolves.toEqual(
       expect.objectContaining({ language: "zh-TW" })
     );
     expect(invoke).toHaveBeenCalledWith("rion_overlay_request", {
       capability: "test-capability",
-      payload: { macroId: "macro-1", type: "toggle" }
+      payload: request
     });
   });
 
@@ -213,8 +214,8 @@ describe("Tauri macro overlay injector", () => {
       code: "Digit2",
       macroId: "macro-1",
       modifierCodes: ["ShiftRight", "ControlLeft"],
-      phase: "replay" as const,
-      pressId: "press-1"
+      phase: "keyDown" as const,
+      shortcutCycleId: "cycle-1"
     };
 
     await binding.managedShortcutKeyPhase(request);
@@ -270,7 +271,7 @@ describe("Tauri macro overlay injector", () => {
     const event = {
       code: "Digit2",
       macroId: "macro-1",
-      phase: "chord-released" as const
+      phase: "macro-dispatched" as const
     };
 
     await binding.shortcutLifecycle(event);
@@ -353,7 +354,7 @@ describe("Tauri macro overlay injector", () => {
   });
 
   it("releases held input when a System WebView navigates or closes", async () => {
-    const heldMacro = { ...macro, activationMode: "while_held" };
+    const heldMacro = { ...macro, activationMode: "hold" };
     const requests: OverlayRequest[] = [];
     const binding = vi.fn(async (request: OverlayRequest) => {
       requests.push(request);
@@ -367,11 +368,11 @@ describe("Tauri macro overlay injector", () => {
       code: "F2",
       key: "F2"
     }));
-    await vi.waitFor(() => expect(requests.some((request) => request.type === "press")).toBe(true));
+    await vi.waitFor(() => expect(requests.some((request) => request.type === "hold-start"))
+      .toBe(true));
     window.dispatchEvent(new Event("pagehide"));
     await vi.waitFor(() => expect(requests.some((request) =>
-      request.type === "release" &&
-      (request as OverlayRequest & { releaseMode?: string }).releaseMode === "immediate"
+      request.type === "hold-release"
     )).toBe(true));
   });
 

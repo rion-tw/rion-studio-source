@@ -60,7 +60,7 @@ const child: Macro = {
   steps: [{ id: "nested", type: "delay", ms: 100 }]
 };
 const form: MacroFormState = {
-  activationMode: "toggle", enabled: true, id: "root", name: "Root", roleIds: [],
+  activationMode: "press", enabled: true, id: "root", name: "Root", roleIds: [],
   repeat: { type: "once" }, shortcutSourceScope: { type: "all_execution_roles" },
   steps: [
     { id: "call", type: "macro", macroId: "child", callMode: "trigger" },

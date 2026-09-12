@@ -79,7 +79,7 @@ it.each([
     expect(macroHelps[0].textContent).toContain("Starting and repeating");
     expect(macroHelps[0].textContent).toContain("every assigned role that is launched and controllable");
     expect(macroHelps[0].textContent).toContain("The execution mode determines which roles receive its steps");
-    expect(macroHelps[0].textContent).toContain("Tap to toggle switches between starting and stopping");
+    expect(macroHelps[0].textContent).toContain("Press starts on key down; pressing again stops an existing run");
     expect(macroHelps[0].textContent).toContain("0 ms interval removes only the extra wait");
     expect(macroHelps[1].textContent).toContain("Running other macros");
     expect(macroHelps[1].textContent).toContain("uses its own assigned roles");
@@ -322,7 +322,7 @@ it("shows held macro targets as available while preserving dependency reasons", 
     expect(disabledOption.hasAttribute("data-disabled")).toBe(false);
   });
 
-it("saves a referenced macro with while-held activation and a hold-until-stop key action", async () => {
+it("saves a referenced macro with hold activation and a hold-until-stop key action", async () => {
     const selectedMacro = macro({
       trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false },
       steps: [{ id: "step-1", type: "key", code: "F2", action: "hold_until_stop" }]
@@ -353,12 +353,12 @@ it("saves a referenced macro with while-held activation and a hold-until-stop ke
     ], { initialEntries: ["/macros/macro-1/edit"] });
 
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "Tap or hold" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hold" }));
     expect(screen.getByRole("combobox", { name: "Key action" }).textContent).toContain("Hold until stopped");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      activationMode: "while_held",
+      activationMode: "hold",
       steps: [expect.objectContaining({ action: "hold_until_stop" })]
     })));
   });

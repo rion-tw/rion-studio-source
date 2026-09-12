@@ -10,6 +10,7 @@ import {
 import {
   clickVisibleElectronPageElement,
   submitElectronRoleKeyPhases,
+  submitElectronRoleKeySequenceWithPause,
   submitElectronRoleMiddleButtonPhase
 } from "../support/electron-role-surface";
 import {
@@ -91,20 +92,37 @@ async function waitAppliedKeyObservation(input: Readonly<{
   roleId: string;
 }>): Promise<ElectronDesktopE2eTrustedInputObservation> {
   let observation: ElectronDesktopE2eTrustedInputObservation | undefined;
-  await browser.waitUntil(async () => {
-    observation = [...await electronDesktopE2eTrustedInputRuntime(input.roleId)]
-      .reverse()
-      .find((entry) => entry.sequence > input.afterSequence &&
+  let observations: readonly ElectronDesktopE2eTrustedInputObservation[] = [];
+  try {
+    await browser.waitUntil(async () => {
+      observations = await electronDesktopE2eTrustedInputRuntime(input.roleId);
+      observation = [...observations].reverse().find((entry) =>
+        entry.sequence > input.afterSequence &&
         entry.request.intent === input.intent &&
         entry.request.action.type === "key" &&
         entry.request.action.code === input.code &&
         entry.request.action.phase === input.phase &&
         entry.receipt.status === "applied");
-    return observation !== undefined;
-  }, {
-    timeout: 20_000,
-    timeoutMsg: `Missing applied ${input.code} ${input.intent} ${input.phase} receipt`
-  });
+      return observation !== undefined;
+    }, {
+      timeout: 20_000,
+      timeoutMsg: `Missing applied ${input.code} ${input.intent} ${input.phase} receipt`
+    });
+  } catch (error) {
+    const diagnostic = observations.filter((entry) => entry.sequence > input.afterSequence)
+      .slice(-24)
+      .map((entry) => ({
+        action: entry.request.action,
+        intent: entry.request.intent,
+        receipt: entry.receipt,
+        sequence: entry.sequence
+      }));
+    throw new Error(
+      `Missing applied ${input.code} ${input.intent} ${input.phase} receipt; ` +
+      `observations=${JSON.stringify(diagnostic)}`,
+      { cause: error }
+    );
+  }
   return observation!;
 }
 
@@ -115,7 +133,7 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
   reentry: Macro;
 }>> {
   const reentry = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: "Chromium Shortcut Reentry",
     repeat: { type: "once" },
@@ -125,7 +143,7 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
     trigger: { alt: false, code: "Digit2", ctrl: false, meta: false, shift: true }
   });
   const continuity = await rendererCall("createMacro", {
-    activationMode: "while_held",
+    activationMode: "hold",
     enabled: true,
     name: "Chromium Modifier Continuity",
     repeat: { intervalMs: 0, type: "loop" },
@@ -138,9 +156,9 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
     trigger: { alt: false, code: "Digit5", ctrl: false, meta: false, shift: true }
   });
   const middle = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
-    name: "Chromium Middle Toggle",
+    name: "Chromium Middle Press",
     repeat: { intervalMs: 250, type: "loop" },
     roleIds: [roleId],
     shortcutSourceScope: { roleIds: [roleId], type: "selected_roles" },
@@ -148,7 +166,7 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
     trigger: { alt: false, button: "middle", ctrl: false, meta: false, shift: false }
   });
   const output = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: "Chromium Three Button Output",
     repeat: { type: "once" },
@@ -164,7 +182,7 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
 
 async function createMiddleHeldMacro(roleId: string): Promise<Macro> {
   return rendererCall("createMacro", {
-    activationMode: "while_held",
+    activationMode: "hold",
     enabled: true,
     name: "Chromium Middle Held",
     repeat: { intervalMs: 250, type: "loop" },
@@ -204,21 +222,35 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const reentryFixture = await fixtureCursor();
   const reentryInputSequence = (await electronDesktopE2eTrustedInputRuntime(roleA.id))
     .at(-1)?.sequence ?? 0;
-  await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
-    { key: Key.Shift, phase: "keyDown" },
-    { key: "2", phase: "keyDown" }
-  ], { windowId: WINDOW_ID });
-  await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
-    { key: "2", phase: "keyUp" },
-    { key: Key.Shift, phase: "keyUp" }
-  ], { windowId: WINDOW_ID, focusCanvas: false });
-  const replayedOne = await waitExactKey({
+  await submitElectronRoleKeySequenceWithPause(
+    roleA.launchUrl!,
+    context.mainWindowHandle,
+    [
+      { key: Key.Shift, phase: "keyDown" },
+      { key: "2", phase: "keyDown" }
+    ],
+    1_000,
+    [
+      { key: "2", phase: "keyUp" },
+      { key: Key.Shift, phase: "keyUp" }
+    ],
+    { windowId: WINDOW_ID }
+  );
+  const pressedOne = await waitExactKey({
     afterSequence: reentryFixture,
     code: "Digit1",
     kind: "keydown",
     roleId: ROLE_A_FIXTURE
   });
-  exactTrustedKey(replayedOne, "Digit1");
+  exactTrustedKey(pressedOne, "Digit1");
+  const triggerUp = await waitExactKey({
+    afterSequence: reentryFixture,
+    code: "Digit2",
+    kind: "keyup",
+    roleId: ROLE_A_FIXTURE
+  });
+  exactTrustedKey(triggerUp, "Digit2");
+  expect(pressedOne.sequence).toBeLessThan(triggerUp.sequence);
   const firstChordEvents = await fixtureEvents({
     afterSequence: reentryFixture,
     roleId: ROLE_A_FIXTURE
@@ -226,14 +258,23 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   expect(firstChordEvents.filter((event) =>
     event.kind === "keydown" && event.code === "Digit1"
   )).toHaveLength(1);
-  const reentryCleanup = await waitAppliedKeyObservation({
+  const reentryRelease = await waitAppliedKeyObservation({
     afterSequence: reentryInputSequence,
     code: "Digit1",
     intent: "cleanup",
     phase: "release",
     roleId: roleA.id
   });
-  expect(reentryCleanup.receipt.confirmedInputNeutrality).toBe(true);
+  expect(reentryRelease.receipt.confirmedInputNeutrality).toBe(false);
+  const triggerRelease = await waitAppliedKeyObservation({
+    afterSequence: reentryInputSequence,
+    code: "Digit2",
+    intent: "normal",
+    phase: "release",
+    roleId: roleA.id
+  });
+  expect(triggerRelease.receipt.confirmedInputNeutrality).toBe(true);
+  expect(reentryRelease.sequence).toBeLessThan(triggerRelease.sequence);
 
   const popupFenceFixture = await fixtureCursor();
   const trustedInputBeforePopup = await electronDesktopE2eTrustedInputRuntime(roleA.id);

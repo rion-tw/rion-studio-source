@@ -14,7 +14,7 @@ struct ActiveManagedShortcut {
     expected_owner_generation: u64,
     macro_id: String,
     modifier_codes: Vec<String>,
-    press_id: String,
+    shortcut_cycle_id: String,
     role_id: String,
     surface_generation: u64,
     tab_id: String,
@@ -86,7 +86,7 @@ struct ManagedShortcutPhaseInput {
     surface_generation: u64,
     document_instance_id: String,
     expected_owner_generation: u64,
-    press_id: String,
+    shortcut_cycle_id: String,
     macro_id: String,
     code: String,
     phase: String,
@@ -100,7 +100,7 @@ impl ManagedShortcutPhaseInput {
             (&self.role_id, "roleId", 256),
             (&self.tab_id, "tabId", 256),
             (&self.document_instance_id, "documentInstanceId", 256),
-            (&self.press_id, "pressId", 160),
+            (&self.shortcut_cycle_id, "shortcutCycleId", 160),
             (&self.macro_id, "macroId", 256),
             (&self.code, "code", 64),
         ] {
@@ -117,7 +117,7 @@ impl ManagedShortcutPhaseInput {
         }
         if self.surface_generation == 0
             || self.expected_owner_generation == 0
-            || !matches!(self.phase.as_str(), "replay" | "keyDown" | "keyUp")
+            || !matches!(self.phase.as_str(), "keyDown" | "keyUp")
             || self.modifier_codes.len() > 4
         {
             return Err(CoreError::Domain {
@@ -154,7 +154,7 @@ impl ManagedShortcutPhaseInput {
             expected_owner_generation: self.expected_owner_generation,
             macro_id: self.macro_id.clone(),
             modifier_codes: self.modifier_codes.clone(),
-            press_id: self.press_id.clone(),
+            shortcut_cycle_id: self.shortcut_cycle_id.clone(),
             role_id: self.role_id.clone(),
             surface_generation: self.surface_generation,
             tab_id: self.tab_id.clone(),
@@ -172,7 +172,7 @@ impl ManagedShortcutPhaseInput {
             self.expected_owner_generation,
             self.macro_id,
             self.code,
-            self.press_id,
+            self.shortcut_cycle_id,
             self.phase
         )
     }
@@ -186,7 +186,7 @@ impl ManagedShortcutPhaseInput {
             && active.document_instance_id == self.document_instance_id
             && active.expected_owner_generation == self.expected_owner_generation
             && active.macro_id == self.macro_id
-            && active.press_id == self.press_id
+            && active.shortcut_cycle_id == self.shortcut_cycle_id
             && active.role_id == self.role_id
             && active.surface_generation == self.surface_generation
             && active.tab_id == self.tab_id
@@ -204,7 +204,7 @@ impl ManagedShortcutPhaseInput {
             macro_id: self.macro_id.clone(),
             operation_id: self.operation_id.clone(),
             phase: self.phase.clone(),
-            press_id: self.press_id.clone(),
+            shortcut_cycle_id: self.shortcut_cycle_id.clone(),
             request_ids,
             role_id: self.role_id.clone(),
             status: status.to_owned(),
@@ -239,7 +239,7 @@ impl AppCore {
                     && receipt.surface_generation == input.surface_generation
                     && receipt.document_instance_id == input.document_instance_id
                     && receipt.expected_owner_generation == input.expected_owner_generation
-                    && receipt.press_id == input.press_id
+                    && receipt.shortcut_cycle_id == input.shortcut_cycle_id
                     && receipt.macro_id == input.macro_id
                     && receipt.code == input.code
                     && receipt.phase == input.phase;
@@ -300,7 +300,6 @@ impl AppCore {
             let superseded = match input.phase.as_str() {
                 "keyDown" => active.is_some(),
                 "keyUp" => !exact_active,
-                "replay" => active.is_some(),
                 _ => unreachable!(),
             };
             if superseded {
@@ -324,7 +323,7 @@ impl AppCore {
                     role_id: &input.role_id,
                     surface_generation: input.surface_generation,
                     document_instance_id: &input.document_instance_id,
-                    press_id: &input.press_id,
+                    shortcut_cycle_id: &input.shortcut_cycle_id,
                     code: &input.code,
                     phase: &input.phase,
                     modifier_codes: &input.modifier_codes,
@@ -364,7 +363,6 @@ impl AppCore {
             "keyUp" => {
                 runtime.active_by_shortcut.remove(&input.shortcut_key());
             }
-            "replay" => {}
             _ => unreachable!(),
         }
         runtime.remember(Some(phase_key), receipt.clone());
@@ -383,7 +381,7 @@ impl AppCore {
             surface_generation,
             document_instance_id: document_instance_id.to_owned(),
             expected_owner_generation: 1,
-            press_id: "retire-validation".to_owned(),
+            shortcut_cycle_id: "retire-validation".to_owned(),
             macro_id: "retire-validation".to_owned(),
             code: "retire-validation".to_owned(),
             phase: "keyUp".to_owned(),
@@ -434,7 +432,7 @@ impl AppCore {
                 .iter()
                 .map(|active| {
                     (
-                        active.press_id.clone(),
+                        active.shortcut_cycle_id.clone(),
                         active.code.clone(),
                         active.modifier_codes.clone(),
                     )
@@ -444,12 +442,12 @@ impl AppCore {
         let mut runtime = self.managed_shortcut_runtime.lock().map_err(|_| {
             CoreError::Internal("managed shortcut runtime lock poisoned".to_owned())
         })?;
-        let mut retired_press_ids = active
+        let mut retired_shortcut_cycle_ids = active
             .iter()
-            .map(|active| active.press_id.clone())
+            .map(|active| active.shortcut_cycle_id.clone())
             .collect::<Vec<_>>();
-        retired_press_ids.sort();
-        retired_press_ids.dedup();
+        retired_shortcut_cycle_ids.sort();
+        retired_shortcut_cycle_ids.dedup();
         runtime.active_by_shortcut.retain(|_, active| {
             active.role_id != role_id
                 || active.surface_generation != surface_generation
@@ -459,7 +457,7 @@ impl AppCore {
             crate::model::ManagedShortcutSurfaceRetirementReceiptRecord {
                 cleanup_request_ids,
                 document_instance_id: document_instance_id.to_owned(),
-                retired_press_ids,
+                retired_shortcut_cycle_ids,
                 role_id: role_id.to_owned(),
                 surface_generation,
                 terminal: true,

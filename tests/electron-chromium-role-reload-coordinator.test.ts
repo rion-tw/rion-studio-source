@@ -108,7 +108,7 @@ function commitAction(
     managedShortcutRetirements: roles.map((role) => ({
       cleanupRequestIds: [],
       documentInstanceId: role.documentInstanceId,
-      retiredPressIds: [],
+      retiredShortcutCycleIds: [],
       roleId: role.roleId,
       surfaceGeneration: role.surfaceGeneration,
       terminal: true

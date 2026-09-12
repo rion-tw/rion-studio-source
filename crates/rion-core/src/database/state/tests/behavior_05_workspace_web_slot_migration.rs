@@ -73,6 +73,7 @@ fn schema_29_resets_legacy_workspace_and_saved_window_web_urls() {
          CREATE TABLE roles(id TEXT PRIMARY KEY);
          CREATE TABLE workspaces(id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, name TEXT NOT NULL, payload_json TEXT NOT NULL);
          CREATE TABLE game_windows(id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, name TEXT NOT NULL, payload_json TEXT NOT NULL);
+         CREATE TABLE macros(id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, name TEXT NOT NULL, payload_json TEXT NOT NULL);
          CREATE TABLE settings(key TEXT PRIMARY KEY, payload_json TEXT NOT NULL);
          CREATE TABLE workspace_slots(
            workspace_id TEXT NOT NULL, ordinal INTEGER NOT NULL, role_id TEXT,
@@ -101,7 +102,7 @@ fn schema_29_resets_legacy_workspace_and_saved_window_web_urls() {
                 0
             ))
             .unwrap(),
-        30
+        SCHEMA_VERSION
     );
     let workspace: Value = serde_json::from_str(
         &connection

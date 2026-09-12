@@ -648,9 +648,23 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::MacroPress { request } => {
+                crate::macro_runtime::validate_shortcut_cycle_id(&request.shortcut_cycle_id)?;
                 let (macros, settings) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
-                let request = crate::model::MacroPressRequest {
+                let start = crate::model::MacroStartRequest {
+                    macros,
+                    settings,
+                    macro_id: request.macro_id,
+                    source_role_id: Some(request.source_role_id),
+                    active_role_ids: self.macro_active_role_ids()?,
+                };
+                serde_json::to_value(self.macro_runtime.press(start)?)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::MacroHoldStart { request } => {
+                let (macros, settings) =
+                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+                let request = crate::model::MacroHoldStartRequest {
                     start: crate::model::MacroStartRequest {
                         macros,
                         settings,
@@ -658,13 +672,13 @@ impl AppCore {
                         source_role_id: Some(request.source_role_id),
                         active_role_ids: self.macro_active_role_ids()?,
                     },
-                    press_id: request.press_id,
+                    shortcut_cycle_id: request.shortcut_cycle_id,
                 };
-                serde_json::to_value(self.macro_runtime.press(request)?)
+                serde_json::to_value(self.macro_runtime.hold_start(request)?)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::MacroRelease { request } => {
-                self.macro_runtime.release(request)?;
+            CoreCommand::MacroHoldRelease { request } => {
+                self.macro_runtime.hold_release(request)?;
                 Ok(json!({ "released": true }))
             }
             CoreCommand::MacroStop { macro_id } => {
@@ -762,7 +776,7 @@ impl AppCore {
                 surface_generation,
                 document_instance_id,
                 expected_owner_generation,
-                press_id,
+                shortcut_cycle_id,
                 macro_id,
                 code,
                 phase,
@@ -775,7 +789,7 @@ impl AppCore {
                     surface_generation,
                     document_instance_id,
                     expected_owner_generation,
-                    press_id,
+                    shortcut_cycle_id,
                     macro_id,
                     code,
                     phase,

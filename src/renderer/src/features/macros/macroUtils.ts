@@ -260,7 +260,7 @@ export function createEmptyMacroForm(
 
   return {
     enabled: true,
-    activationMode: "toggle",
+    activationMode: "press",
     name: createEmptyMacroFormName(macros, t),
     executionMode: requestedRoleIds?.length ? "selected_roles" : "source_role",
     roleIds: requestedRoleIds?.length ? roleIds : [],
@@ -275,7 +275,7 @@ export function createMacroFormState(macro: Macro): MacroFormState {
     id: macro.id,
     executionMode: macro.executionMode ?? "selected_roles",
     enabled: macro.enabled,
-    activationMode: macro.activationMode ?? "toggle",
+    activationMode: macro.activationMode ?? "press",
     name: macro.name,
     roleIds: [...macro.roleIds],
     shortcutSourceScope: structuredClone(macro.shortcutSourceScope),
@@ -377,9 +377,9 @@ export function formatMacroShortcut(trigger: MacroTrigger | undefined, t: Transl
 }
 
 export function formatMacroActivationMode(mode: MacroActivationMode | undefined, t: Translator): string {
-  return t(mode === "while_held"
-    ? "macroForm.activation.whileHeld"
-    : "macroForm.activation.toggle");
+  return t(mode === "hold"
+    ? "macroForm.activation.hold"
+    : "macroForm.activation.press");
 }
 
 export function formatMacroRepeat(repeat: MacroRepeat, t: Translator): string {

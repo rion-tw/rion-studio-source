@@ -186,8 +186,7 @@ fn portable_macro(macro_record: &StateMacroRecord) -> PortableMacroRecord {
         enabled: macro_record.enabled,
         activation_mode: macro_record
             .activation_mode
-            .clone()
-            .unwrap_or_else(|| "toggle".to_owned()),
+            .unwrap_or_default(),
         name: macro_record.name.clone(),
         role_ids,
         shortcut_source_scope,

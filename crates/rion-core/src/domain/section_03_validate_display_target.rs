@@ -353,16 +353,8 @@ fn normalize_workspace_rect_edges(
         .collect()
 }
 
-fn normalize_macro_activation_mode(value: Option<&str>) -> CoreResult<String> {
-    let value = value.unwrap_or("toggle");
-    if matches!(value, "toggle" | "while_held") {
-        Ok(value.to_owned())
-    } else {
-        Err(domain(
-            "MACRO_ACTIVATION_MODE_INVALID",
-            "Macro activation mode is invalid.",
-        ))
-    }
+fn normalize_macro_activation_mode(value: Option<MacroActivationMode>) -> MacroActivationMode {
+    value.unwrap_or_default()
 }
 
 fn normalize_macro_role_ids(role_ids: Vec<String>) -> CoreResult<Vec<String>> {
@@ -817,10 +809,10 @@ fn validate_macro_candidate(
         StateCollection::Macros,
         &serde_json::to_value(candidate).map_err(|error| CoreError::Internal(error.to_string()))?,
     )?;
-    if candidate.activation_mode.as_deref() == Some("while_held") && candidate.trigger.is_none() {
+    if candidate.activation_mode == Some(MacroActivationMode::Hold) && candidate.trigger.is_none() {
         return Err(domain(
-            "MACRO_WHILE_HELD_TRIGGER_REQUIRED",
-            "A tap-or-hold macro requires a shortcut.",
+            "MACRO_HOLD_TRIGGER_REQUIRED",
+            "A hold macro requires a shortcut.",
         ));
     }
     if candidate

@@ -36,11 +36,11 @@
                     "tabs":[],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
                 }],
                 "macros":[{
-                    "id":"m1","enabled":true,"activationMode":"toggle","name":"Macro 1","roleIds":["r1"],
+                    "id":"m1","enabled":true,"activationMode":"press","name":"Macro 1","roleIds":["r1"],
                     "repeat":{"type":"once"},"steps":[{"type":"delay","id":"s1","ms":1}],
                     "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
                 },{
-                    "id":"m2","enabled":true,"activationMode":"toggle","name":"Macro 2","roleIds":["r2"],
+                    "id":"m2","enabled":true,"activationMode":"press","name":"Macro 2","roleIds":["r2"],
                     "repeat":{"type":"once"},"steps":[{"type":"delay","id":"s2","ms":1}],
                     "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
                 }],

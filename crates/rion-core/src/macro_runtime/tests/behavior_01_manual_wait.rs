@@ -114,7 +114,7 @@ use std::sync::mpsc;
                 execution_mode: None,
                 id: "m1".to_owned(),
                 enabled: true,
-                activation_mode: Some("toggle".to_owned()),
+                activation_mode: Some(MacroActivationMode::Press),
                 name: "Macro".to_owned(),
                 role_ids: vec!["r1".to_owned()],
                 shortcut_source_scope: Default::default(),
@@ -165,7 +165,7 @@ use std::sync::mpsc;
 
         let starting_runtime = runtime.clone();
         let start_request = shortcut.clone();
-        let starting = thread::spawn(move || starting_runtime.toggle(start_request));
+        let starting = thread::spawn(move || starting_runtime.press(start_request));
         let focus = next_browser_actions(&receiver);
         let mut focused_role_ids = focus
             .iter()
@@ -183,10 +183,10 @@ use std::sync::mpsc;
             .collect::<Vec<_>>();
         started_role_ids.sort();
         assert_eq!(started_role_ids, ["a", "b", "c"]);
-        assert!(runtime.toggle(shortcut.clone()).unwrap().is_empty());
+        assert!(runtime.press(shortcut.clone()).unwrap().is_empty());
 
         shortcut.source_role_id = Some("a".to_owned());
-        assert!(runtime.toggle(shortcut).is_err());
+        assert!(runtime.press(shortcut).is_err());
     }
 
     #[test]
@@ -196,7 +196,7 @@ use std::sync::mpsc;
                 execution_mode: None,
                 id: "matching".to_owned(),
                 enabled: true,
-                activation_mode: Some("toggle".to_owned()),
+                activation_mode: Some(MacroActivationMode::Press),
                 name: "Matching".to_owned(),
                 role_ids: vec!["r1".to_owned()],
                 shortcut_source_scope: Default::default(),
@@ -214,7 +214,7 @@ use std::sync::mpsc;
                 execution_mode: None,
                 id: "other-role".to_owned(),
                 enabled: true,
-                activation_mode: Some("toggle".to_owned()),
+                activation_mode: Some(MacroActivationMode::Press),
                 name: "Other".to_owned(),
                 role_ids: vec!["r2".to_owned()],
                 shortcut_source_scope: Default::default(),
@@ -269,7 +269,7 @@ use std::sync::mpsc;
             execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
             shortcut_source_scope: Default::default(),

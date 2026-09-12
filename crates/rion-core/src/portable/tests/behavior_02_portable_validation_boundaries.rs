@@ -65,6 +65,66 @@ fn portable_validation_boundaries() {
 }
 
 #[test]
+fn portable_v23_accepts_only_press_and_hold_while_legacy_versions_normalize() {
+    let mut legacy_missing = fixture_value(22);
+    legacy_missing["macros"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("activationMode");
+    assert_eq!(
+        normalize(&legacy_missing.to_string()).unwrap()["macros"][0]["activationMode"],
+        "press"
+    );
+
+    let mut legacy_toggle = fixture_value(22);
+    legacy_toggle["macros"][0]["activationMode"] = json!("toggle");
+    assert_eq!(
+        normalize(&legacy_toggle.to_string()).unwrap()["macros"][0]["activationMode"],
+        "press"
+    );
+
+    let mut legacy_held = fixture_value(22);
+    legacy_held["macros"][0]["activationMode"] = json!("while_held");
+    legacy_held["macros"][0]["trigger"] =
+        json!({"code":"F6","ctrl":false,"alt":false,"shift":false,"meta":false});
+    legacy_held["macros"][0]["shortcutSourceScope"] =
+        json!({"type":"all_execution_roles"});
+    assert_eq!(
+        normalize(&legacy_held.to_string()).unwrap()["macros"][0]["activationMode"],
+        "hold"
+    );
+
+    let mut current_missing = fixture_value(PORTABLE_SCHEMA_VERSION);
+    current_missing["macros"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("activationMode");
+    assert_eq!(
+        normalize(&current_missing.to_string()).unwrap_err().code(),
+        "CORE_INPUT_INVALID"
+    );
+    for retired in ["toggle", "while_held"] {
+        let mut current = fixture_value(PORTABLE_SCHEMA_VERSION);
+        current["macros"][0]["activationMode"] = json!(retired);
+        assert_eq!(
+            normalize(&current.to_string()).unwrap_err().code(),
+            "CORE_INPUT_INVALID"
+        );
+    }
+
+    let mut current_hold = fixture_value(PORTABLE_SCHEMA_VERSION);
+    current_hold["macros"][0]["activationMode"] = json!("hold");
+    current_hold["macros"][0]["trigger"] =
+        json!({"button":"middle","ctrl":false,"alt":false,"shift":false,"meta":false});
+    current_hold["macros"][0]["shortcutSourceScope"] =
+        json!({"type":"all_execution_roles"});
+    assert_eq!(
+        normalize(&current_hold.to_string()).unwrap()["macros"][0]["activationMode"],
+        "hold"
+    );
+}
+
+#[test]
 fn portable_v17_round_trips_timed_holds_and_rejects_invalid_or_legacy_shapes() {
     let mut source = fixture_value(17);
     source["macros"][0]["steps"] = json!([{
@@ -432,7 +492,7 @@ fn portable_role_mapping_and_shortcut_resolution() {
             .unwrap();
         let imported = &prepared.snapshot.macros[0];
         assert!(imported.trigger.is_none());
-        assert_eq!(imported.activation_mode.as_deref(), Some("toggle"));
+        assert_eq!(imported.activation_mode, Some(MacroActivationMode::Press));
         assert!(matches!(
             imported.shortcut_source_scope,
             MacroShortcutSourceScope::AllExecutionRoles
@@ -600,8 +660,8 @@ fn unresolved_macro_ambiguity_requires_a_typed_resolution() {
             }],
             "launchWorkspaces": [],
             "macros": [
-                {"id":"existing-1","enabled":true,"activationMode":"toggle","name":"Macro","roleIds":["existing-role"],"repeat":{"type":"once"},"steps":[{"id":"a","type":"delay","ms":1}],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"},
-                {"id":"existing-2","enabled":true,"activationMode":"toggle","name":"Macro","roleIds":["existing-role"],"repeat":{"type":"once"},"steps":[{"id":"b","type":"delay","ms":2}],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
+                {"id":"existing-1","enabled":true,"activationMode":"press","name":"Macro","roleIds":["existing-role"],"repeat":{"type":"once"},"steps":[{"id":"a","type":"delay","ms":1}],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"},
+                {"id":"existing-2","enabled":true,"activationMode":"press","name":"Macro","roleIds":["existing-role"],"repeat":{"type":"once"},"steps":[{"id":"b","type":"delay","ms":2}],"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}
             ],
             "compatibilityReports": []
         }))
@@ -666,12 +726,12 @@ fn exported_macro_round_trip_is_semantically_idempotent() {
             }],
             "launchWorkspaces": [],
             "macros": [{
-                "id":"target","enabled":true,"activationMode":"toggle","name":"Target","roleIds":["r"],
+                "id":"target","enabled":true,"activationMode":"press","name":"Target","roleIds":["r"],
                 "repeat":{"type":"once"},
                 "steps":[{"id":"target-delay","type":"delay","ms":1}],
                 "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
             }, {
-                "id":"source","enabled":true,"activationMode":"toggle","name":"Source","roleIds":["r"],
+                "id":"source","enabled":true,"activationMode":"press","name":"Source","roleIds":["r"],
                 "trigger":{"button":"middle","ctrl":true,"alt":false,"shift":false,"meta":false},
                 "repeat":{"type":"once"},
                 "steps":[
@@ -786,7 +846,7 @@ fn exported_macro_round_trip_is_semantically_idempotent() {
 }
 
 #[test]
-fn export_is_v19_and_never_emits_internal_or_retired_sync_fields() {
+fn export_is_v23_and_never_emits_internal_or_retired_sync_fields() {
     let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],

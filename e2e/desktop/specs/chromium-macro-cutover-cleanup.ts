@@ -77,7 +77,7 @@ async function createHeldMacro(
   code: string
 ): Promise<Macro> {
   return rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name,
     repeat: { type: "once" },
@@ -130,7 +130,7 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
   const windowRole = await createRole(game.id, NAMES.roleWindow, FIXTURES.window);
   const shutdownRole = await createRole(game.id, NAMES.roleShutdown, FIXTURES.shutdown);
   const child = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: NAMES.child,
     repeat: { intervalMs: 100, type: "loop" },
@@ -138,7 +138,7 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     steps: [{ action: "tap", code: "KeyC", id: "cleanup-child", type: "key" }]
   });
   const parent = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: NAMES.parent,
     repeat: { type: "once" },

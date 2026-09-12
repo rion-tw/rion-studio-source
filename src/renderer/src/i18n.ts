@@ -189,7 +189,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "A shortcut with selected source roles requires at least one role.": "error.macroShortcutSourceRequired",
   "Macro repeat setting is invalid.": "error.macroRepeatInvalid",
   "Macro activation mode is invalid.": "error.macroActivationModeInvalid",
-  "A tap-or-hold macro requires a shortcut.": "error.macroHoldShortcutRequired",
+  "A hold macro requires a shortcut.": "error.macroHoldShortcutRequired",
   [`Macro interval must be between 0 and ${MACRO_DELAY_MAX_MS} ms.`]: "error.macroIntervalInvalid",
   "Macro must contain at least one step.": "error.macroStepsRequired",
   "Macro can contain at most 100 steps.": "error.macroStepsTooMany",

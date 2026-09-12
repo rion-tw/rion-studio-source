@@ -1,15 +1,14 @@
 #[test]
-    fn complete_first_release_arriving_before_press_runs_exactly_one_iteration() {
+    fn early_hold_release_prevents_an_invocation_or_lease() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
         }));
         runtime
-            .release(MacroReleaseRequest {
+            .hold_release(MacroHoldReleaseRequest {
                 macro_id: "m1".to_owned(),
                 source_role_id: "r1".to_owned(),
-                press_id: "release-first".to_owned(),
-                mode: "complete_first_iteration".to_owned(),
+                shortcut_cycle_id: "release-first".to_owned(),
             })
             .unwrap();
         let mut start = request(vec![MacroStepDefinition::Key {
@@ -20,48 +19,21 @@
             label: None,
             duration_ms: None,
         }]);
-        start.macros[0].activation_mode = Some("while_held".to_owned());
+        start.macros[0].activation_mode = Some(MacroActivationMode::Hold);
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };
         start.source_role_id = Some("r1".to_owned());
-        let pressing_runtime = runtime.clone();
-        let press = thread::spawn(move || {
-            pressing_runtime.press(MacroPressRequest {
+        assert!(runtime
+            .hold_start(MacroHoldStartRequest {
                 start,
-                press_id: "release-first".to_owned(),
+                shortcut_cycle_id: "release-first".to_owned(),
             })
-        });
-        let focus = next_browser_actions(&receiver);
-        runtime.dispatch_results(success_results(focus)).unwrap();
-        assert_eq!(press.join().unwrap().unwrap().len(), 1);
-        let mut phases = Vec::new();
-        for expected_phase in ["hold", "release"] {
-            let action = next_browser_actions(&receiver);
-            assert!(matches!(
-                action[0].action,
-                BrowserAction::Key {
-                    ref phase,
-                    ..
-                } if phase == expected_phase
-            ));
-            phases.push(expected_phase);
-            runtime.dispatch_results(success_results(action)).unwrap();
-        }
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while !runtime.statuses().unwrap().is_empty() {
-            assert!(std::time::Instant::now() < deadline);
-            thread::yield_now();
-        }
-        {
-            assert_eq!(phases, ["hold", "release"]);
-            while let Ok(events) = receiver.try_recv() {
-                assert!(
-                    events
-                        .iter()
-                        .all(|event| !matches!(event, CoreEvent::BrowserActions { .. })),
-                    "the early release allowed a second iteration"
-                );
-            }
-        };
+            .unwrap()
+            .is_empty());
+        assert_no_browser_actions(&receiver, Duration::from_millis(20));
+        let inner = runtime.shared.inner.lock().unwrap();
+        assert!(inner.invocations.is_empty());
+        assert!(inner.hold_leases.is_empty());
+        assert!(inner.early_hold_releases.is_empty());
     }
 
     fn drive_timed_tap(

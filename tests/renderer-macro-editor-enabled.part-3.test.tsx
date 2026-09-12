@@ -87,7 +87,7 @@ it.each([
     expect(macroHelps[2].getAttribute("data-macro-help")).toBe("stop");
     expect(macroHelps[0].textContent).toContain("Starting and repeating");
     expect(macroHelps[0].textContent).toContain("every assigned role that is launched and controllable");
-    expect(macroHelps[0].textContent).toContain("Tap to toggle switches between starting and stopping");
+    expect(macroHelps[0].textContent).toContain("Press starts on key down; pressing again stops an existing run");
     expect(macroHelps[0].textContent).toContain("0 ms interval removes only the extra wait");
     expect(macroHelps[1].textContent).toContain("Running other macros");
     expect(macroHelps[1].textContent).toContain("uses its own assigned roles");

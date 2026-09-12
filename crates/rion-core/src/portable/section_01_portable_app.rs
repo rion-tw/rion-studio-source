@@ -20,7 +20,7 @@ use crate::{
     macro_graph::validate_macro_graph,
     model::{
         CoreStateSnapshotRecord, GameBrowserSettingsRecord, GameWindowTabRecord, LayoutRect,
-        MacroSettingsRecord, MacroShortcutSourceScope, MacroStepDefinition, MacroTrigger,
+        MacroActivationMode, MacroSettingsRecord, MacroShortcutSourceScope, MacroStepDefinition, MacroTrigger,
         PortableDataRecord, PortableDataSelectionRecord, PortableExportResultRecord,
         PortableGameRecord, PortableGameWindowRecord, PortableImportOperationsRecord,
         PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
@@ -33,7 +33,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 22;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 23;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -621,16 +621,16 @@ fn normalize_macro(value: &Value, supports_modifiers: bool, schema: u64) -> Core
         }),
         _ => return Err(invalid("portable macro repeat is invalid")),
     };
-    let activation_mode = source
-        .get("activationMode")
-        .and_then(Value::as_str)
-        .unwrap_or("toggle");
-    if !matches!(activation_mode, "toggle" | "while_held") {
-        return Err(invalid("portable macro activation mode is invalid"));
-    }
+    let activation_mode = match (schema, source.get("activationMode").and_then(Value::as_str)) {
+        (11..=22, None | Some("toggle")) => "press",
+        (11..=22, Some("while_held")) => "hold",
+        (23, Some("press")) => "press",
+        (23, Some("hold")) => "hold",
+        _ => return Err(invalid("portable macro activation mode is invalid")),
+    };
     let trigger = source.get("trigger").map(normalize_trigger).transpose()?;
-    if activation_mode == "while_held" && trigger.is_none() {
-        return Err(invalid("while-held portable macro requires a trigger"));
+    if activation_mode == "hold" && trigger.is_none() {
+        return Err(invalid("hold portable macro requires a trigger"));
     }
     let mut macro_value = Map::new();
     macro_value.insert(

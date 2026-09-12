@@ -89,9 +89,6 @@ fn validate_workspace(workspace: WorkspaceRecord) -> CoreResult<()> {
 fn validate_macro(macro_record: MacroRecord) -> CoreResult<()> {
     non_empty(&macro_record.id, "macro id")?;
     non_empty(&macro_record.name, "macro name")?;
-    if let Some(mode) = macro_record.activation_mode {
-        one_of(&mode, &["toggle", "while_held"], "macro activation mode")?;
-    }
     if macro_record.role_ids.iter().any(|id| id.trim().is_empty())
         || macro_record.role_ids.iter().collect::<HashSet<_>>().len() != macro_record.role_ids.len()
     {

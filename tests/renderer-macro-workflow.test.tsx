@@ -88,7 +88,7 @@ describe("useMacroWorkflow", () => {
     await act(async () => {
       await result.current.saveMacro({
         enabled: true,
-        activationMode: "toggle",
+        activationMode: "press",
         name: "New macro",
         roleIds: ["role-1"],
         shortcutSourceScope: { type: "all_execution_roles" as const },

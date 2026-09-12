@@ -1,8 +1,8 @@
 import {
+  Hand,
   Pointer,
   Repeat1,
-  Timer,
-  ToggleRight
+  Timer
 } from "lucide-react";
 import type { JSX, MouseEvent as ReactMouseEvent, RefCallback } from "react";
 
@@ -240,14 +240,14 @@ function MacroShortcutIndicator({ macro, t }: { macro: Macro; t: Translator }): 
     return <span className="text-caption text-muted-foreground">{t("macros.noShortcutShort")}</span>;
   }
 
-  const isWhileHeld = macro.activationMode === "while_held";
+  const isHold = macro.activationMode === "hold";
   const activationLabel = formatMacroActivationMode(macro.activationMode, t);
   const shortcutLabel = formatMacroShortcut(macro.trigger, t);
 
   return (
     <span className="inline-flex h-5 min-w-0 items-center gap-1.5 text-muted-foreground" data-macro-shortcut-indicator>
       <span aria-label={activationLabel} className="inline-flex shrink-0" role="img" title={activationLabel}>
-        {isWhileHeld ? <Pointer aria-hidden="true" size={14} /> : <ToggleRight aria-hidden="true" size={14} />}
+        {isHold ? <Hand aria-hidden="true" size={14} /> : <Pointer aria-hidden="true" size={14} />}
       </span>
       <span className="truncate text-body leading-5">{shortcutLabel}</span>
     </span>

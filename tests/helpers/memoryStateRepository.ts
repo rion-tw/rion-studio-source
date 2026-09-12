@@ -403,7 +403,7 @@ export class MemoryStateRepository {
     const macro: Macro = {
       id: crypto.randomUUID(),
       enabled: input.enabled ?? true,
-      activationMode: input.activationMode ?? "toggle",
+      activationMode: input.activationMode ?? "press",
       name: input.name.trim(),
       roleIds: [...input.roleIds],
       shortcutSourceScope: structuredClone(
@@ -462,7 +462,7 @@ export class MemoryStateRepository {
       }
       return {
         ...macro,
-        activationMode: macro.activationMode === "while_held" ? "toggle" as const : macro.activationMode,
+        activationMode: macro.activationMode === "hold" ? "press" as const : macro.activationMode,
         roleIds,
         shortcutSourceScope: { type: "all_execution_roles" as const },
         trigger: undefined

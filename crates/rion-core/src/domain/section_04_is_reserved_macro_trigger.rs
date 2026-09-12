@@ -505,7 +505,8 @@ struct MacroRecord {
     #[serde(rename = "enabled")]
     _enabled: bool,
     #[serde(default)]
-    activation_mode: Option<String>,
+    #[serde(rename = "activationMode")]
+    _activation_mode: Option<MacroActivationMode>,
     name: String,
     role_ids: Vec<String>,
     #[serde(default)]

@@ -8,9 +8,9 @@ pub struct ManagedShortcutPhaseReceiptRecord {
     pub expected_owner_generation: u64,
     pub macro_id: String,
     pub operation_id: String,
-    #[ts(type = "\"replay\" | \"keyDown\" | \"keyUp\"")]
+    #[ts(type = "\"keyDown\" | \"keyUp\"")]
     pub phase: String,
-    pub press_id: String,
+    pub shortcut_cycle_id: String,
     pub request_ids: Vec<String>,
     pub role_id: String,
     #[ts(type = "\"accepted\" | \"duplicate\" | \"superseded\"")]
@@ -26,7 +26,7 @@ pub struct ManagedShortcutPhaseReceiptRecord {
 pub struct ManagedShortcutSurfaceRetirementReceiptRecord {
     pub cleanup_request_ids: Vec<String>,
     pub document_instance_id: String,
-    pub retired_press_ids: Vec<String>,
+    pub retired_shortcut_cycle_ids: Vec<String>,
     pub role_id: String,
     #[ts(type = "number")]
     pub surface_generation: u64,

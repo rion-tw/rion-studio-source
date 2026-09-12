@@ -163,7 +163,7 @@ describe("parseMacroCommand", () => {
       { type: "macro", macroId: "loop", callMode: "trigger" },
       { type: "macro", macroId: "loop", callMode: "trigger" }
     ]);
-    expect(result.issues.map((issue) => issue.code)).toEqual(["callToggle", "callToggle"]);
+    expect(result.issues.map((issue) => issue.code)).toEqual(["callBehavior", "callBehavior"]);
   });
 
   it("reports every FlyffHelper-only command as unsupported", () => {

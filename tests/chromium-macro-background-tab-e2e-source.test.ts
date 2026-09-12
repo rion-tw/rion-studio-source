@@ -365,7 +365,7 @@ describe("Chromium Macro background-tab exact replacement source", () => {
           id: "macro-1",
           name: "Chromium Background Tab Macro",
           payload: {
-            activationMode: "toggle",
+            activationMode: "press",
             enabled: true,
             repeat: { type: "once" },
             roleIds: [roleAId],

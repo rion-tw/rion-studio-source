@@ -21,13 +21,13 @@ const surface = Object.freeze({
   ownerGeneration: 11
 });
 
-function request(phase: "replay" | "keyDown" | "keyUp", pressId = "press-1") {
+function request(phase: "keyDown" | "keyUp", shortcutCycleId = "cycle-1") {
   return {
     code: "Digit2",
     macroId: "macro-1",
     modifierCodes: ["ShiftLeft"],
     phase,
-    pressId
+    shortcutCycleId
   };
 }
 
@@ -49,7 +49,7 @@ function harness(
       macroId: phase.macroId,
       operationId,
       phase: phase.phase,
-      pressId: phase.pressId,
+      shortcutCycleId: phase.shortcutCycleId,
       requestIds: status === "superseded" ? [] : [`browser-action-${operation}`],
       roleId: target.roleId,
       status,
@@ -64,7 +64,7 @@ function harness(
   }>) => ({
     cleanupRequestIds: ["browser-action-cleanup"],
     documentInstanceId: target.documentInstanceId,
-    retiredPressIds: ["press-1"],
+    retiredShortcutCycleIds: ["cycle-1"],
     roleId: target.roleId,
     surfaceGeneration: target.surfaceGeneration,
     terminal: true as const
@@ -83,7 +83,7 @@ function harness(
 }
 
 describe("Electron Chromium managed shortcut coordinator", () => {
-  it("accepts an exact owner/document receipt and terminally retires the held press", async () => {
+  it("accepts an exact owner/document receipt and terminally retires the held cycle", async () => {
     const subject = harness();
     await expect(subject.coordinator.dispatch(identity, request("keyDown")))
       .resolves.toMatchObject({ status: "accepted", expectedOwnerGeneration: 11 });
@@ -111,7 +111,7 @@ describe("Electron Chromium managed shortcut coordinator", () => {
   it("accepts duplicate terminal semantics only with the original exact request identity", async () => {
     const subject = harness("duplicate");
 
-    await expect(subject.coordinator.dispatch(identity, request("replay")))
+    await expect(subject.coordinator.dispatch(identity, request("keyDown")))
       .rejects.toMatchObject({ code: "ELECTRON_MANAGED_SHORTCUT_DUPLICATE" });
     expect(subject.dispatch).toHaveBeenCalledOnce();
     await subject.coordinator.dispose();
@@ -144,14 +144,14 @@ describe("Electron Chromium managed shortcut coordinator", () => {
     await expect(subject.coordinator.prepareDocumentReplacement(fence))
       .resolves.toBeUndefined();
     expect(subject.retireSurface).not.toHaveBeenCalled();
-    await expect(subject.coordinator.dispatch(identity, request("replay", "press-2")))
+    await expect(subject.coordinator.dispatch(identity, request("keyUp", "cycle-2")))
       .rejects.toMatchObject({
         code: "ELECTRON_MANAGED_SHORTCUT_DOCUMENT_REPLACING"
       });
     const retirement: ManagedShortcutSurfaceRetirementReceiptRecord = {
       cleanupRequestIds: ["cleanup-request-1"],
       documentInstanceId: "document-1",
-      retiredPressIds: ["press-1"],
+      retiredShortcutCycleIds: ["cycle-1"],
       roleId: "role-1",
       surfaceGeneration: 7,
       terminal: true
@@ -171,11 +171,24 @@ describe("Electron Chromium managed shortcut coordinator", () => {
     expect(subject.coordinator.canCommitDocumentReplacement(fence)).toBe(true);
     expect(subject.coordinator.commitDocumentReplacement(fence)).toBe(true);
     expect(subject.coordinator.releaseDocumentReplacementFence(fence)).toBe(true);
-    await expect(subject.coordinator.dispatch(identity, request("replay", "press-2")))
+    await expect(subject.coordinator.dispatch(identity, request("keyDown", "cycle-2")))
       .resolves.toMatchObject({ status: "accepted" });
+    subject.retireSurface.mockResolvedValueOnce({
+      cleanupRequestIds: ["browser-action-cleanup-2"],
+      documentInstanceId: "document-1",
+      retiredShortcutCycleIds: ["cycle-2"],
+      roleId: "role-1",
+      surfaceGeneration: 7,
+      terminal: true
+    });
     await expect(subject.coordinator.retireSurface("role-1", 7))
       .resolves.toBeUndefined();
-    expect(subject.retireSurface).not.toHaveBeenCalled();
+    expect(subject.retireSurface).toHaveBeenCalledOnce();
+    expect(subject.retireSurface).toHaveBeenCalledWith({
+      documentInstanceId: "document-1",
+      roleId: "role-1",
+      surfaceGeneration: 7
+    });
     await subject.coordinator.dispose();
   });
 });

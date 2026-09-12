@@ -21,7 +21,7 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Native Projections and Placement](contracts/system-runtime/native-projections-and-placement.md) | Active, normative | Native chrome, destructive stop, persistence, placement |
 | [Lifecycle and Recovery](contracts/system-runtime/lifecycle-and-recovery.md) | Active, normative | Navigation, input fences, process recovery, power, shutdown |
 | [Trusted Input Receipts](contracts/system-runtime/trusted-input-receipts.md) | Active, normative | CDP/physical provenance, uncertain-edge cleanup, quarantine, and terminal diagnostics |
-| [Managed Macro Shortcuts](contracts/system-runtime/managed-macro-shortcuts.md) | Active, normative | Physical shortcut ownership, trusted replay, toggle and while-held ordering |
+| [Managed Macro Shortcuts](contracts/system-runtime/managed-macro-shortcuts.md) | Active, normative | Physical shortcut ownership, trusted key-down/key-up interception, press and hold ordering |
 | [WebView Policy and Performance](contracts/system-runtime/webview-policy-and-performance.md) | Active, normative | WebGL, popup security, capabilities |
 | [Updater Install Transaction](updater-transaction-contract.md) | Active, normative | Updater, drain, restart, or release recovery work |
 

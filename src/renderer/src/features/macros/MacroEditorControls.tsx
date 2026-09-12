@@ -202,8 +202,8 @@ export function MacroCommandImportDialog({
 
 function formatMacroCommandIssue(issue: MacroCommandIssue, t: Translator): string {
   switch (issue.code) {
-    case "callToggle":
-      return t("macroForm.commandImport.warning.callToggle").replace("{name}", issue.detail ?? issue.token);
+    case "callBehavior":
+      return t("macroForm.commandImport.warning.callBehavior").replace("{name}", issue.detail ?? issue.token);
     case "invalidClick":
       return t("macroForm.commandImport.warning.invalidClick").replace("{token}", issue.token);
     case "invalidKeyCombination":

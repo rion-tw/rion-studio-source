@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v62";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-30.2";
+  const scriptVersion = "2026-09-13.1";
   const inputContextLossVersion = 1;
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
@@ -37,7 +37,7 @@
       coordinateMeasureHint: "Click to copy · Esc to cancel",
       triggerAria: "Open Rion Studio Macros",
       triggerTitle: "Open Rion Studio Macros (Ctrl+Shift+M)",
-      tapOrHold: "Tap or hold"
+      hold: "Hold"
     },
     "zh-TW": {
       holdUntilStop: "保持",
@@ -50,7 +50,7 @@
       coordinateMeasureHint: "點擊複製 · Esc 取消",
       triggerAria: "開啟 Rion Studio 巨集",
       triggerTitle: "開啟 Rion Studio 巨集 (Ctrl+Shift+M)",
-      tapOrHold: "點按或按住"
+      hold: "按住"
     },
     "zh-CN": {
       holdUntilStop: "保持",
@@ -63,7 +63,7 @@
       coordinateMeasureHint: "点击复制 · Esc 取消",
       triggerAria: "打开 Rion Studio 宏",
       triggerTitle: "打开 Rion Studio 宏 (Ctrl+Shift+M)",
-      tapOrHold: "点按或按住"
+      hold: "按住"
     },
     ja: {
       holdUntilStop: "保持",
@@ -76,7 +76,7 @@
       coordinateMeasureHint: "クリックでコピー · Esc でキャンセル",
       triggerAria: "Rion Studio マクロを開く",
       triggerTitle: "Rion Studio マクロを開く (Ctrl+Shift+M)",
-      tapOrHold: "短押し／長押し"
+      hold: "長押し"
     }
   };
   const triggerIconMarkup = [
@@ -130,9 +130,8 @@
   let appliedPageZoom = 1;
   let appliedPageZoomKnown = false;
   let appliedPageZoomRequestRevision = 0;
-  const activeHeldShortcuts = new Map();
+  const activeKeyboardShortcuts = new Map();
   let activeMiddleButtonShortcut = null;
-  let pendingMiddleButtonToggle = null;
   let consumeNextMiddleButtonAuxClick = false;
   let suppressedMiddleButtonShortcutPhase = null;
   const clickMarkerEvents = new Map();
@@ -210,7 +209,7 @@
   const macroActionTails = new Map();
   let inputContextLossRevision = 0;
   let inputContextLossTail = Promise.resolve();
-  let nextPressId = 1;
+  let nextShortcutCycleId = 1;
 
   function isCanvas(candidate) {
     return typeof HTMLCanvasElement !== "undefined" && candidate instanceof HTMLCanvasElement;

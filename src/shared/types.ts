@@ -35,6 +35,7 @@ import type {
   LogSource as RustLogSource,
   LogStorageStatusRecord,
   MacroCreateRequest,
+  MacroActivationMode as RustMacroActivationMode,
   MacroBadgePositionRecord,
   MacroOverlaySettingsRecord,
   MacroRepeat as RustMacroRepeat,
@@ -245,7 +246,7 @@ export type DiscardSavedGameWindowsInput =
 
 export type MacroTrigger = RustMacroTrigger;
 
-export type MacroActivationMode = "toggle" | "while_held";
+export type MacroActivationMode = RustMacroActivationMode;
 
 export type { MacroExecutionMode } from "./generated";
 

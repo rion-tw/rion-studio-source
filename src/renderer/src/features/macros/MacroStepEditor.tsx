@@ -764,7 +764,7 @@ export function createStep(
   type: MacroStep["type"],
   id = createClientId(),
   macroId = "",
-  activationMode: MacroActivationMode = "toggle",
+  activationMode: MacroActivationMode = "press",
   keyAction?: MacroKeyAction
 ): MacroStep {
   switch (type) {
@@ -773,7 +773,7 @@ export function createStep(
         id,
         type: "key",
         code: "Tab",
-        action: keyAction ?? (activationMode === "while_held" ? "hold_until_stop" : "tap"),
+        action: keyAction ?? (activationMode === "hold" ? "hold_until_stop" : "tap"),
         ...(keyAction === "hold_for_duration"
           ? { durationMs: DEFAULT_MACRO_KEY_HOLD_DURATION_MS }
           : {}),

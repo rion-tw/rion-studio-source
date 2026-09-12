@@ -83,7 +83,7 @@ impl MacroRuntime {
             inner.input_recoveries.clear();
             inner.input_recovery_by_role.clear();
             inner.recovering_role_ids.clear();
-            inner.early_releases.clear();
+            inner.early_hold_releases.clear();
             inner.transferring_role_ids.clear();
             (
                 inner.invocations.values().cloned().collect::<Vec<_>>(),

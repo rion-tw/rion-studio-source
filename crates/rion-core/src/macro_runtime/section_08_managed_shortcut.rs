@@ -3,7 +3,7 @@ pub(crate) struct ManagedShortcutPhaseDispatch<'a> {
     pub role_id: &'a str,
     pub surface_generation: u64,
     pub document_instance_id: &'a str,
-    pub press_id: &'a str,
+    pub shortcut_cycle_id: &'a str,
     pub code: &'a str,
     pub phase: &'a str,
     pub modifier_codes: &'a [String],
@@ -15,7 +15,6 @@ impl MacroRuntime {
         dispatch: ManagedShortcutPhaseDispatch<'_>,
     ) -> CoreResult<Vec<String>> {
         let phase = match dispatch.phase {
-            "replay" => "tap",
             "keyDown" => "hold",
             "keyUp" => "release",
             _ => {
@@ -47,7 +46,7 @@ impl MacroRuntime {
         modifiers.dedup();
         let control = new_invocation_control(
             format!("managed-shortcut:{}", dispatch.operation_id),
-            format!("managed-shortcut:{}", dispatch.press_id),
+            format!("managed-shortcut:{}", dispatch.shortcut_cycle_id),
             HashSet::from([dispatch.role_id.to_owned()]),
         );
         let exact_surface = ExactBrowserActionSurface {
@@ -66,13 +65,8 @@ impl MacroRuntime {
                     code: Some(dispatch.code.to_owned()),
                     modifiers,
                     exact_modifier_codes: Some(dispatch.modifier_codes.to_vec()),
-                    modifier_ownership: if dispatch.phase == "replay" {
-                        "synthetic"
-                    } else {
-                        "physical-pass-through"
-                    }
-                    .to_owned(),
-                    owner_id: format!("managed-shortcut:{}", dispatch.press_id),
+                    modifier_ownership: "physical-pass-through".to_owned(),
+                    owner_id: format!("managed-shortcut:{}", dispatch.shortcut_cycle_id),
                     suppress_overlay_shortcut: true,
                 },
             )],
@@ -107,7 +101,7 @@ impl MacroRuntime {
         };
         let actions = shortcuts
             .iter()
-            .map(|(press_id, code, modifier_codes)| {
+            .map(|(shortcut_cycle_id, code, modifier_codes)| {
                 let mut modifiers = modifier_codes
                     .iter()
                     .filter_map(|modifier| {
@@ -136,7 +130,7 @@ impl MacroRuntime {
                         modifiers,
                         exact_modifier_codes: Some(modifier_codes.clone()),
                         modifier_ownership: "physical-pass-through".to_owned(),
-                        owner_id: format!("managed-shortcut:{press_id}"),
+                        owner_id: format!("managed-shortcut:{shortcut_cycle_id}"),
                         suppress_overlay_shortcut: true,
                     },
                 )

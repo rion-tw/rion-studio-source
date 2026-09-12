@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md) and defines the managed-shortcut ordering introduced by Chromium runtime contract v33. The entry document owns the compatibility version and routes readers to the minimum normative section required for a task.
 
 ## Physical ownership and admission
 
@@ -10,7 +10,7 @@ input-admissible game context. Unbound or conflicting chords, editable and IME
 input, and operating-system or runtime-reserved shortcuts remain pass-through.
 For an owned chord, the physical main-key `keydown`, repeat, and `keyup` never
 reach the page directly; modifier events retain their physical DOM lifecycle and
-exact left/right codes. One `pressId` and modifier-side snapshot identify the
+exact left/right codes. One `shortcutCycleId` and modifier-side snapshot identify the
 owned cycle.
 
 Every replacement main-key event enters the selected role's existing native
@@ -37,9 +37,9 @@ owner.
 
 Normal macro modifiers use canonical left-side DOM codes selected for the target
 platform and are synthetic Core owners. A managed shortcut retains the observed
-left/right physical codes. Toggle replay makes those exact modifiers synthetic,
-while the `keyDown`/`keyUp` phases of a while-held shortcut are
-`physical-pass-through` and submit only the replacement main key. Before every
+left/right physical codes. Its `keyDown`/`keyUp` phases are
+`physical-pass-through` and submit only the replacement main key; there is no
+release-time chord replay. Before every
 native effect, the authenticated isolated-world guard reports the eight-sided
 physical modifier snapshot. The adapter merges non-owned physical modifiers into
 the event flags without converting them into synthetic Core ownership. A managed
@@ -59,21 +59,23 @@ continuity requests one complete Core `embeddedKeysReassert` result and executes
 that result through the same ordered lane instead of rebuilding held keys in
 Electron.
 
-## Toggle and while-held ordering
+## Press and hold ordering
 
-A toggle waits until the entire physical chord is released and the final
-pass-through modifier release finishes propagation. Native then replays one
-balanced chord in this order: modifier downs, main-key down/up, modifier ups.
-Only after every trusted DOM acknowledgement succeeds may the overlay dispatch
-the macro `toggle`.
+A `press` captures a non-repeat physical main-key `keydown`, sends the managed
+`keyDown`, and dispatches the macro `press` immediately after that trusted DOM
+acknowledgement. A later physical `keyup` performs only the matching managed
+`keyUp` cleanup. It does not decide whether the accepted press runs and cannot
+cancel the action if it arrives before the macro response. The completed keyup
+retires the cycle and permits the next press, which preserves the existing
+second-press stop behavior at Core.
 
-A while-held shortcut waits for replacement main-key down acknowledgement before
-dispatching `press`. Physical release first completes the replacement keyup
-acknowledgement and then dispatches `release`. If release was observed while
-`press` was still pending, the same ordered chain finishes and uses
-`complete_first_iteration`, producing exactly one admitted iteration. Blur,
-hidden-page, page teardown, and overlay disposal use `immediate` release after
-native key cleanup and clear the same Core lease.
+A `hold` also waits for the managed `keyDown` acknowledgement before dispatching
+`hold-start`. Its physical `keyup` immediately dispatches `hold-release` with the
+same `shortcutCycleId`, independently of the outstanding start response and the
+parallel managed `keyUp` cleanup. Core records an early release when it wins the
+race, so a short press may complete no iteration and can never resurrect after
+release. Blur, hidden-page, page teardown, and overlay disposal use the same
+immediate hold release and clear the same Core lease.
 
 This flow is event-bound. It adds no polling, retry timer, replay watchdog, or
 second pressed-key owner; cancellation and supersede cannot be converted into a
@@ -96,7 +98,7 @@ logical input mutations. The Electron main-process consumer records only the
 window, optional tab, platform, and modifier count through Core logging; a
 logging failure cannot alter focus handling or surface a shell error.
 
-Top-level overlay blur clears ordinary keys and while-held leases immediately,
+Top-level overlay blur clears ordinary keys and hold leases immediately,
 then defers only pass-through modifier fallback releases to a microtask in the
 same event turn. A trusted native keyup removes its exact side before that
 microtask; otherwise the overlay synthesizes one page keyup as a fallback.
@@ -105,13 +107,13 @@ Windows retains WebView2 focus-loss cleanup plus the same overlay fallback
 semantics. This ordering is event-bound and adds no polling, timeout, or second
 macro-shortcut owner.
 
-## Toggle-held continuity across role and tab changes
+## Press-run held-key continuity across role and tab changes
 
-A toggle macro may retain a Core-owned `hold_until_stop` key after its initiating
+A press macro may retain a Core-owned `hold_until_stop` key after its initiating
 shortcut and first iteration have completed. A visible role `blur` and native
 tab-hide presentation are authoritative input-context-loss events, but they do
 not release that Core key. On blur, the authenticated overlay first releases
-pass-through physical keys and any active while-held shortcut lease, waits for
+pass-through physical keys and any active hold shortcut lease, waits for
 those ordered actions and page event propagation to finish, and then reports a
 monotonic loss revision. Hidden-page overlay work performs cleanup only; the
 native presentation receipt owns tab-hide continuity so background throttling
@@ -144,13 +146,12 @@ managed keyboard shortcut. Unbound or conflicting middle-button combinations
 remain pass-through.
 
 An owned middle-button `mousedown`, `mouseup`, and resulting `auxclick` are
-stopped at capture and never reach the page. One `pressId` and modifier snapshot
-own the cycle. Toggle dispatch waits for middle-button release and the final
-pass-through modifier release to finish propagation. While-held dispatches
-`press` from the accepted down event and pairs it with `release` from the exact
-up event; early release completes the first admitted iteration. Blur, hidden
-page, teardown, and overlay disposal use immediate release and clear the Core
-lease.
+stopped at capture and never reach the page. One `shortcutCycleId` and modifier
+snapshot own the cycle. Press dispatches on the accepted `mousedown`; `mouseup`
+only retires that cycle. Hold dispatches `hold-start` from the accepted down
+event and pairs it with immediate `hold-release` from the exact up event. Early
+release does not guarantee a first iteration. Blur, hidden page, teardown, and
+overlay disposal use the same immediate release and clear the Core lease.
 
 Automatic middle-click macro steps arm the overlay suppression guard before
 native submission. Their trusted down/up/auxclick sequence remains page-visible
@@ -169,7 +170,7 @@ when roles are deleted. The entire reachable call graph is checked for required,
 allowed, active sources before admitting any input. Dynamic children inherit the
 original source; fixed children retain their own assignments.
 
-A dynamic invocation's toggle, press/release lease, duplicate admission, and
+A dynamic invocation's press start/stop state, hold lease, duplicate admission, and
 role-local stop are scoped to its source role. Stopping from one source must not
 remove another source's statuses, recovery intent, or descendants. The main
 application's global stop still cancels every execution of that macro. Shortcut
@@ -178,6 +179,9 @@ projections retain their existing aggregate behavior. Admission, native input,
 recovery and terminal cleanup retain the same event-bound epoch/generation
 fences on both stable and Chromium runtimes.
 
-Portable schema 20 preserves the execution mode and source restrictions even
-without a shortcut. Schemas 11–19 remain readable as fixed assignments when the
-mode is absent. SQLite records use the same backward-compatible optional field.
+Portable schema 23 exports only `press` and `hold`. Schemas 11–22 normalize a
+missing activation mode and the retired press spelling to `press`, and normalize
+the retired held spelling to `hold`; schema 23 rejects those retired spellings.
+SQLite schema 31 performs the same stored-data normalization in its migration
+transaction. Execution mode and source restrictions remain preserved even
+without a shortcut.

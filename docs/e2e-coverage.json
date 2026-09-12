@@ -1217,7 +1217,7 @@
         "success",
         "failure"
       ],
-      "description": "Create a one-shot toggle Macro assigned to Role A with Roles A and B as visible shortcut sources. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release."
+      "description": "Create a one-shot press Macro assigned to Role A with Roles A and B as visible shortcut sources. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004",
@@ -1318,7 +1318,7 @@
         "success",
         "failure"
       ],
-      "description": "In the visible retained AppKit Role, toggle a 250ms KeyJ loop with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its live AppKit Chromium surface and becomes restart-required."
+      "description": "In the visible retained AppKit Role, start and stop a 250ms KeyJ loop press Macro with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its live AppKit Chromium surface and becomes restart-required."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-INPUT-RECOVERY-011",
@@ -1344,7 +1344,7 @@
         "success",
         "failure"
       ],
-      "description": "In the visible bundled-Chromium Role, toggle a 250ms KeyJ loop with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its bundled Chromium surface and becomes restart-required, with the independent ABI-v3 physical gate required."
+      "description": "In the visible bundled-Chromium Role, start and stop a 250ms KeyJ loop press Macro with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its bundled Chromium surface and becomes restart-required, with the independent ABI-v3 physical gate required."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MIDDLE-BUTTON-013",
@@ -1369,7 +1369,7 @@
         "success",
         "failure"
       ],
-      "description": "Use visible native middle-button presses in selected AppKit-bound roles to exercise toggle and while-held macros while proving mousedown, mouseup, and auxclick remain intercepted from the page; then execute left, middle, and right macro click steps and observe all three trusted native button effects without recursively re-entering the shortcut."
+      "description": "Use visible native middle-button presses in selected AppKit-bound roles to exercise press-on-mousedown and hold-until-mouseup macros while proving mousedown, mouseup, and auxclick remain intercepted from the page; then execute left, middle, and right macro click steps and observe all three trusted native button effects without recursively re-entering the shortcut."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MIDDLE-BUTTON-013",
@@ -1395,7 +1395,7 @@
         "success",
         "failure"
       ],
-      "description": "Use visible native middle-button presses in selected bundled-Chromium roles to exercise toggle and while-held macros while proving mousedown, mouseup, and auxclick remain intercepted from the page; then execute left, middle, and right macro click steps and observe all three trusted native button effects without recursively re-entering the shortcut, with the ABI-v3 physical gate required."
+      "description": "Use visible native middle-button presses in selected bundled-Chromium roles to exercise press-on-mousedown and hold-until-mouseup macros while proving mousedown, mouseup, and auxclick remain intercepted from the page; then execute left, middle, and right macro click steps and observe all three trusted native button effects without recursively re-entering the shortcut, with the ABI-v3 physical gate required."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MODIFIER-CONTINUITY-008",
@@ -1420,7 +1420,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. The v32 provenance journal classifies live left/right modifier edges as player input without terminating an unrelated CDP receipt."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. The v32 provenance journal classifies live left/right modifier edges as player input without terminating an unrelated CDP receipt."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008",
@@ -1446,7 +1446,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. The v32 exact-HWND journal classifies live left/right modifier edges as player input without terminating an unrelated CDP receipt."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. The v32 exact-HWND journal classifies live left/right modifier edges as player input without terminating an unrelated CDP receipt."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",
@@ -1577,7 +1577,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+2 main-key lifecycle in the managed AppKit Role, replay exactly one trusted balanced chord, and dispatch only after guarded acknowledgement; prove the same held physical press cannot re-enter, release permits the next invocation, and no residual key ownership or recursive macro start remains. Under v32, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+2 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, release permits the next invocation, and no residual key ownership or recursive macro start remains. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007",
@@ -1603,7 +1603,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+2 main-key lifecycle in the managed bundled-Chromium Role, replay exactly one trusted balanced chord, and dispatch only after guarded acknowledgement; prove the same held physical press cannot re-enter, release permits the next invocation, and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. Under v32, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+2 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, release permits the next invocation, and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-TERMINAL-CLEANUP-006",

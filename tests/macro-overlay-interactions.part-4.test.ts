@@ -70,8 +70,8 @@ interface OverlayBinding {
   shortcutLifecycle?: (event: {
     code: string;
     macroId: string;
-    phase: "physical-keydown-managed" | "chord-released" | "managed-replay-acknowledged"
-      | "managed-keydown-acknowledged" | "managed-keyup-acknowledged" | "macro-dispatched";
+    phase: "physical-keydown-managed" | "managed-keydown-acknowledged"
+      | "managed-keyup-acknowledged" | "macro-dispatched";
   }) => Promise<unknown>;
 }
 
@@ -79,8 +79,8 @@ interface ManagedShortcutKeyPhase {
   code: string;
   macroId: string;
   modifierCodes: string[];
-  phase: "replay" | "keyDown" | "keyUp";
-  pressId: string;
+  phase: "keyDown" | "keyUp";
+  shortcutCycleId: string;
 }
 
 interface MacroKeyObservation {
@@ -267,10 +267,10 @@ describe("macro overlay native key guard", () => {
     expect(canvas.dispatchEvent(event)).toBe(true);
     expect(event.defaultPrevented).toBe(false);
     expect(gameListener).toHaveBeenCalledOnce();
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-1" });
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "press" }));
   });
 
-  it("runs consecutive physical shortcuts once while guarded same-key output cannot reenter", async () => {
+  it("dispatches consecutive presses after managed keydown acknowledgement without reentry", async () => {
     const macros = [
       {
         id: "macro-two",
@@ -294,34 +294,19 @@ describe("macro overlay native key guard", () => {
       }
     ];
     const actionTimeline: string[] = [];
-    let acknowledgeFirstChordRelease: (() => void) | undefined;
-    const firstChordReleaseAcknowledged = new Promise<void>((resolve) => {
-      acknowledgeFirstChordRelease = resolve;
-    });
-    let acknowledgeFirstReplay: (() => void) | undefined;
-    const firstReplayAcknowledged = new Promise<void>((resolve) => {
-      acknowledgeFirstReplay = resolve;
-    });
-    const shortcutLifecycle = vi.fn(async (event: {
+    const shortcutLifecycle = vi.fn(async (_event: {
       code: string;
       macroId: string;
-      phase: "physical-keydown-managed" | "chord-released" | "managed-replay-acknowledged"
-        | "macro-dispatched";
-    }) => {
-      if (event.macroId === "macro-two" && event.phase === "chord-released") {
-        await firstChordReleaseAcknowledged;
-      }
-      if (event.macroId === "macro-two" && event.phase === "managed-replay-acknowledged") {
-        await firstReplayAcknowledged;
-      }
-    });
+      phase: "physical-keydown-managed" | "managed-keydown-acknowledged"
+        | "managed-keyup-acknowledged" | "macro-dispatched";
+    }) => undefined);
     const binding = vi.fn(async (request: unknown) => {
       if (
         typeof request === "object"
         && request !== null
-        && (request as { type?: string }).type === "toggle"
+        && (request as { type?: string }).type === "press"
       ) {
-        actionTimeline.push(`toggle:${String((request as { macroId?: unknown }).macroId)}`);
+        actionTimeline.push(`press:${String((request as { macroId?: unknown }).macroId)}`);
       }
       return {
         macros,
@@ -341,20 +326,7 @@ describe("macro overlay native key guard", () => {
           { shiftKey }
         ));
       };
-      if (request.phase === "replay") {
-        for (const code of request.modifierCodes) dispatch("keydown", code, true);
-        const dispatchId = `test-dispatch-${++testDispatchSequence}`;
-        expect(controller.suppressShortcutSequence(
-          dispatchId,
-          request.code,
-          ["keydown", "keyup"]
-        )).toBe(true);
-        document.dispatchEvent(keyEvent("keydown", request.code,
-          request.code === "Digit2" ? "@" : "#", { shiftKey: true }));
-        document.dispatchEvent(keyEvent("keyup", request.code,
-          request.code === "Digit2" ? "@" : "#", { shiftKey: true }));
-        for (const code of [...request.modifierCodes].reverse()) dispatch("keyup", code, false);
-      }
+      dispatch(request.phase === "keyDown" ? "keydown" : "keyup", request.code, true);
     });
     await controller.refresh();
     const gameEvents: string[] = [];
@@ -381,24 +353,19 @@ describe("macro overlay native key guard", () => {
     const physicalTwoDown = keyEvent("keydown", "Digit2", "@", { shiftKey: true });
     expect(document.dispatchEvent(physicalTwoDown)).toBe(false);
     expect(physicalTwoDown.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: "macro-two"
+    })));
+    expect((binding as OverlayBinding).managedShortcutKeyPhase).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "keyDown" })
+    );
     const physicalTwoUp = keyEvent("keyup", "Digit2", "@", { shiftKey: true });
     expect(document.dispatchEvent(physicalTwoUp)).toBe(false);
     expect(physicalTwoUp.defaultPrevented).toBe(true);
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-two" });
+    await vi.waitFor(() => expect((binding as OverlayBinding).managedShortcutKeyPhase)
+      .toHaveBeenCalledWith(expect.objectContaining({ phase: "keyUp" })));
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
-    expect((binding as OverlayBinding).managedShortcutKeyPhase).not.toHaveBeenCalled();
-    acknowledgeFirstChordRelease?.();
-    await vi.waitFor(() => expect(shortcutLifecycle).toHaveBeenCalledWith({
-      code: "Digit2",
-      macroId: "macro-two",
-      phase: "managed-replay-acknowledged"
-    }));
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-two" });
-    acknowledgeFirstReplay?.();
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
-      type: "toggle",
-      macroId: "macro-two"
-    }));
     expect(gameChordActivations).toEqual(["Shift+Digit2"]);
     expect([...gameHeldCodes]).toEqual([]);
 
@@ -414,47 +381,47 @@ describe("macro overlay native key guard", () => {
     document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
     const physicalThreeDown = keyEvent("keydown", "Digit3", "#", { shiftKey: true });
     expect(document.dispatchEvent(physicalThreeDown)).toBe(false);
-    document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-three" });
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: "macro-three"
+    })));
     const physicalThreeUp = keyEvent("keyup", "Digit3", "#", { shiftKey: true });
     expect(document.dispatchEvent(physicalThreeUp)).toBe(false);
     expect(physicalThreeUp.defaultPrevented).toBe(true);
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-three" });
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
-      type: "toggle",
-      macroId: "macro-three"
-    }));
+    await vi.waitFor(() => expect(gameHeldCodes.has("Digit3")).toBe(false));
+    document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
 
-    const toggleIds = binding.mock.calls
+    const pressedMacroIds = binding.mock.calls
       .map(([request]) => request)
       .filter((request): request is Record<string, unknown> =>
         typeof request === "object" && request !== null && "type" in request
-        && (request as { type?: string }).type === "toggle"
+        && (request as { type?: string }).type === "press"
       )
       .map((request) => request.macroId);
-    expect(toggleIds).toEqual(["macro-two", "macro-three"]);
+    expect(pressedMacroIds).toEqual(["macro-two", "macro-three"]);
     expect(gameChordActivations).toEqual(["Shift+Digit2", "Shift+Digit3"]);
     expect([...gameHeldCodes]).toEqual([]);
     expect(shortcutLifecycle.mock.calls.map(([event]) => [event.macroId, event.phase])).toEqual([
       ["macro-two", "physical-keydown-managed"],
-      ["macro-two", "chord-released"],
-      ["macro-two", "managed-replay-acknowledged"],
+      ["macro-two", "managed-keydown-acknowledged"],
       ["macro-two", "macro-dispatched"],
+      ["macro-two", "managed-keyup-acknowledged"],
       ["macro-three", "physical-keydown-managed"],
-      ["macro-three", "chord-released"],
-      ["macro-three", "managed-replay-acknowledged"],
-      ["macro-three", "macro-dispatched"]
+      ["macro-three", "managed-keydown-acknowledged"],
+      ["macro-three", "macro-dispatched"],
+      ["macro-three", "managed-keyup-acknowledged"]
     ]);
-    expect(actionTimeline.indexOf("toggle:macro-two")).toBeGreaterThan(
-      actionTimeline.indexOf("up:ShiftLeft")
+    expect(actionTimeline.indexOf("press:macro-two")).toBeGreaterThan(
+      actionTimeline.indexOf("down:Digit2")
     );
-    expect(actionTimeline.indexOf("toggle:macro-three")).toBeGreaterThan(
-      actionTimeline.lastIndexOf("up:ShiftLeft")
+    expect(actionTimeline.indexOf("press:macro-two")).toBeLessThan(
+      actionTimeline.indexOf("up:Digit2")
+    );
+    expect(actionTimeline.indexOf("press:macro-three")).toBeGreaterThan(
+      actionTimeline.lastIndexOf("down:Digit3")
     );
     expect(gameEvents).toEqual([
       "down:ShiftLeft",
-      "up:ShiftLeft",
-      "down:ShiftLeft",
       "down:Digit2",
       "up:Digit2",
       "up:ShiftLeft",
@@ -462,8 +429,6 @@ describe("macro overlay native key guard", () => {
       "up:ShiftLeft",
       "down:Digit2",
       "up:Digit2",
-      "down:ShiftLeft",
-      "up:ShiftLeft",
       "down:ShiftLeft",
       "down:Digit3",
       "up:Digit3",
@@ -472,7 +437,7 @@ describe("macro overlay native key guard", () => {
     expect(controller.physicalModifierCodes()).toEqual([]);
   });
 
-  it("consumes a matched key repeat without replaying or toggling twice", async () => {
+  it("consumes a matched key repeat without pressing twice", async () => {
     const macro = {
       id: "macro-two",
       enabled: true,
@@ -497,6 +462,10 @@ describe("macro overlay native key guard", () => {
     const initial = keyEvent("keydown", "Digit2", "@", { shiftKey: true });
     expect(document.dispatchEvent(initial)).toBe(false);
     expect(initial.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press",
+      macroId: macro.id
+    })));
     const repeated = keyEvent("keydown", "Digit2", "@", { repeat: true, shiftKey: true });
     expect(document.dispatchEvent(repeated)).toBe(false);
     expect(repeated.defaultPrevented).toBe(true);
@@ -505,18 +474,14 @@ describe("macro overlay native key guard", () => {
     expect(released.defaultPrevented).toBe(true);
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
 
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
-      type: "toggle",
-      macroId: macro.id
-    }));
     expect(pageKeyDown.mock.calls.filter(([event]) => event.code === "Digit2")).toHaveLength(0);
-    expect((binding as OverlayBinding).managedShortcutKeyPhase).toHaveBeenCalledOnce();
-    expect((binding as OverlayBinding).managedShortcutKeyPhase).toHaveBeenCalledWith(
-      expect.objectContaining({ phase: "replay" })
-    );
+    await vi.waitFor(() => expect((binding as OverlayBinding).managedShortcutKeyPhase)
+      .toHaveBeenCalledTimes(2));
+    expect(vi.mocked((binding as OverlayBinding).managedShortcutKeyPhase!).mock.calls
+      .map(([request]) => request.phase)).toEqual(["keyDown", "keyUp"]);
     expect(binding.mock.calls.filter(([request]) =>
       typeof request === "object" && request !== null
-      && (request as { type?: string }).type === "toggle"
+      && (request as { type?: string }).type === "press"
     )).toHaveLength(1);
   });
 
@@ -547,10 +512,10 @@ describe("macro overlay native key guard", () => {
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
 
     await vi.waitFor(() => expect(warning).toHaveBeenCalledWith(
-      "Unable to replay a managed Rion Studio shortcut.",
+      "Unable to begin a managed Rion Studio shortcut.",
       expect.any(Error)
     ));
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: macro.id });
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "press" }));
     warning.mockRestore();
   });
 
@@ -594,7 +559,7 @@ describe("macro overlay native key guard", () => {
       "up:Digit2",
       "up:ShiftLeft"
     ]);
-    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "toggle" }));
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "press" }));
     expect(warning).toHaveBeenCalledWith(
       "Multiple Rion Studio macros use the same shortcut for this role."
     );
@@ -602,7 +567,7 @@ describe("macro overlay native key guard", () => {
   });
 
   it.each(["blur", "pagehide", "hidden", "dispose"] as const)(
-    "cancels a partially released toggle shortcut on %s",
+    "preserves an accepted press while cleaning up its key cycle on %s",
     async (terminal) => {
       const macro = {
         id: "macro-two",
@@ -614,7 +579,7 @@ describe("macro overlay native key guard", () => {
         repeat: { type: "once" },
         steps: []
       };
-      const binding = vi.fn(async () => ({
+      const binding = vi.fn(async (_request: unknown) => ({
         macros: [macro],
         shortcutMacroIds: [macro.id],
         statuses: []
@@ -624,8 +589,11 @@ describe("macro overlay native key guard", () => {
 
       document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
       document.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
+      await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+        type: "press",
+        macroId: macro.id
+      })));
       document.dispatchEvent(keyEvent("keyup", "Digit2", "@", { shiftKey: true }));
-      expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: macro.id });
 
       if (terminal === "hidden") {
         Object.defineProperty(document, "visibilityState", {
@@ -645,7 +613,10 @@ describe("macro overlay native key guard", () => {
       document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
       await Promise.resolve();
 
-      expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: macro.id });
+      expect(binding.mock.calls.filter(([request]) =>
+        typeof request === "object" && request !== null
+        && (request as { type?: string }).type === "press"
+      )).toHaveLength(1);
     }
   );
 

@@ -71,12 +71,12 @@ fn managed_shortcut_core() -> (tempfile::TempDir, Arc<AppCore>) {
 
 fn managed_shortcut_command(
     operation_id: &str,
-    press_id: &str,
+    shortcut_cycle_id: &str,
     phase: &str,
 ) -> CoreCommand {
     managed_shortcut_command_for(
         operation_id,
-        press_id,
+        shortcut_cycle_id,
         phase,
         "macro-shortcut",
         "Digit2",
@@ -86,7 +86,7 @@ fn managed_shortcut_command(
 
 fn managed_shortcut_command_for(
     operation_id: &str,
-    press_id: &str,
+    shortcut_cycle_id: &str,
     phase: &str,
     macro_id: &str,
     code: &str,
@@ -100,7 +100,7 @@ fn managed_shortcut_command_for(
         "surfaceGeneration": 7,
         "documentInstanceId": document_instance_id,
         "expectedOwnerGeneration": 1,
-        "pressId": press_id,
+        "shortcutCycleId": shortcut_cycle_id,
         "macroId": macro_id,
         "code": code,
         "phase": phase,
@@ -109,12 +109,12 @@ fn managed_shortcut_command_for(
 }
 
 #[test]
-fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_press_releases() {
+fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_cycle_releases() {
     let (_directory, core) = managed_shortcut_core();
 
     let (down, down_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-down-1", "press-1", "keyDown"),
+        managed_shortcut_command("shortcut-down-1", "cycle-1", "keyDown"),
         None,
     );
     let down = down.unwrap();
@@ -139,7 +139,7 @@ fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_press_releases()
 
     let (duplicate, duplicate_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-down-duplicate", "press-1", "keyDown"),
+        managed_shortcut_command("shortcut-down-duplicate", "cycle-1", "keyDown"),
         None,
     );
     assert_eq!(duplicate.unwrap()["status"], json!("duplicate"));
@@ -147,7 +147,7 @@ fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_press_releases()
 
     let (reentry, reentry_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-down-reentry", "press-2", "keyDown"),
+        managed_shortcut_command("shortcut-down-reentry", "cycle-2", "keyDown"),
         None,
     );
     assert_eq!(reentry.unwrap()["status"], json!("superseded"));
@@ -155,7 +155,7 @@ fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_press_releases()
 
     let (released, release_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-up-1", "press-1", "keyUp"),
+        managed_shortcut_command("shortcut-up-1", "cycle-1", "keyUp"),
         None,
     );
     assert_eq!(released.unwrap()["status"], json!("accepted"));
@@ -174,7 +174,7 @@ fn managed_shortcut_reentry_is_blocked_until_the_exact_physical_press_releases()
 
     let (next, next_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-down-2", "press-2", "keyDown"),
+        managed_shortcut_command("shortcut-down-2", "cycle-2", "keyDown"),
         None,
     );
     assert_eq!(next.unwrap()["status"], json!("accepted"));
@@ -186,7 +186,7 @@ fn managed_shortcut_exact_key_up_remains_admitted_after_tab_blur() {
     let (_directory, core) = managed_shortcut_core();
     let (down, down_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-blur-down", "press-blur", "keyDown"),
+        managed_shortcut_command("shortcut-blur-down", "cycle-blur", "keyDown"),
         None,
     );
     assert_eq!(down.unwrap()["status"], json!("accepted"));
@@ -242,7 +242,7 @@ fn managed_shortcut_exact_key_up_remains_admitted_after_tab_blur() {
         Arc::clone(&core),
         managed_shortcut_command_for(
             "shortcut-inactive-down",
-            "press-inactive",
+            "cycle-inactive",
             "keyDown",
             "macro-inactive",
             "Digit3",
@@ -255,7 +255,7 @@ fn managed_shortcut_exact_key_up_remains_admitted_after_tab_blur() {
 
     let (released, release_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-blur-up", "press-blur", "keyUp"),
+        managed_shortcut_command("shortcut-blur-up", "cycle-blur", "keyUp"),
         None,
     );
     assert_eq!(released.unwrap()["status"], json!("accepted"));
@@ -271,13 +271,13 @@ fn managed_shortcut_exact_key_up_remains_admitted_after_tab_blur() {
 }
 
 #[test]
-fn managed_shortcut_distinct_keys_have_independent_active_presses() {
+fn managed_shortcut_distinct_keys_have_independent_active_cycles() {
     let (_directory, core) = managed_shortcut_core();
     let (first, first_actions) = drive_command(
         Arc::clone(&core),
         managed_shortcut_command_for(
             "shortcut-a-down",
-            "press-a",
+            "cycle-a",
             "keyDown",
             "macro-a",
             "Digit2",
@@ -292,7 +292,7 @@ fn managed_shortcut_distinct_keys_have_independent_active_presses() {
         Arc::clone(&core),
         managed_shortcut_command_for(
             "shortcut-b-down",
-            "press-b",
+            "cycle-b",
             "keyDown",
             "macro-b",
             "Digit3",
@@ -305,11 +305,11 @@ fn managed_shortcut_distinct_keys_have_independent_active_presses() {
 }
 
 #[test]
-fn managed_shortcut_authoritative_surface_retirement_releases_the_old_press() {
+fn managed_shortcut_authoritative_surface_retirement_releases_the_old_cycle() {
     let (_directory, core) = managed_shortcut_core();
     let (down, _) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-old-down", "press-old", "keyDown"),
+        managed_shortcut_command("shortcut-old-down", "cycle-old", "keyDown"),
         None,
     );
     assert_eq!(down.unwrap()["status"], json!("accepted"));
@@ -327,7 +327,7 @@ fn managed_shortcut_authoritative_surface_retirement_releases_the_old_press() {
     );
     let retired = retired.unwrap();
     assert_eq!(retired["terminal"], json!(true));
-    assert_eq!(retired["retiredPressIds"], json!(["press-old"]));
+    assert_eq!(retired["retiredShortcutCycleIds"], json!(["cycle-old"]));
     assert_eq!(cleanup_actions.len(), 1);
     assert!(matches!(
         &cleanup_actions[0],
@@ -345,7 +345,7 @@ fn managed_shortcut_authoritative_surface_retirement_releases_the_old_press() {
         Arc::clone(&core),
         managed_shortcut_command_for(
             "shortcut-new-down",
-            "press-new",
+            "cycle-new",
             "keyDown",
             "macro-shortcut",
             "Digit2",
@@ -367,7 +367,7 @@ fn managed_shortcut_operation_identity_cannot_be_reused_for_another_phase() {
     let (_directory, core) = managed_shortcut_core();
     let (first, actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-operation", "press-1", "replay"),
+        managed_shortcut_command("shortcut-operation", "cycle-1", "keyDown"),
         None,
     );
     assert_eq!(first.unwrap()["status"], json!("accepted"));
@@ -379,15 +379,15 @@ fn managed_shortcut_operation_identity_cannot_be_reused_for_another_phase() {
                 exact_modifier_codes: Some(exact_modifier_codes),
                 modifier_ownership,
                 ..
-            } if phase == "tap" && exact_modifier_codes == &["ShiftLeft"] &&
-                modifier_ownership == "synthetic")
+            } if phase == "hold" && exact_modifier_codes == &["ShiftLeft"] &&
+                modifier_ownership == "physical-pass-through")
     ));
 
     let reused = core
         .invoke(managed_shortcut_command(
             "shortcut-operation",
-            "press-1",
-            "keyDown",
+            "cycle-1",
+            "keyUp",
         ))
         .unwrap_err();
     assert_eq!(reused.code(), "MANAGED_SHORTCUT_OPERATION_REUSED");
@@ -404,7 +404,7 @@ fn managed_shortcut_stale_role_owner_is_superseded_without_a_browser_action() {
         "surfaceGeneration": 7,
         "documentInstanceId": "document-shortcut",
         "expectedOwnerGeneration": 2,
-        "pressId": "press-stale",
+        "shortcutCycleId": "cycle-stale",
         "macroId": "macro-shortcut",
         "code": "Digit2",
         "phase": "keyDown",
@@ -423,7 +423,7 @@ fn managed_shortcut_stale_role_owner_is_superseded_without_a_browser_action() {
             "surfaceGeneration": 7,
             "documentInstanceId": "document-shortcut",
             "expectedOwnerGeneration": 2,
-            "pressId": "press-stale-reused",
+            "shortcutCycleId": "cycle-stale-reused",
             "macroId": "macro-shortcut",
             "code": "Digit2",
             "phase": "keyDown",
@@ -434,22 +434,29 @@ fn managed_shortcut_stale_role_owner_is_superseded_without_a_browser_action() {
 }
 
 #[test]
-fn managed_shortcut_document_replacement_cannot_collide_with_an_old_receipt() {
+fn managed_shortcut_document_replacement_cannot_collide_with_a_completed_cycle_receipt() {
     let (_directory, core) = managed_shortcut_core();
     let (old, old_actions) = drive_command(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-old-document", "press-shared", "replay"),
+        managed_shortcut_command("shortcut-old-document-down", "cycle-shared", "keyDown"),
         None,
     );
     assert_eq!(old.unwrap()["status"], json!("accepted"));
     assert_eq!(old_actions.len(), 1);
+    let (old_up, old_up_actions) = drive_command(
+        Arc::clone(&core),
+        managed_shortcut_command("shortcut-old-document-up", "cycle-shared", "keyUp"),
+        None,
+    );
+    assert_eq!(old_up.unwrap()["status"], json!("accepted"));
+    assert_eq!(old_up_actions.len(), 1);
 
     let (replacement, replacement_actions) = drive_command(
         Arc::clone(&core),
         managed_shortcut_command_for(
             "shortcut-replacement-document",
-            "press-shared",
-            "replay",
+            "cycle-shared",
+            "keyDown",
             "macro-shortcut",
             "Digit2",
             "document-replacement",
@@ -465,7 +472,7 @@ fn managed_shortcut_indeterminate_key_down_remains_cleanup_reachable() {
     let (_directory, core) = managed_shortcut_core();
     let (failed, down_actions) = drive_command_with(
         Arc::clone(&core),
-        managed_shortcut_command("shortcut-indeterminate", "press-indeterminate", "keyDown"),
+        managed_shortcut_command("shortcut-indeterminate", "cycle-indeterminate", "keyDown"),
         |effect| CoreEffectResult {
             effect_id: effect.effect_id,
             operation_id: effect.operation_id,
@@ -511,7 +518,7 @@ fn managed_shortcut_indeterminate_key_down_remains_cleanup_reachable() {
         retirement_command(),
         None,
     );
-    assert_eq!(retired.unwrap()["retiredPressIds"], json!(["press-indeterminate"]));
+    assert_eq!(retired.unwrap()["retiredShortcutCycleIds"], json!(["cycle-indeterminate"]));
     assert_eq!(cleanup_actions.len(), 1);
     assert!(matches!(
         &cleanup_actions[0],
@@ -532,8 +539,8 @@ fn managed_shortcut_owner_transfer_waits_for_exact_terminality() {
     let invocation = thread::spawn(move || {
         invocation_core.invoke(managed_shortcut_command(
             "shortcut-owner-race",
-            "press-owner-race",
-            "replay",
+            "cycle-owner-race",
+            "keyDown",
         ))
     });
     let effect = loop {

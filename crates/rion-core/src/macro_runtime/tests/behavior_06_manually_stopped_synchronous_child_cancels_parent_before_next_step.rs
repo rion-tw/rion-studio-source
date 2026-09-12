@@ -23,7 +23,7 @@
             execution_mode: None,
             id: "child".to_owned(),
             enabled: true,
-            activation_mode: Some("toggle".to_owned()),
+            activation_mode: Some(MacroActivationMode::Press),
             name: "Child".to_owned(),
             role_ids: vec!["r2".to_owned()],
             shortcut_source_scope: Default::default(),
@@ -403,7 +403,7 @@
     }
 
     #[test]
-    fn quick_multi_role_release_waits_for_every_first_iteration_action() {
+    fn quick_multi_role_hold_release_interrupts_every_first_iteration_action() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -416,7 +416,7 @@
             label: None,
             duration_ms: None,
         }]);
-        start.macros[0].activation_mode = Some("while_held".to_owned());
+        start.macros[0].activation_mode = Some(MacroActivationMode::Hold);
         start.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
             code: "KeyQ".to_owned(),
             ctrl: false,
@@ -431,9 +431,9 @@
         let pressing_runtime = runtime.clone();
         let press = thread::spawn(move || {
             pressing_runtime
-                .press(MacroPressRequest {
+                .hold_start(MacroHoldStartRequest {
                     start,
-                    press_id: "press-1".to_owned(),
+                    shortcut_cycle_id: "press-1".to_owned(),
                 })
                 .unwrap()
         });
@@ -449,11 +449,10 @@
         let releasing_runtime = runtime.clone();
         let release = thread::spawn(move || {
             releasing_runtime
-                .release(MacroReleaseRequest {
+                .hold_release(MacroHoldReleaseRequest {
                     macro_id: "m1".to_owned(),
                     source_role_id: "r1".to_owned(),
-                    press_id: "press-1".to_owned(),
-                    mode: "complete_first_iteration".to_owned(),
+                    shortcut_cycle_id: "press-1".to_owned(),
                 })
                 .unwrap();
         });
@@ -469,18 +468,16 @@
                 .next()
                 .cloned()
                 .unwrap();
-            if control.stop_after_first_iteration.load(Ordering::Acquire) {
+            if control.cancelled.load(Ordering::Acquire) {
                 break;
             }
             assert!(
                 std::time::Instant::now() < release_deadline,
-                "release request did not reach the first-iteration barrier"
+                "hold release did not cancel the first iteration"
             );
             thread::yield_now();
         }
         assert!(!release.is_finished());
-        let stopping_runtime = runtime.clone();
-        let stop = thread::spawn(move || stopping_runtime.stop_macro("m1").unwrap());
         runtime.dispatch_results(success_results(holds)).unwrap();
         let releases = next_browser_action_count(&receiver, 2);
         {
@@ -503,18 +500,14 @@
         };
         runtime.dispatch_results(success_results(releases)).unwrap();
         release.join().unwrap();
-        stop.join().unwrap();
-        {
-            assert!(runtime.statuses().unwrap().is_empty());
-        };
         {
             assert!(runtime.statuses().unwrap().is_empty());
         };
     }
 
     #[test]
-    fn immediate_release_interrupts_first_or_later_while_held_iterations() {
-        for (completed_iterations, press_id, case_id) in [
+    fn immediate_release_interrupts_first_or_later_hold_iterations() {
+        for (completed_iterations, shortcut_cycle_id, case_id) in [
             (0, "first-iteration", "macro-8b4e22c0e423"),
             (1, "later-iteration", "macro-cefbad4638d2"),
         ] {
@@ -530,7 +523,7 @@
                 label: None,
                 duration_ms: None,
             }]);
-            start.macros[0].activation_mode = Some("while_held".to_owned());
+            start.macros[0].activation_mode = Some(MacroActivationMode::Hold);
             start.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
                 code: "KeyQ".to_owned(),
                 ctrl: false,
@@ -541,18 +534,18 @@
             start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };
             start.source_role_id = Some("r1".to_owned());
             let pressing_runtime = runtime.clone();
-            let press_id_for_start = press_id.to_owned();
-            let press = thread::spawn(move || {
+            let cycle_id_for_start = shortcut_cycle_id.to_owned();
+            let hold_start = thread::spawn(move || {
                 pressing_runtime
-                    .press(MacroPressRequest {
+                    .hold_start(MacroHoldStartRequest {
                         start,
-                        press_id: press_id_for_start,
+                        shortcut_cycle_id: cycle_id_for_start,
                     })
                     .unwrap()
             });
             let focus = next_browser_actions(&receiver);
             runtime.dispatch_results(success_results(focus)).unwrap();
-            press.join().unwrap();
+            hold_start.join().unwrap();
 
             for _ in 0..completed_iterations {
                 let hold = next_browser_actions(&receiver);
@@ -562,14 +555,13 @@
             }
             let in_flight_hold = next_browser_actions(&receiver);
             let releasing_runtime = runtime.clone();
-            let press_id_for_release = press_id.to_owned();
+            let cycle_id_for_release = shortcut_cycle_id.to_owned();
             let release = thread::spawn(move || {
                 releasing_runtime
-                    .release(MacroReleaseRequest {
+                    .hold_release(MacroHoldReleaseRequest {
                         macro_id: "m1".to_owned(),
                         source_role_id: "r1".to_owned(),
-                        press_id: press_id_for_release,
-                        mode: "immediate".to_owned(),
+                        shortcut_cycle_id: cycle_id_for_release,
                     })
                     .unwrap();
             });
@@ -637,7 +629,7 @@
     }
 
     #[test]
-    fn held_invocation_ignores_mismatched_source_and_press_ids() {
+    fn held_invocation_ignores_mismatched_source_and_shortcut_cycle_ids() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -650,29 +642,30 @@
             label: None,
             duration_ms: None,
         }]);
-        start.macros[0].activation_mode = Some("while_held".to_owned());
+        start.macros[0].activation_mode = Some(MacroActivationMode::Hold);
         start.source_role_id = Some("r1".to_owned());
         let pressing_runtime = runtime.clone();
-        let press = thread::spawn(move || {
-            pressing_runtime.press(MacroPressRequest {
+        let hold_start = thread::spawn(move || {
+            pressing_runtime.hold_start(MacroHoldStartRequest {
                 start,
-                press_id: "press-correct".to_owned(),
+                shortcut_cycle_id: "cycle-correct".to_owned(),
             })
         });
         let focus = next_browser_actions(&receiver);
         runtime.dispatch_results(success_results(focus)).unwrap();
-        press.join().unwrap().unwrap();
+        hold_start.join().unwrap().unwrap();
         let hold = next_browser_actions(&receiver);
         runtime.dispatch_results(success_results(hold)).unwrap();
 
         {
-            for (source_role_id, press_id) in [("r1", "press-other"), ("r2", "press-correct")] {
+            for (source_role_id, shortcut_cycle_id) in
+                [("r1", "cycle-other"), ("r2", "cycle-correct")]
+            {
                 runtime
-                    .release(MacroReleaseRequest {
+                    .hold_release(MacroHoldReleaseRequest {
                         macro_id: "m1".to_owned(),
                         source_role_id: source_role_id.to_owned(),
-                        press_id: press_id.to_owned(),
-                        mode: "immediate".to_owned(),
+                        shortcut_cycle_id: shortcut_cycle_id.to_owned(),
                     })
                     .unwrap();
                 assert_eq!(runtime.statuses().unwrap().len(), 1);
@@ -693,11 +686,10 @@
         let releasing_runtime = runtime.clone();
         let release = thread::spawn(move || {
             releasing_runtime
-                .release(MacroReleaseRequest {
+                .hold_release(MacroHoldReleaseRequest {
                     macro_id: "m1".to_owned(),
                     source_role_id: "r1".to_owned(),
-                    press_id: "press-correct".to_owned(),
-                    mode: "immediate".to_owned(),
+                    shortcut_cycle_id: "cycle-correct".to_owned(),
                 })
                 .unwrap();
         });
@@ -723,24 +715,23 @@
             label: None,
             duration_ms: None,
         }]);
-        start.macros[0].activation_mode = Some("while_held".to_owned());
+        start.macros[0].activation_mode = Some(MacroActivationMode::Hold);
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };
         start.source_role_id = Some("r1".to_owned());
         let pressing_runtime = runtime.clone();
         let press = thread::spawn(move || {
-            pressing_runtime.press(MacroPressRequest {
+            pressing_runtime.hold_start(MacroHoldStartRequest {
                 start,
-                press_id: "press-before-focus".to_owned(),
+                shortcut_cycle_id: "press-before-focus".to_owned(),
             })
         });
 
         let focus = next_browser_actions(&receiver);
         runtime
-            .release(MacroReleaseRequest {
+            .hold_release(MacroHoldReleaseRequest {
                 macro_id: "m1".to_owned(),
                 source_role_id: "r1".to_owned(),
-                press_id: "press-before-focus".to_owned(),
-                mode: "immediate".to_owned(),
+                shortcut_cycle_id: "press-before-focus".to_owned(),
             })
             .unwrap();
         runtime.dispatch_results(success_results(focus)).unwrap();

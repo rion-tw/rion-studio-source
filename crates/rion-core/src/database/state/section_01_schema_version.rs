@@ -43,7 +43,7 @@ use crate::session_migration::{
     V23RoleInitializationEvidence,
 };
 
-pub(crate) const SCHEMA_VERSION: u32 = 30;
+pub(crate) const SCHEMA_VERSION: u32 = 31;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);

@@ -89,7 +89,7 @@ async function createScenario(): Promise<Readonly<{
     name: ROLE_B_NAME
   });
   const macro = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: MACRO_NAME,
     repeat: { type: "once" },

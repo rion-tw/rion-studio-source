@@ -169,7 +169,7 @@ export function useMacroWorkflow({
       await window.rionStudio.createMacro({
         executionMode: macro.executionMode,
         enabled: macro.enabled,
-        activationMode: macro.activationMode === "while_held" ? "toggle" : macro.activationMode,
+        activationMode: "press",
         name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
         roleIds: [...macro.roleIds],
         shortcutSourceScope: macro.executionMode === "source_role" ? structuredClone(macro.shortcutSourceScope) : { type: "all_execution_roles" },

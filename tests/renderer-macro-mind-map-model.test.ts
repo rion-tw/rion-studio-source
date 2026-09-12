@@ -371,7 +371,7 @@ describe("macro mind map focus", () => {
 
 function formState(overrides: Partial<MacroFormState> = {}): MacroFormState {
   return {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     id: "macro-1",
     name: "Root macro",

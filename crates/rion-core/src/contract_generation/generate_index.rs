@@ -22,6 +22,8 @@ fn export_bindings_index() {
         "BrowserPerformanceDiagnosticOperationPhase.ts",
         "BrowserPerformanceDiagnosticOperationRecord.ts",
         "BrowserPerformanceDiagnosticStatus.ts",
+        "MacroPressRequest.ts",
+        "MacroReleaseRequest.ts",
     ] {
         let retired_path = path.parent().unwrap().join(retired);
         match fs::remove_file(retired_path) {
@@ -257,9 +259,11 @@ fn export_bindings_index() {
                 "export type { MacroOverlaySettingsRecord } from \"./MacroOverlaySettingsRecord\";\n",
                 "export type { MacroOverlayStartSummaryRecord } from \"./MacroOverlayStartSummaryRecord\";\n",
                 "export type { MacroOverlayViewModelRecord } from \"./MacroOverlayViewModelRecord\";\n",
+                "export type { MacroActivationMode } from \"./MacroActivationMode\";\n",
+                "export type { MacroHoldReleaseRequest } from \"./MacroHoldReleaseRequest\";\n",
+                "export type { MacroHoldStartInvocationRequest } from \"./MacroHoldStartInvocationRequest\";\n",
+                "export type { MacroHoldStartRequest } from \"./MacroHoldStartRequest\";\n",
                 "export type { MacroPressInvocationRequest } from \"./MacroPressInvocationRequest\";\n",
-                "export type { MacroPressRequest } from \"./MacroPressRequest\";\n",
-                "export type { MacroReleaseRequest } from \"./MacroReleaseRequest\";\n",
                 "export type { MacroRepeat } from \"./MacroRepeat\";\n",
                 "export type { MacroRunStatus } from \"./MacroRunStatus\";\n",
                 "export type { MacroRuntimeSettings } from \"./MacroRuntimeSettings\";\n",

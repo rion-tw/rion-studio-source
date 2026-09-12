@@ -266,7 +266,7 @@ describe("Chromium Macro standby recovery exact replacement source", () => {
           ]
         } }],
         macros: [{ id: evidence.macroId, name: "Chromium Standby Recovery Macro",
-          payload: { activationMode: "toggle", enabled: true, repeat: { type: "once" },
+          payload: { activationMode: "press", enabled: true, repeat: { type: "once" },
             roleIds: [roleAId], steps: [{ action: "hold_until_stop", code: "KeyS",
               id: "chromium-standby-held-key", type: "key" }] } }],
         roles: [

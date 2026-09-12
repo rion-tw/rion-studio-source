@@ -141,13 +141,14 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
     entry.receipt.status === "applied"
   )).toBe(true);
 
+  const stopProjectionCursor = await rendererEventCursor();
   await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
     { key: "y", phase: "keyDown" },
     { key: "y", phase: "keyUp" }
   ], { windowId: WINDOW_ID, focusCanvas: false });
   await waitForMacroProjection({
     absent: true,
-    afterSequence: input.macroStatusCursor,
+    afterSequence: stopProjectionCursor,
     macroId: input.macroId
   });
   const state = (await fixtureState())[FIXTURE_ID];
@@ -189,7 +190,7 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     name: "Chromium Macro Input Recovery Role"
   });
   const macro = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: "Chromium Macro Input Recovery",
     repeat: { intervalMs: 0, type: "loop" },
@@ -200,7 +201,7 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     ]
   });
   const interleaveMacro = await rendererCall("createMacro", {
-    activationMode: "toggle",
+    activationMode: "press",
     enabled: true,
     name: "Chromium Concurrent Physical Input",
     repeat: { intervalMs: 250, type: "loop" },

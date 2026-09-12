@@ -723,7 +723,15 @@ impl AppCore {
                     started_count: statuses.len() as u32,
                 });
             }
-            MacroOverlayRequestRecord::Toggle { macro_id } => {
+            MacroOverlayRequestRecord::Stop { macro_id } => {
+                let (macros, _) =
+                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
+                if macros.iter().any(|definition| definition.id == macro_id && definition.uses_source_role()) {
+                    self.macro_runtime.stop_source_macro_from_role(&macro_id, role_id)?;
+                } else { self.macro_runtime.stop_macro_from_role(&macro_id, role_id)?; }
+            }
+            MacroOverlayRequestRecord::Press { macro_id, shortcut_cycle_id } => {
                 let (macros, settings) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
                 crate::overlay::ensure_macro_shortcut_available(&macros, role_id, &macro_id)?;
@@ -731,7 +739,8 @@ impl AppCore {
                     .iter()
                     .find(|definition| definition.id == macro_id)
                     .map_or(0, |definition| if definition.uses_source_role() { 1 } else { definition.role_ids.len() });
-                let statuses = self.macro_runtime.toggle(MacroStartRequest {
+                crate::macro_runtime::validate_shortcut_cycle_id(&shortcut_cycle_id)?;
+                let statuses = self.macro_runtime.press(MacroStartRequest {
                     macros,
                     settings,
                     macro_id,
@@ -743,15 +752,10 @@ impl AppCore {
                     started_count: statuses.len() as u32,
                 });
             }
-            MacroOverlayRequestRecord::Stop { macro_id } => {
-                let (macros, _) =
-                    self.with_runtime(|runtime| runtime.state.macro_configuration())?;
-                crate::overlay::ensure_macro_available(&macros, role_id, &macro_id)?;
-                if macros.iter().any(|definition| definition.id == macro_id && definition.uses_source_role()) {
-                    self.macro_runtime.stop_source_macro_from_role(&macro_id, role_id)?;
-                } else { self.macro_runtime.stop_macro_from_role(&macro_id, role_id)?; }
-            }
-            MacroOverlayRequestRecord::Press { macro_id, press_id } => {
+            MacroOverlayRequestRecord::HoldStart {
+                macro_id,
+                shortcut_cycle_id,
+            } => {
                 let (macros, settings) =
                     self.with_runtime(|runtime| runtime.state.macro_configuration())?;
                 crate::overlay::ensure_macro_shortcut_available(&macros, role_id, &macro_id)?;
@@ -759,7 +763,7 @@ impl AppCore {
                     .iter()
                     .find(|definition| definition.id == macro_id)
                     .map_or(0, |definition| if definition.uses_source_role() { 1 } else { definition.role_ids.len() });
-                let statuses = self.macro_runtime.press(MacroPressRequest {
+                let statuses = self.macro_runtime.hold_start(MacroHoldStartRequest {
                     start: MacroStartRequest {
                         macros,
                         settings,
@@ -767,23 +771,21 @@ impl AppCore {
                         source_role_id: Some(role_id.to_owned()),
                         active_role_ids: self.macro_active_role_ids()?,
                     },
-                    press_id,
+                    shortcut_cycle_id,
                 })?;
                 start_summary = Some(MacroOverlayStartSummaryRecord {
                     skipped_count: assigned_count.saturating_sub(statuses.len()) as u32,
                     started_count: statuses.len() as u32,
                 });
             }
-            MacroOverlayRequestRecord::Release {
+            MacroOverlayRequestRecord::HoldRelease {
                 macro_id,
-                press_id,
-                release_mode,
+                shortcut_cycle_id,
             } => {
-                self.macro_runtime.release(MacroReleaseRequest {
+                self.macro_runtime.hold_release(MacroHoldReleaseRequest {
                     macro_id,
                     source_role_id: role_id.to_owned(),
-                    press_id,
-                    mode: release_mode.unwrap_or_else(|| "complete_first_iteration".to_owned()),
+                    shortcut_cycle_id,
                 })?;
             }
         }

@@ -406,8 +406,8 @@ pub struct StateMacroRecord {
     pub id: String,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
-    pub activation_mode: Option<String>,
+    #[ts(optional)]
+    pub activation_mode: Option<MacroActivationMode>,
     pub name: String,
     pub role_ids: Vec<String>,
     #[serde(default)]

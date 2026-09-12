@@ -115,29 +115,21 @@ pub fn ensure_macro_shortcut_available(
 fn validate_request(request: &MacroOverlayRequestRecord) -> CoreResult<()> {
     match request {
         MacroOverlayRequestRecord::Start { macro_id }
-        | MacroOverlayRequestRecord::Toggle { macro_id }
         | MacroOverlayRequestRecord::Stop { macro_id } => validate_identifier(macro_id, "macroId"),
-        MacroOverlayRequestRecord::Press { macro_id, press_id } => {
-            validate_identifier(macro_id, "macroId")?;
-            validate_identifier(press_id, "pressId")
-        }
-        MacroOverlayRequestRecord::Release {
+        MacroOverlayRequestRecord::Press {
             macro_id,
-            press_id,
-            release_mode,
+            shortcut_cycle_id,
+        }
+        | MacroOverlayRequestRecord::HoldStart {
+            macro_id,
+            shortcut_cycle_id,
+        }
+        | MacroOverlayRequestRecord::HoldRelease {
+            macro_id,
+            shortcut_cycle_id,
         } => {
             validate_identifier(macro_id, "macroId")?;
-            validate_identifier(press_id, "pressId")?;
-            if release_mode
-                .as_deref()
-                .is_some_and(|mode| !matches!(mode, "complete_first_iteration" | "immediate"))
-            {
-                return Err(domain(
-                    "MACRO_OVERLAY_REQUEST_INVALID",
-                    "Macro overlay release mode is invalid.",
-                ));
-            }
-            Ok(())
+            validate_identifier(shortcut_cycle_id, "shortcutCycleId")
         }
         MacroOverlayRequestRecord::CopyCoordinate { coordinate } => {
             if coordinate.viewport_width_px == 0
@@ -561,10 +553,8 @@ mod tests {
         assert!(parse_request(r#"{"type":"list"}"#).is_ok());
         assert!(parse_request(r#"{"type":"copy-coordinate","anchor":"top-left","appliedPageZoom":0.75,"referenceViewportHeightPx":75,"referenceViewportWidthPx":75,"xPercent":12,"xPx":12,"xReferencePx":9,"viewportHeightPx":100,"viewportWidthPx":100,"yPercent":45,"yPx":45,"yReferencePx":34}"#).is_ok());
         assert!(
-            parse_request(
-                r#"{"type":"release","macroId":"m","pressId":"p","releaseMode":"later"}"#
-            )
-            .is_err()
+            parse_request(r#"{"type":"hold-release","macroId":"m","shortcutCycleId":" "}"#)
+                .is_err()
         );
         assert!(parse_request(r#"{"type":"copy-coordinate","xPercent":1,"xPx":10,"viewportHeightPx":10,"viewportWidthPx":10,"yPercent":1,"yPx":1}"#).is_err());
         {

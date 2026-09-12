@@ -854,6 +854,15 @@ pub struct BrowserWorkspaceStatusRecord {
     pub capability_snapshot: Option<EngineCapabilitySnapshotRecord>,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacroActivationMode {
+    #[default]
+    Press,
+    Hold,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -864,8 +873,8 @@ pub struct MacroDefinition {
     pub id: String,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "\"toggle\" | \"while_held\"")]
-    pub activation_mode: Option<String>,
+    #[ts(optional)]
+    pub activation_mode: Option<MacroActivationMode>,
     pub name: String,
     pub role_ids: Vec<String>,
     #[serde(default)]
@@ -1058,25 +1067,33 @@ pub struct MacroInvocationRequest {
 pub struct MacroPressInvocationRequest {
     pub macro_id: String,
     pub source_role_id: String,
-    pub press_id: String,
+    pub shortcut_cycle_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct MacroPressRequest {
-    pub start: MacroStartRequest,
-    pub press_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct MacroReleaseRequest {
+pub struct MacroHoldStartInvocationRequest {
     pub macro_id: String,
     pub source_role_id: String,
-    pub press_id: String,
-    pub mode: String,
+    pub shortcut_cycle_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroHoldStartRequest {
+    pub start: MacroStartRequest,
+    pub shortcut_cycle_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroHoldReleaseRequest {
+    pub macro_id: String,
+    pub source_role_id: String,
+    pub shortcut_cycle_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
@@ -1128,10 +1145,6 @@ pub enum MacroOverlayRequestRecord {
         #[ts(rename = "macroId")]
         macro_id: String,
     },
-    Toggle {
-        #[ts(rename = "macroId")]
-        macro_id: String,
-    },
     Stop {
         #[ts(rename = "macroId")]
         macro_id: String,
@@ -1139,21 +1152,20 @@ pub enum MacroOverlayRequestRecord {
     Press {
         #[ts(rename = "macroId")]
         macro_id: String,
-        #[ts(rename = "pressId")]
-        press_id: String,
+        #[ts(rename = "shortcutCycleId")]
+        shortcut_cycle_id: String,
     },
-    Release {
+    HoldStart {
         #[ts(rename = "macroId")]
         macro_id: String,
-        #[ts(rename = "pressId")]
-        press_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(
-            optional,
-            rename = "releaseMode",
-            type = "\"complete_first_iteration\" | \"immediate\""
-        )]
-        release_mode: Option<String>,
+        #[ts(rename = "shortcutCycleId")]
+        shortcut_cycle_id: String,
+    },
+    HoldRelease {
+        #[ts(rename = "macroId")]
+        macro_id: String,
+        #[ts(rename = "shortcutCycleId")]
+        shortcut_cycle_id: String,
     },
 }
 

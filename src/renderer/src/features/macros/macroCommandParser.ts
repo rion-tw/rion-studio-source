@@ -13,7 +13,7 @@ import {
 export const MACRO_COMMAND_MAX_STEPS = 100;
 
 export type MacroCommandIssueCode =
-  | "callToggle"
+  | "callBehavior"
   | "invalidClick"
   | "invalidKeyCombination"
   | "invalidWait"
@@ -185,7 +185,7 @@ export function parseMacroCommand(
       const callMode = target.repeat.type === "loop" ? "trigger" : "wait";
       steps.push({ id: idFactory(), type: "macro", macroId: target.id, callMode });
       if (head === "CALL") {
-        issues.push({ code: "callToggle", detail: argument, token });
+        issues.push({ code: "callBehavior", detail: argument, token });
       }
       return;
     }

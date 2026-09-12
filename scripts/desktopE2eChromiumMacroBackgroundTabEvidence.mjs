@@ -75,6 +75,34 @@ function requireInputObservation(observation, input) {
   }
 }
 
+function requireContinuityObservation(observation, input) {
+  requireEvidence(exactKeys(observation, ["receipt", "request", "sequence"]),
+    `${input.label}: observation shape drifted`);
+  const { receipt, request } = observation;
+  requireEvidence(exactKeys(request, [
+    "action", "deadlineMs", "documentInstanceId", "inputEpoch", "intent",
+    "origin", "requestId", "roleId", "scheduledAtMs", "surfaceGeneration"
+  ]) && request.roleId === input.roleId && request.origin === "macro" &&
+    request.intent === "normal" &&
+    exactKeys(request.action, ["type"]) &&
+    request.action.type === "reassertHeldKeys" &&
+    Number.isSafeInteger(request.surfaceGeneration) &&
+    request.surfaceGeneration > 0 &&
+    typeof request.documentInstanceId === "string" &&
+    request.documentInstanceId.length > 0,
+  `${input.label}: Core held-key continuity request drifted`);
+  requireEvidence(exactKeys(receipt, [
+    "completedAtMs", "confirmedInputNeutrality", "errorCode", "errorMessage",
+    "inputEpoch", "requestId", "roleId", "status", "surfaceGeneration"
+  ]) && receipt.requestId === request.requestId &&
+    receipt.roleId === request.roleId && receipt.inputEpoch === request.inputEpoch &&
+    receipt.surfaceGeneration === request.surfaceGeneration &&
+    receipt.status === "applied" && receipt.errorCode === null &&
+    receipt.errorMessage === null && receipt.confirmedInputNeutrality === false &&
+    Number.isSafeInteger(observation.sequence) && observation.sequence > 0,
+  `${input.label}: native held-key continuity receipt drifted`);
+}
+
 function requireHiddenPresentation(evidence, input) {
   requireEvidence(exactKeys(evidence, ["roleA", "roleB", "topology", "window"]),
     `${input.label}: presentation evidence shape drifted`);
@@ -211,10 +239,8 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
   );
 
   if (input.platform === "windows") {
-    requireInputObservation(evidence.continuityHold, {
-      intent: "normal",
+    requireContinuityObservation(evidence.continuityHold, {
       label: "hidden continuity hold",
-      phase: "hold",
       roleId: evidence.roleAId
     });
     requireTrustedKey(evidence.firstHiddenKeydown, {
@@ -223,8 +249,10 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
     });
     requireEvidence(evidence.continuityHold.sequence > evidence.firstHold.sequence &&
       evidence.continuityHold.sequence < evidence.firstCleanup.sequence &&
-      evidence.continuityHold.request.action.ownerId ===
-        evidence.firstHold.request.action.ownerId &&
+      evidence.continuityHold.request.inputEpoch ===
+        evidence.firstHold.request.inputEpoch &&
+      evidence.continuityHold.request.surfaceGeneration ===
+        evidence.continuityHold.receipt.surfaceGeneration &&
       evidence.firstHiddenKeydown.sequence > evidence.firstHiddenEvent.sequence,
     `${input.phase}: Windows hidden continuity was not the same held owner`);
   } else {

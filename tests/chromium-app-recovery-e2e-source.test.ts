@@ -100,6 +100,7 @@ describe("Chromium application-recovery exact replacement", () => {
     expect(journeyEvidence).toContain("chromiumAppRecoveryPhaseNamespaces");
     expect(runner).toContain("desktopE2eForcedTerminationEnvironment(phase)");
     expect(runner).toContain("&& !forcedTermination");
+    expect(runner).toContain("new DatabaseSync(evidenceDatabasePath, { readOnly: true })");
     expect(forced).toContain('"chromium-app-recovery-force"');
     expect(forced).toContain('RION_STUDIO_E2E_TERMINAL_NATIVE_QUIT: "1"');
     expect(forced).toContain("process.kill(marker.pid, 0)");

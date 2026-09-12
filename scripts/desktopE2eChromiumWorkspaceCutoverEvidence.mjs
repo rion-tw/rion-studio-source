@@ -85,7 +85,8 @@ function validAppKitIdentity(identity, observation, platform) {
 function validWebOnlyObservation(
   observation,
   platform,
-  allowVisibleAuxiliaryActivation = false
+  allowVisibleAuxiliaryActivation = false,
+  allowPendingCoreContinuation = false
 ) {
   if (!exactKeys(observation, [
     "appKitIdentity", "attemptGeneration", "coreSlots", "focused", "hostKind",
@@ -112,9 +113,11 @@ function validWebOnlyObservation(
   const slot = observation.coreSlots[0];
   const web = observation.web;
   const continuationMatches =
-    web.contentUrl === "rion-start://home/" && exactKeys(slot.web, []) ||
-    exactKeys(slot.web, ["lastUrl"]) &&
-      expectedWebOnlyUrl(slot.web.lastUrl);
+    (web.contentUrl === "rion-start://home/" && exactKeys(slot.web, [])) ||
+    (exactKeys(slot.web, ["lastUrl"]) &&
+      expectedWebOnlyUrl(slot.web.lastUrl)) ||
+    (allowPendingCoreContinuation && exactKeys(slot.web, []) &&
+      expectedWebOnlyUrl(web.contentUrl));
   return exactKeys(slot, ["id", "rect", "roleId", "web"]) &&
     slot.roleId === null && validRect(slot.rect) &&
     continuationMatches &&
@@ -154,6 +157,29 @@ function validWebOnlyObservation(
     web.contentBounds.y === web.chromeBounds.y + web.chromeBounds.height &&
     web.contentBounds.height + web.chromeBounds.height === web.slotBounds.height &&
     web.contentBounds.width === web.slotBounds.width;
+}
+
+function hasLaterCoreContinuationReceipt(observations, observation, index) {
+  const slot = observation.coreSlots[0];
+  const web = observation.web;
+  if (!exactKeys(slot.web, []) || !expectedWebOnlyUrl(web.contentUrl)) return false;
+  return observations.slice(index + 1).some((candidate) => {
+    const candidateSlot = candidate?.coreSlots?.[0];
+    const candidateWeb = candidate?.web;
+    return candidate?.tabId === observation.tabId &&
+      candidate?.windowId === observation.windowId &&
+      candidate?.parentNativeHostId === observation.parentNativeHostId &&
+      candidate?.windowGeneration === observation.windowGeneration &&
+      candidate?.attemptGeneration === observation.attemptGeneration &&
+      candidate?.topologyRevision >= observation.topologyRevision &&
+      candidateWeb?.surfaceId === web.surfaceId &&
+      candidateWeb?.generation === web.generation &&
+      candidateWeb?.slotId === web.slotId &&
+      candidateWeb?.contentUrl === web.contentUrl &&
+      candidateSlot?.id === slot.id &&
+      exactKeys(candidateSlot?.web, ["lastUrl"]) &&
+      candidateSlot.web.lastUrl === web.contentUrl;
+  });
 }
 
 function validCoreStatus(status, roleId) {
@@ -255,7 +281,8 @@ function validateWebOnlyHistory(phase, observations, platform) {
       observation,
       platform,
       observation.tabId !== targetTabId ||
-        index < firstTargetReadyObservation && observation.phase === "activating"
+        index < firstTargetReadyObservation && observation.phase === "activating",
+      hasLaterCoreContinuationReceipt(observations, observation, index)
     )),
     `${phase}: malformed Core/native Web-only history`
   );

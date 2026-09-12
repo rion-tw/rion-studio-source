@@ -60,9 +60,37 @@ public static class RionRuntimeForeground {
       throw new InvalidOperationException("native pointer or foreground readback differs");
   }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+  [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hwnd);
+  [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+  [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr hwnd, int command);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+  public static bool ActivateExact(IntPtr hwnd) {
+    if (GetForegroundWindow() == hwnd) return true;
+    uint ignored;
+    var currentThread = GetCurrentThreadId();
+    var targetThread = GetWindowThreadProcessId(hwnd, out ignored);
+    var foreground = GetForegroundWindow();
+    var foregroundThread = foreground == IntPtr.Zero
+      ? 0
+      : GetWindowThreadProcessId(foreground, out ignored);
+    var attachedForeground = foregroundThread != 0 && foregroundThread != currentThread &&
+      AttachThreadInput(currentThread, foregroundThread, true);
+    var attachedTarget = targetThread != 0 && targetThread != currentThread &&
+      targetThread != foregroundThread && AttachThreadInput(currentThread, targetThread, true);
+    try {
+      if (IsIconic(hwnd)) ShowWindowAsync(hwnd, 9);
+      BringWindowToTop(hwnd);
+      SetForegroundWindow(hwnd);
+      return GetForegroundWindow() == hwnd;
+    } finally {
+      if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+      if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+    }
+  }
 }
 '@
 $handle = [IntPtr][int64]$payload.nativeWindowHandle
@@ -72,8 +100,7 @@ if ($owner -ne [uint32]$payload.processId -or
     -not [RionRuntimeForeground]::IsWindowVisible($handle)) {
   throw 'exact runtime HWND is no longer visible or owned by Rion'
 }
-if (-not [RionRuntimeForeground]::SetForegroundWindow($handle) -or
-    [RionRuntimeForeground]::GetForegroundWindow() -ne $handle) {
+if (-not [RionRuntimeForeground]::ActivateExact($handle)) {
   throw 'exact runtime HWND did not become foreground'
 }
 if ($payload.pointerTarget -ne 'none') {

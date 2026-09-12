@@ -176,11 +176,17 @@ describe("Chromium Workspace cutover paired replacements", () => {
     auxiliary.web.surfaceId = `web-${auxiliary.tabId}-1`;
     auxiliary.web.contentUrl = "https://fixture.invalid/role/website-entrance";
     auxiliary.coreSlots[0].web.lastUrl = auxiliary.web.contentUrl;
+    const auxiliaryPending = structuredClone(auxiliary);
+    auxiliaryPending.coreSlots[0].web = {};
     const auxiliaryActivating = structuredClone(auxiliary);
     auxiliaryActivating.phase = "activating";
     await expect(validateWebOnlyHistory([
-      ready, degraded, activating, recovered, auxiliaryActivating, auxiliary
+      ready, degraded, activating, recovered, auxiliaryActivating,
+      auxiliaryPending, auxiliary
     ])).resolves.toMatchObject({ tabId: ready.tabId });
+    await expect(validateWebOnlyHistory([
+      ready, degraded, activating, recovered, auxiliaryPending
+    ])).rejects.toThrow("malformed Core/native Web-only history");
     await expect(validateWebOnlyHistory([
       ready, degraded, recovered
     ])).resolves.toMatchObject({ navigationFailureRecovered: true });

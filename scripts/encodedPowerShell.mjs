@@ -8,6 +8,9 @@ const MAX_PAYLOAD_BYTES = 12 * 1024;
 const payloadPrelude = String.raw`
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
 $payloadBase64 = [Environment]::GetEnvironmentVariable(
   "RION_STUDIO_ENCODED_POWERSHELL_JSON_PAYLOAD",
   [System.EnvironmentVariableTarget]::Process
@@ -58,14 +61,17 @@ export function createEncodedPowerShellJsonInvocation(trustedScript, payload) {
   if (payloadBytes.length === 0 || payloadBytes.length > MAX_PAYLOAD_BYTES) {
     throw new Error("Encoded PowerShell JSON payload exceeds its safe bound.");
   }
-  const encodedCommand = Buffer.from(
-    `${payloadPrelude}\n${trustedScript}\n`,
-    "utf16le"
-  ).toString("base64");
+  const scriptSource = `${payloadPrelude}\n${trustedScript}\n`;
+  const encodedCommand = Buffer.from(scriptSource, "utf16le").toString("base64");
   // -Command - otherwise evaluates statements separately and can continue
-  // after a terminating error. Submit one block so the original failure stops
-  // every subsequent native action; the blank line terminates block input.
-  const standardInput = `& {\n${payloadPrelude}\n${trustedScript}\n}\n\n`;
+  // after a terminating error. Keep stdin ASCII-only because Windows PowerShell
+  // 5.1 decodes redirected command text with the active console code page. The
+  // UTF-8 Base64 payload preserves non-ASCII labels before creating one block;
+  // the blank line terminates block input.
+  const standardInputScript = Buffer.from(scriptSource, "utf8").toString("base64");
+  const standardInput =
+    `& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString(` +
+    `[Convert]::FromBase64String('${standardInputScript}'))))\n\n`;
   return Object.freeze({
     arguments: Object.freeze([
       "-NoLogo",

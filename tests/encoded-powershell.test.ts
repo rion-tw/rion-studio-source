@@ -6,6 +6,16 @@ import { describe, expect, it } from "vitest";
 import { createEncodedPowerShellJsonInvocation } from
   "../scripts/encodedPowerShell.mjs";
 
+function decodeStandardInputSource(standardInput: string): string {
+  const match = standardInput.match(/FromBase64String\('([^']+)'\)/u);
+  expect(match).not.toBeNull();
+  return Buffer.from(match![1]!, "base64").toString("utf8");
+}
+
+function isAscii(value: string): boolean {
+  return [...value].every((character) => character.codePointAt(0)! <= 0x7f);
+}
+
 describe("encoded PowerShell JSON transport", () => {
   it("keeps caller-controlled names and paths out of command text", () => {
     const payload = {
@@ -43,8 +53,11 @@ describe("encoded PowerShell JSON transport", () => {
       "-Command",
       "-"
     ]);
-    expect(invocation.standardInput).toContain("ConvertFrom-Json");
-    expect(invocation.standardInput).toContain("$payload.roleName");
+    expect(isAscii(invocation.standardInput)).toBe(true);
+    const standardInputSource = decodeStandardInputSource(invocation.standardInput);
+    expect(standardInputSource).toContain("ConvertFrom-Json");
+    expect(standardInputSource).toContain("$payload.roleName");
+    expect(standardInputSource).toContain("[Console]::OutputEncoding = $utf8NoBom");
     expect(invocation.standardInput).not.toContain(payload.buttonName);
     expect(invocation.standardInput).not.toContain(payload.outputPath);
     expect(invocation.standardInput).not.toContain(payload.roleName);
@@ -65,8 +78,9 @@ describe("encoded PowerShell JSON transport", () => {
       outputPath: "C:\\證據\\角色 ` $() 截圖.png",
       roleName: "角色—Chromium 🧭"
     };
+    const trustedScript = "Write-Output '顯示隱藏的圖示—ロール'";
     const invocation = createEncodedPowerShellJsonInvocation(
-      "Write-Output ([string]$payload.outputPath)",
+      trustedScript,
       payload
     );
 
@@ -74,6 +88,8 @@ describe("encoded PowerShell JSON transport", () => {
     const [encodedPayload] = Object.values(invocation.environment);
     expect(JSON.parse(Buffer.from(encodedPayload, "base64").toString("utf8")))
       .toEqual(payload);
+    expect(isAscii(invocation.standardInput)).toBe(true);
+    expect(decodeStandardInputSource(invocation.standardInput)).toContain(trustedScript);
   });
 
   it("rejects non-plain and oversized payloads", () => {

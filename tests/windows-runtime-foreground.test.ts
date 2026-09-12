@@ -6,12 +6,16 @@ import { focusWindowsRuntimeNativeWindow } from
 
 describe("Windows native foreground evidence", () => {
   it("passes the exact process and HWND to the bounded native focus operation", async () => {
-    const run = vi.fn(async () => "");
+    const run = vi.fn(async (_script: string) => "");
     await focusWindowsRuntimeNativeWindow({ processId: 42, nativeWindowHandle: "1234" },
       { platform: "win32", run });
     expect(run).toHaveBeenCalledWith(expect.any(String),
       { processId: 42, nativeWindowHandle: "1234", pointerTarget: "none" },
       { timeoutMilliseconds: 30_000 });
+    const script = run.mock.calls[0]![0];
+    expect(script).toContain("AttachThreadInput");
+    expect(script).toContain("ActivateExact($handle)");
+    expect(script).toContain("GetForegroundWindow() == hwnd");
   });
   it.each(["reveal-edge", "content", "content-click"] as const)("submits native pointer target %s with exact identity", async pointerTarget => {
     const run = vi.fn(async () => "");

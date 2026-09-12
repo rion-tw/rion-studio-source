@@ -84,10 +84,13 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
     activationMode: "while_held",
     enabled: true,
     name: "Chromium Modifier Continuity",
-    repeat: { intervalMs: 250, type: "loop" },
+    repeat: { intervalMs: 0, type: "loop" },
     roleIds: [roleId],
     shortcutSourceScope: { roleIds: [roleId], type: "selected_roles" },
-    steps: [{ action: "tap", code: "Digit1", id: "continuity-one", type: "key" }],
+    steps: [
+      { action: "tap", code: "Digit1", id: "continuity-one", type: "key" },
+      { id: "continuity-stable-gap", ms: 30_000, type: "delay" }
+    ],
     trigger: { alt: false, code: "Digit5", ctrl: false, meta: false, shift: true }
   });
   const middle = await rendererCall("createMacro", {
@@ -204,6 +207,12 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     roleIds: [roleA.id],
     state: "running"
   });
+  exactTrustedKey(await waitExactKey({
+    afterSequence: continuityFixture,
+    code: "Digit1",
+    kind: "keyup",
+    roleId: ROLE_A_FIXTURE
+  }), "Digit1");
   await activateChromiumRoleVisible(context, tabB);
   await activateChromiumRoleVisible(context, tabA);
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [

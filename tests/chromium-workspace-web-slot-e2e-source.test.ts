@@ -53,6 +53,7 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(windowsPointer).toContain("button.runtime-workspace-divider[data-axis='");
     expect(windowsPointer).toContain("[data-divider-index='");
     expect(windowsPointer).toContain(":not([hidden])");
+    expect(windowsPointer).toContain("dataset.runtimeWindowId");
     expect(windowsPointer).toContain("runEncodedPowerShellJson");
     expect(windowsPointer).toContain("SetThreadDpiAwarenessContext");
     expect(windowsPointer).toContain("GetWindowThreadProcessId");

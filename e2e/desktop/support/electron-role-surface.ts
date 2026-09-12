@@ -716,7 +716,9 @@ export async function dragWindowsVisibleWorkspaceDivider(
         const url = new URL(await currentDocumentUrl());
         if (url.protocol === "file:" && url.pathname.endsWith(
           "/runtime-windows-host.html"
-        )) {
+        ) && await browser.execute(() =>
+          document.documentElement.dataset.runtimeWindowId
+        ) === input.windowId) {
           hostHandle = handle;
           return true;
         }

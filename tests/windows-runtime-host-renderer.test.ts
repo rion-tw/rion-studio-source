@@ -293,6 +293,19 @@ describe("Windows runtime-host renderer", () => {
       phase: "end",
       pointerSequence: 3
     }));
+
+    submit.mockClear();
+    divider.dispatchEvent(pointer("pointerdown", { clientX: 450 }));
+    divider.dispatchEvent(pointer("lostpointercapture", { clientX: 642 }));
+    expect(submit.mock.calls.map(([command]) => command)).toEqual([
+      expect.objectContaining({ phase: "start", pointerSequence: 1 }),
+      expect.objectContaining({
+        phase: "move",
+        pointerSequence: 2,
+        requestedPosition: 642 / 900
+      }),
+      expect.objectContaining({ phase: "end", pointerSequence: 3 })
+    ]);
   });
   it("submits hover chrome only when fullscreen presentation can change", async () => {
     const submit = vi.fn();

@@ -51,7 +51,9 @@ const dividerElements = new Map<string, HTMLButtonElement>();
 const activePointers = new Map<number, {
   readonly element: HTMLButtonElement;
   readonly gestureId: string;
+  readonly initialPosition: number;
   readonly owner: WindowsRuntimeWorkspaceDividerProjection;
+  lastRequestedPosition: number;
   pointerSequence: number;
 }>();
 const tabMenu = document.createElement("div");
@@ -320,6 +322,15 @@ function requestedDividerPosition(
   return Math.max(0, Math.min(1, raw));
 }
 
+function submitDividerMove(event: PointerEvent, terminalOnly = false): void {
+  const active = activePointers.get(event.pointerId);
+  if (!active || !current) return;
+  const requestedPosition = requestedDividerPosition(event, active.owner, current);
+  if (terminalOnly && requestedPosition === active.lastRequestedPosition) return;
+  active.lastRequestedPosition = requestedPosition;
+  submitDivider(event.pointerId, "move", requestedPosition);
+}
+
 function bindDividerPointer(element: HTMLButtonElement): void {
   element.addEventListener("pointerdown", (event) => {
     if (!event.isPrimary || event.button !== 0 || activePointers.has(event.pointerId) ||
@@ -329,9 +340,12 @@ function bindDividerPointer(element: HTMLButtonElement): void {
     );
     if (!owner) return;
     const gestureId = crypto.randomUUID();
+    const initialPosition = requestedDividerPosition(event, owner, current);
     activePointers.set(event.pointerId, {
       element,
       gestureId,
+      initialPosition,
+      lastRequestedPosition: initialPosition,
       owner,
       pointerSequence: 0
     });
@@ -342,31 +356,29 @@ function bindDividerPointer(element: HTMLButtonElement): void {
     event.preventDefault();
   });
   element.addEventListener("pointermove", (event) => {
-    const active = activePointers.get(event.pointerId);
-    if (!active || !current) return;
-    submitDivider(
-      event.pointerId,
-      "move",
-      requestedDividerPosition(event, active.owner, current)
-    );
+    submitDividerMove(event);
   });
-  element.addEventListener("pointerup", (event) =>
-    finishDividerPointer(event.pointerId, "end"));
+  element.addEventListener("pointerup", (event) => {
+    submitDividerMove(event, true);
+    finishDividerPointer(event.pointerId, "end");
+  });
   element.addEventListener("pointercancel", (event) =>
-    finishLostDividerPointer(event.pointerId));
+    finishDividerPointer(event.pointerId, "cancel"));
   element.addEventListener("lostpointercapture", (event) =>
-    finishLostDividerPointer(event.pointerId));
+    finishLostDividerPointer(event));
 }
 
-function finishLostDividerPointer(pointerId: number): void {
-  const active = activePointers.get(pointerId);
+function finishLostDividerPointer(event: PointerEvent): void {
+  const active = activePointers.get(event.pointerId);
   if (!active) return;
   // A Windows child WebContentsView can take the pointer after the divider
-  // crosses into role content. Chromium then reports capture loss instead of
-  // the physical mouse-up. A delivered move is already Core-authoritative, so
-  // that native boundary commits the visible result; capture loss before any
-  // move remains a true cancellation.
-  finishDividerPointer(pointerId, active.pointerSequence > 1 ? "end" : "cancel");
+  // crosses into role content. The capture-loss event owns Chromium's terminal
+  // pointer coordinate even when no destination pointermove reached this view.
+  submitDividerMove(event, true);
+  finishDividerPointer(
+    event.pointerId,
+    active.lastRequestedPosition !== active.initialPosition ? "end" : "cancel"
+  );
 }
 
 function finishDividerPointer(
@@ -529,10 +541,12 @@ windowControls.addEventListener("click", (event) => {
 document.addEventListener("pointerdown", (event) => {
   if (!tabMenu.hidden && !tabMenu.contains(event.target as Node)) closeTabMenu();
 }, { capture: true });
-document.addEventListener("pointerup", (event) =>
-  finishDividerPointer(event.pointerId, "end"), { capture: true });
+document.addEventListener("pointerup", (event) => {
+  submitDividerMove(event, true);
+  finishDividerPointer(event.pointerId, "end");
+}, { capture: true });
 document.addEventListener("pointercancel", (event) =>
-  finishLostDividerPointer(event.pointerId), { capture: true });
+  finishDividerPointer(event.pointerId, "cancel"), { capture: true });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeTabMenu();
 });

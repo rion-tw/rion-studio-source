@@ -232,6 +232,21 @@ export async function readVisibleElectronPageElementPoint(
   );
 }
 
+/** Reads one exposed canvas point when overlay controls cover its center. */
+export async function readVisibleElectronCanvasPoint(
+  expectedUrl: string,
+  mainWindowHandle: string
+): Promise<VisibleElectronPagePoint> {
+  return withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
+    const point = await browser.execute(visibleCanvasPoint);
+    const viewport = await browser.execute(() => ({
+      height: window.innerHeight,
+      width: window.innerWidth
+    }));
+    return Object.freeze({ ...point, viewport: Object.freeze(viewport) });
+  });
+}
+
 /** Reads the visible verification control point across its exact iframe boundary. */
 export async function readVisibleElectronRoleVerificationPoint(
   expectedUrl: string,
@@ -385,6 +400,21 @@ export async function clickVisibleElectronPageElementWithPointer(
     selector,
     true
   );
+}
+
+/** Clicks an exposed canvas point through WebDriver's real pointer source. */
+export async function clickVisibleElectronCanvasWithPointer(
+  expectedUrl: string,
+  mainWindowHandle: string
+): Promise<void> {
+  await withRolePageTarget(expectedUrl, mainWindowHandle, async () => {
+    const point = await browser.execute(visibleCanvasPoint);
+    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
+      .move({ duration: 100, origin: "viewport", ...point })
+      .down("left")
+      .up("left")
+      .perform();
+  });
 }
 
 /** Keeps the clicked Role target active while its native modal panel resolves. */

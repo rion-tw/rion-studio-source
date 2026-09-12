@@ -1,20 +1,25 @@
 import { expect } from "@wdio/globals";
+import { Key } from "webdriverio";
 
 import {
   electronDesktopE2eRoleSessionRuntime,
   electronDesktopE2eTrustedInputRuntime
 } from "../support/electron-driver";
 import {
+  clickVisibleElectronCanvasWithPointer,
   clickVisibleElectronPageElement,
   clickVisibleElectronPageElementWithPointer,
   completeVisibleElectronRoleVerification,
+  readVisibleElectronCanvasPoint,
   readVisibleElectronPageElementPoint,
-  readVisibleElectronRoleVerificationPoint
+  readVisibleElectronRoleVerificationPoint,
+  submitElectronRoleKeyPhases
 } from "../support/electron-role-surface";
 import {
   fixtureCursor,
   fixtureEvents,
   fixtureRequest,
+  fixtureState,
   waitFixtureEvent
 } from "../support/fixture";
 import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
@@ -23,6 +28,10 @@ import {
   rendererEventCursor,
   waitForMacroProjection
 } from "../support/renderer-events";
+import {
+  installRuntimeTabShellErrorJournal,
+  runtimeTabShellErrors
+} from "../support/native-runtime-tabs";
 import {
   activateChromiumRoleVisible,
   bootstrapChromiumMacroCutover,
@@ -52,8 +61,123 @@ async function waitExactTrustedCanvasMouseUp(afterSequence: number): Promise<voi
   }
 }
 
+async function exerciseConcurrentPhysicalInput(input: Readonly<{
+  mainWindowHandle: string;
+  macroId: string;
+  macroStatusCursor: number;
+  platform: "macos" | "windows";
+  roleId: string;
+  roleUrl: string;
+}>): Promise<Readonly<{ automaticKeyCount: number; physicalEventCount: number }>> {
+  const afterSequence = await fixtureCursor();
+  const trustedInputBefore = await electronDesktopE2eTrustedInputRuntime(input.roleId);
+  await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
+    { key: "y", phase: "keyDown" },
+    { key: "y", phase: "keyUp" }
+  ], { windowId: WINDOW_ID, focusCanvas: false });
+  await waitForMacroProjection({
+    afterSequence: input.macroStatusCursor,
+    macroId: input.macroId,
+    roleIds: [input.roleId],
+    state: "running"
+  });
+  await waitExactKey({
+    afterSequence,
+    code: "KeyJ",
+    kind: "keyup",
+    roleId: FIXTURE_ID
+  });
+
+  await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
+    { key: "w", phase: "keyDown" },
+    { key: "w", phase: "keyUp" },
+    { key: Key.Shift, phase: "keyDown" }
+  ], { windowId: WINDOW_ID, focusCanvas: false });
+  if (input.platform === "macos") {
+    await clickMacosVisibleRoleControl(
+      WINDOW_ID,
+      input.roleId,
+      await readVisibleElectronCanvasPoint(
+        input.roleUrl,
+        input.mainWindowHandle
+      )
+    );
+  } else {
+    await clickVisibleElectronCanvasWithPointer(
+      input.roleUrl,
+      input.mainWindowHandle
+    );
+  }
+  await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
+    { key: Key.Shift, phase: "keyUp" },
+    { key: Key.Alt, phase: "keyDown" },
+    { key: Key.Alt, phase: "keyUp" }
+  ], { windowId: WINDOW_ID, focusCanvas: false });
+
+  let automaticKeyCount = 0;
+  let physicalEventCount = 0;
+  await browser.waitUntil(async () => {
+    const events = await fixtureEvents({ afterSequence, roleId: FIXTURE_ID });
+    automaticKeyCount = events.filter((event) =>
+      event.code === "KeyJ" && (event.kind === "keydown" || event.kind === "keyup")
+    ).length;
+    physicalEventCount = events.filter((event) =>
+      event.code === "KeyW" || event.code === "ShiftLeft" ||
+      event.code === "AltLeft" ||
+      ((event.kind === "mousedown" || event.kind === "mouseup" || event.kind === "click") &&
+        event.targetId === "game-input-canvas")
+    ).length;
+    return automaticKeyCount >= 4 && physicalEventCount >= 8;
+  }, {
+    interval: 50,
+    timeout: 20_000,
+    timeoutMsg: "Concurrent physical input did not remain live during the KeyJ loop"
+  });
+  expect((await rendererCall("listMacroStatuses")).some((status) =>
+    status.macroId === input.macroId && status.state === "running"
+  )).toBe(true);
+  const afterInput = await electronDesktopE2eTrustedInputRuntime(input.roleId);
+  expect(afterInput.slice(trustedInputBefore.length).every((entry) =>
+    entry.receipt.status === "applied"
+  )).toBe(true);
+
+  await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
+    { key: "y", phase: "keyDown" },
+    { key: "y", phase: "keyUp" }
+  ], { windowId: WINDOW_ID, focusCanvas: false });
+  await waitForMacroProjection({
+    absent: true,
+    afterSequence: input.macroStatusCursor,
+    macroId: input.macroId
+  });
+  const state = (await fixtureState())[FIXTURE_ID];
+  expect(state?.pressedCodes).toEqual([]);
+  expect(state?.consumerPressedCodes).toEqual([]);
+  expect(await runtimeTabShellErrors()).toEqual([]);
+  return { automaticKeyCount, physicalEventCount };
+}
+
+async function waitExactKey(input: Readonly<{
+  afterSequence: number;
+  code: string;
+  kind: "keydown" | "keyup";
+  roleId: string;
+}>) {
+  let cursor = input.afterSequence;
+  for (;;) {
+    const event = await waitFixtureEvent({
+      afterSequence: cursor,
+      kind: input.kind,
+      roleId: input.roleId
+    });
+    if (event.code === input.code && event.isTrusted === true) return event;
+    cursor = event.sequence;
+  }
+}
+
 export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
   const context = await bootstrapChromiumMacroCutover();
+  await installRuntimeTabShellErrorJournal();
   const roleUrl = macroFixtureUrl(FIXTURE_ID, "activeNavigationFailure=1");
   const game = await rendererCall("createGame", {
     defaultLaunchUrl: roleUrl,
@@ -75,6 +199,18 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
       { id: "recovery-event-gap", ms: 5_000, type: "delay" }
     ]
   });
+  const interleaveMacro = await rendererCall("createMacro", {
+    activationMode: "toggle",
+    enabled: true,
+    name: "Chromium Concurrent Physical Input",
+    repeat: { intervalMs: 250, type: "loop" },
+    roleIds: [role.id],
+    shortcutSourceScope: { roleIds: [role.id], type: "selected_roles" },
+    steps: [
+      { action: "tap", code: "KeyJ", id: "concurrent-key-j", type: "key" }
+    ],
+    trigger: { alt: false, code: "KeyY", ctrl: false, meta: false, shift: false }
+  });
   const window = await createChromiumMacroWindow(
     WINDOW_ID,
     "Chromium Macro Input Recovery"
@@ -83,6 +219,15 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
   const tab = await launchChromiumRoleVisible(role, FIXTURE_ID, window);
   await activateChromiumRoleVisible(context, tab);
   const nativeBinding = await expectChromiumNativeRoleBinding(context, tab);
+  const interleaveStatusCursor = await rendererEventCursor();
+  const concurrentPhysicalInput = await exerciseConcurrentPhysicalInput({
+    mainWindowHandle: context.mainWindowHandle,
+    macroId: interleaveMacro.id,
+    macroStatusCursor: interleaveStatusCursor,
+    platform: context.platform,
+    roleId: role.id,
+    roleUrl
+  });
   const baselineRuntime = await electronDesktopE2eRoleSessionRuntime(role.id);
   const firstEffectCursor = await fixtureCursor();
   const macroCursor = await startChromiumMacroVisible(macro, [role.id]);
@@ -245,6 +390,7 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
   ]));
   await writeChromiumMacroEvidence("chromium-macro-input-recovery-evidence.json", {
     failedRuntime,
+    concurrentPhysicalInput,
     nativeBinding,
     platform: context.platform,
     recovered,

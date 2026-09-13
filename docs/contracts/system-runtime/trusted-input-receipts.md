@@ -1,6 +1,6 @@
 # Trusted Input Receipts
 
-This document is the normative Chromium contract v33 source for trusted-input
+This document is the normative Chromium contract v34 source for trusted-input
 receipt provenance, uncertain-edge neutralization, quarantine, and retained
 terminal evidence. The broader recovery transaction remains defined by
 [Lifecycle and Recovery](lifecycle-and-recovery.md).
@@ -14,6 +14,14 @@ managed Role `WebContents`, restricted to `Input.dispatchKeyEvent` and
 `Input.dispatchMouseEvent`. A debugger detach or rejected command is terminal
 for that document. The runtime does not reconnect, switch transports, or infer
 success from elapsed time.
+
+Every automatic-input arm and its CDP submission use the same modifier
+projection. Synthetic macro keyboard effects and held-key reassertions include
+only Core-owned active modifier codes; live physical Shift, Control, Alt, or
+Meta state cannot change their DOM flags or `key` value. Managed
+`physical-pass-through` replacement keys and macro clicks retain the physical
+modifier snapshot. Direct player input remains outside this projection and is
+unchanged.
 
 The isolated preload reports every ordered trusted key, pointer, and semantic
 mouse observation for its exact document. It does not compare an observation

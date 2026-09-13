@@ -8,6 +8,7 @@ import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } f
 import { randomUUID } from "node:crypto";
 
 import { activeChromiumModifierCodes, isChromiumModifierCode,
+  physicalChromiumModifierCodesForAction,
   resolveChromiumModifierCodes } from
   "./chromiumTrustedInputKeySequence";
 import { mergeChromiumPhysicalModifiers, validChromiumPhysicalModifierCodes } from
@@ -644,11 +645,15 @@ implements ChromiumNativeTrustedInputPort {
       if (receipt.modifierDisposition === "dispatch") {
         pending.nativeInvoked = false;
         pending.applicationPath = "none";
+        const projectedPhysicalModifierCodes = physicalChromiumModifierCodesForAction(
+          pending.request.action,
+          pending.physicalModifierCodes
+        );
         const projectedCode = pending.request.keyEffect?.code ??
           (pending.request.action.type === "key" ? pending.request.action.code : null);
         pending.expectedEvents = mergeChromiumPhysicalModifiers(
           pending.expectedEvents,
-          pending.physicalModifierCodes,
+          projectedPhysicalModifierCodes,
           projectedCode
         );
       } else {
@@ -851,9 +856,13 @@ implements ChromiumNativeTrustedInputPort {
           return;
         }
         if (transition.type === "key") {
+          const projectedPhysicalModifierCodes = physicalChromiumModifierCodesForAction(
+            pending.request.action,
+            pending.physicalModifierCodes
+          );
           const physicalCodes = isChromiumModifierCode(transition.code)
-            ? pending.physicalModifierCodes.filter(code => code !== transition.code)
-            : pending.physicalModifierCodes;
+            ? projectedPhysicalModifierCodes.filter(code => code !== transition.code)
+            : projectedPhysicalModifierCodes;
           const activeCodes = Object.freeze([...new Set([
             ...transition.modifierCodes,
             ...physicalCodes,
@@ -890,7 +899,10 @@ implements ChromiumNativeTrustedInputPort {
             y: transition.clientY,
             button: transition.button === 0 ? "left"
               : transition.button === 1 ? "middle" : "right",
-            modifierCodes: pending.physicalModifierCodes
+            modifierCodes: physicalChromiumModifierCodesForAction(
+              pending.request.action,
+              pending.physicalModifierCodes
+            )
           });
           if (receipt.acceptedCommandCount !== 2 ||
             receipt.requiresTrustedDomReceipt !== true) {

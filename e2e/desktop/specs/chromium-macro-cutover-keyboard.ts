@@ -249,7 +249,21 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     roleId: ROLE_A_FIXTURE
   });
   exactTrustedKey(pressedOne, "Digit1");
-  expect(pressedOne.modifiers).toEqual(expect.objectContaining({ shift: true }));
+  expect(pressedOne).toEqual(expect.objectContaining({
+    key: "!",
+    modifiers: { alt: false, control: false, meta: false, shift: true }
+  }));
+  const releasedOne = await waitExactKey({
+    afterSequence: pressedOne.sequence,
+    code: "Digit1",
+    kind: "keyup",
+    roleId: ROLE_A_FIXTURE
+  });
+  exactTrustedKey(releasedOne, "Digit1");
+  expect(releasedOne).toEqual(expect.objectContaining({
+    key: "!",
+    modifiers: { alt: false, control: false, meta: false, shift: true }
+  }));
   const triggerUp = await waitExactKey({
     afterSequence: reentryFixture,
     code: "Digit3",
@@ -427,12 +441,28 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     roleIds: [roleA.id],
     state: "running"
   });
-  exactTrustedKey(await waitExactKey({
+  const continuityOneDown = await waitExactKey({
     afterSequence: continuityFixture,
+    code: "Digit1",
+    kind: "keydown",
+    roleId: ROLE_A_FIXTURE
+  });
+  exactTrustedKey(continuityOneDown, "Digit1");
+  expect(continuityOneDown).toEqual(expect.objectContaining({
+    key: "1",
+    modifiers: { alt: false, control: false, meta: false, shift: false }
+  }));
+  const continuityOneUp = await waitExactKey({
+    afterSequence: continuityOneDown.sequence,
     code: "Digit1",
     kind: "keyup",
     roleId: ROLE_A_FIXTURE
-  }), "Digit1");
+  });
+  exactTrustedKey(continuityOneUp, "Digit1");
+  expect(continuityOneUp).toEqual(expect.objectContaining({
+    key: "1",
+    modifiers: { alt: false, control: false, meta: false, shift: false }
+  }));
   await activateChromiumRoleVisible(context, tabB);
   await activateChromiumRoleVisible(context, tabA);
   await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
@@ -449,7 +479,8 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   });
   expect(shiftedFour).toEqual(expect.objectContaining({
     isTrusted: true,
-    modifiers: expect.objectContaining({ shift: true })
+    key: "$",
+    modifiers: { alt: false, control: false, meta: false, shift: true }
   }));
   await waitForMacroProjection({
     absent: true,

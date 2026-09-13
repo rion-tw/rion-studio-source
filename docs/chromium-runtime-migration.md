@@ -93,7 +93,7 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 31. Version 23 remains the first
+The active runtime contract is version 34. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -126,7 +126,13 @@ ownership only: Electron creates the original `BrowserWindow` and WebContents
 after a synchronous `allow`, Rion observes it through `did-create-window`, and
 Core receipts identify `electronBrowserWindow`. The popup may retain a connected
 opener; it never carries an AppKit popup identity. SQLite and portable schema
-remain unchanged.
+remain unchanged. Version 32 binds native physical-input provenance to trusted
+DOM receipts. Version 33 changes managed keyboard shortcuts to press/hold
+activation with keyDown/keyUp-only replacement ordering. Version 34 prevents
+synthetic macro keyboard effects and held-key reassertions from inheriting
+non-Core physical modifiers, while retaining physical flags for managed
+shortcut replacement keys and macro clicks. Versions 32–34 do not change
+SQLite, portable data, or the public bridge shape.
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the
 exact parent fence used by a later controlled popup.

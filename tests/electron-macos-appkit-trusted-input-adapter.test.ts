@@ -679,27 +679,107 @@ describe("macOS AppKit trusted-input adapter", () => {
     });
   });
 
-  it("preserves physical modifier flags on key and mouse submissions", async () => {
+  it("isolates synthetic key modifiers while preserving click physical modifiers", async () => {
     const keySubject = harness();
-    keySubject.setNativePhysicalModifierCodes(["ControlRight"]);
+    keySubject.setNativePhysicalModifierCodes(["ShiftRight", "ControlRight", "AltLeft"]);
     const keyCompletion = keySubject.adapter.dispatch(nativeRequest(
       "physical-key",
-      { ...keyAction(), modifiers: [] }
+      {
+        ...keyAction(),
+        key: "1",
+        code: "Digit1",
+        modifiers: [],
+        exactModifierCodes: []
+      }
     ));
-    const keyControl = keySubject.arm(["ControlRight"]);
+    const keyControl = keySubject.arm(["ShiftRight", "ControlRight", "AltLeft"]);
     await Promise.resolve();
     expect(keySubject.keySubmissions).toEqual([
-      expect.objectContaining({ modifierFlags: 1 << 18 }),
-      expect.objectContaining({ modifierFlags: 1 << 18 })
+      expect.objectContaining({ code: "Digit1", modifierFlags: 0 }),
+      expect.objectContaining({ code: "Digit1", modifierFlags: 0 })
+    ]);
+    expect(keyControl.expectedEvents).toEqual([
+      expect.objectContaining({
+        type: "keydown", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
+      }),
+      expect.objectContaining({
+        type: "keyup", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
+      })
     ]);
     keyControl.expectedEvents.forEach((_event, index) => {
-      keySubject.adapter.receive(keySubject.event, keySubject.domReceipt(
-        keyControl,
-        index,
-        { ctrlKey: true }
-      ));
+      keySubject.adapter.receive(
+        keySubject.event,
+        keySubject.domReceipt(keyControl, index)
+      );
     });
     await expect(keyCompletion).resolves.toMatchObject({ status: "applied" });
+
+    const shiftedSubject = harness();
+    shiftedSubject.setNativePhysicalModifierCodes(["ControlRight", "AltLeft"]);
+    const shiftedCompletion = shiftedSubject.adapter.dispatch(nativeRequest(
+      "explicit-shift-key",
+      {
+        ...keyAction(),
+        key: "!",
+        code: "Digit1",
+        modifiers: ["shift"],
+        exactModifierCodes: ["ShiftLeft"]
+      }
+    ));
+    const shiftedControl = shiftedSubject.arm(["ControlRight", "AltLeft"]);
+    await Promise.resolve();
+    expect(shiftedSubject.keySubmissions).toEqual([
+      expect.objectContaining({ code: "Digit1", modifierFlags: 1 << 17 }),
+      expect.objectContaining({ code: "Digit1", modifierFlags: 1 << 17 })
+    ]);
+    expect(shiftedControl.expectedEvents).toEqual([
+      expect.objectContaining({
+        type: "keydown", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
+      }),
+      expect.objectContaining({
+        type: "keyup", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
+      })
+    ]);
+    shiftedControl.expectedEvents.forEach((_event, index) => {
+      shiftedSubject.adapter.receive(
+        shiftedSubject.event,
+        shiftedSubject.domReceipt(shiftedControl, index)
+      );
+    });
+    await expect(shiftedCompletion).resolves.toMatchObject({ status: "applied" });
+
+    const reassertSubject = harness();
+    reassertSubject.setNativePhysicalModifierCodes(["ControlRight", "AltLeft"]);
+    const reassertCompletion = reassertSubject.adapter.dispatch(nativeRequest(
+      "held-key-reassertion",
+      { type: "reassertHeldKeys" },
+      {
+        expectedInputNeutralityBefore: false,
+        expectedInputNeutralityAfter: false,
+        keyEffect: {
+          phase: "rawKeyDown",
+          code: "Digit1",
+          activeCodesBefore: ["Digit1", "ShiftLeft"],
+          activeCodes: ["Digit1", "ShiftLeft"],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      }
+    ));
+    const reassertControl = reassertSubject.arm(["ControlRight", "AltLeft"]);
+    await Promise.resolve();
+    expect(reassertSubject.keySubmissions).toEqual([
+      expect.objectContaining({ code: "Digit1", modifierFlags: 1 << 17 })
+    ]);
+    reassertSubject.adapter.receive(
+      reassertSubject.event,
+      reassertSubject.domReceipt(reassertControl, 0)
+    );
+    await expect(reassertCompletion).resolves.toMatchObject({ status: "applied" });
 
     const mouseSubject = harness();
     mouseSubject.setNativePhysicalModifierCodes(["ShiftLeft"]);
@@ -719,6 +799,44 @@ describe("macOS AppKit trusted-input adapter", () => {
       ));
     });
     await expect(mouseCompletion).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("keeps managed shortcut replacement physical modifiers", async () => {
+    const subject = harness();
+    subject.setNativePhysicalModifierCodes(["ShiftLeft"]);
+    const action = {
+      ...keyAction("hold"),
+      key: "2",
+      code: "Digit2",
+      modifiers: [],
+      exactModifierCodes: ["ShiftLeft"],
+      modifierOwnership: "physical-pass-through" as const
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const completion = subject.adapter.dispatch(nativeRequest(
+      "managed-shortcut-replacement",
+      action,
+      {
+        physicalModifierCodes: ["ShiftLeft"],
+        keyEffect: {
+          phase: "rawKeyDown",
+          code: "Digit2",
+          activeCodesBefore: [],
+          activeCodes: ["Digit2"],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      }
+    ));
+    const control = subject.arm(["ShiftLeft"]);
+    await Promise.resolve();
+    expect(subject.keySubmissions).toEqual([
+      expect.objectContaining({ code: "Digit2", modifierFlags: 1 << 17 })
+    ]);
+    subject.adapter.receive(
+      subject.event,
+      subject.domReceipt(control, 0, { shiftKey: true })
+    );
+    await expect(completion).resolves.toMatchObject({ status: "applied" });
   });
 
   it("admits physical-pass-through release with the current modifier snapshot", async () => {

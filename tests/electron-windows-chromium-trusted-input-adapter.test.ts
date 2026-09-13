@@ -547,23 +547,106 @@ describe("Windows Chromium trusted-input adapter", () => {
     await expect(result).resolves.toEqual(expect.objectContaining({ status: "applied" }));
   });
 
-  it("preserves physical modifier flags on key and mouse submissions", async () => {
+  it("isolates synthetic key modifiers while preserving click physical modifiers", async () => {
     const keySubject = harness();
-    keySubject.setNativePhysicalModifierCodes(["AltRight"]);
+    keySubject.setNativePhysicalModifierCodes(["ShiftRight", "ControlRight", "AltLeft"]);
     const keyResult = keySubject.adapter.dispatch(nativeRequest(
       "physical-key",
-      keyAction("tap", [])
+      {
+        ...keyAction("tap", []),
+        key: "1",
+        code: "Digit1",
+        exactModifierCodes: []
+      }
     ));
-    keySubject.armed(["AltRight"]);
+    keySubject.armed(["ShiftRight", "ControlRight", "AltLeft"]);
     await Promise.resolve();
     expect(keySubject.keyRequests).toEqual([
-      expect.objectContaining({ alt: true }),
-      expect.objectContaining({ alt: true })
+      expect.objectContaining({
+        code: "Digit1", alt: false, ctrl: false, meta: false, shift: false
+      }),
+      expect.objectContaining({
+        code: "Digit1", alt: false, ctrl: false, meta: false, shift: false
+      })
+    ]);
+    expect(keySubject.arm().expectedEvents).toEqual([
+      expect.objectContaining({
+        type: "keydown", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
+      }),
+      expect.objectContaining({
+        type: "keyup", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
+      })
     ]);
     keySubject.arm().expectedEvents.forEach((event, index) => {
-      keySubject.dom({ ...event, altKey: true }, index);
+      keySubject.dom(event, index);
     });
     await expect(keyResult).resolves.toMatchObject({ status: "applied" });
+
+    const shiftedSubject = harness();
+    shiftedSubject.setNativePhysicalModifierCodes(["ControlRight", "AltLeft"]);
+    const shiftedResult = shiftedSubject.adapter.dispatch(nativeRequest(
+      "explicit-shift-key",
+      {
+        ...keyAction("tap", ["shift"]),
+        key: "!",
+        code: "Digit1",
+        exactModifierCodes: ["ShiftLeft"]
+      }
+    ));
+    shiftedSubject.armed(["ControlRight", "AltLeft"]);
+    await Promise.resolve();
+    expect(shiftedSubject.keyRequests).toEqual([
+      expect.objectContaining({
+        code: "Digit1", alt: false, ctrl: false, meta: false, shift: true
+      }),
+      expect.objectContaining({
+        code: "Digit1", alt: false, ctrl: false, meta: false, shift: true
+      })
+    ]);
+    expect(shiftedSubject.arm().expectedEvents).toEqual([
+      expect.objectContaining({
+        type: "keydown", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
+      }),
+      expect.objectContaining({
+        type: "keyup", code: "Digit1",
+        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
+      })
+    ]);
+    shiftedSubject.arm().expectedEvents.forEach((event, index) => {
+      shiftedSubject.dom(event, index);
+    });
+    await expect(shiftedResult).resolves.toMatchObject({ status: "applied" });
+
+    const reassertSubject = harness();
+    reassertSubject.setNativePhysicalModifierCodes(["ControlRight", "AltLeft"]);
+    const reassertResult = reassertSubject.adapter.dispatch(nativeRequest(
+      "held-key-reassertion",
+      { type: "reassertHeldKeys" },
+      {
+        expectedInputNeutralityBefore: false,
+        expectedInputNeutralityAfter: false,
+        keyEffect: {
+          phase: "rawKeyDown",
+          code: "Digit1",
+          activeCodesBefore: ["Digit1", "ShiftLeft"],
+          activeCodes: ["Digit1", "ShiftLeft"],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      }
+    ));
+    reassertSubject.armed(["ControlRight", "AltLeft"]);
+    await Promise.resolve();
+    expect(reassertSubject.keyRequests).toEqual([
+      expect.objectContaining({
+        code: "Digit1", alt: false, ctrl: false, meta: false, shift: true
+      })
+    ]);
+    reassertSubject.dom(reassertSubject.arm().expectedEvents[0]!, 0);
+    await expect(reassertResult).resolves.toMatchObject({ status: "applied" });
 
     const mouseSubject = harness();
     mouseSubject.setNativePhysicalModifierCodes(["ShiftLeft"]);
@@ -584,6 +667,42 @@ describe("Windows Chromium trusted-input adapter", () => {
       }, index);
     });
     await expect(mouseResult).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("keeps managed shortcut replacement physical modifiers", async () => {
+    const subject = harness();
+    subject.setNativePhysicalModifierCodes(["ShiftLeft"]);
+    const action = {
+      ...keyAction("hold", []),
+      key: "2",
+      code: "Digit2",
+      exactModifierCodes: ["ShiftLeft"],
+      modifierOwnership: "physical-pass-through" as const
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const result = subject.adapter.dispatch(nativeRequest(
+      "managed-shortcut-replacement",
+      action,
+      {
+        physicalModifierCodes: ["ShiftLeft"],
+        keyEffect: {
+          phase: "rawKeyDown",
+          code: "Digit2",
+          activeCodesBefore: [],
+          activeCodes: ["Digit2"],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      }
+    ));
+    subject.armed(["ShiftLeft"]);
+    await Promise.resolve();
+    expect(subject.keyRequests).toEqual([
+      expect.objectContaining({
+        code: "Digit2", alt: false, ctrl: false, meta: false, shift: true
+      })
+    ]);
+    subject.dom({ ...subject.arm().expectedEvents[0]!, shiftKey: true }, 0);
+    await expect(result).resolves.toMatchObject({ status: "applied" });
   });
 
   it("admits physical-pass-through release with the current modifier snapshot", async () => {

@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md) and defines the managed-shortcut ordering introduced by Chromium runtime contract v33. The entry document owns the compatibility version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md) and defines the managed-shortcut ordering introduced by Chromium runtime contract v33 and the exact modifier projection required by v34. The entry document owns the compatibility version and routes readers to the minimum normative section required for a task.
 
 ## Physical ownership and admission
 
@@ -39,14 +39,17 @@ Normal macro modifiers use canonical left-side DOM codes selected for the target
 platform and are synthetic Core owners. A managed shortcut retains the observed
 left/right physical codes. Its `keyDown`/`keyUp` phases are
 `physical-pass-through` and submit only the replacement main key; there is no
-release-time chord replay. Before every
-native effect, the authenticated isolated-world guard reports the eight-sided
-physical modifier snapshot. The adapter merges non-owned physical modifiers into
-the event flags without converting them into synthetic Core ownership. A managed
-hold must still match the admitted ownership snapshot. Its release remains
-cleanup-reachable when focus continuity changes that snapshot: the original sides
-identify the owned cycle, while the freshly armed sides determine release-event
-flags.
+release-time chord replay. Before every native effect, the authenticated
+isolated-world guard reports the eight-sided physical modifier snapshot. The
+adapter retains the complete snapshot for exact-side adoption, interleave
+classification, diagnostics, and platform phase cursors. It merges that snapshot
+into event flags only for `physical-pass-through` replacement keys and macro
+click steps. Synthetic macro keyboard effects, including held-key reassertion,
+derive their modifier flags only from Core's active-code snapshot and never
+inherit a live non-Core physical modifier. A managed hold must still match the
+admitted ownership snapshot. Its release remains cleanup-reachable when focus
+continuity changes that snapshot: the original sides identify the owned cycle,
+while the freshly armed sides determine release-event flags.
 
 If an effect fails before submission, Core rolls the pending transition back. If
 a later effect fails after a confirmed prefix, Electron submits inverse effects

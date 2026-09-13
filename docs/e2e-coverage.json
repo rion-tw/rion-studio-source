@@ -1420,7 +1420,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. The v33 exact-side ownership lane adopts an already delivered physical modifier without requiring a duplicate Chromium keydown, and its provenance journal classifies live modifier edges without terminating an unrelated CDP receipt."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return reasserts the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. Preserve v33 exact-side adoption without duplicate Chromium keydown and retain the total/key-down/key-up provenance cursors without terminating an unrelated CDP receipt."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008",
@@ -1446,7 +1446,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove focus return reasserts that same still-held side, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and an unbound Shift+4 remains shifted until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. The v33 exact-side ownership lane adopts an already delivered physical modifier without requiring a duplicate Chromium keydown and retains exact-HWND provenance."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return preserves the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. Preserve v33 exact-side adoption without duplicate Chromium keydown and retain exact-HWND provenance."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",

@@ -112,7 +112,7 @@ export async function seedRetainedV22Role(platform: {
       await core.shutdown();
       await markRecoveryExportFailed(addon, {
         appVersion: app.getVersion(), packaged: false, platform: platform.platform,
-        runtimeContractVersion: 33, userDataDir: userDataDirectory, startupBackupLabel: "electron-desktop-e2e-recovery-target"
+        runtimeContractVersion: 34, userDataDir: userDataDirectory, startupBackupLabel: "electron-desktop-e2e-recovery-target"
       }, role.id, transferId);
     }
     const precondition = Object.freeze({

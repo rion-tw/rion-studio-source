@@ -92,6 +92,10 @@ describe("in-process CDP Input session", () => {
   });
 
   it("derives side, repeat, shifted key and modifier mask from active codes", () => {
+    expect(chromiumCdpKeyDescriptor(effect("Digit1"), "darwin")).toMatchObject({
+      key: "1",
+      modifiers: 0
+    });
     expect(chromiumCdpKeyDescriptor(effect("ShiftRight", {
       activeCodes: ["ControlLeft", "ShiftRight"]
     }), "darwin")).toMatchObject({

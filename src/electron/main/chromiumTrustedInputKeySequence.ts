@@ -45,6 +45,15 @@ export function activeChromiumModifierCodes(
   return Object.freeze([...new Set(active)]);
 }
 
+export function physicalChromiumModifierCodesForAction(
+  action: BrowserAction,
+  physicalModifierCodes: readonly string[]
+): readonly string[] {
+  const includesPhysicalModifiers = action.type === "click" ||
+    (action.type === "key" && action.modifierOwnership === "physical-pass-through");
+  return Object.freeze(includesPhysicalModifiers ? [...physicalModifierCodes] : []);
+}
+
 export function inverseChromiumKeyEffect(
   effect: EmbeddedKeyEffectRecord
 ): EmbeddedKeyEffectRecord | null {

@@ -96,6 +96,13 @@ function harness() {
     skippedCount: 0,
     terminal: true
   }));
+  const neutralizeRecovery = vi.fn(async () => ({
+    recoveryId: "recovery-1",
+    roleId: "role-1",
+    inputEpoch: 5,
+    neutralized: true,
+    requestIds: ["neutralize-1"]
+  }));
   let resolveFailureObserved!: () => void;
   const failureObserved = new Promise<void>((resolve) => {
     resolveFailureObserved = resolve;
@@ -114,7 +121,13 @@ function harness() {
   const resumeNativeAfterDocumentReplacement = vi.fn(async () => true);
   const retireManagedShortcuts = vi.fn(async () => undefined);
   const coordinator = new ChromiumAutomaticInputContextCoordinator({
-    core: { inspectRecovery, drainInput, completeRecovery, failRecovery },
+    core: {
+      inspectRecovery,
+      drainInput,
+      completeRecovery,
+      neutralizeRecovery,
+      failRecovery
+    },
     surfaces: {
       subscribeOverlayLifecycle: (listener) => {
         lifecycle = listener;
@@ -130,6 +143,7 @@ function harness() {
     inspectRecovery,
     drainInput,
     completeRecovery,
+    neutralizeRecovery,
     failRecovery,
     failureObserved,
     onError,
@@ -205,22 +219,22 @@ describe("Electron Chromium automatic-input context coordinator", () => {
     expect(test.completeRecovery).not.toHaveBeenCalled();
   });
 
-  it("treats a Role-close stale recovery ticket as cancellation without a shell error", async () => {
+  it("treats a stale ticket after neutralization failure as cancellation without a shell error", async () => {
     const test = harness();
     await test.coordinator.observe(identity(), context("game", 1));
-    await test.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
     test.failRecovery.mockRejectedValueOnce(new RionBridgeError({
       code: "MACRO_INPUT_RECOVERY_STALE",
       message: "The Role close retired this recovery ticket."
     }));
+    test.neutralizeRecovery.mockRejectedValueOnce(new Error("surface retired"));
 
-    test.emitLifecycle({
-      roleId: "role-1",
-      generation: 7,
-      reason: "surface-retired"
-    });
+    await expect(test.coordinator.afterEffectDispatch(
+      effect(),
+      indeterminateResult,
+      accepted
+    )).rejects.toThrow("surface retired");
 
-    await vi.waitFor(() => expect(test.failRecovery).toHaveBeenCalledOnce());
+    expect(test.failRecovery).toHaveBeenCalledOnce();
     expect(test.onError).not.toHaveBeenCalled();
     expect(test.completeRecovery).not.toHaveBeenCalled();
   });
@@ -262,13 +276,20 @@ describe("Electron Chromium automatic-input context coordinator", () => {
     expect(test.failRecovery).not.toHaveBeenCalled();
   });
 
-  it("does not complete indeterminate native input from a same-document game event", async () => {
+  it("completes indeterminate native input from explicit neutralization, not a game event", async () => {
     const test = harness();
     await test.coordinator.observe(identity(), context("game", 1));
     await test.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
 
+    expect(test.neutralizeRecovery).toHaveBeenCalledWith(expect.objectContaining({
+      recoveryId: "recovery-1",
+      expectedInputEpoch: 5,
+      surfaceGeneration: 7,
+      documentInstanceId: "document-1"
+    }));
+    expect(test.completeRecovery).toHaveBeenCalledOnce();
     await test.coordinator.observe(identity(), context("game", 2));
-    expect(test.completeRecovery).not.toHaveBeenCalled();
+    expect(test.completeRecovery).toHaveBeenCalledOnce();
     expect(test.resumeNativeAfterDocumentReplacement).not.toHaveBeenCalled();
   });
 
@@ -308,11 +329,9 @@ describe("Electron Chromium automatic-input context coordinator", () => {
     expect(test.failRecovery).not.toHaveBeenCalled();
   });
 
-  it("completes indeterminate input only from exact neutral cleanup proof", async () => {
+  it("uses only an exact cached neutral cleanup proof and otherwise neutralizes", async () => {
     const test = harness();
     await test.coordinator.observe(identity(), context("game", 1));
-    await test.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
-    expect(test.retireManagedShortcuts).toHaveBeenCalledWith("role-1", 7);
     await test.coordinator.observeNeutralityProof({
       kind: "cleanup-neutral",
       requestId: "cleanup-wrong-epoch",
@@ -320,22 +339,32 @@ describe("Electron Chromium automatic-input context coordinator", () => {
       inputEpoch: 4,
       surfaceGeneration: 7
     });
-    expect(test.completeRecovery).not.toHaveBeenCalled();
+    await test.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
+    expect(test.neutralizeRecovery).toHaveBeenCalledOnce();
+    expect(test.completeRecovery).toHaveBeenCalledOnce();
 
-    await test.coordinator.observeNeutralityProof({
+    const exact = harness();
+    await exact.coordinator.observe(identity(), context("game", 1));
+    await exact.coordinator.observeNeutralityProof({
       kind: "cleanup-neutral",
-      requestId: "cleanup-exact",
+      requestId: "recovery-1",
       roleId: "role-1",
       inputEpoch: 5,
       surfaceGeneration: 7
     });
-    expect(test.completeRecovery).toHaveBeenCalledOnce();
+    await exact.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
+    expect(exact.neutralizeRecovery).not.toHaveBeenCalled();
+    expect(exact.completeRecovery).toHaveBeenCalledOnce();
   });
 
-  it("resumes native quarantine before completing from an exact replacement document", async () => {
+  it("marks restart-required without navigating when explicit neutralization fails", async () => {
     const test = harness();
     await test.coordinator.observe(identity(), context("game", 1));
-    await test.coordinator.afterEffectDispatch(effect(), indeterminateResult, accepted);
+    test.neutralizeRecovery.mockRejectedValueOnce(new Error("neutrality unknown"));
+    await expect(test.coordinator.afterEffectDispatch(
+      effect(), indeterminateResult, accepted
+    )).rejects.toThrow("neutrality unknown");
+    expect(test.failRecovery).toHaveBeenCalledOnce();
     test.emitLifecycle({
       roleId: "role-1",
       generation: 7,
@@ -348,9 +377,8 @@ describe("Electron Chromium automatic-input context coordinator", () => {
       revision: 1,
       target: "document"
     });
-    expect(test.resumeNativeAfterDocumentReplacement).toHaveBeenCalledWith("role-1", 7);
-    expect(test.completeRecovery).toHaveBeenCalledOnce();
-    expect(test.failRecovery).not.toHaveBeenCalled();
+    expect(test.resumeNativeAfterDocumentReplacement).not.toHaveBeenCalled();
+    expect(test.completeRecovery).not.toHaveBeenCalled();
   });
 
   it("waits event-bound for the exact replacement game context", async () => {

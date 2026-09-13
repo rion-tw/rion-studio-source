@@ -93,7 +93,7 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 34. Version 23 remains the first
+The active runtime contract is version 35. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -132,6 +132,12 @@ activation with keyDown/keyUp-only replacement ordering. Version 34 prevents
 synthetic macro keyboard effects and held-key reassertions from inheriting
 non-Core physical modifiers, while retaining physical flags for managed
 shortcut replacement keys and macro clicks. Versions 32–34 do not change
+SQLite, portable data, or the public bridge shape. Version 35 terminalizes an
+indeterminate native macro run without preserving automatic restart intent,
+performs exact same-document key/button neutralization through a Core-issued
+cleanup action, and lets an already-running Macro's managed shortcut stop it
+before replacement input is attempted. It also retains bounded abnormal-input
+timelines and proof-drift field names in diagnostics. Version 35 does not change
 SQLite, portable data, or the public bridge shape.
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the

@@ -47,6 +47,9 @@ describe("Electron runtime diagnostics collector", () => {
       applicationPath: "cdp",
       expectedDomEventCount: 1,
       observedDomEventCount: 0,
+      modifierProjectionCodes: ["ShiftLeft"],
+      cdpModifierMask: 8,
+      lastObservedDomModifierMask: 8,
       cdpSubmissionCertainty: "possibly-submitted",
       physicalInterleave: "unrelated",
       nativePhysicalInputSequenceBefore: "40",
@@ -59,6 +62,14 @@ describe("Electron runtime diagnostics collector", () => {
       lastObservedDomEventCode: "KeyJ",
       lastPhysicalEvidenceClassification: "automatic",
       terminalCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_MISMATCH",
+      nativeProofChanges: ["targetReceivesPhysicalInput"],
+      traceSteps: [{
+        sequence: 1,
+        source: "cdp",
+        stage: "key-command-accepted"
+      }],
+      traceTruncated: false,
+      droppedTraceStepCount: 0,
       cleanupOutcome: "not-attempted",
       recoveryOutcome: "restart-required"
     });
@@ -80,6 +91,9 @@ describe("Electron runtime diagnostics collector", () => {
         requestId: "request-1",
         roleId: "closed-role",
         physicalInterleave: "unrelated",
+        modifierProjectionCodes: ["ShiftLeft"],
+        cdpModifierMask: 8,
+        lastObservedDomModifierMask: 8,
         nativePhysicalKeyUpSequenceAfter: "21",
         lastObservedDomEventCode: "KeyJ",
         recoveryOutcome: "restart-required"

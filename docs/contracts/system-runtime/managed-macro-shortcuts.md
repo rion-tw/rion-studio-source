@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md) and defines the managed-shortcut ordering introduced by Chromium runtime contract v33 and the exact modifier projection required by v34. The entry document owns the compatibility version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md) and defines the managed-shortcut ordering introduced by Chromium runtime contract v33, the exact modifier projection required by v34, and the stop-before-replacement outcome required by v35. The entry document owns the compatibility version and routes readers to the minimum normative section required for a task.
 
 ## Physical ownership and admission
 
@@ -10,8 +10,7 @@ input-admissible game context. Unbound or conflicting chords, editable and IME
 input, and operating-system or runtime-reserved shortcuts remain pass-through.
 For an owned chord, the physical main-key `keydown`, repeat, and `keyup` never
 reach the page directly; modifier events retain their physical DOM lifecycle and
-exact left/right codes. One `shortcutCycleId` and modifier-side snapshot identify the
-owned cycle.
+exact left/right codes. One `shortcutCycleId` and modifier-side snapshot identify the owned cycle.
 
 Every replacement main-key event enters the selected role's existing native
 input lane and carries the accepted application lifecycle epoch, role input
@@ -21,7 +20,7 @@ to finish page propagation, and accepts success only from that acknowledgement.
 Role/WebView authorization, automatic input context, epoch, generation, and
 page-observation failure all terminalize fail-closed. An indeterminate delivery
 uses the existing input quarantine and restart-required recovery contract; it
-cannot admit a macro action.
+cannot admit a new macro action.
 
 Electron preserves this contract through one cross-platform sequence executor;
 it does not expand a key action into a guessed main-key event. Every key action
@@ -49,7 +48,7 @@ derive their modifier flags only from Core's active-code snapshot and never
 inherit a live non-Core physical modifier. A managed hold must still match the
 admitted ownership snapshot. Its release remains cleanup-reachable when focus
 continuity changes that snapshot: the original sides identify the owned cycle,
-while the freshly armed sides determine release-event flags.
+while the freshly armed sides determine release-event flags. Physical modifier adoption is idempotent while held; overlap emits no duplicate Chromium keydown. If Core removes a modifier that the overlay still proves is physically held, the trusted-input receipt contract reprojects that exact side for Chromium without exposing it to game listeners, creating a Core owner, or sending a balancing synthetic keyup.
 
 If an effect fails before submission, Core rolls the pending transition back. If
 a later effect fails after a confirmed prefix, Electron submits inverse effects
@@ -64,15 +63,16 @@ Electron.
 
 ## Press and hold ordering
 
-A `press` captures a non-repeat physical main-key `keydown`, sends the managed
-`keyDown`, and dispatches the macro `press` immediately after that trusted DOM
-acknowledgement. A later physical `keyup` performs only the matching managed
+A `press` captures a non-repeat physical main-key `keydown`, sends the managed `keyDown`, and dispatches the macro `press` immediately after that trusted DOM acknowledgement. A later physical
+`keyup` performs only the matching managed
 `keyUp` cleanup. It does not decide whether the accepted press runs and cannot
 cancel the action if it arrives before the macro response. A rapid keyup waits
 only until the activation IPC has been submitted, not until the macro finishes,
 so cleanup cannot overtake the accepted press. The completed keyup retires the
-cycle and permits the next press, which preserves the existing second-press stop
-behavior at Core. The exact `keyUp` uses cleanup intent, so it remains admissible
+cycle and permits the next press, which preserves the existing second-press stop behavior at Core.
+When that next `keyDown` targets an already-running or recovering Macro, Core stops the exact macro/source-role run before it attempts the replacement key. The phase receipt reports
+`controlOutcome=stopped` separately from `inputOutcome`; therefore a quarantined, failed, indeterminate, or superseded replacement cannot undo the stop or cause the overlay to dispatch a
+new press. The exact `keyUp` uses cleanup intent, so it remains admissible
 after a concurrent input failure has fenced the Role. If its native receipt is
 indeterminate, both Core and Electron retire that exact physical cycle while the
 Role remains quarantined for recovery. Any later physical `keydown` observed

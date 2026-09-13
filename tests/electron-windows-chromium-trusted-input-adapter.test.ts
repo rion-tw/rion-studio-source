@@ -304,6 +304,9 @@ function harness() {
   const arm = () => controls.find((control): control is ChromiumRoleTrustedInputArmEnvelope =>
     control.kind === "arm")!;
   const armed = (physicalModifierCodes: readonly string[] = []) => {
+    const modifierProjectionCodes =
+      arm().shortcutSuppression?.modifierProjectionCodes.filter(code =>
+        physicalModifierCodes.includes(code)) ?? [];
     return receive({
       kind: "armed",
       roleId: "role-1",
@@ -312,6 +315,7 @@ function harness() {
       inputSequence: INPUT_SEQUENCE,
       expectedEventCount: arm().expectedEvents.length,
       modifierDisposition: "dispatch",
+      modifierProjectionCodes,
       physicalModifierCodes
     });
   };
@@ -401,6 +405,7 @@ describe("Windows Chromium trusted-input adapter", () => {
       inputSequence: INPUT_SEQUENCE,
       expectedEventCount: 0,
       modifierDisposition: "adoptPhysical",
+      modifierProjectionCodes: [],
       physicalModifierCodes: ["ShiftLeft"]
     });
 
@@ -413,6 +418,66 @@ describe("Windows Chromium trusted-input adapter", () => {
       kind: "cancel",
       committed: true
     }));
+  });
+
+  it("reprojects physical Shift when synthetic ownership is released", async () => {
+    const subject = harness();
+    subject.setNativePhysicalModifierCodes(["ShiftLeft"]);
+    const action = {
+      ...keyAction("release", []),
+      key: "Shift",
+      code: "ShiftLeft",
+      exactModifierCodes: []
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const completion = subject.adapter.dispatch(nativeRequest("release-shift", action, {
+      physicalModifierCodes: ["ShiftLeft"],
+      keyEffect: {
+        phase: "keyUp",
+        code: "ShiftLeft",
+        activeCodesBefore: ["ShiftLeft"],
+        activeCodes: [],
+        autoRepeat: false,
+        suppressShortcut: true
+      }
+    }));
+    expect(subject.arm()).toEqual(expect.objectContaining({
+      modifierTransition: { code: "ShiftLeft", phase: "keyUp" },
+      shortcutSuppression: expect.objectContaining({
+        modifierProjectionCodes: ["ShiftLeft"]
+      })
+    }));
+    subject.receive({
+      kind: "armed",
+      roleId: "role-1",
+      generation: 3,
+      frameToken: "frame-token-1",
+      inputSequence: INPUT_SEQUENCE,
+      expectedEventCount: 0,
+      modifierDisposition: "releaseOwnership",
+      modifierProjectionCodes: ["ShiftLeft"],
+      physicalModifierCodes: ["ShiftLeft"]
+    });
+    await Promise.resolve();
+
+    expect(subject.keyRequests).toEqual([
+      expect.objectContaining({
+        code: "ShiftLeft", eventType: "rawKeyDown", shift: true
+      })
+    ]);
+    expect(subject.adapter.observeMacroKey(subject.frameIdentity, {
+      altKey: false,
+      code: "ShiftLeft",
+      ctrlKey: false,
+      dispatchId: INPUT_SEQUENCE,
+      metaKey: false,
+      modifierProjection: true,
+      phase: "keydown",
+      shiftKey: true
+    })).toBe(true);
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: true
+    });
   });
 
   it("passes physical KeyW and then accepts the pending CDP KeyJ sequence", async () => {
@@ -534,7 +599,8 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(subject.arm().shortcutSuppression).toEqual({
       code: "KeyA",
       phases: ["keydown", "keyup"],
-      repeat: false
+      repeat: false,
+      modifierProjectionCodes: []
     });
     expect(subject.keyRequests).toEqual([
       expect.objectContaining({ eventType: "rawKeyDown", code: "KeyA", ctrl: true }),
@@ -561,7 +627,8 @@ describe("Windows Chromium trusted-input adapter", () => {
       const result = subject.adapter.dispatch(nativeRequest("ordinary-held-key", action));
       expect(subject.arm().shortcutSuppression).toEqual({
         code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"],
-        repeat: false
+        repeat: false,
+        modifierProjectionCodes: []
       });
       expect(subject.keyRequests).toEqual([]);
       subject.armed();
@@ -740,9 +807,23 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(subject.keyRequests).toEqual([
       expect.objectContaining({
         code: "Digit2", alt: false, ctrl: false, meta: false, shift: true
+      }),
+      expect.objectContaining({
+        code: "ShiftLeft", eventType: "rawKeyDown",
+        alt: false, ctrl: false, meta: false, shift: true
       })
     ]);
     subject.dom({ ...subject.arm().expectedEvents[0]!, shiftKey: true }, 0);
+    expect(subject.adapter.observeMacroKey(subject.frameIdentity, {
+      altKey: false,
+      code: "ShiftLeft",
+      ctrlKey: false,
+      dispatchId: INPUT_SEQUENCE,
+      metaKey: false,
+      modifierProjection: true,
+      phase: "keydown",
+      shiftKey: true
+    })).toBe(true);
     await expect(result).resolves.toMatchObject({ status: "applied" });
   });
 

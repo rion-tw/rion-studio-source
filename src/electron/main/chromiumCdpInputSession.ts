@@ -140,6 +140,7 @@ export class ChromiumCdpInputSession {
     y: number;
     button: "left" | "middle" | "right";
     modifierCodes: readonly string[];
+    releaseOnly?: boolean;
   }>): Promise<ChromiumCdpSubmissionReceipt> {
     const descriptors = chromiumCdpMouseDescriptors(input);
     return this.#enqueue(identity, descriptors.map((descriptor) =>

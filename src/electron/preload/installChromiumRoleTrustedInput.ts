@@ -68,6 +68,7 @@ export interface ChromiumRoleTrustedInputOverlayGuardPort {
     code: string;
     phases: readonly ("keydown" | "keyup")[];
     repeat: boolean;
+    modifierProjectionCodes: readonly string[];
     modifierTransition: Readonly<{
       code: string;
       phase: "rawKeyDown" | "keyUp";
@@ -75,6 +76,7 @@ export interface ChromiumRoleTrustedInputOverlayGuardPort {
   }>) => Promise<Readonly<{
     armed: boolean;
     physicalModifierCodes: readonly string[];
+    modifierProjectionCodes: readonly string[];
     modifierDisposition: ChromiumRoleTrustedInputModifierDisposition;
   }>>;
   clear: (input: Readonly<{
@@ -238,7 +240,9 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
       Array.isArray(record.shortcutSuppression)) return null;
     const suppression = record.shortcutSuppression as Record<string, unknown>;
     const suppressionPhases = suppression.phases;
-    if (!exactKeys(suppression, ["code", "phases", "repeat"]) ||
+    if (!exactKeys(suppression, [
+      "code", "modifierProjectionCodes", "phases", "repeat"
+    ]) ||
       typeof suppression.code !== "string" ||
       suppression.code.length === 0 || suppression.code.length > 128 ||
       suppression.code !== suppression.code.trim() ||
@@ -247,7 +251,8 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
       suppressionPhases.some((phase, index) =>
         (phase !== "keydown" && phase !== "keyup") ||
         (index > 0 && suppressionPhases[index - 1] === phase)
-      ) || typeof suppression.repeat !== "boolean") return null;
+      ) || typeof suppression.repeat !== "boolean" ||
+      !validChromiumPhysicalModifierCodes(suppression.modifierProjectionCodes)) return null;
     const keyboardEvents = expectedEvents as ChromiumRoleTrustedInputExpectedEvent[];
     if (keyboardEvents.some((event) =>
       (event.type !== "keydown" && event.type !== "keyup") ||
@@ -256,6 +261,9 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
       suppressionPhases.join("\n")) return null;
     shortcutSuppression = Object.freeze({
       code: suppression.code,
+      modifierProjectionCodes: Object.freeze([
+        ...(suppression.modifierProjectionCodes as readonly string[])
+      ]),
       phases: Object.freeze([...suppressionPhases]) as readonly ("keydown" | "keyup")[],
       repeat: suppression.repeat
     });
@@ -313,6 +321,7 @@ export function createChromiumRoleTrustedInputOverlayGuard(
       const inputSequence = ${JSON.stringify(input.inputSequence)};
       const controller = globalThis.__rionStudioMacroOverlay;
       const modifierTransition = ${JSON.stringify(input.modifierTransition)};
+      const requestedModifierProjectionCodes = ${JSON.stringify(input.modifierProjectionCodes)};
       const frameMatches = globalThis.__rionStudioDocumentInstanceId === frameToken;
       const modifierDisposition = frameMatches && modifierTransition
         ? controller?.prepareMacroModifierTransition?.(
@@ -324,23 +333,29 @@ export function createChromiumRoleTrustedInputOverlayGuard(
       const validDisposition = modifierDisposition === "dispatch" ||
         modifierDisposition === "adoptPhysical" ||
         modifierDisposition === "releaseOwnership";
+      const observedPhysicalModifierCodes = controller?.physicalModifierCodes?.();
+      const physicalModifierCodes = Array.isArray(observedPhysicalModifierCodes)
+        ? observedPhysicalModifierCodes : [];
+      const modifierProjectionCodes = requestedModifierProjectionCodes.filter((code) =>
+        physicalModifierCodes.includes(code));
+      const guardedPhases = modifierDisposition === "dispatch" ? ${JSON.stringify(input.phases)} : [];
+      const guardRequired = guardedPhases.length > 0 || modifierProjectionCodes.length > 0;
       const armed = frameMatches && validDisposition &&
-        (modifierDisposition !== "dispatch" ||
+        (!guardRequired ||
           controller?.suppressShortcutSequence?.(
             inputSequence,
             ${JSON.stringify(input.code)},
-            ${JSON.stringify(input.phases)},
-            ${JSON.stringify(input.repeat)}
+            guardedPhases,
+            ${JSON.stringify(input.repeat)},
+            modifierProjectionCodes
           ) === true);
-      const observedPhysicalModifierCodes = controller?.physicalModifierCodes?.();
-      const physicalModifierCodes = armed && Array.isArray(observedPhysicalModifierCodes)
-        ? observedPhysicalModifierCodes : [];
       return Object.freeze({
         armed,
         frameToken,
         inputSequence,
         modifierDisposition: validDisposition ? modifierDisposition : "dispatch",
-        physicalModifierCodes
+        modifierProjectionCodes: armed ? modifierProjectionCodes : [],
+        physicalModifierCodes: armed ? physicalModifierCodes : []
       });
     })()`, url: "rion-studio://chromium-trusted-input-guard-arm.js" }],
         false
@@ -349,25 +364,33 @@ export function createChromiumRoleTrustedInputOverlayGuard(
           return Object.freeze({
             armed: false,
             modifierDisposition: "dispatch" as const,
+            modifierProjectionCodes: [],
             physicalModifierCodes: []
           });
         }
         const record = value as Record<string, unknown>;
         const codes = record.physicalModifierCodes;
         const validCodes = validChromiumPhysicalModifierCodes(codes);
+        const physicalCodes = validCodes ? codes : [];
+        const projectionCodes = record.modifierProjectionCodes;
+        const validProjectionCodes = validChromiumPhysicalModifierCodes(projectionCodes) &&
+          projectionCodes.every(code => physicalCodes.includes(code));
         return Object.freeze({
           armed: exactKeys(record, [
             "armed", "frameToken", "inputSequence", "modifierDisposition",
-            "physicalModifierCodes"
+            "modifierProjectionCodes", "physicalModifierCodes"
           ]) && record.frameToken === input.frameToken &&
             record.inputSequence === input.inputSequence && record.armed === true &&
             ["dispatch", "adoptPhysical", "releaseOwnership"]
-              .includes(String(record.modifierDisposition)) && validCodes,
+              .includes(String(record.modifierDisposition)) && validCodes &&
+            validProjectionCodes,
           modifierDisposition: ["adoptPhysical", "releaseOwnership"]
             .includes(String(record.modifierDisposition))
             ? record.modifierDisposition as ChromiumRoleTrustedInputModifierDisposition
             : "dispatch",
-          physicalModifierCodes: validCodes ? Object.freeze([...codes]) : []
+          modifierProjectionCodes: validProjectionCodes
+            ? Object.freeze([...projectionCodes]) : [],
+          physicalModifierCodes: validCodes ? Object.freeze([...physicalCodes]) : []
         });
       }),
     clear: (input: Parameters<ChromiumRoleTrustedInputOverlayGuardPort["clear"]>[0]) =>
@@ -376,10 +399,14 @@ export function createChromiumRoleTrustedInputOverlayGuard(
       const inputSequence = ${JSON.stringify(input.inputSequence)};
       const committed = ${JSON.stringify(input.committed)};
       const controller = globalThis.__rionStudioMacroOverlay;
-      const cleared = globalThis.__rionStudioDocumentInstanceId === frameToken && Boolean(
-        controller?.completeMacroModifierTransition?.(inputSequence, committed) ||
+      const frameMatches = globalThis.__rionStudioDocumentInstanceId === frameToken;
+      const transitionCompleted = frameMatches && Boolean(
+        controller?.completeMacroModifierTransition?.(inputSequence, committed)
+      );
+      const shortcutCleared = frameMatches && Boolean(
         controller?.clearSuppressedShortcut?.(inputSequence)
       );
+      const cleared = transitionCompleted || shortcutCleared;
       return Object.freeze({ cleared, frameToken, inputSequence });
     })()`, "cleared", "rion-studio://chromium-trusted-input-guard-clear.js"),
     snapshot: (input: Parameters<
@@ -516,6 +543,7 @@ export function installChromiumRoleTrustedInput(
     pending = candidate;
     const acknowledge = (
       physicalModifierCodes: readonly string[],
+      modifierProjectionCodes: readonly string[] = [],
       modifierDisposition: ChromiumRoleTrustedInputModifierDisposition = "dispatch"
     ): void => {
       candidate.expectedEvents = modifierDisposition === "dispatch"
@@ -530,6 +558,7 @@ export function installChromiumRoleTrustedInput(
         kind: "armed",
         expectedEventCount: candidate.expectedEvents.length,
         physicalModifierCodes,
+        modifierProjectionCodes,
         modifierDisposition
       });
     };
@@ -564,6 +593,7 @@ export function installChromiumRoleTrustedInput(
       code: control.shortcutSuppression.code,
       phases: control.shortcutSuppression.phases,
       repeat: control.shortcutSuppression.repeat,
+      modifierProjectionCodes: control.shortcutSuppression.modifierProjectionCodes,
       modifierTransition: control.modifierTransition
     }).then((result) => {
       if (pending !== candidate) {
@@ -586,7 +616,11 @@ export function installChromiumRoleTrustedInput(
       }
       candidate.shortcutSuppressionArmed = result.modifierDisposition === "dispatch";
       candidate.modifierTransitionPrepared = result.modifierDisposition !== "dispatch";
-      acknowledge(result.physicalModifierCodes, result.modifierDisposition);
+      acknowledge(
+        result.physicalModifierCodes,
+        result.modifierProjectionCodes,
+        result.modifierDisposition
+      );
     }).catch(() => {
       if (pending !== candidate) return;
       pending = null;
@@ -606,10 +640,10 @@ export function installChromiumRoleTrustedInput(
       observationSequence: ++current.observationSequence,
       isTrusted: event.isTrusted
     });
-    // Main correlates the raw ordered DOM stream with the native physical
-    // evidence journal. The preload must not let an unrelated player event
-    // consume or terminalize the expected CDP sequence.
-    queueMicrotask(() => send(receipt));
+    // Preserve capture-order at the process boundary. Deferring this receipt
+    // by a microtask lets a physical event overtake the CDP observation even
+    // though the DOM delivered the automatic event first.
+    send(receipt);
   };
   for (const type of EVENT_TYPES) {
     target.addEventListener(type, capture, { capture: true });

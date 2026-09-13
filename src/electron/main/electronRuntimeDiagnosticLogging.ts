@@ -6,13 +6,14 @@ import { ElectronOperationalLogger } from "./electronOperationalLogger";
 interface RuntimeDiagnosticLogger {
   nativeWindowPlacement: (context: Readonly<Record<string, unknown>>) => void;
   trustedInputTerminal: (context: Readonly<Record<string, unknown>>) => void;
+  trustedInputIncident?: (context: Readonly<Record<string, unknown>>) => void;
 }
 
 function installTrustedInputDiagnosticLogging(
   logger: RuntimeDiagnosticLogger
 ): void {
   subscribeTrustedInputTerminals((record) => {
-    logger.trustedInputTerminal({
+    const context = {
       capturedAt: record.capturedAt,
       requestId: record.requestId,
       roleId: record.roleId,
@@ -28,6 +29,9 @@ function installTrustedInputDiagnosticLogging(
       applicationPath: record.applicationPath,
       expectedDomEventCount: record.expectedDomEventCount,
       observedDomEventCount: record.observedDomEventCount,
+      modifierProjectionCodes: record.modifierProjectionCodes,
+      cdpModifierMask: record.cdpModifierMask ?? null,
+      lastObservedDomModifierMask: record.lastObservedDomModifierMask ?? null,
       cdpSubmissionCertainty: record.cdpSubmissionCertainty,
       physicalInterleave: record.physicalInterleave,
       ...(record.nativePhysicalInputSequenceBefore ? {
@@ -47,9 +51,20 @@ function installTrustedInputDiagnosticLogging(
           record.lastPhysicalEvidenceClassification ?? null
       } : {}),
       terminalCode: record.terminalCode,
+      failureStage: record.failureStage ?? null,
+      cdpTerminalReason: record.cdpTerminalReason ?? null,
+      nativeProofChanges: record.nativeProofChanges,
+      traceSteps: record.traceSteps,
+      traceTruncated: record.traceTruncated,
+      droppedTraceStepCount: record.droppedTraceStepCount,
       cleanupOutcome: record.cleanupOutcome,
       recoveryOutcome: record.recoveryOutcome
-    });
+    };
+    if (record.terminalCode === "APPLIED" || !logger.trustedInputIncident) {
+      logger.trustedInputTerminal(context);
+    } else {
+      logger.trustedInputIncident(context);
+    }
   });
 }
 

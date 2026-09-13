@@ -82,3 +82,37 @@ describe("Core extension event validation", () => {
       .toThrow("The Core event batch is invalid.");
   });
 });
+
+describe("Core browser-action event validation", () => {
+  const neutralizeInput = {
+    type: "browserActions",
+    actions: [{
+      requestId: "recovery-request",
+      roleId: "role-a",
+      origin: "macro",
+      inputEpoch: 4,
+      intent: "cleanup",
+      scheduledAtMs: 100,
+      deadlineMs: 10_000,
+      action: { type: "neutralizeInput" }
+    }]
+  };
+
+  it("accepts the Core-issued neutralization recovery action", () => {
+    expect(parseCoreEvents(JSON.stringify([neutralizeInput]))).toEqual([neutralizeInput]);
+  });
+
+  it("rejects unknown neutralization fields with bounded action diagnostics", () => {
+    const malformed = {
+      ...neutralizeInput,
+      actions: [{
+        ...neutralizeInput.actions[0],
+        action: { type: "neutralizeInput", unexpected: true }
+      }]
+    };
+    expect(() => parseCoreEvents(JSON.stringify([malformed]))).toThrow(
+      "The Core event batch is invalid. eventIndex=0 eventType=browserActions " +
+      "actionType=neutralizeInput"
+    );
+  });
+});

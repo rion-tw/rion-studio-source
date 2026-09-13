@@ -55,7 +55,8 @@ interface OverlayController {
     dispatchId: string,
     code: string,
     phases: readonly ("keydown" | "keyup")[],
-    repeat?: boolean
+    repeat?: boolean,
+    modifierProjectionCodes?: readonly string[]
   ) => boolean;
 }
 
@@ -90,9 +91,14 @@ interface ManagedShortcutKeyPhase {
 }
 
 interface MacroKeyObservation {
+  altKey?: boolean;
   code: string;
+  ctrlKey?: boolean;
   dispatchId: string;
+  metaKey?: boolean;
+  modifierProjection?: true;
   phase: "keydown" | "keyup";
+  shiftKey?: boolean;
 }
 
 let testDispatchSequence = 0;
@@ -598,6 +604,59 @@ describe("macro overlay native key guard", () => {
     warning.mockRestore();
   });
 
+  it("does not restart a macro after Core stops it despite quarantined replacement input", async () => {
+    const macro = {
+      id: "quarantined-stop",
+      enabled: true,
+      name: "Quarantined stop",
+      roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" },
+      trigger: { code: "KeyY", ctrl: false, alt: false, shift: false, meta: false },
+      repeat: { intervalMs: 250, type: "loop" },
+      steps: []
+    };
+    const bindingMock = vi.fn(async (_request: unknown) => ({
+      macros: [macro],
+      shortcutMacroIds: [macro.id],
+      statuses: [{ macroId: macro.id, roleId: "role-1", state: "running" }]
+    }));
+    const binding = bindingMock as OverlayBinding;
+    const shortcutLifecycle = vi.fn(async (_event: { phase: string }) => undefined);
+    binding.shortcutLifecycle = shortcutLifecycle;
+    binding.managedShortcutKeyPhase = vi.fn(async (request) => request.phase === "keyDown"
+      ? {
+          status: "accepted",
+          controlOutcome: "stopped",
+          inputOutcome: "indeterminate",
+          inputErrorCode: "SYSTEM_TRUSTED_INPUT_QUARANTINED",
+          requestIds: []
+        }
+      : {
+          status: "accepted",
+          controlOutcome: "none",
+          inputOutcome: "applied",
+          inputErrorCode: null,
+          requestIds: ["cleanup-1"]
+        });
+    const controller = installOverlay(binding);
+    await controller.refresh();
+
+    document.dispatchEvent(keyEvent("keydown", "KeyY", "y"));
+    document.dispatchEvent(keyEvent("keyup", "KeyY", "y"));
+
+    await vi.waitFor(() => expect(binding.managedShortcutKeyPhase)
+      .toHaveBeenCalledTimes(2));
+    expect(bindingMock.mock.calls.filter(([request]) =>
+      typeof request === "object" && request !== null &&
+      ["press", "hold-start"].includes(String((request as { type?: unknown }).type))
+    )).toEqual([]);
+    expect(shortcutLifecycle.mock.calls.map(([event]) => event.phase)).toEqual([
+      "physical-keydown-managed",
+      "managed-keydown-acknowledged",
+      "managed-keyup-acknowledged"
+    ]);
+  });
+
   it("passes a conflicting physical shortcut through without choosing a macro", async () => {
     const trigger = { code: "Digit2", ctrl: false, alt: false, shift: true, meta: false };
     const macros = ["macro-a", "macro-b"].map((id) => ({
@@ -901,6 +960,71 @@ describe("macro overlay native key guard", () => {
     expect(controller.physicalModifierCodes()).toEqual([]);
   });
 
+  it("reprojects a held physical modifier after the guarded main key", async () => {
+    const observed = vi.fn(async (_observation: MacroKeyObservation) => undefined);
+    const binding = Object.assign(
+      vi.fn(async () => ({ macros: [], statuses: [] })),
+      { macroKeyObserved: observed }
+    );
+    const controller = installOverlay(binding);
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    observed.mockClear();
+    const pageKeyDown = vi.fn();
+    canvas.addEventListener("keydown", pageKeyDown);
+
+    expect(controller.suppressShortcutSequence(
+      "projection-dispatch",
+      "Digit2",
+      ["keydown"],
+      false,
+      ["ShiftLeft"]
+    )).toBe(true);
+    canvas.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
+    const projection = keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true });
+    expect(canvas.dispatchEvent(projection)).toBe(true);
+    await Promise.resolve();
+
+    expect(projection.defaultPrevented).toBe(false);
+    expect(pageKeyDown).toHaveBeenCalledTimes(1);
+    expect(observed).toHaveBeenCalledWith({
+      code: "Digit2",
+      dispatchId: "projection-dispatch",
+      phase: "keydown"
+    });
+    expect(observed).toHaveBeenCalledWith({
+      altKey: false,
+      code: "ShiftLeft",
+      ctrlKey: false,
+      dispatchId: "projection-dispatch",
+      metaKey: false,
+      modifierProjection: true,
+      phase: "keydown",
+      shiftKey: true
+    });
+    expect(controller.suppressShortcutSequence(
+      "release-projection",
+      "ShiftLeft",
+      [],
+      false,
+      ["ShiftLeft"]
+    )).toBe(true);
+    const releaseProjection = keyEvent(
+      "keydown", "ShiftLeft", "Shift", { shiftKey: true }
+    );
+    expect(canvas.dispatchEvent(releaseProjection)).toBe(true);
+    expect(releaseProjection.defaultPrevented).toBe(false);
+    expect(pageKeyDown).toHaveBeenCalledTimes(1);
+    expect(observed).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ShiftLeft",
+      dispatchId: "release-projection",
+      modifierProjection: true,
+      shiftKey: true
+    }));
+    expect(controller.physicalModifierCodes()).toEqual(["ShiftLeft"]);
+  });
+
   it("does not reassert a forwarded key after acknowledged macro keyup cleanup", async () => {
     const controller = installOverlay();
     const canvas = document.createElement("canvas");
@@ -1102,6 +1226,34 @@ describe("macro overlay native key guard", () => {
     canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
 
     expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+  });
+
+  it("reuses an exact physical modifier adoption across overlapping macro transitions", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    expect(controller.prepareMacroModifierTransition(
+      "first-adopt", "ShiftLeft", "rawKeyDown"
+    )).toBe("adoptPhysical");
+    expect(controller.completeMacroModifierTransition("first-adopt", true)).toBe(true);
+
+    expect(controller.prepareMacroModifierTransition(
+      "overlapping-adopt", "ShiftLeft", "rawKeyDown"
+    )).toBe("adoptPhysical");
+    expect(controller.completeMacroModifierTransition("overlapping-adopt", false)).toBe(true);
+    expect(controller.prepareMacroModifierTransition(
+      "release-shift", "ShiftLeft", "keyUp"
+    )).toBe("releaseOwnership");
+    expect(controller.completeMacroModifierTransition("release-shift", true)).toBe(true);
+
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+    expect(controller.physicalModifierCodes()).toEqual([]);
   });
 
   it("releases macro ownership while the same physical modifier stays held", () => {

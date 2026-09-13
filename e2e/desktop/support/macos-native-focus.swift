@@ -128,7 +128,9 @@ if mode == "shortcut" || mode == "roleKey" {
   switch command {
   case "KeyY" where mode == "roleKey": key = 16; flags = []
   case "Shift+Digit4" where mode == "roleKey": key = 21; flags = [.maskShift]
+  case "Shift+Digit3Twice" where mode == "roleKey": key = 20; flags = [.maskShift]
   case "Shift+Digit2ThenDigit3Hold" where mode == "roleKey": key = 19; flags = [.maskShift]
+  case "Shift+Digit3ThenDigit2Hold" where mode == "roleKey": key = 20; flags = [.maskShift]
   case "ShiftUp" where mode == "roleKey": key = 56; flags = []
   case "escape": key = 53; flags = []
   case "nextTab": key = 48; flags = [.maskControl]
@@ -146,18 +148,37 @@ if mode == "shortcut" || mode == "roleKey" {
   }
   down.flags = flags
   up.flags = flags
-  if command == "Shift+Digit2ThenDigit3Hold" {
+  if command == "Shift+Digit3Twice" {
     guard let shiftDown = CGEvent(
       keyboardEventSource: source, virtualKey: 56, keyDown: true
-    ), let digit3Down = CGEvent(
-      keyboardEventSource: source, virtualKey: 20, keyDown: true
-    ), let digit3Up = CGEvent(
-      keyboardEventSource: source, virtualKey: 20, keyDown: false
+    ), let shiftUp = CGEvent(
+      keyboardEventSource: source, virtualKey: 56, keyDown: false
+    ) else { fail("native repeated Role shortcut events unavailable") }
+    shiftDown.flags = [.maskShift]
+    shiftUp.flags = []
+    shiftDown.post(tap: .cghidEventTap)
+    usleep(20_000)
+    for index in 0..<2 {
+      down.post(tap: .cghidEventTap)
+      usleep(20_000)
+      up.post(tap: .cghidEventTap)
+      if index == 0 { usleep(600_000) }
+    }
+    usleep(20_000)
+    shiftUp.post(tap: .cghidEventTap)
+  } else if command == "Shift+Digit2ThenDigit3Hold" || command == "Shift+Digit3ThenDigit2Hold" {
+    let secondKey: CGKeyCode = command == "Shift+Digit2ThenDigit3Hold" ? 20 : 19
+    guard let shiftDown = CGEvent(
+      keyboardEventSource: source, virtualKey: 56, keyDown: true
+    ), let secondDown = CGEvent(
+      keyboardEventSource: source, virtualKey: secondKey, keyDown: true
+    ), let secondUp = CGEvent(
+      keyboardEventSource: source, virtualKey: secondKey, keyDown: false
     ) else { fail("native overlapping Role shortcut events unavailable") }
     shiftDown.flags = [.maskShift]
-    digit3Down.flags = [.maskShift]
-    digit3Up.flags = [.maskShift]
-    for event in [shiftDown, down, up, digit3Down, digit3Up] {
+    secondDown.flags = [.maskShift]
+    secondUp.flags = [.maskShift]
+    for event in [shiftDown, down, up, secondDown, secondUp] {
       event.post(tap: .cghidEventTap)
       usleep(20_000)
     }

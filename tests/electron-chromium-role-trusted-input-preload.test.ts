@@ -132,6 +132,7 @@ describe("Chromium role trusted-input preload", () => {
       arm: vi.fn(async () => ({
         armed: true,
         modifierDisposition: "adoptPhysical" as const,
+        modifierProjectionCodes: [],
         physicalModifierCodes: ["ShiftLeft"]
       })),
       clear: vi.fn(async () => true),
@@ -147,7 +148,8 @@ describe("Chromium role trusted-input preload", () => {
       shortcutSuppression: {
         code: "ShiftLeft",
         phases: ["keydown"],
-        repeat: false
+        repeat: false,
+        modifierProjectionCodes: []
       },
       modifierTransition: { code: "ShiftLeft", phase: "rawKeyDown" }
     });
@@ -179,11 +181,69 @@ describe("Chromium role trusted-input preload", () => {
     });
   });
 
+  it("keeps a physical modifier projection armed after ownership release", async () => {
+    const guards: ChromiumRoleTrustedInputOverlayGuardPort = {
+      arm: vi.fn(async () => ({
+        armed: true,
+        modifierDisposition: "releaseOwnership" as const,
+        modifierProjectionCodes: ["ShiftLeft"],
+        physicalModifierCodes: ["ShiftLeft"]
+      })),
+      clear: vi.fn(async () => true),
+      snapshot: vi.fn(async () => ({ admitted: true, physicalModifierCodes: [] }))
+    };
+    const subject = harness(guards);
+    subject.arm([{
+      ...keyEvent("keyup"),
+      code: "ShiftLeft",
+      metaKey: false,
+      shiftKey: false
+    }], {
+      shortcutSuppression: {
+        code: "ShiftLeft",
+        phases: ["keyup"],
+        repeat: false,
+        modifierProjectionCodes: ["ShiftLeft"]
+      },
+      modifierTransition: { code: "ShiftLeft", phase: "keyUp" }
+    });
+    await Promise.resolve();
+
+    expect(guards.arm).toHaveBeenCalledWith(expect.objectContaining({
+      modifierProjectionCodes: ["ShiftLeft"],
+      modifierTransition: { code: "ShiftLeft", phase: "keyUp" }
+    }));
+    expect(subject.send).toHaveBeenCalledWith(
+      CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
+      expect.objectContaining({
+        expectedEventCount: 0,
+        modifierDisposition: "releaseOwnership",
+        modifierProjectionCodes: ["ShiftLeft"],
+        physicalModifierCodes: ["ShiftLeft"]
+      })
+    );
+    subject.emit({
+      ...observedKey("keydown", true),
+      code: "ShiftLeft",
+      shiftKey: true
+    });
+    expect(subject.send).toHaveBeenLastCalledWith(
+      CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
+      expect.objectContaining({
+        kind: "input",
+        observationSequence: 1,
+        code: "ShiftLeft",
+        shiftKey: true
+      })
+    );
+  });
+
   it("rolls back a prepared modifier transition when its arm receipt is rejected", async () => {
     const guards: ChromiumRoleTrustedInputOverlayGuardPort = {
       arm: vi.fn(async () => ({
         armed: false,
         modifierDisposition: "adoptPhysical" as const,
+        modifierProjectionCodes: [],
         physicalModifierCodes: []
       })),
       clear: vi.fn(async () => true),
@@ -199,7 +259,8 @@ describe("Chromium role trusted-input preload", () => {
       shortcutSuppression: {
         code: "ShiftLeft",
         phases: ["keydown"],
-        repeat: false
+        repeat: false,
+        modifierProjectionCodes: []
       },
       modifierTransition: { code: "ShiftLeft", phase: "rawKeyDown" }
     });
@@ -219,11 +280,13 @@ describe("Chromium role trusted-input preload", () => {
   it("acknowledges guarded key arming only after the exact overlay sequence is ready", async () => {
     let finishArm!: (result: Readonly<{
       armed: boolean;
+      modifierProjectionCodes: readonly string[];
       physicalModifierCodes: readonly string[];
       modifierDisposition: "dispatch" | "adoptPhysical" | "releaseOwnership";
     }>) => void;
     const arm = vi.fn(() => new Promise<Readonly<{
       armed: boolean;
+      modifierProjectionCodes: readonly string[];
       physicalModifierCodes: readonly string[];
       modifierDisposition: "dispatch" | "adoptPhysical" | "releaseOwnership";
     }>>((resolve) => {
@@ -240,7 +303,8 @@ describe("Chromium role trusted-input preload", () => {
       shortcutSuppression: {
         code: "KeyA",
         phases: ["keydown", "keyup"],
-        repeat: false
+        repeat: false,
+        modifierProjectionCodes: []
       },
       modifierTransition: null
     });
@@ -250,6 +314,7 @@ describe("Chromium role trusted-input preload", () => {
       inputSequence: INPUT_SEQUENCE,
       phases: ["keydown", "keyup"],
       repeat: false,
+      modifierProjectionCodes: [],
       modifierTransition: null
     });
     expect(subject.send).not.toHaveBeenCalled();
@@ -257,6 +322,7 @@ describe("Chromium role trusted-input preload", () => {
     finishArm({
       armed: true,
       modifierDisposition: "dispatch",
+      modifierProjectionCodes: [],
       physicalModifierCodes: ["MetaLeft"]
     });
     await Promise.resolve();
@@ -266,6 +332,7 @@ describe("Chromium role trusted-input preload", () => {
         kind: "armed",
         expectedEventCount: 2,
         modifierDisposition: "dispatch",
+        modifierProjectionCodes: [],
         physicalModifierCodes: ["MetaLeft"]
       })
     );
@@ -301,6 +368,7 @@ describe("Chromium role trusted-input preload", () => {
         frameToken: "frame-token-1",
         inputSequence: INPUT_SEQUENCE,
         modifierDisposition: "dispatch",
+        modifierProjectionCodes: ["ShiftRight"],
         physicalModifierCodes: ["ShiftRight"]
       };
     });
@@ -313,10 +381,12 @@ describe("Chromium role trusted-input preload", () => {
       code: "Digit4",
       phases: ["keydown", "keyup"],
       repeat: false,
+      modifierProjectionCodes: ["ShiftRight"],
       modifierTransition: null
     })).resolves.toEqual({
       armed: true,
       modifierDisposition: "dispatch",
+      modifierProjectionCodes: ["ShiftRight"],
       physicalModifierCodes: ["ShiftRight"]
     });
     expect(execute).toHaveBeenCalledWith(1004, [expect.objectContaining({
@@ -339,6 +409,7 @@ describe("Chromium role trusted-input preload", () => {
       arm: vi.fn(async () => ({
         armed: true,
         modifierDisposition: "dispatch" as const,
+        modifierProjectionCodes: [],
         physicalModifierCodes: []
       })),
       clear: vi.fn(async () => true),
@@ -373,9 +444,11 @@ describe("Chromium role trusted-input preload", () => {
       "auxclick", "click", "contextmenu", "keydown", "keyup", "mousedown", "mouseup"
     ]);
     subject.arm([keyEvent("keydown"), keyEvent("keyup")]);
-    subject.emit(observedKey("keydown", true));
-    subject.emit(observedKey("keyup", true));
     expect(subject.send).toHaveBeenCalledOnce();
+    subject.emit(observedKey("keydown", true));
+    expect(subject.send).toHaveBeenCalledTimes(2);
+    subject.emit(observedKey("keyup", true));
+    expect(subject.send).toHaveBeenCalledTimes(3);
     await Promise.resolve();
 
     expect(subject.send.mock.calls.map(([channel]) => channel)).toEqual([
@@ -391,6 +464,7 @@ describe("Chromium role trusted-input preload", () => {
       inputSequence: INPUT_SEQUENCE,
       expectedEventCount: 2,
       modifierDisposition: "dispatch",
+      modifierProjectionCodes: [],
       physicalModifierCodes: []
     });
     expect(subject.send.mock.calls.slice(1).map(([, receipt]) => receipt)).toEqual([

@@ -183,6 +183,26 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
     afterSequence: stopProjectionCursor,
     macroId: input.macroId
   });
+  let stoppedShortcutEvidence: unknown = null;
+  await browser.waitUntil(async () => {
+    const entries = (await rendererCall("queryLogs", {
+      levels: ["debug"],
+      limit: 100,
+      search: "managed_shortcut_transition"
+    })).entries;
+    stoppedShortcutEvidence = entries.find((entry) =>
+      entry.event === "managed_shortcut_transition" &&
+      entry.context?.roleId === input.roleId &&
+      entry.context?.macroId === input.macroId &&
+      entry.context?.phase === "keyDown" &&
+      entry.context?.state === "accepted" &&
+      entry.context?.controlOutcome === "stopped");
+    return stoppedShortcutEvidence !== undefined;
+  }, {
+    timeout: 10_000,
+    timeoutMsg: "The second shortcut did not persist Core stop-before-replacement evidence"
+  });
+  expect(stoppedShortcutEvidence).toBeDefined();
   const state = (await fixtureState())[FIXTURE_ID];
   expect(state?.pressedCodes).toEqual([]);
   expect(state?.consumerPressedCodes).toEqual([]);

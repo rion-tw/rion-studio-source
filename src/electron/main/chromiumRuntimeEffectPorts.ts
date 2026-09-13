@@ -138,6 +138,14 @@ export interface ChromiumRuntimeChromeProfileImportPort {
 
 export interface ChromiumRuntimeTrustedInputPort {
   execute: (request: BrowserActionRequest) => Promise<ChromiumNativeTrustedInputReceipt>;
+  observeMacroKey: (
+    identity: Readonly<{
+      roleId: string;
+      generation: number;
+      documentInstanceId: string;
+    }>,
+    payload: unknown
+  ) => boolean;
   retireSurface: (roleId: string, generation: number) => Promise<boolean>;
   retireSurfaceForDestruction: (
     roleId: string,

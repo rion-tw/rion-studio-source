@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   recentTrustedInputTerminals,
   recordTrustedInputTerminal,
-  resetTrustedInputTerminalJournalForTest
+  resetTrustedInputTerminalJournalForTest,
+  trustedInputDiagnostics
 } from "../src/electron/main/chromiumTrustedInputTerminalJournal";
 
 function record(requestId: string, intent: "normal" | "cleanup" = "normal") {
@@ -21,9 +22,14 @@ function record(requestId: string, intent: "normal" | "cleanup" = "normal") {
     applicationPath: "cdp" as const,
     expectedDomEventCount: 1,
     observedDomEventCount: 0,
+    modifierProjectionCodes: [],
     cdpSubmissionCertainty: "possibly-submitted" as const,
     physicalInterleave: "same-identity" as const,
     terminalCode: "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+    nativeProofChanges: [],
+    traceSteps: [],
+    traceTruncated: false,
+    droppedTraceStepCount: 0,
     cleanupOutcome: intent === "cleanup" ? "neutral" as const : "not-attempted" as const,
     recoveryOutcome: intent === "cleanup" ? "cleanup-neutral" as const : "restart-required" as const
   };
@@ -42,6 +48,15 @@ describe("Chromium trusted-input terminal journal", () => {
     expect(recent[0]?.requestId).toBe("request-2");
     expect(recent.at(-1)).toEqual(record("request-129"));
     expect(JSON.stringify(recent)).not.toContain("text");
+    expect(trustedInputDiagnostics()).toMatchObject({
+      snapshotComplete: true,
+      terminalCapacity: 128,
+      retainedTerminalCount: 128,
+      droppedTerminalCount: 2,
+      incidentCapacity: 32,
+      retainedIncidentCount: 32,
+      droppedIncidentCount: 98
+    });
   });
 
   it("joins an exact cleanup outcome to its original terminal record", () => {

@@ -53,7 +53,13 @@
     return armMacroKeyGuard(dispatchId, code, phase, "macro-key");
   }
 
-  function suppressShortcutSequence(dispatchId, code, phases, repeat = false) {
+  function suppressShortcutSequence(
+    dispatchId,
+    code,
+    phases,
+    repeat = false,
+    modifierProjectionCodes = []
+  ) {
     const normalizedDispatchId = String(dispatchId);
     const normalizedCode = String(code);
     if (
@@ -63,7 +69,14 @@
       normalizedCode.length === 0 ||
       !Array.isArray(phases) ||
       typeof repeat !== "boolean" ||
-      phases.length < 1 ||
+      !Array.isArray(modifierProjectionCodes) ||
+      modifierProjectionCodes.length > 8 ||
+      new Set(modifierProjectionCodes).size !== modifierProjectionCodes.length ||
+      modifierProjectionCodes.some((modifierCode) =>
+        !physicalModifierCodeSet.has(modifierCode) ||
+        !physicalGameKeys.has(modifierCode)
+      ) ||
+      (phases.length < 1 && modifierProjectionCodes.length < 1) ||
       phases.length > 2 ||
       phases.some((phase, index) =>
         (phase !== "keydown" && phase !== "keyup") ||
@@ -79,6 +92,15 @@
         disposition: "macro-key",
         phase,
         repeat
+      });
+    }
+    for (const modifierCode of modifierProjectionCodes) {
+      inFlightMacroKeyGuards.push({
+        code: modifierCode,
+        dispatchId: normalizedDispatchId,
+        disposition: "modifier-projection",
+        phase: "keydown",
+        repeat: false
       });
     }
     return true;
@@ -109,11 +131,13 @@
     }
     const physical = physicalGameKeys.get(normalizedCode);
     const ownership = macroModifierOwnership.get(normalizedCode);
-    if (phase === "rawKeyDown" && physical && !ownership) {
-      macroModifierOwnership.set(normalizedCode, {
-        acquisitionSequence: normalizedDispatchId,
-        delivered: false
-      });
+    if (phase === "rawKeyDown" && physical) {
+      if (!ownership) {
+        macroModifierOwnership.set(normalizedCode, {
+          acquisitionSequence: normalizedDispatchId,
+          delivered: false
+        });
+      }
       pendingMacroModifierTransitions.set(normalizedDispatchId, {
         code: normalizedCode,
         disposition: "adoptPhysical",
@@ -190,11 +214,19 @@
 
   function reportObservedMacroKey(guard, event, afterPropagation = true) {
     const report = () => {
-      void binding.macroKeyObserved?.({
+      const observation = {
         code: guard.code,
         dispatchId: guard.dispatchId,
-        phase: guard.phase
-      }).catch(() => undefined);
+        phase: guard.phase,
+        ...(guard.disposition === "modifier-projection" ? {
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          modifierProjection: true,
+          shiftKey: event.shiftKey
+        } : {})
+      };
+      void binding.macroKeyObserved?.(observation).catch(() => undefined);
     };
     if (!afterPropagation || !event.bubbles) {
       report();
@@ -353,14 +385,14 @@
       modifierCodes: active.modifierCodes,
       phase,
       shortcutCycleId: active.shortcutCycleId
-    })).then(() => {
+    })).then((receipt) => {
       return reportMacroShortcutLifecycle(
         active.macroId,
         active.code,
         phase === "keyDown"
           ? "managed-keydown-acknowledged"
           : "managed-keyup-acknowledged"
-      );
+      ).then(() => receipt);
     });
   }
 
@@ -828,7 +860,7 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
-    // Native adapters may need to restore WebView modifier flags after a
+    // Native adapters may need to restore Chromium modifier flags after a
     // guarded macro keyup. The physical DOM owner already keeps the aggregate
     // modifier down, so this projection updates only native state and must not
     // become a second page-visible keydown or a new macro ownership cycle.
@@ -837,7 +869,7 @@
       "modifier-projection"
     );
     if (modifierProjectionGuard) {
-      // Keep WebKit/WebView2's native default modifier update. Only isolate the
+      // Keep Chromium's native default modifier update. Only isolate the
       // projection from page listeners; preventing its default would make the
       // next physical key lose the still-held modifier flags.
       event.stopPropagation();
@@ -967,7 +999,11 @@
       console.warn("Unable to begin a managed Rion Studio shortcut.", error);
       throw error;
     });
-    active.actionPromise = active.keyDownPromise.then(() => {
+    active.actionPromise = active.keyDownPromise.then((receipt) => {
+      if (receipt?.controlOutcome === "stopped") {
+        markActivationDispatched();
+        return undefined;
+      }
       reportMacroShortcutLifecycle(macro.id, event.code, "macro-dispatched");
       return runAction(
         activationMode === "hold" ? "hold-start" : "press",

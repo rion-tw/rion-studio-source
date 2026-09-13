@@ -372,6 +372,9 @@ function harness(options: Readonly<{
       inputSequence: control.inputSequence,
       expectedEventCount: control.expectedEvents.length,
       modifierDisposition: "dispatch",
+      modifierProjectionCodes:
+        control.shortcutSuppression?.modifierProjectionCodes.filter(code =>
+          physicalModifierCodes.includes(code)) ?? [],
       physicalModifierCodes
     });
     return control;
@@ -412,6 +415,7 @@ function harness(options: Readonly<{
     controls,
     domReceipt,
     event,
+    frameIdentity,
     fireDeadline: () => {
       nowMs = 2_000;
       [...timerCallbacks.values()][0]?.();
@@ -481,6 +485,7 @@ describe("macOS AppKit trusted-input adapter", () => {
       inputSequence: control!.inputSequence,
       expectedEventCount: 0,
       modifierDisposition: "adoptPhysical",
+      modifierProjectionCodes: [],
       physicalModifierCodes: ["ShiftLeft"]
     });
 
@@ -492,6 +497,79 @@ describe("macOS AppKit trusted-input adapter", () => {
     expect(subject.controls.at(-1)).toEqual(expect.objectContaining({
       kind: "cancel",
       committed: true
+    }));
+  });
+
+  it("reprojects physical Shift when synthetic ownership is released", async () => {
+    const subject = harness();
+    subject.setNativePhysicalModifierCodes(["ShiftLeft"]);
+    const action = {
+      ...keyAction("release"),
+      key: "Shift",
+      code: "ShiftLeft",
+      modifiers: [],
+      exactModifierCodes: []
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const completion = subject.adapter.dispatch(nativeRequest("release-shift", action, {
+      physicalModifierCodes: ["ShiftLeft"],
+      keyEffect: {
+        phase: "keyUp",
+        code: "ShiftLeft",
+        activeCodesBefore: ["ShiftLeft"],
+        activeCodes: [],
+        autoRepeat: false,
+        suppressShortcut: true
+      }
+    }));
+    const control = subject.controls.find((candidate) => candidate.kind === "arm");
+    expect(control).toEqual(expect.objectContaining({
+      modifierTransition: { code: "ShiftLeft", phase: "keyUp" },
+      shortcutSuppression: expect.objectContaining({
+        modifierProjectionCodes: ["ShiftLeft"]
+      })
+    }));
+    subject.adapter.receive(subject.event, {
+      kind: "armed",
+      roleId: "role-1",
+      generation: 1,
+      frameToken: "frame-token-1",
+      inputSequence: control!.inputSequence,
+      expectedEventCount: 0,
+      modifierDisposition: "releaseOwnership",
+      modifierProjectionCodes: ["ShiftLeft"],
+      physicalModifierCodes: ["ShiftLeft"]
+    });
+    await Promise.resolve();
+
+    expect(subject.keySubmissions).toEqual([
+      expect.objectContaining({
+        code: "ShiftLeft", eventType: "rawKeyDown", modifierFlags: 1 << 17
+      })
+    ]);
+    expect(subject.adapter.observeMacroKey(subject.frameIdentity, {
+      altKey: false,
+      code: "ShiftLeft",
+      ctrlKey: false,
+      dispatchId: control!.inputSequence,
+      metaKey: false,
+      modifierProjection: true,
+      phase: "keydown",
+      shiftKey: true
+    })).toBe(true);
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: true
+    });
+    expect(recentTrustedInputTerminals().at(-1)).toEqual(expect.objectContaining({
+      modifierProjectionCodes: ["ShiftLeft"],
+      cdpModifierMask: 8,
+      lastObservedDomModifierMask: 8,
+      traceSteps: expect.arrayContaining([
+        expect.objectContaining({ stage: "modifier-ownership-released" }),
+        expect.objectContaining({
+          stage: "physical-modifier-projected", outcomeCode: "ShiftLeft"
+        })
+      ])
     }));
   });
 
@@ -649,7 +727,8 @@ describe("macOS AppKit trusted-input adapter", () => {
       const control = subject.arm();
       expect(control.shortcutSuppression).toEqual({
         code: "Digit2", phases: [phase === "hold" ? "keydown" : "keyup"],
-        repeat: false
+        repeat: false,
+        modifierProjectionCodes: []
       });
       subject.adapter.receive(subject.event, subject.domReceipt(control, 0));
       await expect(completion).resolves.toMatchObject({ status: "applied" });
@@ -664,7 +743,8 @@ describe("macOS AppKit trusted-input adapter", () => {
     expect(control.shortcutSuppression).toEqual({
       code: "KeyA",
       phases: ["keydown", "keyup"],
-      repeat: false
+      repeat: false,
+      modifierProjectionCodes: []
     });
     expect(subject.keySubmissions).toHaveLength(2);
     let settled = false;
@@ -830,12 +910,25 @@ describe("macOS AppKit trusted-input adapter", () => {
     const control = subject.arm(["ShiftLeft"]);
     await Promise.resolve();
     expect(subject.keySubmissions).toEqual([
-      expect.objectContaining({ code: "Digit2", modifierFlags: 1 << 17 })
+      expect.objectContaining({ code: "Digit2", modifierFlags: 1 << 17 }),
+      expect.objectContaining({
+        code: "ShiftLeft", eventType: "rawKeyDown", modifierFlags: 1 << 17
+      })
     ]);
     subject.adapter.receive(
       subject.event,
       subject.domReceipt(control, 0, { shiftKey: true })
     );
+    expect(subject.adapter.observeMacroKey(subject.frameIdentity, {
+      altKey: false,
+      code: "ShiftLeft",
+      ctrlKey: false,
+      dispatchId: control.inputSequence,
+      metaKey: false,
+      modifierProjection: true,
+      phase: "keydown",
+      shiftKey: true
+    })).toBe(true);
     await expect(completion).resolves.toMatchObject({ status: "applied" });
   });
 
@@ -1105,6 +1198,7 @@ describe("macOS AppKit trusted-input adapter", () => {
       inputSequence: nextControl.inputSequence,
       expectedEventCount: nextControl.expectedEvents.length,
       modifierDisposition: "dispatch",
+      modifierProjectionCodes: [],
       physicalModifierCodes: []
     });
     subject.receiptAll(nextControl);
@@ -1214,17 +1308,26 @@ describe("macOS AppKit trusted-input adapter", () => {
     }));
   });
 
-  it("terminalizes changed AppKit focus proof after CDP acceptance", async () => {
+  it("accepts an exact DOM receipt when only mutable AppKit focus proof changes", async () => {
+    resetTrustedInputTerminalJournalForTest();
     const subject = harness();
     const result = subject.adapter.dispatch(nativeRequest("focus-changed", keyAction("hold")));
-    subject.arm();
+    const control = subject.arm();
     subject.setNativeFocusNeutral(false);
+    await Promise.resolve();
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0));
 
     await expect(result).resolves.toMatchObject({
-      status: "indeterminate",
-      errorCode: "SYSTEM_TRUSTED_INPUT_PARTIAL_NATIVE_SUBMISSION",
+      status: "applied",
+      errorCode: null,
       confirmedInputNeutrality: false
     });
+    expect(recentTrustedInputTerminals().at(-1)).toEqual(expect.objectContaining({
+      terminalCode: "APPLIED",
+      nativeProofChanges: expect.arrayContaining([
+        "targetWindowFirstResponderAddress"
+      ])
+    }));
   });
 
   it("proves focus readiness without changing native focus or forging input", async () => {

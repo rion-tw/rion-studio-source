@@ -22,8 +22,10 @@ describe("Chromium role overlay preload", () => {
     expect(source).toContain("--font-ui");
     expect(source).toContain("(event) => event.isTrusted === true");
     expect(source).toContain("bridge.refreshReceipt = (payload) => native.refreshReceipt(payload)");
+    expect(source).toContain(
+      "bridge.macroKeyObserved = (payload) => native.macroKeyObserved(payload)"
+    );
     expect(source).toContain('typeof native.inputContextLost === "function"');
-    expect(source).not.toContain("bridge.macroKeyObserved");
     expect(source).not.toContain("bridge.macroBadgeTiming");
     expect(source).not.toContain("bridge.shortcutLifecycle");
     expect(source).not.toContain("__TAURI_INTERNALS__");

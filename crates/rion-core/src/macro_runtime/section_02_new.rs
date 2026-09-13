@@ -854,16 +854,46 @@ impl MacroRuntime {
                     .lock()
                     .map_err(|_| CoreError::Internal("macro result lock poisoned".to_owned()))?;
                 let Some(pending) = actions.remove(&request_id) else {
-                    match actions.completed.get(&request_id) {
-                        Some(CompletedBrowserAction::TimedOut) => report.late.push(request_id),
-                        Some(CompletedBrowserAction::Completed) => {
-                            report.duplicate.push(request_id);
+                    let late_role_id = match actions.completed.get(&request_id) {
+                        Some(CompletedBrowserAction {
+                            kind: BrowserActionCompletionKind::TimedOut,
+                            role_id,
+                        }) => {
+                            report.late.push(request_id.clone());
+                            Some(role_id.clone())
                         }
-                        None => report.unknown.push(request_id),
+                        Some(CompletedBrowserAction {
+                            kind: BrowserActionCompletionKind::Completed,
+                            ..
+                        }) => {
+                            report.duplicate.push(request_id.clone());
+                            None
+                        }
+                        None => {
+                            report.unknown.push(request_id.clone());
+                            None
+                        }
+                    };
+                    if let Some(role_id) = late_role_id
+                        && result.error_code.as_deref()
+                            == Some("SYSTEM_TRUSTED_INPUT_INDETERMINATE")
+                    {
+                        let _ = try_ensure_input_recovery_shared(
+                            &self.shared,
+                            &result.request_id,
+                            &role_id,
+                            MacroInputRecoveryRestartPolicy::StopAffectedRoots,
+                        )?;
                     }
                     continue;
                 };
-                actions.remember(request_id.clone(), CompletedBrowserAction::Completed);
+                actions.remember(
+                    request_id.clone(),
+                    CompletedBrowserAction {
+                        kind: BrowserActionCompletionKind::Completed,
+                        role_id: pending.role_id.clone(),
+                    },
+                );
                 report.accepted.push(request_id);
                 pending
             };
@@ -878,6 +908,13 @@ impl MacroRuntime {
                     &self.shared,
                     &result.request_id,
                     &pending.role_id,
+                    if result.error_code.as_deref()
+                        == Some("SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED")
+                    {
+                        MacroInputRecoveryRestartPolicy::PreserveEligibleRoots
+                    } else {
+                        MacroInputRecoveryRestartPolicy::StopAffectedRoots
+                    },
                 )?;
             }
             if let Some(signal) = pending.signal.upgrade() {

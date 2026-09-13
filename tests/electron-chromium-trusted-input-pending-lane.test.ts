@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame,
+import { ChromiumTrustedInputPendingLane, recordTrustedInputTrace, sameTrustedInputFrame,
   type PendingChromiumTrustedInput } from "../src/electron/main/chromiumTrustedInputPendingLane";
 
 function pending(requestId: string, generation = 1): PendingChromiumTrustedInput {
@@ -67,6 +67,48 @@ describe.each(["macos", "windows"] as const)("%s shared trusted-input pending ow
     expect(active.completion.resolve).toHaveBeenCalledWith(expect.objectContaining({ status: "applied" }));
     expect(sendCancel).toHaveBeenCalledWith(active.frame, expect.objectContaining({ kind: "cancel" }));
     expect(lane.busy("role", "active")).toBe(false);
+  });
+
+  it("coalesces duplicate observation trace steps so terminal evidence is retained", () => {
+    const active = pending("active");
+    const lane = new ChromiumTrustedInputPendingLane({ nowMs: () => 10,
+      cancelDeadline: vi.fn(), sendCancel: vi.fn() });
+    expect(lane.add(active)).toBe(true);
+    for (let index = 0; index < 64; index += 1) {
+      recordTrustedInputTrace(active, "preload", "dom-event-observed");
+    }
+    active.nativeComplete = true;
+    active.nextDomIndex = 1;
+    lane.maybeApply(active);
+
+    expect(active.traceSteps).toEqual([
+      { sequence: 1, source: "electron", stage: "lane-admitted" },
+      { sequence: 2, source: "preload", stage: "dom-event-observed" },
+      { sequence: 3, source: "electron", stage: "terminal", outcomeCode: "APPLIED" }
+    ]);
+    expect(active.droppedTraceStepCount).toBeUndefined();
+  });
+
+  it("reserves the final trace position for terminal evidence after unique-step overflow", () => {
+    const active = pending("active");
+    const lane = new ChromiumTrustedInputPendingLane({ nowMs: () => 10,
+      cancelDeadline: vi.fn(), sendCancel: vi.fn() });
+    expect(lane.add(active)).toBe(true);
+    for (let index = 0; index < 31; index += 1) {
+      recordTrustedInputTrace(active, "preload", `observation-${index}`);
+    }
+    active.nativeComplete = true;
+    active.nextDomIndex = 1;
+    lane.maybeApply(active);
+
+    expect(active.traceSteps).toHaveLength(32);
+    expect(active.traceSteps?.at(-1)).toEqual({
+      sequence: 33,
+      source: "electron",
+      stage: "terminal",
+      outcomeCode: "APPLIED"
+    });
+    expect(active.droppedTraceStepCount).toBe(1);
   });
 
   it("requires the exact frame handle and document token", () => {

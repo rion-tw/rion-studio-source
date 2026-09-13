@@ -112,6 +112,34 @@ describe("Electron operational logger", () => {
     ]);
   });
 
+  it("persists abnormal trusted-input evidence as an error incident", async () => {
+    const core = corePort();
+    const logger = new ElectronOperationalLogger();
+    logger.bindCore(core.port);
+
+    logger.trustedInputIncident({
+      requestId: "request-1",
+      roleId: "role-1",
+      terminalCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_DEADLINE",
+      failureStage: "dom-receipt-correlation",
+      traceSteps: [{ sequence: 1, source: "cdp", stage: "submission-accepted" }]
+    });
+    await logger.flush();
+
+    expect(captured(core.invoke)).toEqual([
+      expect.objectContaining({
+        level: "error",
+        source: "macro",
+        event: "trusted_input_incident"
+      })
+    ]);
+    expect(JSON.parse(captured(core.invoke)[0]!.contextRawJson!)).toMatchObject({
+      requestId: "request-1",
+      terminalCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_DEADLINE",
+      failureStage: "dom-receipt-correlation"
+    });
+  });
+
   it("bounds the pre-Core buffer and flushes it before later observations", async () => {
     const core = corePort();
     const logger = new ElectronOperationalLogger();

@@ -788,6 +788,20 @@ impl AppCore {
                 expected_input_epoch,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
+            CoreCommand::MacroInputRecoveryNeutralize {
+                recovery_id,
+                role_id,
+                expected_input_epoch,
+                surface_generation,
+                document_instance_id,
+            } => serde_json::to_value(self.neutralize_macro_input_recovery_exact(
+                &recovery_id,
+                &role_id,
+                expected_input_epoch,
+                surface_generation,
+                &document_instance_id,
+            )?)
+            .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::MacroInputRecoveryFail {
                 recovery_id,
                 role_id,

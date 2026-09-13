@@ -45,6 +45,7 @@ export interface ChromiumNativeTrustedInputRequest {
   readonly action: BrowserAction;
   readonly keyEffect?: EmbeddedKeyEffectRecord;
   readonly physicalModifierCodes?: readonly string[];
+  readonly pointerReleaseOnly?: boolean;
 }
 
 export interface ChromiumNativeTrustedInputReceipt {
@@ -69,6 +70,16 @@ export interface ChromiumNativeTrustedInputPort {
   dispatch: (
     request: ChromiumNativeTrustedInputRequest
   ) => Promise<ChromiumNativeTrustedInputReceipt>;
+  observeMacroKey?: (
+    identity: ChromiumTrustedInputGuardObservationIdentity,
+    payload: unknown
+  ) => boolean;
+}
+
+export interface ChromiumTrustedInputGuardObservationIdentity {
+  readonly roleId: string;
+  readonly generation: number;
+  readonly documentInstanceId: string;
 }
 
 export interface ChromiumTrustedInputCoordinatorInput {
@@ -97,6 +108,9 @@ interface RoleLaneState {
   readonly surfaceGeneration: number;
   quarantined: boolean;
   hasHeldKeys: boolean;
+  heldKeyCodes: Set<string>;
+  uncertainKeyCodes: Set<string>;
+  uncertainPointer: Extract<BrowserAction, { type: "click" }> | null;
 }
 
 interface DocumentReplacementQuarantine {
@@ -146,6 +160,7 @@ function validateAction(action: BrowserAction): void {
   }
   if (action.type === "focus") return;
   if (action.type === "reassertHeldKeys") return;
+  if (action.type === "neutralizeInput") return;
   if (action.type === "key") {
     const modifiers = new Set(["primary", "ctrl", "alt", "shift", "meta"]);
     const modifierCodes = new Set([
@@ -366,6 +381,14 @@ export class ChromiumTrustedInputCoordinator {
     return this.#enqueue(request.roleId, () => this.#executeInLane(request));
   }
 
+  observeMacroKey(
+    identity: ChromiumTrustedInputGuardObservationIdentity,
+    payload: unknown
+  ): boolean {
+    return this.#state === "open" &&
+      (this.#input.native.observeMacroKey?.(identity, payload) ?? false);
+  }
+
   prepareControlledDocumentReplacement(
     lease: ChromiumTrustedInputDocumentReplacementLease
   ): Promise<void> {
@@ -492,9 +515,12 @@ export class ChromiumTrustedInputCoordinator {
       if (!state) {
         state = {
           hasHeldKeys: false,
+          heldKeyCodes: new Set(),
           inputEpoch: lease.inputEpoch,
           quarantined: false,
-          surfaceGeneration: lease.surfaceGeneration
+          surfaceGeneration: lease.surfaceGeneration,
+          uncertainKeyCodes: new Set(),
+          uncertainPointer: null
         };
         this.#roleStates.set(lease.roleId, state);
       }
@@ -604,6 +630,9 @@ export class ChromiumTrustedInputCoordinator {
       state.quarantined = false;
       await this.#input.embeddedInput.clear(roleId);
       state.hasHeldKeys = false;
+      state.heldKeyCodes.clear();
+      state.uncertainKeyCodes.clear();
+      state.uncertainPointer = null;
       return true;
     });
   }
@@ -682,7 +711,10 @@ export class ChromiumTrustedInputCoordinator {
         inputEpoch: 0,
         surfaceGeneration: surface.surfaceGeneration,
         quarantined: false,
-        hasHeldKeys: false
+        hasHeldKeys: false,
+        heldKeyCodes: new Set(),
+        uncertainKeyCodes: new Set(),
+        uncertainPointer: null
       };
       this.#roleStates.set(request.roleId, state);
     }
@@ -697,6 +729,15 @@ export class ChromiumTrustedInputCoordinator {
         "Automatic input is disabled for this role until its surface is restarted."
       );
     }
+    if (request.action.type === "neutralizeInput") {
+      if (request.intent !== "cleanup") {
+        fail(
+          "ELECTRON_CHROMIUM_INPUT_INVALID",
+          "Input neutralization must be issued as a cleanup action."
+        );
+      }
+      return this.#neutralizeInLane(request, surface, state);
+    }
     if (request.action.type === "key" || request.action.type === "reassertHeldKeys") {
       try {
         const result = await executeChromiumTrustedKeySequence({
@@ -708,6 +749,8 @@ export class ChromiumTrustedInputCoordinator {
           nowMs: this.#input.nowMs
         });
         state.hasHeldKeys = result.hasHeldKeys;
+        state.heldKeyCodes = new Set(result.activeCodes);
+        if (!result.hasHeldKeys) state.uncertainKeyCodes.clear();
         if (request.intent === "cleanup" && result.receipt.confirmedInputNeutrality) {
           state.quarantined = false;
           this.#input.onRecoveryProof?.(Object.freeze({
@@ -722,8 +765,19 @@ export class ChromiumTrustedInputCoordinator {
       } catch (error) {
         if (error instanceof ChromiumTrustedInputSequenceFailure) {
           state.quarantined = error.quarantine;
+          if (error.quarantine) {
+            for (const code of state.heldKeyCodes) state.uncertainKeyCodes.add(code);
+            for (const edge of error.possiblyAppliedEdges) {
+              if (edge.phase === "rawKeyDown") state.uncertainKeyCodes.add(edge.code);
+            }
+            if (request.action.type === "key" && request.action.code) {
+              state.uncertainKeyCodes.add(request.action.code);
+            }
+          }
           if (error.confirmedInputNeutrality) {
             state.hasHeldKeys = false;
+            state.heldKeyCodes.clear();
+            state.uncertainKeyCodes.clear();
             this.#input.onRecoveryProof?.(Object.freeze({
               kind: "cleanup-neutral",
               requestId: request.requestId,
@@ -753,6 +807,7 @@ export class ChromiumTrustedInputCoordinator {
       receipt = await this.#dispatchNative(nativeRequest);
     } catch (error) {
       state.quarantined = true;
+      if (request.action.type === "click") state.uncertainPointer = request.action;
       throw error;
     }
     if (receipt.status === "applied") {
@@ -770,6 +825,7 @@ export class ChromiumTrustedInputCoordinator {
     }
     if (receipt.status === "indeterminate" || !receipt.confirmedInputNeutrality) {
       state.quarantined = true;
+      if (request.action.type === "click") state.uncertainPointer = request.action;
       fail(
         "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
         receipt.errorMessage ?? "Native input completion is indeterminate."
@@ -779,6 +835,111 @@ export class ChromiumTrustedInputCoordinator {
       fail("BROWSER_ACTION_STALE", receipt.errorMessage!);
     }
     fail(receipt.errorCode!, receipt.errorMessage!);
+  }
+
+  async #neutralizeInLane(
+    request: BrowserActionRequest,
+    surface: ChromiumTrustedInputSurfaceIdentity,
+    state: RoleLaneState
+  ): Promise<ChromiumNativeTrustedInputReceipt> {
+    const codes = [...new Set([
+      ...state.heldKeyCodes,
+      ...state.uncertainKeyCodes
+    ])].sort((left, right) => {
+      const leftModifier = /^(Alt|Control|Meta|Shift)/u.test(left);
+      const rightModifier = /^(Alt|Control|Meta|Shift)/u.test(right);
+      return Number(leftModifier) - Number(rightModifier) || left.localeCompare(right);
+    });
+    let activeCodes = [...codes];
+    try {
+      for (const [index, code] of codes.entries()) {
+        const nextActiveCodes = activeCodes.filter(candidate => candidate !== code);
+        const nativeRequest: ChromiumNativeTrustedInputRequest = Object.freeze({
+          requestId: `${request.requestId}:key:${index + 1}`,
+          roleId: request.roleId,
+          inputEpoch: request.inputEpoch,
+          intent: "cleanup",
+          scheduledAtMs: request.scheduledAtMs,
+          deadlineMs: request.deadlineMs,
+          surfaceGeneration: surface.surfaceGeneration,
+          expectedInputNeutralityBefore: activeCodes.length === 0,
+          expectedInputNeutralityAfter:
+            nextActiveCodes.length === 0 && state.uncertainPointer === null,
+          action: {
+            type: "key",
+            phase: "release",
+            key: code,
+            code,
+            modifiers: [],
+            exactModifierCodes: [],
+            modifierOwnership: "synthetic",
+            ownerId: `input-recovery:${request.requestId}`,
+            suppressOverlayShortcut: true
+          } satisfies Extract<BrowserAction, { type: "key" }>,
+          keyEffect: {
+            phase: "keyUp" as const,
+            code,
+            activeCodesBefore: [...activeCodes],
+            activeCodes: [...nextActiveCodes],
+            autoRepeat: false,
+            suppressShortcut: true
+          },
+          physicalModifierCodes: []
+        });
+        const receipt = await this.#dispatchNative(nativeRequest);
+        if (receipt.status !== "applied") {
+          fail(
+            "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+            receipt.errorMessage ?? "A recovery key release was not applied."
+          );
+        }
+        activeCodes = nextActiveCodes;
+      }
+      if (state.uncertainPointer) {
+        const action = state.uncertainPointer;
+        const nativeRequest: ChromiumNativeTrustedInputRequest = Object.freeze({
+          requestId: `${request.requestId}:pointer-release`,
+          roleId: request.roleId,
+          inputEpoch: request.inputEpoch,
+          intent: "cleanup",
+          scheduledAtMs: request.scheduledAtMs,
+          deadlineMs: request.deadlineMs,
+          surfaceGeneration: surface.surfaceGeneration,
+          expectedInputNeutralityBefore: false,
+          expectedInputNeutralityAfter: true,
+          action,
+          pointerReleaseOnly: true
+        });
+        const receipt = await this.#dispatchNative(nativeRequest);
+        if (receipt.status !== "applied" || !receipt.confirmedInputNeutrality) {
+          fail(
+            "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+            receipt.errorMessage ?? "A recovery pointer release was not applied."
+          );
+        }
+      }
+      await this.#input.embeddedInput.clear(request.roleId);
+      state.inputEpoch = request.inputEpoch;
+      state.quarantined = false;
+      state.hasHeldKeys = false;
+      state.heldKeyCodes.clear();
+      state.uncertainKeyCodes.clear();
+      state.uncertainPointer = null;
+      return Object.freeze({
+        requestId: request.requestId,
+        roleId: request.roleId,
+        inputEpoch: request.inputEpoch,
+        surfaceGeneration: surface.surfaceGeneration,
+        status: "applied" as const,
+        completedAtMs: this.#input.nowMs(),
+        errorCode: null,
+        errorMessage: null,
+        confirmedInputNeutrality: true
+      });
+    } catch (error) {
+      state.quarantined = true;
+      throw error;
+    }
   }
 
   async #dispatchNative(

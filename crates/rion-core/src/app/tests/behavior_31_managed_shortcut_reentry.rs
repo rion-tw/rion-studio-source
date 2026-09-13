@@ -632,6 +632,74 @@ fn managed_shortcut_indeterminate_key_down_remains_cleanup_reachable() {
 }
 
 #[test]
+fn managed_shortcut_stops_an_active_macro_even_when_replacement_input_is_quarantined() {
+    let (_directory, core) = managed_shortcut_core();
+    let macro_id = core
+        .invoke(command(json!({
+            "type": "macroCreate",
+            "input": {
+                "name": "Quarantined shortcut stop",
+                "executionMode": "source_role",
+                "roleIds": [],
+                "shortcutSourceScope": {"type": "all_roles"},
+                "trigger": {
+                    "code": "Digit2",
+                    "ctrl": false,
+                    "alt": false,
+                    "shift": true,
+                    "meta": false
+                },
+                "steps": [{"type": "delay", "ms": 1_000}]
+            }
+        })))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    core.macro_runtime
+        .seed_running_status(&macro_id, "role-shortcut")
+        .unwrap();
+
+    let (receipt, actions) = drive_command_with(
+        Arc::clone(&core),
+        managed_shortcut_command_for(
+            "shortcut-quarantined-stop",
+            "cycle-quarantined-stop",
+            "keyDown",
+            &macro_id,
+            "Digit2",
+            "document-shortcut",
+        ),
+        |effect| CoreEffectResult {
+            effect_id: effect.effect_id,
+            operation_id: effect.operation_id,
+            ok: false,
+            value_json: None,
+            error: Some(CoreErrorPayload {
+                code: "SYSTEM_TRUSTED_INPUT_QUARANTINED".to_owned(),
+                message: "The role is awaiting exact neutralization.".to_owned(),
+            }),
+        },
+    );
+    let receipt = receipt.unwrap();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(receipt["status"], json!("accepted"));
+    assert_eq!(receipt["controlOutcome"], json!("stopped"));
+    assert_eq!(receipt["inputOutcome"], json!("indeterminate"));
+    assert_eq!(
+        receipt["inputErrorCode"],
+        json!("SYSTEM_TRUSTED_INPUT_QUARANTINED")
+    );
+    assert_eq!(receipt["requestIds"], json!([]));
+    assert!(!core
+        .macro_runtime
+        .statuses()
+        .unwrap()
+        .iter()
+        .any(|status| status.macro_id == macro_id));
+}
+
+#[test]
 fn managed_shortcut_owner_transfer_waits_for_exact_terminality() {
     let (_directory, core) = managed_shortcut_core();
     let effects = core.subscribe().unwrap();

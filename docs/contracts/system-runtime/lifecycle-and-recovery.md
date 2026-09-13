@@ -133,44 +133,43 @@ supersedes it and invalidates old-document context events. Only a rejected Core
 or native resume converts the live role to restart-required.
 
 An indeterminate native key or pointer acknowledgement starts one recovery
-transaction keyed by the failing browser-action request ID and role ID. Core is
-the owner of restart intent: before the failed result wakes the old invocation,
-it advances the role input epoch, marks every affected root invocation
-`recovering`, captures eligible root starts in original invocation order, and
-cancels the old invocation tree. Repeated failure delivery for the same role
-replays the active ticket rather than scheduling another restart.
+transaction keyed by the failing browser-action request ID and role ID. Before
+the failed result wakes the old invocation, Core advances the role input epoch,
+cancels the affected invocation tree, and deliberately retains no automatic
+restart intent. Its badge therefore terminalizes instead of remaining
+`recovering`. Repeated or late failure delivery for the same role joins the
+active ticket by its retained request-to-role ledger rather than becoming an
+unknown result or scheduling another restart.
 
-The System Runtime immediately disables the role's native input lane and drains
-the matching Core epoch. The indeterminate action result and proof of a neutral
-input state are tracked separately. An acknowledged guarded `keyup` or
-`mouseup` compensation proves neutrality. Otherwise, an already-fenced
-main-frame navigation must finish on the same surface generation with a changed
-document instance before recovery may continue. Pending navigation waits for its
-existing page-finished event and document-instance readback; popup close keeps
-using the popup input fence. No URL, provider, or authentication-domain rule is
-part of this decision.
+The System Runtime immediately disables the role's native input lane, drains the
+matching Core epoch, and retires the managed-shortcut cycle. Recovery dispatch
+is scheduled only after the current Core-effect acknowledgement returns, so it
+cannot synchronously re-enter the same per-role effect lane. A matching late
+cleanup-neutral proof may complete the ticket. Otherwise Electron invokes the
+Core-authorized `neutralizeInput` cleanup against the exact current surface and
+document. Its idempotent key-up and pointer-release receipts are the only
+same-document neutrality proof; navigation, reload, and elapsed time are never
+used as substitutes.
 
-Once every navigation ticket is complete, only the exact input epoch and surface
-generation may resume Core and the native input lane. The runtime then claims
-the restart ticket and Core re-resolves the current macro configuration and
-active roles before restarting each still-eligible root once. It never resumes
-an old worker or replays an in-flight step. Zero-interval loops are eligible.
-While-held invocations are excluded because their physical hold lease cannot be
-reconstructed. A visible Stop action, a relevant macro mutation, role close, or
-role restart cancels pending restart intent.
+After exact neutralization, only the matching input epoch, surface generation,
+and document may resume Core and the native input lane. The failed native Macro
+stays stopped; the runtime never resumes its old worker, restarts its root, or
+replays the in-flight step. A later user action may start it from the beginning.
+The separate pre-submission embedded-frame context path above still owns its
+explicit eligible-root restart policy.
 
 Macro-input recovery never schedules surface recovery, reloads the page, or
-rebuilds the role WebView. If cleanup, document readback, Core resume, or native
-resume cannot be proven, the current page remains authoritative, automatic input
+rebuilds the role WebView. If cleanup, Core resume, or native resume cannot be
+proven, the current page remains authoritative, automatic input
 stays quarantined, and Core marks the role restart-required until it is
 explicitly relaunched. Independent WebView process failure remains governed by
 the surface-recovery contract above and may complete an already-active macro
 ticket after its replacement surface is proven. Diagnostics distinguish
-`in-place` from `manual-restart-required` and retain the recovery ID and pending
-root count on active and recent input-fence records. This flow adds no
-reconciliation poll or success timer: browser-action result, compensation
-receipt, Core drain, page-finished/document-instance readback, input resume, and
-restart claim are the authoritative ordered events.
+`in-place` from `manual-restart-required`, retain the recovery ID and the zero
+native-failure restart count, and preserve the exact terminal/neutralization
+timeline. This flow adds no reconciliation poll or success timer: browser-action
+result, Core drain, exact neutralization receipt, input resume, and recovery
+completion are the authoritative ordered events.
 
 ## Application power lifecycle
 

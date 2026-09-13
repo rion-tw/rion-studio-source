@@ -128,12 +128,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 34;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 35;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 34 }> {
+): Readonly<Options & { runtimeContractVersion: 35 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
@@ -845,6 +845,20 @@ export class ChromiumRuntimeBootstrap {
             roleId,
             expectedInputEpoch
           }),
+        neutralizeRecovery: ({
+          recoveryId,
+          roleId,
+          expectedInputEpoch,
+          surfaceGeneration,
+          documentInstanceId
+        }) => input.core.invoke({
+          type: "macroInputRecoveryNeutralize",
+          recoveryId,
+          roleId,
+          expectedInputEpoch,
+          surfaceGeneration,
+          documentInstanceId
+        }),
         failRecovery: ({ recoveryId, roleId, expectedInputEpoch, message }) =>
           input.core.invoke({
             type: "macroInputRecoveryFail",
@@ -1238,6 +1252,8 @@ export class ChromiumRuntimeBootstrap {
             createdExecutor.overlayCoordinateContext(identity),
           observeGameInputContext: (identity, payload) =>
             automaticInputContext.observe(identity, payload),
+          macroKeyObserved: (identity, payload) =>
+            trustedInput?.observeMacroKey(identity, payload) ?? false,
           managedShortcutKeyPhase: (identity, payload) =>
             managedShortcuts!.dispatch(identity, payload),
           ...(heldKeyContinuity
@@ -1273,8 +1289,11 @@ export class ChromiumRuntimeBootstrap {
         core: input.core,
         processReceiptLedger: processCoreEffectReceiptLedger,
         execute: (effect, context) => createdExecutor.execute(effect, context),
+        // Recovery may issue a new Core BrowserAction for the same role. Keep
+        // it outside the effect acknowledgement lane so it cannot wait on the
+        // lane that is waiting for this acknowledgement to return.
         afterDispatch: (effect, result, report) =>
-          automaticInputContext.afterEffectDispatch(effect, result, report),
+          automaticInputContext.scheduleAfterEffectDispatch(effect, result, report),
         onEventStreamFailure,
         onError: input.onError
       });
@@ -1322,6 +1341,9 @@ export class ChromiumRuntimeBootstrap {
       runtimePublished = true;
       return runtime;
     } catch (error) {
+      // Scheduled recovery can still require the Core effect lane for its exact
+      // neutralization action. Drain it before retiring that lane.
+      await automaticInputContext.closeAndDrain().catch(() => undefined);
       await effectCoordinator?.dispose().catch(() => undefined);
       await input.appKit?.drainEvents?.().catch(() => undefined);
       await navigationFailureReporter.closeAndDrain().catch(() => undefined);
@@ -1344,7 +1366,6 @@ export class ChromiumRuntimeBootstrap {
       heldKeyContinuity?.dispose();
       roleReloadCoordinator?.dispose();
       await managedShortcuts?.dispose().catch(() => undefined);
-      automaticInputContext.dispose();
       throw error;
     }
   }
@@ -1553,7 +1574,6 @@ export class ChromiumRuntimeBootstrap {
     await this.#managedShortcuts.dispose();
     this.#overlayCoordinator.dispose();
     this.#roleReloadCoordinator?.dispose();
-    this.#automaticInputContext.dispose();
     try {
       await this.#core.shutdown();
     } finally {
@@ -1574,6 +1594,7 @@ export class ChromiumRuntimeBootstrap {
       .then(() => this.#workspaceWebNavigationCommitReporter.closeAndDrain())
       .then(() => this.#roleReloadCoordinator?.dispose())
       .then(() => this.#popupCoordinator.dispose())
+      .then(() => this.#automaticInputContext.closeAndDrain())
       .then(() => this.#coordinator.dispose());
     return this.#intakeDrainPromise;
   }

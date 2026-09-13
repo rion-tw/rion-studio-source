@@ -126,10 +126,16 @@ function exactReceipt(
     receipt.expectedOwnerGeneration === surface.ownerGeneration &&
     receipt.shortcutCycleId === request.shortcutCycleId && receipt.macroId === request.macroId &&
     receipt.code === request.code && receipt.phase === request.phase &&
+    (["none", "stopped"] as const).includes(receipt.controlOutcome) &&
+    (["applied", "failed", "indeterminate", "superseded"] as const)
+      .includes(receipt.inputOutcome) &&
+    (receipt.inputErrorCode === undefined || identifier(receipt.inputErrorCode, 96)) &&
     Array.isArray(receipt.requestIds) && (
       receipt.status === "superseded"
         ? receipt.requestIds.length === 0
-        : receipt.requestIds.length === 1 && identifier(receipt.requestIds[0], 256)
+        : receipt.inputOutcome === "applied"
+          ? receipt.requestIds.length === 1 && identifier(receipt.requestIds[0], 256)
+          : receipt.controlOutcome === "stopped" && receipt.requestIds.length === 0
     );
 }
 
@@ -282,7 +288,7 @@ export class ChromiumManagedShortcutCoordinator {
             : "The exact physical shortcut is already held."
         );
       }
-      if (request.phase === "keyDown") {
+      if (request.phase === "keyDown" && receipt.inputOutcome === "applied") {
         this.#active.set(shortcutKey, {
           code: request.code,
           documentInstanceId: surface.documentInstanceId,
@@ -292,10 +298,12 @@ export class ChromiumManagedShortcutCoordinator {
           surfaceGeneration: surface.surfaceGeneration,
           state: "held"
         });
+      } else if (request.phase === "keyDown") {
+        this.#retireExactCycle(shortcutKey, request.shortcutCycleId);
       } else if (request.phase === "keyUp") {
         this.#retireExactCycle(shortcutKey, request.shortcutCycleId);
       }
-      this.#diagnose(surface, request, operationId, "accepted");
+      this.#diagnose(surface, request, operationId, "accepted", undefined, receipt);
       return Object.freeze({ ...receipt, requestIds: [...receipt.requestIds] });
     });
     return operation.finally(() => {
@@ -539,7 +547,8 @@ export class ChromiumManagedShortcutCoordinator {
     request: ManagedShortcutRequest,
     operationId: string,
     state: string,
-    errorCode?: string
+    errorCode?: string,
+    receipt?: ManagedShortcutPhaseReceiptRecord
   ): void {
     if (!this.#onDiagnostic) return;
     try {
@@ -556,6 +565,11 @@ export class ChromiumManagedShortcutCoordinator {
         modifierCodes: [...request.modifierCodes],
         shortcutCycleId: request.shortcutCycleId,
         state,
+        ...(receipt ? {
+          controlOutcome: receipt.controlOutcome,
+          inputOutcome: receipt.inputOutcome,
+          inputErrorCode: receipt.inputErrorCode ?? null
+        } : {}),
         ...(errorCode ? { errorCode } : {})
       });
     } catch {

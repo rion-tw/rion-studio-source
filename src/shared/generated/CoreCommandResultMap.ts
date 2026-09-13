@@ -35,6 +35,7 @@ import type { MacroOverlayViewModelRecord } from "./MacroOverlayViewModelRecord"
 import type { MacroInputEpochRecord } from "./MacroInputEpochRecord";
 import type { MacroInputRecoveryCompletionReceiptRecord } from "./MacroInputRecoveryCompletionReceiptRecord";
 import type { MacroInputRecoveryFailureReceiptRecord } from "./MacroInputRecoveryFailureReceiptRecord";
+import type { MacroInputRecoveryNeutralizationReceiptRecord } from "./MacroInputRecoveryNeutralizationReceiptRecord";
 import type { MacroInputRecoveryTicketRecord } from "./MacroInputRecoveryTicketRecord";
 import type { ManagedShortcutPhaseReceiptRecord } from "./ManagedShortcutPhaseReceiptRecord";
 import type { ManagedShortcutSurfaceRetirementReceiptRecord } from "./ManagedShortcutSurfaceRetirementReceiptRecord";
@@ -170,6 +171,7 @@ type TypedCoreCommandResultMap = {
   macroInputResume: MacroInputEpochRecord;
   macroInputRecoveryInspect: MacroInputRecoveryTicketRecord;
   macroInputRecoveryComplete: MacroInputRecoveryCompletionReceiptRecord;
+  macroInputRecoveryNeutralize: MacroInputRecoveryNeutralizationReceiptRecord;
   macroInputRecoveryFail: MacroInputRecoveryFailureReceiptRecord;
   managedShortcutPhase: ManagedShortcutPhaseReceiptRecord;
   managedShortcutSurfaceRetire: ManagedShortcutSurfaceRetirementReceiptRecord;

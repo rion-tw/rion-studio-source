@@ -37,6 +37,7 @@ const CHROMIUM_BINDING_SOURCE = `(() => {
   const bridge = (payload) => native.request(payload);
   bridge.ready = () => native.ready();
   bridge.refreshReceipt = (payload) => native.refreshReceipt(payload);
+  bridge.macroKeyObserved = (payload) => native.macroKeyObserved(payload);
   bridge.managedShortcutKeyPhase = (payload) => native.managedShortcutKeyPhase(payload);
   if (typeof native.inputContextLost === "function") {
     bridge.inputContextLost = (payload) => native.inputContextLost(payload);

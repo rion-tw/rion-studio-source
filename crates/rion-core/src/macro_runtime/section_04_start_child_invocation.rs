@@ -421,7 +421,7 @@ fn perform_actions_with_control(
     (shared.events)(vec![CoreEvent::BrowserActions { actions: requests }]);
     let deadline = std::time::Instant::now() + shared.action_timeout;
     let mut outcome = Ok(());
-    let mut timed_out_normal_actions = HashSet::new();
+    let mut timed_out_actions = HashSet::new();
     for (request_id, role_id, receiver) in &pending_actions {
         let mut signal_guard = control
             .wake
@@ -471,6 +471,7 @@ fn perform_actions_with_control(
                     signal_guard = next_guard;
                 }
                 Err(TryRecvError::Empty) => {
+                    timed_out_actions.insert(request_id.clone());
                     if allow_cancelled {
                         record_action_failure(
                             control,
@@ -488,7 +489,9 @@ fn perform_actions_with_control(
                             &mut outcome,
                         );
                     } else {
-                        timed_out_normal_actions.insert(request_id.clone());
+                        // The recovery transaction below owns cancellation and
+                        // terminality for a normal action that may have reached
+                        // the native lane.
                     }
                     break;
                 }
@@ -510,20 +513,31 @@ fn perform_actions_with_control(
             }
         }
         drop(signal_guard);
-        if timed_out_normal_actions.contains(request_id) {
-            let _ = try_ensure_input_recovery_shared(shared, request_id, role_id)
+        if timed_out_actions.contains(request_id) {
+            let _ = try_ensure_input_recovery_shared(
+                shared,
+                request_id,
+                role_id,
+                MacroInputRecoveryRestartPolicy::StopAffectedRoots,
+            )
                 .map_err(|error| MacroActionFailure::internal(error.to_string()))?;
         }
     }
     if let Ok(mut actions) = shared.pending.lock() {
-        for (request_id, _, _) in &pending_actions {
+        for (request_id, role_id, _) in &pending_actions {
             if actions.remove(request_id).is_some() {
-                let completion = if timed_out_normal_actions.contains(request_id) {
-                    CompletedBrowserAction::TimedOut
+                let kind = if timed_out_actions.contains(request_id) {
+                    BrowserActionCompletionKind::TimedOut
                 } else {
-                    CompletedBrowserAction::Completed
+                    BrowserActionCompletionKind::Completed
                 };
-                actions.remember(request_id.clone(), completion);
+                actions.remember(
+                    request_id.clone(),
+                    CompletedBrowserAction {
+                        kind,
+                        role_id: role_id.clone(),
+                    },
+                );
             }
         }
     }

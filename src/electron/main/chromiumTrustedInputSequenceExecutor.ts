@@ -132,6 +132,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
 }>): Promise<Readonly<{
   receipt: ChromiumNativeTrustedInputReceipt;
   hasHeldKeys: boolean;
+  activeCodes: readonly string[];
 }>> {
   const { request } = input;
   const action = request.action;
@@ -253,6 +254,9 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
   const completedAtMs = input.nowMs();
   return Object.freeze({
     hasHeldKeys: transition.hasHeldKeys,
+    activeCodes: Object.freeze([
+      ...(transition.effects.at(-1)?.activeCodes ?? [])
+    ]),
     receipt: Object.freeze({
       requestId: request.requestId,
       roleId: request.roleId,

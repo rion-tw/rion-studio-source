@@ -196,12 +196,18 @@ impl ManagedShortcutPhaseInput {
         &self,
         status: &str,
         request_ids: Vec<String>,
+        control_outcome: &str,
+        input_outcome: &str,
+        input_error_code: Option<String>,
     ) -> crate::model::ManagedShortcutPhaseReceiptRecord {
         crate::model::ManagedShortcutPhaseReceiptRecord {
             code: self.code.clone(),
+            control_outcome: control_outcome.to_owned(),
             document_instance_id: self.document_instance_id.clone(),
             expected_owner_generation: self.expected_owner_generation,
             macro_id: self.macro_id.clone(),
+            input_error_code,
+            input_outcome: input_outcome.to_owned(),
             operation_id: self.operation_id.clone(),
             phase: self.phase.clone(),
             shortcut_cycle_id: self.shortcut_cycle_id.clone(),
@@ -281,7 +287,13 @@ impl AppCore {
             .any(|window| window.selected_tab_id.as_deref() == Some(input.tab_id.as_str()));
         let requires_active_owner = input.phase != "keyUp";
         if !owner_is_current || (requires_active_owner && !owner_tab_is_active) {
-            let receipt = input.receipt("superseded", Vec::new());
+            let receipt = input.receipt(
+                "superseded",
+                Vec::new(),
+                "none",
+                "superseded",
+                None,
+            );
             self.managed_shortcut_runtime
                 .lock()
                 .map_err(|_| {
@@ -303,7 +315,13 @@ impl AppCore {
                 _ => unreachable!(),
             };
             if superseded {
-                let receipt = input.receipt("superseded", Vec::new());
+                let receipt = input.receipt(
+                    "superseded",
+                    Vec::new(),
+                    "none",
+                    "superseded",
+                    None,
+                );
                 runtime.remember(None, receipt.clone());
                 return Ok(receipt);
             }
@@ -314,6 +332,29 @@ impl AppCore {
                 );
             }
         }
+
+        let control_stopped = if input.phase == "keyDown"
+            && self.macro_runtime.statuses()?.iter().any(|status| {
+                status.macro_id == input.macro_id
+                    && status.role_id == input.role_id
+                    && matches!(status.state.as_str(), "running" | "recovering")
+            })
+        {
+            let (macros, _) = self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+            let definition = macros
+                .iter()
+                .find(|definition| definition.id == input.macro_id)
+                .ok_or_else(|| CoreError::InvalidInput("macro not found".to_owned()))?;
+            if definition.uses_source_role() {
+                self.macro_runtime
+                    .stop_source_macro_from_role(&input.macro_id, &input.role_id)?;
+            } else {
+                self.macro_runtime.stop_macro(&input.macro_id)?;
+            }
+            true
+        } else {
+            false
+        };
 
         let request_ids =
             match self
@@ -334,7 +375,9 @@ impl AppCore {
                         CoreError::Internal("managed shortcut runtime lock poisoned".to_owned())
                     })?;
                     let shortcut_key = input.shortcut_key();
-                    if input.phase == "keyDown" {
+                    if input.phase == "keyDown" && control_stopped {
+                        runtime.active_by_shortcut.remove(&shortcut_key);
+                    } else if input.phase == "keyDown" {
                         if let Some(active) = runtime.active_by_shortcut.get_mut(&shortcut_key)
                             && input.matches_active(active)
                         {
@@ -351,10 +394,39 @@ impl AppCore {
                     {
                         runtime.active_by_shortcut.remove(&shortcut_key);
                     }
+                    if control_stopped {
+                        let code = error.code().to_owned();
+                        let input_outcome = if matches!(
+                            code.as_str(),
+                            "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                                | "SYSTEM_TRUSTED_INPUT_QUARANTINED"
+                        ) {
+                            "indeterminate"
+                        } else if code == "BROWSER_ACTION_STALE" {
+                            "superseded"
+                        } else {
+                            "failed"
+                        };
+                        let receipt = input.receipt(
+                            "accepted",
+                            Vec::new(),
+                            "stopped",
+                            input_outcome,
+                            Some(code),
+                        );
+                        runtime.remember(Some(phase_key), receipt.clone());
+                        return Ok(receipt);
+                    }
                     return Err(error);
                 }
             };
-        let receipt = input.receipt("accepted", request_ids);
+        let receipt = input.receipt(
+            "accepted",
+            request_ids,
+            if control_stopped { "stopped" } else { "none" },
+            "applied",
+            None,
+        );
         let mut runtime = self.managed_shortcut_runtime.lock().map_err(|_| {
             CoreError::Internal("managed shortcut runtime lock poisoned".to_owned())
         })?;

@@ -34,3 +34,15 @@ pub struct MacroInputRecoveryFailureReceiptRecord {
     pub restart_required: bool,
     pub role_id: String,
 }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroInputRecoveryNeutralizationReceiptRecord {
+    #[ts(type = "number")]
+    pub input_epoch: u64,
+    pub neutralized: bool,
+    pub recovery_id: String,
+    pub request_ids: Vec<String>,
+    pub role_id: String,
+}

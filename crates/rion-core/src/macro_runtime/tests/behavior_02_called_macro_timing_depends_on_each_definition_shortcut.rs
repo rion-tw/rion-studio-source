@@ -492,6 +492,7 @@
                             }
                             BrowserAction::Click { .. } => "click".to_owned(),
                             BrowserAction::ReassertHeldKeys => "reassert".to_owned(),
+                            BrowserAction::NeutralizeInput => "neutralize".to_owned(),
                         };
                         (action.role_id.clone(), phase)
                     }));
@@ -634,7 +635,7 @@
     }
 
     #[test]
-    fn an_unacknowledged_normal_input_opens_recovery_before_worker_teardown() {
+    fn an_unacknowledged_native_input_opens_recovery_without_restarting_the_macro() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         // Keep the 1 ms timeout scoped to the intentionally hung key, not the
         // startup focus round trip. The deadline starts after this sink returns.
@@ -691,8 +692,8 @@
             .unwrap()
             .expect("Core deadline opens exact input recovery");
         assert_eq!(ticket.recovery_id, timed_out_request_id);
-        assert_eq!(ticket.pending_macro_restart_count, 1);
-        assert!(runtime
+        assert_eq!(ticket.pending_macro_restart_count, 0);
+        assert!(!runtime
             .statuses()
             .unwrap()
             .iter()
@@ -703,6 +704,50 @@
             .unwrap();
         assert_eq!(late.late, vec![timed_out_request_id]);
         assert!(late.accepted.is_empty());
+    }
+
+    #[test]
+    fn input_recovery_neutralization_is_an_exact_cleanup_browser_action() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let ticket = runtime
+            .ensure_input_recovery("recovery-1", "r1")
+            .unwrap();
+        let neutralizing_runtime = runtime.clone();
+        let recovery_id = ticket.recovery_id.clone();
+        let input_epoch = ticket.input_epoch;
+        let neutralizing = thread::spawn(move || {
+            neutralizing_runtime.neutralize_input_recovery(
+                &recovery_id,
+                "r1",
+                input_epoch,
+                7,
+                "document-7",
+            )
+        });
+
+        let actions = next_browser_actions(&receiver);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].role_id, "r1");
+        assert_eq!(actions[0].input_epoch, ticket.input_epoch);
+        assert_eq!(actions[0].intent, "cleanup");
+        assert_eq!(actions[0].surface_generation, Some(7));
+        assert_eq!(actions[0].document_instance_id.as_deref(), Some("document-7"));
+        assert!(matches!(actions[0].action, BrowserAction::NeutralizeInput));
+        let request_id = actions[0].request_id.clone();
+        runtime.dispatch_results(success_results(actions)).unwrap();
+
+        assert_eq!(neutralizing.join().unwrap().unwrap(), vec![request_id]);
+        assert_eq!(
+            runtime
+                .input_recovery_for_role("r1")
+                .unwrap()
+                .unwrap()
+                .recovery_id,
+            "recovery-1"
+        );
     }
 
     #[test]

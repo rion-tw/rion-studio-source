@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ManagedShortcutSurfaceRetirementReceiptRecord } from
+import type {
+  ManagedShortcutPhaseReceiptRecord,
+  ManagedShortcutSurfaceRetirementReceiptRecord
+} from
   "../src/shared/generated";
 import { ChromiumManagedShortcutCoordinator } from
   "../src/electron/main/chromiumManagedShortcutCoordinator";
@@ -36,7 +39,8 @@ function harness(
   dispatchGate: Promise<void> = Promise.resolve()
 ) {
   let operation = 0;
-  const dispatch = vi.fn(async ({ operationId, surface: target, request: phase }) => {
+  const dispatch = vi.fn(async ({ operationId, surface: target, request: phase }
+  ): Promise<ManagedShortcutPhaseReceiptRecord> => {
     await dispatchGate;
     if (status === "indeterminate") {
       throw {
@@ -46,9 +50,11 @@ function harness(
     }
     return {
       code: phase.code,
+      controlOutcome: "none" as const,
       documentInstanceId: target.documentInstanceId,
       expectedOwnerGeneration: target.ownerGeneration,
       macroId: phase.macroId,
+      inputOutcome: status === "superseded" ? "superseded" as const : "applied" as const,
       operationId,
       phase: phase.phase,
       shortcutCycleId: phase.shortcutCycleId,
@@ -72,6 +78,7 @@ function harness(
     terminal: true as const
   }));
   const errors: unknown[] = [];
+  const diagnostics: Array<Readonly<Record<string, unknown>>> = [];
   const resolveSurface = vi.fn(() => surface);
   const coordinator = new ChromiumManagedShortcutCoordinator({
     dispatch,
@@ -79,9 +86,10 @@ function harness(
     retireSurface,
     subscribeSurfaceLifecycle: () => () => undefined,
     onError: (error) => { errors.push(error); },
+    onDiagnostic: (context) => { diagnostics.push(context); },
     createOperationId: () => `operation-${++operation}`
   });
-  return { coordinator, dispatch, errors, resolveSurface, retireSurface };
+  return { coordinator, diagnostics, dispatch, errors, resolveSurface, retireSurface };
 }
 
 describe("Electron Chromium managed shortcut coordinator", () => {
@@ -107,6 +115,42 @@ describe("Electron Chromium managed shortcut coordinator", () => {
       .rejects.toMatchObject({ code: "ELECTRON_MANAGED_SHORTCUT_SUPERSEDED" });
     expect(subject.dispatch).toHaveBeenCalledOnce();
     expect(subject.retireSurface).not.toHaveBeenCalled();
+    await subject.coordinator.dispose();
+  });
+
+  it("accepts and diagnoses a Core stop when replacement input remains quarantined", async () => {
+    const subject = harness();
+    subject.dispatch.mockImplementationOnce(async ({ operationId, surface: target,
+      request: phase }) => ({
+      code: phase.code,
+      controlOutcome: "stopped",
+      documentInstanceId: target.documentInstanceId,
+      expectedOwnerGeneration: target.ownerGeneration,
+      macroId: phase.macroId,
+      inputErrorCode: "SYSTEM_TRUSTED_INPUT_QUARANTINED",
+      inputOutcome: "indeterminate",
+      operationId,
+      phase: phase.phase,
+      shortcutCycleId: phase.shortcutCycleId,
+      requestIds: [],
+      roleId: target.roleId,
+      status: "accepted",
+      surfaceGeneration: target.surfaceGeneration,
+      tabId: target.tabId
+    }));
+
+    await expect(subject.coordinator.dispatch(identity, request("keyDown")))
+      .resolves.toMatchObject({
+        controlOutcome: "stopped",
+        inputOutcome: "indeterminate",
+        requestIds: []
+      });
+    expect(subject.diagnostics.at(-1)).toMatchObject({
+      state: "accepted",
+      controlOutcome: "stopped",
+      inputOutcome: "indeterminate",
+      inputErrorCode: "SYSTEM_TRUSTED_INPUT_QUARANTINED"
+    });
     await subject.coordinator.dispose();
   });
 

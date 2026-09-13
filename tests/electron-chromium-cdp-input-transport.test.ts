@@ -130,6 +130,25 @@ describe("in-process CDP Input session", () => {
     }
   );
 
+  it("emits only mouseReleased for an exact recovery pointer release", () => {
+    expect(chromiumCdpMouseDescriptors({
+      x: 125.5,
+      y: 63.25,
+      button: "right",
+      modifierCodes: [],
+      releaseOnly: true
+    })).toEqual([
+      expect.objectContaining({
+        type: "mouseReleased",
+        x: 125.5,
+        y: 63.25,
+        button: "right",
+        buttons: 0,
+        clickCount: 1
+      })
+    ]);
+  });
+
   it("attaches protocol 1.3 and exposes only fixed Input commands", async () => {
     const subject = harness();
     expect(subject.debuggerPort.attach).toHaveBeenCalledWith("1.3");
@@ -138,11 +157,19 @@ describe("in-process CDP Input session", () => {
     await expect(subject.session.dispatchMouse(identity, {
       x: 10, y: 20, button: "right", modifierCodes: []
     })).resolves.toMatchObject({ acceptedCommandCount: 2 });
+    await expect(subject.session.dispatchMouse(identity, {
+      x: 10, y: 20, button: "right", modifierCodes: [], releaseOnly: true
+    })).resolves.toMatchObject({ acceptedCommandCount: 1 });
     expect(subject.sendCommand.mock.calls.map(([method]) => method)).toEqual([
       "Input.dispatchKeyEvent",
       "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
       "Input.dispatchMouseEvent"
     ]);
+    expect(subject.sendCommand.mock.calls.at(-1)?.[1]).toMatchObject({
+      type: "mouseReleased",
+      buttons: 0
+    });
   });
 
   it("terminalizes detach and never reconnects the same document", async () => {

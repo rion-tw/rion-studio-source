@@ -20,6 +20,12 @@ export function createTrustedInputArmEnvelope(
         phase: request.keyEffect.phase
       })
     : null;
+  const modifierProjectionCodes = request.keyEffect
+    ? Object.freeze((request.physicalModifierCodes ?? []).filter(code =>
+        /^(Alt|Control|Meta|Shift)(Left|Right)$/u.test(code) &&
+        !request.keyEffect!.activeCodes.includes(code)
+      ))
+    : Object.freeze([] as string[]);
   return Object.freeze({
     kind: "arm",
     roleId: request.roleId,
@@ -34,7 +40,8 @@ export function createTrustedInputArmEnvelope(
       ? Object.freeze({
           code: suppressionCode,
           phases: Object.freeze(expectedEvents.map(event => event.type as "keydown" | "keyup")),
-          repeat: request.keyEffect?.autoRepeat ?? false
+          repeat: request.keyEffect?.autoRepeat ?? false,
+          modifierProjectionCodes
         })
       : null
   });

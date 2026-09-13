@@ -485,6 +485,10 @@ describe("Electron Core addon client", () => {
           requestId: "request-1", roleId: "role-1", origin: "macro",
           inputEpoch: 1, intent: "normal", scheduledAtMs: 1, deadlineMs: 100,
           action: { type: "focus" }
+        }, {
+          requestId: "recovery-1", roleId: "role-1", origin: "macro",
+          inputEpoch: 2, intent: "cleanup", scheduledAtMs: 2, deadlineMs: 100,
+          action: { type: "neutralizeInput" }
         }]
       },
       {
@@ -543,6 +547,12 @@ describe("Electron Core addon client", () => {
 
     expect(failureListener).not.toHaveBeenCalled();
     expect(listener).toHaveBeenCalledTimes(13);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({
+      type: "browserActions",
+      actions: expect.arrayContaining([
+        expect.objectContaining({ action: { type: "neutralizeInput" } })
+      ])
+    }));
     expect(listener).toHaveBeenLastCalledWith({ type: "shutdown" });
     await client.shutdown();
   });

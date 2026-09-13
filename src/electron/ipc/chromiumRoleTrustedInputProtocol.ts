@@ -37,6 +37,8 @@ export interface ChromiumRoleTrustedInputShortcutSuppression {
   readonly code: string;
   readonly phases: readonly ("keydown" | "keyup")[];
   readonly repeat: boolean;
+  /** Physical modifiers re-projected after the guarded main-key lifecycle. */
+  readonly modifierProjectionCodes: readonly string[];
 }
 
 export interface ChromiumRoleTrustedInputModifierTransition {
@@ -75,6 +77,7 @@ export interface ChromiumRoleTrustedInputArmedReceipt
   readonly kind: "armed";
   readonly expectedEventCount: number;
   readonly physicalModifierCodes: readonly string[];
+  readonly modifierProjectionCodes: readonly string[];
   readonly modifierDisposition: ChromiumRoleTrustedInputModifierDisposition;
 }
 

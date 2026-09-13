@@ -29,6 +29,7 @@ export type { BrowserWorkspaceWebNavigationCommitReceiptRecord } from "./Browser
 export type { MacroInputEpochRecord } from "./MacroInputEpochRecord";
 export type { MacroInputRecoveryCompletionReceiptRecord } from "./MacroInputRecoveryCompletionReceiptRecord";
 export type { MacroInputRecoveryFailureReceiptRecord } from "./MacroInputRecoveryFailureReceiptRecord";
+export type { MacroInputRecoveryNeutralizationReceiptRecord } from "./MacroInputRecoveryNeutralizationReceiptRecord";
 export type { MacroInputRecoveryTicketRecord } from "./MacroInputRecoveryTicketRecord";
 export type { ManagedShortcutPhaseReceiptRecord } from "./ManagedShortcutPhaseReceiptRecord";
 export type { ManagedShortcutSurfaceRetirementReceiptRecord } from "./ManagedShortcutSurfaceRetirementReceiptRecord";
@@ -111,6 +112,8 @@ export type { SystemRuntimeFailureRecord } from "./SystemRuntimeFailureRecord";
 export type { SystemRuntimeInputFenceEventRecord } from "./SystemRuntimeInputFenceEventRecord";
 export type { SystemRuntimeInputFenceRecord } from "./SystemRuntimeInputFenceRecord";
 export type { TrustedInputTerminalEvidenceRecord } from "./TrustedInputTerminalEvidenceRecord";
+export type { TrustedInputDiagnosticsRecord } from "./TrustedInputDiagnosticsRecord";
+export type { TrustedInputTraceStepRecord } from "./TrustedInputTraceStepRecord";
 export type { SystemRuntimeOperationCompletionScope } from "./SystemRuntimeOperationCompletionScope";
 export type { SystemRuntimeOperationStatus } from "./SystemRuntimeOperationStatus";
 export type { SystemRuntimeOperationSubsystem } from "./SystemRuntimeOperationSubsystem";

@@ -492,6 +492,52 @@ describe("Electron Chromium trusted-input coordinator", () => {
     }))).resolves.toMatchObject({ status: "applied" });
   });
 
+  it("neutralizes an uncertain click with release-only input and reopens the same document", async () => {
+    const harness = subject(async nativeRequest => {
+      if (nativeRequest.requestId === "uncertain-click") {
+        return receipt(nativeRequest, 1_100, {
+          status: "indeterminate",
+          errorCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_DEADLINE",
+          errorMessage: "The exact DOM receipt did not arrive.",
+          confirmedInputNeutrality: false
+        });
+      }
+      return receipt(nativeRequest, 1_100);
+    });
+    const click = {
+      type: "click" as const,
+      anchor: null,
+      unit: "px" as const,
+      x: 20,
+      y: 30,
+      button: "left" as const
+    };
+
+    await expect(harness.coordinator.execute(request("uncertain-click", {
+      action: click
+    }))).rejects.toMatchObject({ code: "SYSTEM_TRUSTED_INPUT_INDETERMINATE" });
+    await expect(harness.coordinator.execute(request("blocked-after-click")))
+      .rejects.toMatchObject({ code: "SYSTEM_TRUSTED_INPUT_QUARANTINED" });
+
+    await expect(harness.coordinator.execute(request("neutralize-click", {
+      action: { type: "neutralizeInput" },
+      intent: "cleanup",
+      inputEpoch: 2
+    }))).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: true
+    });
+    expect(harness.dispatch).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      requestId: "neutralize-click:pointer-release",
+      action: click,
+      intent: "cleanup",
+      pointerReleaseOnly: true
+    }));
+    await expect(harness.coordinator.execute(request("after-pointer-neutralization", {
+      inputEpoch: 2
+    }))).resolves.toMatchObject({ status: "applied" });
+  });
+
   it("clears quarantine only for the exact replacement surface generation", async () => {
     const harness = subject(async (nativeRequest) => receipt(nativeRequest, 1_100, {
       status: "indeterminate",

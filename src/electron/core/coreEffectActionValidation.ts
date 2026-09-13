@@ -1,8 +1,9 @@
-import type { CoreEffectRequest } from "../../shared/generated";
+import type { BrowserAction, CoreEffectRequest } from "../../shared/generated";
 
 type Check = (value: unknown) => boolean;
 type Shape = Readonly<Record<string, Check>>;
 type ActionType = CoreEffectRequest["action"]["type"];
+type BrowserActionType = BrowserAction["type"];
 
 const text: Check = (value) => typeof value === "string";
 const identity: Check = (value) =>
@@ -246,34 +247,57 @@ const coordinate: Check = (value) => closed(value, {
   yPx: finite,
   yReferencePx: finite
 });
+const BROWSER_ACTION_TYPES = Object.freeze({
+  focus: true,
+  key: true,
+  reassertHeldKeys: true,
+  neutralizeInput: true,
+  click: true
+} satisfies Record<BrowserActionType, true>);
+
+function isClosedKnownBrowserAction(value: unknown, type: BrowserActionType): boolean {
+  switch (type) {
+    case "focus":
+    case "reassertHeldKeys":
+    case "neutralizeInput":
+      return closed(value, { type: oneOf(type) });
+    case "key":
+      return closed(value, {
+        type: oneOf(type),
+        phase: oneOf("tap", "hold", "release"),
+        key: text,
+        code: nullable(text),
+        modifiers: arrayOf(oneOf("primary", "ctrl", "alt", "shift", "meta")),
+        exactModifierCodes: nullable(arrayOf(oneOf(
+          "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+          "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
+        ))),
+        modifierOwnership: oneOf("synthetic", "physical-pass-through"),
+        ownerId: identity,
+        suppressOverlayShortcut: bool
+      });
+    case "click":
+      return closed(value, {
+        type: oneOf(type),
+        anchor: nullable(oneOf(
+          "top-left", "top-center", "top-right", "center-left", "center", "center-right",
+          "bottom-left", "bottom-center", "bottom-right"
+        )),
+        unit: oneOf("percent", "px", "reference-px"),
+        x: finite,
+        y: finite,
+        button: oneOf("left", "middle", "right")
+      });
+    default:
+      return unreachable(type);
+  }
+}
+
 const browserAction: Check = (value) => {
-  if (closed(value, { type: oneOf("focus") })) return true;
-  if (closed(value, { type: oneOf("reassertHeldKeys") })) return true;
-  if (closed(value, {
-    type: oneOf("key"),
-    phase: oneOf("tap", "hold", "release"),
-    key: text,
-    code: nullable(text),
-    modifiers: arrayOf(oneOf("primary", "ctrl", "alt", "shift", "meta")),
-    exactModifierCodes: nullable(arrayOf(oneOf(
-      "ControlLeft", "ControlRight", "AltLeft", "AltRight",
-      "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
-    ))),
-    modifierOwnership: oneOf("synthetic", "physical-pass-through"),
-    ownerId: identity,
-    suppressOverlayShortcut: bool
-  })) return true;
-  return closed(value, {
-    type: oneOf("click"),
-    anchor: nullable(oneOf(
-      "top-left", "top-center", "top-right", "center-left", "center", "center-right",
-      "bottom-left", "bottom-center", "bottom-right"
-    )),
-    unit: oneOf("percent", "px", "reference-px"),
-    x: finite,
-    y: finite,
-    button: oneOf("left", "middle", "right")
-  });
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const type = (value as Record<string, unknown>).type;
+  if (typeof type !== "string" || !Object.hasOwn(BROWSER_ACTION_TYPES, type)) return false;
+  return isClosedKnownBrowserAction(value, type as BrowserActionType);
 };
 const browserActionRequest: Check = (value) => closed(value, {
   requestId: identity,

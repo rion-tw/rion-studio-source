@@ -4,7 +4,13 @@ impl MacroRuntime {
         recovery_id: &str,
         role_id: &str,
     ) -> CoreResult<MacroInputRecoveryTicket> {
-        try_ensure_input_recovery_shared(&self.shared, recovery_id, role_id)?.ok_or_else(|| {
+        try_ensure_input_recovery_shared(
+            &self.shared,
+            recovery_id,
+            role_id,
+            MacroInputRecoveryRestartPolicy::PreserveEligibleRoots,
+        )?
+        .ok_or_else(|| {
             CoreError::Domain {
                 code: "MACRO_INPUT_RECOVERY_SUPERSEDED",
                 message: "A newer role terminal state superseded macro input recovery."
@@ -89,6 +95,47 @@ impl MacroRuntime {
                     .get(recovery_id)
                     .map(|recovery| recovery_ticket(recovery_id, recovery))
             }))
+    }
+
+    pub fn neutralize_input_recovery(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+        expected_input_epoch: u64,
+        surface_generation: u64,
+        document_instance_id: &str,
+    ) -> CoreResult<Vec<String>> {
+        let ticket = self
+            .input_recovery_for_role(role_id)?
+            .filter(|ticket| {
+                ticket.recovery_id == recovery_id
+                    && ticket.input_epoch == expected_input_epoch
+            })
+            .ok_or_else(|| CoreError::Domain {
+                code: "MACRO_INPUT_RECOVERY_STALE",
+                message: "The macro input recovery ticket is no longer current.".to_owned(),
+            })?;
+        let control = new_invocation_control(
+            format!("macro-input-neutralize:{}", ticket.recovery_id),
+            format!("macro-input-neutralize:{}", ticket.role_id),
+            HashSet::from([ticket.role_id.clone()]),
+        );
+        let surface = ExactBrowserActionSurface {
+            role_id: ticket.role_id.clone(),
+            surface_generation,
+            document_instance_id: document_instance_id.to_owned(),
+        };
+        perform_actions_with_control(
+            &self.shared,
+            &control,
+            vec![(ticket.role_id.as_str(), BrowserAction::NeutralizeInput)],
+            true,
+            Some(&surface),
+        )
+        .map_err(|failure| CoreError::Effect {
+            code: failure.cause_code,
+            message: failure.message,
+        })
     }
 
     pub(crate) fn input_recovery_group_tickets(
@@ -218,6 +265,7 @@ fn try_ensure_input_recovery_shared(
     shared: &Arc<Shared>,
     recovery_id: &str,
     role_id: &str,
+    restart_policy: MacroInputRecoveryRestartPolicy,
 ) -> CoreResult<Option<MacroInputRecoveryTicket>> {
     let recovery_id = recovery_id.trim();
     let role_id = role_id.trim();
@@ -257,16 +305,22 @@ fn try_ensure_input_recovery_shared(
             controls.insert(root.id.clone(), Arc::clone(&root));
             roots.insert(root.id.clone(), root);
         }
-        let mut intents = roots
-            .values()
-            .filter_map(|control| {
-                control
-                    .restart_intent
-                    .lock()
-                    .ok()
-                    .and_then(|intent| intent.clone())
-            })
-            .collect::<Vec<_>>();
+        let mut intents = if restart_policy
+            == MacroInputRecoveryRestartPolicy::PreserveEligibleRoots
+        {
+            roots
+                .values()
+                .filter_map(|control| {
+                    control
+                        .restart_intent
+                        .lock()
+                        .ok()
+                        .and_then(|intent| intent.clone())
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         intents.sort_by_key(|intent| intent.sequence);
         intents.dedup_by(|left, right| left.sequence == right.sequence);
 

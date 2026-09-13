@@ -175,6 +175,8 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
         execute: (
           request: Parameters<ChromiumRuntimeTrustedInputPort["execute"]>[0]
         ) => coordinator.execute(request),
+        observeMacroKey: (identity, payload) =>
+          coordinator.observeMacroKey(identity, payload),
         retireSurface: (roleId: string, generation: number) =>
           coordinator.retireSurface(roleId, generation),
         retireSurfaceForDestruction: (roleId: string, generation: number) =>

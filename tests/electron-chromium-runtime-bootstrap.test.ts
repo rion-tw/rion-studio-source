@@ -794,12 +794,12 @@ describe("Electron Chromium runtime bootstrap", () => {
 
   it("registers the exact conservative v27 capability fixtures", () => {
     const versions = { electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250" };
-    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(34);
+    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(35);
     expect(buildChromiumRuntimeRegistration({
       platform: "win32",
       ...versions
     })).toEqual({
-      contractVersion: 34,
+      contractVersion: 35,
       platform: "windows",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -827,7 +827,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       platform: "darwin",
       ...versions
     })).toEqual({
-      contractVersion: 34,
+      contractVersion: 35,
       platform: "macos",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -865,14 +865,14 @@ describe("Electron Chromium runtime bootstrap", () => {
     });
   });
 
-  it("pins every Electron AppCore creation to runtime contract v34", () => {
+  it("pins every Electron AppCore creation to runtime contract v35", () => {
     const options = withElectronChromiumRuntimeContract({
       userDataDir: "/RionData",
       runtimeContractVersion: 22
     });
     expect(options).toEqual({
       userDataDir: "/RionData",
-      runtimeContractVersion: 34
+      runtimeContractVersion: 35
     });
     expect(Object.isFrozen(options)).toBe(true);
   });
@@ -1229,6 +1229,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       },
       createTrustedInput: () => ({
         execute: vi.fn(async () => { throw new Error("not used"); }),
+        observeMacroKey: vi.fn(() => false),
         retireSurface: vi.fn(async () => false),
         retireSurfaceForDestruction: vi.fn(async () => true),
         resumeAfterDocumentReplacement: vi.fn(async () => false),

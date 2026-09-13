@@ -102,6 +102,20 @@ export class ElectronOperationalLogger {
       context);
   }
 
+  trustedInputIncident(context: LogContext): void {
+    const code = typeof context.terminalCode === "string"
+      ? context.terminalCode
+      : "SYSTEM_TRUSTED_INPUT_INCIDENT";
+    this.error(
+      "macro",
+      "trusted_input_incident",
+      "Trusted input requires recovery evidence.",
+      { code, message: "Trusted input did not reach an applied terminal outcome." },
+      code,
+      context
+    );
+  }
+
   managedShortcutTransition(context: LogContext): void {
     this.debug("macro", "managed_shortcut_transition", "Managed shortcut advanced.", context);
   }

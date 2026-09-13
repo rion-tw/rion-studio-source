@@ -6,6 +6,7 @@ import type {
   MacroInputEpochRecord,
   MacroInputRecoveryCompletionReceiptRecord,
   MacroInputRecoveryFailureReceiptRecord,
+  MacroInputRecoveryNeutralizationReceiptRecord,
   MacroInputRecoveryTicketRecord
 } from "../../shared/generated";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
@@ -15,7 +16,7 @@ import type {
 } from "./chromiumRoleSurfaceRegistry";
 
 type InputContextTarget = "document" | "embedded-frame" | "game";
-type CoordinatorState = "open" | "disposed";
+type CoordinatorState = "open" | "draining" | "disposed";
 
 export interface ChromiumAutomaticInputContextCorePort {
   inspectRecovery: (input: RecoveryIdentity) => Promise<MacroInputRecoveryTicketRecord>;
@@ -26,6 +27,9 @@ export interface ChromiumAutomaticInputContextCorePort {
   completeRecovery: (
     input: RecoveryIdentity
   ) => Promise<MacroInputRecoveryCompletionReceiptRecord>;
+  neutralizeRecovery: (
+    input: RecoveryIdentity & ChromiumAutomaticInputContextIdentity
+  ) => Promise<MacroInputRecoveryNeutralizationReceiptRecord>;
   failRecovery: (input: RecoveryIdentity & Readonly<{
     message: string;
   }>) => Promise<MacroInputRecoveryFailureReceiptRecord>;
@@ -162,6 +166,7 @@ export class ChromiumAutomaticInputContextCoordinator {
     context: ChromiumAutomaticInputContextIdentity
   ) => void>();
   readonly #tails = new Map<string, Promise<void>>();
+  readonly #scheduledDispatches = new Set<Promise<void>>();
   readonly #onError: (error: ReturnType<typeof normalizeRionBridgeError>) => void;
   readonly #unsubscribe: () => void;
   readonly #resumeNativeAfterDocumentReplacement: (
@@ -347,8 +352,10 @@ export class ChromiumAutomaticInputContextCoordinator {
         return;
       }
       if (recovery.cause !== "native-indeterminate" ||
+        recovery.recoveryId !== proof.requestId ||
         recovery.surfaceGeneration !== proof.surfaceGeneration ||
-        recovery.expectedInputEpoch !== proof.inputEpoch) {
+        !(recovery.expectedInputEpoch === proof.inputEpoch ||
+          recovery.expectedInputEpoch === proof.inputEpoch + 1)) {
         return;
       }
       this.#neutralityProofs.delete(proof.roleId);
@@ -361,24 +368,53 @@ export class ChromiumAutomaticInputContextCoordinator {
     result: CoreEffectResult,
     report: CoreEffectDispatchReport
   ): Promise<void> {
-    if (this.#state !== "open" ||
-      effect.action.type !== "browserAction" ||
-      effect.action.request.intent !== "normal" ||
-      !(report.accepted.includes(effect.effectId) || report.late.includes(effect.effectId)) ||
-      !isRecoveryFailure(result)) {
+    if (this.#state !== "open" || effect.action.type !== "browserAction") {
       return Promise.resolve();
     }
+    const acceptedRecoveryFailure = report.accepted.includes(effect.effectId) &&
+      isRecoveryFailure(result);
+    // A late BrowserAction result proves that Core's deadline already opened
+    // an input recovery ticket. Join that ticket even when the eventual native
+    // result was successful, including a late cleanup-neutral receipt.
+    const coreDeadlineWon = report.late.includes(effect.effectId);
+    if (!acceptedRecoveryFailure && !coreDeadlineWon) return Promise.resolve();
     const request = effect.action.request;
-    const cause = result.error?.code === "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
-      ? "native-indeterminate" as const
-      : "context-blocked" as const;
+    const cause = result.error?.code === "SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED"
+      ? "context-blocked" as const
+      : "native-indeterminate" as const;
     return this.#enqueue(request.roleId, () => this.#establish(request, cause));
   }
 
-  dispose(): void {
+  scheduleAfterEffectDispatch(
+    effect: CoreEffectRequest,
+    result: CoreEffectResult,
+    report: CoreEffectDispatchReport
+  ): void {
+    if (this.#state !== "open") return;
+    const scheduled = this.afterEffectDispatch(effect, result, report)
+      .catch((error: unknown) => {
+        this.#onError(normalizeRionBridgeError(
+          error,
+          "ELECTRON_AUTOMATIC_INPUT_RECOVERY_FAILED"
+        ));
+      });
+    this.#scheduledDispatches.add(scheduled);
+    void scheduled.finally(() => this.#scheduledDispatches.delete(scheduled));
+  }
+
+  async closeAndDrain(): Promise<void> {
     if (this.#state === "disposed") return;
+    if (this.#state === "open") {
+      this.#state = "draining";
+      this.#unsubscribe();
+    }
+    while (this.#scheduledDispatches.size > 0 || this.#tails.size > 0) {
+      await Promise.allSettled([
+        ...this.#scheduledDispatches,
+        ...this.#tails.values()
+      ]);
+    }
     this.#state = "disposed";
-    this.#unsubscribe();
     this.#contexts.clear();
     this.#recoveries.clear();
     this.#neutralityProofs.clear();
@@ -456,9 +492,23 @@ export class ChromiumAutomaticInputContextCoordinator {
       this.#recoveries.set(request.roleId, established);
       const proof = this.#neutralityProofs.get(request.roleId);
       if (cause === "native-indeterminate" && proof &&
+        proof.requestId === established.recoveryId &&
         proof.surfaceGeneration === established.surfaceGeneration &&
-        proof.inputEpoch === established.expectedInputEpoch) {
+        (proof.inputEpoch === established.expectedInputEpoch ||
+          proof.inputEpoch + 1 === established.expectedInputEpoch)) {
         this.#neutralityProofs.delete(request.roleId);
+        await this.#complete(established);
+      } else if (cause === "native-indeterminate") {
+        const receipt = await this.#core.neutralizeRecovery(established);
+        if (receipt.recoveryId !== established.recoveryId ||
+          receipt.roleId !== established.roleId ||
+          receipt.inputEpoch !== established.expectedInputEpoch ||
+          !receipt.neutralized || receipt.requestIds.length < 1) {
+          throw contextError(
+            "ELECTRON_AUTOMATIC_INPUT_RECOVERY_NEUTRALIZATION_REJECTED",
+            "Core did not prove the exact native-input recovery neutralization."
+          );
+        }
         await this.#complete(established);
       }
     } catch (error) {

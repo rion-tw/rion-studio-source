@@ -434,6 +434,18 @@ pub enum CoreCommand {
         #[ts(type = "number", rename = "expectedInputEpoch")]
         expected_input_epoch: u64,
     },
+    MacroInputRecoveryNeutralize {
+        #[ts(rename = "recoveryId")]
+        recovery_id: String,
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(type = "number", rename = "expectedInputEpoch")]
+        expected_input_epoch: u64,
+        #[ts(type = "number", rename = "surfaceGeneration")]
+        surface_generation: u64,
+        #[ts(rename = "documentInstanceId")]
+        document_instance_id: String,
+    },
     MacroInputRecoveryFail {
         #[ts(rename = "recoveryId")]
         recovery_id: String,

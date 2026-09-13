@@ -201,14 +201,29 @@ function isClosedCriticalEvent(event: Record<string, unknown>): boolean {
 }
 
 export function parseCoreEvents(eventsJson: string): CoreEvent[] {
-  const value: unknown = JSON.parse(eventsJson);
-  if (!Array.isArray(value) || value.length === 0 || value.some((event) =>
-    typeof event !== "object" || event === null || Array.isArray(event) ||
-    typeof (event as Record<string, unknown>).type !== "string" ||
-    !EVENT_TYPES.has((event as Record<string, unknown>).type as CoreEvent["type"]) ||
-    !isClosedCriticalEvent(event as Record<string, unknown>)
-  )) {
-    throw new Error("The Core event batch is invalid.");
+  let value: unknown;
+  try {
+    value = JSON.parse(eventsJson);
+  } catch {
+    throw new Error("The Core event batch is invalid. reason=json-parse");
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`The Core event batch is invalid. reason=${
+      Array.isArray(value) ? "empty-batch" : "non-array-batch"
+    }`);
+  }
+  for (const [eventIndex, event] of value.entries()) {
+    if (typeof event !== "object" || event === null || Array.isArray(event)) {
+      throw invalidCoreEvent(eventIndex, event);
+    }
+    const record = event as Record<string, unknown>;
+    if (
+      typeof record.type !== "string" ||
+      !EVENT_TYPES.has(record.type as CoreEvent["type"]) ||
+      !isClosedCriticalEvent(record)
+    ) {
+      throw invalidCoreEvent(eventIndex, record);
+    }
   }
   const shutdownIndexes = value.flatMap((event, index) =>
     (event as { type: string }).type === "shutdown" ? [index] : []
@@ -217,9 +232,42 @@ export function parseCoreEvents(eventsJson: string): CoreEvent[] {
     shutdownIndexes.length > 1 ||
     (shutdownIndexes.length === 1 && shutdownIndexes[0] !== value.length - 1)
   ) {
-    throw new Error("The Core event batch is invalid.");
+    throw new Error("The Core event batch is invalid. reason=shutdown-order");
   }
   return value as CoreEvent[];
+}
+
+function invalidCoreEvent(index: number, value: unknown): Error {
+  const record = typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+  const eventType = safeDiscriminator(record?.type);
+  const actionType = eventType === "browserActions"
+    ? firstInvalidBrowserActionType(record?.actions)
+    : undefined;
+  return new Error(
+    `The Core event batch is invalid. eventIndex=${index} eventType=${eventType}` +
+    (actionType ? ` actionType=${actionType}` : "")
+  );
+}
+
+function firstInvalidBrowserActionType(value: unknown): string | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const request = value.find((candidate) => !isClosedBrowserActionRequest(candidate)) ?? value[0];
+  if (typeof request !== "object" || request === null || Array.isArray(request)) {
+    return "unknown";
+  }
+  const action = (request as Record<string, unknown>).action;
+  if (typeof action !== "object" || action === null || Array.isArray(action)) {
+    return "unknown";
+  }
+  return safeDiscriminator((action as Record<string, unknown>).type);
+}
+
+function safeDiscriminator(value: unknown): string {
+  return typeof value === "string" && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value)
+    ? value
+    : "unknown";
 }
 
 const extensionPackage = (value: unknown): boolean => check.closed(value, {

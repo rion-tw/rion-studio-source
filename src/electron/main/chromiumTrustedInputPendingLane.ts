@@ -3,6 +3,7 @@ import type { ChromiumRoleOverlayFrameIdentity, ChromiumRoleOverlayLifecycleEven
   "./chromiumRoleSurfaceRegistry";
 import type { ChromiumNativeTrustedInputReceipt, ChromiumNativeTrustedInputRequest } from
   "./chromiumTrustedInputCoordinator";
+import type { TrustedInputTraceStepRecord } from "../../shared/generated";
 import { recordTrustedInputTerminal } from "./chromiumTrustedInputTerminalJournal";
 
 export type ChromiumPhysicalInterleaveClassification =
@@ -37,9 +38,54 @@ export interface PendingChromiumTrustedInput {
   nativeComplete: boolean;
   nextDomIndex: number;
   readonly expectedEvents: readonly unknown[];
+  modifierProjectionCodes?: readonly string[];
+  cdpModifierMask?: number;
+  lastObservedDomModifierMask?: number;
   physicalInterleave: ChromiumPhysicalInterleaveClassification;
   physicalEvidenceDiagnostics?: ChromiumPhysicalEvidenceDiagnostics;
+  traceSteps?: TrustedInputTraceStepRecord[];
+  droppedTraceStepCount?: number;
+  failureStage?: string;
+  cdpTerminalReason?: string;
+  nativeProofChanges?: string[];
   terminal: boolean;
+}
+
+const MAX_TRACE_STEPS = 32;
+
+export function recordTrustedInputTrace(
+  pending: PendingChromiumTrustedInput,
+  source: TrustedInputTraceStepRecord["source"],
+  stage: string,
+  outcomeCode?: string
+): void {
+  pending.traceSteps ??= [];
+  const previous = pending.traceSteps.at(-1);
+  if (
+    previous?.source === source && previous.stage === stage &&
+    previous.outcomeCode === outcomeCode
+  ) {
+    return;
+  }
+  if (pending.traceSteps.length >= MAX_TRACE_STEPS) {
+    const sequence = pending.traceSteps.length + (pending.droppedTraceStepCount ?? 0) + 1;
+    pending.droppedTraceStepCount = (pending.droppedTraceStepCount ?? 0) + 1;
+    if (stage === "terminal") {
+      pending.traceSteps[MAX_TRACE_STEPS - 1] = Object.freeze({
+        sequence,
+        source,
+        stage,
+        ...(outcomeCode ? { outcomeCode } : {})
+      });
+    }
+    return;
+  }
+  pending.traceSteps.push(Object.freeze({
+    sequence: pending.traceSteps.length + (pending.droppedTraceStepCount ?? 0) + 1,
+    source,
+    stage,
+    ...(outcomeCode ? { outcomeCode } : {})
+  }));
 }
 
 export function sameTrustedInputFrame(
@@ -76,6 +122,7 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
 
   add(pending: Pending): boolean {
     if (pending.terminal || this.busy(pending.request.roleId, pending.request.requestId)) return false;
+    recordTrustedInputTrace(pending, "electron", "lane-admitted");
     this.#roles.set(pending.request.roleId, pending);
     this.#requests.set(pending.request.requestId, pending);
     return true;
@@ -86,6 +133,12 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
     errorCode: string | null, errorMessage: string | null, confirmedInputNeutrality: boolean
   ): void {
     if (pending.terminal) return;
+    recordTrustedInputTrace(
+      pending,
+      "electron",
+      "terminal",
+      errorCode ?? "APPLIED"
+    );
     pending.terminal = true;
     if (this.#roles.get(pending.request.roleId) === pending) this.#roles.delete(pending.request.roleId);
     if (this.#requests.get(pending.request.requestId) === pending) this.#requests.delete(pending.request.requestId);
@@ -124,6 +177,13 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
       applicationPath: pending.applicationPath,
       expectedDomEventCount: pending.expectedEvents.length,
       observedDomEventCount: pending.nextDomIndex,
+      modifierProjectionCodes: [...(pending.modifierProjectionCodes ?? [])],
+      ...(pending.cdpModifierMask === undefined ? {} : {
+        cdpModifierMask: pending.cdpModifierMask
+      }),
+      ...(pending.lastObservedDomModifierMask === undefined ? {} : {
+        lastObservedDomModifierMask: pending.lastObservedDomModifierMask
+      }),
       cdpSubmissionCertainty: pending.cdpInvoked
         ? status === "applied" ? "confirmed" : "possibly-submitted"
         : "not-invoked",
@@ -155,13 +215,28 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
         } : {})
       } : {}),
       terminalCode: errorCode ?? "APPLIED",
+      ...(errorCode ? {
+        failureStage: pending.failureStage ?? (pending.cdpInvoked
+          ? "dom-receipt-correlation"
+          : pending.nativeInvoked ? "native-submission" : "preload-arm")
+      } : {}),
+      ...(pending.cdpTerminalReason ? {
+        cdpTerminalReason: pending.cdpTerminalReason
+      } : {}),
+      nativeProofChanges: [...new Set(pending.nativeProofChanges ?? [])],
+      traceSteps: (pending.traceSteps ?? []).map(step => ({ ...step })),
+      traceTruncated: (pending.droppedTraceStepCount ?? 0) > 0,
+      droppedTraceStepCount: pending.droppedTraceStepCount ?? 0,
       cleanupOutcome: pending.request.intent !== "cleanup"
         ? "not-attempted"
         : status === "applied" && confirmedInputNeutrality
           ? "neutral" : "indeterminate",
       recoveryOutcome: status === "applied" && confirmedInputNeutrality
-        ? "cleanup-neutral" : status === "indeterminate"
-          ? "restart-required" : "not-required"
+        ? pending.request.intent === "cleanup" ? "cleanup-neutral" : "not-required"
+        : status === "indeterminate"
+          ? pending.request.intent === "cleanup"
+            ? "restart-required" : "neutralization-required"
+          : "not-required"
     });
     pending.completion.resolve(Object.freeze({
       requestId: pending.request.requestId, roleId: pending.request.roleId,

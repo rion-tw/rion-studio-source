@@ -3,10 +3,17 @@
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct ManagedShortcutPhaseReceiptRecord {
     pub code: String,
+    #[ts(type = "\"none\" | \"stopped\"")]
+    pub control_outcome: String,
     pub document_instance_id: String,
     #[ts(type = "number")]
     pub expected_owner_generation: u64,
     pub macro_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub input_error_code: Option<String>,
+    #[ts(type = "\"applied\" | \"failed\" | \"indeterminate\" | \"superseded\"")]
+    pub input_outcome: String,
     pub operation_id: String,
     #[ts(type = "\"keyDown\" | \"keyUp\"")]
     pub phase: String,

@@ -318,10 +318,9 @@ function createMacosAppKitAdapter(
         });
         return {
           execute: (request) => coordinator.execute(request),
-          retireSurface: (roleId, generation) =>
-            coordinator.retireSurface(roleId, generation),
-          retireSurfaceForDestruction: (roleId, generation) =>
-            coordinator.retireSurfaceForDestruction(roleId, generation),
+          observeMacroKey: coordinator.observeMacroKey.bind(coordinator),
+          retireSurface: coordinator.retireSurface.bind(coordinator),
+          retireSurfaceForDestruction: coordinator.retireSurfaceForDestruction.bind(coordinator),
           resumeAfterDocumentReplacement: (roleId, generation) =>
             coordinator.resumeAfterDocumentReplacement(roleId, generation),
           prepareControlledDocumentReplacement: (lease) =>

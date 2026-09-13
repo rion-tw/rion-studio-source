@@ -8,7 +8,7 @@ import type {
 import type { AppSnapshot } from "../../shared/types";
 import type { ChromiumRuntimeExecutorSnapshot } from
   "./chromiumRuntimeEffectExecutor";
-import { recentTrustedInputTerminals } from
+import { recentTrustedInputTerminals, trustedInputDiagnostics } from
   "./chromiumTrustedInputTerminalJournal";
 import { recentChromiumExtensionRuntimeFailures } from
   "./chromiumExtensionRuntimeDiagnostics";
@@ -101,6 +101,7 @@ export class ElectronRuntimeDiagnosticsCollector {
       activeInputFences: [],
       recentInputFenceEvents: [],
       recentTrustedInputTerminals: recentTrustedInputTerminals(),
+      trustedInputDiagnostics: trustedInputDiagnostics(),
       recentMacroStartAttempts: [],
       recentFailures: recentChromiumExtensionRuntimeFailures(),
       recentOperations: [],

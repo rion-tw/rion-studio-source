@@ -55,7 +55,7 @@ const MODIFIER_CODES = new Set([
   "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"
 ]);
 
-function modifierMask(codes: readonly string[]): number {
+export function chromiumCdpModifierMask(codes: readonly string[]): number {
   let mask = 0;
   for (const code of codes) {
     if (code.startsWith("Alt")) mask |= 1;
@@ -92,7 +92,7 @@ export function chromiumCdpKeyDescriptor(
 ): ChromiumCdpKeyDescriptor {
   const base = baseDescriptor(effect.code);
   if (!base) throw new Error(`Unsupported Chromium CDP key code: ${effect.code}`);
-  const modifiers = modifierMask(effect.activeCodes);
+  const modifiers = chromiumCdpModifierMask(effect.activeCodes);
   const shifted = (modifiers & 8) !== 0;
   const key = /^Key[A-Z]$/u.test(effect.code) && shifted
     ? base[0].toUpperCase() : shifted ? SHIFTED[effect.code] ?? base[0] : base[0];
@@ -113,6 +113,7 @@ export function chromiumCdpMouseDescriptors(input: Readonly<{
   y: number;
   button: "left" | "middle" | "right";
   modifierCodes: readonly string[];
+  releaseOnly?: boolean;
 }>): readonly ChromiumCdpMouseDescriptor[] {
   if (![input.x, input.y].every((value) => Number.isFinite(value) && value >= 0) ||
     input.modifierCodes.some((code) => !MODIFIER_CODES.has(code))) {
@@ -124,10 +125,12 @@ export function chromiumCdpMouseDescriptors(input: Readonly<{
     y: input.y,
     button: input.button,
     clickCount: 1 as const,
-    modifiers: modifierMask(input.modifierCodes)
+    modifiers: chromiumCdpModifierMask(input.modifierCodes)
   };
   return Object.freeze([
-    Object.freeze({ ...common, type: "mousePressed" as const, buttons: bit }),
+    ...(input.releaseOnly
+      ? []
+      : [Object.freeze({ ...common, type: "mousePressed" as const, buttons: bit })]),
     Object.freeze({ ...common, type: "mouseReleased" as const, buttons: 0 })
   ]);
 }

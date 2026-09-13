@@ -31,6 +31,14 @@ fn macro_input_recovery_commands_require_the_exact_recovery_and_epoch_fence() {
             "expectedInputEpoch": ticket.input_epoch + 1,
         }),
         json!({
+            "type": "macroInputRecoveryNeutralize",
+            "recoveryId": "recovery-exact",
+            "roleId": "role-exact",
+            "expectedInputEpoch": ticket.input_epoch + 1,
+            "surfaceGeneration": 7,
+            "documentInstanceId": "document-exact",
+        }),
+        json!({
             "type": "macroInputRecoveryFail",
             "recoveryId": "recovery-exact",
             "roleId": "different-role",
@@ -47,6 +55,46 @@ fn macro_input_recovery_commands_require_the_exact_recovery_and_epoch_fence() {
         .unwrap()
         .expect("stale commands preserve the current ticket");
     assert_eq!(still_current, ticket);
+}
+
+#[test]
+fn macro_input_recovery_neutralize_dispatches_one_exact_cleanup_action() {
+    let (_directory, core) = core();
+    let ticket = core
+        .ensure_macro_input_recovery("recovery-neutralize", "role-neutralize")
+        .unwrap();
+    core.drain_macro_input("role-neutralize", ticket.input_epoch)
+        .unwrap();
+
+    let (receipt, actions) = drive_command(
+        Arc::clone(&core),
+        command(json!({
+            "type": "macroInputRecoveryNeutralize",
+            "recoveryId": ticket.recovery_id,
+            "roleId": ticket.role_id,
+            "expectedInputEpoch": ticket.input_epoch,
+            "surfaceGeneration": 7,
+            "documentInstanceId": "document-neutralize",
+        })),
+        None,
+    );
+    let receipt = receipt.unwrap();
+    assert_eq!(actions.len(), 1);
+    assert!(matches!(
+        &actions[0],
+        CoreEffectAction::BrowserAction { request }
+            if request.role_id == "role-neutralize"
+                && request.input_epoch == ticket.input_epoch
+                && request.intent == "cleanup"
+                && request.surface_generation == Some(7)
+                && request.document_instance_id.as_deref() == Some("document-neutralize")
+                && matches!(request.action, crate::model::BrowserAction::NeutralizeInput)
+    ));
+    assert_eq!(receipt["recoveryId"], json!("recovery-neutralize"));
+    assert_eq!(receipt["roleId"], json!("role-neutralize"));
+    assert_eq!(receipt["inputEpoch"], json!(ticket.input_epoch));
+    assert_eq!(receipt["neutralized"], json!(true));
+    assert_eq!(receipt["requestIds"].as_array().unwrap().len(), 1);
 }
 
 #[test]

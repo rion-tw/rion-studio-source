@@ -47,7 +47,8 @@ export function parseTrustedInputDomReceipt(
     invalid("The trusted-input preload receipt has an invalid identity.");
   }
   if (record.kind === "armed" && exactKeys(record, [
-    ...baseKeys, "expectedEventCount", "modifierDisposition", "physicalModifierCodes"
+    ...baseKeys, "expectedEventCount", "modifierDisposition", "modifierProjectionCodes",
+    "physicalModifierCodes"
   ])) {
     if (!Number.isSafeInteger(record.expectedEventCount) ||
       (record.expectedEventCount as number) < 0 ||
@@ -56,7 +57,10 @@ export function parseTrustedInputDomReceipt(
         .includes(String(record.modifierDisposition)) ||
       (record.modifierDisposition === "dispatch" && record.expectedEventCount === 0) ||
       (record.modifierDisposition !== "dispatch" && record.expectedEventCount !== 0) ||
-      !validChromiumPhysicalModifierCodes(record.physicalModifierCodes)) {
+      !validChromiumPhysicalModifierCodes(record.physicalModifierCodes) ||
+      !validChromiumPhysicalModifierCodes(record.modifierProjectionCodes) ||
+      !(record.modifierProjectionCodes as readonly string[]).every(code =>
+        (record.physicalModifierCodes as readonly string[]).includes(code))) {
       invalid("The arm receipt is invalid.");
     }
     return record as unknown as ChromiumRoleTrustedInputReceipt;
@@ -92,4 +96,47 @@ export function matchesTrustedInputExpectedEvent(
     receipt.clientY === expected.clientY && receipt.altKey === expected.altKey &&
     receipt.ctrlKey === expected.ctrlKey && receipt.metaKey === expected.metaKey &&
     receipt.shiftKey === expected.shiftKey && receipt.repeat === expected.repeat;
+}
+
+export function chromiumDomModifierMask(input: Readonly<{
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+}>): number {
+  return (input.altKey ? 1 : 0) |
+    (input.ctrlKey ? 2 : 0) |
+    (input.metaKey ? 4 : 0) |
+    (input.shiftKey ? 8 : 0);
+}
+
+export interface ChromiumModifierProjectionObservation {
+  readonly altKey: boolean;
+  readonly code: string;
+  readonly ctrlKey: boolean;
+  readonly dispatchId: string;
+  readonly metaKey: boolean;
+  readonly modifierProjection: true;
+  readonly phase: "keydown";
+  readonly shiftKey: boolean;
+}
+
+export function parseChromiumModifierProjectionObservation(
+  value: unknown
+): ChromiumModifierProjectionObservation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (!exactKeys(record, [
+    "altKey", "code", "ctrlKey", "dispatchId", "metaKey",
+    "modifierProjection", "phase", "shiftKey"
+  ]) || record.modifierProjection !== true || record.phase !== "keydown" ||
+    typeof record.code !== "string" || record.code.length === 0 ||
+    record.code.length > 128 || record.code !== record.code.trim() ||
+    typeof record.dispatchId !== "string" ||
+    !INPUT_SEQUENCE_PATTERN.test(record.dispatchId) ||
+    typeof record.altKey !== "boolean" || typeof record.ctrlKey !== "boolean" ||
+    typeof record.metaKey !== "boolean" || typeof record.shiftKey !== "boolean") {
+    return null;
+  }
+  return Object.freeze(record) as unknown as ChromiumModifierProjectionObservation;
 }

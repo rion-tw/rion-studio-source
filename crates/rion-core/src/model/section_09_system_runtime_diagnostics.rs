@@ -676,6 +676,20 @@ pub struct RuntimeOperationTraceRecord {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct TrustedInputTraceStepRecord {
+    #[ts(type = "number")]
+    pub sequence: u32,
+    #[ts(type = "\"core\" | \"electron\" | \"preload\" | \"native\" | \"cdp\"")]
+    pub source: String,
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub outcome_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct TrustedInputTerminalEvidenceRecord {
     pub captured_at: String,
     pub request_id: String,
@@ -686,7 +700,9 @@ pub struct TrustedInputTerminalEvidenceRecord {
     pub surface_generation: u64,
     #[ts(type = "\"normal\" | \"cleanup\"")]
     pub intent: String,
-    #[ts(type = "\"focus\" | \"key\" | \"click\" | \"reassertHeldKeys\"")]
+    #[ts(
+        type = "\"focus\" | \"key\" | \"click\" | \"reassertHeldKeys\" | \"neutralizeInput\""
+    )]
     pub action_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -701,6 +717,14 @@ pub struct TrustedInputTerminalEvidenceRecord {
     pub application_path: String,
     pub expected_dom_event_count: u32,
     pub observed_dom_event_count: u32,
+    #[serde(default)]
+    pub modifier_projection_codes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub cdp_modifier_mask: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub last_observed_dom_modifier_mask: Option<u8>,
     #[ts(type = "\"not-invoked\" | \"possibly-submitted\" | \"confirmed\"")]
     pub cdp_submission_certainty: String,
     #[ts(type = "\"none\" | \"unrelated\" | \"same-identity\" | \"modifier-change\" | \"indeterminate\"")]
@@ -733,10 +757,47 @@ pub struct TrustedInputTerminalEvidenceRecord {
     #[ts(optional, type = "\"automatic\" | \"physical\" | \"indeterminate\"")]
     pub last_physical_evidence_classification: Option<String>,
     pub terminal_code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cdp_terminal_reason: Option<String>,
+    #[serde(default)]
+    pub native_proof_changes: Vec<String>,
+    #[serde(default)]
+    pub trace_steps: Vec<TrustedInputTraceStepRecord>,
+    #[serde(default)]
+    pub trace_truncated: bool,
+    #[serde(default)]
+    pub dropped_trace_step_count: u32,
     #[ts(type = "\"not-attempted\" | \"neutral\" | \"indeterminate\"")]
     pub cleanup_outcome: String,
-    #[ts(type = "\"not-required\" | \"cleanup-neutral\" | \"restart-required\"")]
+    #[ts(
+        type = "\"not-required\" | \"neutralization-required\" | \"cleanup-neutral\" | \"restart-required\""
+    )]
     pub recovery_outcome: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct TrustedInputDiagnosticsRecord {
+    pub snapshot_complete: bool,
+    pub collection_error_codes: Vec<String>,
+    pub terminal_capacity: u32,
+    pub retained_terminal_count: u32,
+    pub dropped_terminal_count: u32,
+    pub incident_capacity: u32,
+    pub retained_incident_count: u32,
+    pub dropped_incident_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub oldest_captured_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub newest_captured_at: Option<String>,
+    pub recent_incidents: Vec<TrustedInputTerminalEvidenceRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -804,6 +865,9 @@ pub struct SystemRuntimeDiagnosticsRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub recent_trusted_input_terminals: Option<Vec<TrustedInputTerminalEvidenceRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub trusted_input_diagnostics: Option<TrustedInputDiagnosticsRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub active_macro_invocation_count: Option<u32>,

@@ -10,9 +10,9 @@ use crate::{
 
 pub fn current_versions() -> LegalDocumentVersionsRecord {
     LegalDocumentVersionsRecord {
-        fair_use: "2026-07-26".to_owned(),
-        privacy: "2026-08-02".to_owned(),
-        terms: "2026-08-02".to_owned(),
+        fair_use: "2026-09-13".to_owned(),
+        privacy: "2026-09-13".to_owned(),
+        terms: "2026-09-13".to_owned(),
     }
 }
 
@@ -67,9 +67,9 @@ mod tests {
     #[test]
     fn reports_current_legal_document_versions() {
         let versions = current_versions();
-        assert_eq!(versions.fair_use, "2026-07-26");
-        assert_eq!(versions.privacy, "2026-08-02");
-        assert_eq!(versions.terms, "2026-08-02");
+        assert_eq!(versions.fair_use, "2026-09-13");
+        assert_eq!(versions.privacy, "2026-09-13");
+        assert_eq!(versions.terms, "2026-09-13");
     }
 
     fn versions() -> LegalDocumentVersionsRecord {

@@ -44,6 +44,7 @@ export interface ChromiumCdpInputTransportPort {
       y: number;
       button: "left" | "middle" | "right";
       modifierCodes: readonly string[];
+      releaseOnly?: boolean;
     }>
   ) => Promise<ChromiumCdpSubmissionReceipt>;
   subscribeTerminal: (
@@ -134,6 +135,7 @@ export class ChromiumCdpInputTransport implements ChromiumCdpInputTransportPort 
       y: number;
       button: "left" | "middle" | "right";
       modifierCodes: readonly string[];
+      releaseOnly?: boolean;
     }>
   ): Promise<ChromiumCdpSubmissionReceipt> {
     try {

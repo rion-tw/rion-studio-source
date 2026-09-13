@@ -86,6 +86,38 @@ impl AppCore {
         })
     }
 
+    pub fn neutralize_macro_input_recovery_exact(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+        expected_input_epoch: u64,
+        surface_generation: u64,
+        document_instance_id: &str,
+    ) -> CoreResult<crate::model::MacroInputRecoveryNeutralizationReceiptRecord> {
+        let _guard = self.macro_input_recovery_guard.lock().map_err(|_| {
+            CoreError::Internal("macro input recovery guard poisoned".to_owned())
+        })?;
+        self.inspect_macro_input_recovery_under_guard(
+            recovery_id,
+            role_id,
+            expected_input_epoch,
+        )?;
+        let request_ids = self.macro_runtime.neutralize_input_recovery(
+            recovery_id,
+            role_id,
+            expected_input_epoch,
+            surface_generation,
+            document_instance_id,
+        )?;
+        Ok(crate::model::MacroInputRecoveryNeutralizationReceiptRecord {
+            input_epoch: expected_input_epoch,
+            neutralized: true,
+            recovery_id: recovery_id.to_owned(),
+            request_ids,
+            role_id: role_id.to_owned(),
+        })
+    }
+
     pub fn fail_macro_input_recovery_exact(
         &self,
         recovery_id: &str,

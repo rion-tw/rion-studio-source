@@ -332,6 +332,7 @@ export function harness(
     surfaces,
     trustedInput: {
       execute: trustedExecute,
+      observeMacroKey: vi.fn(() => false),
       retireSurface: trustedRetireSurface,
       retireSurfaceForDestruction: trustedRetireSurfaceForDestruction,
       resumeAfterDocumentReplacement: vi.fn(async () => false),

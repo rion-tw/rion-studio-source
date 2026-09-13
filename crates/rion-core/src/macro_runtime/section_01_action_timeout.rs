@@ -105,9 +105,15 @@ struct PendingMacroAction {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum CompletedBrowserAction {
+enum BrowserActionCompletionKind {
     Completed,
     TimedOut,
+}
+
+#[derive(Clone)]
+struct CompletedBrowserAction {
+    kind: BrowserActionCompletionKind,
+    role_id: String,
 }
 
 #[derive(Default)]
@@ -262,6 +268,12 @@ struct MacroInputRecovery {
     input_epoch: u64,
     intents: Vec<MacroRestartIntent>,
     role_id: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MacroInputRecoveryRestartPolicy {
+    PreserveEligibleRoots,
+    StopAffectedRoots,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -151,6 +151,8 @@ fn export_bindings_index() {
                 "export type { TrustedInputTerminalEvidenceRecord } from \"./TrustedInputTerminalEvidenceRecord\";\n",
                 "export type { TrustedInputDiagnosticsRecord } from \"./TrustedInputDiagnosticsRecord\";\n",
                 "export type { TrustedInputTraceStepRecord } from \"./TrustedInputTraceStepRecord\";\n",
+                "export type { ChromiumRoleOverlayResultRecord } from \"./ChromiumRoleOverlayResultRecord\";\n",
+                "export type { TrustedInputSequenceFailureRecord } from \"./TrustedInputSequenceFailureRecord\";\n",
                 "export type { SystemRuntimeOperationCompletionScope } from \"./SystemRuntimeOperationCompletionScope\";\n",
                 "export type { SystemRuntimeOperationStatus } from \"./SystemRuntimeOperationStatus\";\n",
                 "export type { SystemRuntimeOperationSubsystem } from \"./SystemRuntimeOperationSubsystem\";\n",

@@ -38,6 +38,19 @@ describe("Electron development output diagnostics", () => {
     ]);
   });
 
+  it("classifies draining, topology and legacy input failures without hiding their unproven terminality", () => {
+    const result = classifyElectronDevOutput([
+      "[ELECTRON_CHROMIUM_RUNTIME_DRAINING] cannot refresh overlays",
+      "[ELECTRON_MACOS_APPKIT_TAB_MENU_HOST_STALE] host obsolete",
+      "[ELECTRON_MACOS_APPKIT_TAB_MENU_TOPOLOGY_STALE] topology unproven",
+      "[SYSTEM_TRUSTED_INPUT_SEQUENCE_FAILED] rollback unknown",
+      "Error occurred in handler for 'rion:chromium-role-overlay:v1': RionBridgeError: The exact physical shortcut is already held."
+    ].join("\n"));
+    expect(result.status).toBe("action-required");
+    expect(result.findings).toHaveLength(5);
+    expect(result.findings.every(finding => finding.category === "product-error")).toBe(true);
+  });
+
   it("keeps known compatibility and framework output advisory", () => {
     const diagnosis = classifyElectronDevOutput(`
 (node:7) ExtensionLoadWarning: Warnings loading extension at /tmp/example:

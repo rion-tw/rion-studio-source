@@ -1206,14 +1206,11 @@ bool rion_runtime_tabs_macro_fallback_event_self_test(void) {
     NSEvent *event = keyEvent(0);
     NSEvent *physical = keyEvent(1);
     if (!event || !physical || RionRuntimeIsMacroKeyEvent(event) ||
-        RionRuntimeIsDirectedRoleKeyEvent(physical)) return false;
+        RionRuntimeIsMacroKeyEvent(physical)) return false;
     objc_setAssociatedObject(
         event, NSSelectorFromString(@"rionStudioMacroKeyEvent"), @YES,
         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    RionRuntimeMarkDirectedRoleKeyEvent(physical);
     return RionRuntimeIsMacroKeyEvent(event) &&
-        RionRuntimeIsDirectedRoleKeyEvent(physical) &&
-        !RionRuntimeIsDirectedRoleKeyEvent(event) &&
         !RionRuntimeIsMacroKeyEvent(physical);
   }
 }

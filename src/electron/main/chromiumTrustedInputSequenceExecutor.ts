@@ -1,9 +1,11 @@
 import type {
   BrowserActionRequest,
+  CoreErrorPayload,
+  TrustedInputSequenceFailureRecord,
   EmbeddedKeyEffectRecord,
   EmbeddedKeyTransitionRecord
 } from "../../shared/generated";
-import { RionBridgeError } from "../ipc/errors";
+import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import type {
   ChromiumNativeTrustedInputReceipt,
   ChromiumNativeTrustedInputRequest
@@ -13,6 +15,9 @@ import {
   resolveChromiumModifierCodes,
   type ChromiumTrustedInputPlatform
 } from "./chromiumTrustedInputKeySequence";
+
+import { recoverChromiumKeySequence, receiptFailure } from "./chromiumTrustedInputSequenceRecovery";
+import { recordTrustedInputSequenceFailure } from "./chromiumTrustedInputTerminalJournal";
 
 export interface ChromiumEmbeddedInputCorePort {
   prepare: (input: Readonly<{
@@ -101,7 +106,7 @@ async function compensateEdges(input: Readonly<{
   edges: readonly EmbeddedKeyEffectRecord[];
   dispatch: (request: ChromiumNativeTrustedInputRequest) =>
     Promise<ChromiumNativeTrustedInputReceipt>;
-}>): Promise<boolean> {
+}>): Promise<CoreErrorPayload | null> {
   for (const applied of [...input.edges].reverse()) {
     const inverse = inverseChromiumKeyEffect(applied);
     if (!inverse) continue;
@@ -113,12 +118,12 @@ async function compensateEdges(input: Readonly<{
         input.physicalModifierCodes,
         "cleanup"
       ));
-      if (receipt.status !== "applied") return false;
-    } catch {
-      return false;
+      if (receipt.status !== "applied") return receiptFailure(receipt);
+    } catch (cause) {
+      return normalizeRionBridgeError(cause);
     }
   }
-  return true;
+  return null;
 }
 
 export async function executeChromiumTrustedKeySequence(input: Readonly<{
@@ -171,6 +176,20 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
   }
   const applied: EmbeddedKeyEffectRecord[] = [];
   const neutralBefore = transition.effects[0]?.activeCodesBefore.length === 0;
+  const recover = async (
+    cause: CoreErrorPayload, edges: readonly EmbeddedKeyEffectRecord[],
+    failedEffect: EmbeddedKeyEffectRecord | null = null
+  ): Promise<TrustedInputSequenceFailureRecord> => {
+    const failure = await recoverChromiumKeySequence({
+      cause, transitionId, confirmedEffects: applied, failedEffect, edges,
+      compensate: edges => compensateEdges({ ...input, physicalModifierCodes, edges }),
+      rollback: id => input.core.complete(id, false)
+    });
+    recordTrustedInputSequenceFailure(request, input.surfaceGeneration, failure,
+      neutralBefore && failedEffect !== null && action.type !== "reassertHeldKeys" &&
+      failure.compensationSucceeded && failure.rollbackSucceeded);
+    return failure;
+  };
   for (const effect of transition.effects) {
     let receipt: ChromiumNativeTrustedInputReceipt;
     try {
@@ -181,20 +200,11 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         physicalModifierCodes,
         request.intent
       ));
-    } catch {
+    } catch (cause) {
       const possiblyApplied = effect.phase === "rawKeyDown" ? [effect] : [];
-      const compensated = await compensateEdges({
-        ...input, physicalModifierCodes, edges: [...applied, ...possiblyApplied]
-      });
-      let rolledBack = transitionId === null;
-      if (transitionId) {
-        try {
-          await input.core.complete(transitionId, false);
-          rolledBack = true;
-        } catch {
-          rolledBack = false;
-        }
-      }
+      const recovery = await recover(normalizeRionBridgeError(cause), [...applied, ...possiblyApplied], effect);
+      const compensated = recovery.compensationSucceeded;
+      const rolledBack = recovery.rollbackSucceeded;
       throw new ChromiumTrustedInputSequenceFailure(
         "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
         compensated && rolledBack
@@ -211,18 +221,9 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
     if (receipt.status !== "applied") {
       const possiblyApplied = receipt.status === "indeterminate" &&
         effect.phase === "rawKeyDown" ? [effect] : [];
-      const compensated = await compensateEdges({
-        ...input, physicalModifierCodes, edges: [...applied, ...possiblyApplied]
-      });
-      let rolledBack = transitionId === null;
-      if (transitionId) {
-        try {
-          await input.core.complete(transitionId, false);
-          rolledBack = true;
-        } catch {
-          rolledBack = false;
-        }
-      }
+      const recovery = await recover(receiptFailure(receipt), [...applied, ...possiblyApplied], effect);
+      const compensated = recovery.compensationSucceeded;
+      const rolledBack = recovery.rollbackSucceeded;
       throw sequenceFailure(
         receipt,
         compensated && rolledBack && neutralBefore,
@@ -235,13 +236,9 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
   if (transitionId) {
     try {
       await input.core.complete(transitionId, true);
-    } catch {
-      const compensated = await compensateEdges({ ...input, physicalModifierCodes, edges: applied });
-      try {
-        await input.core.complete(transitionId, false);
-      } catch {
-        // The role is quarantined below because Core terminality is uncertain.
-      }
+    } catch (cause) {
+      const recovery = await recover(normalizeRionBridgeError(cause), applied);
+      const compensated = recovery.compensationSucceeded;
       throw new ChromiumTrustedInputSequenceFailure(
         "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
         compensated

@@ -9,7 +9,6 @@ export interface ChromiumCdpKeyDescriptor {
   readonly modifiers: number;
   readonly location: 0 | 1 | 2;
   readonly windowsVirtualKeyCode: number;
-  readonly nativeVirtualKeyCode: number;
   readonly autoRepeat: boolean;
 }
 
@@ -23,24 +22,24 @@ export interface ChromiumCdpMouseDescriptor {
   readonly modifiers: number;
 }
 
-const BASE_KEYS: Readonly<Record<string, readonly [string, number, number]>> = Object.freeze({
-  Backquote: ["`", 0xc0, 0x32], Backspace: ["Backspace", 0x08, 0x33],
-  Tab: ["Tab", 0x09, 0x30], Escape: ["Escape", 0x1b, 0x35],
-  Insert: ["Insert", 0x2d, 0x72], Home: ["Home", 0x24, 0x73],
-  PageUp: ["PageUp", 0x21, 0x74], Delete: ["Delete", 0x2e, 0x75],
-  End: ["End", 0x23, 0x77], PageDown: ["PageDown", 0x22, 0x79],
-  ArrowLeft: ["ArrowLeft", 0x25, 0x7b], ArrowUp: ["ArrowUp", 0x26, 0x7e],
-  ArrowRight: ["ArrowRight", 0x27, 0x7c], ArrowDown: ["ArrowDown", 0x28, 0x7d],
-  Equal: ["=", 0xbb, 0x18], Minus: ["-", 0xbd, 0x1b],
-  Space: [" ", 0x20, 0x31], Backslash: ["\\", 0xdc, 0x2a],
-  Slash: ["/", 0xbf, 0x2c], Period: [".", 0xbe, 0x2f],
-  Comma: [",", 0xbc, 0x2b], Semicolon: [";", 0xba, 0x29],
-  Quote: ["'", 0xde, 0x27], BracketLeft: ["[", 0xdb, 0x21],
-  BracketRight: ["]", 0xdd, 0x1e], Enter: ["Enter", 0x0d, 0x24],
-  ControlLeft: ["Control", 0x11, 0x3b], ControlRight: ["Control", 0x11, 0x3e],
-  AltLeft: ["Alt", 0x12, 0x3a], AltRight: ["Alt", 0x12, 0x3d],
-  ShiftLeft: ["Shift", 0x10, 0x38], ShiftRight: ["Shift", 0x10, 0x3c],
-  MetaLeft: ["Meta", 0x5b, 0x37], MetaRight: ["Meta", 0x5c, 0x36]
+const BASE_KEYS: Readonly<Record<string, readonly [string, number]>> = Object.freeze({
+  Backquote: ["`", 0xc0], Backspace: ["Backspace", 0x08],
+  Tab: ["Tab", 0x09], Escape: ["Escape", 0x1b],
+  Insert: ["Insert", 0x2d], Home: ["Home", 0x24],
+  PageUp: ["PageUp", 0x21], Delete: ["Delete", 0x2e],
+  End: ["End", 0x23], PageDown: ["PageDown", 0x22],
+  ArrowLeft: ["ArrowLeft", 0x25], ArrowUp: ["ArrowUp", 0x26],
+  ArrowRight: ["ArrowRight", 0x27], ArrowDown: ["ArrowDown", 0x28],
+  Equal: ["=", 0xbb], Minus: ["-", 0xbd],
+  Space: [" ", 0x20], Backslash: ["\\", 0xdc],
+  Slash: ["/", 0xbf], Period: [".", 0xbe],
+  Comma: [",", 0xbc], Semicolon: [";", 0xba],
+  Quote: ["'", 0xde], BracketLeft: ["[", 0xdb],
+  BracketRight: ["]", 0xdd], Enter: ["Enter", 0x0d],
+  ControlLeft: ["Control", 0x11], ControlRight: ["Control", 0x11],
+  AltLeft: ["Alt", 0x12], AltRight: ["Alt", 0x12],
+  ShiftLeft: ["Shift", 0x10], ShiftRight: ["Shift", 0x10],
+  MetaLeft: ["Meta", 0x5b], MetaRight: ["Meta", 0x5c]
 });
 
 const SHIFTED: Readonly<Record<string, string>> = Object.freeze({
@@ -66,22 +65,19 @@ export function chromiumCdpModifierMask(codes: readonly string[]): number {
   return mask;
 }
 
-function baseDescriptor(code: string): readonly [string, number, number] | null {
+function baseDescriptor(code: string): readonly [string, number] | null {
   if (/^Key[A-Z]$/u.test(code)) {
     const letter = code.slice(3);
-    return [letter.toLowerCase(), letter.charCodeAt(0), letter.charCodeAt(0) - 65];
+    return [letter.toLowerCase(), letter.charCodeAt(0)];
   }
   if (/^Digit[0-9]$/u.test(code)) {
     const digit = code.slice(5);
-    const macCodes = [0x1d, 0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1a, 0x1c, 0x19];
-    return [digit, digit.charCodeAt(0), macCodes[Number(digit)]!];
+    return [digit, digit.charCodeAt(0)];
   }
   const functionMatch = /^F([1-9]|1[0-9]|2[0-4])$/u.exec(code);
   if (functionMatch) {
     const number = Number(functionMatch[1]);
-    const macCodes = [0, 0x7a, 0x78, 0x63, 0x76, 0x60, 0x61, 0x62, 0x64, 0x65,
-      0x6d, 0x67, 0x6f, 0x69, 0x6b, 0x71, 0x6a, 0x40, 0x4f, 0x50, 0x5a];
-    return [`F${number}`, 0x6f + number, macCodes[number] ?? 0];
+    return [`F${number}`, 0x6f + number];
   }
   return BASE_KEYS[code] ?? null;
 }
@@ -90,6 +86,9 @@ export function chromiumCdpKeyDescriptor(
   effect: EmbeddedKeyEffectRecord,
   platform: ChromiumCdpInputPlatform
 ): ChromiumCdpKeyDescriptor {
+  if (platform !== "darwin" && platform !== "win32") {
+    throw new Error("CDP input requires a supported desktop platform.");
+  }
   const base = baseDescriptor(effect.code);
   if (!base) throw new Error(`Unsupported Chromium CDP key code: ${effect.code}`);
   const modifiers = chromiumCdpModifierMask(effect.activeCodes);
@@ -101,9 +100,11 @@ export function chromiumCdpKeyDescriptor(
     code: effect.code,
     key,
     modifiers,
-    location: effect.code.endsWith("Left") ? 1 : effect.code.endsWith("Right") ? 2 : 0,
+    location: MODIFIER_CODES.has(effect.code)
+      ? effect.code.endsWith("Left") ? 1 : 2 : 0,
     windowsVirtualKeyCode: base[1],
-    nativeVirtualKeyCode: platform === "darwin" ? base[2] : base[1],
+    // A native key code lets Chromium redispatch unhandled input to OS menus.
+    // Omit it: explicit DOM identity must remain confined to this Role page.
     autoRepeat: effect.autoRepeat
   });
 }

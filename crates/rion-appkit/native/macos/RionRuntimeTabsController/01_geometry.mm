@@ -75,17 +75,6 @@ static NSView *RionRuntimePhysicalInputTarget(NSView *view) {
   return nil;
 }
 
-static BOOL RionRuntimeShouldDirectRoleKeyEvent(
-    NSEvent *event, NSView *physicalTarget) {
-  if (!event || !physicalTarget ||
-      (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp)) {
-    return NO;
-  }
-  NSEventModifierFlags flags = event.modifierFlags &
-      NSEventModifierFlagDeviceIndependentFlagsMask;
-  return (flags & NSEventModifierFlagCommand) == 0;
-}
-
 static BOOL RionRuntimeIsTabShortcutEvent(NSEvent *event) {
   if (!event ||
       (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp)) {
@@ -102,18 +91,6 @@ static BOOL RionRuntimeIsTabShortcutEvent(NSEvent *event) {
 static BOOL RionRuntimeShouldActivateTabShortcut(NSEvent *event) {
   return event.type == NSEventTypeKeyDown &&
       RionRuntimeIsTabShortcutEvent(event);
-}
-
-static BOOL RionRuntimeIsDirectedRoleKeyEvent(NSEvent *event) {
-  return event && objc_getAssociatedObject(
-      event, NSSelectorFromString(@"rionStudioDirectedRoleKeyEvent"));
-}
-
-static void RionRuntimeMarkDirectedRoleKeyEvent(NSEvent *event) {
-  if (!event || RionRuntimeIsDirectedRoleKeyEvent(event)) return;
-  objc_setAssociatedObject(
-      event, NSSelectorFromString(@"rionStudioDirectedRoleKeyEvent"), @YES,
-      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static uint64_t RionRuntimePhysicalInputSequence(NSView *target) {

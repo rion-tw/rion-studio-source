@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { electronMainBundleGuard } from "./scripts/electronMainBundleGuard.mjs";
@@ -8,6 +11,15 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 
 const repositoryRoot = import.meta.dirname;
+// Bundle provenance includes tracked edits and new source files during development.
+const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
+const sourceDiff = execFileSync("git", ["diff", "HEAD", "--", "."], { cwd: repositoryRoot });
+const newSources = execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"],
+  { cwd: repositoryRoot, encoding: "utf8" }).split("\0").filter(Boolean);
+const sourceHash = createHash("sha256").update(sourceDiff);
+for (const path of newSources.sort()) sourceHash.update(path).update(readFileSync(resolve(repositoryRoot, path)));
+const buildCommit = sourceDiff.length || newSources.length
+  ? `${sourceCommit}+worktree.${sourceHash.digest("hex").slice(0, 16)}` : sourceCommit;
 const desktopE2eBuild = process.env.RION_STUDIO_DESKTOP_E2E_BUILD === "1";
 const electronMainInput = resolve(
   repositoryRoot,
@@ -31,6 +43,7 @@ const rendererInput = {
 };
 export default defineConfig({
   main: {
+    define: { __RION_BUILD_COMMIT__: JSON.stringify(buildCommit) },
     plugins: [electronMainBundleGuard()],
     build: {
       externalizeDeps: {

@@ -1,3 +1,4 @@
+import { resetTrustedInputTerminalJournalForTest, trustedInputDiagnostics } from "../src/electron/main/chromiumTrustedInputTerminalJournal";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
@@ -348,4 +349,29 @@ describe("Chromium trusted-input key sequence executor", () => {
     expect(dispatch).toHaveBeenCalledTimes(3);
     expect(core.complete).not.toHaveBeenCalled();
   });
+  it("records the original failed effect, confirmed prefix and both failed recovery outcomes", async () => {
+    resetTrustedInputTerminalJournalForTest();
+    const prefix = effect("rawKeyDown", "ShiftLeft", [], ["ShiftLeft"]);
+    const failed = effect("rawKeyDown", "KeyK", ["ShiftLeft"], ["ShiftLeft", "KeyK"]);
+    const core = coreWithTransition({ transitionId: "transition-evidence", effects: [prefix, failed], hasHeldKeys: true });
+    core.complete.mockRejectedValue(Object.assign(new Error("rollback lost"), { code: "CORE_ROLLBACK_LOST" }));
+    await expect(executeChromiumTrustedKeySequence({
+      request: request(keyAction()), surfaceGeneration: 9, platform: "darwin", core, nowMs: () => 1100,
+      dispatch: async native => {
+        if (native.intent === "cleanup") throw Object.assign(new Error("cleanup lost"), { code: "CLEANUP_LOST" });
+        if (native.keyEffect?.code === "KeyK") throw Object.assign(new Error("submission lost"), { code: "SUBMISSION_LOST" });
+        return applied(native);
+      }
+    })).rejects.toMatchObject({ quarantine: true });
+    expect(trustedInputDiagnostics().recentIncidents.at(-1)).toMatchObject({
+      requestId: "request-1", surfaceGeneration: 9, intent: "normal",
+      terminalCode: "SYSTEM_TRUSTED_INPUT_SEQUENCE_FAILED", cleanupOutcome: "indeterminate",
+      sequenceFailure: {
+        cause: { code: "SUBMISSION_LOST", message: "submission lost" },
+        confirmedEffects: [prefix], failedEffect: failed, confirmedEffectCount: 1,
+        compensationError: { code: "CLEANUP_LOST" }, rollbackError: { code: "CORE_ROLLBACK_LOST" }
+      }
+    });
+  });
+
 });

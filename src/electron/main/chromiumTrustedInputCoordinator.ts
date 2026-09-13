@@ -945,15 +945,7 @@ export class ChromiumTrustedInputCoordinator {
   async #dispatchNative(
     nativeRequest: ChromiumNativeTrustedInputRequest
   ): Promise<ChromiumNativeTrustedInputReceipt> {
-    let receipt: unknown;
-    try {
-      receipt = await this.#input.native.dispatch(nativeRequest);
-    } catch {
-      fail(
-        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
-        "The native input adapter ended without an authoritative terminal receipt."
-      );
-    }
+    const receipt: unknown = await this.#input.native.dispatch(nativeRequest);
     const observedAtMs = this.#input.nowMs();
     requireSafeInteger(observedAtMs, "native receipt observation time", 1);
     if (!receiptMatches(receipt, nativeRequest, observedAtMs)) {

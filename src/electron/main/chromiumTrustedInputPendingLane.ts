@@ -160,6 +160,7 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
     const keyCode = pending.request.keyEffect?.code ??
       (pending.request.action.type === "key" ? pending.request.action.code : null);
     recordTrustedInputTerminal({
+      documentInstanceId: pending.frame.documentInstanceId,
       capturedAt: new Date().toISOString(),
       requestId: pending.request.requestId,
       roleId: pending.request.roleId,

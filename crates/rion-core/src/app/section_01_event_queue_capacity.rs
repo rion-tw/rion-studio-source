@@ -73,7 +73,7 @@ const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // macro shortcuts to press/hold activation with keyDown/keyUp-only ordering; 34
 // isolates synthetic macro-key modifiers from live physical modifier state.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 35;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 36;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.

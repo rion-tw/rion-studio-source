@@ -271,3 +271,16 @@ E2E build/isolation/coverage, Electron native integration, macOS AppKit profile,
 and packaged Electron profile pass. Windows native integration, Chromium smoke,
 and packaged execution remain an independent CI gate; a local macOS result is
 never recorded as Windows evidence.
+
+## v36 input confinement follow-up
+
+The paired P0 additions below are classified as `cutover-regression` on macOS
+and `platform-pending` on Windows. They require a visible unbound Y lifecycle
+with no macro transport and compare native bounds/presentation across managed
+Y start/stop. DOM APPLIED alone is insufficient. The historical v32 baseline
+above remains a record of that run, not evidence for this working tree.
+
+```text
+CHROMIUM-MACOS-APPKIT-INPUT-CONFINEMENT-045
+CHROMIUM-WINDOWS-INPUT-CONFINEMENT-045
+```

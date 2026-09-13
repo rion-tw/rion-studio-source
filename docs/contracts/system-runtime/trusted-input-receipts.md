@@ -1,6 +1,6 @@
 # Trusted Input Receipts
 
-This document is the normative Chromium contract v35 source for trusted-input
+This document is the normative Chromium contract v36 source for trusted-input
 receipt provenance, uncertain-edge neutralization, quarantine, and retained
 terminal evidence. The broader recovery transaction remains defined by
 [Lifecycle and Recovery](lifecycle-and-recovery.md).
@@ -147,5 +147,33 @@ The journal never stores typed text. Physical observations are exported only as
 relationship classes such as `unrelated`, `same-identity`, and
 `modifier-change`. Individual unavailable native collectors do not replace the
 remaining runtime diagnostics with `INPUT_DIAGNOSTICS_UNAVAILABLE`. Older
-diagnostic fixtures may omit the v32 provenance field; a v35 runtime provides
+diagnostic fixtures may omit the v32 provenance field; a v36 runtime provides
 the bounded trace and incident summary.
+
+## v36 page confinement and failure evidence
+
+Keyboard descriptors omit `nativeVirtualKeyCode` on macOS and Windows. They
+retain explicit DOM `code`, `key`, Windows virtual-key identity, modifier mask,
+and repeat. Only the eight sided modifier codes use location 1/2; arrows and
+brackets use location 0. No text is invented for automatic key steps.
+Unhandled automatic input must not reach AppKit/Windows menus or change native
+window placement. Unbound physical keys use Chromium's default routing; the
+native observer registers at document readiness and never forwards or consumes
+ordinary physical keys. Reserved application/tab commands keep their owners.
+
+Cleanup validates the same Role, document, generation and host. A user focus
+change before cleanup submission is allowed: capture the current focus as the
+submission baseline and verify it after submission, without focusing the target.
+Normal input retains its original focus admission fence.
+
+`sequenceFailure` retains the original cause, transition identity, confirmed
+effect count, compensation error/result and Core rollback error/result. A
+sequence failure remains an incident even when preceding DOM edges were
+APPLIED. Successful compensation is not proof of neutrality when the sequence
+started with held keys. Uncertain cleanup isolates the affected Role.
+
+Overlay IPC returns a generated `ChromiumRoleOverlayResultRecord`: success with
+the receipt, rejected with the exact admission reason, or failed with the
+original error code/message. An admission refusal never queues input for replay.
+Unknown failures and unproven recovery remain actionable. Bundle diagnostics
+include the source commit and a digest of working-tree changes.

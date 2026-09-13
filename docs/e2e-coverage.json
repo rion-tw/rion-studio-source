@@ -1217,7 +1217,7 @@
         "success",
         "failure"
       ],
-      "description": "Create a one-shot press Macro assigned to Role A with Roles A and B as visible shortcut sources. On macOS, trigger it with a real CGEvent Shift+Digit4 lifecycle while Shift remains physically held through the primary key. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release."
+      "description": "Create a one-shot press Macro assigned to Role A with Roles A and B as visible shortcut sources. On macOS, trigger it with a real CGEvent Shift+Digit4 lifecycle while Shift remains physically held through the primary key. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release. Before asserting final neutrality, observe both the shortcut main-key release and final physical Shift release; native event posting alone does not prove page consumption."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004",
@@ -1243,7 +1243,7 @@
         "success",
         "failure"
       ],
-      "description": "Run the same visible two-Role held-key lifecycle in the Windows Chromium host. Exact View ownership plus native/read-only receipts must prove same-owner Digit2 continuity after selecting B hides A's View while both tabs remain in the tab strip, a fresh trusted Digit2 run started from visible B reaches hidden A without show, select, focus, or activation APIs, B receives no target input, the foreground parent and visible sibling remain unchanged, and cleanup terminalizes every native and Core-held key. Restoring the Role and focusing the stop canvas must not release the Macro key through synthetic physical-key cleanup before its trusted native release. The live physical verdict remains independently required on Windows CI."
+      "description": "Run the same visible two-Role held-key lifecycle in the Windows Chromium host. Exact View ownership plus native/read-only receipts must prove same-owner Digit2 continuity after selecting B hides A's View while both tabs remain in the tab strip, a fresh trusted Digit2 run started from visible B reaches hidden A without show, select, focus, or activation APIs, B receives no target input, the foreground parent and visible sibling remain unchanged, and cleanup terminalizes every native and Core-held key. Restoring the Role and focusing the stop canvas must not release the Macro key through synthetic physical-key cleanup before its trusted native release. The live physical verdict remains independently required on Windows CI. Before asserting final neutrality, observe both the shortcut main-key release and final physical Shift release; native event posting alone does not prove page consumption."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023",
@@ -1318,7 +1318,7 @@
         "success",
         "failure"
       ],
-      "description": "In the visible retained AppKit Role, start and stop a 250ms KeyJ loop press Macro with zero-gap real CGEvent KeyY lifecycles while interleaving KeyW, pointer clicks, Shift, and Alt; prove each AppKit key edge reaches Chromium once without native fallback amplification, every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. The second KeyY must persist v35 Core stop-before-replacement evidence, so its acknowledgement cannot recursively dispatch a new press. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its live AppKit Chromium surface and becomes restart-required."
+      "description": "In the visible retained AppKit Role, start and stop a 250ms KeyJ loop press Macro with zero-gap real CGEvent KeyY lifecycles while interleaving KeyW, pointer clicks, Shift, and Alt; prove each AppKit key edge reaches Chromium once without native fallback amplification, every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. The second KeyY must persist v36 Core stop-before-replacement evidence, so its acknowledgement cannot recursively dispatch a new press. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its live AppKit Chromium surface and becomes restart-required."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-INPUT-RECOVERY-011",
@@ -1344,7 +1344,7 @@
         "success",
         "failure"
       ],
-      "description": "In the visible bundled-Chromium Role, start and stop a 250ms KeyJ loop press Macro with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. The second KeyY must persist v35 Core stop-before-replacement evidence, so its acknowledgement cannot recursively dispatch a new press. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its bundled Chromium surface and becomes restart-required, with the independent ABI-v3 physical gate required."
+      "description": "In the visible bundled-Chromium Role, start and stop a 250ms KeyJ loop press Macro with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. The second KeyY must persist v36 Core stop-before-replacement evidence, so its acknowledgement cannot recursively dispatch a new press. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its bundled Chromium surface and becomes restart-required, with the independent ABI-v3 physical gate required."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MIDDLE-BUTTON-013",
@@ -1577,7 +1577,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+3 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains. While physical Shift remains continuously held, two separate Shift+3 presses must each project a complete trusted Shift+1 lifecycle. Rapid Shift+2 then Shift+3 and the user-reported Shift+3 then Shift+2 order must both reconcile CDP and native physical receipts without leaving either one-shot Macro running or closing the Core event stream. Under v35, Core distinguishes stop control from replacement-input outcome; quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+3 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains. While physical Shift remains continuously held, two separate Shift+3 presses must each project a complete trusted Shift+1 lifecycle. Rapid Shift+2 then Shift+3 and the user-reported Shift+3 then Shift+2 order must both reconcile CDP and native physical receipts without leaving either one-shot Macro running or closing the Core event stream. Under v36, Core distinguishes stop control from replacement-input outcome; quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007",
@@ -1603,7 +1603,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+3 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. While physical Shift remains continuously held, two separate Shift+3 presses must each project a complete trusted Shift+1 lifecycle. Rapid Shift+2 then Shift+3 and Shift+3 then Shift+2 must both reconcile CDP and native physical receipts without leaving either one-shot Macro running or closing the Core event stream. Under v35, Core distinguishes stop control from replacement-input outcome; quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+3 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. While physical Shift remains continuously held, two separate Shift+3 presses must each project a complete trusted Shift+1 lifecycle. Rapid Shift+2 then Shift+3 and Shift+3 then Shift+2 must both reconcile CDP and native physical receipts without leaving either one-shot Macro running or closing the Core event stream. Under v36, Core distinguishes stop control from replacement-input outcome; quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-TERMINAL-CLEANUP-006",
@@ -3561,6 +3561,51 @@
         "failure"
       ],
       "description": "Visible Open automatically finishes the first legacy upgrade without changing role identity or the old migration journal. A known Cookie readback failure preserves two independently verified LocalStorage origins. A fresh application process opens the same role and session without another import, and the result remains available from the role menu."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-INPUT-CONFINEMENT-045",
+      "coverageGroup": "chromium-input-confinement",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-macro-cutover-input-recovery"
+      ],
+      "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-INPUT-CONFINEMENT-045",
+      "coverageGroup": "chromium-input-confinement",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-windows-trusted-input-physical",
+        "chromium-macro-cutover-input-recovery"
+      ],
+      "spec": "e2e/desktop/specs/chromium-macro-cutover.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "description": "Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors."
     }
   ],
   "retiredCompatibility": {

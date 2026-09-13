@@ -140,7 +140,7 @@ describe("shared AppKit runtime controller", () => {
     expect(settle).not.toContain("orderOut:");
   });
 
-  it("routes plain Role keys directly and records placement trigger provenance", async () => {
+  it("forbids manual physical key routing and records placement provenance", async () => {
     const [geometry, controller, layout, probe] = await Promise.all([
       readFile(
         "crates/rion-appkit/native/macos/RionRuntimeTabsController/01_geometry.mm",
@@ -160,22 +160,10 @@ describe("shared AppKit runtime controller", () => {
       )
     ]);
 
-    expect(geometry).toContain("RionRuntimeShouldDirectRoleKeyEvent");
-    expect(geometry).toContain("RionRuntimeIsDirectedRoleKeyEvent");
-    expect(geometry).toContain("RionRuntimeMarkDirectedRoleKeyEvent");
-    expect(geometry).toContain("NSEventModifierFlagCommand) == 0");
-    expect(controller).toContain(
-      "RionRuntimeIsMacroKeyEvent(event) ||\n        RionRuntimeIsDirectedRoleKeyEvent(event)"
-    );
-    expect(controller).toContain("__block BOOL directingRoleKeyEvent = NO;");
-    expect(controller).toContain("if (directingRoleKeyEvent) return nil;");
-    expect(controller.indexOf("RionRuntimeMarkDirectedRoleKeyEvent(event)")).toBeLessThan(
-      controller.indexOf("[physicalTarget keyDown:event]")
-    );
-    expect(controller).toContain("directingRoleKeyEvent = YES;");
-    expect(controller).toContain("directingRoleKeyEvent = NO;");
-    expect(controller).toContain("[physicalTarget keyDown:event]");
-    expect(controller).toContain("[physicalTarget keyUp:event]");
+    expect(geometry).not.toContain("RionRuntimeShouldDirectRoleKeyEvent");
+    expect(controller).not.toContain("directingRoleKeyEvent");
+    expect(controller).not.toContain("[physicalTarget keyDown:event]");
+    expect(controller).not.toContain("[physicalTarget keyUp:event]");
     expect(layout).toContain('@"placementDiagnostics"');
     expect(layout).toContain('@"triggerKeyCode"');
     expect(layout).toContain('@"firstResponderCategory"');

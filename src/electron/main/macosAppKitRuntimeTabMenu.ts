@@ -56,6 +56,9 @@ export interface MacosAppKitRuntimeTabMenuInput {
     }>) => void;
   }>;
   readonly onError: (error: unknown) => void;
+  readonly readSettledSnapshot?: () => Promise<Readonly<{
+    core: CoreAppSnapshotRecord; native: ChromiumRuntimeExecutorSnapshot;
+  }>>;
   readonly readCoreSnapshot: () => Promise<CoreAppSnapshotRecord>;
   readonly readNativeSnapshot: () => ChromiumRuntimeExecutorSnapshot;
 }
@@ -67,6 +70,7 @@ export interface MacosAppKitRuntimeTabMenuOpenRequest {
 }
 
 interface ExactWindow {
+  readonly visible: boolean;
   readonly fence: MacosAppKitRuntimeTabMenuFence;
   readonly name: string;
 }
@@ -179,6 +183,7 @@ export class MacosAppKitRuntimeTabMenuController {
 
   async open(request: MacosAppKitRuntimeTabMenuOpenRequest): Promise<void> {
     const context = await this.#openContext(request);
+    if (!context) return;
     const labels = LABELS[this.#input.language()];
     const targetItems = context.targets.map((target) =>
       target.fence.windowId === context.source.fence.windowId
@@ -275,7 +280,9 @@ export class MacosAppKitRuntimeTabMenuController {
     action: MacosAppKitRuntimeTabMenuAction,
     target?: MacosAppKitRuntimeTabMenuFence
   ): Promise<void> {
-    const current = await this.#exactWindows();
+    const current = await this.#exactWindows(new Set([
+      context.source.fence.windowId, ...(target ? [target.windowId] : [])
+    ]));
     const source = current.get(context.source.fence.windowId);
     const currentTarget = target ? current.get(target.windowId) : undefined;
     if (
@@ -284,10 +291,9 @@ export class MacosAppKitRuntimeTabMenuController {
         !currentTarget || !exactFence(currentTarget.fence, target)
       ))
     ) {
-      throw menuError(
-        "ELECTRON_MACOS_APPKIT_TAB_MENU_FENCE_STALE",
-        "The native tab menu lost its exact Core/AppKit window generation."
-      );
+      // The modal menu retained an obsolete intent. Never apply it to a new
+      // topology, and do not turn an authoritative cancellation into a fault.
+      return;
     }
     await this.#input.actions.execute(Object.freeze({
       action,
@@ -298,7 +304,7 @@ export class MacosAppKitRuntimeTabMenuController {
 
   async #openContext(
     request: MacosAppKitRuntimeTabMenuOpenRequest
-  ): Promise<ExactMenuContext> {
+  ): Promise<ExactMenuContext | null> {
     if (
       request.hosts.length !== 1 ||
       !exactIdentity(request.hosts[0]?.identity, request.identity) ||
@@ -311,19 +317,15 @@ export class MacosAppKitRuntimeTabMenuController {
       );
     }
     const host = request.hosts[0]!;
-    const windows = await this.#exactWindows();
+    const windows = await this.#exactWindows(new Set([request.identity.logicalWindowId]));
     const source = windows.get(request.identity.logicalWindowId);
     if (
-      !source || !host.visible || host.minimized ||
+      !source || !source.visible || !host.visible || host.minimized ||
       source.fence.windowGeneration !== host.windowGeneration ||
-      source.fence.topologyRevision !== host.topologyRevision ||
       !exactIdentity(source.fence.appKitIdentity, request.identity) ||
       !source.fence.tabIds.includes(request.tabId)
     ) {
-      throw menuError(
-        "ELECTRON_MACOS_APPKIT_TAB_MENU_HOST_STALE",
-        "The native tab menu target is outside the exact visible AppKit topology."
-      );
+      return null;
     }
     return Object.freeze({
       audioMuted: source.fence.tabAudioMuted[
@@ -335,9 +337,11 @@ export class MacosAppKitRuntimeTabMenuController {
     });
   }
 
-  async #exactWindows(): Promise<Map<string, ExactWindow>> {
-    const core = await this.#input.readCoreSnapshot();
-    const native = this.#input.readNativeSnapshot();
+  async #exactWindows(required: ReadonlySet<string>): Promise<Map<string, ExactWindow>> {
+    const captured = this.#input.readSettledSnapshot
+      ? await this.#input.readSettledSnapshot()
+      : { core: await this.#input.readCoreSnapshot(), native: this.#input.readNativeSnapshot() };
+    const { core, native } = captured;
     const lifecycleEpoch = this.#input.lifecycleEpoch();
     if (!Number.isSafeInteger(lifecycleEpoch) || lifecycleEpoch < 1) {
       throw menuError(
@@ -379,12 +383,14 @@ export class MacosAppKitRuntimeTabMenuController {
         !Number.isSafeInteger(owner.appKitIdentity.nativeGeneration) ||
         owner.appKitIdentity.nativeGeneration < 1
       ) {
+        if (!required.has(logical.windowId)) continue;
         throw menuError(
           "ELECTRON_MACOS_APPKIT_TAB_MENU_TOPOLOGY_STALE",
           "The native tab menu could not prove an exact Core/AppKit parent fence."
         );
       }
       result.set(logical.windowId, Object.freeze({
+        visible: owner.visible,
         fence: Object.freeze({
           appKitIdentity: Object.freeze({ ...owner.appKitIdentity }),
           lifecycleEpoch,
@@ -398,12 +404,6 @@ export class MacosAppKitRuntimeTabMenuController {
         name: saved?.name ?? owner.target?.persistedName ??
           DEFAULT_GAME_WINDOW_NAME
       }));
-    }
-    if (result.size !== native.windows.length) {
-      throw menuError(
-        "ELECTRON_MACOS_APPKIT_TAB_MENU_TOPOLOGY_STALE",
-        "The native tab menu observed an unowned AppKit runtime window."
-      );
     }
     return result;
   }

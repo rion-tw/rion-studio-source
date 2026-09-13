@@ -1101,6 +1101,14 @@ export class ChromiumRoleSurfaceRegistry {
           !documentInstanceId || documentInstanceId.length > 128 ||
           documentInstanceId !== documentInstanceId.trim()
         ) return;
+        try {
+          this.#nativeAttachments?.initialLoadCommitted?.(
+            record.roleId, record.generation, record.parent
+          );
+        } catch {
+          this.#reportActiveMainFrameFailure(record, -2, validatedUrl);
+          return;
+        }
         record.navigation.pageFinished(validatedUrl);
       },
       didFailLoad: (

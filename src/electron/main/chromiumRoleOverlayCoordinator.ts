@@ -1,3 +1,4 @@
+import { captureChromiumRoleOverlayResult } from "../ipc/chromiumRoleOverlayResult";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -357,7 +358,10 @@ export class ChromiumRoleOverlayCoordinator {
       );
     }
     ipcMain.handle(CHROMIUM_ROLE_OVERLAY_CHANNEL, (event, envelope) =>
-      this.receive(event, envelope)
+      captureChromiumRoleOverlayResult(
+        () => this.receive(event, envelope),
+        error => console.error(`[${error.code}] ${error.message}`)
+      )
     );
     this.#ipcMain = ipcMain;
   }

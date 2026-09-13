@@ -128,12 +128,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 35;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 36;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 35 }> {
+): Readonly<Options & { runtimeContractVersion: 36 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION

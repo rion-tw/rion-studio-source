@@ -34,13 +34,24 @@ const CHROMIUM_BINDING_SOURCE = `(() => {
     writable: false,
     value: native.frameToken
   });
-  const bridge = (payload) => native.request(payload);
-  bridge.ready = () => native.ready();
-  bridge.refreshReceipt = (payload) => native.refreshReceipt(payload);
-  bridge.macroKeyObserved = (payload) => native.macroKeyObserved(payload);
-  bridge.managedShortcutKeyPhase = (payload) => native.managedShortcutKeyPhase(payload);
+  const unwrap = async (operation) => {
+    const result = await operation;
+    if (result?.outcome === "success") return result.value;
+    if ((result?.outcome === "rejected" || result?.outcome === "failed") &&
+        typeof result.error?.code === "string" && typeof result.error?.message === "string") {
+      throw Object.assign(new Error(result.error.message), {
+        code: result.error.code, outcome: result.outcome
+      });
+    }
+    throw new Error("Invalid Chromium overlay result envelope.");
+  };
+  const bridge = (payload) => unwrap(native.request(payload));
+  bridge.ready = () => unwrap(native.ready());
+  bridge.refreshReceipt = (payload) => unwrap(native.refreshReceipt(payload));
+  bridge.macroKeyObserved = (payload) => unwrap(native.macroKeyObserved(payload));
+  bridge.managedShortcutKeyPhase = (payload) => unwrap(native.managedShortcutKeyPhase(payload));
   if (typeof native.inputContextLost === "function") {
-    bridge.inputContextLost = (payload) => native.inputContextLost(payload);
+    bridge.inputContextLost = (payload) => unwrap(native.inputContextLost(payload));
   }
   return Object.freeze(bridge);
 })()`;

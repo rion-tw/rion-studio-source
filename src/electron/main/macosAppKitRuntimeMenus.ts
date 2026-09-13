@@ -44,6 +44,9 @@ interface MacosAppKitRuntimeMenusInput {
     }>) => void;
   }>;
   readonly onError: (error: unknown) => void;
+  readonly readSettledSnapshot?: () => Promise<Readonly<{
+    core: CoreAppSnapshotRecord; native: ChromiumRuntimeExecutorSnapshot;
+  }>>;
   readonly readCoreSnapshot: () => Promise<CoreAppSnapshotRecord>;
   readonly readDisplayTopology: () => DisplayTopologySnapshotRecord;
   readonly readNativeSnapshot: () => ChromiumRuntimeExecutorSnapshot;
@@ -168,6 +171,7 @@ export function createMacosAppKitRuntimeMenus(
     lifecycleEpoch: input.lifecycleEpoch,
     nativeMenu: input.nativeMenu,
     onError: input.onError,
+    readSettledSnapshot: input.readSettledSnapshot,
     readCoreSnapshot: input.readCoreSnapshot,
     readNativeSnapshot: input.readNativeSnapshot
   });

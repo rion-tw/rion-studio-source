@@ -487,7 +487,7 @@ describe("macOS retained AppKit runtime tab menu", () => {
     });
   });
 
-  it("rejects a menu selection after its Core topology revision changes", async () => {
+  it("cancels a menu selection after its Core topology revision changes", async () => {
     const { core, host, native } = fixtures();
     let lifecycleEpoch = 17;
     const execute = vi.fn(async () => undefined);
@@ -509,11 +509,36 @@ describe("macOS retained AppKit runtime tab menu", () => {
     native.windows[0] = { ...native.windows[0]!, topologyRevision: 8 };
     const items = popup.mock.calls[0]![0].items as readonly MacosAppKitRuntimeTabMenuItem[];
     item(items, "runtime-tab-menu-move-new").click!();
-    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
-
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      code: "ELECTRON_MACOS_APPKIT_TAB_MENU_FENCE_STALE"
-    }));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(onError).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
+  it("opens from the committed source projection despite an older click revision and unrelated stale window", async () => {
+    const { core, host, native } = fixtures();
+    native.windows[1] = { ...native.windows[1]!, topologyRevision: 999 };
+    const popup = vi.fn();
+    const readSettledSnapshot = vi.fn(async () => ({ core, native }));
+    const controller = new MacosAppKitRuntimeTabMenuController({
+      actions: { execute: vi.fn() }, language: () => "en", lifecycleEpoch: () => 17,
+      nativeMenu: { popup }, onError: vi.fn(), readSettledSnapshot,
+      readCoreSnapshot: vi.fn(async () => { throw new Error("uncommitted read"); }),
+      readNativeSnapshot: () => { throw new Error("uncommitted read"); }
+    });
+    await controller.open({ hosts: [{ ...host, topologyRevision: 6 }], identity: sourceIdentity, tabId: "tab-1" });
+    expect(readSettledSnapshot).toHaveBeenCalledOnce();
+    expect(popup).toHaveBeenCalledOnce();
+  });
+
+  it("cancels an old host generation without opening a menu on its replacement", async () => {
+    const { core, host, native } = fixtures();
+    const popup = vi.fn();
+    const controller = new MacosAppKitRuntimeTabMenuController({
+      actions: { execute: vi.fn() }, language: () => "en", lifecycleEpoch: () => 17,
+      nativeMenu: { popup }, onError: vi.fn(),
+      readCoreSnapshot: async () => core, readNativeSnapshot: () => native
+    });
+    await controller.open({ hosts: [{ ...host, windowGeneration: 2 }], identity: sourceIdentity, tabId: "tab-1" });
+    expect(popup).not.toHaveBeenCalled();
+  });
+
 });

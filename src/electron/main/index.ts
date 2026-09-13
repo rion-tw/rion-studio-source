@@ -86,8 +86,8 @@ import {
 import { createMacosAppKitRuntimeMenus } from "./macosAppKitRuntimeMenus";
 import {
   macosRuntimeTabMenuLanguage,
-  macosRuntimeTabMenuTemplate
-} from "./macosRuntimeTabMenuTemplate";
+  popupMacosRuntimeMenu, readRuntimeMenuSnapshot
+} from "./macosRuntimeMenuBoundary";
 import { MacosAppKitInputSurfaceAttachmentCoordinator } from
   "./macosAppKitInputSurfaceAttachmentCoordinator";
 import { MacosAppKitTrustedInputAdapter } from
@@ -808,6 +808,8 @@ async function bootstrapReadyPhase(
   const fatalEventStream = new ElectronFatalEventStreamRouter({
     onFatalDetected: () => {
       fatalEventStreamDetected = true;
+      coreRendererEvents?.dispose();
+      unsubscribeDisplayTopology?.();
       chromiumRuntime?.beginFatalEventStreamFailure();
       lifecycle?.beginFatalQuit();
       const bridge = ipcBridge;
@@ -1390,24 +1392,17 @@ async function bootstrapReadyPhase(
       language: () => menuLanguage,
       launches: launchCoordinator,
       lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
-      nativeMenu: {
-        popup: ({ items, parentNativeHostId }) => {
-          const parent = BaseWindow.fromId(parentNativeHostId);
-          if (!parent || parent.isDestroyed()) {
-            throw new RionBridgeError({
-              code: "ELECTRON_MACOS_APPKIT_MENU_PARENT_STALE",
-              message: "The retained AppKit menu lost its exact native parent."
-            });
-          }
-          Menu.buildFromTemplate(macosRuntimeTabMenuTemplate(items)).popup({
-            window: parent
-          });
-        }
-      },
+      nativeMenu: { popup: popupMacosRuntimeMenu },
       onError: (error) => revealShellError(normalizeRionBridgeError(
         error,
         "ELECTRON_MACOS_APPKIT_MENU_FAILED"
       )),
+      readSettledSnapshot: () => readRuntimeMenuSnapshot({
+        settleNativeEvents: () => appKit!.rendererActions!.settleCurrentEvents(),
+        runtime: chromiumRuntime!,
+        readCore: () => activeCore().invoke({ type: "appSnapshot" }),
+        readNative: readChromiumRuntimeSnapshot
+      }),
       readCoreSnapshot: () => activeCore().invoke({ type: "appSnapshot" }),
       readDisplayTopology: () => activeDisplayTopology().snapshot(),
       readNativeSnapshot: readChromiumRuntimeSnapshot,
@@ -1570,6 +1565,8 @@ async function bootstrapReadyPhase(
     },
     createMainWindow,
     prepareCleanExit: async () => {
+      coreRendererEvents?.dispose();
+      unsubscribeDisplayTopology?.();
       await runtimeLogs.applicationQuitting();
       await prepareElectronCleanExit({
         core: activeCore(),

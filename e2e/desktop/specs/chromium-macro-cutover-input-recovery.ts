@@ -1,8 +1,10 @@
+import { verifyUnboundChromiumInput } from "./chromium-input-confinement";
 import { expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
 import {
   electronDesktopE2eFullscreenToolbarRuntime,
+  electronDesktopE2eGameWindowRuntime,
   electronDesktopE2eProbe,
   electronDesktopE2eRoleSessionRuntime,
   electronDesktopE2eTrustedInputRuntime
@@ -86,6 +88,7 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
   const presentationBefore = (
     await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)
   ).presentation;
+  const nativeBefore = (await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime;
   const trustedInputBefore = await electronDesktopE2eTrustedInputRuntime(input.roleId);
   const pressY = () => input.platform === "macos"
     ? pressVisibleMacosRoleKey({
@@ -101,6 +104,8 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
   await pressY();
   expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
     .toBe(presentationBefore);
+  expect((await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime?.nativeDisplay)
+    .toEqual(nativeBefore?.nativeDisplay);
   await waitForMacroProjection({
     afterSequence: input.macroStatusCursor,
     macroId: input.macroId,
@@ -172,6 +177,8 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
   await pressY();
   expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
     .toBe(presentationBefore);
+  expect((await electronDesktopE2eGameWindowRuntime(WINDOW_ID)).currentRuntime?.nativeDisplay)
+    .toEqual(nativeBefore?.nativeDisplay);
   await waitExactKey({
     afterSequence: stopInputCursor,
     code: "KeyY",
@@ -253,6 +260,18 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
       { id: "recovery-event-gap", ms: 5_000, type: "delay" }
     ]
   });
+  const window = await createChromiumMacroWindow(
+    WINDOW_ID,
+    "Chromium Macro Input Recovery"
+  );
+  await showChromiumMacroWindow(window);
+  const tab = await launchChromiumRoleVisible(role, FIXTURE_ID, window);
+  await activateChromiumRoleVisible(context, tab);
+  const nativeBinding = await expectChromiumNativeRoleBinding(context, tab);
+  await verifyUnboundChromiumInput({
+    ...context, processId, roleId: role.id, roleName: role.name, roleUrl,
+    fixtureId: FIXTURE_ID, windowId: WINDOW_ID
+  });
   const interleaveMacro = await rendererCall("createMacro", {
     activationMode: "press",
     enabled: true,
@@ -265,14 +284,6 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     ],
     trigger: { alt: false, code: "KeyY", ctrl: false, meta: false, shift: false }
   });
-  const window = await createChromiumMacroWindow(
-    WINDOW_ID,
-    "Chromium Macro Input Recovery"
-  );
-  await showChromiumMacroWindow(window);
-  const tab = await launchChromiumRoleVisible(role, FIXTURE_ID, window);
-  await activateChromiumRoleVisible(context, tab);
-  const nativeBinding = await expectChromiumNativeRoleBinding(context, tab);
   const interleaveStatusCursor = await rendererEventCursor();
   const concurrentPhysicalInput = await exerciseConcurrentPhysicalInput({
     mainWindowHandle: context.mainWindowHandle,

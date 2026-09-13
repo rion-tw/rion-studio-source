@@ -93,7 +93,7 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 35. Version 23 remains the first
+The active runtime contract is version 36. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -928,3 +928,15 @@ is always visible in a separate settings group without a disclosure control. Dia
 actual observations, missing fields remain unavailable, and errors never become
 success through elapsed time. This feature does not sample frame rate or poll GPU
 state. Both platforms exercise the paired GRAPHICS-SETTINGS-001 journeys.
+
+## Version 36 input confinement
+
+Version 36 removes native virtual-key codes from automatic CDP keyboard
+commands, restores ordinary physical input to Chromium's default route, and
+registers passive native observation at document readiness. Cleanup uses fresh
+focus continuity within the same document and host. Overlay calls have typed
+success/rejected/failed terminals; sequence diagnostics retain original effects,
+confirmed prefixes, compensation, rollback and document provenance. Native
+menus read committed projections and cancel stale intents. Presentation event
+subscriptions stop before clean-exit admission closes. Stored Macro semantics
+and the sole Electron runtime remain unchanged.

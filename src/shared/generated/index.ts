@@ -114,6 +114,8 @@ export type { SystemRuntimeInputFenceRecord } from "./SystemRuntimeInputFenceRec
 export type { TrustedInputTerminalEvidenceRecord } from "./TrustedInputTerminalEvidenceRecord";
 export type { TrustedInputDiagnosticsRecord } from "./TrustedInputDiagnosticsRecord";
 export type { TrustedInputTraceStepRecord } from "./TrustedInputTraceStepRecord";
+export type { ChromiumRoleOverlayResultRecord } from "./ChromiumRoleOverlayResultRecord";
+export type { TrustedInputSequenceFailureRecord } from "./TrustedInputSequenceFailureRecord";
 export type { SystemRuntimeOperationCompletionScope } from "./SystemRuntimeOperationCompletionScope";
 export type { SystemRuntimeOperationStatus } from "./SystemRuntimeOperationStatus";
 export type { SystemRuntimeOperationSubsystem } from "./SystemRuntimeOperationSubsystem";

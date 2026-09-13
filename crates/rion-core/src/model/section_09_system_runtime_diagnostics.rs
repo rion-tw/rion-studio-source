@@ -690,7 +690,28 @@ pub struct TrustedInputTraceStepRecord {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct TrustedInputSequenceFailureRecord {
+    pub cause: crate::CoreErrorPayload,
+    pub transition_id: Option<String>,
+    pub confirmed_effect_count: u32,
+    pub confirmed_effects: Vec<EmbeddedKeyEffectRecord>,
+    pub failed_effect: Option<EmbeddedKeyEffectRecord>,
+    pub compensation_succeeded: bool,
+    pub rollback_succeeded: bool,
+    pub compensation_error: Option<crate::CoreErrorPayload>,
+    pub rollback_error: Option<crate::CoreErrorPayload>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct TrustedInputTerminalEvidenceRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub document_instance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sequence_failure: Option<TrustedInputSequenceFailureRecord>,
     pub captured_at: String,
     pub request_id: String,
     pub role_id: String,

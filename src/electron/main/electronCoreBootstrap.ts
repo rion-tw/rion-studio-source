@@ -16,6 +16,8 @@ import { withElectronChromiumRuntimeContract } from "./chromiumRuntimeBootstrap"
 import type { RawAppKitRuntimeAddon } from "./macosAppKitRuntimeHostFactory";
 import type { RawChromiumUpdaterFactory } from "./electronChromiumUpdater";
 
+declare const __RION_BUILD_COMMIT__: string;
+
 interface NativeAppCoreOptions {
   userDataDir: string;
   platform: "darwin" | "win32";
@@ -70,6 +72,7 @@ export async function createElectronCore(
     userDataDir: options.userDataDir,
     platform: options.platform,
     appVersion: options.appVersion,
+    buildCommit: typeof __RION_BUILD_COMMIT__ === "string" ? __RION_BUILD_COMMIT__ : undefined,
     packaged: options.packaged,
     startupBackupLabel: "electron-chromium-foundation"
   }), {

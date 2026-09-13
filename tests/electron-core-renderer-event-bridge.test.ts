@@ -207,4 +207,24 @@ describe("Electron Core renderer event bridge", () => {
     test.bridge.dispose();
     expect(test.unsubscribe).toHaveBeenCalledOnce();
   });
+  it("retires passive snapshot and overlay intake before runtime draining", async () => {
+    let rejectSnapshot!: (error: unknown) => void;
+    let rejectOverlay!: (error: unknown) => void;
+    const read = vi.fn(() => new Promise<AppSnapshot>((_resolve, reject) => { rejectSnapshot = reject; }));
+    const refresh = vi.fn((_roleIds: readonly string[]) => new Promise<undefined>((_resolve, reject) => { rejectOverlay = reject; }));
+    const test = harness(read, refresh);
+    test.emit({ type: "overlayChanged", roleIds: ["role-1"] });
+    test.bridge.observeNativeProjectionChanged();
+    test.bridge.dispose();
+    test.emit({ type: "overlayChanged", roleIds: ["role-1"] });
+    test.bridge.observeNativeProjectionChanged();
+    const cancelled = { code: "ELECTRON_CHROMIUM_RUNTIME_DRAINING", message: "intake closed" };
+    rejectSnapshot(cancelled); rejectOverlay(cancelled);
+    await Promise.resolve(); await Promise.resolve();
+    expect(read).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(test.publishAppSnapshot).not.toHaveBeenCalled();
+    expect(test.onError).not.toHaveBeenCalled();
+  });
+
 });

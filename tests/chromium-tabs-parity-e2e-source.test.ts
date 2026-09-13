@@ -202,7 +202,8 @@ describe("Chromium native tab exact replacements", () => {
     );
     expect(main).toContain("language: () => menuLanguage");
     expect(main).toContain("menuLanguage = language");
-    expect(main).toContain("BaseWindow.fromId(parentNativeHostId)");
+    expect(await source("src/electron/main/macosRuntimeMenuBoundary.ts"))
+      .toContain("BaseWindow.fromId(input.parentNativeHostId)");
     expect(menu).toContain('id: "runtime-tab-menu-reload"');
     expect(menu).toContain('type: "reload"');
     expect(menu).toContain("lifecycleEpoch");

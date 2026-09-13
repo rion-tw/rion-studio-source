@@ -81,6 +81,7 @@ function clickAction(
 }
 
 function harness(options: Readonly<{
+  focusChangeAtProbe?: number;
   resolvedClick?: Readonly<{
     clientX: number;
     clientY: number;
@@ -122,6 +123,7 @@ function harness(options: Readonly<{
   const mouseSubmissions: unknown[] = [];
   const mouseReceipts: AppKitNativeMouseSubmissionReceipt[] = [];
   let nativeFocusNeutral = true;
+  let nativeProbeCount = 0;
   let nativePhysicalModifierCodes: readonly string[] = [];
   let nativePhysicalInputSequence = 0;
   let nativePhysicalKeyDownSequence = 0;
@@ -138,7 +140,9 @@ function harness(options: Readonly<{
   const slotOffset = options.slotOffset ?? { x: 73, y: 57 };
   const targetFlipped = options.targetFlipped ?? true;
   const native = {
-    probeCdpInputSurface: () => ({
+    probeCdpInputSurface: () => {
+      if (++nativeProbeCount === options.focusChangeAtProbe) nativeFocusNeutral = false;
+      return ({
       roleId: "role-1",
       surfaceGeneration: 1,
       nativeGeneration: 1,
@@ -157,7 +161,8 @@ function harness(options: Readonly<{
       targetY: 0,
       targetWidth: 800,
       targetHeight: 560
-    }),
+    });
+    },
     submitNativeBackgroundKey: (
       _expected: typeof identity,
       request: Readonly<{
@@ -1328,6 +1333,24 @@ describe("macOS AppKit trusted-input adapter", () => {
         "targetWindowFirstResponderAddress"
       ])
     }));
+  });
+
+  it("rebases cleanup focus before submission while retaining the exact document", async () => {
+    const subject = harness({ focusChangeAtProbe: 2 });
+    const request = nativeRequest("cleanup-rebase", keyAction("release"), {
+      intent: "cleanup", expectedInputNeutralityBefore: false
+    });
+    const result = subject.adapter.dispatch(request);
+    subject.receiptAll(subject.arm());
+    await expect(result).resolves.toMatchObject({ status: "applied", confirmedInputNeutrality: true });
+  });
+
+  it("still rejects normal input when focus changes before submission", async () => {
+    const subject = harness({ focusChangeAtProbe: 2 });
+    const result = subject.adapter.dispatch(nativeRequest("normal-focus-change", keyAction("hold")));
+    subject.arm();
+    await expect(result).resolves.toMatchObject({ status: "superseded", errorCode: "BROWSER_ACTION_STALE" });
+    expect(subject.keySubmissions).toHaveLength(0);
   });
 
   it("proves focus readiness without changing native focus or forging input", async () => {

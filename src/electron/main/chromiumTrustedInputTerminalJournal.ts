@@ -1,4 +1,6 @@
 import type {
+  BrowserActionRequest,
+  TrustedInputSequenceFailureRecord,
   TrustedInputDiagnosticsRecord,
   TrustedInputTerminalEvidenceRecord
 } from "../../shared/generated";
@@ -16,6 +18,7 @@ function cloneTerminal(
 ): TrustedInputTerminalEvidenceRecord {
   return {
     ...record,
+    ...(record.sequenceFailure ? { sequenceFailure: structuredClone(record.sequenceFailure) } : {}),
     nativeProofChanges: [...record.nativeProofChanges],
     traceSteps: record.traceSteps.map(step => ({ ...step }))
   };
@@ -94,4 +97,34 @@ export function resetTrustedInputTerminalJournalForTest(): void {
   incidents.splice(0);
   droppedTerminalCount = 0;
   droppedIncidentCount = 0;
+}
+
+/** A sequence terminal supersedes edge-level APPLIED evidence after Core rollback. */
+export function recordTrustedInputSequenceFailure(
+  request: BrowserActionRequest,
+  surfaceGeneration: number,
+  sequenceFailure: TrustedInputSequenceFailureRecord,
+  neutral: boolean
+): void {
+  const edge = [...terminals].reverse().find(candidate =>
+    candidate.requestId === request.requestId && candidate.roleId === request.roleId &&
+    candidate.inputEpoch === request.inputEpoch && candidate.surfaceGeneration === surfaceGeneration
+  );
+  recordTrustedInputTerminal({
+    requestId: request.requestId, roleId: request.roleId, inputEpoch: request.inputEpoch,
+    surfaceGeneration,
+    applicationPath: "none", expectedDomEventCount: 0, observedDomEventCount: 0,
+    modifierProjectionCodes: [], cdpSubmissionCertainty: "not-invoked",
+    physicalInterleave: "none", nativeProofChanges: [], traceSteps: [],
+    traceTruncated: false, droppedTraceStepCount: 0,
+    ...edge,
+    intent: request.intent,
+    actionType: request.action.type,
+    capturedAt: new Date().toISOString(),
+    sequenceFailure: structuredClone(sequenceFailure),
+    terminalCode: "SYSTEM_TRUSTED_INPUT_SEQUENCE_FAILED",
+    failureStage: "sequence-recovery",
+    cleanupOutcome: neutral ? "neutral" : "indeterminate",
+    recoveryOutcome: neutral ? "cleanup-neutral" : "restart-required"
+  });
 }

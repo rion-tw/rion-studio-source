@@ -220,12 +220,14 @@ async function submitToggleShortcut(input: Readonly<{
       runtimeTabName: input.role.name,
       runtimeWindowId: WINDOW_ID
     });
-    await waitExactTrustedKey({
+    // CGEvent posting completes before Chromium consumes the final modifier.
+    // Wait for both exact consumer releases; either delivery order is valid.
+    await Promise.all(["Digit4", "ShiftLeft"].map(code => waitExactTrustedKey({
       afterSequence: shortcutAfter,
-      code: "Digit4",
+      code,
       kind: "consumer-keyup",
       roleId: input.roleFixtureId
-    });
+    })));
     return;
   }
   await submitElectronRoleKeyPhases(input.role.launchUrl!, input.mainWindowHandle, [

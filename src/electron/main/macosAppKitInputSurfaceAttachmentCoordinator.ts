@@ -372,6 +372,12 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
     generation: number,
     parent: ChromiumRoleSurfaceParentPort
   ): void {
+    // Register the physical responder when the document becomes ready, before
+    // its first shortcut. A document replacement may install a new responder.
+    const current = this.resolveOwnedInputHost(roleId, generation);
+    if (!current) fail("ELECTRON_MACOS_APPKIT_INPUT_OWNER_STALE",
+      "The loaded Role no longer owns its native input surface.");
+    current.native.probeCdpInputSurface(current.identity, roleId, generation);
     const pendingGeneration = this.#initialFocusPreservation.get(roleId);
     if (pendingGeneration === undefined) return;
     const binding = this.#requireBinding(parent);

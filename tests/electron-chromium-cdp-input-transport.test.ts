@@ -85,6 +85,8 @@ describe("in-process CDP Input session", () => {
           type: "rawKeyDown",
           autoRepeat: false
         });
+        expect(chromiumCdpKeyDescriptor(effect(code), platform))
+          .not.toHaveProperty("nativeVirtualKeyCode");
       }
     }
     expect(() => chromiumCdpKeyDescriptor(effect("Numpad0"), "win32"))
@@ -101,13 +103,18 @@ describe("in-process CDP Input session", () => {
     }), "darwin")).toMatchObject({
       key: "Shift",
       location: 2,
-      modifiers: 10,
-      nativeVirtualKeyCode: 0x3c
+      modifiers: 10
     });
     expect(chromiumCdpKeyDescriptor(effect("Digit1", {
       activeCodes: ["ShiftLeft", "Digit1"],
       autoRepeat: true
     }), "win32")).toMatchObject({ key: "!", modifiers: 8, autoRepeat: true });
+  });
+
+  it.each(["darwin", "win32"] as const)("keeps ordinary keys at standard location on %s", platform => {
+    for (const code of ["KeyY", "ArrowLeft", "ArrowRight", "BracketLeft", "BracketRight"]) {
+      expect(chromiumCdpKeyDescriptor(effect(code), platform).location).toBe(0);
+    }
   });
 
   it.each(["left", "middle", "right"] as const)(

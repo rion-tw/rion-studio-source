@@ -51,6 +51,8 @@ function installTrustedInputDiagnosticLogging(
           record.lastPhysicalEvidenceClassification ?? null
       } : {}),
       terminalCode: record.terminalCode,
+      sequenceFailure: record.sequenceFailure,
+      documentInstanceId: record.documentInstanceId,
       failureStage: record.failureStage ?? null,
       cdpTerminalReason: record.cdpTerminalReason ?? null,
       nativeProofChanges: record.nativeProofChanges,

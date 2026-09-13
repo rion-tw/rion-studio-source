@@ -1,3 +1,4 @@
+import { normalizeRionBridgeError } from "../ipc/errors";
 import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
 import { chromiumDomModifierMask, parseChromiumModifierProjectionObservation,
   parseTrustedInputDomReceipt } from
@@ -1178,20 +1179,21 @@ implements ChromiumNativeTrustedInputPort {
         pending.request.roleId,
         pending.request.surfaceGeneration
       );
-      if (!sameAppKitFocusProof(liveProbe, pending.nativeProbe)) {
+      if (pending.request.intent !== "cleanup" &&
+        !sameAppKitFocusProof(liveProbe, pending.nativeProbe)) {
         throw new Error(
           "The AppKit focus or native input-owner proof changed before CDP submission."
         );
       }
       pending.nativeProbe = liveProbe;
       recordTrustedInputTrace(pending, "native", "pre-submit-proof-accepted");
-    } catch {
+    } catch (cause) {
       pending.failureStage = "pre-submit-proof";
       this.#terminalize(
         pending,
         pending.nativeInvoked ? "indeterminate" : "superseded",
         "BROWSER_ACTION_STALE",
-        "The trusted-input frame or native host was superseded before submission.",
+        normalizeRionBridgeError(cause, "BROWSER_ACTION_STALE").message,
         !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
       return;
@@ -1314,6 +1316,10 @@ implements ChromiumNativeTrustedInputPort {
         if (!sameAppKitStableSurface(afterProbe, pending.nativeProbe)) {
           throw new Error("AppKit native input ownership changed during CDP submission.");
         }
+        if (pending.request.intent === "cleanup" &&
+          !sameAppKitFocusProof(afterProbe, pending.nativeProbe)) {
+          throw new Error("AppKit focus continuity changed during cleanup submission.");
+        }
         pending.nativeProofChanges ??= [];
         pending.nativeProofChanges.push(
           ...appKitProofChanges(afterProbe, pending.nativeProbe)
@@ -1324,7 +1330,7 @@ implements ChromiumNativeTrustedInputPort {
       }
       pending.nativeComplete = true;
       this.#maybeApply(pending);
-    } catch {
+    } catch (cause) {
       pending.failureStage = "cdp-submission";
       this.#terminalize(
         pending,
@@ -1332,9 +1338,7 @@ implements ChromiumNativeTrustedInputPort {
         pending.nativeInvoked
           ? "SYSTEM_TRUSTED_INPUT_PARTIAL_NATIVE_SUBMISSION"
           : "SYSTEM_TRUSTED_INPUT_NATIVE_SUBMISSION_FAILED",
-        pending.nativeInvoked
-          ? "CDP invocation did not return a complete exact receipt sequence."
-          : "CDP rejected input before any transition was invoked.",
+        normalizeRionBridgeError(cause, "SYSTEM_TRUSTED_INPUT_NATIVE_SUBMISSION_FAILED").message,
         !pending.nativeInvoked && pending.request.expectedInputNeutralityBefore
       );
     }

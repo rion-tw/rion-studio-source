@@ -704,7 +704,9 @@
       .catch((error) => {
         active.failed = true;
         releaseForwardedMacroKey(active.code);
-        console.warn("Unable to complete a managed Rion Studio shortcut.", error);
+        if (error?.outcome !== "rejected") {
+          console.warn("Unable to complete a managed Rion Studio shortcut.", error);
+        }
         return false;
       });
     return active.keyUpPromise;
@@ -996,7 +998,9 @@
     active.keyDownPromise = dispatchManagedShortcutPhase(active, "keyDown").catch((error) => {
       active.failed = true;
       markActivationDispatched();
-      console.warn("Unable to begin a managed Rion Studio shortcut.", error);
+      if (error?.outcome !== "rejected") {
+        console.warn("Unable to begin a managed Rion Studio shortcut.", error);
+      }
       throw error;
     });
     active.actionPromise = active.keyDownPromise.then((receipt) => {

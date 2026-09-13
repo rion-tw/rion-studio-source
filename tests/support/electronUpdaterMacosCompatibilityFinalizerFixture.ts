@@ -329,13 +329,14 @@ async function createIsolationCapability(childOutputRoot: string) {
 
 function processRecord(executablePath: string): DarwinProcessInventoryRecord {
   const startSeconds = Math.floor(LAUNCH_MILLISECONDS / 1_000);
+  const simulatedProcessId = process.pid === 90_001 ? 90_002 : 90_001;
   return Object.freeze({
     auditToken: "ab".repeat(32),
     executablePath,
     parentProcessId: 1,
     parentProcessUniqueId: "9000",
-    processGroupId: 90_001,
-    processId: 90_001,
+    processGroupId: simulatedProcessId,
+    processId: simulatedProcessId,
     processUniqueId: "9001",
     startMicroseconds: 0,
     startSeconds,

@@ -12,6 +12,25 @@ const CATEGORY_ORDER = Object.freeze([
 ]);
 
 const RULES = Object.freeze([
+  ...[
+    ["ELECTRON_CHROMIUM_RUNTIME_DRAINING", "runtime-work-after-drain", "Stop passive consumers before runtime admission closes; preserve accepted cleanup terminality."],
+    ["ELECTRON_MACOS_APPKIT_TAB_MENU_HOST_STALE", "tab-menu-host-fence", "Inspect the committed source host identity and original menu generation."],
+    ["ELECTRON_MACOS_APPKIT_TAB_MENU_TOPOLOGY_STALE", "tab-menu-topology-fence", "Inspect the exact source/target committed projection; do not weaken ownership fences."],
+    ["SYSTEM_TRUSTED_INPUT_INDETERMINATE", "trusted-input-indeterminate", "Inspect sequenceFailure cause, compensation and rollback; require proven Role neutrality."],
+    ["SYSTEM_TRUSTED_INPUT_SEQUENCE_FAILED", "trusted-input-sequence-failed", "Inspect the original effect and both recovery outcomes; successful DOM edges do not prove sequence success."]
+  ].map(([code, id, recommendation]) => Object.freeze({
+    category: "product-error", id, recommendation,
+    test: line => line.includes(`[${code}]`)
+  })),
+  Object.freeze({
+    category: "product-error",
+    id: "legacy-overlay-terminal-unproven",
+    recommendation: "Legacy text lacks a terminal outcome; inspect the v36 typed refusal and sequence recovery evidence before declaring the run clean.",
+    test: line => line.startsWith("Error occurred in handler for 'rion:chromium-role-overlay:v1':") && [
+      "cannot accept automatic input yet", "recovering automatic input",
+      "physical shortcut is already held", "without exact compensation and Core rollback"
+    ].some(message => line.includes(message))
+  }),
   Object.freeze({
     category: "product-error",
     id: "retired-flyff-caret-request",

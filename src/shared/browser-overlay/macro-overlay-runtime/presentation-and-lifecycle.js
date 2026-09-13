@@ -671,7 +671,9 @@
         applyState(nextState);
         updatePresentation();
       } catch (error) {
-        console.warn("Unable to run Rion Studio macro.", error);
+        if (error?.outcome !== "rejected") {
+          console.warn("Unable to run Rion Studio macro.", error);
+        }
       }
     });
     if (!bypassPendingTail) {

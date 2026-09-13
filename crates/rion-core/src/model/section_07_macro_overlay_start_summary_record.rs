@@ -102,3 +102,16 @@ mod command_tests {
     }
 
 }
+
+/// Explicit terminal envelope for the private Chromium role-overlay IPC lane.
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum ChromiumRoleOverlayResultRecord {
+    Success {
+        #[ts(type = "unknown")]
+        value: serde_json::Value,
+    },
+    Rejected { error: crate::CoreErrorPayload },
+    Failed { error: crate::CoreErrorPayload },
+}

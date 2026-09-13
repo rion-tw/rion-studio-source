@@ -88,7 +88,7 @@ const logEntry = (value: unknown): boolean => check.closed(value, {
   timestamp: check.text,
   level: check.oneOf("debug", "info", "warn", "error"),
   source: check.oneOf(
-    "main", "preload", "renderer", "ipc", "browser", "macro",
+    "main", "preload", "renderer", "ipc", "browser", "extension", "macro",
     "persistence", "update"
   ),
   event: check.text,

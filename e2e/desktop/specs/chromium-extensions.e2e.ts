@@ -2,12 +2,26 @@ import { join } from "node:path";
 import { $, browser, expect } from "@wdio/globals";
 import { captureNativeApplicationObservation } from "../support/native-application-observation";
 import { compactExtensionsWindow } from "../support/extensions-layout";
+import {
+  electronDesktopE2eGameWindowRuntime,
+  electronDesktopE2eProbe
+} from "../support/electron-driver";
+import { selectMacosVisibleRuntimeTabMenuAction } from "../support/macos-appkit-ui";
+import {
+  closeVisibleRuntimeTab,
+  installRuntimeTabShellErrorJournal,
+  runtimeTabShellErrors
+} from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, setEditorName, setInputValue, submitEditor, waitForRoute } from "../support/ui";
 
 // [journey:CHROMIUM-MACOS-APPKIT-EXTENSIONS-001]
 // [journey:CHROMIUM-WINDOWS-EXTENSIONS-001]
 const EXTENSION_ID = "gighmmpiobklfepjocnamgkkbiglidom";
+
+function hasTerminalCompatibilityStatus(status: string): boolean {
+  return status === "loaded" || status === "degraded";
+}
 
 describe("Extensions store and per-role configuration", () => {
   it("installs through visible Rion confirmation and manages persisted role assignments", async () => {
@@ -32,6 +46,7 @@ describe("Extensions store and per-role configuration", () => {
       for (let index = 0; index < 12; index += 1) {
         await rendererCall("createRole", { gameId: games[0].id, name: `Layout role ${index} — long role name for compact dialog layout`, launchUrl: `${process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN}/role/layout-${index}` });
       }
+      const processId = (await electronDesktopE2eProbe()).processId;
       await $("button=Add extension").click();
       const main = await browser.getWindowHandle();
       let storeHandle: string | undefined;
@@ -56,11 +71,23 @@ describe("Extensions store and per-role configuration", () => {
       await chromePromotion.waitForExist({ timeout: 10000 });
       await expect(chromePromotion).not.toBeDisplayed();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-store-width.png"));
-      // Select a known public package as a navigation precondition; installation stays in Rion UI.
-      await browser.url(`https://chromewebstore.google.com/detail/adblock-%E2%80%94-block-ads-acros/${EXTENSION_ID}`);
+      const search = await $(
+        'input[type="search"],input[aria-label*="Search"],input[placeholder*="Search"]'
+      );
+      await search.waitForClickable({ timeout: 30_000 });
+      await search.click();
+      await search.setValue("AdBlock");
+      await browser.keys("Enter");
+      const result = await $(`a[href*="/detail/"][href*="${EXTENSION_ID}"]`);
+      await result.waitForClickable({ timeout: 30_000 });
+      await result.click();
       await browser.switchToWindow(main);
       const install = await $("button=Install this extension");
-      await install.waitForEnabled({ timeout: 30000 });
+      await install.waitForEnabled({
+        timeout: 30_000,
+        timeoutMsg: "Visible Chrome Web Store selection did not expose the extension action"
+      });
+      expect((await electronDesktopE2eProbe()).processId).toBe(processId);
       await install.click();
       const confirm = await $("button=Confirm installation");
       // DeadlineBound test boundary: external store failure is a failed journey.
@@ -85,15 +112,76 @@ describe("Extensions store and per-role configuration", () => {
       if (!future) throw new Error("The visible role creation did not persist");
       const card = await $(`[data-selection-id='${future.id}']`);
       await card.moveTo();
+      await installRuntimeTabShellErrorJournal();
       await captureNativeApplicationObservation("extensions-before-role-open");
-      await card.$("button[aria-label='Open']").click();
+      await $(`[data-selection-id='${future.id}']`)
+        .$("button[aria-label='Open']").click();
       try {
-        await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.roles.some(r => r.roleId === future.id && r.status === "loaded" && r.extensionIds.includes(EXTENSION_ID)), { timeout: 30000 });
+        await browser.waitUntil(async () => (await rendererCall("extensions", {
+          type: "snapshot"
+        })).snapshot.roles.some((role) =>
+          role.roleId === future.id &&
+          hasTerminalCompatibilityStatus(role.status) &&
+          role.extensionIds.includes(EXTENSION_ID)
+        ), { timeout: 30000 });
       } finally {
         await captureNativeApplicationObservation("extensions-after-role-open");
       }
       await browser.switchToWindow(main);
       await browser.waitUntil(async () => (await rendererCall("listRoleStatuses")).some(r => r.roleId === future.id && r.state === "running"), { timeout: 30000 });
+      const runtime = await rendererCall("getEmbeddedRuntimeState");
+      const roleTab = runtime.tabs.find((tab) => tab.sourceId === future.id);
+      if (!roleTab) throw new Error("The extension Role did not own an exact runtime tab");
+      const probe = await electronDesktopE2eProbe();
+      if (probe.platform === "macos") {
+        await selectMacosVisibleRuntimeTabMenuAction({
+          action: "stop",
+          tabId: roleTab.id,
+          tabName: future.name,
+          windowId: roleTab.windowId
+        });
+      } else {
+        await closeVisibleRuntimeTab({
+          mainWindowHandle: main,
+          platform: "windows",
+          tabId: roleTab.id,
+          tabName: future.name,
+          windowId: roleTab.windowId
+        });
+      }
+      await browser.waitUntil(async () => {
+        const [current, statuses, native] = await Promise.all([
+          rendererCall("getEmbeddedRuntimeState"),
+          rendererCall("listRoleStatuses"),
+          electronDesktopE2eGameWindowRuntime(roleTab.windowId)
+        ]);
+        return !current.tabs.some((tab) => tab.id === roleTab.id) &&
+          !statuses.some((status) => status.roleId === future.id) &&
+          native.currentRuntime === null;
+      }, {
+        timeout: 45_000,
+        timeoutMsg: "The extension Role did not stop and retire its last native window"
+      });
+      expect(await runtimeTabShellErrors()).toEqual([]);
+      expect((await electronDesktopE2eProbe()).processId).toBe(probe.processId);
+      await $(`[data-selection-id='${future.id}']`)
+        .$("button[aria-label='Open']").click();
+      await browser.waitUntil(async () => {
+        const [statuses, extensions] = await Promise.all([
+          rendererCall("listRoleStatuses"),
+          rendererCall("extensions", { type: "snapshot" })
+        ]);
+        return statuses.some((status) =>
+          status.roleId === future.id && status.state === "running"
+        ) && extensions.snapshot.roles.some((role) =>
+          role.roleId === future.id && hasTerminalCompatibilityStatus(role.status) &&
+          role.extensionIds.includes(EXTENSION_ID)
+        );
+      }, {
+        timeout: 30_000,
+        timeoutMsg: "The extension Role did not reopen with compatibility readiness"
+      });
+      expect(await runtimeTabShellErrors()).toEqual([]);
     } else if (phase === "chromium-extensions-restart") {
       await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*1$/);
       const snapshot = (await rendererCall("extensions", { type: "snapshot" })).snapshot;

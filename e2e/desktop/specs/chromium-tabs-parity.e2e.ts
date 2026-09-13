@@ -883,6 +883,62 @@ async function waitForDormantWindow(windowId: string): Promise<void> {
   });
 }
 
+async function stopAndRelaunchLastRoleTab(input: Readonly<{
+  gameWindow: GameWindow;
+  mainWindowHandle: string;
+  platform: Platform;
+  role: Role;
+  tabId: string;
+}>): Promise<string> {
+  const processId = (await electronDesktopE2eProbe()).processId;
+  if (input.platform === "macos") {
+    await selectMacosVisibleRuntimeTabMenuAction({
+      action: "stop",
+      tabId: input.tabId,
+      tabName: input.role.name,
+      windowId: input.gameWindow.id
+    });
+  } else {
+    await closeVisibleRuntimeTab({
+      mainWindowHandle: input.mainWindowHandle,
+      platform: input.platform,
+      tabId: input.tabId,
+      tabName: input.role.name,
+      windowId: input.gameWindow.id
+    });
+  }
+  await browser.waitUntil(async () => {
+    const [runtime, statuses] = await Promise.all([
+      rendererCall("getEmbeddedRuntimeState"),
+      rendererCall("listRoleStatuses")
+    ]);
+    return !runtime.tabs.some((tab) => tab.id === input.tabId) &&
+      !runtime.windows.some((window) => window.id === input.gameWindow.id) &&
+      !statuses.some((status) => status.roleId === input.role.id);
+  }, {
+    interval: 100,
+    timeout: 45_000,
+    timeoutMsg: "Stop and Close did not retire the last Role tab and Core window"
+  });
+  await waitForDormantWindow(input.gameWindow.id);
+  expect((await electronDesktopE2eProbe()).processId).toBe(processId);
+  expect(await runtimeTabShellErrors()).toEqual([]);
+
+  await showSavedWindow({
+    activeTabId: input.tabId,
+    gameWindow: input.gameWindow,
+    orderedTabIds: [input.tabId]
+  });
+  await browser.waitUntil(async () => (await rendererCall("listRoleStatuses"))
+    .some((status) => status.roleId === input.role.id && status.state === "running"), {
+    interval: 100,
+    timeout: 30_000,
+    timeoutMsg: "The stopped Role did not reopen from its saved Game Window"
+  });
+  expect(await runtimeTabShellErrors()).toEqual([]);
+  return input.tabId;
+}
+
 async function closeAndReopenSavedWindow(input: Readonly<{
   gameWindow: GameWindow;
   mainWindowHandle: string;
@@ -1261,9 +1317,16 @@ async function restartPhase(input: Readonly<{
     windowId: gameWindow.id
   });
   await waitForDormantWindow(gameWindow.id);
+  const relaunchedDeltaId = await stopAndRelaunchLastRoleTab({
+    gameWindow: targetWindow,
+    mainWindowHandle: input.mainWindowHandle,
+    platform: input.platform,
+    role: roles[3]!,
+    tabId: deltaId
+  });
   await closeVisibleRuntimeWindow({
     ...input,
-    tabId: deltaId,
+    tabId: relaunchedDeltaId,
     tabName: ROLE_DEFINITIONS[3].name,
     windowId: targetWindow.id
   });

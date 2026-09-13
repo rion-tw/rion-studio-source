@@ -44,6 +44,11 @@ export interface ChromiumSessionFactoryPort {
     handle: ChromiumRoleSessionHandle,
     surface?: ChromiumRoleExtensionSurfacePort
   ) => Promise<void>;
+  retireExtensionSurface?: (
+    handle: ChromiumRoleSessionHandle,
+    surface: ChromiumRoleExtensionSurfacePort,
+    alreadyDestroyed: boolean
+  ) => void;
   releaseExtensions?: (handle: ChromiumRoleSessionHandle) => Promise<void>;
   fromPath: (
     path: string,
@@ -368,6 +373,14 @@ export class ChromiumRoleSessionRegistry {
     surface?: ChromiumRoleExtensionSurfacePort
   ): Promise<void> {
     return this.#factory.prepareExtensions?.(handle, surface) ?? Promise.resolve();
+  }
+
+  retireExtensionSurface(
+    handle: ChromiumRoleSessionHandle,
+    surface: ChromiumRoleExtensionSurfacePort,
+    alreadyDestroyed: boolean
+  ): void {
+    this.#factory.retireExtensionSurface?.(handle, surface, alreadyDestroyed);
   }
 
   get activeCount(): number {

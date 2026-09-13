@@ -1320,6 +1320,10 @@ export class ChromiumRoleSurfaceRegistry {
     this.#retiredOverlayWebContents.add(record.contents);
     record.terminalFailure = null;
     this.#retireOverlay(record);
+    this.#sessions.retireExtensionSurface?.(record.sessionHandle, {
+      contents: record.contents,
+      window: record.parent.nativeWindow ?? null
+    }, record.destroyed);
     const completion = deferred<boolean>();
     record.closePromise = completion.promise;
     const continueAfterNativeRetirement = (): Promise<boolean> => {

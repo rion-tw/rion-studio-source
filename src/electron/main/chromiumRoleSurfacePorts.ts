@@ -197,6 +197,11 @@ export interface ChromiumRoleSessionOwnerPort {
     handle: ChromiumRoleSessionHandle,
     surface?: ChromiumRoleExtensionSurfacePort
   ) => Promise<void>;
+  retireExtensionSurface?: (
+    handle: ChromiumRoleSessionHandle,
+    surface: ChromiumRoleExtensionSurfacePort,
+    alreadyDestroyed: boolean
+  ) => void;
   ensure: (
     roleId: string,
     rolePaths: RolePathsRecord

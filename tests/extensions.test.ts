@@ -94,6 +94,194 @@ describe.each(["darwin", "win32"])("Extension session lifecycle (%s)", platform 
   });
 });
 
+describe("extension compatibility surface retirement", () => {
+  function fixture(deferredAcquire = false) {
+    const order: string[] = [];
+    let destroyed = false;
+    let resolveAcquire: (() => void) | null = null;
+    const acquisition = deferredAcquire
+      ? new Promise<void>((resolve) => { resolveAcquire = resolve; })
+      : Promise.resolve();
+    const native = Object.assign(new EventEmitter(), {
+      getAllExtensions: vi.fn(() => []),
+      removeExtension: vi.fn()
+    });
+    const roleSession = { extensions: native };
+    const contents = {} as { readonly id: number; readonly session: object };
+    Object.defineProperties(contents, {
+      id: { get: () => {
+        if (destroyed) throw new Error("Object has been destroyed");
+        return 91;
+      } },
+      session: { get: () => {
+        if (destroyed) throw new Error("Object has been destroyed");
+        return roleSession;
+      } }
+    });
+    const host = {
+      addTab: vi.fn((tab: typeof contents) => {
+        void tab.session;
+        void tab.id;
+        order.push("addTab");
+      }),
+      removeTab: vi.fn((tab: typeof contents) => {
+        void tab.session;
+        void tab.id;
+        order.push("removeTab");
+      })
+    };
+    const createCompatibilityHost = vi.fn(() => host as never);
+    const logger = { extensionDiagnostic: vi.fn() };
+    let lease = 0;
+    const core = { invoke: vi.fn(async (input: { command: { type: string } }) => {
+      if (input.command.type === "acquire") await acquisition;
+      return {
+        snapshot: { revision: 1, roles: [], installed: [] },
+        lease: input.command.type === "acquire" ? {
+          extensionIds: [], leaseId: `surface-lease-${++lease}`,
+          roleId: "role", status: "loading"
+        } : null,
+        prepared: null
+      };
+    }) };
+    const handle = {
+      chromiumUserDataDir: "/role",
+      roleId: "role",
+      session: roleSession
+    } as unknown as ChromiumRoleSessionHandle;
+    const surface = { contents, window: {} };
+    const sessions = new ChromiumExtensionSessions(core as never, {
+      createCompatibilityHost,
+      logger
+    });
+    return {
+      closeContents() { order.push("close"); destroyed = true; },
+      contents,
+      createCompatibilityHost,
+      handle,
+      host,
+      logger,
+      order,
+      resolveAcquire: () => resolveAcquire?.(),
+      sessions,
+      surface
+    };
+  }
+
+  it("removes a registered tab before destruction and makes retirement idempotent", async () => {
+    const value = fixture();
+    await value.sessions.prepare(value.handle, value.surface);
+    value.sessions.retireSurface(value.handle, value.surface, false);
+    value.sessions.retireSurface(value.handle, value.surface, false);
+    value.closeContents();
+    await expect(value.sessions.release(value.handle)).resolves.toBeUndefined();
+    expect(value.order).toEqual(["addTab", "removeTab", "close"]);
+    expect(value.host.removeTab).toHaveBeenCalledOnce();
+    expect(value.logger.extensionDiagnostic).not.toHaveBeenCalled();
+  });
+
+  it("fences compatibility registration when stop wins the prepare race", async () => {
+    const value = fixture(true);
+    const ready = value.sessions.prepare(value.handle, value.surface);
+    value.sessions.retireSurface(value.handle, value.surface, false);
+    value.resolveAcquire();
+    await ready;
+    value.closeContents();
+    await value.sessions.release(value.handle);
+    expect(value.createCompatibilityHost).not.toHaveBeenCalled();
+    expect(value.host.addTab).not.toHaveBeenCalled();
+    expect(value.host.removeTab).not.toHaveBeenCalled();
+  });
+
+  it("never reads a destroyed surface during session release", async () => {
+    const value = fixture();
+    await value.sessions.prepare(value.handle, value.surface);
+    value.closeContents();
+    await expect(value.sessions.release(value.handle)).resolves.toBeUndefined();
+    expect(value.host.removeTab).not.toHaveBeenCalled();
+    expect(value.logger.extensionDiagnostic).toHaveBeenCalledWith(
+      "error",
+      "extension_compatibility_tab_retire_failed",
+      expect.any(String),
+      expect.objectContaining({
+        code: "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED",
+        reason: "surface_retirement_missing"
+      }),
+      expect.any(Error),
+      "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED"
+    );
+  });
+
+  it("fences stale surface identity before removing the registered tab", async () => {
+    const value = fixture();
+    await value.sessions.prepare(value.handle, value.surface);
+    value.sessions.retireSurface(value.handle, {
+      contents: {},
+      window: value.surface.window
+    }, false);
+    expect(value.host.removeTab).not.toHaveBeenCalled();
+    expect(value.logger.extensionDiagnostic).toHaveBeenCalledWith(
+      "error",
+      "extension_compatibility_tab_retire_failed",
+      expect.any(String),
+      expect.objectContaining({ reason: "surface_identity_mismatch" }),
+      expect.any(Error),
+      "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED"
+    );
+    value.sessions.retireSurface(value.handle, value.surface, false);
+    value.closeContents();
+    await value.sessions.release(value.handle);
+    expect(value.host.removeTab).toHaveBeenCalledOnce();
+  });
+
+  it("skips removeTab when destruction was already authoritative", async () => {
+    const value = fixture();
+    await value.sessions.prepare(value.handle, value.surface);
+    value.closeContents();
+    expect(() => value.sessions.retireSurface(value.handle, value.surface, true))
+      .not.toThrow();
+    await expect(value.sessions.release(value.handle)).resolves.toBeUndefined();
+    expect(value.host.removeTab).not.toHaveBeenCalled();
+    expect(value.logger.extensionDiagnostic).toHaveBeenCalledWith(
+      "error",
+      "extension_compatibility_tab_retire_failed",
+      expect.any(String),
+      expect.objectContaining({ reason: "surface_already_destroyed" }),
+      expect.any(Error),
+      "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED"
+    );
+  });
+
+  it("does not block teardown when removeTab fails and disables that session host", async () => {
+    const value = fixture();
+    value.host.removeTab.mockImplementationOnce(() => {
+      throw new Error("Object has been destroyed");
+    });
+    await value.sessions.prepare(value.handle, value.surface);
+    expect(() => value.sessions.retireSurface(value.handle, value.surface, false))
+      .not.toThrow();
+    value.closeContents();
+    await expect(value.sessions.release(value.handle)).resolves.toBeUndefined();
+
+    const nextSurface = { contents: {}, window: {} };
+    await value.sessions.prepare(value.handle, nextSurface);
+    expect(value.createCompatibilityHost).toHaveBeenCalledTimes(1);
+    value.sessions.retireSurface(value.handle, nextSurface, false);
+    await value.sessions.release(value.handle);
+    expect(value.logger.extensionDiagnostic).toHaveBeenCalledWith(
+      "error",
+      "extension_compatibility_tab_retire_failed",
+      expect.any(String),
+      expect.objectContaining({
+        code: "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED",
+        reason: "remove_tab_failed"
+      }),
+      expect.any(Error),
+      "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED"
+    );
+  });
+});
+
 it("waits for the exact compatibility receipt and unloads a bootstrap timeout", async () => {
   const native = Object.assign(new EventEmitter(), {
     current: [] as { id: string }[],
@@ -165,22 +353,26 @@ it("accepts a matching compatibility receipt after static rulesets are enabled",
       : null,
     prepared: null
   })) };
+  const host = { addTab: vi.fn(), removeTab: vi.fn() };
   const sessions = new ChromiumExtensionSessions(core as never, {
     createCompatibilityHost: (_session, onReady) => {
       ready = onReady as typeof ready;
-      return { addTab: vi.fn(), removeTab: vi.fn() } as never;
+      return host as never;
     },
     deadlineMs: 100
   });
   const handle = {
     roleId: "role", chromiumUserDataDir: "/role", session: { extensions: native }
   } as unknown as ChromiumRoleSessionHandle;
-  await expect(sessions.prepare(handle, {
-    contents: {}, window: {}
-  })).resolves.toBeUndefined();
+  const surface = { contents: {}, window: {} };
+  await expect(sessions.prepare(handle, surface)).resolves.toBeUndefined();
   expect(core.invoke).toHaveBeenLastCalledWith({ type: "extensions", command: {
     type: "complete", roleId: "role", leaseId: "lease-ready", status: "loaded"
   } });
+  sessions.retireSurface(handle, surface, false);
+  await sessions.release(handle);
+  expect(host.removeTab).toHaveBeenCalledWith(surface.contents);
+  expect(native.current).toEqual([]);
 });
 
 it("keeps native lease commands out of the renderer bridge and fences store selection", async () => {

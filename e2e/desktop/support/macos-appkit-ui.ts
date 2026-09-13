@@ -684,6 +684,7 @@ const TAB_MENU_LABELS = Object.freeze({
     moveToNewWindow: "Move to New Game Window",
     mute: "Mute Tab",
     reload: "Reload",
+    stop: "Stop and Close",
     unmute: "Unmute Tab"
   }),
   "zh-TW": Object.freeze({
@@ -692,6 +693,7 @@ const TAB_MENU_LABELS = Object.freeze({
     moveToNewWindow: "移至新遊戲視窗",
     mute: "將分頁靜音",
     reload: "重新整理",
+    stop: "停止並關閉",
     unmute: "取消分頁靜音"
   }),
   "zh-CN": Object.freeze({
@@ -700,6 +702,7 @@ const TAB_MENU_LABELS = Object.freeze({
     moveToNewWindow: "移至新游戏窗口",
     mute: "将标签页静音",
     reload: "重新加载",
+    stop: "停止并关闭",
     unmute: "取消标签页静音"
   }),
   ja: Object.freeze({
@@ -708,10 +711,11 @@ const TAB_MENU_LABELS = Object.freeze({
     moveToNewWindow: "新しいゲームウィンドウへ移動",
     mute: "タブをミュート",
     reload: "再読み込み",
+    stop: "停止して閉じる",
     unmute: "タブのミュートを解除"
   })
 } satisfies Readonly<Record<AppLanguage, Readonly<Record<
-  "hide" | "move" | "moveToNewWindow" | "mute" | "reload" | "unmute",
+  "hide" | "move" | "moveToNewWindow" | "mute" | "reload" | "stop" | "unmute",
   string
 >>>>);
 
@@ -744,7 +748,7 @@ export async function readMacosVisibleRuntimeTabPoint(input: Readonly<{
 
 /** Opens the visible native NSMenu and selects one of its real menu items. */
 export async function selectMacosVisibleRuntimeTabMenuAction(input: Readonly<{
-  action: "hide" | "move" | "moveToNewWindow" | "reload" | "mute" | "unmute";
+  action: "hide" | "move" | "moveToNewWindow" | "reload" | "mute" | "stop" | "unmute";
   language?: AppLanguage;
   tabId: string;
   tabName: string;

@@ -24,9 +24,14 @@ Invalid or unavailable metadata falls back to the Puzzle icon and localized
 missing-description or unavailable-size text without disabling management.
 Successful installation returns to the unfiltered catalogue; cancelling confirmation
 returns to the store. Empty and no-match states offer add and clear-search actions. The store is
-an isolated, unprivileged native WebContentsView. A Rion-owned install button
-uses the current main-frame store detail URL; store DOM and private Chrome APIs
-are not installation authorities. The store document, header, and main content use 100% of the embedded viewport width,
+an isolated, unprivileged native WebContentsView. The bundled Electron runtime
+cannot safely load current Chrome Web Store detail documents on macOS, so a
+sandboxed preload cancels an unmodified primary click on an exact same-origin
+detail link before the store SPA handles it. Electron main closed-validates and
+retains only that HTTPS detail URL and extension ID as the app-owned selection;
+the search document remains visible, and the Rion-owned install button uses the
+selection. Store DOM state and private Chrome APIs are not installation
+authorities. The store document, header, and main content use 100% of the embedded viewport width,
 overriding the upstream 1280px minimum without changing zoom. Horizontal document
 scrolling is disabled; vertical browsing remains available. A presentation-only
 CSS selector hides the header's specific Chrome-promotion dialog controller
@@ -191,9 +196,12 @@ manifest failures are reported as unsupported.
   remote-session, WebSocket, or privileged management surfaces.
 - `CHROMIUM-MACOS-APPKIT-EXTENSIONS-001` and
   `CHROMIUM-WINDOWS-EXTENSIONS-001` cover visible AdBlock installation, role assignment,
-  actual role loading, application restart, disabling, and cancel/confirm removal in their existing
+  a terminal role compatibility outcome, application restart, disabling, and cancel/confirm removal in their existing
   Chromium smoke profiles. These journeys explicitly depend on live store
-  availability; external failure fails the journey.
+  availability; external failure fails the journey. AdBlock currently requests
+  the deliberately unsupported `management` permission, so its valid terminal
+  outcome is `degraded`; deterministic extension fixtures separately prove
+  native load and exact unload completion.
 
 Production eligibility requires both native platforms. Local macOS evidence
 does not satisfy Windows or the broader Chromium cutover gates.

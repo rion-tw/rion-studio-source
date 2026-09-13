@@ -323,7 +323,11 @@ function harness(
   nativeAttachments: ChromiumRoleSurfaceNativeAttachmentPort | null = null,
   quickAccess: ChromiumRoleQuickAccessShortcutPort | null = null,
   navigationFailures: ChromiumRoleActiveMainFrameFailurePort | null = null,
-  popups: ChromiumPopupOwnerLifecyclePort | null = null
+  popups: ChromiumPopupOwnerLifecyclePort | null = null,
+  extensionFactory: Pick<
+    ChromiumSessionFactoryPort,
+    "prepareExtensions" | "releaseExtensions" | "retireExtensionSurface"
+  > = {}
 ): Harness {
   const sessionStates: FakeSessionState[] = [];
   const fromPath = vi.fn((path: string) => {
@@ -333,7 +337,7 @@ function harness(
     return state.session;
   });
   const sessionRegistry = new ChromiumRoleSessionRegistry(
-    { fromPath } as ChromiumSessionFactoryPort,
+    { ...extensionFactory, fromPath } as ChromiumSessionFactoryPort,
     "darwin"
   );
   const views: FakeWebContentsView[] = [];
@@ -1410,6 +1414,45 @@ describe("Electron Chromium role-surface registry", () => {
     await expect(first).resolves.toBe(true);
     expect(subject.registry.activeCount).toBe(0);
     await expect(subject.registry.closeRole("role-1", 1)).resolves.toBe(false);
+  });
+
+  it("retires extension compatibility before closing and destroying WebContents", async () => {
+    const order: string[] = [];
+    const retireExtensionSurface = vi.fn((_handle, surface, alreadyDestroyed) => {
+      expect(alreadyDestroyed).toBe(false);
+      expect((surface.contents as FakeWebContents).destroyed).toBe(false);
+      order.push("retireExtensionSurface");
+    });
+    const releaseExtensions = vi.fn(async () => { order.push("releaseExtensions"); });
+    const subject = harness(
+      undefined, undefined, null, null, null, null,
+      {
+        prepareExtensions: vi.fn(async () => undefined),
+        releaseExtensions,
+        retireExtensionSurface
+      }
+    );
+    const creation = subject.registry.create(subject.input());
+    const contents = subject.views[0].webContents;
+    contents.finish("https://game.test/launch");
+    await creation;
+    const originalClose = contents.close.bind(contents);
+    contents.close = (options) => {
+      order.push("close");
+      originalClose(options);
+    };
+
+    const close = subject.registry.closeRole("role-1", 1);
+    expect(order).toEqual(["retireExtensionSurface", "close"]);
+    contents.destroy();
+    await close;
+    expect(order).toEqual([
+      "retireExtensionSurface",
+      "close",
+      "releaseExtensions"
+    ]);
+    expect(retireExtensionSurface).toHaveBeenCalledOnce();
+    expect(releaseExtensions).toHaveBeenCalledOnce();
   });
 
   it("retains the exact contents owner after Electron invalidates the destroyed view getter", async () => {

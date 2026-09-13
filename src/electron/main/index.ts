@@ -46,8 +46,7 @@ import { ElectronApplicationLifecycleController } from "./applicationLifecycleCo
 import { ChromiumRuntimeLaunchCoordinator } from "./chromiumRuntimeLaunchCoordinator";
 import { ChromiumRuntimeLaunchCompletionCoordinator } from "./chromiumRuntimeLaunchCompletionCoordinator";
 import { ChromiumRuntimeRestoreSessionCoordinator } from "./chromiumRuntimeRestoreSessionCoordinator";
-import { createChromiumSavedWindowRestorePresentation } from
-  "./chromiumSavedWindowRestorePresentation";
+import { createChromiumSavedWindowRestorePresentation } from "./chromiumSavedWindowRestorePresentation";
 import { WORKSPACE_WEB_CHROME_SHELL_SESSION } from "../../shared/workspaceWebChrome";
 import { RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION } from
   "../../shared/runtimeRolePlaceholder";
@@ -66,9 +65,7 @@ import {
   installMacosRuntimeWindowPreferencesMenu,
   type MacosRuntimeWindowPreferencesMenuHandle
 } from "./macosRuntimeWindowPreferencesMenu";
-import type {
-  ChromiumRoleWebContentsViewPort
-} from "./chromiumRoleSurfacePorts";
+import type { ChromiumRoleWebContentsViewPort } from "./chromiumRoleSurfacePorts";
 import type {
   WindowsRuntimeHostWindowPort,
   WindowsRuntimeShortcutOwnerDiagnostic
@@ -885,6 +882,7 @@ async function bootstrapReadyPhase(
     shellEffects: overlayShellEffects,
     sessions: {
       prepareExtensions: extensionSessions.prepare,
+      retireExtensionSurface: extensionSessions.retireSurface,
       releaseExtensions: extensionSessions.release,
       fromPath: (path, options) => {
         const chromiumSession = session.fromPath(path, options);
@@ -1479,7 +1477,7 @@ async function bootstrapReadyPhase(
       quickMenu?.setLanguage(language);
     }
   );
-  const fontAwareDispatcher = createChromiumRoleFontApiDispatcher(
+  const fontDispatcher = createChromiumRoleFontApiDispatcher(
     coreDispatcher,
     {
       refreshRoleFonts: (roleIds) => {
@@ -1493,15 +1491,15 @@ async function bootstrapReadyPhase(
       }
     }
   );
-  const extensionStore = new ExtensionStoreHost(activeMainWindow, (state) => {
+  const store = new ExtensionStoreHost(activeMainWindow, (state) => {
     if (mainIdentity) ipcBridge?.publish(mainIdentity, "onExtensionStoreChanged", state);
-  });
+  }, runtimeLogs);
   const dispatcher = createElectronUpdaterDispatcher(
     chromiumUpdater,
     createGraphicsApiDispatcher(activeCore(), graphicsHost!.diagnostics, async (identity) => {
       currentWindow(identity);
       await activeLifecycle().confirmRestart();
-    }, createExtensionApiDispatcher(activeCore(), extensionStore, fontAwareDispatcher), (report) => clipboard.writeText(report))
+    }, createExtensionApiDispatcher(activeCore(), store, fontDispatcher), (report) => clipboard.writeText(report))
   );
   ipcBridge = registerRionIpcBridge({
     ipcMain,

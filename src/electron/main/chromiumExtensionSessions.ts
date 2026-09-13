@@ -54,7 +54,9 @@ interface ExtensionLoggerPort {
     level: Extract<LogLevel, "debug" | "info" | "warn" | "error">,
     event: string,
     message: string,
-    context: Readonly<Record<string, unknown>>
+    context: Readonly<Record<string, unknown>>,
+    error?: unknown,
+    fallbackCode?: string
   ) => void;
 }
 
@@ -77,6 +79,7 @@ interface Entry {
   ready: Promise<void>;
   released: boolean;
   surface: ChromiumRoleExtensionSurfacePort | null;
+  surfaceState: "pending" | "registered" | "retired";
 }
 
 interface ManifestSummary {
@@ -120,6 +123,7 @@ async function readManifestSummary(directory: string): Promise<ManifestSummary |
 export class ChromiumExtensionSessions {
   readonly #entries = new Map<string, Entry>();
   readonly #hosts = new WeakMap<Session, CompatibilityHostPort>();
+  readonly #poisonedSessions = new WeakSet<Session>();
   readonly #readinessResolvers = new WeakMap<
     Session,
     Map<string, (record: CompatibilityReadyRecord) => void>
@@ -151,7 +155,8 @@ export class ChromiumExtensionSessions {
       lease: null,
       ready: Promise.resolve(),
       released: false,
-      surface
+      surface,
+      surfaceState: surface ? "pending" : "retired"
     };
     this.#entries.set(handle.roleId, entry);
     entry.ready = this.#load(entry);
@@ -175,7 +180,7 @@ export class ChromiumExtensionSessions {
       }
 
       try {
-        entry.host = this.#prepareCompatibilityHost(session, entry.surface);
+        entry.host = this.#prepareCompatibilityHost(session, entry);
       } catch (error) {
         entry.compatibilityError = stableErrorCode(
           error,
@@ -312,9 +317,14 @@ export class ChromiumExtensionSessions {
 
   #prepareCompatibilityHost(
     session: Session,
-    surface: ChromiumRoleExtensionSurfacePort | null
+    entry: Entry
   ): CompatibilityHostPort | null {
+    const surface = entry.surface;
+    if (entry.released || entry.surfaceState === "retired") return null;
     if (!surface?.window) return null;
+    if (this.#poisonedSessions.has(session)) {
+      throw new Error("ELECTRON_EXTENSION_COMPATIBILITY_HOST_DISABLED");
+    }
     let host = this.#hosts.get(session);
     if (!host) {
       const onReady = (extensionId: string, record: CompatibilityReadyRecord) => {
@@ -336,7 +346,68 @@ export class ChromiumExtensionSessions {
       this.#hosts.set(session, host);
     }
     host.addTab(surface.contents as WebContents, surface.window as BaseWindow);
+    entry.surfaceState = "registered";
     return host;
+  }
+
+  retireSurface = (
+    handle: ChromiumRoleSessionHandle,
+    surface: ChromiumRoleExtensionSurfacePort,
+    alreadyDestroyed: boolean
+  ): void => {
+    const entry = this.#entries.get(handle.roleId);
+    if (!entry) return;
+    if (entry.handle !== handle) {
+      this.#recordSurfaceRetirementFailure(entry, "surface_identity_mismatch");
+      return;
+    }
+    if (entry.surfaceState === "retired") return;
+    if (
+      entry.surface?.contents !== surface.contents ||
+      entry.surface?.window !== surface.window
+    ) {
+      this.#recordSurfaceRetirementFailure(entry, "surface_identity_mismatch");
+      return;
+    }
+    const registered = entry.surfaceState === "registered";
+    const host = entry.host;
+    entry.surfaceState = "retired";
+    entry.surface = null;
+    if (!registered || !host) return;
+    if (alreadyDestroyed) {
+      this.#disableCompatibilityHost(entry, "surface_already_destroyed");
+      return;
+    }
+    try {
+      host.removeTab(surface.contents as WebContents);
+    } catch {
+      this.#disableCompatibilityHost(entry, "remove_tab_failed");
+    }
+  };
+
+  #disableCompatibilityHost(entry: Entry, reason: string): void {
+    const session = entry.handle.session as Session;
+    this.#poisonedSessions.add(session);
+    this.#hosts.delete(session);
+    this.#readinessResolvers.delete(session);
+    entry.compatibilityError = "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED";
+    this.#recordSurfaceRetirementFailure(entry, reason);
+  }
+
+  #recordSurfaceRetirementFailure(entry: Entry, reason: string): void {
+    const code = "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED";
+    this.#input.logger?.extensionDiagnostic(
+      "error",
+      "extension_compatibility_tab_retire_failed",
+      "The extension compatibility tab could not retire from its live Role surface.",
+      {
+        code,
+        reason,
+        roleId: entry.handle.roleId
+      },
+      new Error(code),
+      code
+    );
   }
 
   #beginReadiness(
@@ -420,10 +491,12 @@ export class ChromiumExtensionSessions {
     if (!entry) return;
     if (entry.handle !== handle) throw new Error("EXTENSIONS_STALE_SESSION");
     entry.released = true;
-    await entry.ready.catch(() => undefined);
-    if (entry.host && entry.surface) {
-      entry.host.removeTab(entry.surface.contents as WebContents);
+    if (entry.surfaceState !== "retired") {
+      entry.surfaceState = "retired";
+      entry.surface = null;
+      this.#disableCompatibilityHost(entry, "surface_retirement_missing");
     }
+    await entry.ready.catch(() => undefined);
     const native = (handle.session as Session).extensions;
     if (native) {
       for (const extension of native.getAllExtensions()) {

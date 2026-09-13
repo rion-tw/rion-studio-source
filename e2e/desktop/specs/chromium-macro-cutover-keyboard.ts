@@ -3,16 +3,19 @@ import { Key } from "webdriverio";
 
 import type { Macro } from "../../../src/shared/types";
 import {
+  electronDesktopE2eProbe,
   electronDesktopE2eRuntimeTabReload,
   electronDesktopE2eTrustedInputRuntime,
   type ElectronDesktopE2eTrustedInputObservation
 } from "../support/electron-driver";
 import {
   clickVisibleElectronPageElement,
+  readVisibleElectronCanvasPoint,
   submitElectronRoleKeyPhases,
   submitElectronRoleKeySequenceWithPause,
   submitElectronRoleMiddleButtonPhase
 } from "../support/electron-role-surface";
+import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import {
   fixtureCursor,
   fixtureEvents,
@@ -25,6 +28,8 @@ import {
   rendererEventCursor,
   waitForMacroProjection
 } from "../support/renderer-events";
+import { pressVisibleMacosRoleKey } from
+  "../support/native-application-actions";
 import {
   installRuntimeTabShellErrorJournal,
   runtimeTabShellErrors
@@ -127,11 +132,25 @@ async function waitAppliedKeyObservation(input: Readonly<{
 }
 
 async function createKeyboardMacros(roleId: string): Promise<Readonly<{
+  collision: Macro;
   continuity: Macro;
   middle: Macro;
   output: Macro;
   reentry: Macro;
 }>> {
+  const collision = await rendererCall("createMacro", {
+    activationMode: "press",
+    enabled: true,
+    name: "Chromium Shortcut Collision",
+    repeat: { type: "once" },
+    roleIds: [roleId],
+    shortcutSourceScope: { roleIds: [roleId], type: "selected_roles" },
+    steps: [
+      { action: "tap", code: "Digit2", id: "collision-two", type: "key" },
+      { action: "tap", code: "Digit0", id: "collision-zero", type: "key" }
+    ],
+    trigger: { alt: false, code: "Digit2", ctrl: false, meta: false, shift: true }
+  });
   const reentry = await rendererCall("createMacro", {
     activationMode: "press",
     enabled: true,
@@ -183,7 +202,7 @@ async function createKeyboardMacros(roleId: string): Promise<Readonly<{
       { button: "right", id: "right", type: "click", xPercent: 50, yPercent: 50 }
     ]
   });
-  return { continuity, middle, output, reentry };
+  return { collision, continuity, middle, output, reentry };
 }
 
 async function createMiddleHeldMacro(roleId: string): Promise<Macro> {
@@ -465,12 +484,30 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   }));
   await activateChromiumRoleVisible(context, tabB);
   await activateChromiumRoleVisible(context, tabA);
-  await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
-    { key: "4", phase: "keyDown" },
-    { key: "4", phase: "keyUp" },
-    { key: "5", phase: "keyUp" },
-    { key: Key.Shift, phase: "keyUp" }
-  ], { windowId: WINDOW_ID, focusCanvas: false });
+  if (context.platform === "macos") {
+    await clickMacosVisibleRoleControl(
+      WINDOW_ID,
+      roleA.id,
+      await readVisibleElectronCanvasPoint(roleA.launchUrl!, context.mainWindowHandle)
+    );
+    await pressVisibleMacosRoleKey({
+      code: "Shift+Digit4",
+      processId: (await electronDesktopE2eProbe()).processId,
+      runtimeTabName: roleA.name,
+      runtimeWindowId: WINDOW_ID
+    });
+    await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
+      { key: "5", phase: "keyUp" },
+      { key: Key.Shift, phase: "keyUp" }
+    ], { windowId: WINDOW_ID, focusCanvas: false });
+  } else {
+    await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
+      { key: "4", phase: "keyDown" },
+      { key: "4", phase: "keyUp" },
+      { key: "5", phase: "keyUp" },
+      { key: Key.Shift, phase: "keyUp" }
+    ], { windowId: WINDOW_ID, focusCanvas: false });
+  }
   const shiftedFour = await waitExactKey({
     afterSequence: continuityFixture,
     code: "Digit4",
@@ -600,6 +637,105 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     absent: true,
     afterSequence: outputCursor,
     macroId: macros.output.id
+  });
+
+  const collisionFixture = await fixtureCursor();
+  const collisionProjection = await rendererEventCursor();
+  let releaseNativeShift: (() => Promise<void>) | undefined;
+  if (context.platform === "macos") {
+    const processId = (await electronDesktopE2eProbe()).processId;
+    await clickMacosVisibleRoleControl(
+      WINDOW_ID,
+      roleA.id,
+      await readVisibleElectronCanvasPoint(roleA.launchUrl!, context.mainWindowHandle)
+    );
+    releaseNativeShift = () => pressVisibleMacosRoleKey({
+      code: "ShiftUp",
+      processId,
+      runtimeTabName: roleA.name,
+      runtimeWindowId: WINDOW_ID
+    });
+    await pressVisibleMacosRoleKey({
+      code: "Shift+Digit2ThenDigit3Hold",
+      processId,
+      runtimeTabName: roleA.name,
+      runtimeWindowId: WINDOW_ID
+    });
+  } else {
+    await submitElectronRoleKeySequenceWithPause(
+      roleA.launchUrl!,
+      context.mainWindowHandle,
+      [
+        { key: Key.Shift, phase: "keyDown" },
+        { key: "2", phase: "keyDown" },
+        { key: "3", phase: "keyDown" }
+      ],
+      50,
+      [
+        { key: "2", phase: "keyUp" },
+        { key: "3", phase: "keyUp" },
+        { key: Key.Shift, phase: "keyUp" }
+      ],
+      { windowId: WINDOW_ID }
+    );
+  }
+  let collisionEvents: readonly FixtureEvent[] = [];
+  try {
+    await browser.waitUntil(async () => {
+      collisionEvents = await fixtureEvents({
+        afterSequence: collisionFixture,
+        roleId: ROLE_A_FIXTURE
+      });
+      const exact = (kind: "keydown" | "keyup", code: string, key: string,
+        shift: boolean): boolean => collisionEvents.some((event) =>
+        event.kind === kind && event.code === code && event.key === key &&
+        event.isTrusted === true && event.modifiers?.shift === shift);
+      return exact("keydown", "Digit2", "2", false) &&
+        exact("keyup", "Digit2", "2", false) &&
+        exact("keydown", "Digit0", "0", false) &&
+        exact("keyup", "Digit0", "0", false) &&
+        exact("keydown", "Digit1", "!", true) &&
+        exact("keyup", "Digit1", "!", true);
+    }, {
+      timeout: 20_000,
+      timeoutMsg: "Rapid Shift+2 then Shift+3 left a macro key sequence incomplete"
+    });
+  } catch (error) {
+    throw new Error(
+      `Rapid shortcut diagnostics=${JSON.stringify({
+        events: collisionEvents,
+        observations: (await electronDesktopE2eTrustedInputRuntime(roleA.id)).slice(-24),
+        statuses: (await rendererCall("listMacroStatuses")).filter((status) =>
+          status.macroId === macros.collision.id || status.macroId === macros.reentry.id)
+      })}`,
+      { cause: error }
+    );
+  } finally {
+    await releaseNativeShift?.();
+  }
+  expect(collisionEvents.filter((event) =>
+    (event.kind === "keydown" || event.kind === "keyup") &&
+    event.code === "Digit2" && event.key === "2" &&
+    event.modifiers?.shift === false
+  ).map((event) => event.kind)).toEqual(["keydown", "keyup"]);
+  await waitForMacroProjection({
+    absent: true,
+    afterSequence: collisionProjection,
+    macroId: macros.collision.id
+  });
+  await waitForMacroProjection({
+    absent: true,
+    afterSequence: collisionProjection,
+    macroId: macros.reentry.id
+  });
+
+  await browser.waitUntil(async () => {
+    const state = (await fixtureState())[ROLE_A_FIXTURE];
+    return state?.pressedCodes.length === 0 &&
+      state.consumerPressedCodes.length === 0;
+  }, {
+    timeout: 5_000,
+    timeoutMsg: "Rapid shortcut physical and consumer keys did not become neutral"
   });
 
   const finalState = (await fixtureState())[ROLE_A_FIXTURE];

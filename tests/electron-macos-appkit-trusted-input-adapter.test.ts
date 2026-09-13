@@ -1158,6 +1158,62 @@ describe("macOS AppKit trusted-input adapter", () => {
     }));
   });
 
+  it("defers a synthetic keyup until the earlier native physical keyup receipt arrives", async () => {
+    resetTrustedInputTerminalJournalForTest();
+    const subject = harness();
+    subject.setTargetReceivesPhysicalInput(true);
+    const action = {
+      ...keyAction("release"),
+      key: "2",
+      code: "Digit2",
+      modifiers: [],
+      exactModifierCodes: [],
+      suppressOverlayShortcut: false
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const completion = subject.adapter.dispatch(nativeRequest(
+      "synthetic-before-physical-keyup-receipt",
+      action,
+      {
+        keyEffect: {
+          phase: "keyUp",
+          code: "Digit2",
+          activeCodesBefore: ["Digit2"],
+          activeCodes: [],
+          autoRepeat: false,
+          suppressShortcut: false
+        }
+      }
+    ));
+    const control = subject.arm();
+    await Promise.resolve();
+    subject.recordPhysicalInput(1, "keyUp");
+    let settled = false;
+    void completion.then(() => { settled = true; });
+
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
+      observationSequence: 1
+    }));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
+      observationSequence: 2,
+      code: "Digit3"
+    }));
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: true
+    });
+    expect(recentTrustedInputTerminals().at(-1)).toEqual(expect.objectContaining({
+      requestId: "synthetic-before-physical-keyup-receipt",
+      nativePhysicalKeyUpSequenceBefore: "0",
+      nativePhysicalKeyUpSequenceAfter: "1",
+      observedDomEventCount: 1,
+      physicalInterleave: "unrelated",
+      terminalCode: "APPLIED"
+    }));
+  });
+
   it("terminalizes changed AppKit focus proof after CDP acceptance", async () => {
     const subject = harness();
     const result = subject.adapter.dispatch(nativeRequest("focus-changed", keyAction("hold")));

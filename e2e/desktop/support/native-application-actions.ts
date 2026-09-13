@@ -112,7 +112,11 @@ export type VisibleApplicationShortcutTargetMode =
   | "focused-runtime"
   | "launcher";
 
-export type VisibleMacosRoleKey = "KeyY" | "Shift+Digit4";
+export type VisibleMacosRoleKey =
+  | "KeyY"
+  | "Shift+Digit4"
+  | "Shift+Digit2ThenDigit3Hold"
+  | "ShiftUp";
 
 async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   activate: boolean;

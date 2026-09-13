@@ -123,6 +123,8 @@ phase cursors to distinguish an opposite key phase while retaining the total
 cursor for modifier and pointer projections. A physical key-up that wins the
 race against its managed key-down acknowledgement cannot consume that
 acknowledgement or force the Role into indeterminate recovery.
+If native evidence precedes its DOM receipt while a CDP event arrives first, the adapter defers
+and reconciles both exact phases; rapid shortcuts cannot steal a key-up or leave a Macro recovering.
 Each trusted-input terminal diagnostic retains the native total, key-down, and
 key-up cursor before and after correlation together with the last observed DOM
 event and its evidence classification. Debug exports can therefore distinguish

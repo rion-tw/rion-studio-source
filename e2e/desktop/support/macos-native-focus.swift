@@ -128,6 +128,8 @@ if mode == "shortcut" || mode == "roleKey" {
   switch command {
   case "KeyY" where mode == "roleKey": key = 16; flags = []
   case "Shift+Digit4" where mode == "roleKey": key = 21; flags = [.maskShift]
+  case "Shift+Digit2ThenDigit3Hold" where mode == "roleKey": key = 19; flags = [.maskShift]
+  case "ShiftUp" where mode == "roleKey": key = 56; flags = []
   case "escape": key = 53; flags = []
   case "nextTab": key = 48; flags = [.maskControl]
   case "newGameWindow": key = 45; flags = [.maskCommand]
@@ -144,7 +146,24 @@ if mode == "shortcut" || mode == "roleKey" {
   }
   down.flags = flags
   up.flags = flags
-  if command == "Shift+Digit4" {
+  if command == "Shift+Digit2ThenDigit3Hold" {
+    guard let shiftDown = CGEvent(
+      keyboardEventSource: source, virtualKey: 56, keyDown: true
+    ), let digit3Down = CGEvent(
+      keyboardEventSource: source, virtualKey: 20, keyDown: true
+    ), let digit3Up = CGEvent(
+      keyboardEventSource: source, virtualKey: 20, keyDown: false
+    ) else { fail("native overlapping Role shortcut events unavailable") }
+    shiftDown.flags = [.maskShift]
+    digit3Down.flags = [.maskShift]
+    digit3Up.flags = [.maskShift]
+    for event in [shiftDown, down, up, digit3Down, digit3Up] {
+      event.post(tap: .cghidEventTap)
+      usleep(20_000)
+    }
+  } else if command == "ShiftUp" {
+    up.post(tap: .cghidEventTap)
+  } else if command == "Shift+Digit4" {
     guard let shiftDown = CGEvent(
       keyboardEventSource: source, virtualKey: 56, keyDown: true
     ), let shiftUp = CGEvent(

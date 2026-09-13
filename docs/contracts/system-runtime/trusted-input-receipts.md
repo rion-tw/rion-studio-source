@@ -36,9 +36,18 @@ advances the sequence. Electron main correlates the native and DOM streams:
   automatic-input action;
 - an observation without physical provenance advances the CDP action only when
   it exactly matches the expected receipt;
-- same-identity races, sequence gaps or regressions, unknown provenance, and
-  changed document, frame, surface, input-epoch, host-generation, foreground,
-  or focus proof fail closed as indeterminate.
+- when a native physical edge is counted before its DOM observation but an
+  intervening CDP observation arrives first, main keeps the ambiguous receipt
+  pending and reconciles it when the exact phase/category observation arrives;
+- an unresolved same-identity race, sequence gap or regression, unknown
+  provenance, or changed document, frame, surface, input-epoch,
+  host-generation, foreground, or focus proof fails closed as indeterminate.
+
+This reconciliation is event-bound: a later trusted DOM receipt is the only
+event that can disambiguate the queued receipt. It adds no polling, retry,
+reordering timer, or inferred success. Ordinary in-document loading is not a
+navigation fence. A genuine main-document replacement still fences automatic
+input until the new document and its exact receipt lane are ready.
 
 Physical evidence is private to the native host, Electron main, and isolated
 preload. It does not change `window.rionStudio`, Macro persistence, JSON, or

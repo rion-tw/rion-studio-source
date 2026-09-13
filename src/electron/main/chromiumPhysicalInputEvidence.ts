@@ -20,6 +20,12 @@ export type ChromiumPhysicalInputEvidenceClassification =
   | "physical"
   | "indeterminate";
 
+type ChromiumPhysicalInputEvidenceCategory =
+  | "keyDown"
+  | "keyUp"
+  | "other"
+  | "total";
+
 function parseSequence(value: unknown): bigint | null {
   if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/u.test(value)) return null;
   try {
@@ -62,71 +68,135 @@ export class ChromiumPhysicalInputEvidenceLane {
       ? null : sequence - keyDown - keyUp;
   }
 
+  sharesCategory(
+    snapshot: ChromiumPhysicalInputEvidenceSnapshot,
+    left: ChromiumPhysicalInputEvidenceObservation,
+    right: ChromiumPhysicalInputEvidenceObservation
+  ): boolean {
+    const parsed = this.#parseSnapshot(snapshot);
+    if (!parsed) return false;
+    return this.#pendingCategory(parsed, left) ===
+      this.#pendingCategory(parsed, right);
+  }
+
+  pendingPhysicalCount(
+    snapshot: ChromiumPhysicalInputEvidenceSnapshot,
+    observation: ChromiumPhysicalInputEvidenceObservation
+  ): bigint | null {
+    const parsed = this.#parseSnapshot(snapshot);
+    if (!parsed || !snapshot.targetReceivesPhysicalInput) return parsed ? 0n : null;
+    switch (this.#pendingCategory(parsed, observation)) {
+      case "keyDown": return parsed.keyDown! - this.#keyDownAccounted!;
+      case "keyUp": return parsed.keyUp! - this.#keyUpAccounted!;
+      case "other": return parsed.other! - this.#otherAccounted!;
+      case "total": return parsed.sequence - this.#accounted;
+      case null: return 0n;
+    }
+  }
+
   classify(
     snapshot: ChromiumPhysicalInputEvidenceSnapshot,
     observation?: ChromiumPhysicalInputEvidenceObservation
   ): ChromiumPhysicalInputEvidenceClassification {
+    const parsed = this.#parseSnapshot(snapshot);
+    if (!parsed) return "indeterminate";
+    if (!snapshot.targetReceivesPhysicalInput) {
+      // A hidden/background Role cannot consume foreground-window evidence.
+      this.#accounted = parsed.sequence;
+      if (parsed.keyDown !== null && parsed.keyUp !== null && parsed.other !== null) {
+        this.#keyDownAccounted = parsed.keyDown;
+        this.#keyUpAccounted = parsed.keyUp;
+        this.#otherAccounted = parsed.other;
+      }
+      return "automatic";
+    }
+    const pending = observation
+      ? this.pendingPhysicalCount(snapshot, observation)
+      : parsed.sequence - this.#accounted;
+    if (pending === null) return "indeterminate";
+    if (pending === 0n) return "automatic";
+    if (observation && parsed.keyDown !== null) {
+      switch (this.#pendingCategory(parsed, observation)) {
+        case "keyDown": this.#keyDownAccounted! += 1n; break;
+        case "keyUp": this.#keyUpAccounted! += 1n; break;
+        case "other": this.#otherAccounted! += 1n; break;
+        case "total": case null: return "indeterminate";
+      }
+      this.#accounted += 1n;
+      return "physical";
+    }
+    this.#accounted += 1n;
+    return "physical";
+  }
+
+  #category(
+    observation: ChromiumPhysicalInputEvidenceObservation
+  ): ChromiumPhysicalInputEvidenceCategory {
+    if (this.#keyDownAccounted === null) return "total";
+    const modifier = observation.code?.startsWith("Control") ||
+      observation.code?.startsWith("Alt") ||
+      observation.code?.startsWith("Shift") ||
+      observation.code?.startsWith("Meta");
+    if (observation.type === "keydown" && !modifier) return "keyDown";
+    if (observation.type === "keyup" && !modifier) return "keyUp";
+    return "other";
+  }
+
+  #pendingCategory(
+    snapshot: {
+      readonly sequence: bigint;
+      readonly keyDown: bigint | null;
+      readonly keyUp: bigint | null;
+      readonly other: bigint | null;
+    },
+    observation: ChromiumPhysicalInputEvidenceObservation
+  ): ChromiumPhysicalInputEvidenceCategory | null {
+    if (snapshot.keyDown === null || snapshot.keyUp === null ||
+        snapshot.other === null) return "total";
+    const category = this.#category(observation);
+    if (category === "total") return category;
+    const keyDownPending = snapshot.keyDown! - this.#keyDownAccounted!;
+    const keyUpPending = snapshot.keyUp! - this.#keyUpAccounted!;
+    const otherPending = snapshot.other! - this.#otherAccounted!;
+    if (category === "keyDown") {
+      if (keyDownPending > 0n) return category;
+      if (keyUpPending > 0n) return null;
+      return otherPending > 0n ? "other" : null;
+    }
+    if (category === "keyUp") {
+      if (keyUpPending > 0n) return category;
+      if (keyDownPending > 0n) return null;
+      return otherPending > 0n ? "other" : null;
+    }
+    return otherPending > 0n ? "other" : null;
+  }
+
+  #parseSnapshot(snapshot: ChromiumPhysicalInputEvidenceSnapshot): {
+    readonly sequence: bigint;
+    readonly keyDown: bigint | null;
+    readonly keyUp: bigint | null;
+    readonly other: bigint | null;
+  } | null {
     const sequence = parseSequence(snapshot.sequence);
     const keyDown = snapshot.keyDownSequence === undefined
       ? null : parseSequence(snapshot.keyDownSequence);
     const keyUp = snapshot.keyUpSequence === undefined
       ? null : parseSequence(snapshot.keyUpSequence);
-    const phaseCursorsValid = this.#keyDownAccounted !== null &&
+    const phaseProvided = snapshot.keyDownSequence !== undefined ||
+      snapshot.keyUpSequence !== undefined;
+    const phaseValid = this.#keyDownAccounted !== null &&
       this.#keyUpAccounted !== null && this.#otherAccounted !== null &&
-      keyDown !== null && keyUp !== null && keyDown + keyUp <= (sequence ?? -1n);
+      keyDown !== null && keyUp !== null && sequence !== null &&
+      keyDown + keyUp <= sequence && keyDown >= this.#keyDownAccounted &&
+      keyUp >= this.#keyUpAccounted &&
+      sequence - keyDown - keyUp >= this.#otherAccounted;
     if (sequence === null || typeof snapshot.targetReceivesPhysicalInput !== "boolean" ||
-        sequence < this.#accounted ||
-        ((snapshot.keyDownSequence !== undefined || snapshot.keyUpSequence !== undefined) &&
-          !phaseCursorsValid)) {
-      return "indeterminate";
-    }
-    if (!snapshot.targetReceivesPhysicalInput) {
-      // A hidden/background Role cannot consume foreground-window evidence.
-      this.#accounted = sequence;
-      if (phaseCursorsValid) {
-        this.#keyDownAccounted = keyDown;
-        this.#keyUpAccounted = keyUp;
-        this.#otherAccounted = sequence - keyDown - keyUp;
-      }
-      return "automatic";
-    }
-    if (phaseCursorsValid && observation) {
-      const currentKeyDown = keyDown!;
-      const currentKeyUp = keyUp!;
-      const accountedKeyDown = this.#keyDownAccounted!;
-      const accountedKeyUp = this.#keyUpAccounted!;
-      const accountedOther = this.#otherAccounted!;
-      const modifier = observation.code?.startsWith("Control") ||
-        observation.code?.startsWith("Alt") ||
-        observation.code?.startsWith("Shift") ||
-        observation.code?.startsWith("Meta");
-      const currentOther = sequence - currentKeyDown - currentKeyUp;
-      if (currentKeyDown < accountedKeyDown || currentKeyUp < accountedKeyUp ||
-          currentOther < accountedOther) return "indeterminate";
-      const observesKeyDown = observation.type === "keydown" && !modifier;
-      const observesKeyUp = observation.type === "keyup" && !modifier;
-      if (observesKeyDown && currentKeyDown > accountedKeyDown) {
-        this.#keyDownAccounted = accountedKeyDown + 1n;
-      } else if (observesKeyUp && currentKeyUp > accountedKeyUp) {
-        this.#keyUpAccounted = accountedKeyUp + 1n;
-      } else if ((observesKeyDown && currentKeyUp > accountedKeyUp) ||
-                 (observesKeyUp && currentKeyDown > accountedKeyDown)) {
-        // The opposite physical phase may race a managed receipt. Preserve it
-        // for its own observation; it cannot identify this automatic phase.
-        return "automatic";
-      } else if (currentOther > accountedOther) {
-        // Modifier and pointer projections retain the total cursor semantics.
-        // They may arrive while a non-modifier receipt is queued, so consume
-        // one only after both exact key-phase cursors rule themselves out.
-        this.#otherAccounted = accountedOther + 1n;
-      } else {
-        return "automatic";
-      }
-      this.#accounted += 1n;
-      return "physical";
-    }
-    if (sequence === this.#accounted) return "automatic";
-    this.#accounted += 1n;
-    return "physical";
+        sequence < this.#accounted || (phaseProvided && !phaseValid)) return null;
+    return {
+      sequence,
+      keyDown,
+      keyUp,
+      other: keyDown === null || keyUp === null ? null : sequence - keyDown - keyUp
+    };
   }
 }

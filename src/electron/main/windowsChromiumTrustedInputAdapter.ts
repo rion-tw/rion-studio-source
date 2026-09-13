@@ -1,8 +1,9 @@
 import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
 import { sameChromiumViewInputIdentity, validChromiumViewInputIdentity,
   validChromiumViewInputObservation, chromiumViewInputArmingKey } from "./chromiumViewTrustedInputValidation";
-import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
-  "./chromiumTrustedInputDomReceipt";
+import { parseTrustedInputDomReceipt } from "./chromiumTrustedInputDomReceipt";
+import { reconcileChromiumTrustedInputReceipts } from
+  "./chromiumTrustedInputReceiptReconciliation";
 import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } from
   "./chromiumTrustedInputPendingLane";
 import { randomUUID } from "node:crypto";
@@ -15,6 +16,7 @@ import { mergeChromiumPhysicalModifiers, validChromiumPhysicalModifierCodes } fr
   "../ipc/chromiumTrustedInputPhysicalModifiers";
 import {
   CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
+  type ChromiumRoleTrustedInputDomReceipt,
   type ChromiumRoleTrustedInputExpectedEvent,
   type ChromiumRoleTrustedInputModifierDisposition,
   type ChromiumRoleTrustedInputReceipt
@@ -117,6 +119,7 @@ interface PendingDispatch {
   nativeSubmitted: number;
   nextDomIndex: number;
   nextObservationSequence: number;
+  observations: ChromiumRoleTrustedInputDomReceipt[];
   nativeComplete: boolean;
   terminal: boolean;
   physicalModifierCodes: readonly string[];
@@ -550,6 +553,7 @@ implements ChromiumNativeTrustedInputPort {
       nativeSubmitted: 0,
       nextDomIndex: 0,
       nextObservationSequence: 1,
+      observations: [],
       nativeComplete: false,
       terminal: false,
       physicalModifierCodes: Object.freeze([]),
@@ -678,7 +682,7 @@ implements ChromiumNativeTrustedInputPort {
       return false;
     }
     pending.nextObservationSequence += 1;
-    let evidence: "automatic" | "physical" | "indeterminate";
+    pending.observations.push(receipt);
     try {
       const liveHost = this.#hosts.resolve(
         pending.request.roleId, pending.request.surfaceGeneration
@@ -697,33 +701,51 @@ implements ChromiumNativeTrustedInputPort {
           chromiumViewInputArmingKey(pending.probe.observation)) {
         throw new Error("The Windows input surface changed during receipt correlation.");
       }
-      evidence = pending.physicalEvidence.classify({
+      const snapshot = {
         sequence: probe.observation.physicalInputSequence,
         targetReceivesPhysicalInput: mode === "foreground" &&
           probe.observation.parentForeground && probe.observation.contentsFocused
-      });
+      };
       pending.probe = probe;
-    } catch {
-      evidence = "indeterminate";
-    }
-    if (evidence === "physical") {
-      const expected = pending.expectedEvents[pending.nextDomIndex];
-      pending.physicalInterleave = receipt.code && isChromiumModifierCode(receipt.code)
-        ? "modifier-change"
-        : expected && receipt.type === expected.type && receipt.code === expected.code &&
-          receipt.button === expected.button
-          ? "same-identity" : "unrelated";
+      const reconciliation = reconcileChromiumTrustedInputReceipts(
+        pending.physicalEvidence,
+        snapshot,
+        pending.expectedEvents,
+        pending.nextDomIndex,
+        pending.observations
+      );
+      pending.observations = [...reconciliation.remaining];
+      pending.nextDomIndex = reconciliation.nextExpectedIndex;
+      for (const decision of reconciliation.decisions) {
+        if (decision.classification !== "physical") continue;
+        const observed = decision.receipt;
+        const expected = decision.expectedEvent;
+        pending.physicalInterleave = observed.code &&
+          isChromiumModifierCode(observed.code)
+          ? "modifier-change"
+          : expected && observed.type === expected.type &&
+            observed.code === expected.code && observed.button === expected.button
+            ? "same-identity" : "unrelated";
+      }
+      if (reconciliation.status === "indeterminate") {
+        pending.physicalInterleave = "indeterminate";
+        this.#terminalizeMismatch(pending);
+        return false;
+      }
+      if (reconciliation.status === "mismatch" ||
+          (!pending.nativeInvoked && reconciliation.decisions.some(
+            (decision) => decision.classification === "automatic"
+          ))) {
+        this.#terminalizeMismatch(pending);
+        return false;
+      }
+      this.#maybeApply(pending);
       return true;
-    }
-    if (evidence === "indeterminate" || !pending.nativeInvoked ||
-      !sameExpected(receipt, pending.expectedEvents[pending.nextDomIndex]!)) {
-      if (evidence === "indeterminate") pending.physicalInterleave = "indeterminate";
+    } catch {
+      pending.physicalInterleave = "indeterminate";
       this.#terminalizeMismatch(pending);
       return false;
     }
-    pending.nextDomIndex += 1;
-    this.#maybeApply(pending);
-    return true;
   }
 
   cancel(requestId: string): boolean {

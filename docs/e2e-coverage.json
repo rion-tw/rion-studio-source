@@ -1420,7 +1420,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return reasserts the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. Preserve v33 exact-side adoption without duplicate Chromium keydown and retain the total/key-down/key-up provenance cursors without terminating an unrelated CDP receipt."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return reasserts the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. Rapidly overlap real Shift+2 and Shift+3 while Shift remains held; their one-shot outputs must complete with unshifted Digit2/Digit0 and shifted Digit1 without receipt theft or residual status. Preserve v33 exact-side adoption without duplicate Chromium keydown and retain the total/key-down/key-up provenance cursors without terminating an unrelated CDP receipt."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008",
@@ -1446,7 +1446,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return preserves the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. Preserve v33 exact-side adoption without duplicate Chromium keydown and retain exact-HWND provenance."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return preserves the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Rapidly overlap Shift+2 and Shift+3; their one-shot outputs must complete with unshifted Digit2/Digit0 and shifted Digit1 without receipt theft or residual status. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. Preserve v33 exact-side adoption without duplicate Chromium keydown and retain exact-HWND provenance."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",
@@ -1577,7 +1577,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+3 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+3 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains. Rapid Shift overlapping Shift+2 and Shift+3 must reconcile a CDP receipt that arrives before the earlier native physical receipt without leaving either one-shot Macro running. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007",
@@ -1603,7 +1603,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+3 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
+      "description": "Capture the original Shift+3 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. Rapidly overlapping Shift+2 and Shift+3 must reconcile a CDP receipt that arrives before the earlier native physical receipt without leaving either one-shot Macro running. Under v33, quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-TERMINAL-CLEANUP-006",

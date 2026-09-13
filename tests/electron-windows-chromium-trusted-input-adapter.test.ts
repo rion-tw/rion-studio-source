@@ -450,6 +450,47 @@ describe("Windows Chromium trusted-input adapter", () => {
     await expect(completion).resolves.toMatchObject({ status: "applied" });
   });
 
+  it("defers a synthetic keyup until the earlier native physical keyup receipt arrives", async () => {
+    const subject = harness();
+    const action = {
+      ...keyAction("release", []),
+      key: "2",
+      code: "Digit2",
+      exactModifierCodes: [],
+      suppressOverlayShortcut: false
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const completion = subject.adapter.dispatch(nativeRequest(
+      "synthetic-before-physical-keyup-receipt",
+      action,
+      {
+        keyEffect: {
+          phase: "keyUp",
+          code: "Digit2",
+          activeCodesBefore: ["Digit2"],
+          activeCodes: [],
+          autoRepeat: false,
+          suppressShortcut: false
+        }
+      }
+    ));
+    subject.armed();
+    await Promise.resolve();
+    const expected = subject.arm().expectedEvents[0]!;
+    subject.recordPhysicalInput();
+    let settled = false;
+    void completion.then(() => { settled = true; });
+
+    subject.dom(expected, 0);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    subject.dom({ ...expected, code: "Digit3" }, 1);
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: true
+    });
+  });
+
   it("keeps CDP inside the common production transport and Win32 read-only", () => {
     const adapter = readFileSync(new URL(
       "../src/electron/main/windowsChromiumTrustedInputAdapter.ts",

@@ -1,6 +1,7 @@
 import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
-import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
-  "./chromiumTrustedInputDomReceipt";
+import { parseTrustedInputDomReceipt } from "./chromiumTrustedInputDomReceipt";
+import { reconcileChromiumTrustedInputReceipts } from
+  "./chromiumTrustedInputReceiptReconciliation";
 import {
   ChromiumTrustedInputPendingLane,
   sameTrustedInputFrame as sameFrame,
@@ -19,6 +20,7 @@ import {
   CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL,
   type ChromiumRoleTrustedInputArmEnvelope,
   type ChromiumRoleTrustedInputCancelEnvelope,
+  type ChromiumRoleTrustedInputDomReceipt,
   type ChromiumRoleTrustedInputExpectedEvent,
   type ChromiumRoleTrustedInputModifierDisposition,
   type ChromiumRoleTrustedInputReceipt
@@ -285,6 +287,7 @@ interface PendingDispatch {
   nativeSubmitted: number;
   nextDomIndex: number;
   nextObservationSequence: number;
+  observations: ChromiumRoleTrustedInputDomReceipt[];
   nativeComplete: boolean;
   terminal: boolean;
   physicalModifierCodes: readonly string[];
@@ -744,6 +747,7 @@ implements ChromiumNativeTrustedInputPort {
       nativeSubmitted: 0,
       nextDomIndex: 0,
       nextObservationSequence: 1,
+      observations: [],
       nativeComplete: false,
       terminal: false,
       physicalModifierCodes: Object.freeze([]),
@@ -881,7 +885,10 @@ implements ChromiumNativeTrustedInputPort {
       return false;
     }
     pending.nextObservationSequence += 1;
-    let evidence: "automatic" | "physical" | "indeterminate";
+    pending.observations.push(receipt);
+    pending.physicalEvidenceDiagnostics.lastObservedDomEventType = receipt.type;
+    pending.physicalEvidenceDiagnostics.lastObservedDomEventCode =
+      receipt.code ?? undefined;
     try {
       const liveHost = this.#hosts.resolve(
         pending.request.roleId, pending.request.surfaceGeneration
@@ -895,48 +902,66 @@ implements ChromiumNativeTrustedInputPort {
       if (!sameAppKitFocusProof(probe, pending.nativeProbe)) {
         throw new Error("The AppKit input surface changed during receipt correlation.");
       }
-      evidence = pending.physicalEvidence.classify({
+      const snapshot = {
         sequence: probe.physicalInputSequence,
         keyDownSequence: probe.physicalKeyDownSequence,
         keyUpSequence: probe.physicalKeyUpSequence,
         targetReceivesPhysicalInput: probe.targetReceivesPhysicalInput
-      }, receipt);
+      };
       pending.physicalEvidenceDiagnostics.inputSequenceAfter =
         probe.physicalInputSequence;
       pending.physicalEvidenceDiagnostics.keyDownSequenceAfter =
         probe.physicalKeyDownSequence;
       pending.physicalEvidenceDiagnostics.keyUpSequenceAfter =
         probe.physicalKeyUpSequence;
-      pending.physicalEvidenceDiagnostics.lastObservedDomEventType = receipt.type;
-      pending.physicalEvidenceDiagnostics.lastObservedDomEventCode =
-        receipt.code ?? undefined;
-      pending.physicalEvidenceDiagnostics.lastClassification = evidence;
       pending.nativeProbe = probe;
-    } catch {
-      evidence = "indeterminate";
-      pending.physicalEvidenceDiagnostics.lastObservedDomEventType = receipt.type;
-      pending.physicalEvidenceDiagnostics.lastObservedDomEventCode =
-        receipt.code ?? undefined;
-      pending.physicalEvidenceDiagnostics.lastClassification = evidence;
-    }
-    if (evidence === "physical") {
-      const expected = pending.expectedEvents[pending.nextDomIndex];
-      pending.physicalInterleave = receipt.code && isChromiumModifierCode(receipt.code)
-        ? "modifier-change"
-        : expected && receipt.type === expected.type && receipt.code === expected.code &&
-          receipt.button === expected.button
-          ? "same-identity" : "unrelated";
+      const reconciliation = reconcileChromiumTrustedInputReceipts(
+        pending.physicalEvidence,
+        snapshot,
+        pending.expectedEvents,
+        pending.nextDomIndex,
+        pending.observations
+      );
+      pending.observations = [...reconciliation.remaining];
+      pending.nextDomIndex = reconciliation.nextExpectedIndex;
+      for (const decision of reconciliation.decisions) {
+        pending.physicalEvidenceDiagnostics.lastObservedDomEventType =
+          decision.receipt.type;
+        pending.physicalEvidenceDiagnostics.lastObservedDomEventCode =
+          decision.receipt.code ?? undefined;
+        pending.physicalEvidenceDiagnostics.lastClassification =
+          decision.classification;
+        if (decision.classification !== "physical") continue;
+        const observed = decision.receipt;
+        const expected = decision.expectedEvent;
+        pending.physicalInterleave = observed.code &&
+          isChromiumModifierCode(observed.code)
+          ? "modifier-change"
+          : expected && observed.type === expected.type &&
+            observed.code === expected.code && observed.button === expected.button
+            ? "same-identity" : "unrelated";
+      }
+      if (reconciliation.status === "indeterminate") {
+        pending.physicalEvidenceDiagnostics.lastClassification = "indeterminate";
+        pending.physicalInterleave = "indeterminate";
+        this.#terminalizeMismatch(pending);
+        return false;
+      }
+      if (reconciliation.status === "mismatch" ||
+          (!pending.nativeInvoked && reconciliation.decisions.some(
+            (decision) => decision.classification === "automatic"
+          ))) {
+        this.#terminalizeMismatch(pending);
+        return false;
+      }
+      this.#maybeApply(pending);
       return true;
-    }
-    if (evidence === "indeterminate" || !pending.nativeInvoked ||
-      !sameExpected(receipt, pending.expectedEvents[pending.nextDomIndex]!)) {
-      if (evidence === "indeterminate") pending.physicalInterleave = "indeterminate";
+    } catch {
+      pending.physicalEvidenceDiagnostics.lastClassification = "indeterminate";
+      pending.physicalInterleave = "indeterminate";
       this.#terminalizeMismatch(pending);
       return false;
     }
-    pending.nextDomIndex += 1;
-    this.#maybeApply(pending);
-    return true;
   }
 
   cancel(requestId: string): boolean {

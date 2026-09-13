@@ -171,6 +171,7 @@ function runtimeEvidence(platform: "macos" | "windows") {
       ? continuityObservation(roleAId, 2)
       : null,
     finalConsumerPressedCodes: [],
+    finalSourceConsumerPressedCodes: [],
     finalMacroStatuses: [],
     finalRoleStatuses: [
       { automationState: "ready", roleId: roleAId, state: "running" },
@@ -238,6 +239,11 @@ describe("Chromium Macro background-tab exact replacement source", () => {
       "CHROMIUM-MACOS-APPKIT-MACRO-BACKGROUND-TAB-004",
       "CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004",
       "activateChromiumRoleVisible",
+      "clickMacosVisibleRoleControl",
+      "pressVisibleMacosRoleKey",
+      "readVisibleElectronCanvasPoint",
+      'code: "Shift+Digit4"',
+      'kind: "consumer-keyup"',
       "submitElectronRoleKeyPhases",
       "firstConsumerKeydown",
       "firstHiddenKeydown",
@@ -248,6 +254,12 @@ describe("Chromium Macro background-tab exact replacement source", () => {
       "consumerPressedCodes",
       "isTrusted"
     ]) expect(spec).toContain(marker);
+    expect(spec).toContain(
+      "expect(state[ROLE_A_FIXTURE]!.consumerPressedCodes).toEqual([])"
+    );
+    expect(spec).toContain(
+      "expect(state[ROLE_B_FIXTURE]!.consumerPressedCodes).toEqual([])"
+    );
     for (const forbidden of [
       'rendererCall("startMacro"',
       'rendererCall("stopMacro"',

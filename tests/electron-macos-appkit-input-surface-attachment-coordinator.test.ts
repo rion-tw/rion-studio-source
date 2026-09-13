@@ -81,6 +81,8 @@ function harness() {
       targetWindowFirstResponderAddress: "14",
       physicalModifierCodes: [],
       physicalInputSequence: "0",
+      physicalKeyDownSequence: "0",
+      physicalKeyUpSequence: "0",
       targetReceivesPhysicalInput: focused,
       targetX: 0,
       targetY: 0,

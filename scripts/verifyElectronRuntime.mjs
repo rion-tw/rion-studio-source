@@ -17,7 +17,7 @@ export const EXPECTED_ELECTRON_RUNTIME = Object.freeze({
   napi: "10",
   node: "24.20.0"
 });
-export const EXPECTED_APPKIT_RUNTIME_ABI = 9;
+export const EXPECTED_APPKIT_RUNTIME_ABI = 10;
 
 export function assertElectronRuntimeProbe(
   probe,

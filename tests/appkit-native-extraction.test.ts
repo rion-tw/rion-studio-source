@@ -27,10 +27,10 @@ describe("shared AppKit runtime controller", () => {
     expect(appKitBuild).toContain('rustc-link-lib=framework=AppKit');
     expect(appKitBuild).toContain('rustc-link-lib=framework=QuartzCore');
     expect(appKitBuild).not.toContain("WebKit");
-    expect(appKitRust).toContain("RUNTIME_TABS_ABI_VERSION: u32 = 9");
+    expect(appKitRust).toContain("RUNTIME_TABS_ABI_VERSION: u32 = 10");
     expect(controllerHeader).not.toContain("safe_tao");
     expect(controllerBridge).toMatch(
-      /rion_appkit_runtime_tabs_abi_version\(void\)\s*\{\s*return 9;\s*\}/u
+      /rion_appkit_runtime_tabs_abi_version\(void\)\s*\{\s*return 10;\s*\}/u
     );
     expect(controllerBridge).not.toContain("TaoWindow");
   });
@@ -141,7 +141,7 @@ describe("shared AppKit runtime controller", () => {
   });
 
   it("routes plain Role keys directly and records placement trigger provenance", async () => {
-    const [geometry, controller, layout] = await Promise.all([
+    const [geometry, controller, layout, probe] = await Promise.all([
       readFile(
         "crates/rion-appkit/native/macos/RionRuntimeTabsController/01_geometry.mm",
         "utf8"
@@ -153,17 +153,35 @@ describe("shared AppKit runtime controller", () => {
       readFile(
         "crates/rion-appkit/native/macos/RionRuntimeTabsController/05_layout.mm",
         "utf8"
+      ),
+      readFile(
+        "crates/rion-appkit/native/macos/RionRuntimeTabsController/09_chromium_surface_probe.mm",
+        "utf8"
       )
     ]);
 
     expect(geometry).toContain("RionRuntimeShouldDirectRoleKeyEvent");
+    expect(geometry).toContain("RionRuntimeIsDirectedRoleKeyEvent");
+    expect(geometry).toContain("RionRuntimeMarkDirectedRoleKeyEvent");
     expect(geometry).toContain("NSEventModifierFlagCommand) == 0");
+    expect(controller).toContain(
+      "RionRuntimeIsMacroKeyEvent(event) ||\n        RionRuntimeIsDirectedRoleKeyEvent(event)"
+    );
+    expect(controller).toContain("__block BOOL directingRoleKeyEvent = NO;");
+    expect(controller).toContain("if (directingRoleKeyEvent) return nil;");
+    expect(controller.indexOf("RionRuntimeMarkDirectedRoleKeyEvent(event)")).toBeLessThan(
+      controller.indexOf("[physicalTarget keyDown:event]")
+    );
+    expect(controller).toContain("directingRoleKeyEvent = YES;");
+    expect(controller).toContain("directingRoleKeyEvent = NO;");
     expect(controller).toContain("[physicalTarget keyDown:event]");
     expect(controller).toContain("[physicalTarget keyUp:event]");
     expect(layout).toContain('@"placementDiagnostics"');
     expect(layout).toContain('@"triggerKeyCode"');
     expect(layout).toContain('@"firstResponderCategory"');
     expect(layout).toContain('@"physicalInputSequence"');
+    expect(probe).toContain("result->physicalKeyDownSequence");
+    expect(probe).toContain("result->physicalKeyUpSequence");
   });
 
   it("retires all native tab projection indexes after a visible close", async () => {

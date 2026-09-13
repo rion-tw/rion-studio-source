@@ -12,6 +12,18 @@ export type ChromiumPhysicalInterleaveClassification =
   | "modifier-change"
   | "indeterminate";
 
+export interface ChromiumPhysicalEvidenceDiagnostics {
+  inputSequenceBefore: string;
+  inputSequenceAfter: string;
+  keyDownSequenceBefore: string;
+  keyDownSequenceAfter: string;
+  keyUpSequenceBefore: string;
+  keyUpSequenceAfter: string;
+  lastObservedDomEventType?: string;
+  lastObservedDomEventCode?: string;
+  lastClassification?: "automatic" | "physical" | "indeterminate";
+}
+
 export interface PendingChromiumTrustedInput {
   readonly request: ChromiumNativeTrustedInputRequest;
   readonly frame: ChromiumRoleOverlayFrameIdentity;
@@ -26,6 +38,7 @@ export interface PendingChromiumTrustedInput {
   nextDomIndex: number;
   readonly expectedEvents: readonly unknown[];
   physicalInterleave: ChromiumPhysicalInterleaveClassification;
+  physicalEvidenceDiagnostics?: ChromiumPhysicalEvidenceDiagnostics;
   terminal: boolean;
 }
 
@@ -115,6 +128,32 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
         ? status === "applied" ? "confirmed" : "possibly-submitted"
         : "not-invoked",
       physicalInterleave: pending.physicalInterleave,
+      ...(pending.physicalEvidenceDiagnostics ? {
+        nativePhysicalInputSequenceBefore:
+          pending.physicalEvidenceDiagnostics.inputSequenceBefore,
+        nativePhysicalInputSequenceAfter:
+          pending.physicalEvidenceDiagnostics.inputSequenceAfter,
+        nativePhysicalKeyDownSequenceBefore:
+          pending.physicalEvidenceDiagnostics.keyDownSequenceBefore,
+        nativePhysicalKeyDownSequenceAfter:
+          pending.physicalEvidenceDiagnostics.keyDownSequenceAfter,
+        nativePhysicalKeyUpSequenceBefore:
+          pending.physicalEvidenceDiagnostics.keyUpSequenceBefore,
+        nativePhysicalKeyUpSequenceAfter:
+          pending.physicalEvidenceDiagnostics.keyUpSequenceAfter,
+        ...(pending.physicalEvidenceDiagnostics.lastObservedDomEventType ? {
+          lastObservedDomEventType:
+            pending.physicalEvidenceDiagnostics.lastObservedDomEventType
+        } : {}),
+        ...(pending.physicalEvidenceDiagnostics.lastObservedDomEventCode ? {
+          lastObservedDomEventCode:
+            pending.physicalEvidenceDiagnostics.lastObservedDomEventCode
+        } : {}),
+        ...(pending.physicalEvidenceDiagnostics.lastClassification ? {
+          lastPhysicalEvidenceClassification:
+            pending.physicalEvidenceDiagnostics.lastClassification
+        } : {})
+      } : {}),
       terminalCode: errorCode ?? "APPLIED",
       cleanupOutcome: pending.request.intent !== "cleanup"
         ? "not-attempted"

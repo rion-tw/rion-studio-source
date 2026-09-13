@@ -705,6 +705,33 @@ pub struct TrustedInputTerminalEvidenceRecord {
     pub cdp_submission_certainty: String,
     #[ts(type = "\"none\" | \"unrelated\" | \"same-identity\" | \"modifier-change\" | \"indeterminate\"")]
     pub physical_interleave: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub native_physical_input_sequence_before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub native_physical_input_sequence_after: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub native_physical_key_down_sequence_before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub native_physical_key_down_sequence_after: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub native_physical_key_up_sequence_before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub native_physical_key_up_sequence_after: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_observed_dom_event_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_observed_dom_event_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "\"automatic\" | \"physical\" | \"indeterminate\"")]
+    pub last_physical_evidence_classification: Option<String>,
     pub terminal_code: String,
     #[ts(type = "\"not-attempted\" | \"neutral\" | \"indeterminate\"")]
     pub cleanup_outcome: String,

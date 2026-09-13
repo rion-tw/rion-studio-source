@@ -112,6 +112,7 @@ describe("Chromium Macro paired cutover E2E source", () => {
       "kAXFocusedAttribute",
       "launcherRoots[0]",
       "completeVisibleElectronRoleVerification",
+      "pressVisibleMacosRoleKey",
       "submitElectronRoleKeyPhases",
       "submitElectronRoleMiddleButtonPhase",
       "electronDesktopE2eTrustedInputRuntime",

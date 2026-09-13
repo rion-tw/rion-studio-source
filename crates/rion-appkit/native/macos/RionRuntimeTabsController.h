@@ -91,6 +91,8 @@ typedef struct {
   uintptr_t targetWindowFirstResponderAddress;
   uint16_t physicalModifierMask;
   uint64_t physicalInputSequence;
+  uint64_t physicalKeyDownSequence;
+  uint64_t physicalKeyUpSequence;
   double targetX;
   double targetY;
   double targetWidth;

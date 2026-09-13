@@ -96,7 +96,14 @@ describe("native application shortcut target modes", () => {
     expect(source).toContain('input.runtimeWindowId');
     expect(source).toContain('com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}');
     expect(nativeFocus).toContain('mode == "focus", let target');
-    expect(nativeFocus).toContain('mode == "shortcut" ? 0 : 10');
+    expect(nativeFocus).toContain('mode == "shortcut" || mode == "roleKey" ? 0 : 10');
+    expect(nativeFocus).toContain('if mode != "roleKey" { usleep(20_000) }');
+    expect(nativeFocus).toContain(
+      'case "Shift+Digit4" where mode == "roleKey": key = 21; flags = [.maskShift]'
+    );
+    expect(nativeFocus).toContain("virtualKey: 56, keyDown: true");
+    expect(nativeFocus).toContain("virtualKey: 56, keyDown: false");
+    expect(nativeFocus).toContain('if command == "Shift+Digit4"');
     expect(nativeFocus).toContain('text($0, "AXTitle") == "Toggle Full Screen"');
     expect(nativeFocus).toContain('items.count == 1, boolean(items[0], "AXEnabled")');
     expect(nativeFocus).toContain('case "toggleFullscreen": key = 3; flags = [.maskCommand, .maskControl]');

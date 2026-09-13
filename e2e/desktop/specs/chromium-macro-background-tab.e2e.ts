@@ -10,7 +10,10 @@ import {
   electronDesktopE2eTrustedInputRuntime,
   type ElectronDesktopE2eTrustedInputObservation
 } from "../support/electron-driver";
-import { submitElectronRoleKeyPhases } from "../support/electron-role-surface";
+import {
+  readVisibleElectronCanvasPoint,
+  submitElectronRoleKeyPhases
+} from "../support/electron-role-surface";
 import {
   fixtureCursor,
   fixtureEvents,
@@ -18,6 +21,9 @@ import {
   waitFixtureEvent,
   type FixtureEvent
 } from "../support/fixture";
+import { pressVisibleMacosRoleKey } from
+  "../support/native-application-actions";
+import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   rendererEventCursor,
@@ -129,7 +135,7 @@ async function createScenario(
 async function waitExactTrustedKey(input: Readonly<{
   afterSequence: number;
   code: string;
-  kind: "consumer-keydown" | "keydown" | "keyup";
+  kind: "consumer-keydown" | "consumer-keyup" | "keydown" | "keyup";
   roleId: string;
 }>): Promise<FixtureEvent> {
   let cursor = input.afterSequence;
@@ -191,8 +197,38 @@ async function waitContinuityObservation(input: Readonly<{
   return observation!;
 }
 
-async function submitToggleShortcut(role: Role, mainWindowHandle: string): Promise<void> {
-  await submitElectronRoleKeyPhases(role.launchUrl!, mainWindowHandle, [
+async function submitToggleShortcut(input: Readonly<{
+  mainWindowHandle: string;
+  platform: ChromiumMacroPlatform;
+  processId: number;
+  role: Role;
+  roleFixtureId: string;
+}>): Promise<void> {
+  if (input.platform === "macos") {
+    const shortcutAfter = await fixtureCursor();
+    await clickMacosVisibleRoleControl(
+      WINDOW_ID,
+      input.role.id,
+      await readVisibleElectronCanvasPoint(
+        input.role.launchUrl!,
+        input.mainWindowHandle
+      )
+    );
+    await pressVisibleMacosRoleKey({
+      code: "Shift+Digit4",
+      processId: input.processId,
+      runtimeTabName: input.role.name,
+      runtimeWindowId: WINDOW_ID
+    });
+    await waitExactTrustedKey({
+      afterSequence: shortcutAfter,
+      code: "Digit4",
+      kind: "consumer-keyup",
+      roleId: input.roleFixtureId
+    });
+    return;
+  }
+  await submitElectronRoleKeyPhases(input.role.launchUrl!, input.mainWindowHandle, [
     { key: Key.Shift, phase: "keyDown" },
     { key: "4", phase: "keyDown" },
     { key: "4", phase: "keyUp" },
@@ -244,9 +280,18 @@ async function startFromShortcut(input: Readonly<{
   source: Role;
   mainWindowHandle: string;
   fixtureAfter: number;
+  platform: ChromiumMacroPlatform;
+  processId: number;
+  sourceFixtureId: string;
 }>): Promise<FixtureEvent> {
   const projectionAfter = await rendererEventCursor();
-  await submitToggleShortcut(input.source, input.mainWindowHandle);
+  await submitToggleShortcut({
+    mainWindowHandle: input.mainWindowHandle,
+    platform: input.platform,
+    processId: input.processId,
+    role: input.source,
+    roleFixtureId: input.sourceFixtureId
+  });
   const [keydown] = await Promise.all([
     waitExactTrustedKey({
       afterSequence: input.fixtureAfter,
@@ -268,10 +313,19 @@ async function stopFromShortcut(input: Readonly<{
   macro: Macro;
   source: Role;
   mainWindowHandle: string;
+  platform: ChromiumMacroPlatform;
+  processId: number;
+  sourceFixtureId: string;
 }>): Promise<FixtureEvent> {
   const fixtureAfter = await fixtureCursor();
   const projectionAfter = await rendererEventCursor();
-  await submitToggleShortcut(input.source, input.mainWindowHandle);
+  await submitToggleShortcut({
+    mainWindowHandle: input.mainWindowHandle,
+    platform: input.platform,
+    processId: input.processId,
+    role: input.source,
+    roleFixtureId: input.sourceFixtureId
+  });
   const [keyup] = await Promise.all([
     waitExactTrustedKey({
       afterSequence: fixtureAfter,
@@ -311,7 +365,10 @@ describe("Chromium Macro background-tab exact replacement", () => {
       fixtureAfter: journeyAfter,
       macro: scenario.macro,
       mainWindowHandle: context.mainWindowHandle,
-      source: scenario.roles[0]
+      platform: context.platform,
+      processId: probe.processId,
+      source: scenario.roles[0],
+      sourceFixtureId: ROLE_A_FIXTURE
     });
     const firstHold = await waitInputObservation({
       afterSequence: initialObservationCursor,
@@ -382,7 +439,10 @@ describe("Chromium Macro background-tab exact replacement", () => {
     const firstKeyup = await stopFromShortcut({
       macro: scenario.macro,
       mainWindowHandle: context.mainWindowHandle,
-      source: scenario.roles[0]
+      platform: context.platform,
+      processId: probe.processId,
+      source: scenario.roles[0],
+      sourceFixtureId: ROLE_A_FIXTURE
     });
     const firstCleanup = await waitInputObservation({
       afterSequence: continuityHold?.sequence ?? firstHold.sequence,
@@ -406,7 +466,10 @@ describe("Chromium Macro background-tab exact replacement", () => {
       fixtureAfter: secondHiddenEvent.sequence,
       macro: scenario.macro,
       mainWindowHandle: context.mainWindowHandle,
-      source: scenario.roles[1]
+      platform: context.platform,
+      processId: probe.processId,
+      source: scenario.roles[1],
+      sourceFixtureId: ROLE_B_FIXTURE
     });
     const secondHiddenStartHold = await waitInputObservation({
       afterSequence: firstCleanup.sequence,
@@ -445,7 +508,10 @@ describe("Chromium Macro background-tab exact replacement", () => {
     const secondKeyup = await stopFromShortcut({
       macro: scenario.macro,
       mainWindowHandle: context.mainWindowHandle,
-      source: scenario.roles[0]
+      platform: context.platform,
+      processId: probe.processId,
+      source: scenario.roles[0],
+      sourceFixtureId: ROLE_A_FIXTURE
     });
     const secondCleanup = await waitInputObservation({
       afterSequence: secondHiddenStartHold.sequence,
@@ -454,7 +520,8 @@ describe("Chromium Macro background-tab exact replacement", () => {
       roleId: scenario.roles[0].id
     });
     const state = await fixtureState();
-    expect(state[ROLE_A_FIXTURE]!.consumerPressedCodes).not.toContain("Digit2");
+    expect(state[ROLE_A_FIXTURE]!.consumerPressedCodes).toEqual([]);
+    expect(state[ROLE_B_FIXTURE]!.consumerPressedCodes).toEqual([]);
     const roleBDigit2Events = (await fixtureEvents({
       afterSequence: journeyAfter,
       roleId: ROLE_B_FIXTURE
@@ -485,6 +552,8 @@ describe("Chromium Macro background-tab exact replacement", () => {
       {
         continuityHold,
         finalConsumerPressedCodes: state[ROLE_A_FIXTURE]!.consumerPressedCodes,
+        finalSourceConsumerPressedCodes:
+          state[ROLE_B_FIXTURE]!.consumerPressedCodes,
         finalMacroStatuses,
         finalRoleStatuses,
         firstCleanup,

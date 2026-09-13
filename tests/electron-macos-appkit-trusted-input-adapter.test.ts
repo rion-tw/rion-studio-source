@@ -10,6 +10,10 @@ import type {
 import type { ChromiumNativeTrustedInputRequest } from
   "../src/electron/main/chromiumTrustedInputCoordinator";
 import {
+  recentTrustedInputTerminals,
+  resetTrustedInputTerminalJournalForTest
+} from "../src/electron/main/chromiumTrustedInputTerminalJournal";
+import {
   MACOS_APPKIT_TRUSTED_KEY_CODES,
   MacosAppKitTrustedInputAdapter,
   type AppKitNativeKeySubmissionReceipt,
@@ -120,6 +124,8 @@ function harness(options: Readonly<{
   let nativeFocusNeutral = true;
   let nativePhysicalModifierCodes: readonly string[] = [];
   let nativePhysicalInputSequence = 0;
+  let nativePhysicalKeyDownSequence = 0;
+  let nativePhysicalKeyUpSequence = 0;
   let targetReceivesPhysicalInput = false;
   let nativeMouseOffset = { x: 0, y: 0 };
   let nativeAppKitPointOffset = { x: 0, y: 0 };
@@ -144,6 +150,8 @@ function harness(options: Readonly<{
       targetWindowFirstResponderAddress: nativeFocusNeutral ? "14" : "15",
       physicalModifierCodes: nativePhysicalModifierCodes,
       physicalInputSequence: String(nativePhysicalInputSequence),
+      physicalKeyDownSequence: String(nativePhysicalKeyDownSequence),
+      physicalKeyUpSequence: String(nativePhysicalKeyUpSequence),
       targetReceivesPhysicalInput,
       targetX: 0,
       targetY: 0,
@@ -415,8 +423,13 @@ function harness(options: Readonly<{
     setNativePhysicalModifierCodes: (codes: readonly string[]) => {
       nativePhysicalModifierCodes = Object.freeze([...codes]);
     },
-    recordPhysicalInput: (projectedDomEvents = 1) => {
+    recordPhysicalInput: (
+      projectedDomEvents = 1,
+      phase?: "keyDown" | "keyUp"
+    ) => {
       nativePhysicalInputSequence += projectedDomEvents;
+      if (phase === "keyDown") nativePhysicalKeyDownSequence += projectedDomEvents;
+      if (phase === "keyUp") nativePhysicalKeyUpSequence += projectedDomEvents;
     },
     setTargetReceivesPhysicalInput: (value: boolean) => {
       targetReceivesPhysicalInput = value;
@@ -491,7 +504,7 @@ describe("macOS AppKit trusted-input adapter", () => {
       })
     );
     const control = subject.arm();
-    subject.recordPhysicalInput();
+    subject.recordPhysicalInput(1, "keyDown");
     subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
       observationSequence: 1,
       type: "keydown",
@@ -519,7 +532,7 @@ describe("macOS AppKit trusted-input adapter", () => {
       })
     );
     const control = subject.arm();
-    subject.recordPhysicalInput();
+    subject.recordPhysicalInput(1, "keyDown");
     subject.adapter.receive(subject.event, subject.domReceipt(control, 0, {
       observationSequence: 1
     }));
@@ -531,6 +544,56 @@ describe("macOS AppKit trusted-input adapter", () => {
     }));
 
     await expect(completion).resolves.toMatchObject({ status: "applied" });
+  });
+
+  it("accepts a managed keydown when its physical keyup wins the receipt race", async () => {
+    resetTrustedInputTerminalJournalForTest();
+    const subject = harness();
+    subject.setTargetReceivesPhysicalInput(true);
+    subject.recordPhysicalInput(1, "keyDown");
+    const action = {
+      ...keyAction("hold"),
+      key: "y",
+      code: "KeyY",
+      modifiers: [],
+      exactModifierCodes: [],
+      modifierOwnership: "physical-pass-through" as const
+    } satisfies Extract<BrowserAction, { type: "key" }>;
+    const completion = subject.adapter.dispatch(nativeRequest(
+      "raced-physical-keyup",
+      action,
+      {
+        keyEffect: {
+          phase: "rawKeyDown",
+          code: "KeyY",
+          activeCodesBefore: [],
+          activeCodes: ["KeyY"],
+          autoRepeat: false,
+          suppressShortcut: true
+        }
+      }
+    ));
+    const control = subject.arm();
+    subject.recordPhysicalInput(1, "keyUp");
+    subject.adapter.receive(subject.event, subject.domReceipt(control, 0));
+
+    await expect(completion).resolves.toMatchObject({
+      status: "applied",
+      confirmedInputNeutrality: false
+    });
+    expect(recentTrustedInputTerminals().at(-1)).toEqual(expect.objectContaining({
+      requestId: "raced-physical-keyup",
+      nativePhysicalInputSequenceBefore: "1",
+      nativePhysicalInputSequenceAfter: "2",
+      nativePhysicalKeyDownSequenceBefore: "1",
+      nativePhysicalKeyDownSequenceAfter: "1",
+      nativePhysicalKeyUpSequenceBefore: "0",
+      nativePhysicalKeyUpSequenceAfter: "1",
+      lastObservedDomEventType: "keydown",
+      lastObservedDomEventCode: "KeyY",
+      lastPhysicalEvidenceClassification: "automatic"
+    }));
+    resetTrustedInputTerminalJournalForTest();
   });
 
   it("accepts every CDP-backed UI key code on macOS", async () => {

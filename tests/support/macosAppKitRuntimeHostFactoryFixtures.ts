@@ -464,6 +464,8 @@ export class FakeNativeHost implements RawNativeAppKitRuntimeHost {
       targetWindowFirstResponderAddress: "2",
       physicalModifierCodes: [],
       physicalInputSequence: "0",
+      physicalKeyDownSequence: "0",
+      physicalKeyUpSequence: "0",
       targetReceivesPhysicalInput: false,
       targetX: 0,
       targetY: 0,

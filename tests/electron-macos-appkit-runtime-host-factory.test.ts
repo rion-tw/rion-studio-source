@@ -1038,7 +1038,7 @@ describe("macOS AppKit Chromium runtime host", () => {
   it("rejects ABI and controller identity mismatches without a fallback host", async () => {
     const order: string[] = [];
     const addon = new FakeAddon(order);
-    expect(RION_APPKIT_RUNTIME_ABI_VERSION).toBe(9);
+    expect(RION_APPKIT_RUNTIME_ABI_VERSION).toBe(10);
     addon.abiVersion = 1;
     expect(() => new MacosAppKitChromiumRuntimeHostFactory({
       addon,

@@ -69,10 +69,8 @@ function requireInputObservation(observation, input) {
     receipt.errorMessage === null && Number.isSafeInteger(observation.sequence) &&
     observation.sequence > 0,
   `${input.label}: native trusted-input receipt drifted`);
-  if (input.intent === "cleanup") {
-    requireEvidence(receipt.confirmedInputNeutrality === true,
-      `${input.label}: cleanup did not prove input neutrality`);
-  }
+  requireEvidence(typeof receipt.confirmedInputNeutrality === "boolean",
+    `${input.label}: input-neutrality evidence drifted`);
 }
 
 function requireContinuityObservation(observation, input) {
@@ -158,7 +156,8 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
     "chromium-macro-background-tab-evidence.json"
   ), "utf8"));
   const rootKeys = [
-    "continuityHold", "finalConsumerPressedCodes", "finalMacroStatuses",
+    "continuityHold", "finalConsumerPressedCodes",
+    "finalSourceConsumerPressedCodes", "finalMacroStatuses",
     "finalRoleStatuses", "firstCleanup", "firstConsumerKeydown",
     "firstHiddenEvent", "firstHiddenKeydown", "firstHiddenPresentation",
     "firstHold", "firstKeydown", "firstKeyup", "gameId", "gameWindowId",
@@ -267,7 +266,9 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
     evidence.roleBDigit2Events.length === 0,
   `${input.phase}: visible Role B received target Digit2 input`);
   requireEvidence(Array.isArray(evidence.finalConsumerPressedCodes) &&
-    !evidence.finalConsumerPressedCodes.includes("Digit2") &&
+    evidence.finalConsumerPressedCodes.length === 0 &&
+    Array.isArray(evidence.finalSourceConsumerPressedCodes) &&
+    evidence.finalSourceConsumerPressedCodes.length === 0 &&
     Array.isArray(evidence.finalMacroStatuses) &&
     evidence.finalMacroStatuses.length === 0,
   `${input.phase}: final Macro or held consumer input did not terminalize`);

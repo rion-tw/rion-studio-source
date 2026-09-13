@@ -1217,7 +1217,7 @@
         "success",
         "failure"
       ],
-      "description": "Create a one-shot press Macro assigned to Role A with Roles A and B as visible shortcut sources. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release."
+      "description": "Create a one-shot press Macro assigned to Role A with Roles A and B as visible shortcut sources. On macOS, trigger it with a real CGEvent Shift+Digit4 lifecycle while Shift remains physically held through the primary key. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004",
@@ -1318,7 +1318,7 @@
         "success",
         "failure"
       ],
-      "description": "In the visible retained AppKit Role, start and stop a 250ms KeyJ loop press Macro with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its live AppKit Chromium surface and becomes restart-required."
+      "description": "In the visible retained AppKit Role, start and stop a 250ms KeyJ loop press Macro with zero-gap real CGEvent KeyY lifecycles while interleaving KeyW, pointer clicks, Shift, and Alt; prove each AppKit key edge reaches Chromium once without native fallback amplification, every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its live AppKit Chromium surface and becomes restart-required."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-INPUT-RECOVERY-011",
@@ -3240,7 +3240,7 @@
         "failure",
         "restart"
       ],
-      "description": "Composite native journey: permanent-window UI and fullscreen-toolbar phases plus retained AppKit drag, resize, zoom, fullscreen, minimize, event-bound loading status, and proof that a plain Role key cannot fall through to a native window-placement command on real hardware."
+      "description": "Composite native journey: permanent-window UI and fullscreen-toolbar phases plus retained AppKit drag, resize, zoom, fullscreen, minimize, event-bound loading status, and real-CGEvent proof that a plain Role key reaches Chromium once without falling through to a native window-placement command."
     },
     {
       "id": "CHROMIUM-WINDOWS-GAME-WINDOWS-NATIVE-001",

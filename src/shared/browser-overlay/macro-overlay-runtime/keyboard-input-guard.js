@@ -658,6 +658,7 @@
   function beginManagedShortcutKeyUp(active) {
     if (active.keyUpPromise) return active.keyUpPromise;
     active.keyUpPromise = active.keyDownPromise
+      .catch(() => undefined)
       .then(() => active.activationDispatchedPromise)
       .then(() => dispatchManagedShortcutPhase(active, "keyUp"))
       .then(() => {
@@ -962,6 +963,7 @@
     activeKeyboardShortcuts.set(macro.id, active);
     active.keyDownPromise = dispatchManagedShortcutPhase(active, "keyDown").catch((error) => {
       active.failed = true;
+      markActivationDispatched();
       console.warn("Unable to begin a managed Rion Studio shortcut.", error);
       throw error;
     });

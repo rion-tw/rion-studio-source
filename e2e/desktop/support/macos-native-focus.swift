@@ -15,7 +15,7 @@ let expectedWindowIdentifier = CommandLine.arguments[2]
 let runtimeTabName = CommandLine.arguments[3]
 let mode = CommandLine.arguments[4]
 let command = CommandLine.arguments[5]
-guard ["focus", "observe", "shortcut"].contains(mode) else { fail("unknown focus mode") }
+guard ["focus", "observe", "roleKey", "shortcut"].contains(mode) else { fail("unknown focus mode") }
 let appKitPrefix = "com.rionstudio.runtime.appkit-window.v1:"
 let application = AXUIElementCreateApplication(targetPid)
 
@@ -58,7 +58,9 @@ func foreground() -> Bool {
   NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPid
 }
 
-let expiry = Date().addingTimeInterval(mode == "shortcut" ? 0 : 10)
+let expiry = Date().addingTimeInterval(
+  mode == "shortcut" || mode == "roleKey" ? 0 : 10
+)
 var diagnostic = ""
 while true {
   let windows = attribute(application, "AXWindows") as? [AXUIElement] ?? []
@@ -77,7 +79,7 @@ while true {
      let mainWindow = object(application, "AXMainWindow") {
     let focusedWindowIdentifier = text(focusedWindow, "AXIdentifier")
     let mainWindowIdentifier = text(mainWindow, "AXIdentifier")
-    let exactIdentity = mode == "shortcut"
+    let exactIdentity = mode == "shortcut" || mode == "roleKey"
       ? (expectedWindowIdentifier.isEmpty
           ? focusedWindowIdentifier.hasPrefix(appKitPrefix)
           : focusedWindowIdentifier == expectedWindowIdentifier)
@@ -85,7 +87,7 @@ while true {
     if foreground(), exactIdentity, mainWindowIdentifier == focusedWindowIdentifier,
        text(focusedWindow, "AXRole") == "AXWindow", boolean(focusedWindow, "AXMain") {
       let restoringFullscreen = mode == "shortcut" && command == "toggleFullscreen" && boolean(focusedWindow, "AXFullScreen")
-      if mode == "shortcut" && !restoringFullscreen && runtimeTabName.isEmpty && expectedWindowIdentifier.isEmpty {
+      if (mode == "shortcut" || mode == "roleKey") && !restoringFullscreen && runtimeTabName.isEmpty && expectedWindowIdentifier.isEmpty {
         fail("exact focused runtime tab name or window identifier is required")
       }
       if !restoringFullscreen && !runtimeTabName.isEmpty {
@@ -93,7 +95,7 @@ while true {
           text($0, "AXRole") == "AXRadioButton" && text($0, "AXDescription") == runtimeTabName
         }
         guard tabs.count <= 1 else { fail("ambiguous exact AppKit runtime tab") }
-        let requiresActiveTab = command == "active" ||
+        let requiresActiveTab = command == "active" || mode == "roleKey" ||
           (mode == "shortcut" && command == "nextTab")
         if let tab = tabs.first, let owner = object(tab, "AXWindow"),
            text(owner, "AXRole") == "AXWindow",
@@ -113,7 +115,7 @@ while true {
   usleep(50_000)
 }
 
-if mode == "shortcut" {
+if mode == "shortcut" || mode == "roleKey" {
   if command == "toggleFullscreen" {
     guard let menuBar = object(application, "AXMenuBar") else { fail("exact menu bar unavailable") }
     let views = children(menuBar).filter { text($0, "AXTitle") == "View" }
@@ -124,6 +126,8 @@ if mode == "shortcut" {
   let key: CGKeyCode
   let flags: CGEventFlags
   switch command {
+  case "KeyY" where mode == "roleKey": key = 16; flags = []
+  case "Shift+Digit4" where mode == "roleKey": key = 21; flags = [.maskShift]
   case "escape": key = 53; flags = []
   case "nextTab": key = 48; flags = [.maskControl]
   case "newGameWindow": key = 45; flags = [.maskCommand]
@@ -140,7 +144,22 @@ if mode == "shortcut" {
   }
   down.flags = flags
   up.flags = flags
-  if command == "nextTab" {
+  if command == "Shift+Digit4" {
+    guard let shiftDown = CGEvent(
+      keyboardEventSource: source, virtualKey: 56, keyDown: true
+    ), let shiftUp = CGEvent(
+      keyboardEventSource: source, virtualKey: 56, keyDown: false
+    ) else { fail("native Shift modifier events unavailable") }
+    shiftDown.flags = [.maskShift]
+    shiftUp.flags = []
+    shiftDown.post(tap: .cghidEventTap)
+    usleep(20_000)
+    down.post(tap: .cghidEventTap)
+    usleep(20_000)
+    up.post(tap: .cghidEventTap)
+    usleep(20_000)
+    shiftUp.post(tap: .cghidEventTap)
+  } else if command == "nextTab" {
     guard let controlDown = CGEvent(
       keyboardEventSource: source, virtualKey: 59, keyDown: true
     ), let controlUp = CGEvent(
@@ -154,7 +173,9 @@ if mode == "shortcut" {
     }
   } else {
     down.post(tap: .cghidEventTap)
-    usleep(20_000)
+    // A Role key deliberately uses a zero-gap lifecycle so the product proof
+    // covers keyup racing the managed keydown acknowledgement.
+    if mode != "roleKey" { usleep(20_000) }
     up.post(tap: .cghidEventTap)
   }
   // PresentationOnly: keep WebDriver outside the Space animation; the caller

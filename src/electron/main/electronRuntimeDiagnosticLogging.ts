@@ -30,6 +30,22 @@ function installTrustedInputDiagnosticLogging(
       observedDomEventCount: record.observedDomEventCount,
       cdpSubmissionCertainty: record.cdpSubmissionCertainty,
       physicalInterleave: record.physicalInterleave,
+      ...(record.nativePhysicalInputSequenceBefore ? {
+        nativePhysicalInputSequenceBefore: record.nativePhysicalInputSequenceBefore,
+        nativePhysicalInputSequenceAfter: record.nativePhysicalInputSequenceAfter,
+        nativePhysicalKeyDownSequenceBefore:
+          record.nativePhysicalKeyDownSequenceBefore,
+        nativePhysicalKeyDownSequenceAfter:
+          record.nativePhysicalKeyDownSequenceAfter,
+        nativePhysicalKeyUpSequenceBefore:
+          record.nativePhysicalKeyUpSequenceBefore,
+        nativePhysicalKeyUpSequenceAfter:
+          record.nativePhysicalKeyUpSequenceAfter,
+        lastObservedDomEventType: record.lastObservedDomEventType ?? null,
+        lastObservedDomEventCode: record.lastObservedDomEventCode ?? null,
+        lastPhysicalEvidenceClassification:
+          record.lastPhysicalEvidenceClassification ?? null
+      } : {}),
       terminalCode: record.terminalCode,
       cleanupOutcome: record.cleanupOutcome,
       recoveryOutcome: record.recoveryOutcome

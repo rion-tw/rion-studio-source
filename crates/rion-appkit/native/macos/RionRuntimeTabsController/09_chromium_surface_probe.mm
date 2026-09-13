@@ -272,6 +272,9 @@ extern "C" int32_t rion_appkit_probe_chromium_input_surface(
       reinterpret_cast<uintptr_t>((__bridge void *)targetWindow.firstResponder);
   result->physicalModifierMask = RionPhysicalModifierMask();
   result->physicalInputSequence = RionRuntimePhysicalInputSequence(target);
+  result->physicalKeyDownSequence =
+      RionRuntimePhysicalKeyDownSequence(target);
+  result->physicalKeyUpSequence = RionRuntimePhysicalKeyUpSequence(target);
   result->targetX = bounds.origin.x;
   result->targetY = bounds.origin.y;
   result->targetWidth = bounds.size.width;

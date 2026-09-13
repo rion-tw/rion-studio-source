@@ -2,6 +2,8 @@ import { expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
 import {
+  electronDesktopE2eFullscreenToolbarRuntime,
+  electronDesktopE2eProbe,
   electronDesktopE2eRoleSessionRuntime,
   electronDesktopE2eTrustedInputRuntime
 } from "../support/electron-driver";
@@ -32,6 +34,8 @@ import {
   installRuntimeTabShellErrorJournal,
   runtimeTabShellErrors
 } from "../support/native-runtime-tabs";
+import { pressVisibleMacosRoleKey } from
+  "../support/native-application-actions";
 import {
   activateChromiumRoleVisible,
   bootstrapChromiumMacroCutover,
@@ -66,15 +70,37 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
   macroId: string;
   macroStatusCursor: number;
   platform: "macos" | "windows";
+  processId: number;
   roleId: string;
+  roleName: string;
   roleUrl: string;
 }>): Promise<Readonly<{ automaticKeyCount: number; physicalEventCount: number }>> {
+  if (input.platform === "macos") {
+    await clickMacosVisibleRoleControl(
+      WINDOW_ID,
+      input.roleId,
+      await readVisibleElectronCanvasPoint(input.roleUrl, input.mainWindowHandle)
+    );
+  }
   const afterSequence = await fixtureCursor();
+  const presentationBefore = (
+    await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)
+  ).presentation;
   const trustedInputBefore = await electronDesktopE2eTrustedInputRuntime(input.roleId);
-  await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
-    { key: "y", phase: "keyDown" },
-    { key: "y", phase: "keyUp" }
-  ], { windowId: WINDOW_ID, focusCanvas: false });
+  const pressY = () => input.platform === "macos"
+    ? pressVisibleMacosRoleKey({
+      code: "KeyY",
+      processId: input.processId,
+      runtimeTabName: input.roleName,
+      runtimeWindowId: WINDOW_ID
+    })
+    : submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
+      { key: "y", phase: "keyDown" },
+      { key: "y", phase: "keyUp" }
+    ], { windowId: WINDOW_ID, focusCanvas: false });
+  await pressY();
+  expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
+    .toBe(presentationBefore);
   await waitForMacroProjection({
     afterSequence: input.macroStatusCursor,
     macroId: input.macroId,
@@ -142,10 +168,16 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
   )).toBe(true);
 
   const stopProjectionCursor = await rendererEventCursor();
-  await submitElectronRoleKeyPhases(input.roleUrl, input.mainWindowHandle, [
-    { key: "y", phase: "keyDown" },
-    { key: "y", phase: "keyUp" }
-  ], { windowId: WINDOW_ID, focusCanvas: false });
+  const stopInputCursor = await fixtureCursor();
+  await pressY();
+  expect((await electronDesktopE2eFullscreenToolbarRuntime(WINDOW_ID)).presentation)
+    .toBe(presentationBefore);
+  await waitExactKey({
+    afterSequence: stopInputCursor,
+    code: "KeyY",
+    kind: "consumer-keyup",
+    roleId: FIXTURE_ID
+  });
   await waitForMacroProjection({
     absent: true,
     afterSequence: stopProjectionCursor,
@@ -161,7 +193,7 @@ async function exerciseConcurrentPhysicalInput(input: Readonly<{
 async function waitExactKey(input: Readonly<{
   afterSequence: number;
   code: string;
-  kind: "keydown" | "keyup";
+  kind: "consumer-keyup" | "keydown" | "keyup";
   roleId: string;
 }>) {
   let cursor = input.afterSequence;
@@ -178,6 +210,7 @@ async function waitExactKey(input: Readonly<{
 
 export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
   const context = await bootstrapChromiumMacroCutover();
+  const processId = (await electronDesktopE2eProbe()).processId;
   await installRuntimeTabShellErrorJournal();
   const roleUrl = macroFixtureUrl(FIXTURE_ID, "activeNavigationFailure=1");
   const game = await rendererCall("createGame", {
@@ -226,7 +259,9 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     macroId: interleaveMacro.id,
     macroStatusCursor: interleaveStatusCursor,
     platform: context.platform,
+    processId,
     roleId: role.id,
+    roleName: role.name,
     roleUrl
   });
   const baselineRuntime = await electronDesktopE2eRoleSessionRuntime(role.id);

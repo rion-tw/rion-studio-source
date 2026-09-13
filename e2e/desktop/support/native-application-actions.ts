@@ -112,6 +112,8 @@ export type VisibleApplicationShortcutTargetMode =
   | "focused-runtime"
   | "launcher";
 
+export type VisibleMacosRoleKey = "KeyY" | "Shift+Digit4";
+
 async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   activate: boolean;
   processId: number;
@@ -312,6 +314,29 @@ up.post(tap: .cghidEventTap)
       timeout: 30_000
     });
   }
+}
+
+/** Sends one real CGEvent key lifecycle to the exact active AppKit Role. */
+export async function pressVisibleMacosRoleKey(input: Readonly<{
+  code: VisibleMacosRoleKey;
+  processId: number;
+  runtimeTabName: string;
+  runtimeWindowId: string;
+}>): Promise<void> {
+  if (
+    process.platform !== "darwin" || !validProcessId(input.processId) ||
+    input.runtimeTabName.length === 0 ||
+    input.runtimeTabName.trim() !== input.runtimeTabName ||
+    input.runtimeWindowId.length === 0 ||
+    input.runtimeWindowId.trim() !== input.runtimeWindowId
+  ) {
+    throw new Error("The native macOS Role key requires one exact AppKit owner");
+  }
+  await executeFile("/usr/bin/xcrun", [
+    "swift", nativeFocusScript, String(input.processId),
+    `com.rionstudio.runtime.appkit-window.v1:${input.runtimeWindowId}`,
+    input.runtimeTabName, "roleKey", input.code
+  ], { encoding: "utf8", timeout: 15_000 });
 }
 
 /** Sends one key chord to the selected exact-PID Windows native window mode. */

@@ -49,6 +49,15 @@ describe("Electron runtime diagnostics collector", () => {
       observedDomEventCount: 0,
       cdpSubmissionCertainty: "possibly-submitted",
       physicalInterleave: "unrelated",
+      nativePhysicalInputSequenceBefore: "40",
+      nativePhysicalInputSequenceAfter: "42",
+      nativePhysicalKeyDownSequenceBefore: "20",
+      nativePhysicalKeyDownSequenceAfter: "20",
+      nativePhysicalKeyUpSequenceBefore: "20",
+      nativePhysicalKeyUpSequenceAfter: "21",
+      lastObservedDomEventType: "keydown",
+      lastObservedDomEventCode: "KeyJ",
+      lastPhysicalEvidenceClassification: "automatic",
       terminalCode: "SYSTEM_TRUSTED_INPUT_DOM_RECEIPT_MISMATCH",
       cleanupOutcome: "not-attempted",
       recoveryOutcome: "restart-required"
@@ -71,6 +80,8 @@ describe("Electron runtime diagnostics collector", () => {
         requestId: "request-1",
         roleId: "closed-role",
         physicalInterleave: "unrelated",
+        nativePhysicalKeyUpSequenceAfter: "21",
+        lastObservedDomEventCode: "KeyJ",
         recoveryOutcome: "restart-required"
       })
     ]);

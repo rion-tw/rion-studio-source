@@ -105,6 +105,27 @@ logical input mutations. The Electron main-process consumer records only the
 window, optional tab, platform, and modifier count through Core logging; a
 logging failure cannot alter focus handling or surface a shell error.
 
+The AppKit local event boundary directs each non-Command physical key to its
+exact registered Role responder once. It marks that `NSEvent` before delivery;
+if Chromium redispatches the same unhandled event through NSApp after DOM
+propagation, the event-scoped mark consumes that fallback without a second Role
+delivery, native key equivalent, or window action. A controller-local delivery
+fence also consumes a synchronous nested redispatch when Chromium copies the
+`NSEvent` and therefore loses the event-scoped marker. The mark does not
+classify the event as macro-generated, does not survive the event object, and
+does not intercept Command shortcuts or native text/titlebar responders.
+The native input probe exposes separate physical key-down and key-up cursors in
+addition to the total projected-event cursor. Receipt correlation must use the
+phase cursors to distinguish an opposite key phase while retaining the total
+cursor for modifier and pointer projections. A physical key-up that wins the
+race against its managed key-down acknowledgement cannot consume that
+acknowledgement or force the Role into indeterminate recovery.
+Each trusted-input terminal diagnostic retains the native total, key-down, and
+key-up cursor before and after correlation together with the last observed DOM
+event and its evidence classification. Debug exports can therefore distinguish
+an automatic acknowledgement, an opposite-phase physical race, and a true
+physical interleave without reconstructing identity from timestamps.
+
 Top-level overlay blur clears ordinary keys and hold leases immediately,
 then defers only pass-through modifier fallback releases to a microtask in the
 same event turn. A trusted native keyup removes its exact side before that

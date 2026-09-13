@@ -563,6 +563,41 @@ describe("macro overlay native key guard", () => {
     warning.mockRestore();
   });
 
+  it("submits managed keyUp cleanup after an indeterminate keyDown", async () => {
+    const macro = {
+      id: "failed-down",
+      enabled: true,
+      name: "Failed down",
+      roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" },
+      trigger: { code: "KeyY", ctrl: false, alt: false, shift: false, meta: false },
+      repeat: { type: "once" },
+      steps: []
+    };
+    const binding = vi.fn(async () => ({
+      macros: [macro],
+      shortcutMacroIds: [macro.id],
+      statuses: []
+    })) as OverlayBinding;
+    const phases: string[] = [];
+    binding.managedShortcutKeyPhase = vi.fn(async (request) => {
+      phases.push(request.phase);
+      if (request.phase === "keyDown") {
+        throw new Error("indeterminate keydown");
+      }
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const controller = installOverlay(binding);
+    await controller.refresh();
+
+    document.dispatchEvent(keyEvent("keydown", "KeyY", "y"));
+    document.dispatchEvent(keyEvent("keyup", "KeyY", "y"));
+
+    await vi.waitFor(() => expect(phases).toEqual(["keyDown", "keyUp"]));
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "press" }));
+    warning.mockRestore();
+  });
+
   it("passes a conflicting physical shortcut through without choosing a macro", async () => {
     const trigger = { code: "Digit2", ctrl: false, alt: false, shift: true, meta: false };
     const macros = ["macro-a", "macro-b"].map((id) => ({

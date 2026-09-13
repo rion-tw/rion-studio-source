@@ -6,7 +6,7 @@ static const int32_t kRionAppKitWindowResolutionNotMainThread = 2;
 static const int32_t kRionAppKitWindowResolutionDetachedView = 3;
 
 uint32_t rion_appkit_runtime_tabs_abi_version(void) {
-  return 9;
+  return 10;
 }
 
 int32_t rion_appkit_resolve_electron_native_view_window(
@@ -1117,12 +1117,27 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
     NSEventModifierFlags shift = NSEventModifierFlagShift;
     NSEventModifierFlags command = NSEventModifierFlagCommand;
     NSEventModifierFlags option = NSEventModifierFlagOption;
-    NSEventModifierFlags mask = NSEventModifierFlagDeviceIndependentFlagsMask;
-    auto accepts = ^BOOL(unsigned short keyCode, NSEventModifierFlags flags) {
-      flags &= mask;
-      return keyCode == 48 && (flags & control) != 0 &&
-          (flags & (command | option | NSEventModifierFlagFunction)) == 0;
+    auto keyEvent = ^NSEvent *(NSEventType type, unsigned short keyCode,
+                               NSEventModifierFlags flags) {
+      return [NSEvent keyEventWithType:type
+                              location:NSZeroPoint
+                         modifierFlags:flags
+                             timestamp:0
+                          windowNumber:0
+                               context:nil
+                            characters:@""
+           charactersIgnoringModifiers:@""
+                             isARepeat:NO
+                               keyCode:keyCode];
     };
+    NSEvent *controlTabDown = keyEvent(NSEventTypeKeyDown, 48, control);
+    NSEvent *controlShiftTabDown =
+        keyEvent(NSEventTypeKeyDown, 48, control | shift);
+    NSEvent *controlTabUp = keyEvent(NSEventTypeKeyUp, 48, control);
+    NSEvent *commandTabDown = keyEvent(NSEventTypeKeyDown, 48, command);
+    NSEvent *controlOptionTabDown =
+        keyEvent(NSEventTypeKeyDown, 48, control | option);
+    NSEvent *controlSpaceDown = keyEvent(NSEventTypeKeyDown, 49, control);
     NSEvent *shiftRelease = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
                                             location:NSZeroPoint
                                        modifierFlags:control
@@ -1156,9 +1171,13 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
                                                        shiftRelease);
     pending = RionRuntimePendingShortcutModifiersAfterEvent(
         pending, controlRelease);
-    return accepts(48, control) && accepts(48, control | shift) &&
-        !accepts(48, command) && !accepts(48, control | option) &&
-        !accepts(49, control) &&
+    return RionRuntimeShouldActivateTabShortcut(controlTabDown) &&
+        RionRuntimeShouldActivateTabShortcut(controlShiftTabDown) &&
+        RionRuntimeIsTabShortcutEvent(controlTabUp) &&
+        !RionRuntimeShouldActivateTabShortcut(controlTabUp) &&
+        !RionRuntimeIsTabShortcutEvent(commandTabDown) &&
+        !RionRuntimeIsTabShortcutEvent(controlOptionTabDown) &&
+        !RionRuntimeIsTabShortcutEvent(controlSpaceDown) &&
         RionRuntimeShortcutModifierFlagForKeyCode(59) == control &&
         RionRuntimeShortcutModifierFlagForKeyCode(62) == control &&
         RionRuntimeShortcutModifierFlagForKeyCode(56) == shift &&
@@ -1172,21 +1191,30 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 
 bool rion_runtime_tabs_macro_fallback_event_self_test(void) {
   @autoreleasepool {
-    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
-                                      location:NSZeroPoint
-                                 modifierFlags:0
-                                     timestamp:0
-                                  windowNumber:0
-                                       context:nil
-                                    characters:@"a"
-                   charactersIgnoringModifiers:@"a"
-                                     isARepeat:NO
-                                       keyCode:0];
-    if (!event || RionRuntimeIsMacroKeyEvent(event)) return false;
+    NSEvent *(^keyEvent)(uint16_t) = ^NSEvent *(uint16_t keyCode) {
+      return [NSEvent keyEventWithType:NSEventTypeKeyDown
+                              location:NSZeroPoint
+                         modifierFlags:0
+                             timestamp:0
+                          windowNumber:0
+                               context:nil
+                            characters:@"a"
+           charactersIgnoringModifiers:@"a"
+                             isARepeat:NO
+                               keyCode:keyCode];
+    };
+    NSEvent *event = keyEvent(0);
+    NSEvent *physical = keyEvent(1);
+    if (!event || !physical || RionRuntimeIsMacroKeyEvent(event) ||
+        RionRuntimeIsDirectedRoleKeyEvent(physical)) return false;
     objc_setAssociatedObject(
         event, NSSelectorFromString(@"rionStudioMacroKeyEvent"), @YES,
         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return RionRuntimeIsMacroKeyEvent(event);
+    RionRuntimeMarkDirectedRoleKeyEvent(physical);
+    return RionRuntimeIsMacroKeyEvent(event) &&
+        RionRuntimeIsDirectedRoleKeyEvent(physical) &&
+        !RionRuntimeIsDirectedRoleKeyEvent(event) &&
+        !RionRuntimeIsMacroKeyEvent(physical);
   }
 }
 

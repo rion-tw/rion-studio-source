@@ -567,6 +567,7 @@ NS_ASSUME_NONNULL_BEGIN
   [self captureWindowedTrafficLightFrames];
   [self installWindowObservers];
   __weak RionRuntimeTabsController *weakShortcutSelf = self;
+  __block BOOL directingRoleKeyEvent = NO;
   _tabShortcutMonitor = [NSEvent
       addLocalMonitorForEventsMatchingMask:(NSEventMaskKeyDown |
                                              NSEventMaskKeyUp |
@@ -575,7 +576,13 @@ NS_ASSUME_NONNULL_BEGIN
     // Targeted macro input has already reached its explicit browser surface.
     // A browser engine may route the same marked unhandled event through NSApp;
     // consume that fallback before native chrome or another window can see it.
-    if (RionRuntimeIsMacroKeyEvent(event)) return nil;
+    if (RionRuntimeIsMacroKeyEvent(event) ||
+        RionRuntimeIsDirectedRoleKeyEvent(event)) return nil;
+    // Chromium can synchronously re-enter NSApp with a copied NSEvent after
+    // the Role DOM path declines the original event. Association markers are
+    // event-scoped and therefore cannot identify that copy. Consume every
+    // nested redispatch while the authoritative physical delivery is on-stack.
+    if (directingRoleKeyEvent) return nil;
     RionRuntimeTabsController *strongSelf = weakShortcutSelf;
     if (!strongSelf || strongSelf->_destroyed || event.window != strongSelf->_window) {
       return event;
@@ -583,19 +590,20 @@ NS_ASSUME_NONNULL_BEGIN
     NSResponder *firstResponder = strongSelf->_window.firstResponder;
     NSView *physicalTarget = [firstResponder isKindOfClass:NSView.class]
         ? RionRuntimePhysicalInputTarget((NSView *)firstResponder) : nil;
-    RionRuntimeRecordPhysicalInput(physicalTarget, 1);
     if (event.type == NSEventTypeFlagsChanged) {
+      RionRuntimeRecordPhysicalInput(physicalTarget, 1);
       [strongSelf trackPhysicalModifierEvent:event];
       [strongSelf handleTabShortcutModifierEvent:event];
       return event;
     }
+    RionRuntimeRecordPhysicalKeyInput(physicalTarget, event.type);
     NSEventModifierFlags flags = event.modifierFlags &
         NSEventModifierFlagDeviceIndependentFlagsMask;
-    if (event.keyCode == 48 &&
-        (flags & NSEventModifierFlagControl) != 0 &&
-        (flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption |
-                  NSEventModifierFlagFunction)) == 0 &&
+    if (RionRuntimeIsTabShortcutEvent(event) &&
         strongSelf->_tabItems.count >= 2) {
+      // The keyup closes the physical shortcut lifecycle but must never cycle
+      // the tab a second time back to its origin.
+      if (!RionRuntimeShouldActivateTabShortcut(event)) return nil;
       NSUInteger activeIndex = [strongSelf->_tabItems indexOfObjectPassingTest:
           ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
         (void)index;
@@ -614,13 +622,22 @@ NS_ASSUME_NONNULL_BEGIN
     // Role Chromium owns plain physical keys end-to-end. Dispatch the exact
     // event to its registered responder and consume NSApp's fallback so menu
     // key equivalents and window actions cannot observe an unhandled game key.
+    // Chromium may redispatch the same unhandled NSEvent through NSApp after
+    // DOM propagation. Mark it before the first delivery so the nested local
+    // monitor path consumes that fallback instead of recursively delivering it.
     // Command shortcuts remain AppKit-owned, and native text/titlebar fields
     // never resolve to a registered physical target.
     if (RionRuntimeShouldDirectRoleKeyEvent(event, physicalTarget)) {
-      if (event.type == NSEventTypeKeyDown) {
-        [physicalTarget keyDown:event];
-      } else {
-        [physicalTarget keyUp:event];
+      RionRuntimeMarkDirectedRoleKeyEvent(event);
+      directingRoleKeyEvent = YES;
+      @try {
+        if (event.type == NSEventTypeKeyDown) {
+          [physicalTarget keyDown:event];
+        } else {
+          [physicalTarget keyUp:event];
+        }
+      } @finally {
+        directingRoleKeyEvent = NO;
       }
       return nil;
     }

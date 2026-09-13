@@ -151,7 +151,7 @@ describe("Chromium native tab exact replacements", () => {
     expect(native).toContain("_tabItems[index].activeTab !=");
     expect(native).toContain("item.activeTab = active");
     expect(factory).toContain("phase: tab.phase");
-    expect(factory).toContain("RION_APPKIT_RUNTIME_ABI_VERSION = 9");
+    expect(factory).toContain("RION_APPKIT_RUNTIME_ABI_VERSION = 10");
     expect(eventBridge).toContain('case "modifierHandoffStarted":');
     expect(eventBridge).toContain("#recordModifierHandoffTransition");
     expect(factory).toContain("#applyPhaseProjection");
@@ -307,6 +307,7 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).toContain("dragVisibleRuntimeWindow");
     expect(spec).toContain("resizeVisibleRuntimeWindow");
     expect(spec).toContain("pressVisibleMacosApplicationShortcut");
+    expect(spec).toContain("pressVisibleMacosRoleKey");
     expect(spec).not.toContain("controlWindow(");
     const nativeControls = await source("e2e/desktop/support/macos-native-window-controls.swift");
     expect(helper).toContain('macosNativeWindowControl("minimize", input.windowId)');

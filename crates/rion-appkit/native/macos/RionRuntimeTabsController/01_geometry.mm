@@ -46,14 +46,23 @@ static NSToolbarItemIdentifier const RionRuntimeToolbarSpacerIdentifier =
 static NSPasteboardType const RionRuntimeTabPasteboardType =
     @"com.rionstudio.runtime-tab";
 static char RionRuntimePhysicalInputSequenceAssociationKey;
+static char RionRuntimePhysicalKeyDownSequenceAssociationKey;
+static char RionRuntimePhysicalKeyUpSequenceAssociationKey;
+
+static void RionRuntimeInitializePhysicalInputSequence(NSView *target,
+                                                       const void *key) {
+  if (!target || objc_getAssociatedObject(target, key)) return;
+  objc_setAssociatedObject(
+      target, key, @(0), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 static void RionRuntimeRegisterPhysicalInputTarget(NSView *target) {
-  if (!target || objc_getAssociatedObject(
-      target, &RionRuntimePhysicalInputSequenceAssociationKey)) return;
-  objc_setAssociatedObject(target,
-                           &RionRuntimePhysicalInputSequenceAssociationKey,
-                           @(0),
-                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  RionRuntimeInitializePhysicalInputSequence(
+      target, &RionRuntimePhysicalInputSequenceAssociationKey);
+  RionRuntimeInitializePhysicalInputSequence(
+      target, &RionRuntimePhysicalKeyDownSequenceAssociationKey);
+  RionRuntimeInitializePhysicalInputSequence(
+      target, &RionRuntimePhysicalKeyUpSequenceAssociationKey);
 }
 
 static NSView *RionRuntimePhysicalInputTarget(NSView *view) {
@@ -77,22 +86,81 @@ static BOOL RionRuntimeShouldDirectRoleKeyEvent(
   return (flags & NSEventModifierFlagCommand) == 0;
 }
 
+static BOOL RionRuntimeIsTabShortcutEvent(NSEvent *event) {
+  if (!event ||
+      (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp)) {
+    return NO;
+  }
+  NSEventModifierFlags flags = event.modifierFlags &
+      NSEventModifierFlagDeviceIndependentFlagsMask;
+  return event.keyCode == 48 &&
+      (flags & NSEventModifierFlagControl) != 0 &&
+      (flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption |
+                NSEventModifierFlagFunction)) == 0;
+}
+
+static BOOL RionRuntimeShouldActivateTabShortcut(NSEvent *event) {
+  return event.type == NSEventTypeKeyDown &&
+      RionRuntimeIsTabShortcutEvent(event);
+}
+
+static BOOL RionRuntimeIsDirectedRoleKeyEvent(NSEvent *event) {
+  return event && objc_getAssociatedObject(
+      event, NSSelectorFromString(@"rionStudioDirectedRoleKeyEvent"));
+}
+
+static void RionRuntimeMarkDirectedRoleKeyEvent(NSEvent *event) {
+  if (!event || RionRuntimeIsDirectedRoleKeyEvent(event)) return;
+  objc_setAssociatedObject(
+      event, NSSelectorFromString(@"rionStudioDirectedRoleKeyEvent"), @YES,
+      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static uint64_t RionRuntimePhysicalInputSequence(NSView *target) {
   NSNumber *value = target ? objc_getAssociatedObject(
       target, &RionRuntimePhysicalInputSequenceAssociationKey) : nil;
   return value ? value.unsignedLongLongValue : 0;
 }
 
+static uint64_t RionRuntimePhysicalKeyDownSequence(NSView *target) {
+  NSNumber *value = target ? objc_getAssociatedObject(
+      target, &RionRuntimePhysicalKeyDownSequenceAssociationKey) : nil;
+  return value ? value.unsignedLongLongValue : 0;
+}
+
+static uint64_t RionRuntimePhysicalKeyUpSequence(NSView *target) {
+  NSNumber *value = target ? objc_getAssociatedObject(
+      target, &RionRuntimePhysicalKeyUpSequenceAssociationKey) : nil;
+  return value ? value.unsignedLongLongValue : 0;
+}
+
+static void RionRuntimeIncrementPhysicalInputSequence(NSView *target,
+                                                      const void *key,
+                                                      uint64_t amount) {
+  if (!target || !key || amount == 0) return;
+  NSNumber *value = objc_getAssociatedObject(target, key);
+  uint64_t current = value ? value.unsignedLongLongValue : 0;
+  uint64_t next = UINT64_MAX - current < amount
+      ? UINT64_MAX : current + amount;
+  objc_setAssociatedObject(
+      target, key, @(next), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static void RionRuntimeRecordPhysicalInput(NSView *target,
                                            uint64_t projectedDOMEvents) {
-  if (!target || projectedDOMEvents == 0) return;
-  uint64_t current = RionRuntimePhysicalInputSequence(target);
-  uint64_t next = UINT64_MAX - current < projectedDOMEvents
-      ? UINT64_MAX : current + projectedDOMEvents;
-  objc_setAssociatedObject(target,
-                           &RionRuntimePhysicalInputSequenceAssociationKey,
-                           @(next),
-                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  RionRuntimeIncrementPhysicalInputSequence(
+      target, &RionRuntimePhysicalInputSequenceAssociationKey,
+      projectedDOMEvents);
+}
+
+static void RionRuntimeRecordPhysicalKeyInput(NSView *target,
+                                              NSEventType type) {
+  RionRuntimeRecordPhysicalInput(target, 1);
+  const void *key = type == NSEventTypeKeyDown
+      ? &RionRuntimePhysicalKeyDownSequenceAssociationKey
+      : type == NSEventTypeKeyUp
+          ? &RionRuntimePhysicalKeyUpSequenceAssociationKey : nullptr;
+  RionRuntimeIncrementPhysicalInputSequence(target, key, key ? 1 : 0);
 }
 
 static CGFloat RionRuntimeWindowNameWidth(CGFloat intrinsicWidth) {

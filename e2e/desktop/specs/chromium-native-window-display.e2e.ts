@@ -8,16 +8,22 @@ import {
   electronDesktopE2eFullscreenToolbarRuntime,
   electronDesktopE2eProbe
 } from "../support/electron-driver";
-import { submitElectronRoleKeyPhases, submitElectronRolePageFullscreenShortcut } from
-  "../support/electron-role-surface";
-import { clickMacosVisibleFullscreenControl } from "../support/macos-appkit-ui";
+import {
+  readVisibleElectronCanvasPoint,
+  submitElectronRoleKeyPhases,
+  submitElectronRolePageFullscreenShortcut
+} from "../support/electron-role-surface";
+import {
+  clickMacosVisibleFullscreenControl,
+  clickMacosVisibleRoleControl
+} from "../support/macos-appkit-ui";
 import {
   clickVisibleRuntimeWindowControl,
   dragVisibleRuntimeWindow,
   resizeVisibleRuntimeWindow,
   runtimeWindowIsMinimized
 } from "../support/native-runtime-tabs";
-import { pressVisibleMacosApplicationShortcut } from
+import { pressVisibleMacosApplicationShortcut, pressVisibleMacosRoleKey } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
 import {
@@ -199,10 +205,24 @@ describe("Chromium native Game Window and real display parity", () => {
       (role) => role.id === activeSourceId
     )!;
     const activeRoleUrl = activeRole.launchUrl;
-    await submitElectronRoleKeyPhases(activeRoleUrl, mainWindowHandle, [
-      { key: "y", phase: "keyDown" },
-      { key: "y", phase: "keyUp" }
-    ], { windowId: gameWindow.id });
+    if (platform === "macos") {
+      await clickMacosVisibleRoleControl(
+        gameWindow.id,
+        activeRole.id,
+        await readVisibleElectronCanvasPoint(activeRoleUrl, mainWindowHandle)
+      );
+      await pressVisibleMacosRoleKey({
+        code: "KeyY",
+        processId: probe.processId,
+        runtimeTabName: activeRole.name,
+        runtimeWindowId: gameWindow.id
+      });
+    } else {
+      await submitElectronRoleKeyPhases(activeRoleUrl, mainWindowHandle, [
+        { key: "y", phase: "keyDown" },
+        { key: "y", phase: "keyUp" }
+      ], { windowId: gameWindow.id });
+    }
     await waitNative(gameWindow.id, (runtime) =>
       runtime.nativeDisplay.presentation === "normal",
     "A plain Role key unexpectedly changed native window placement");

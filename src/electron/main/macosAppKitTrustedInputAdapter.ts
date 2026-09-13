@@ -1,7 +1,11 @@
 import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
 import { parseTrustedInputDomReceipt, matchesTrustedInputExpectedEvent as sameExpected } from
   "./chromiumTrustedInputDomReceipt";
-import { ChromiumTrustedInputPendingLane, sameTrustedInputFrame as sameFrame } from
+import {
+  ChromiumTrustedInputPendingLane,
+  sameTrustedInputFrame as sameFrame,
+  type ChromiumPhysicalEvidenceDiagnostics
+} from
   "./chromiumTrustedInputPendingLane";
 import { randomUUID } from "node:crypto";
 
@@ -286,6 +290,7 @@ interface PendingDispatch {
   modifierDisposition: ChromiumRoleTrustedInputModifierDisposition;
   physicalInterleave: import("./chromiumTrustedInputPendingLane")
     .ChromiumPhysicalInterleaveClassification;
+  readonly physicalEvidenceDiagnostics: ChromiumPhysicalEvidenceDiagnostics;
   readonly physicalEvidence: ChromiumPhysicalInputEvidenceLane;
 }
 
@@ -349,6 +354,11 @@ function validateAppKitProbe(
     !validAddress(receipt.targetWindowAddress, true) ||
     !validAddress(receipt.targetWindowFirstResponderAddress) ||
     !validAddress(receipt.physicalInputSequence) ||
+    !validAddress(receipt.physicalKeyDownSequence) ||
+    !validAddress(receipt.physicalKeyUpSequence) ||
+    BigInt(receipt.physicalKeyDownSequence) +
+      BigInt(receipt.physicalKeyUpSequence) >
+      BigInt(receipt.physicalInputSequence) ||
     typeof receipt.targetReceivesPhysicalInput !== "boolean" ||
     !Array.isArray(receipt.physicalModifierCodes) ||
     new Set(receipt.physicalModifierCodes).size !== receipt.physicalModifierCodes.length ||
@@ -738,8 +748,18 @@ implements ChromiumNativeTrustedInputPort {
       physicalModifierCodes: Object.freeze([]),
       modifierDisposition: "dispatch",
       physicalInterleave: "none",
+      physicalEvidenceDiagnostics: {
+        inputSequenceBefore: nativeProbe.physicalInputSequence,
+        inputSequenceAfter: nativeProbe.physicalInputSequence,
+        keyDownSequenceBefore: nativeProbe.physicalKeyDownSequence,
+        keyDownSequenceAfter: nativeProbe.physicalKeyDownSequence,
+        keyUpSequenceBefore: nativeProbe.physicalKeyUpSequence,
+        keyUpSequenceAfter: nativeProbe.physicalKeyUpSequence
+      },
       physicalEvidence: new ChromiumPhysicalInputEvidenceLane({
         sequence: nativeProbe.physicalInputSequence,
+        keyDownSequence: nativeProbe.physicalKeyDownSequence,
+        keyUpSequence: nativeProbe.physicalKeyUpSequence,
         targetReceivesPhysicalInput: nativeProbe.targetReceivesPhysicalInput
       })
     };
@@ -872,11 +892,27 @@ implements ChromiumNativeTrustedInputPort {
       }
       evidence = pending.physicalEvidence.classify({
         sequence: probe.physicalInputSequence,
+        keyDownSequence: probe.physicalKeyDownSequence,
+        keyUpSequence: probe.physicalKeyUpSequence,
         targetReceivesPhysicalInput: probe.targetReceivesPhysicalInput
-      });
+      }, receipt);
+      pending.physicalEvidenceDiagnostics.inputSequenceAfter =
+        probe.physicalInputSequence;
+      pending.physicalEvidenceDiagnostics.keyDownSequenceAfter =
+        probe.physicalKeyDownSequence;
+      pending.physicalEvidenceDiagnostics.keyUpSequenceAfter =
+        probe.physicalKeyUpSequence;
+      pending.physicalEvidenceDiagnostics.lastObservedDomEventType = receipt.type;
+      pending.physicalEvidenceDiagnostics.lastObservedDomEventCode =
+        receipt.code ?? undefined;
+      pending.physicalEvidenceDiagnostics.lastClassification = evidence;
       pending.nativeProbe = probe;
     } catch {
       evidence = "indeterminate";
+      pending.physicalEvidenceDiagnostics.lastObservedDomEventType = receipt.type;
+      pending.physicalEvidenceDiagnostics.lastObservedDomEventCode =
+        receipt.code ?? undefined;
+      pending.physicalEvidenceDiagnostics.lastClassification = evidence;
     }
     if (evidence === "physical") {
       const expected = pending.expectedEvents[pending.nextDomIndex];

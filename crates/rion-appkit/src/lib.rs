@@ -9,7 +9,7 @@ use std::ffi::c_void;
 #[cfg(target_os = "macos")]
 use std::{ffi::CStr, ptr::NonNull};
 
-pub const RUNTIME_TABS_ABI_VERSION: u32 = 9;
+pub const RUNTIME_TABS_ABI_VERSION: u32 = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElectronViewWindowResolutionError {
@@ -199,6 +199,8 @@ pub struct AppKitChromiumInputSurfaceProbeResult {
     pub target_window_first_responder_address: usize,
     pub physical_modifier_mask: u16,
     pub physical_input_sequence: u64,
+    pub physical_key_down_sequence: u64,
+    pub physical_key_up_sequence: u64,
     pub target_x: f64,
     pub target_y: f64,
     pub target_width: f64,
@@ -391,6 +393,8 @@ unsafe extern "C" {
     ) -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_accessibility_hierarchy_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_macro_fallback_event_self_test() -> bool;
     fn rion_runtime_tabs_destroy(controller: *mut c_void);
     fn rion_runtime_tabs_is_main_thread() -> bool;
     fn rion_runtime_tabs_content_layout(controller: *mut c_void) -> RuntimeContentLayout;
@@ -1409,6 +1413,14 @@ mod tests {
         // SAFETY: the native self-test owns every temporary AppKit view and
         // returns only a value assertion across the C ABI.
         assert!(unsafe { rion_runtime_tabs_accessibility_hierarchy_self_test() });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_role_event_markers_keep_physical_and_macro_fallbacks_distinct() {
+        // SAFETY: the native self-test owns its temporary NSEvents and returns
+        // only a value assertion across the C ABI.
+        assert!(unsafe { rion_runtime_tabs_macro_fallback_event_self_test() });
     }
 
     #[cfg(all(target_os = "macos", feature = "desktop-e2e"))]

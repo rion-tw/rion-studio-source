@@ -920,10 +920,6 @@ describe("macOS AppKit trusted-input adapter", () => {
         code: "ShiftLeft", eventType: "rawKeyDown", modifierFlags: 1 << 17
       })
     ]);
-    subject.adapter.receive(
-      subject.event,
-      subject.domReceipt(control, 0, { shiftKey: true })
-    );
     expect(subject.adapter.observeMacroKey(subject.frameIdentity, {
       altKey: false,
       code: "ShiftLeft",
@@ -934,6 +930,10 @@ describe("macOS AppKit trusted-input adapter", () => {
       phase: "keydown",
       shiftKey: true
     })).toBe(true);
+    subject.adapter.receive(
+      subject.event,
+      subject.domReceipt(control, 0, { shiftKey: true })
+    );
     await expect(completion).resolves.toMatchObject({ status: "applied" });
   });
 

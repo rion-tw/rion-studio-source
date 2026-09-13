@@ -290,6 +290,41 @@ describe("Chromium trusted-input key sequence executor", () => {
     expect(core.complete).toHaveBeenCalledWith("transition-5", false);
   });
 
+  it("retains the applied prefix for a fresh Core recovery after the original deadline expires", async () => {
+    const core = coreWithTransition({ transitionId: "expired-tap", effects: [
+      effect("rawKeyDown", "ShiftLeft", [], ["ShiftLeft"]),
+      effect("rawKeyDown", "Digit1", ["ShiftLeft"], ["ShiftLeft", "Digit1"])
+    ], hasHeldKeys: false });
+    let now = 1100;
+    const dispatch = vi.fn(async (native: ChromiumNativeTrustedInputRequest) => {
+      if (native.keyEffect?.code === "Digit1") {
+        now = 2001;
+        throw Object.assign(new Error("original deadline expired"), { code: "BROWSER_ACTION_DEADLINE" });
+      }
+      return applied(native);
+    });
+    await expect(executeChromiumTrustedKeySequence({ request: request(keyAction()),
+      surfaceGeneration: 6, platform: "darwin", core, dispatch, nowMs: () => now
+    })).rejects.toMatchObject({ actionIndeterminate: true, possiblyAppliedEdges: [
+      { code: "ShiftLeft", phase: "rawKeyDown" }, { code: "Digit1", phase: "rawKeyDown" }
+    ] });
+    expect(dispatch.mock.calls.map(([value]) => value.intent)).toEqual(["normal", "normal"]);
+    expect(core.complete).toHaveBeenCalledWith("expired-tap", false);
+  });
+
+  it("never compensates a completed release with another keydown", async () => {
+    const core = coreWithTransition({ transitionId: "release-prefix", effects: [
+      effect("rawKeyDown", "Digit1", [], ["Digit1"]),
+      effect("keyUp", "Digit1", ["Digit1"], [])
+    ], hasHeldKeys: false });
+    core.complete.mockRejectedValueOnce(new Error("Core commit unknown"));
+    const dispatch = vi.fn(async (native: ChromiumNativeTrustedInputRequest) => applied(native));
+    await expect(executeChromiumTrustedKeySequence({ request: request(keyAction()),
+      surfaceGeneration: 6, platform: "win32", core, dispatch, nowMs: () => 1100
+    })).rejects.toBeDefined();
+    expect(dispatch.mock.calls.map(([value]) => value.keyEffect?.phase)).toEqual(["rawKeyDown", "keyUp"]);
+  });
+
   it("gets the complete held-key reassertion from Core once", async () => {
     const core = coreWithTransition({
       effects: [
@@ -317,7 +352,7 @@ describe("Chromium trusted-input key sequence executor", () => {
     expect(dispatch).toHaveBeenCalledTimes(2);
   });
 
-  it("quarantines a partially failed reassertion even after exact compensation", async () => {
+  it("quarantines a partially failed reassertion without releasing the still-owned key", async () => {
     const core = coreWithTransition({
       effects: [
         effect("rawKeyDown", "AltRight", ["AltRight", "KeyK"], ["AltRight", "KeyK"]),
@@ -346,7 +381,7 @@ describe("Chromium trusted-input key sequence executor", () => {
       dispatch,
       nowMs: () => 1_100
     })).rejects.toMatchObject({ quarantine: true });
-    expect(dispatch).toHaveBeenCalledTimes(3);
+    expect(dispatch).toHaveBeenCalledTimes(2);
     expect(core.complete).not.toHaveBeenCalled();
   });
   it("records the original failed effect, confirmed prefix and both failed recovery outcomes", async () => {

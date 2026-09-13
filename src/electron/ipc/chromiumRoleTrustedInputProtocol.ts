@@ -51,9 +51,17 @@ export type ChromiumRoleTrustedInputModifierDisposition =
   | "adoptPhysical"
   | "releaseOwnership";
 
+export interface ChromiumCoreKeyDeliveryOwner {
+  readonly ownerId: string;
+  readonly requestId: string;
+  readonly inputEpoch: number;
+  readonly surfaceGeneration: number;
+}
+
 export interface ChromiumRoleTrustedInputArmEnvelope
   extends ChromiumRoleTrustedInputIdentity {
   readonly kind: "arm";
+  readonly deliveryOwner?: ChromiumCoreKeyDeliveryOwner | null;
   readonly expectedEvents: readonly ChromiumRoleTrustedInputExpectedEvent[];
   /** Exact isolated-world guard acknowledged before native input submission. */
   readonly shortcutSuppression: ChromiumRoleTrustedInputShortcutSuppression | null;
@@ -76,6 +84,8 @@ export interface ChromiumRoleTrustedInputArmedReceipt
   extends ChromiumRoleTrustedInputIdentity {
   readonly kind: "armed";
   readonly expectedEventCount: number;
+  readonly documentObservationWatermark?: number;
+  readonly deliveryReceiptVersion?: 1;
   readonly physicalModifierCodes: readonly string[];
   readonly modifierProjectionCodes: readonly string[];
   readonly modifierDisposition: ChromiumRoleTrustedInputModifierDisposition;
@@ -98,6 +108,14 @@ export interface ChromiumRoleTrustedInputDomReceipt
   readonly kind: "input";
   /** Monotonic for every trusted/untrusted DOM observation in this arm. */
   readonly observationSequence: number;
+  readonly documentObservationSequence?: number;
+  readonly isTrusted: boolean;
+}
+
+export interface ChromiumRoleDocumentInputObservation extends ChromiumRoleTrustedInputExpectedEvent {
+  readonly kind: "document-input";
+  readonly frameToken: string;
+  readonly documentObservationSequence: number;
   readonly isTrusted: boolean;
 }
 
@@ -105,4 +123,5 @@ export type ChromiumRoleTrustedInputReceipt =
   | ChromiumRoleTrustedInputArmedReceipt
   | ChromiumRoleTrustedInputRejectedReceipt
   | ChromiumRoleTrustedInputCancelledReceipt
-  | ChromiumRoleTrustedInputDomReceipt;
+  | ChromiumRoleTrustedInputDomReceipt
+  | ChromiumRoleDocumentInputObservation;

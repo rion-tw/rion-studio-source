@@ -57,11 +57,12 @@ export function physicalChromiumModifierCodesForAction(
 export function inverseChromiumKeyEffect(
   effect: EmbeddedKeyEffectRecord
 ): EmbeddedKeyEffectRecord | null {
+  if (effect.phase === "keyUp") return null;
   if (effect.autoRepeat && effect.activeCodesBefore.join("\n") === effect.activeCodes.join("\n")) {
     return null;
   }
   return Object.freeze({
-    phase: effect.phase === "rawKeyDown" ? "keyUp" : "rawKeyDown",
+    phase: "keyUp",
     code: effect.code,
     activeCodesBefore: [...effect.activeCodes],
     activeCodes: [...effect.activeCodesBefore],

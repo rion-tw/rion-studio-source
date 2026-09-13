@@ -586,10 +586,16 @@ NS_ASSUME_NONNULL_BEGIN
     if (event.type == NSEventTypeFlagsChanged) {
       RionRuntimeRecordPhysicalInput(physicalTarget, 1);
       [strongSelf trackPhysicalModifierEvent:event];
+      // The event-bound side owner is updated before CG combined state catches up.
+      RionRecordPhysicalKeyboardEvent(physicalTarget, event, NO,
+          ![strongSelf->_physicalModifierOrder containsObject:@(event.keyCode)]);
       [strongSelf handleTabShortcutModifierEvent:event];
       return event;
     }
     RionRuntimeRecordPhysicalKeyInput(physicalTarget, event.type);
+    RionRecordPhysicalKeyboardEvent(physicalTarget, event,
+        RionRuntimeIsTabShortcutEvent(event) && strongSelf->_tabItems.count >= 2,
+        event.type == NSEventTypeKeyUp);
     NSEventModifierFlags flags = event.modifierFlags &
         NSEventModifierFlagDeviceIndependentFlagsMask;
     if (RionRuntimeIsTabShortcutEvent(event) &&

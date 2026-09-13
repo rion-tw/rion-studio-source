@@ -361,9 +361,17 @@ function rolePage(roleId, sessionMode, sessionMarker) {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ roleId, kind, ...details }),
-          keepalive: true
+          // Pointer activation can replace this document before the response.
+          // Repeated keyboard receipts do not consume the bounded unload quota.
+          keepalive: ["pagehide", "beforeunload", "mousedown", "mouseup", "click", "auxclick"].includes(kind)
         }))
-        .then(() => undefined, () => undefined);
+        .then(response => {
+          if (!response.ok) throw new Error("Fixture event delivery failed: " + response.status);
+          // The server has recorded this event before sending its headers. Drain
+          // the body without delaying an already-queued pre-navigation receipt.
+          void response.arrayBuffer().catch(error => console.error("Fixture event response failed", error));
+        })
+        .catch(error => console.error("Fixture event delivery failed", error));
       return recordQueue;
     };
     const qaTarget = document.querySelector("#qa-target");

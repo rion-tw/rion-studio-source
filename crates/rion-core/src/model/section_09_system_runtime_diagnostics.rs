@@ -708,6 +708,18 @@ pub struct TrustedInputSequenceFailureRecord {
 pub struct TrustedInputTerminalEvidenceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub parent_request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub delivery_owner_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub game_delivery_confirmed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub document_observation_watermark: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub document_instance_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

@@ -14,6 +14,8 @@ import {
 } from "./electronRuntimeDiagnosticsCollector";
 import type { RendererIdentity } from "./rendererIdentity";
 
+declare const __RION_BUILD_COMMIT__: string;
+
 export interface ElectronDiagnosticsCompositionInput {
   readonly applicationName: string;
   readonly applicationLifecycle:
@@ -66,6 +68,7 @@ export function createElectronDiagnosticsComposition(
     captureApplication: () => ({
       applicationName: input.applicationName,
       applicationVersion: app.getVersion(),
+      buildCommit: typeof __RION_BUILD_COMMIT__ === "string" ? __RION_BUILD_COMMIT__ : undefined,
       packaged: app.isPackaged,
       locale: app.getLocale(),
       systemVersion: operatingSystemRelease()

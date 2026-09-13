@@ -82,6 +82,14 @@ typedef struct {
 } RionAppKitChromiumMouseDispatchResult;
 
 typedef struct {
+  uint64_t sequence;
+  char code[32];
+  uint8_t released;
+  uint8_t repeat;
+  uint8_t consumed;
+} RionAppKitPhysicalKeyEvent;
+
+typedef struct {
   uint8_t targetAttached;
   uint8_t targetWindowIsKey;
   uint8_t targetReceivesPhysicalInput;
@@ -93,6 +101,9 @@ typedef struct {
   uint64_t physicalInputSequence;
   uint64_t physicalKeyDownSequence;
   uint64_t physicalKeyUpSequence;
+  uint64_t physicalKeyboardSequence;
+  uint32_t physicalKeyEventCount;
+  RionAppKitPhysicalKeyEvent physicalKeyEvents[128];
   double targetX;
   double targetY;
   double targetWidth;

@@ -92,6 +92,8 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
 }
 
 export type VisibleWindowsApplicationShortcut =
+  | "shiftDigit3"
+  | "shiftDigit3Twice"
   | "escape"
   | "quickAccess"
   | "newGameWindow"
@@ -114,6 +116,7 @@ export type VisibleApplicationShortcutTargetMode =
 
 export type VisibleMacosRoleKey =
   | "KeyY"
+  | "Shift+Digit3"
   | "Shift+Digit4"
   | "Shift+Digit3Twice"
   | "Shift+Digit2ThenDigit3Hold"
@@ -442,6 +445,22 @@ public static class RionNativeShortcutInput {
       }
     };
   }
+  public static bool SendRepeatedShiftChord(ushort shift, ushort digit) {
+    int size = Marshal.SizeOf(typeof(Input));
+    if (SendInput(1, new[] { ScanCodeInput(shift, false) }, size) != 1) return false;
+    bool applied = true;
+    try {
+      for (int cycle = 0; cycle < 2; cycle++) {
+        if (SendInput(1, new[] { ScanCodeInput(digit, false) }, size) != 1) { applied = false; break; }
+        System.Threading.Thread.Sleep(20);
+        if (SendInput(1, new[] { ScanCodeInput(digit, true) }, size) != 1) { applied = false; break; }
+        if (cycle == 0) System.Threading.Thread.Sleep(600);
+      }
+    } finally {
+      if (SendInput(1, new[] { ScanCodeInput(shift, true) }, size) != 1) applied = false;
+    }
+    return applied;
+  }
   public static bool SendScanChord(ushort[] scanCodes) {
     if (scanCodes == null || scanCodes.Length == 0) return false;
     Input[] inputs = new Input[scanCodes.Length * 2];
@@ -508,6 +527,8 @@ $SHIFT = [byte]0x10
 $modifier = $true
 $shiftModifier = $false
 switch ($command) {
+  'shiftDigit3' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
+  'shiftDigit3Twice' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
   'escape' { $key = [byte]0x1B; $modifier = $false }
   'newGameWindow' { $key = [byte]0x4E }
   'quickAccess' { $key = [byte]0x4B }
@@ -528,7 +549,10 @@ if ($shiftModifier) { $scanCodes.Add($shiftScan) }
 $scanCodes.Add($keyScan)
 [Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow))
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
-if (-not [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray())) {
+$submitted = if ($command -eq 'shiftDigit3Twice') {
+  [RionNativeShortcutInput]::SendRepeatedShiftChord($shiftScan, $keyScan)
+} else { [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) }
+if (-not $submitted) {
   throw 'Windows shortcut scan-code chord injection failed'
 }
 [Console]::Error.WriteLine('shortcut-stage: native-chord-submitted')

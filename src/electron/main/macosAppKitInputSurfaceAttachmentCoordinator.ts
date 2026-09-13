@@ -1,3 +1,4 @@
+import type { ChromiumPhysicalKeyboardEvidence } from "./chromiumPhysicalKeyboardEvidence";
 import { RionBridgeError } from "../ipc/errors";
 import type {
   ChromiumRoleSurfaceNativeAttachmentInput,
@@ -33,6 +34,7 @@ export interface AppKitCdpInputSurfaceProbeReceipt {
   readonly targetWindowFirstResponderAddress: string;
   readonly physicalModifierCodes: readonly string[];
   readonly physicalInputSequence: string;
+    physicalKeyboardEvidence?: ChromiumPhysicalKeyboardEvidence;
   readonly physicalKeyDownSequence: string;
   readonly physicalKeyUpSequence: string;
   readonly targetReceivesPhysicalInput: boolean;

@@ -36,6 +36,9 @@ export interface PendingChromiumTrustedInput {
   applicationPath: "none" | "cdp" | "physical-modifier-adoption" |
     "modifier-ownership-release";
   nativeComplete: boolean;
+  gameDeliveryRequired?: boolean;
+  gameDeliveryConfirmed?: boolean;
+  documentObservationWatermark?: number;
   nextDomIndex: number;
   readonly expectedEvents: readonly unknown[];
   modifierProjectionCodes?: readonly string[];
@@ -161,8 +164,14 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
       (pending.request.action.type === "key" ? pending.request.action.code : null);
     recordTrustedInputTerminal({
       documentInstanceId: pending.frame.documentInstanceId,
+      ...(pending.request.action.type === "key" ? { deliveryOwnerId: pending.request.action.ownerId } : {}),
+      ...(pending.gameDeliveryRequired ? { gameDeliveryConfirmed: pending.gameDeliveryConfirmed === true } : {}),
+      ...(pending.documentObservationWatermark === undefined ? {} : {
+        documentObservationWatermark: pending.documentObservationWatermark
+      }),
       capturedAt: new Date().toISOString(),
       requestId: pending.request.requestId,
+      ...(pending.request.parentRequestId ? { parentRequestId: pending.request.parentRequestId } : {}),
       roleId: pending.request.roleId,
       inputEpoch: pending.request.inputEpoch,
       surfaceGeneration: pending.request.surfaceGeneration,
@@ -240,7 +249,8 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
           : "not-required"
     });
     pending.completion.resolve(Object.freeze({
-      requestId: pending.request.requestId, roleId: pending.request.roleId,
+      requestId: pending.request.requestId,
+      roleId: pending.request.roleId,
       inputEpoch: pending.request.inputEpoch, surfaceGeneration: pending.request.surfaceGeneration,
       status, completedAtMs: this.#ports.nowMs(), errorCode, errorMessage, confirmedInputNeutrality
     }));
@@ -248,7 +258,8 @@ export class ChromiumTrustedInputPendingLane<Pending extends PendingChromiumTrus
 
   maybeApply(pending: Pending): void {
     if (pending.terminal || !pending.nativeComplete ||
-      pending.nextDomIndex !== pending.expectedEvents.length) return;
+      pending.nextDomIndex !== pending.expectedEvents.length ||
+      (pending.gameDeliveryRequired && !pending.gameDeliveryConfirmed)) return;
     this.finish(pending, "applied", null, null, pending.request.expectedInputNeutralityAfter);
   }
 

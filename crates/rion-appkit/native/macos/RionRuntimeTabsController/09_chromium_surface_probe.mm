@@ -87,7 +87,7 @@ static NSView *RionFindNativeViewWithAddress(NSView *root,
       root, targetAddress, 0, &visited);
 }
 
-static NSNumber *RionChromiumVirtualKeyCode(NSString *code) {
+static NSDictionary<NSString *, NSNumber *> *RionChromiumKeyCodes(void) {
   static NSDictionary<NSString *, NSNumber *> *codes;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
@@ -137,7 +137,15 @@ static NSNumber *RionChromiumVirtualKeyCode(NSString *code) {
       @"MetaLeft": @(kVK_Command), @"MetaRight": @(kVK_RightCommand)
     };
   });
-  return codes[code];
+  return codes;
+}
+
+static NSNumber *RionChromiumVirtualKeyCode(NSString *code) {
+  return RionChromiumKeyCodes()[code];
+}
+
+static NSString *RionChromiumCodeForVirtualKey(unsigned short keyCode) {
+  return [RionChromiumKeyCodes() allKeysForObject:@(keyCode)].firstObject;
 }
 
 static NSString *RionChromiumFunctionCharacter(unichar value) {
@@ -275,6 +283,7 @@ extern "C" int32_t rion_appkit_probe_chromium_input_surface(
   result->physicalKeyDownSequence =
       RionRuntimePhysicalKeyDownSequence(target);
   result->physicalKeyUpSequence = RionRuntimePhysicalKeyUpSequence(target);
+  RionReadPhysicalKeyboardEvents(target, result);
   result->targetX = bounds.origin.x;
   result->targetY = bounds.origin.y;
   result->targetWidth = bounds.size.width;

@@ -1,3 +1,4 @@
+import type { ChromiumPhysicalKeyboardEvidence } from "./chromiumPhysicalKeyboardEvidence";
 import type { Buffer } from "node:buffer";
 
 import { RionBridgeError } from "../ipc/errors";
@@ -27,6 +28,7 @@ export interface WindowsRuntimeForegroundProbePort {
   ) => WindowsRuntimeForegroundReadback;
   readWindowsPhysicalModifierCodes: () => readonly string[];
   readWindowsPhysicalInputSequence: (parentHandle: Buffer) => string;
+  readWindowsPhysicalKeyboardEvidence?: (parentHandle: Buffer) => ChromiumPhysicalKeyboardEvidence;
 }
 
 interface WindowsRuntimeWindowStateStreamInput {

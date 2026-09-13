@@ -1,8 +1,10 @@
+import { ChromiumPhysicalKeyboardEvidenceLane, type ChromiumPhysicalKeyboardEvidence } from "./chromiumPhysicalKeyboardEvidence";
 const U64_MAX = 18_446_744_073_709_551_615n;
 
 export interface ChromiumPhysicalInputEvidenceSnapshot {
   /** Projected DOM-event sequence from the exact native physical-input owner. */
   readonly sequence: string;
+  readonly keyboard?: ChromiumPhysicalKeyboardEvidence;
   /** Optional native key-phase cursors used by AppKit's physical Role owner. */
   readonly keyDownSequence?: string;
   readonly keyUpSequence?: string;
@@ -13,6 +15,7 @@ export interface ChromiumPhysicalInputEvidenceSnapshot {
 export interface ChromiumPhysicalInputEvidenceObservation {
   readonly code?: string | null;
   readonly type: string;
+  readonly repeat?: boolean;
 }
 
 export type ChromiumPhysicalInputEvidenceClassification =
@@ -44,6 +47,7 @@ function parseSequence(value: unknown): bigint | null {
  */
 export class ChromiumPhysicalInputEvidenceLane {
   #accounted: bigint;
+  #keyboard: ChromiumPhysicalKeyboardEvidenceLane | null;
   #keyDownAccounted: bigint | null;
   #keyUpAccounted: bigint | null;
   #otherAccounted: bigint | null;
@@ -61,6 +65,7 @@ export class ChromiumPhysicalInputEvidenceLane {
         (keyDown !== null && keyUp !== null && keyDown + keyUp > sequence)) {
       throw new Error("The native physical-input evidence snapshot is malformed.");
     }
+    this.#keyboard = snapshot.keyboard ? new ChromiumPhysicalKeyboardEvidenceLane(snapshot.keyboard) : null;
     this.#accounted = sequence;
     this.#keyDownAccounted = keyDown;
     this.#keyUpAccounted = keyUp;
@@ -73,6 +78,9 @@ export class ChromiumPhysicalInputEvidenceLane {
     left: ChromiumPhysicalInputEvidenceObservation,
     right: ChromiumPhysicalInputEvidenceObservation
   ): boolean {
+    if (this.#keyboard && snapshot.keyboard && this.#exactKey(left) && this.#exactKey(right)) {
+      return left.code === right.code && left.type === right.type && left.repeat === right.repeat;
+    }
     const parsed = this.#parseSnapshot(snapshot);
     if (!parsed) return false;
     return this.#pendingCategory(parsed, left) ===
@@ -85,6 +93,11 @@ export class ChromiumPhysicalInputEvidenceLane {
   ): bigint | null {
     const parsed = this.#parseSnapshot(snapshot);
     if (!parsed || !snapshot.targetReceivesPhysicalInput) return parsed ? 0n : null;
+    if (this.#keyboard && this.#exactKey(observation)) {
+      if (!snapshot.keyboard) return null;
+      const pending = this.#keyboard.pending(snapshot.keyboard, observation.code!, observation.type, observation.repeat);
+      return pending === null ? null : BigInt(pending.length);
+    }
     switch (this.#pendingCategory(parsed, observation)) {
       case "keyDown": return parsed.keyDown! - this.#keyDownAccounted!;
       case "keyUp": return parsed.keyUp! - this.#keyUpAccounted!;
@@ -102,6 +115,7 @@ export class ChromiumPhysicalInputEvidenceLane {
     if (!parsed) return "indeterminate";
     if (!snapshot.targetReceivesPhysicalInput) {
       // A hidden/background Role cannot consume foreground-window evidence.
+      if (snapshot.keyboard) this.#keyboard = new ChromiumPhysicalKeyboardEvidenceLane(snapshot.keyboard);
       this.#accounted = parsed.sequence;
       if (parsed.keyDown !== null && parsed.keyUp !== null && parsed.other !== null) {
         this.#keyDownAccounted = parsed.keyDown;
@@ -114,7 +128,26 @@ export class ChromiumPhysicalInputEvidenceLane {
       ? this.pendingPhysicalCount(snapshot, observation)
       : parsed.sequence - this.#accounted;
     if (pending === null) return "indeterminate";
-    if (pending === 0n) return "automatic";
+    if (pending === 0n) {
+      if (snapshot.keyboard) this.#keyboard?.advance(snapshot.keyboard);
+      return "automatic";
+    }
+    if (observation && this.#keyboard && this.#exactKey(observation)) {
+      if (!snapshot.keyboard) return "indeterminate";
+      const pendingKeys = this.#keyboard.pending(snapshot.keyboard, observation.code!, observation.type, observation.repeat);
+      if (!pendingKeys?.length) return "indeterminate";
+      this.#keyboard.consume(pendingKeys[0]!);
+      this.#keyboard.advance(snapshot.keyboard);
+      // Keep legacy pointer/modifier accounting aligned with exact keyboard evidence.
+      if (/^(Control|Alt|Shift|Meta)(Left|Right)$/u.test(observation.code!)) {
+        if (this.#otherAccounted !== null) this.#otherAccounted += 1n;
+      } else {
+        if (observation.type === "keydown" && this.#keyDownAccounted !== null) this.#keyDownAccounted += 1n;
+        if (observation.type === "keyup" && this.#keyUpAccounted !== null) this.#keyUpAccounted += 1n;
+      }
+      this.#accounted += 1n;
+      return "physical";
+    }
     if (observation && parsed.keyDown !== null) {
       switch (this.#pendingCategory(parsed, observation)) {
         case "keyDown": this.#keyDownAccounted! += 1n; break;
@@ -127,6 +160,11 @@ export class ChromiumPhysicalInputEvidenceLane {
     }
     this.#accounted += 1n;
     return "physical";
+  }
+
+  #exactKey(observation: ChromiumPhysicalInputEvidenceObservation): boolean {
+    return (observation.type === "keydown" || observation.type === "keyup") &&
+      typeof observation.code === "string";
   }
 
   #category(

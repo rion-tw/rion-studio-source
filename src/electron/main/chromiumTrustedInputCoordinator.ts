@@ -34,6 +34,7 @@ export interface ChromiumTrustedInputSurfacePort {
 
 export interface ChromiumNativeTrustedInputRequest {
   readonly requestId: string;
+  readonly parentRequestId?: string;
   readonly roleId: string;
   readonly inputEpoch: number;
   readonly intent: "normal" | "cleanup";
@@ -104,6 +105,7 @@ export interface ChromiumTrustedInputRecoveryProof {
 }
 
 interface RoleLaneState {
+  recoveryParentRequestId?: string;
   inputEpoch: number;
   readonly surfaceGeneration: number;
   quarantined: boolean;
@@ -628,6 +630,7 @@ export class ChromiumTrustedInputCoordinator {
         return false;
       }
       state.quarantined = false;
+      state.recoveryParentRequestId = undefined;
       await this.#input.embeddedInput.clear(roleId);
       state.hasHeldKeys = false;
       state.heldKeyCodes.clear();
@@ -753,6 +756,7 @@ export class ChromiumTrustedInputCoordinator {
         if (!result.hasHeldKeys) state.uncertainKeyCodes.clear();
         if (request.intent === "cleanup" && result.receipt.confirmedInputNeutrality) {
           state.quarantined = false;
+          state.recoveryParentRequestId = undefined;
           this.#input.onRecoveryProof?.(Object.freeze({
             kind: "cleanup-neutral",
             requestId: request.requestId,
@@ -766,6 +770,7 @@ export class ChromiumTrustedInputCoordinator {
         if (error instanceof ChromiumTrustedInputSequenceFailure) {
           state.quarantined = error.quarantine;
           if (error.quarantine) {
+            state.recoveryParentRequestId ??= request.requestId;
             for (const code of state.heldKeyCodes) state.uncertainKeyCodes.add(code);
             for (const edge of error.possiblyAppliedEdges) {
               if (edge.phase === "rawKeyDown") state.uncertainKeyCodes.add(edge.code);
@@ -813,6 +818,7 @@ export class ChromiumTrustedInputCoordinator {
     if (receipt.status === "applied") {
       if (request.intent === "cleanup" && receipt.confirmedInputNeutrality) {
         state.quarantined = false;
+        state.recoveryParentRequestId = undefined;
         this.#input.onRecoveryProof?.(Object.freeze({
           kind: "cleanup-neutral",
           requestId: request.requestId,
@@ -856,6 +862,7 @@ export class ChromiumTrustedInputCoordinator {
         const nextActiveCodes = activeCodes.filter(candidate => candidate !== code);
         const nativeRequest: ChromiumNativeTrustedInputRequest = Object.freeze({
           requestId: `${request.requestId}:key:${index + 1}`,
+          parentRequestId: state.recoveryParentRequestId,
           roleId: request.roleId,
           inputEpoch: request.inputEpoch,
           intent: "cleanup",
@@ -921,6 +928,7 @@ export class ChromiumTrustedInputCoordinator {
       await this.#input.embeddedInput.clear(request.roleId);
       state.inputEpoch = request.inputEpoch;
       state.quarantined = false;
+      state.recoveryParentRequestId = undefined;
       state.hasHeldKeys = false;
       state.heldKeyCodes.clear();
       state.uncertainKeyCodes.clear();

@@ -1131,6 +1131,7 @@ try {
         RION_STUDIO_E2E_ARTIFACT_DIR: phaseDir,
         RION_STUDIO_E2E_FIXTURE_ORIGIN: fixture.origin,
         RION_STUDIO_E2E_PHASE: phase,
+        RION_STUDIO_E2E_PROFILE: profile,
         RION_STUDIO_E2E_RUNTIME_TARGET: executionPlan.runtimeTargetName,
         RION_STUDIO_E2E_SESSION_TOKEN: token,
         ...(macosGameModeBundle

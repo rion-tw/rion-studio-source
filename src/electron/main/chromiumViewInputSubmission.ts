@@ -1,3 +1,4 @@
+import type { ChromiumPhysicalKeyboardEvidence } from "./chromiumPhysicalKeyboardEvidence";
 import { validChromiumViewInputIdentity, validChromiumViewInputObservation,
   chromiumViewInputObservationKey } from "./chromiumViewTrustedInputValidation";
 import { sendChromiumClick, sendChromiumKey } from "./chromiumWebContentsInput";
@@ -16,6 +17,7 @@ export interface ChromiumViewInputObservation {
   readonly identity: ChromiumViewInputIdentity;
   readonly focusIdentity: string;
   readonly physicalInputSequence: string;
+    physicalKeyboardEvidence?: ChromiumPhysicalKeyboardEvidence;
   readonly parentForeground: boolean;
   readonly parentVisible: boolean;
   readonly parentMinimized: boolean;

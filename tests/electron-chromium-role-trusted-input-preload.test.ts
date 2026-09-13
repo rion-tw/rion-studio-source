@@ -463,6 +463,8 @@ describe("Chromium role trusted-input preload", () => {
       frameToken: "frame-token-1",
       inputSequence: INPUT_SEQUENCE,
       expectedEventCount: 2,
+      documentObservationWatermark: 0,
+      deliveryReceiptVersion: 1,
       modifierDisposition: "dispatch",
       modifierProjectionCodes: [],
       physicalModifierCodes: []

@@ -66,6 +66,7 @@ export interface ChromiumRoleTrustedInputOverlayGuardPort {
     frameToken: string;
     inputSequence: string;
     code: string;
+    deliveryOwner?: import("../ipc/chromiumRoleTrustedInputProtocol").ChromiumCoreKeyDeliveryOwner | null;
     phases: readonly ("keydown" | "keyup")[];
     repeat: boolean;
     modifierProjectionCodes: readonly string[];
@@ -210,12 +211,22 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
     record.kind !== "arm" ||
     !exactKeys(record, [
       "expectedEvents", "frameToken", "generation", "inputSequence", "kind", "roleId",
-      "modifierTransition", "shortcutSuppression"
+      "modifierTransition", "shortcutSuppression",
+    ...(record.deliveryOwner !== undefined ? ["deliveryOwner"] : [])
     ]) ||
     !Array.isArray(record.expectedEvents) ||
     record.expectedEvents.length === 0 ||
     record.expectedEvents.length > 10
   ) return null;
+  const owner = record.deliveryOwner;
+  if (owner !== undefined && owner !== null) {
+    if (typeof owner !== "object" || Array.isArray(owner)) return null;
+    const value = owner as Record<string, unknown>;
+    if (!exactKeys(value, ["ownerId", "requestId", "inputEpoch", "surfaceGeneration"]) ||
+      !validIdentifier(value.ownerId) || !validIdentifier(value.requestId) ||
+      !Number.isSafeInteger(value.inputEpoch) || (value.inputEpoch as number) < 1 ||
+      value.surfaceGeneration !== identity.generation) return null;
+  }
   const expectedEvents = record.expectedEvents.map(parseExpectedEvent);
   if (expectedEvents.some((event) => event === null)) return null;
   let modifierTransition = null;
@@ -279,6 +290,7 @@ function parseControl(value: unknown): ChromiumRoleTrustedInputControlEnvelope |
   return Object.freeze({
     ...identity,
     kind: "arm",
+    deliveryOwner: owner as import("../ipc/chromiumRoleTrustedInputProtocol").ChromiumCoreKeyDeliveryOwner | null | undefined,
     expectedEvents: Object.freeze(
       expectedEvents as ChromiumRoleTrustedInputExpectedEvent[]
     ),
@@ -347,7 +359,8 @@ export function createChromiumRoleTrustedInputOverlayGuard(
             ${JSON.stringify(input.code)},
             guardedPhases,
             ${JSON.stringify(input.repeat)},
-            modifierProjectionCodes
+            modifierProjectionCodes,
+            ${JSON.stringify(input.deliveryOwner ?? null)}
           ) === true);
       return Object.freeze({
         armed,
@@ -404,7 +417,7 @@ export function createChromiumRoleTrustedInputOverlayGuard(
         controller?.completeMacroModifierTransition?.(inputSequence, committed)
       );
       const shortcutCleared = frameMatches && Boolean(
-        controller?.clearSuppressedShortcut?.(inputSequence)
+        controller?.clearSuppressedShortcut?.(inputSequence, committed)
       );
       const cleared = transitionCompleted || shortcutCleared;
       return Object.freeze({ cleared, frameToken, inputSequence });
@@ -499,6 +512,7 @@ export function installChromiumRoleTrustedInput(
     throw new Error("The Chromium trusted-input preload requires an exact frame token.");
   }
   let pending: PendingInput | null = null;
+  let documentObservationSequence = 0;
   const send = (receipt: ChromiumRoleTrustedInputReceipt): void => {
     ipc.send(CHROMIUM_ROLE_TRUSTED_INPUT_RECEIPT_CHANNEL, Object.freeze(receipt));
   };
@@ -520,7 +534,8 @@ export function installChromiumRoleTrustedInput(
             committed: control.committed
           }).catch(() => false);
         }
-        send({ ...control, kind: "cancelled" });
+        send({ kind: "cancelled", roleId: control.roleId, generation: control.generation,
+          frameToken: control.frameToken, inputSequence: control.inputSequence });
       }
       return;
     }
@@ -557,6 +572,8 @@ export function installChromiumRoleTrustedInput(
         ...candidate.identity,
         kind: "armed",
         expectedEventCount: candidate.expectedEvents.length,
+        documentObservationWatermark: documentObservationSequence,
+        deliveryReceiptVersion: 1,
         physicalModifierCodes,
         modifierProjectionCodes,
         modifierDisposition
@@ -591,6 +608,7 @@ export function installChromiumRoleTrustedInput(
       frameToken: control.frameToken,
       inputSequence: control.inputSequence,
       code: control.shortcutSuppression.code,
+      deliveryOwner: control.deliveryOwner,
       phases: control.shortcutSuppression.phases,
       repeat: control.shortcutSuppression.repeat,
       modifierProjectionCodes: control.shortcutSuppression.modifierProjectionCodes,
@@ -629,15 +647,21 @@ export function installChromiumRoleTrustedInput(
   });
 
   const capture = (event: ChromiumRoleTrustedInputEventPort): void => {
-    if (!pending) return;
     const observed = observedEvent(event);
     if (!observed) return;
+    documentObservationSequence += 1;
+    if (!pending) {
+      send({ ...observed, kind: "document-input", frameToken,
+        documentObservationSequence, isTrusted: event.isTrusted });
+      return;
+    }
     const current = pending;
     const receipt: ChromiumRoleTrustedInputDomReceipt = Object.freeze({
       ...current.identity,
       ...observed,
       kind: "input",
       observationSequence: ++current.observationSequence,
+      documentObservationSequence,
       isTrusted: event.isTrusted
     });
     // Preserve capture-order at the process boundary. Deferring this receipt

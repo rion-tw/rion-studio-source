@@ -17,6 +17,15 @@ void installChromiumRoleFonts(
   webFrame,
   process.isMainFrame
 ).catch(() => undefined);
+// Observe before the overlay installs capture listeners that consume bound shortcuts.
+installChromiumRoleTrustedInput(
+  ipcRenderer,
+  webFrame.frameToken,
+  process.isMainFrame,
+  undefined,
+  createChromiumRoleTrustedInputOverlayGuard(webFrame)
+);
+
 // The macro overlay runs only in isolated world 1004 and calls a fixed,
 // main-frame-authenticated IPC surface through named wrappers.
 void installChromiumRoleOverlay(
@@ -26,10 +35,3 @@ void installChromiumRoleOverlay(
   process.isMainFrame,
   process.platform
 ).catch(() => undefined);
-installChromiumRoleTrustedInput(
-  ipcRenderer,
-  webFrame.frameToken,
-  process.isMainFrame,
-  undefined,
-  createChromiumRoleTrustedInputOverlayGuard(webFrame)
-);

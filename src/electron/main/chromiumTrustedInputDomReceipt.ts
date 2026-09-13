@@ -37,6 +37,20 @@ export function parseTrustedInputDomReceipt(
     invalid("The trusted-input preload receipt is malformed or too large.");
   }
   const record = value as Record<string, unknown>;
+  if (record.kind === "document-input" && exactKeys(record, [
+    "kind", "frameToken", "documentObservationSequence", "isTrusted", "altKey", "button",
+    "clientX", "clientY", "code", "ctrlKey", "metaKey", "repeat", "shiftKey", "type"
+  ]) && typeof record.frameToken === "string" && record.frameToken.length > 0 &&
+    Number.isSafeInteger(record.documentObservationSequence) &&
+    (record.documentObservationSequence as number) > 0 && typeof record.isTrusted === "boolean" &&
+    typeof record.type === "string" &&
+    ["keydown", "keyup", "mousedown", "mouseup", "click", "auxclick", "contextmenu"].includes(record.type) &&
+    (record.code === null || (typeof record.code === "string" && record.code.length <= 64)) &&
+    typeof record.altKey === "boolean" && typeof record.ctrlKey === "boolean" &&
+    typeof record.metaKey === "boolean" && typeof record.shiftKey === "boolean" &&
+    typeof record.repeat === "boolean") {
+    return record as unknown as ChromiumRoleTrustedInputReceipt;
+  }
   const identityValid = typeof record.roleId === "string" &&
     Number.isSafeInteger(record.generation) && (record.generation as number) >= 1 &&
     typeof record.frameToken === "string" && record.frameToken.length > 0 &&
@@ -48,9 +62,14 @@ export function parseTrustedInputDomReceipt(
   }
   if (record.kind === "armed" && exactKeys(record, [
     ...baseKeys, "expectedEventCount", "modifierDisposition", "modifierProjectionCodes",
-    "physicalModifierCodes"
+    "physicalModifierCodes",
+    ...(record.documentObservationWatermark !== undefined ? ["documentObservationWatermark"] : []),
+    ...(record.deliveryReceiptVersion !== undefined ? ["deliveryReceiptVersion"] : [])
   ])) {
-    if (!Number.isSafeInteger(record.expectedEventCount) ||
+    if ((record.deliveryReceiptVersion !== undefined && record.deliveryReceiptVersion !== 1) ||
+      (record.documentObservationWatermark !== undefined &&
+        (!Number.isSafeInteger(record.documentObservationWatermark) || (record.documentObservationWatermark as number) < 0)) ||
+      !Number.isSafeInteger(record.expectedEventCount) ||
       (record.expectedEventCount as number) < 0 ||
       (record.expectedEventCount as number) > 10 ||
       !["dispatch", "adoptPhysical", "releaseOwnership"]
@@ -74,7 +93,8 @@ export function parseTrustedInputDomReceipt(
   }
   if (record.kind === "input" && exactKeys(record, [
     ...baseKeys, "altKey", "button", "clientX", "clientY", "code", "ctrlKey",
-    "isTrusted", "metaKey", "observationSequence", "repeat", "shiftKey", "type"
+    "isTrusted", "metaKey", "observationSequence", "repeat", "shiftKey", "type",
+    ...(record.documentObservationSequence !== undefined ? ["documentObservationSequence"] : [])
   ])) {
     const valid = Number.isSafeInteger(record.observationSequence) &&
       (record.observationSequence as number) >= 1 &&

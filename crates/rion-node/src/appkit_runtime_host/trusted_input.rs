@@ -1,3 +1,4 @@
+use crate::physical_key_evidence::{PhysicalKeyEvidence, PhysicalKeyboardEvidence};
 #[cfg(any(test, feature = "desktop-e2e"))]
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -44,6 +45,7 @@ pub struct AppKitCdpInputSurfaceProbeReceipt {
     pub physical_input_sequence: String,
     pub physical_key_down_sequence: String,
     pub physical_key_up_sequence: String,
+    pub physical_keyboard_evidence: PhysicalKeyboardEvidence,
     pub target_x: f64,
     pub target_y: f64,
     pub target_width: f64,
@@ -444,6 +446,30 @@ impl NativeAppKitRuntimeHost {
             physical_input_sequence: probe.physical_input_sequence.to_string(),
             physical_key_down_sequence: probe.physical_key_down_sequence.to_string(),
             physical_key_up_sequence: probe.physical_key_up_sequence.to_string(),
+            physical_keyboard_evidence: PhysicalKeyboardEvidence {
+                sequence: probe.physical_keyboard_sequence.to_string(),
+                events: probe
+                    .physical_key_events
+                    .iter()
+                    .take(probe.physical_key_event_count.min(128) as usize)
+                    .map(|event| PhysicalKeyEvidence {
+                        sequence: event.sequence.to_string(),
+                        code: String::from_utf8_lossy(
+                            &event.code
+                                [..event.code.iter().position(|byte| *byte == 0).unwrap_or(32)],
+                        )
+                        .into_owned(),
+                        event_type: if event.released != 0 {
+                            "keyup"
+                        } else {
+                            "keydown"
+                        }
+                        .into(),
+                        repeat: event.repeat != 0,
+                        consumed: event.consumed != 0,
+                    })
+                    .collect(),
+            },
             target_x: probe.target_x,
             target_y: probe.target_y,
             target_width: probe.target_width,

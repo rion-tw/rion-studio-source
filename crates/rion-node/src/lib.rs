@@ -29,6 +29,7 @@ use rion_core::{
 mod appkit_runtime_host;
 mod chrome_profile_import_helper_launcher;
 mod macro_input_clock;
+mod physical_key_evidence;
 mod updater;
 mod windows_native_handle;
 pub mod windows_runtime_foreground;

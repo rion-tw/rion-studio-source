@@ -28,7 +28,7 @@ import {
   rendererEventCursor,
   waitForMacroProjection
 } from "../support/renderer-events";
-import { pressVisibleMacosRoleKey } from
+import { pressVisibleMacosRoleKey, pressVisibleWindowsApplicationShortcut } from
   "../support/native-application-actions";
 import {
   installRuntimeTabShellErrorJournal,
@@ -342,6 +342,8 @@ async function exerciseRepeatedShiftShortcut(input: Readonly<{
   roleId: string;
   roleName: string;
 }>): Promise<void> {
+  const batches = process.env.RION_STUDIO_E2E_PROFILE?.includes("hardware") ? 50 : 1;
+  for (let batch = 0; batch < batches; batch++) {
   const afterSequence = await fixtureCursor();
   if (input.platform === "macos") {
     await clickMacosVisibleRoleControl(
@@ -356,22 +358,8 @@ async function exerciseRepeatedShiftShortcut(input: Readonly<{
       runtimeWindowId: WINDOW_ID
     });
   } else {
-    await submitElectronRoleKeySequenceWithPause(
-      input.launchUrl,
-      input.mainWindowHandle,
-      [
-        { key: Key.Shift, phase: "keyDown" },
-        { key: "3", phase: "keyDown" },
-        { key: "3", phase: "keyUp" }
-      ],
-      600,
-      [
-        { key: "3", phase: "keyDown" },
-        { key: "3", phase: "keyUp" },
-        { key: Key.Shift, phase: "keyUp" }
-      ],
-      { windowId: WINDOW_ID }
-    );
+    await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit3Twice",
+      processId: (await electronDesktopE2eProbe()).processId, targetMode: "focused-runtime" });
   }
   let events: readonly FixtureEvent[] = [];
   await browser.waitUntil(async () => {
@@ -400,6 +388,12 @@ async function exerciseRepeatedShiftShortcut(input: Readonly<{
     { key: "!", kind: "keydown", shift: true },
     { key: "!", kind: "keyup", shift: true }
   ]);
+    await browser.waitUntil(async () => {
+      const state = (await fixtureState())[ROLE_A_FIXTURE];
+      return state?.pressedCodes.length === 0 && state.consumerPressedCodes.length === 0;
+    }, { timeout: 5000, timeoutMsg: "Released Shift+3/Shift+1 left the game consumer held" });
+  }
+
 }
 
 export async function runChromiumMacroKeyboardCutover(): Promise<void> {
@@ -620,12 +614,16 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   expect(await expectChromiumNativeRoleBinding(context, tabA)).toEqual(nativeBinding);
 
   const releasedReentryFixture = await fixtureCursor();
-  await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
-    { key: Key.Shift, phase: "keyDown" },
-    { key: "3", phase: "keyDown" },
-    { key: "3", phase: "keyUp" },
-    { key: Key.Shift, phase: "keyUp" }
-  ], { windowId: WINDOW_ID });
+  if (context.platform === "macos") {
+    // WebDriver's DOM-trusted events do not cross the native physical journal.
+    // Exercise the real source for the fast down/up overlap under v37.
+    await pressVisibleMacosRoleKey({ code: "Shift+Digit3",
+      processId: (await electronDesktopE2eProbe()).processId,
+      runtimeTabName: roleA.name, runtimeWindowId: WINDOW_ID });
+  } else {
+    await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit3",
+      processId: (await electronDesktopE2eProbe()).processId, targetMode: "focused-runtime" });
+  }
   exactTrustedKey(await waitExactKey({
     afterSequence: releasedReentryFixture,
     code: "Digit1",

@@ -16,6 +16,10 @@ function installTrustedInputDiagnosticLogging(
     const context = {
       capturedAt: record.capturedAt,
       requestId: record.requestId,
+      parentRequestId: record.parentRequestId,
+      deliveryOwnerId: record.deliveryOwnerId,
+      gameDeliveryConfirmed: record.gameDeliveryConfirmed,
+      documentObservationWatermark: record.documentObservationWatermark,
       roleId: record.roleId,
       inputEpoch: record.inputEpoch,
       intent: record.intent,

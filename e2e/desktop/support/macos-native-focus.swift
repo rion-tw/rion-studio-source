@@ -127,6 +127,7 @@ if mode == "shortcut" || mode == "roleKey" {
   let flags: CGEventFlags
   switch command {
   case "KeyY" where mode == "roleKey": key = 16; flags = []
+  case "Shift+Digit3" where mode == "roleKey": key = 20; flags = [.maskShift]
   case "Shift+Digit4" where mode == "roleKey": key = 21; flags = [.maskShift]
   case "Shift+Digit3Twice" where mode == "roleKey": key = 20; flags = [.maskShift]
   case "Shift+Digit2ThenDigit3Hold" where mode == "roleKey": key = 19; flags = [.maskShift]
@@ -184,7 +185,7 @@ if mode == "shortcut" || mode == "roleKey" {
     }
   } else if command == "ShiftUp" {
     up.post(tap: .cghidEventTap)
-  } else if command == "Shift+Digit4" {
+  } else if command == "Shift+Digit4" || command == "Shift+Digit3" {
     guard let shiftDown = CGEvent(
       keyboardEventSource: source, virtualKey: 56, keyDown: true
     ), let shiftUp = CGEvent(

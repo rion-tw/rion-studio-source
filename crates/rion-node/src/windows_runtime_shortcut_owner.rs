@@ -1,3 +1,4 @@
+use crate::physical_key_evidence::PhysicalKeyboardEvidence;
 #[cfg(windows)]
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{
@@ -265,9 +266,34 @@ mod platform {
         owner_revision: u64,
         plain_key_downs: u32,
         physical_input_sequence: u64,
+        physical_keyboard_sequence: u64,
+        physical_key_events:
+            std::collections::VecDeque<crate::physical_key_evidence::PhysicalKeyEvidence>,
+        physical_held_codes: std::collections::HashSet<String>,
     }
 
     impl ShortcutOwner {
+        fn record_key(&mut self, vk: u32, scan: u32, flags: u32, released: bool, consumed: bool) {
+            let code = crate::physical_key_evidence::windows_key_code(vk, scan, flags & 1 != 0);
+            let repeat = if released {
+                self.physical_held_codes.remove(&code);
+                false
+            } else {
+                !self.physical_held_codes.insert(code.clone())
+            };
+            self.physical_keyboard_sequence = self.physical_keyboard_sequence.saturating_add(1);
+            self.physical_key_events
+                .push_back(crate::physical_key_evidence::PhysicalKeyEvidence {
+                    sequence: self.physical_keyboard_sequence.to_string(),
+                    code,
+                    event_type: if released { "keyup" } else { "keydown" }.into(),
+                    repeat,
+                    consumed,
+                });
+            if self.physical_key_events.len() > 128 {
+                self.physical_key_events.pop_front();
+            }
+        }
         fn emit(&mut self) {
             self.dispatch.emit();
         }
@@ -384,21 +410,35 @@ mod platform {
                     return false;
                 };
                 owner.foreground_matches = owner.foreground_matches.saturating_add(1);
-                if keyboard.flags.contains(LLKHF_INJECTED) {
-                    return false;
-                }
-                if !is_f11 {
+                let released = keyboard.flags.contains(LLKHF_UP)
+                    || (wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize);
+                // CDP Input never enters the OS hook. Native accessibility/SendInput
+                // edges do, and must be paired as external native input without
+                // acquiring the application's F11 shortcut owner.
+                if !is_f11 || keyboard.flags.contains(LLKHF_INJECTED) {
+                    owner.record_key(
+                        keyboard.vkCode,
+                        keyboard.scanCode,
+                        keyboard.flags.0,
+                        released,
+                        false,
+                    );
                     owner.physical_input_sequence = owner.physical_input_sequence.saturating_add(1);
                     return false;
                 }
-                let released = keyboard.flags.contains(LLKHF_UP)
-                    || (wparam.0 != WM_KEYDOWN as usize && wparam.0 != WM_SYSKEYDOWN as usize);
                 let plain = plain_f11();
                 if plain && !released && !owner.captured_f11_down {
                     owner.plain_key_downs = owner.plain_key_downs.saturating_add(1);
                 }
                 let (action, captured_f11_down) =
                     classify_f11_transition(plain, released, owner.captured_f11_down);
+                owner.record_key(
+                    keyboard.vkCode,
+                    keyboard.scanCode,
+                    keyboard.flags.0,
+                    released,
+                    action != WindowsRuntimeF11Action::PassThrough,
+                );
                 owner.captured_f11_down = captured_f11_down;
                 if action == WindowsRuntimeF11Action::EmitAndConsume {
                     owner.emit()
@@ -628,6 +668,9 @@ mod platform {
                     owner_revision,
                     plain_key_downs: 0,
                     physical_input_sequence: 0,
+                    physical_keyboard_sequence: 0,
+                    physical_key_events: std::collections::VecDeque::new(),
+                    physical_held_codes: std::collections::HashSet::new(),
                 },
             );
             Ok(ui_thread_id)
@@ -731,6 +774,25 @@ mod platform {
             }
             owner.callback_deliveries = owner.callback_deliveries.saturating_add(1);
             Ok(ui_thread_id)
+        })
+    }
+
+    pub(super) fn physical_keyboard_evidence(
+        parent: HWND,
+    ) -> Result<super::PhysicalKeyboardEvidence> {
+        validate_parent(parent)?;
+        SHORTCUT_REGISTRY.with(|registry| {
+            let registry = registry.borrow();
+            let owner = registry.owners.get(&hwnd_key(parent)).ok_or_else(|| {
+                probe_error(
+                    Status::InvalidArg,
+                    "The Windows keyboard evidence owner is missing.",
+                )
+            })?;
+            Ok(super::PhysicalKeyboardEvidence {
+                sequence: owner.physical_keyboard_sequence.to_string(),
+                events: owner.physical_key_events.iter().cloned().collect(),
+            })
         })
     }
 
@@ -934,5 +996,24 @@ mod tests {
             classify_f11_transition(true, true, false),
             (WindowsRuntimeF11Action::PassThrough, false)
         );
+    }
+}
+
+#[napi(js_name = "readWindowsPhysicalKeyboardEvidence")]
+pub fn read_windows_physical_keyboard_evidence(
+    parent_handle: Buffer,
+) -> Result<PhysicalKeyboardEvidence> {
+    #[cfg(windows)]
+    {
+        let address = parse_electron_native_handle(&parent_handle, "parent")?;
+        platform::physical_keyboard_evidence(platform::hwnd(address))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = parent_handle;
+        Err(probe_error(
+            Status::GenericFailure,
+            "Windows keyboard evidence is unavailable on this platform.",
+        ))
     }
 }

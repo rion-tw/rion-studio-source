@@ -1,3 +1,4 @@
+import { observeChromiumGameDelivery } from "../src/electron/main/chromiumGameDeliveryEvidence";
 import { describe, expect, it, vi } from "vitest";
 import { ChromiumTrustedInputPendingLane, recordTrustedInputTrace, sameTrustedInputFrame,
   type PendingChromiumTrustedInput } from "../src/electron/main/chromiumTrustedInputPendingLane";
@@ -67,6 +68,30 @@ describe.each(["macos", "windows"] as const)("%s shared trusted-input pending ow
     expect(active.completion.resolve).toHaveBeenCalledWith(expect.objectContaining({ status: "applied" }));
     expect(sendCancel).toHaveBeenCalledWith(active.frame, expect.objectContaining({ kind: "cancel" }));
     expect(lane.busy("role", "active")).toBe(false);
+  });
+
+  it.each(["direct", "compatibility", "target-retired"])("requires exact %s game-target evidence after capture", kind => {
+    const base = pending("active");
+    const active: PendingChromiumTrustedInput = { ...base, request: { ...base.request,
+      action: { type: "key", phase: "tap", key: "1", code: "Digit1", modifiers: [],
+        exactModifierCodes: [], modifierOwnership: "synthetic", ownerId: "run-owner", suppressOverlayShortcut: true },
+      keyEffect: { code: "Digit1", phase: "keyUp", activeCodesBefore: ["Digit1"], activeCodes: [],
+        autoRepeat: false, suppressShortcut: true }
+    }, nativeInvoked: true, cdpInvoked: true, nativeComplete: true, nextDomIndex: 1, gameDeliveryRequired: true };
+    const lane = new ChromiumTrustedInputPendingLane({ nowMs: () => 10,
+      cancelDeadline: vi.fn(), sendCancel: vi.fn() });
+    lane.add(active);
+    lane.maybeApply(active);
+    expect(active.completion.resolve).not.toHaveBeenCalled();
+    const receipt = { dispatchId: "active", code: "Digit1", phase: "keyup",
+      deliveryOwner: { ownerId: "run-owner", requestId: "active", inputEpoch: 1, surfaceGeneration: 1 },
+      delivery: { kind, target: "canvas", isTrusted: kind === "direct" } };
+    expect(observeChromiumGameDelivery(lane, { ...active.frame, documentInstanceId: "retired" }, receipt)).toBe(false);
+    expect(active.completion.resolve).not.toHaveBeenCalled();
+    observeChromiumGameDelivery(lane, active.frame, receipt);
+    expect(active.completion.resolve).toHaveBeenCalledWith(expect.objectContaining({
+      status: kind === "target-retired" ? "indeterminate" : "applied"
+    }));
   });
 
   it("coalesces duplicate observation trace steps so terminal evidence is retained", () => {

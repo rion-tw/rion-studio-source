@@ -58,7 +58,8 @@
     code,
     phases,
     repeat = false,
-    modifierProjectionCodes = []
+    modifierProjectionCodes = [],
+    deliveryOwner = null
   ) {
     const normalizedDispatchId = String(dispatchId);
     const normalizedCode = String(code);
@@ -90,6 +91,7 @@
         code: normalizedCode,
         dispatchId: normalizedDispatchId,
         disposition: "macro-key",
+        deliveryOwner,
         phase,
         repeat
       });
@@ -180,8 +182,13 @@
     return true;
   }
 
-  function clearSuppressedShortcut(dispatchId) {
+  function clearSuppressedShortcut(dispatchId, committed = false) {
     const normalizedDispatchId = String(dispatchId);
+    if (committed) {
+      for (const [code, active] of activeMacroGameKeys) {
+        if (active.releaseDispatchId === normalizedDispatchId) activeMacroGameKeys.delete(code);
+      }
+    }
     const observation = pendingMacroObservationListeners.get(normalizedDispatchId);
     if (observation) {
       observation.target.removeEventListener(observation.type, observation.listener);
@@ -212,12 +219,16 @@
     return guard;
   }
 
-  function reportObservedMacroKey(guard, event, afterPropagation = true) {
+  function reportObservedMacroKey(guard, event, afterPropagation = true, delivery = null) {
     const report = () => {
       const observation = {
         code: guard.code,
         dispatchId: guard.dispatchId,
         phase: guard.phase,
+        ...(guard.disposition === "macro-key" ? {
+          delivery: delivery ?? { kind: "modifier-overlap", target: "document", isTrusted: false },
+          deliveryOwner: guard.deliveryOwner ?? null
+        } : {}),
         ...(guard.disposition === "modifier-projection" ? {
           altKey: event.altKey,
           ctrlKey: event.ctrlKey,
@@ -228,23 +239,24 @@
       };
       void binding.macroKeyObserved?.(observation).catch(() => undefined);
     };
-    if (!afterPropagation || !event.bubbles) {
+    if (!afterPropagation || delivery?.kind === "compatibility" || (delivery?.kind === "target-retired" || delivery?.kind === "delivery-failed")) {
       report();
       return;
     }
+    const receiptTarget = event.target ?? window;
     const observeBubbleCompletion = (candidate) => {
       if (candidate !== event) return;
-      window.removeEventListener(event.type, observeBubbleCompletion);
+      receiptTarget.removeEventListener(event.type, observeBubbleCompletion);
       pendingMacroObservationListeners.delete(guard.dispatchId);
       report();
     };
     // Register while the event is in window capture. The listener is appended
     // after page listeners that already exist and therefore acknowledges this
     // exact event only after its target/bubble consumers have run.
-    window.addEventListener(event.type, observeBubbleCompletion);
+    receiptTarget.addEventListener(event.type, observeBubbleCompletion);
     pendingMacroObservationListeners.set(guard.dispatchId, {
       listener: observeBubbleCompletion,
-      target: window,
+      target: receiptTarget,
       type: event.type
     });
   }
@@ -565,6 +577,10 @@
 
   function releaseForwardedMacroKey(code) {
     const normalizedCode = String(code);
+    // A live Core-owned target survives failed shortcut completion so the
+    // independently authorized recovery release can still address it exactly.
+    // Document disposal remains a best-effort release, never a neutral receipt.
+    if (!isDisposed && activeMacroGameKeys.get(normalizedCode)?.deliveryOwner) return false;
     const modifierOwnership = macroModifierOwnership.get(normalizedCode);
     if (modifierOwnership) {
       macroModifierOwnership.delete(normalizedCode);
@@ -602,39 +618,45 @@
     macroGameKeysNeedReassert = false;
   }
 
-  function routeMacroGameKeyDown(event, editableContext) {
+  function routeMacroGameKeyDown(event, editableContext, guard) {
     const directCanvas = eventPathCanvas(event);
     if (directCanvas) rememberMacroGameCanvas(directCanvas);
-    const target = directCanvas ?? (editableContext ? resolveMacroGameCanvas() : null);
-    if (!target) return;
+    const previous = activeMacroGameKeys.get(event.code);
+    if (previous && !isConnectedGameCanvas(previous.target)) {
+      activeMacroGameKeys.delete(event.code);
+      return { kind: "target-retired", target: "canvas", isTrusted: false };
+    }
+    const target = previous?.target ?? directCanvas ?? (editableContext ? resolveMacroGameCanvas() : null);
+    if (!target) return { kind: "direct", target: "document", isTrusted: event.isTrusted };
     const snapshot = snapshotMacroKeyboardEvent(event);
-    activeMacroGameKeys.set(event.code, { snapshot, target });
-    if (!directCanvas) dispatchForwardedMacroGameEvent(target, "keydown", snapshot);
+    activeMacroGameKeys.set(event.code, { snapshot, target,
+      deliveryOwner: guard.deliveryOwner ?? null, dispatchId: guard.dispatchId });
+    const forwarded = target !== directCanvas;
+    if (forwarded && directCanvas) consumeShortcutEvent(event);
+    if (forwarded && !dispatchForwardedMacroGameEvent(target, "keydown", snapshot)) {
+      return { kind: "delivery-failed", target: "canvas", isTrusted: false };
+    }
+    return { kind: forwarded ? "compatibility" : "direct", target: "canvas", isTrusted: !forwarded && event.isTrusted };
   }
 
-  function routeMacroGameKeyUp(event, editableContext) {
+  function routeMacroGameKeyUp(event, editableContext, guard) {
     const directCanvas = eventPathCanvas(event);
     if (directCanvas) rememberMacroGameCanvas(directCanvas);
     const active = activeMacroGameKeys.get(event.code);
-    const target = active?.target ?? (editableContext ? resolveMacroGameCanvas() : directCanvas);
-    activeMacroGameKeys.delete(event.code);
+    if (active && guard.deliveryOwner) active.releaseDispatchId = guard.dispatchId;
+    else activeMacroGameKeys.delete(event.code);
+    // A release belongs to its original recipient; never guess a replacement canvas.
+    if (active && !isConnectedGameCanvas(active.target)) {
+      activeMacroGameKeys.delete(event.code);
+      return { kind: "target-retired", target: "canvas", isTrusted: false };
+    }
+    const target = active?.target ?? (editableContext ? null : directCanvas);
     if (target && directCanvas !== target) {
-      dispatchForwardedMacroGameEvent(target, "keyup", snapshotMacroKeyboardEvent(event, false));
+      if (directCanvas) consumeShortcutEvent(event);
+      const delivered = dispatchForwardedMacroGameEvent(target, "keyup", snapshotMacroKeyboardEvent(event, false));
+      return { kind: delivered ? "compatibility" : "delivery-failed", target: "canvas", isTrusted: false };
     }
-  }
-
-  function reassertForwardedMacroKeys() {
-    for (const [code, active] of [...activeMacroGameKeys]) {
-      if (!isConnectedGameCanvas(active.target)) {
-        activeMacroGameKeys.delete(code);
-        continue;
-      }
-      dispatchForwardedMacroGameEvent(
-        active.target,
-        "keydown",
-        { ...active.snapshot, repeat: false }
-      );
-    }
+    return { kind: "direct", target: directCanvas ? "canvas" : "document", isTrusted: event.isTrusted };
   }
 
   function handleMacroGameFocusIn(event) {
@@ -652,7 +674,9 @@
       macroGameKeyReassertQueued = false;
       if (isDisposed || getDeepActiveElement() !== activeElement) return;
       macroGameKeysNeedReassert = false;
-      reassertForwardedMacroKeys();
+      // Core decides whether any owner still exists after a simultaneous stop/release.
+      // This event never directly dispatches a canvas keydown.
+      requestHeldKeyContinuity("blur", () => undefined);
     });
   }
 
@@ -890,8 +914,8 @@
       if (editableContext && event.cancelable) {
         event.preventDefault();
       }
-      routeMacroGameKeyDown(event, editableContext);
-      reportObservedMacroKey(macroKeyGuard, event);
+      const delivery = routeMacroGameKeyDown(event, editableContext, macroKeyGuard);
+      reportObservedMacroKey(macroKeyGuard, event, true, delivery);
       return;
     }
     // A non-repeat keydown starts a new physical ownership cycle. This also
@@ -1033,8 +1057,8 @@
       }
       const activeElement = gameInputContextActive ? undefined : document.activeElement;
       const editableContext = shouldIgnoreShortcutEvent(event, activeElement, document.designMode);
-      routeMacroGameKeyUp(event, editableContext);
-      reportObservedMacroKey(macroKeyGuard, event);
+      const delivery = routeMacroGameKeyUp(event, editableContext, macroKeyGuard);
+      reportObservedMacroKey(macroKeyGuard, event, true, delivery);
       return;
     }
     const managedShortcuts = [...activeKeyboardShortcuts.entries()].filter(

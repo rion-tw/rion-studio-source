@@ -20,6 +20,7 @@ export function windowsChromiumViewParentBinding(
       const native = probe.readWindowsRuntimeForeground(parentHandle);
       return { parentIdentity: native.parentIdentity, focusIdentity: native.focusIdentity,
         physicalInputSequence: probe.readWindowsPhysicalInputSequence(parentHandle),
+        physicalKeyboardEvidence: probe.readWindowsPhysicalKeyboardEvidence?.(parentHandle),
         parentForeground: native.parentWasForeground && window.isFocused(),
         parentVisible: native.parentVisible && window.isVisible(), parentMinimized: native.parentMinimized,
         focusedWebContentsId: focusedWebContentsId() };

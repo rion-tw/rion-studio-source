@@ -1,3 +1,4 @@
+import type { ChromiumPhysicalKeyboardEvidence } from "./chromiumPhysicalKeyboardEvidence";
 import { type ChromiumViewInputIdentity,
   type ChromiumViewInputObservation } from "./chromiumViewInputSubmission";
 import type { ChromiumRoleSurfaceNativeAttachmentInput, ChromiumRoleSurfaceNativeAttachmentPort,
@@ -14,6 +15,7 @@ export interface ChromiumViewParentBinding {
     parentIdentity: string; focusIdentity: string; parentForeground: boolean;
     parentVisible: boolean; parentMinimized: boolean; focusedWebContentsId: number | null;
     physicalInputSequence: string;
+    physicalKeyboardEvidence?: ChromiumPhysicalKeyboardEvidence;
   }>;
   readonly contentsFocused: (view: ChromiumRoleWebContentsViewPort) => boolean;
   readonly subscribe: (listener: (event: "changed" | "focused" | "closed") => void) => () => void;

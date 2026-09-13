@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "physical_key_evidence.h"
+
 // Unified compact is AppKit's 40pt titlebar host on macOS 12 and newer. Keep
 // the accessory at the exact host height so the blur covers the whole row and
 // never leaves a separator-colored strip above the game content.

@@ -1,6 +1,6 @@
 # Trusted Input Receipts
 
-This document is the normative Chromium contract v36 source for trusted-input
+This document is the normative Chromium contract v37 source for trusted-input
 receipt provenance, uncertain-edge neutralization, quarantine, and retained
 terminal evidence. The broader recovery transaction remains defined by
 [Lifecycle and Recovery](lifecycle-and-recovery.md).
@@ -177,3 +177,26 @@ the receipt, rejected with the exact admission reason, or failed with the
 original error code/message. An admission refusal never queues input for replay.
 Unknown failures and unproven recovery remain actionable. Bundle diagnostics
 include the source commit and a digest of working-tree changes.
+
+## v37 exact release provenance and game delivery
+
+The passive native keyboard journal carries a bounded ordered history of physical
+code, phase, repeat and native consumption for the exact attached surface. The
+128-edge bound retains a 40-edge rapid Shift chord burst while its DOM stream
+arrives; truncation across an unconsumed watermark still fails closed. A
+Digit3 keyup never consumes the evidence budget for Digit1. The document preload
+stream persists across idle, arming and cancellation; each arm acknowledges its
+observation watermark. Missing observations or journal overflow fail closed.
+
+A captured trusted event is distinct from target dispatch. Core-authorized guards
+carry owner, request, input epoch and surface generation. Canvas compatibility
+preserves editable focus and explicitly reports `isTrusted=false`; releases go to
+the original connected target, never a replacement canvas. Focus events request
+Core continuity and cannot independently reassert a local held-key map.
+
+Compensation only releases newly applied or possibly applied downs. It never
+inverts a completed keyup. An expired original request cannot dispatch further
+compensation. The existing Core recovery ticket issues a new release-only request
+with its own deadline after the original lane returns. Diagnostics retain the
+parent request, applied prefix, compensation and rollback outcomes. Neither a
+DOM capture nor a Core rollback alone proves the game consumer is neutral.

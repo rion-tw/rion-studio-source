@@ -104,11 +104,27 @@ async function compensateEdges(input: Readonly<{
   surfaceGeneration: number;
   physicalModifierCodes: readonly string[];
   edges: readonly EmbeddedKeyEffectRecord[];
+  nowMs: () => number;
   dispatch: (request: ChromiumNativeTrustedInputRequest) =>
     Promise<ChromiumNativeTrustedInputReceipt>;
 }>): Promise<CoreErrorPayload | null> {
-  for (const applied of [...input.edges].reverse()) {
-    const inverse = inverseChromiumKeyEffect(applied);
+  const remaining = new Map<string, EmbeddedKeyEffectRecord>();
+  const active = new Set(input.edges[0]?.activeCodesBefore ?? []);
+  for (const effect of input.edges) {
+    if (effect.phase === "keyUp") active.delete(effect.code);
+    else active.add(effect.code);
+    if (effect.phase === "keyUp") remaining.delete(effect.code);
+    else if (!effect.activeCodesBefore.includes(effect.code)) remaining.set(effect.code, effect);
+  }
+  for (const applied of [...remaining.values()].reverse()) {
+    if (input.nowMs() >= input.request.deadlineMs) return {
+      code: "SYSTEM_TRUSTED_INPUT_CLEANUP_REQUIRES_RECOVERY",
+      message: "The original deadline expired; the Core recovery transaction must authorize a new cleanup request."
+    };
+    const beforeRelease = [...active];
+    active.delete(applied.code);
+    const inverse = inverseChromiumKeyEffect({ ...applied,
+      activeCodes: beforeRelease, activeCodesBefore: [...active] });
     if (!inverse) continue;
     try {
       const receipt = await input.dispatch(nativeRequest(
@@ -213,7 +229,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         !(compensated && rolledBack && neutralBefore),
         {
           actionIndeterminate: true,
-          possiblyAppliedEdges: possiblyApplied,
+          possiblyAppliedEdges: [...applied, ...possiblyApplied],
           confirmedInputNeutrality: compensated && rolledBack && neutralBefore
         }
       );
@@ -228,7 +244,7 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         receipt,
         compensated && rolledBack && neutralBefore,
         action.type === "reassertHeldKeys",
-        possiblyApplied
+        [...applied, ...possiblyApplied]
       );
     }
     applied.push(effect);
@@ -244,7 +260,8 @@ export async function executeChromiumTrustedKeySequence(input: Readonly<{
         compensated
           ? "Chromium input was compensated, but Core completion is indeterminate."
           : "Chromium input and Core completion are indeterminate.",
-        true
+        true,
+        { possiblyAppliedEdges: applied }
       );
     }
   }

@@ -28,6 +28,11 @@ export function createTrustedInputArmEnvelope(
     : Object.freeze([] as string[]);
   return Object.freeze({
     kind: "arm",
+    deliveryOwner: request.keyEffect ? {
+      ownerId: legacyKey?.ownerId ?? "core-held-key-projection",
+      requestId: request.requestId, inputEpoch: request.inputEpoch,
+      surfaceGeneration: request.surfaceGeneration
+    } : null,
     roleId: request.roleId,
     generation: request.surfaceGeneration,
     frameToken,

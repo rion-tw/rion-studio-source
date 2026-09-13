@@ -189,6 +189,16 @@ pub struct AppKitChromiumMouseDispatchResult {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
+pub struct AppKitPhysicalKeyEvent {
+    pub sequence: u64,
+    pub code: [u8; 32],
+    pub released: u8,
+    pub repeat: u8,
+    pub consumed: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
 pub struct AppKitChromiumInputSurfaceProbeResult {
     pub target_attached: u8,
     pub target_window_is_key: u8,
@@ -201,10 +211,38 @@ pub struct AppKitChromiumInputSurfaceProbeResult {
     pub physical_input_sequence: u64,
     pub physical_key_down_sequence: u64,
     pub physical_key_up_sequence: u64,
+    pub physical_keyboard_sequence: u64,
+    pub physical_key_event_count: u32,
+    pub physical_key_events: [AppKitPhysicalKeyEvent; 128],
     pub target_x: f64,
     pub target_y: f64,
     pub target_width: f64,
     pub target_height: f64,
+}
+
+impl Default for AppKitChromiumInputSurfaceProbeResult {
+    fn default() -> Self {
+        Self {
+            target_attached: 0,
+            target_window_is_key: 0,
+            target_receives_physical_input: 0,
+            key_window_address: 0,
+            key_window_first_responder_address: 0,
+            target_window_address: 0,
+            target_window_first_responder_address: 0,
+            physical_modifier_mask: 0,
+            physical_input_sequence: 0,
+            physical_key_down_sequence: 0,
+            physical_key_up_sequence: 0,
+            physical_keyboard_sequence: 0,
+            physical_key_event_count: 0,
+            physical_key_events: [AppKitPhysicalKeyEvent::default(); 128],
+            target_x: 0.0,
+            target_y: 0.0,
+            target_width: 0.0,
+            target_height: 0.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

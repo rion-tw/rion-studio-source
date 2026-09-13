@@ -10,6 +10,8 @@ import type { ChromiumRuntimeExecutorSnapshot } from
   "./chromiumRuntimeEffectExecutor";
 import { recentTrustedInputTerminals } from
   "./chromiumTrustedInputTerminalJournal";
+import { recentChromiumExtensionRuntimeFailures } from
+  "./chromiumExtensionRuntimeDiagnostics";
 
 const INCOMPLETE_COLLECTION_CODES = Object.freeze([
   "ELECTRON_RUNTIME_SURFACE_PHASE_DIAGNOSTICS_UNAVAILABLE",
@@ -100,7 +102,7 @@ export class ElectronRuntimeDiagnosticsCollector {
       recentInputFenceEvents: [],
       recentTrustedInputTerminals: recentTrustedInputTerminals(),
       recentMacroStartAttempts: [],
-      recentFailures: [],
+      recentFailures: recentChromiumExtensionRuntimeFailures(),
       recentOperations: [],
       capabilityEvidence: capabilityEvidence(registration),
       recentRuntimeKernelOperations: []

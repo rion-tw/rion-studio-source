@@ -6,6 +6,7 @@ import type {
 } from "electron";
 import type { RolePathsRecord } from "../../shared/generated";
 import type {
+  ChromiumRoleExtensionSurfacePort,
   ChromiumRoleSessionHandle,
   ChromiumRoleSessionPort
 } from "./chromiumRoleSessionRegistry";
@@ -192,7 +193,10 @@ export interface ChromiumWebContentsViewFactoryPort {
 }
 
 export interface ChromiumRoleSessionOwnerPort {
-  prepareExtensions?: (handle: ChromiumRoleSessionHandle) => Promise<void>;
+  prepareExtensions?: (
+    handle: ChromiumRoleSessionHandle,
+    surface?: ChromiumRoleExtensionSurfacePort
+  ) => Promise<void>;
   ensure: (
     roleId: string,
     rolePaths: RolePathsRecord

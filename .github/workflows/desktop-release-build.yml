@@ -221,6 +221,7 @@ jobs:
             cp "release/electron/Rion.Studio-mac.dmg" candidate/Rion.Studio-mac.dmg
             cp "release/electron/Rion.Studio-mac.app.tar.gz" candidate/Rion.Studio-mac.app.tar.gz
             cp "release/electron/Rion.Studio-mac.app.tar.gz.sig" candidate/Rion.Studio-mac.app.tar.gz.sig
+            cp "release/electron/Rion.Studio-source.tar.gz" candidate/Rion.Studio-source.tar.gz
           else
             installer="release/electron/Rion.Studio-win.exe"
             cp "${installer}" candidate/Rion.Studio-win.exe
@@ -296,6 +297,7 @@ jobs:
             --mac-archive candidate/Rion.Studio-mac.app.tar.gz \
             --windows-installer candidate/Rion.Studio-win.exe \
             --output candidate/latest.json
+          node -e 'import("./scripts/electronSourceArchive.mjs").then(({verifyElectronSourceArchive}) => verifyElectronSourceArchive("candidate/Rion.Studio-source.tar.gz", process.env.VERSION))'
           node scripts/releaseArtifacts.mjs candidate "${VERSION}" --write-checksums --require-electron
 
       - name: Record verified release artifact

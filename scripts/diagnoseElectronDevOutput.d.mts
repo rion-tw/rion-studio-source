@@ -12,6 +12,14 @@ export interface ElectronDevOutputFinding {
   readonly id: string;
   readonly recommendation: string;
   readonly samples: readonly string[];
+  readonly details?: readonly Readonly<{
+    api?: string;
+    code: string;
+    column?: number;
+    extensionId?: string;
+    line?: number;
+    relativeFile?: string;
+  }>[];
 }
 
 export interface ElectronDevOutputDiagnosis {

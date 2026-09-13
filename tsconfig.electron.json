@@ -3,11 +3,28 @@
   "compilerOptions": {
     "composite": true,
     "lib": ["ES2022"],
-    "types": ["node", "electron", "vite/client"]
+    "types": ["node", "electron", "chrome", "vite/client"]
   },
   "include": [
     "electron.vite.config.ts",
     "src/electron/**/*.ts",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    "third_party/electron-chrome-extensions/src/rion-preload.ts",
+    "third_party/electron-chrome-extensions/src/browser/rion.ts",
+    "third_party/electron-chrome-extensions/src/browser/context.ts",
+    "third_party/electron-chrome-extensions/src/browser/impl.ts",
+    "third_party/electron-chrome-extensions/src/browser/license.ts",
+    "third_party/electron-chrome-extensions/src/browser/router.ts",
+    "third_party/electron-chrome-extensions/src/browser/store.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/alarms.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/commands.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/common.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/compatibility.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/notifications.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/offscreen.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/permissions.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/session-storage.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/tabs.ts",
+    "third_party/electron-chrome-extensions/src/browser/api/web-navigation.ts"
   ]
 }

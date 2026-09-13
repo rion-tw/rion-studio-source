@@ -39,9 +39,17 @@ const MACOS_ELECTRON_FRAMEWORK_RELATIVE_PATH = join(
 );
 const SEMANTIC_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
 const EXPECTED_ARCHIVE_MAIN = "out/main/index.js";
+const EXTENSION_COMPATIBILITY_SOURCE_ROOT =
+  "third_party/electron-chrome-extensions";
 const REQUIRED_ARCHIVE_FILES = Object.freeze([
   "package.json",
+  "LICENSE",
+  "TRADEMARKS.md",
+  "docs/legal/THIRD_PARTY_NOTICES.md",
+  `${EXTENSION_COMPATIBILITY_SOURCE_ROOT}/LICENSE-GPL`,
+  `${EXTENSION_COMPATIBILITY_SOURCE_ROOT}/RION-PROVENANCE.md`,
   EXPECTED_ARCHIVE_MAIN,
+  "out/preload/extensionCompat.cjs",
   "out/preload/index.cjs",
   "out/preload/role.cjs",
   "out/preload/runtimeWindowsHost.cjs",
@@ -213,6 +221,19 @@ export function verifyProductionElectronArchive(archivePath) {
     throw new Error(
       "Packaged Electron ASAR package.json must contain a semantic version"
     );
+  }
+  for (const [path, marker] of [
+    ["LICENSE", "GPL-3.0-only"],
+    ["TRADEMARKS.md", "grant permission"],
+    ["docs/legal/THIRD_PARTY_NOTICES.md", "@ramboxapp/electron-chrome-extensions"],
+    [`${EXTENSION_COMPATIBILITY_SOURCE_ROOT}/LICENSE-GPL`, "GNU GENERAL PUBLIC LICENSE"],
+    [`${EXTENSION_COMPATIBILITY_SOURCE_ROOT}/RION-PROVENANCE.md`, "026cea78b6d743a81e2aa0e84d236081fccf4c72"]
+  ]) {
+    const source = extractBoundedArchiveFile(archivePath, path, 1024 * 1024)
+      .toString("utf8");
+    if (!source.includes(marker)) {
+      throw new Error(`Packaged Electron ASAR legal file is invalid: ${path}`);
+    }
   }
 
   const runtimeSources = [];

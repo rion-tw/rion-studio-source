@@ -151,7 +151,7 @@ async function closeContents(contents: ChromiumMigrationWebContentsPort): Promis
 }
 
 /**
- * Origin codec/readback only. Electron 43 exposes no completion event for
+ * Origin codec/readback only. Electron 44 exposes no completion event for
  * `Session.flushStorageData()`, so this class deliberately makes no durability
  * claim and must not produce a migration flush receipt.
  */

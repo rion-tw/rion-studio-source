@@ -48,6 +48,49 @@ describe("Electron development output diagnostics", () => {
     expect(diagnosis).toMatchObject({ exitCode: 0, status: "notes" });
   });
 
+  it("correlates extension IDs, APIs, files and service-worker failures without paths", () => {
+    const extensionId = "d".repeat(32);
+    const diagnosis = classifyElectronDevOutput(`
+(node:7) ExtensionLoadWarning: Warnings loading extension at /Users/person/Library/Application Support/Rion Studio/extensions/${extensionId}-private:
+  Permission 'notifications' is unknown.
+  Permission 'webNavigation' is unknown.
+[7:ERROR:extensions/browser/extensions_browser_client.cc:92] Extension Error:
+  Source:  chrome-extension://${extensionId}/js/background.js
+  Message: Uncaught TypeError: Cannot read properties of undefined (reading 'onRemoved')
+  ID:      ${extensionId}
+  Type:    RuntimeError
+  Stack Trace:
+    {
+      Line:     899
+      Column:   1
+      URL:      chrome-extension://${extensionId}/js/background.js
+    }
+[7:ERROR:extensions/browser/extensions_browser_client.cc:92] Extension Error:
+  Source:  manifest.json
+  Message: Service worker registration failed. Status code: 15
+  ID:      ${extensionId}
+  Type:    ManifestError
+`);
+
+    expect(diagnosis).toMatchObject({ exitCode: 0, status: "notes" });
+    expect(diagnosis.findings.map(({ count, id }) => ({ count, id }))).toEqual([
+      { count: 1, id: "extension-service-worker-registration-failed" },
+      { count: 1, id: "extension-service-worker-runtime-error" },
+      { count: 1, id: "unsupported-extension-api" }
+    ]);
+    expect(diagnosis.findings.flatMap(finding => finding.details ?? [])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ api: "notifications", extensionId }),
+        expect.objectContaining({ api: "webNavigation", extensionId }),
+        expect.objectContaining({
+          api: "member.onRemoved", column: 1, extensionId, line: 899,
+          relativeFile: "js/background.js"
+        })
+      ])
+    );
+    expect(formatElectronDevOutputDiagnosis(diagnosis)).not.toContain("/Users/person");
+  });
+
   it("fails closed for an unclassified diagnostic line", () => {
     const diagnosis = classifyElectronDevOutput("Error occurred while opening an unknown lane");
 

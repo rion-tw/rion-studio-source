@@ -487,7 +487,11 @@ describe("Electron packaging contract", () => {
       await Promise.all([
         mkdir(join(sourceRoot, "out/main"), { recursive: true }),
         mkdir(join(sourceRoot, "out/preload"), { recursive: true }),
-        mkdir(join(sourceRoot, "out/renderer/assets"), { recursive: true })
+        mkdir(join(sourceRoot, "out/renderer/assets"), { recursive: true }),
+        mkdir(join(sourceRoot, "docs/legal"), { recursive: true }),
+        mkdir(join(sourceRoot, "third_party/electron-chrome-extensions"), {
+          recursive: true
+        })
       ]);
       await Promise.all([
         writeFile(join(sourceRoot, "package.json"), JSON.stringify({
@@ -497,7 +501,22 @@ describe("Electron packaging contract", () => {
         })),
         writeFile(join(sourceRoot, "out/main/index.js"), "export const main = true;"),
         writeFile(join(sourceRoot, "out/preload/index.cjs"), "module.exports = {};"),
+        writeFile(join(sourceRoot, "out/preload/extensionCompat.cjs"), "module.exports = {};"),
         writeFile(join(sourceRoot, "out/preload/role.cjs"), ""),
+        writeFile(join(sourceRoot, "LICENSE"), "GPL-3.0-only"),
+        writeFile(join(sourceRoot, "TRADEMARKS.md"), "does not grant permission"),
+        writeFile(
+          join(sourceRoot, "docs/legal/THIRD_PARTY_NOTICES.md"),
+          "@ramboxapp/electron-chrome-extensions"
+        ),
+        writeFile(
+          join(sourceRoot, "third_party/electron-chrome-extensions/LICENSE-GPL"),
+          "GNU GENERAL PUBLIC LICENSE"
+        ),
+        writeFile(
+          join(sourceRoot, "third_party/electron-chrome-extensions/RION-PROVENANCE.md"),
+          "026cea78b6d743a81e2aa0e84d236081fccf4c72"
+        ),
         writeFile(
           join(sourceRoot, "out/preload/runtimeWindowsHost.cjs"),
           "module.exports = {};"
@@ -520,7 +539,7 @@ describe("Electron packaging contract", () => {
       expect(verifyProductionElectronArchive(archivePath)).toMatchObject({
         archivePath,
         packageVersion: "23.4.5",
-        runtimeSourceCount: ELECTRON_RENDERER_DOCUMENTS.length + 6
+        runtimeSourceCount: ELECTRON_RENDERER_DOCUMENTS.length + 7
       });
 
       const runtimeWindowsHostPreload = join(

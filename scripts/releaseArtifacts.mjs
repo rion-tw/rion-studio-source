@@ -15,8 +15,10 @@ export const REQUIRED_RELEASE_ASSETS = [
   "Rion.Studio-mac.app.tar.gz.sig",
   "Rion.Studio-win.exe",
   "Rion.Studio-win.exe.sig",
+  "Rion.Studio-source.tar.gz",
   "latest.json"
 ];
+const ELECTRON_SOURCE_ARCHIVE_NAME = "Rion.Studio-source.tar.gz";
 
 export const CHECKSUM_ASSET_NAME = "SHA256SUMS.txt";
 const ALLOWED_RELEASE_ASSETS = new Set([...REQUIRED_RELEASE_ASSETS, CHECKSUM_ASSET_NAME]);
@@ -28,6 +30,7 @@ const UPDATER_PLATFORM_ASSETS = [
 export async function verifyReleaseAssets(directory, expectedVersion, options = {}) {
   const {
     allowChecksums = false,
+    allowLegacyCandidateWithoutSourceArchive = false,
     allowLegacyManifestWithoutDigests = false
   } = options;
   if (allowLegacyManifestWithoutDigests && !allowChecksums) {
@@ -36,7 +39,10 @@ export async function verifyReleaseAssets(directory, expectedVersion, options = 
     );
   }
   const names = (await readdir(directory)).sort();
-  const missing = REQUIRED_RELEASE_ASSETS.filter((name) => !names.includes(name));
+  const requiredAssets = allowLegacyCandidateWithoutSourceArchive
+    ? REQUIRED_RELEASE_ASSETS.filter((name) => name !== ELECTRON_SOURCE_ARCHIVE_NAME)
+    : REQUIRED_RELEASE_ASSETS;
+  const missing = requiredAssets.filter((name) => !names.includes(name));
   if (missing.length > 0) throw new Error(`Missing required release assets: ${missing.join(", ")}`);
 
   const unexpected = names.filter(

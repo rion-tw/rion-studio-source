@@ -23,7 +23,7 @@ export interface ElectronOverlayMainWindowPort {
 }
 
 export interface ElectronOverlayClipboardPort {
-  readText: () => string;
+  readText: () => Promise<string>;
   writeText: (text: string) => void;
 }
 
@@ -170,10 +170,12 @@ export class ElectronOverlayShellEffects {
     return request;
   }
 
-  copyCoordinate(coordinate: MacroCoordinateRecord): Readonly<{ text: string }> {
+  async copyCoordinate(
+    coordinate: MacroCoordinateRecord
+  ): Promise<Readonly<{ text: string }>> {
     const text = formatMacroCoordinateText(coordinate);
     this.#input.clipboard.writeText(text);
-    if (this.#input.clipboard.readText() !== text) {
+    if (await this.#input.clipboard.readText() !== text) {
       throw shellError(
         "ELECTRON_SHELL_CLIPBOARD_INDETERMINATE",
         "The system clipboard did not acknowledge the exact macro coordinate."

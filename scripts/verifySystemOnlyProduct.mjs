@@ -143,7 +143,9 @@ const migrationOnlyTokens = new Map([
     "crates/rion-core/src/database/state.rs"
   ])],
   ['"proxy"', new Set([
-    "crates/rion-core/src/database/state.rs"
+    "crates/rion-core/src/database/state.rs",
+    // Static extension classification rejects this Chrome permission before load.
+    "src/electron/main/chromiumExtensionSessions.ts"
   ])]
 ]);
 const probePath = optionValue("--probe");

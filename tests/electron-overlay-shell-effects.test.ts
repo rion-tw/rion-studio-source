@@ -34,7 +34,7 @@ function harness(input: Readonly<{ minimized?: boolean; destroyed?: boolean }> =
   };
   const publishMacroPageRequested = vi.fn(() => true);
   const writeText = vi.fn((text: string) => { clipboardText = text; });
-  const readText = vi.fn(() => clipboardText);
+  const readText = vi.fn(async () => clipboardText);
   const effects = new ElectronOverlayShellEffects({
     clipboard: { readText, writeText },
     mainWindow: () => window,
@@ -83,23 +83,23 @@ describe("Electron overlay shell effects", () => {
     expect(destroyed.publishMacroPageRequested).not.toHaveBeenCalled();
   });
 
-  it("formats and verifies the exact legacy-compatible coordinate text", () => {
+  it("formats and verifies the exact legacy-compatible coordinate text", async () => {
     const test = harness();
     const expected = "X: 214px (22.27%), Y: 0px (0%), Anchor: top-left, " +
       "ReferenceViewport: 960x540px, CSS: X 285px, Y 0px, " +
       "Viewport: 1280x720px, Zoom: 75%";
 
     expect(formatMacroCoordinateText(coordinate())).toBe(expected);
-    expect(test.effects.copyCoordinate(coordinate())).toEqual({ text: expected });
+    await expect(test.effects.copyCoordinate(coordinate())).resolves.toEqual({ text: expected });
     expect(test.writeText).toHaveBeenCalledWith(expected);
     expect(test.readText).toHaveBeenCalledOnce();
   });
 
-  it("fails closed when clipboard readback diverges or coordinates are invalid", () => {
+  it("fails closed when clipboard readback diverges or coordinates are invalid", async () => {
     const test = harness();
-    test.readText.mockReturnValue("replaced by another writer");
-    expect(() => test.effects.copyCoordinate(coordinate()))
-      .toThrowError(expect.objectContaining({
+    test.readText.mockResolvedValue("replaced by another writer");
+    await expect(test.effects.copyCoordinate(coordinate()))
+      .rejects.toThrowError(expect.objectContaining({
         code: "ELECTRON_SHELL_CLIPBOARD_INDETERMINATE"
       }));
 

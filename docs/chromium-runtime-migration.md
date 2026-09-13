@@ -286,7 +286,7 @@ one admitted Role, WebContents, surface generation, document instance, and
 preload frame token. Navigation, close, crash, or debugger detach is an exact
 terminal event for pending work. Command acceptance is submission evidence only;
 trusted DOM receipt remains the success authority. See Electron's
-[`webContents.debugger`](https://github.com/electron/electron/blob/v43.6.0/docs/api/debugger.md)
+[`webContents.debugger`](https://github.com/electron/electron/blob/v44.3.0/docs/api/debugger.md)
 and the Chromium [`Input` domain](https://chromedevtools.github.io/devtools-protocol/tot/Input/).
 
 The transport uses an explicit cross-platform descriptor catalog for all
@@ -630,7 +630,7 @@ drain instead of consuming that request or creating the main window.
 A pending, failed, malformed, or indeterminate resume remains non-success;
 starting the shell or registering the adapter does not promote that role.
 
-Electron 43 provides promise-backed cookie mutation, readback, and cookie-store
+Electron 44 provides promise-backed cookie mutation, readback, and cookie-store
 flush, so a cookie-only inventory can obtain an exact in-process receipt. Its
 DOM Storage flush API returns no promise, callback, or completion event. A live
 LocalStorage readback therefore proves the logical values but not crash-durable

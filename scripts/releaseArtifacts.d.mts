@@ -6,6 +6,7 @@ export function verifyReleaseAssets(
   expectedVersion: string,
   options?: {
     allowChecksums?: boolean;
+    allowLegacyCandidateWithoutSourceArchive?: boolean;
     allowLegacyManifestWithoutDigests?: boolean;
   }
 ): Promise<string[]>;

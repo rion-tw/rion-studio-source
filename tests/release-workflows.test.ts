@@ -21,6 +21,8 @@ describe("desktop shell migration workflows", () => {
     expect(candidate).toContain("uses: ./.github/workflows/desktop-release-build.yml");
     const build = await readWorkflow(".github/workflows/desktop-release-build.yml");
     expect(build).toContain("pnpm run dist");
+    expect(build).toContain("candidate/Rion.Studio-source.tar.gz");
+    expect(build).toContain("verifyElectronSourceArchive");
     expect(build).not.toContain("environment: electron-production-");
     expect(candidate).not.toContain("environment: electron-production-");
     expect(candidate).not.toContain("pnpm exec tauri build");

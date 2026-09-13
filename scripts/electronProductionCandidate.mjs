@@ -583,9 +583,14 @@ export async function assembleElectronProductionCandidate(input) {
     "--published-at", validated.publishedAt,
     "--output", path.join(outputDirectory, "latest.json")
   ]);
-  await verifyReleaseAssets(outputDirectory, validated.version);
+  // This owner-retired candidate-only path predates the current GPL source
+  // artifact contract. The active desktop release workflow requires and
+  // verifies Rion.Studio-source.tar.gz before publication.
+  const legacyCandidateVerification = { allowLegacyCandidateWithoutSourceArchive: true };
+  await verifyReleaseAssets(outputDirectory, validated.version, legacyCandidateVerification);
   await writeReleaseChecksums(outputDirectory);
   const assetNames = await verifyReleaseAssets(outputDirectory, validated.version, {
+    ...legacyCandidateVerification,
     allowChecksums: true
   });
   const assetSha256 = {};

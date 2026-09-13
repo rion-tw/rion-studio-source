@@ -275,7 +275,10 @@ impl AppCore {
                 lease_id,
                 status,
             } => {
-                if !matches!(status.as_str(), "loaded" | "failed") {
+                if !matches!(
+                    status.as_str(),
+                    "loaded" | "degraded" | "failed" | "indeterminate"
+                ) {
                     return Err(CoreError::InvalidInput(
                         "Invalid extension status".to_owned(),
                     ));

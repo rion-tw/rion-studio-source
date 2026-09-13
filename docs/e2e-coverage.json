@@ -516,7 +516,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install the official AdBlock package with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install the official AdBlock package with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI and verify its extension reaches the exact compatibility-ready loaded status before Role navigation, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-EXTENSIONS-001",
@@ -539,7 +539,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install the official AdBlock package with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI and verify its extension load, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, install the official AdBlock package with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI and verify its extension reaches the exact compatibility-ready loaded status before Role navigation, verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-SHELL-001",
@@ -862,7 +862,7 @@
         "success",
         "restart"
       ],
-      "description": "Accept the legal documents, dismiss first-run setup, reach the macOS Chromium application shell, and prove the accepted state survives restart without substituting for AppKit runtime-window evidence."
+      "description": "Accept the versioned Terms with GPL/trademark provisions plus the privacy and fair-use documents, dismiss first-run setup, reach the macOS Chromium application shell, and prove the accepted state survives restart without substituting for AppKit runtime-window evidence."
     },
     {
       "id": "CHROMIUM-WINDOWS-LEGAL-007",
@@ -888,7 +888,7 @@
         "success",
         "restart"
       ],
-      "description": "Accept the legal documents, dismiss first-run setup, reach the Windows Chromium application shell, and prove the accepted state survives restart."
+      "description": "Accept the versioned Terms with GPL/trademark provisions plus the privacy and fair-use documents, dismiss first-run setup, reach the Windows Chromium application shell, and prove the accepted state survives restart."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-PRIMARY-NAV-008",

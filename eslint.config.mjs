@@ -14,6 +14,9 @@ export default tseslint.config(
       "out",
       "release",
       "target",
+      // Complete corresponding source is retained verbatim; the compiled Rion
+      // subset is typechecked and guarded by focused bundle/native probes.
+      "third_party/electron-chrome-extensions",
       // These two files are ordered raw-script fragments, parsed after Rust concatenates them.
       "src/shared/browser-overlay/macro-overlay-runtime/*.js"
     ]

@@ -54,6 +54,18 @@ const electronBuilderConfiguration = {
       filter: ["**/*"]
     },
     "package.json",
+    "LICENSE",
+    "TRADEMARKS.md",
+    {
+      from: "docs/legal",
+      to: "docs/legal",
+      filter: ["THIRD_PARTY_NOTICES.md"]
+    },
+    {
+      from: "third_party/electron-chrome-extensions",
+      to: "third_party/electron-chrome-extensions",
+      filter: ["LICENSE-GPL", "RION-PROVENANCE.md"]
+    },
     "!node_modules/@tauri-apps/api",
     "!node_modules/@tauri-apps/api/**/*",
     "!**/*.map"

@@ -279,7 +279,8 @@ async function createReleaseFixture(version: string, options: { omit?: string } 
     writeFile(macArchive, "fixture:mac-archive"),
     writeFile(`${macArchive}.sig`, "mac-signature"),
     writeFile(windowsInstaller, "fixture:windows-installer"),
-    writeFile(`${windowsInstaller}.sig`, "windows-signature")
+    writeFile(`${windowsInstaller}.sig`, "windows-signature"),
+    writeFile(join(directory, "Rion.Studio-source.tar.gz"), "fixture:corresponding-source")
   ]);
   runScript([
     "scripts/createUpdaterManifest.mjs",

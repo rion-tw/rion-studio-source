@@ -1388,6 +1388,7 @@
   "extensions.sizeUnavailable": "Unavailable",
   "extensions.noDescription": "No description provided.",
   "extensions.loadFailed": "Load failed",
+  "extensions.compatibilityDegraded": "Limited compatibility",
   "extensions.empty": "No extensions installed yet.",
   "extensions.removeDescription": "Remove this extension from all roles. Active roles keep it until closed. Existing extension data is retained.",
   "extensions.compatibility": "Rion Studio supports some Chrome extension APIs. Installed does not guarantee compatibility. Extension popups and settings pages are unavailable in this version.",

@@ -1,0 +1,218 @@
+import { ipcMain, BrowserWindow, app, Extension, webContents } from 'electron'
+import * as http from 'http'
+import * as path from 'node:path'
+import { AddressInfo } from 'net'
+import { ElectronChromeExtensions } from '../'
+import { emittedOnce } from './events-helpers'
+import { addCrxPreload, createCrxSession, waitForBackgroundScriptEvaluated } from './crx-helpers'
+import { ChromeExtensionImpl } from '../dist/types/browser/impl'
+
+export const useServer = () => {
+  const emptyPage = `<!DOCTYPE html>
+<html>
+  <head>
+    <title>title</title>
+  </head>
+  <body>
+  <script>console.log("loaded")</script>
+  </body>
+</html>`
+
+  // NB. extensions are only allowed on http://, https:// and ftp:// (!) urls by default.
+  let server: http.Server
+  let url: string
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end(emptyPage)
+    })
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', () => {
+        url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
+        resolve()
+      }),
+    )
+  })
+  after(() => {
+    server.close()
+  })
+
+  return {
+    getUrl: () => url,
+  }
+}
+
+const fixtures = path.join(__dirname, 'fixtures')
+
+// Set SPEC_LOG_CONSOLE=1 to relay console output from background pages and
+// renderers to the test output. Useful for debugging failing specs.
+if (process.env.SPEC_LOG_CONSOLE) {
+  app.on('web-contents-created', (_event, wc) => {
+    if (wc.getType() === 'backgroundPage') {
+      wc.on('console-message' as any, (_e: any, _level: any, message: any) => {
+        console.log(`[background]`, typeof message === 'string' ? message : JSON.stringify(message))
+      })
+    }
+  })
+}
+
+export const useExtensionBrowser = (opts: {
+  url?: () => string
+  file?: string
+  extensionName: string
+  openDevTools?: boolean
+  assignTabDetails?: ChromeExtensionImpl['assignTabDetails']
+}) => {
+  let w: Electron.BrowserWindow
+  let extensions: ElectronChromeExtensions
+  let extension: Extension
+  let partition: string
+  let customSession: Electron.Session
+
+  beforeEach(async () => {
+    const sessionDetails = createCrxSession()
+
+    partition = sessionDetails.partition
+    customSession = sessionDetails.session
+
+    addCrxPreload(customSession)
+
+    extensions = new ElectronChromeExtensions({
+      license: 'internal-license-do-not-use' as any,
+      session: customSession,
+      async createTab(details) {
+        const tab = (webContents as any).create({ sandbox: true })
+        if (details.url) await tab.loadURL(details.url)
+        return [tab, w!]
+      },
+      assignTabDetails(details, tab) {
+        opts.assignTabDetails?.(details, tab)
+      },
+    })
+
+    extension = await customSession.loadExtension(path.join(fixtures, opts.extensionName))
+    await waitForBackgroundScriptEvaluated(extension, customSession)
+
+    w = new BrowserWindow({
+      show: false,
+      webPreferences: { session: customSession, nodeIntegration: false, contextIsolation: true },
+    })
+
+    if (process.env.SPEC_LOG_CONSOLE) {
+      w.webContents.on('console-message' as any, (_e: any, level: any, message: any) => {
+        console.log(`[renderer]`, typeof message === 'string' ? message : JSON.stringify(message))
+      })
+      customSession.serviceWorkers.on('console-message', (_e, details) => {
+        console.log(`[service-worker]`, details.message)
+      })
+    }
+
+    if (opts.openDevTools) {
+      w.webContents.openDevTools({ mode: 'detach' })
+    }
+
+    extensions.addTab(w.webContents, w)
+
+    if (opts.file) {
+      await w.loadFile(opts.file)
+    } else if (opts.url) {
+      await w.loadURL(opts.url())
+    }
+  })
+
+  afterEach(() => {
+    if (!w.isDestroyed()) {
+      if (w.webContents.isDevToolsOpened()) {
+        w.webContents.closeDevTools()
+      }
+
+      w.destroy()
+    }
+  })
+
+  return {
+    get window() {
+      return w
+    },
+    get webContents() {
+      return w.webContents
+    },
+    get extensions() {
+      return extensions
+    },
+    get extension() {
+      return extension
+    },
+    get session() {
+      return customSession
+    },
+    get partition() {
+      return partition
+    },
+
+    crx: {
+      async exec(method: string, ...args: any[]) {
+        const p = emittedOnce(ipcMain, 'success')
+        const rpcStr = JSON.stringify({ type: 'api', method, args })
+        const safeRpcStr = rpcStr.replace(/'/g, "\\'")
+        const js = `exec('${safeRpcStr}')`
+        await w.webContents.executeJavaScript(js)
+        const [, result] = await p
+        return result
+      },
+
+      /**
+       * Posts an arbitrary message payload to the fixture background/service
+       * worker and awaits its single 'success' reply. For scenarios the
+       * chrome[api][method] shape of exec() can't express (e.g. exercising a
+       * global like WebSocket).
+       */
+      async raw(payload: object) {
+        const p = emittedOnce(ipcMain, 'success')
+        const safeRpcStr = JSON.stringify(payload).replace(/'/g, "\\'")
+        await w.webContents.executeJavaScript(`exec('${safeRpcStr}')`)
+        const [, result] = await p
+        return result
+      },
+
+      async eventOnce(eventName: string) {
+        const p = emittedOnce(ipcMain, 'success')
+        await w.webContents.executeJavaScript(
+          `exec('${JSON.stringify({ type: 'event-once', name: eventName })}')`,
+        )
+        const [, results] = await p
+
+        if (typeof results === 'string') {
+          throw new Error(results)
+        }
+
+        return results
+      },
+
+      /** Calls a method (hasListener, hasListeners, getRules, ...) on a named event object. */
+      async eventMethod(
+        eventName: string,
+        method: string,
+        ...args: any[]
+      ): Promise<{ ok: boolean; result?: any; error?: string }> {
+        const p = emittedOnce(ipcMain, 'success')
+        const rpcStr = JSON.stringify({ type: 'event-method', name: eventName, method, args })
+        const safeRpcStr = rpcStr.replace(/'/g, "\\'")
+        await w.webContents.executeJavaScript(`exec('${safeRpcStr}')`)
+        const [, result] = await p
+        return result
+      },
+    },
+  }
+}
+
+export const useBackgroundPageLogging = () => {
+  app.on('web-contents-created', (event, wc) => {
+    if (wc.getType() === 'backgroundPage') {
+      wc.on('console-message', (ev, level, message, line, sourceId) => {
+        console.log(`(${sourceId}) ${message}`)
+      })
+    }
+  })
+}

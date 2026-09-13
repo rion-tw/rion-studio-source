@@ -120,6 +120,35 @@ fn extensions_are_unavailable_in_the_stable_shell() {
 }
 
 #[test]
+fn extension_runtime_accepts_only_declared_terminal_statuses() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform_contract(platform, 34);
+        let role = create_role(&core, &first_game_id(&core), 1);
+        let invoke =
+            |input: Value| core.invoke(command(json!({"type":"extensions","command":input})));
+        for status in ["loaded", "degraded", "failed", "indeterminate"] {
+            let acquired = invoke(json!({"type":"acquire","roleId":role})).unwrap();
+            let lease = acquired["lease"]["leaseId"].as_str().unwrap();
+            let completed = invoke(json!({
+                "type":"complete","roleId":role,"leaseId":lease,"status":status
+            }))
+            .unwrap();
+            assert_eq!(completed["snapshot"]["roles"][0]["status"], status);
+            invoke(json!({"type":"release","roleId":role,"leaseId":lease})).unwrap();
+        }
+        let acquired = invoke(json!({"type":"acquire","roleId":role})).unwrap();
+        assert!(invoke(json!({
+            "type":"complete",
+            "roleId":role,
+            "leaseId":acquired["lease"]["leaseId"],
+            "status":"timed-out"
+        }))
+        .is_err());
+        core.shutdown();
+    }
+}
+
+#[test]
 fn extension_all_roles_survives_restart_and_applies_to_future_leases() {
     for platform in ["darwin", "win32"] {
         let (directory, core) = core_for_platform_contract(platform, 23);

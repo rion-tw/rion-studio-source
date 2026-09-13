@@ -1,0 +1,15 @@
+Rion Studio is free software licensed under the GNU General Public License,
+version 3 only (GPL-3.0-only).
+
+The complete license text is included in this source tree at:
+
+  third_party/electron-chrome-extensions/LICENSE-GPL
+
+The same text is distributed with packaged applications as LICENSE-GPL.txt.
+Each public desktop release also includes Rion.Studio-source.tar.gz containing
+the corresponding source for that release.
+SPDX-License-Identifier: GPL-3.0-only
+
+The Rion Studio name, logos, and product artwork are not licensed as
+trademarks by the GPL. See TRADEMARKS.md. Third-party components remain under
+their respective licenses as documented in docs/legal/THIRD_PARTY_NOTICES.md.

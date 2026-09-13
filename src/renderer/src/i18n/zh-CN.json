@@ -1318,6 +1318,7 @@
   "extensions.sizeUnavailable": "无法获取",
   "extensions.noDescription": "未提供描述。",
   "extensions.loadFailed": "加载失败",
+  "extensions.compatibilityDegraded": "兼容性受限",
   "extensions.empty": "尚未安装扩展功能。",
   "extensions.removeDescription": "从所有角色移除此扩展功能；使用中的角色会保留至关闭。既有扩展功能数据将保留。",
   "extensions.compatibility": "Rion Studio 支持部分 Chrome 扩展功能 API；安装成功不代表完整兼容。此版本不提供扩展功能弹出界面与设置页。",

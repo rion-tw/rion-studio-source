@@ -39,9 +39,9 @@ const RULES = Object.freeze([
   }),
   Object.freeze({
     category: "extension-compatibility",
-    id: "unsupported-extension-api",
-    recommendation: "Keep the extension warning visible and verify the affected feature before release.",
-    test: (line) => line.includes("ExtensionLoadWarning: Warnings loading extension at ")
+    id: "extension-service-worker-registration-failed",
+    recommendation: "Inspect the matching compatibility bootstrap failure; the affected package must be isolated.",
+    test: (line) => line.includes("Message: Service worker registration failed. Status code:")
   }),
   Object.freeze({
     category: "macos-framework-noise",
@@ -79,24 +79,115 @@ function findingKey(category, id) {
   return `${category}\0${id}`;
 }
 
+function safeExtensionId(value) {
+  const match = /(?:chrome-extension:\/\/|\/)([a-p]{32})(?:\/|-|$)/u.exec(value);
+  return match?.[1];
+}
+
+function addFinding(findings, finding) {
+  const key = findingKey(finding.category, finding.id);
+  const existing = findings.get(key);
+  findings.set(key, {
+    ...finding,
+    count: (existing?.count ?? 0) + 1,
+    details: Object.freeze([...(existing?.details ?? []), ...(finding.details ?? [])].slice(0, 8)),
+    samples: existing?.samples ?? finding.samples
+  });
+}
+
+function parseExtensionDiagnostics(lines, findings) {
+  const consumed = new Set();
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.includes("ExtensionLoadWarning: Warnings loading extension at ")) {
+      consumed.add(index);
+      const extensionId = safeExtensionId(line);
+      const details = [];
+      for (let next = index + 1; next < Math.min(lines.length, index + 12); next += 1) {
+        const permission = /^\s+Permission '([A-Za-z][A-Za-z0-9._-]{0,63})' is unknown\.$/u
+          .exec(lines[next]);
+        if (!permission) break;
+        consumed.add(next);
+        details.push(Object.freeze({
+          ...(extensionId ? { extensionId } : {}),
+          api: permission[1],
+          code: "ELECTRON_EXTENSION_MANIFEST_PERMISSION_UNKNOWN"
+        }));
+      }
+      addFinding(findings, {
+        category: "extension-compatibility",
+        id: "unsupported-extension-api",
+        recommendation: "Verify that every listed API is supplied by the bounded compatibility layer.",
+        details,
+        samples: [extensionId ? `extension=${extensionId}` : "extension=unknown"]
+      });
+      continue;
+    }
+    if (!line.includes("Extension Error:")) continue;
+    consumed.add(index);
+    let extensionId;
+    let member;
+    let relativeFile;
+    let lineNumber;
+    let column;
+    let registrationFailure = false;
+    for (let next = index + 1; next < Math.min(lines.length, index + 24); next += 1) {
+      const value = lines[next];
+      if (next > index + 1 && value.includes("Extension Error:")) break;
+      if (/^\[.+:ERROR:/u.test(value) && !value.includes("Extension Error:")) break;
+      consumed.add(next);
+      extensionId ??= /^\s+ID:\s+([a-p]{32})\s*$/u.exec(value)?.[1];
+      extensionId ??= safeExtensionId(value);
+      member ??= /\(reading '([A-Za-z][A-Za-z0-9_]{0,63})'\)/u.exec(value)?.[1];
+      const source = /chrome-extension:\/\/[a-p]{32}\/([^\s]+)$/u.exec(value.trim());
+      if (source && !source[1].includes("..")) relativeFile ??= source[1].slice(0, 256);
+      lineNumber ??= Number(/^\s+Line:\s+(\d+)\s*$/u.exec(value)?.[1]) || undefined;
+      column ??= Number(/^\s+Column:\s+(\d+)\s*$/u.exec(value)?.[1]) || undefined;
+      registrationFailure ||= value.includes("Service worker registration failed. Status code:");
+    }
+    const code = registrationFailure
+      ? "ELECTRON_EXTENSION_SERVICE_WORKER_REGISTRATION_FAILED"
+      : "ELECTRON_EXTENSION_SERVICE_WORKER_RUNTIME_ERROR";
+    addFinding(findings, {
+      category: "extension-compatibility",
+      id: registrationFailure
+        ? "extension-service-worker-registration-failed"
+        : "extension-service-worker-runtime-error",
+      recommendation: registrationFailure
+        ? "Check the preceding sanitized runtime failure and compatibility receipt."
+        : "Supply or gate the missing API before treating this package as ready.",
+      details: [Object.freeze({
+        code,
+        ...(extensionId ? { extensionId } : {}),
+        ...(member ? { api: `member.${member}` } : {}),
+        ...(relativeFile ? { relativeFile } : {}),
+        ...(lineNumber ? { line: lineNumber } : {}),
+        ...(column ? { column } : {})
+      })],
+      samples: [extensionId ? `extension=${extensionId}` : "extension=unknown"]
+    });
+  }
+  return consumed;
+}
+
 export function classifyElectronDevOutput(source) {
   if (typeof source !== "string") {
     throw new TypeError("Electron development output must be a string.");
   }
   const findings = new Map();
-  for (const rawLine of source.split(/\r?\n/u)) {
+  const sourceLines = source.split(/\r?\n/u);
+  const consumed = parseExtensionDiagnostics(sourceLines, findings);
+  for (const [index, rawLine] of sourceLines.entries()) {
+    if (consumed.has(index)) continue;
     const line = rawLine.trimEnd();
     if (!line) continue;
     const rule = RULES.find((candidate) => candidate.test(line));
     if (rule) {
-      const key = findingKey(rule.category, rule.id);
-      const existing = findings.get(key);
-      findings.set(key, {
+      addFinding(findings, {
         category: rule.category,
-        count: (existing?.count ?? 0) + 1,
         id: rule.id,
         recommendation: rule.recommendation,
-        samples: existing?.samples ?? [line.trim().slice(0, 240)]
+        samples: [line.trim().slice(0, 240)]
       });
       continue;
     }
@@ -146,6 +237,9 @@ export function formatElectronDevOutputDiagnosis(diagnosis) {
       lines.push("", `${category}:`);
     }
     lines.push(`- ${finding.id} x${finding.count}: ${finding.recommendation}`);
+    for (const detail of finding.details ?? []) {
+      lines.push(`  detail: ${Object.entries(detail).map(([key, value]) => `${key}=${value}`).join(" ")}`);
+    }
     if (finding.category === "unclassified") {
       lines.push(`  sample: ${finding.samples[0]}`);
     }

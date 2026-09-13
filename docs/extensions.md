@@ -53,10 +53,12 @@ proof is valid; every other RSA proof requires at least 2048 bits. The verified
 developer SPKI is written to manifest `key` so Electron retains the same ID.
 Existing installed directories are not reverified. Their display metadata is
 backfilled from the already-managed files as described below; package identity
-and executable contents are not migrated. Background
-workers and content scripts depend on
-the bundled Chromium API subset. Loading a package does not prove every API it
-uses is compatible. Popups, extension settings pages, global-Web assignment,
+and executable contents are not migrated. Electron 44.3.0 (bundled Chromium
+152.0.7977.78) loads each package in its assigned Role Session. An audited,
+vendored compatibility layer fills only the API surface listed below; native
+Chromium remains authoritative for declarativeNetRequest and scripting. A
+successful package load does not imply support for undeclared APIs. Popups,
+extension settings pages, global-Web assignment,
 automatic updates, authenticated store purchases, and Chrome-profile import
 are outside this version.
 
@@ -74,6 +76,32 @@ Rust normalizes explicit role IDs to empty in All roles mode and evaluates the
 rule at lease acquisition. Future roles need no copied assignments; global-Web
 sessions remain outside role scope. Removal disables the rule before cleanup.
 Settings commits publish revisioned snapshots only after successful persistence.
+
+## Runtime compatibility boundary
+
+The compatibility layer is a bounded fork of Rambox's
+`@ramboxapp/electron-chrome-extensions` 4.10.3 at commit
+`026cea78b6d743a81e2aa0e84d236081fccf4c72`. Rion compiles only the audited
+alarms, commands, notifications, offscreen, permissions, session-storage, tabs,
+and web-navigation modules plus its compatibility handshake. It deliberately
+does not compile the upstream remote-session, WebSocket, native-messaging,
+downloads, identity, management, context-menu, cookie, or window-mutation
+modules.
+
+Supported compatibility APIs are `permissions` (including `onAdded` and
+`onRemoved`), `webNavigation` events, `notifications`, `offscreen`, `commands`,
+`alarms`, `storage.session`, and safe `tabs` read/query/reload/navigation events.
+`action` and `browserAction` expose bounded read/no-op behavior; popup opening is
+not supported. Chromium supplies Manifest V3 service workers, content scripts,
+`declarativeNetRequest` including static rulesets, and `scripting`. This covers
+the core blocking flow used by uBlock Origin Lite and the core challenge flow
+used by Buster; it is not a promise of arbitrary Chrome extension parity.
+
+Packages requesting `debugger`, `enterprise.*`, `management`,
+`nativeMessaging`, `proxy`, or `vpnProvider` are rejected before load. Native
+messaging, native clients, toolbar popups, arbitrary tab/window mutation,
+renderer/preload debugger access, external Chrome/CDP clients, and a Node
+WebSocket proxy remain outside the security boundary.
 
 Rust owns the revisioned catalogue stored under the `extensions` settings key in
 the existing SQLite state worker, package preparation, bounded official-source
@@ -102,7 +130,20 @@ privileged acquire/complete/release commands. Core publishes revisioned
 `extensionsChanged` snapshots. Electron owns only native Sessions and handles,
 loads the frozen Core selection before game navigation, and acknowledges the
 matching lease. Release waits for exact `extension-unloaded` events. Old leases
-cannot terminalize a replacement. A load failure blocks that role launch.
+cannot terminalize a replacement. Each extension is isolated: a known unsafe
+manifest is skipped, and an ordinary load, bootstrap, or ruleset failure marks
+the Role extension lease `degraded` while the Role continues opening. The
+15-second external load/bootstrap deadline is `DeadlineBound`; an unknown late
+load is `indeterminate` and blocks Role navigation until its exact extension is
+observed and unloaded. Normal release remains `EventBound` on the exact
+`extension-unloaded` event.
+
+Development output and exported diagnostics correlate Electron permission
+warnings, extension/service-worker runtime errors, compatibility handshake
+results, and terminal lease outcomes by extension ID. Records contain bounded
+codes, API/member names, relative source paths, line/column, and Role ID only;
+absolute user paths and extension payloads are not retained. The Diagnostics
+log-source filter includes both `preload` and `extension` records.
 
 HTTP has a 10-second connection and 60-second overall external deadline; failure
 does not install anything. Both declared `Content-Length` and bytes actually
@@ -138,9 +179,16 @@ manifest failures are reported as unsupported.
   production publisher proof, Manifest V3, bounded unpacking, and manifest ID.
 - `pnpm run verify:electron-extensions` launches two fresh Electron processes
   with isolated profiles and checks stable IDs, content scripts, background
-  replies, storage isolation, unload/reload, and persistence. CI runs it on both
-  supported native hosts. The committed signing key is a throwaway test fixture,
-  never a production trust anchor.
+  replies, storage isolation, unload/reload, and persistence. It then loads a
+  representative Manifest V3 worker containing the original
+  `permissions.onRemoved`, `webNavigation`, and `notifications` failure shape,
+  and verifies session storage, tab query, offscreen document creation, and a
+  native static DNR ruleset. CI runs it on both supported native hosts. The
+  committed signing key is a throwaway test fixture, never a production trust
+  anchor.
+- `pnpm run verify:electron-extension-compat` checks that the built compatibility
+  bundles contain the required APIs and do not contain forbidden native,
+  remote-session, WebSocket, or privileged management surfaces.
 - `CHROMIUM-MACOS-APPKIT-EXTENSIONS-001` and
   `CHROMIUM-WINDOWS-EXTENSIONS-001` cover visible AdBlock installation, role assignment,
   actual role loading, application restart, disabling, and cancel/confirm removal in their existing
@@ -149,6 +197,11 @@ manifest failures are reported as unsupported.
 
 Production eligibility requires both native platforms. Local macOS evidence
 does not satisfy Windows or the broader Chromium cutover gates.
+
+Every public desktop release includes `Rion.Studio-source.tar.gz`, containing
+the tracked release source and complete GPL text under a versioned top-level
+directory. Release asset validation rejects a missing archive, version mismatch,
+unsafe path, missing vendored fork source, or checksum mismatch.
 
 ## AdBlock publisher verification (2026-09-10)
 

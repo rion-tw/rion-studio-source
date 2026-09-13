@@ -5,7 +5,7 @@ import { createGraphicsHost, type GraphicsHost } from "./graphicsHost";
 import { createGraphicsApiDispatcher } from "./graphicsApiDispatcher";
 import { ExtensionStoreHost } from "./extensionStoreHost";
 import { createExtensionApiDispatcher } from "./extensionApiDispatcher";
-import { ChromiumExtensionSessions } from "./chromiumExtensionSessions";
+import { createChromiumExtensionSessions } from "./createChromiumExtensionSessions";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -823,7 +823,7 @@ async function bootstrapReadyPhase(
     terminate: () => fatalTerminationCoordinator().forceTerminate(),
     onError: revealShellError
   });
-  const extensionSessions = new ChromiumExtensionSessions(core);
+  const extensionSessions = createChromiumExtensionSessions(core, runtimeLogs);
   chromiumRuntime = await ChromiumRuntimeBootstrap.start({
     core,
     ipcMain,

@@ -54,6 +54,10 @@ export default defineConfig({
         input: {
           index: electronMainPreloadInput,
           role: resolve(repositoryRoot, "src/electron/preload/role.ts"),
+          extensionCompat: resolve(
+            repositoryRoot,
+            "third_party/electron-chrome-extensions/src/rion-preload.ts"
+          ),
           runtimeWindowsHost: resolve(
             repositoryRoot,
             "src/electron/preload/runtimeWindowsHost.ts"

@@ -139,6 +139,7 @@ fn stored_log_source_values(source: &LogSource) -> &'static [&'static str] {
         LogSource::Renderer => &["renderer"],
         LogSource::Ipc => &["ipc"],
         LogSource::Browser => &["browser"],
+        LogSource::Extension => &["extension"],
         LogSource::Macro => &["macro"],
         LogSource::Persistence => &["persistence"],
         LogSource::Update => &["update"],

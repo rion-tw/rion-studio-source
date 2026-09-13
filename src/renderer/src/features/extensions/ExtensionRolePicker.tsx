@@ -46,7 +46,8 @@ export function ExtensionRolePicker({ roles, runtimeRoles, extensionId, selected
           const enabled = allRoles || selected.has(role.id);
           const included = !!runtime?.extensionIds.includes(extensionId);
           const pending = !!runtime && enabled !== included;
-          const status = included && runtime?.status === "failed" ? "extensions.loadFailed"
+          const status = included && (runtime?.status === "failed" || runtime?.status === "indeterminate") ? "extensions.loadFailed"
+            : included && runtime?.status === "degraded" ? "extensions.compatibilityDegraded"
             : pending ? "extensions.pending" : included && runtime?.status === "loaded" ? "extensions.loaded"
             : included && runtime?.status === "loading" ? "extensions.loading" : null;
           return <li key={role.id}>

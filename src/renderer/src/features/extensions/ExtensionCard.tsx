@@ -18,7 +18,11 @@ interface ExtensionCardProps {
 
 export function ExtensionCard({ language, packageRecord, runtimeRoles, t, onManage }: ExtensionCardProps) {
   const hasLoadFailure = runtimeRoles.some((role) =>
-    role.extensionIds.includes(packageRecord.id) && role.status === "failed"
+    role.extensionIds.includes(packageRecord.id) &&
+    (role.status === "failed" || role.status === "indeterminate")
+  );
+  const hasCompatibilityDegradation = runtimeRoles.some((role) =>
+    role.extensionIds.includes(packageRecord.id) && role.status === "degraded"
   );
   const roleSummary = packageRecord.applyToAllRoles
     ? t("extensions.allRoles")
@@ -74,10 +78,11 @@ export function ExtensionCard({ language, packageRecord, runtimeRoles, t, onMana
           </div>
         </dl>
 
-        {packageRecord.removed || hasLoadFailure ? (
+        {packageRecord.removed || hasLoadFailure || hasCompatibilityDegradation ? (
           <div className="flex flex-wrap gap-1">
             {packageRecord.removed ? <Badge variant="warning">{t("extensions.removalPending")}</Badge> : null}
             {hasLoadFailure ? <Badge variant="destructive">{t("extensions.loadFailed")}</Badge> : null}
+            {hasCompatibilityDegradation ? <Badge variant="warning">{t("extensions.compatibilityDegraded")}</Badge> : null}
           </div>
         ) : null}
 

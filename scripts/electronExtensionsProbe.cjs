@@ -45,8 +45,12 @@ void app.whenReady().then(async () => {
     view.webContents.close();
     return { value, id };
   }
-  const a = session.fromPath(join(root, "a"));
-  const b = session.fromPath(join(root, "b"));
+  const roleAPath = join(root, "a");
+  const roleBPath = join(root, "b");
+  mkdirSync(roleAPath, { recursive: true });
+  mkdirSync(roleBPath, { recursive: true });
+  const a = session.fromPath(roleAPath, { cache: false });
+  const b = session.fromPath(roleBPath, { cache: false });
   const unloaded = await observe(a, null, false);
   assert.equal(unloaded.id, null, "An extension must be explicitly loaded on each process boot");
   const extA = await a.extensions.loadExtension(extensionPath, { allowFileAccess: false });

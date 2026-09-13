@@ -6,9 +6,23 @@ import { pathToFileURL } from "node:url";
 import { createMacosGameModeDevelopmentBundle } from
   "./electronMacosGameModeBundle.mjs";
 import { spawnPlatformCommand } from "./spawnPlatformCommand.mjs";
+import {
+  classifyElectronDevOutput,
+  formatElectronDevOutputDiagnosis
+} from "./diagnoseElectronDevOutput.mjs";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const requireFromRepository = createRequire(resolve(repositoryRoot, "package.json"));
+const DIAGNOSTIC_BUFFER_LIMIT = 1024 * 1024;
+
+function teeDiagnosticStream(stream, target, append) {
+  if (!stream?.on) return;
+  stream.on("data", (chunk) => {
+    const text = String(chunk);
+    target.write(text);
+    append(text);
+  });
+}
 
 export function electronDevLaunchSpec({
   arguments: forwardedArguments = [],
@@ -46,13 +60,19 @@ export async function runElectronDev(
     prepareBundle = createMacosGameModeDevelopmentBundle,
     resolveElectronExecutable = () => requireFromRepository("electron"),
     signalEmitter = process,
-    spawnCommand = spawnPlatformCommand
+    spawnCommand = spawnPlatformCommand,
+    stderr = process.stderr,
+    stdout = process.stdout
   } = {}
 ) {
   let developmentBundle;
   let cleanupPromise;
   let child;
   const forwardedSignals = new Set();
+  let diagnosticOutput = "";
+  const appendDiagnosticOutput = (value) => {
+    diagnosticOutput = `${diagnosticOutput}${value}`.slice(-DIAGNOSTIC_BUFFER_LIMIT);
+  };
   const cleanupDevelopmentBundle = () => {
     if (!developmentBundle) return Promise.resolve();
     cleanupPromise ??= developmentBundle.cleanup();
@@ -87,8 +107,10 @@ export async function runElectronDev(
     child = spawnCommand(launch.command, launch.args, {
       cwd: repositoryRoot,
       env: launch.environment,
-      stdio: "inherit"
+      stdio: ["inherit", "pipe", "pipe"]
     });
+    teeDiagnosticStream(child.stdout, stdout, appendDiagnosticOutput);
+    teeDiagnosticStream(child.stderr, stderr, appendDiagnosticOutput);
     for (const [signal, handler] of signalHandlers) {
       signalEmitter.on(signal, handler);
     }
@@ -96,6 +118,12 @@ export async function runElectronDev(
       child.once("error", reject);
       child.once("close", (code, signal) => resolveExit({ code, signal }));
     });
+    if (diagnosticOutput) {
+      const diagnosis = classifyElectronDevOutput(diagnosticOutput);
+      if (diagnosis.findings.length > 0) {
+        stderr.write(`\n${formatElectronDevOutputDiagnosis(diagnosis)}`);
+      }
+    }
     if (result.signal === "SIGINT") return 130;
     if (result.signal === "SIGTERM") return 143;
     return result.code ?? 1;

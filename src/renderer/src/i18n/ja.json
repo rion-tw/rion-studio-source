@@ -1318,6 +1318,7 @@
   "extensions.sizeUnavailable": "取得できません",
   "extensions.noDescription": "説明はありません。",
   "extensions.loadFailed": "読み込み失敗",
+  "extensions.compatibilityDegraded": "互換性が制限されています",
   "extensions.empty": "拡張機能はまだインストールされていません。",
   "extensions.removeDescription": "すべてのロールから削除します。使用中のロールでは閉じるまで有効です。既存の拡張機能データは保持されます。",
   "extensions.compatibility": "Rion Studio は Chrome 拡張機能 API の一部に対応しています。インストールは互換性を保証しません。このバージョンでは拡張機能のポップアップと設定ページは利用できません。",

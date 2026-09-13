@@ -40,12 +40,20 @@ export type ChromiumRoleSessionPort = Pick<
 >;
 
 export interface ChromiumSessionFactoryPort {
-  prepareExtensions?: (handle: ChromiumRoleSessionHandle) => Promise<void>;
+  prepareExtensions?: (
+    handle: ChromiumRoleSessionHandle,
+    surface?: ChromiumRoleExtensionSurfacePort
+  ) => Promise<void>;
   releaseExtensions?: (handle: ChromiumRoleSessionHandle) => Promise<void>;
   fromPath: (
     path: string,
     options: FromPathOptions
   ) => ChromiumRoleSessionPort;
+}
+
+export interface ChromiumRoleExtensionSurfacePort {
+  readonly contents: object;
+  readonly window: object | null;
 }
 
 export interface ChromiumRoleSessionHandle {
@@ -355,8 +363,11 @@ export class ChromiumRoleSessionRegistry {
     this.#ownership = ownership;
   }
 
-  prepareExtensions(handle: ChromiumRoleSessionHandle): Promise<void> {
-    return this.#factory.prepareExtensions?.(handle) ?? Promise.resolve();
+  prepareExtensions(
+    handle: ChromiumRoleSessionHandle,
+    surface?: ChromiumRoleExtensionSurfacePort
+  ): Promise<void> {
+    return this.#factory.prepareExtensions?.(handle, surface) ?? Promise.resolve();
   }
 
   get activeCount(): number {

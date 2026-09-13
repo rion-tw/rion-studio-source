@@ -4,6 +4,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 import { normalizeUpdaterPublicKey, verifyMinisignArtifact } from "./electronProductionCandidate.mjs";
+import { createElectronSourceArchive } from "./electronSourceArchive.mjs";
 import { packageElectron } from "./packageElectron.mjs";
 import { isSupportedStrictSemanticVersion } from "./releaseVersionPolicy.mjs";
 import { sanitizeUpdaterRuntimeEnvironment } from "./runtimeEnvironmentPolicy.mjs";
@@ -64,7 +65,12 @@ export async function buildElectronRelease({
     `${artifactPath}.sig`,
     environment.RION_STUDIO_UPDATER_PUBLIC_KEY
   );
+  const source = await createElectronSourceArchive({
+    root,
+    version: input.version
+  });
   console.log(`Verified updater-signed Electron release artifact: ${artifactPath}`);
+  console.log(`Verified GPL corresponding source archive: ${source.path}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

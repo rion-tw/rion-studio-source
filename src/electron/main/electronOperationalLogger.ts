@@ -110,6 +110,21 @@ export class ElectronOperationalLogger {
     this.debug("browser", "native_window_placement", "Native window placement changed.", context);
   }
 
+  extensionDiagnostic(
+    level: Extract<LogLevel, "debug" | "info" | "warn" | "error">,
+    event: string,
+    message: string,
+    context: LogContext,
+    error?: unknown,
+    fallbackCode = "ELECTRON_EXTENSION_RUNTIME_FAILED"
+  ): void {
+    if (level === "error") {
+      this.error("extension", event, message, error, fallbackCode, context);
+      return;
+    }
+    this.#record(level, "extension", event, message, context);
+  }
+
   async applicationQuitting(): Promise<void> {
     this.info("main", "app_quitting", "Application is quitting cleanly.");
     await this.flush();

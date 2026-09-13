@@ -4,6 +4,9 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+
+import { classifyElectronDevOutput } from "./diagnoseElectronDevOutput.mjs";
 
 if (!["darwin", "win32"].includes(process.platform)) throw new Error("Extensions verification requires macOS or Windows");
 const require = createRequire(import.meta.url);
@@ -18,5 +21,53 @@ try {
       child.once("error", reject);
       child.once("exit", (code, signal) => code === 0 ? resolve() : reject(new Error(`Extension ${phase} probe failed: ${code ?? signal}`)));
     });
+  }
+  const compatibilityMain = join(root, "electron-extension-compatibility-probe.cjs");
+  await build({
+    bundle: true,
+    entryPoints: [fileURLToPath(new URL("./electronExtensionCompatibilityProbe.ts", import.meta.url))],
+    external: ["electron"],
+    format: "cjs",
+    logLevel: "silent",
+    outfile: compatibilityMain,
+    platform: "node",
+    target: "node24"
+  });
+  const compatibility = spawn(executable, [compatibilityMain], {
+    env: {
+      ...process.env,
+      RION_EXTENSION_COMPAT_PRELOAD: fileURLToPath(new URL("../out/preload/extensionCompat.cjs", import.meta.url)),
+      RION_EXTENSION_COMPAT_PROBE_DIR: root,
+      RION_EXTENSION_COMPAT_SIGNING_KEY: fileURLToPath(new URL(
+        "../crates/rion-core/src/extensions/test-signing-key.json",
+        import.meta.url
+      ))
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let compatibilityOutput = "";
+  for (const [stream, target] of [
+    [compatibility.stdout, process.stdout],
+    [compatibility.stderr, process.stderr]
+  ]) {
+    stream.setEncoding("utf8");
+    stream.on("data", (chunk) => {
+      target.write(chunk);
+      compatibilityOutput = `${compatibilityOutput}${chunk}`.slice(-1024 * 1024);
+    });
+  }
+  await new Promise((resolve, reject) => {
+    compatibility.once("error", reject);
+    compatibility.once("exit", (code, signal) => code === 0
+      ? resolve()
+      : reject(new Error(`Extension compatibility probe failed: ${code ?? signal}`)));
+  });
+  const diagnosis = classifyElectronDevOutput(compatibilityOutput);
+  const serviceWorkerFailure = diagnosis.findings.find((finding) =>
+    finding.id === "extension-service-worker-registration-failed" ||
+    finding.id === "extension-service-worker-runtime-error"
+  );
+  if (serviceWorkerFailure) {
+    throw new Error(`Extension compatibility probe retained ${serviceWorkerFailure.id}.`);
   }
 } finally { await rm(root, { recursive: true, force: true }); }

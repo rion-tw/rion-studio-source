@@ -482,6 +482,23 @@ const invalidRequestCases: Array<[
 ];
 
 describe("Windows Electron Chromium runtime-host factory", () => {
+  it("cancels native page-title updates and removes that owner on retirement", async () => {
+    const browserWindows = new FakeBrowserWindows();
+    const factory = new ChromiumPlatformRuntimeHostFactory({
+      platform: "win32", browserWindows: browserWindows.port, displays, runtimeDocumentPath
+    });
+    const creation = factory.create(target(), tab(target()));
+    const window = browserWindows.windows[0]!;
+    await finishCreation(creation, window);
+    const event = preventableEvent();
+    window.emit("page-title-updated", event, "Page override", true);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    window.emit("closed");
+    event.preventDefault.mockClear();
+    window.emit("page-title-updated", event, "Retired page", true);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+
   it("routes host WebContents mouse leave without suppressing page input", async () => {
     const browserWindows = new FakeBrowserWindows();
     const factory = new ChromiumPlatformRuntimeHostFactory({

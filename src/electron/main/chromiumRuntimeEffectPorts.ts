@@ -42,6 +42,7 @@ import type { ChromiumTrustedInputDocumentReplacementLease } from
   "./chromiumTrustedInputCoordinator";
 
 export interface ChromiumRuntimeSurfacePort {
+  focusVisible: (roleId: string, generation: number) => void;
   audioMuted: (roleId: string, generation: number) => boolean;
   isCurrentlyAudible: (roleId: string, generation: number) => boolean;
   create: (input: CreateChromiumRoleSurfaceInput) => Promise<ChromiumRoleSurfaceHandle>;

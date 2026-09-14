@@ -43,6 +43,7 @@ export interface Harness {
   readonly isCurrentlyAudible: ReturnType<typeof vi.fn>;
   readonly setAudioMuted: ReturnType<typeof vi.fn>;
   readonly audioStates: Map<string, boolean>;
+  readonly focusVisible: ReturnType<typeof vi.fn>;
   readonly setVisible: ReturnType<typeof vi.fn>;
   readonly setZoomFactor: ReturnType<typeof vi.fn>;
   readonly resolvePaths: ReturnType<typeof vi.fn>;
@@ -109,7 +110,10 @@ export function harness(
       Object.defineProperties(host, {
         appKitIdentity: { value: undefined },
         initializeAppKitTab: { value: undefined },
-        applyWindowsChromeProjection: { value: vi.fn(async () => undefined) }
+        applyWindowsChromeProjection: { value: vi.fn(async (projection: { windowGeneration: number; topologyRevision: number }) => {
+          host.windowGeneration = projection.windowGeneration;
+          host.topologyRevision = projection.topologyRevision;
+        }) }
       });
     }
     hosts.push(host);
@@ -149,6 +153,7 @@ export function harness(
   const setAudioMuted = vi.fn((roleId: string, generation: number, muted: boolean) => {
     audioStates.set(`${roleId}:${generation}`, muted);
   });
+  const focusVisible = vi.fn();
   const setVisible = vi.fn();
   const setZoomFactor = vi.fn();
   const reparentRole = vi.fn(async () => undefined);
@@ -194,6 +199,7 @@ export function harness(
     })),
     setBounds,
     setAudioMuted,
+    focusVisible,
     setVisible,
     setZoomFactor,
     dispose: disposeSurfaces
@@ -356,6 +362,7 @@ export function harness(
     isCurrentlyAudible,
     setAudioMuted,
     audioStates,
+    focusVisible,
     setVisible,
     setZoomFactor,
     resolvePaths,

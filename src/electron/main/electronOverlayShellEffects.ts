@@ -23,7 +23,7 @@ export interface ElectronOverlayMainWindowPort {
 }
 
 export interface ElectronOverlayClipboardPort {
-  readText: () => Promise<string>;
+  readText: () => string | Promise<string>;
   writeText: (text: string) => void;
 }
 

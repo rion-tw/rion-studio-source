@@ -2,7 +2,7 @@
 
 ## Boundary
 
-Electron 44.3.0 / Chromium 152 is the runtime. Contract 34 retains the v24 rule permitting `mediaKeySystem` only
+Electron 43.7.0 / Chromium 150 is the runtime. Contract 34 retains the v24 rule permitting `mediaKeySystem` only
 in the dedicated global-Web Session with HTTPS requesting and embedding origins.
 Journal policy version 2 records the permission callback stage, normalized
 origins, result and reason. Roles and local shell sessions keep denying DRM.

@@ -12,10 +12,6 @@ const native = vi.hoisted(() => {
     details: Record<string, unknown>,
     callback: (response: Record<string, unknown>) => void
   ) => void) | null = null;
-  const ipcListeners = new Set<(
-    event: { sender: unknown },
-    value: unknown
-  ) => void>();
   let url = "";
   let windowOpenHandler: ((details: Record<string, unknown>) => unknown) | null = null;
   const listeners = new Map<string, Array<(...args: never[]) => void>>();
@@ -54,11 +50,6 @@ const native = vi.hoisted(() => {
       if (!windowOpenHandler) throw new Error("window handler missing");
       return windowOpenHandler(details);
     },
-    navigate(value: unknown, sender?: unknown) {
-      for (const listener of ipcListeners) {
-        listener({ sender: sender ?? contents }, value);
-      }
-    },
     request(details: Record<string, unknown>) {
       if (!requestHandler) throw new Error("request handler missing");
       const callback = vi.fn();
@@ -71,7 +62,6 @@ const native = vi.hoisted(() => {
       url = "";
       windowOpenHandler = null;
       listeners.clear();
-      ipcListeners.clear();
     },
     setUrl(next: string) { url = next; },
     session: {
@@ -82,22 +72,11 @@ const native = vi.hoisted(() => {
         ) => { requestHandler = handler; })
       }
     },
-    ipcMain: {
-      on: vi.fn((_channel: string, listener: (
-        event: { sender: unknown },
-        value: unknown
-      ) => void) => { ipcListeners.add(listener); }),
-      removeListener: vi.fn((_channel: string, listener: (
-        event: { sender: unknown },
-        value: unknown
-      ) => void) => { ipcListeners.delete(listener); })
-    },
     visible: vi.fn()
   };
 });
 
 vi.mock("electron", () => ({
-  ipcMain: native.ipcMain,
   WebContentsView: class {
     webContents = native.contents;
     setVisible = native.visible;
@@ -179,7 +158,7 @@ describe.each(["darwin", "win32"])("store locale (%s)", () => {
 describe("serialized Chrome Web Store navigation", () => {
   const bounds = { x: 0, y: 0, width: 600, height: 400 };
 
-  it("cancels native detail navigation and selects its exact ID without loading it", async () => {
+  it("queues native detail navigation after the native callback unwinds", async () => {
     const diagnostics: ExtensionStoreNavigationDiagnostic[] = [];
     const host = new ExtensionStoreHost(owner, vi.fn(), diagnosticLogger(diagnostics));
     host.request({ action: "show", bounds, language: "en" });
@@ -192,7 +171,7 @@ describe("serialized Chrome Web Store navigation", () => {
     native.emit("will-navigate", event, event.url, false, true, 0, 0);
     expect(event.preventDefault).toHaveBeenCalledOnce();
     await vi.waitFor(() => expect(host.snapshot().extensionId).toBe(extensionId));
-    expect(native.contents.loadURL).toHaveBeenCalledTimes(1);
+    expect(native.contents.loadURL).toHaveBeenCalledTimes(2);
     expect(host.snapshot().url).toBe(event.url);
     expect(diagnostics).toContainEqual(expect.objectContaining({
       classification: "detail",
@@ -204,52 +183,37 @@ describe("serialized Chrome Web Store navigation", () => {
     host.dispose();
   });
 
-  it("routes a preload-captured detail click without admitting page SPA navigation", async () => {
-    const host = new ExtensionStoreHost(owner, vi.fn());
+  it("follows same-document navigation from search autocomplete", async () => {
+    const publish = vi.fn();
+    const host = new ExtensionStoreHost(owner, publish);
     host.request({ action: "show", bounds, language: "en" });
     await loaded(1);
     const url = `https://chromewebstore.google.com/detail/fixture/${extensionId}`;
-    native.navigate({ url });
-    await vi.waitFor(() => expect(host.snapshot().extensionId).toBe(extensionId));
-    expect(native.contents.loadURL).toHaveBeenCalledTimes(1);
-
-    native.navigate({ url: "https://example.test/detail/fixture" });
-    native.navigate({ url }, {});
-    await Promise.resolve();
-    expect(native.contents.loadURL).toHaveBeenCalledTimes(1);
-    host.dispose();
-    expect(native.ipcMain.removeListener).toHaveBeenCalledOnce();
-  });
-
-  it("denies an exact detail popup and routes it through the same lane", async () => {
-    const host = new ExtensionStoreHost(owner, vi.fn());
-    host.request({ action: "show", bounds, language: "en" });
-    await loaded(1);
-    const url = `https://chromewebstore.google.com/detail/fixture/${extensionId}`;
-    expect(native.open(openDetails(url))).toEqual({ action: "deny" });
-    await vi.waitFor(() => expect(host.snapshot().extensionId).toBe(extensionId));
+    native.setUrl(url);
+    native.emit("did-navigate-in-page");
+    expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ url, extensionId }));
     expect(native.contents.loadURL).toHaveBeenCalledTimes(1);
     host.dispose();
   });
 
-  it("keeps selected detail back and forward state without loading the unsafe page", async () => {
+  it("denies an exact detail popup and loads it through the same lane", async () => {
     const window = owner();
     const host = new ExtensionStoreHost(() => window, vi.fn());
     host.request({ action: "show", bounds, language: "en" });
     await loaded(1);
     const url = `https://chromewebstore.google.com/detail/fixture/${extensionId}`;
-    native.navigate({ url });
-    await vi.waitFor(() => expect(host.snapshot().extensionId).toBe(extensionId));
-
-    expect(host.request({ action: "back" })).toMatchObject({
-      extensionId: null,
-      canGoForward: true
-    });
-    expect(host.request({ action: "forward" })).toMatchObject({
-      extensionId,
-      url
-    });
-    expect(native.contents.loadURL).toHaveBeenCalledTimes(1);
+    expect(native.open(openDetails(url))).toEqual({ action: "deny" });
+    await loaded(2);
+    expect(host.snapshot()).toMatchObject({ url, extensionId });
+    native.contents.navigationHistory.canGoBack.mockReturnValue(true);
+    native.contents.navigationHistory.canGoForward.mockReturnValue(true);
+    expect(host.snapshot()).toMatchObject({ canGoBack: true, canGoForward: true });
+    host.request({ action: "back" });
+    host.request({ action: "forward" });
+    host.request({ action: "reload" });
+    expect(native.contents.navigationHistory.goBack).toHaveBeenCalledOnce();
+    expect(native.contents.navigationHistory.goForward).toHaveBeenCalledOnce();
+    expect(native.contents.reload).toHaveBeenCalledOnce();
     host.dispose();
   });
 
@@ -275,7 +239,8 @@ describe("serialized Chrome Web Store navigation", () => {
     await vi.waitFor(() => expect(host.snapshot().extensionId).toBe(extensionId));
     expect(native.contents.loadURL.mock.calls.map(([url]) => url)).toEqual([
       "https://chromewebstore.google.com/category/extensions?hl=en",
-      search
+      search,
+      detail
     ]);
     host.dispose();
   });
@@ -313,6 +278,21 @@ describe("serialized Chrome Web Store navigation", () => {
     await Promise.resolve();
     expect(native.contents.loadURL).toHaveBeenCalledTimes(1);
     host.dispose();
+  });
+
+  it("ignores lifecycle callbacks after its exact view retires", async () => {
+    const publish = vi.fn();
+    const host = new ExtensionStoreHost(owner, publish);
+    host.request({ action: "show", bounds });
+    await loaded(1);
+    host.dispose();
+    publish.mockClear();
+    native.emit("render-process-gone");
+    native.emit("did-fail-load", {}, -2, "failed", "", true);
+    native.emit("dom-ready");
+    expect(host.snapshot().failed).toBe(false);
+    expect(publish).not.toHaveBeenCalled();
+    expect(native.contents.insertCSS).not.toHaveBeenCalled();
   });
 
   it("cancels queued work from a disposed view generation", async () => {

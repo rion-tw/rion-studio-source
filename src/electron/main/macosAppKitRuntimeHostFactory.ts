@@ -264,7 +264,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         record.controller!.setWindowName(record.identity, name);
       } catch (error) {
         try {
-          record.controller!.setWindowName(record.identity, previous);
+          record.controller!.setWindowName(record.identity, previous || undefined);
         } catch (rollbackError) {
           this.#markProjectionPoisoned(record, rollbackError);
           throw hostError(
@@ -427,7 +427,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       record.controllerIdentityValidated = true;
       record.controller.setWindowName(
         record.identity,
-        target.persistedName ?? "Rion Studio"
+        target.persistedName ?? undefined
       );
       record.controller.setFullscreenPolicy(
         record.identity,
@@ -527,7 +527,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         MacosAppKitRuntimePresentationController,
       projectedActiveTabId: undefined,
       lastAdapterSequence: 0,
-      windowName: target.persistedName ?? "Rion Studio",
+      windowName: target.persistedName ?? "",
       host: undefined as unknown as ChromiumRuntimeHostPort,
       listeners: undefined as unknown as HostRecord["listeners"]
     } satisfies Omit<HostRecord, "host" | "listeners" | "presentation"> &

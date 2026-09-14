@@ -146,6 +146,18 @@ export async function closeLoadingWindowsRuntimeTab(
   await invokeWindowsRuntimeTabClose(evidence, port);
 }
 
+/** Select the ready sibling through its visible native control while B is gated. */
+export async function activateWindowsRuntimeTabWhileLoading(input: Readonly<{
+  processId: number; loadingTabName: string; selectedTabName: string;
+}>): Promise<void> {
+  const evidence = await readWindowsRuntimeTabLoadingEvidence({
+    processId: input.processId, tabName: input.loadingTabName
+  });
+  await invokeWindowsRuntimeTabClose({ ...evidence,
+    controlName: `Activate ${input.selectedTabName}`
+  }, nativePort());
+}
+
 async function invokeWindowsRuntimeTabClose(
   evidence: Readonly<Pick<WindowsRuntimeTabCloseEvidence,
     "processId" | "nativeHandle" | "controlName">>,

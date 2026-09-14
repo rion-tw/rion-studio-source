@@ -368,6 +368,29 @@ export async function followChromiumRuntimeOwnership(
               window.host.isVisible()
           );
         }
+        // EventBound: Electron 43 does not reliably hand the AppKit key window's
+        // responder to its Role. Only Core's still-current explicit focus target
+        // may complete that handoff after the native focus acknowledgement.
+        const focused = input.windows.get(input.focusWindowIds[0] ?? "");
+        const focusedTab = input.tabs.get(input.focusTabId ?? "");
+        const observed = receipt.windows.find(window =>
+          window.logicalWindowId === focused?.host.logicalWindowId);
+        if (focused?.host.appKitIdentity && input.focusTabId &&
+            focusedTab && !focusedTab.specification.workspaceId &&
+            focusedTab.webViews.size === 0 &&
+            observed?.focused &&
+            observed.windowGeneration === focused.windowGeneration &&
+            observed.topologyRevision === focused.topologyRevision &&
+            focused.activeTabId === input.focusTabId &&
+            focused.host.readProjection().focused) {
+          const roles = [...input.roles.values()].filter(role =>
+            role.windowId === focused.host.logicalWindowId &&
+            role.tabId === input.focusTabId);
+          if (roles.length === 1 && input.ports.surfaces.readProjection(
+            roles[0].roleId, roles[0].generation).visible) {
+            input.ports.surfaces.focusVisible(roles[0].roleId, roles[0].generation);
+          }
+        }
       }
       return receipt;
     }),

@@ -838,35 +838,36 @@ export async function resizeVisibleRuntimeWindow(
 ): Promise<void> {
   const processId = String((await electronDesktopE2eProbe()).processId);
   if (platform === "windows") {
+    if (!windowId) throw new Error("An exact window ID is required for native resizing");
+    const inspection = await electronDesktopE2eFullscreenToolbarRuntime(windowId);
+    const nativeHandle = inspection.nativeWindowHandle;
+    if (!nativeHandle) throw new Error("The exact runtime HWND is unavailable");
     const script = String.raw`
 Add-Type @'
 using System;
-using System.Text;
 using System.Runtime.InteropServices;
 public static class RionVisibleResize {
-  public delegate bool EnumProc(IntPtr hwnd, IntPtr value);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc callback, IntPtr value);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
-  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
 }
 '@
 $targetPid = [uint32]$payload.processId
-$matches = New-Object System.Collections.Generic.List[System.IntPtr]
-[RionVisibleResize]::EnumWindows({ param($hwnd, $value) $candidateProcessId = 0; [RionVisibleResize]::GetWindowThreadProcessId($hwnd, [ref]$candidateProcessId) | Out-Null; $title = New-Object System.Text.StringBuilder 256; [RionVisibleResize]::GetWindowText($hwnd, $title, 256) | Out-Null; if ($candidateProcessId -eq $targetPid -and $title.ToString() -eq "Rion Studio Game Window") { $matches.Add($hwnd) }; return $true }, [IntPtr]::Zero) | Out-Null
-if ($matches.Count -ne 1) { throw "exact visible runtime window unavailable" }
+$handle = [IntPtr]::new([long]$payload.nativeHandle)
+$owner = [uint32]0
+[RionVisibleResize]::GetWindowThreadProcessId($handle, [ref]$owner) | Out-Null
+if ($owner -ne $targetPid) { throw "The exact runtime HWND owner changed" }
 $rect = New-Object RionVisibleResize+RECT
-[RionVisibleResize]::GetWindowRect($matches[0], [ref]$rect) | Out-Null
+[RionVisibleResize]::GetWindowRect($handle, [ref]$rect) | Out-Null
 [RionVisibleResize]::SetCursorPos($rect.Right - 2, $rect.Bottom - 2) | Out-Null
 [RionVisibleResize]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
 [RionVisibleResize]::SetCursorPos($rect.Right + 72, $rect.Bottom + 48) | Out-Null
 [RionVisibleResize]::mouse_event(0x0001, 0, 0, 0, [UIntPtr]::Zero)
 [RionVisibleResize]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 `;
-    await runEncodedPowerShellJson(script, { processId }, {
+    await runEncodedPowerShellJson(script, { processId, nativeHandle }, {
       timeoutMilliseconds: 10_000
     });
     return;

@@ -516,7 +516,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, use the visible store search field and result link to select the official AdBlock detail target without terminating Electron, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation, stop its last native tab without shell errors, prove the native window retires, and reopen the same Role with compatibility readiness. Verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, render the complete Buster detail page through visible search results and mouse/keyboard autocomplete, preserve the browser process, then navigate to the official AdBlock detail page, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation and its temporary native window title is blank, stop its last native tab without shell errors, prove the native window retires, and reopen the same Role with compatibility readiness. Verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-EXTENSIONS-001",
@@ -539,7 +539,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, use the visible store search field and result link to select the official AdBlock detail target without terminating Electron, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation, use the real AppKit right-click Stop and Close item on its last tab, prove the native window retires without shell errors, and reopen the same Role with compatibility readiness. Verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, render the complete Buster detail page through visible search results and mouse/keyboard autocomplete, preserve the browser process, then navigate to the official AdBlock detail page, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation and its temporary native window title is blank, use the real AppKit right-click Stop and Close item on its last tab, prove the native window retires without shell errors, and reopen the same Role with compatibility readiness. Verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-SHELL-001",
@@ -2737,7 +2737,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create two ready Chromium Role tabs through visible UI, send a physical Control+Tab through the retained AppKit host, require its exact source identity, modifier handoff, Core selection, native AXValue active style, and empty shell-error journal, then launch the third Role through the same still-current host. Activate and focus every tab through the retained AppKit radio controls, close and relaunch one tab through native chrome, and preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host."
+      "description": "Create two ready Chromium Role tabs through visible UI, send a physical Control+Tab through the retained AppKit host, require its exact source identity, modifier handoff, Core selection, native AXValue active style, and empty shell-error journal, then launch the third Role through the same still-current host. Activate and focus every tab through the retained AppKit radio controls, close and relaunch one tab through native chrome, and preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host. While B is gated in loading, visibly select ready tab A; after B completes, Core selection and the visible native surface must remain A."
     },
     {
       "id": "CHROMIUM-WINDOWS-TABS-VISIBLE-ACTIVATION-019",
@@ -2764,7 +2764,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host."
+      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host. While B is gated in loading, visibly select ready tab A; after B completes, Core selection and the visible native surface must remain A."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020",
@@ -2842,7 +2842,7 @@
         "success",
         "restart"
       ],
-      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and retained AppKit Chromium ownership through close, dormant reopen, native topology changes, and restart."
+      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and retained AppKit Chromium ownership through close, dormant reopen, native topology changes, and restart. Saved destination names remain visible; the paired Extensions journey checks the empty native title on its unsaved role window."
     },
     {
       "id": "CHROMIUM-WINDOWS-RUNTIME-LAUNCH-DESTINATIONS-008",
@@ -2868,7 +2868,7 @@
         "success",
         "restart"
       ],
-      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and bundled Chromium ownership through close, dormant reopen, native topology changes, and restart."
+      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and bundled Chromium ownership through close, dormant reopen, native topology changes, and restart. Saved destination names remain visible; the paired Extensions journey checks the empty native title on its unsaved role window."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TOPOLOGY-009",
@@ -3582,7 +3582,7 @@
         "success",
         "failure"
       ],
-      "description": "Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Core-authorized standalone Role activation completes the Chromium responder handoff only after exact AppKit focus acknowledgement. Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
     },
     {
       "id": "CHROMIUM-WINDOWS-INPUT-CONFINEMENT-045",

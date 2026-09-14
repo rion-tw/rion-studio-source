@@ -181,6 +181,7 @@ function ports() {
   const setVisible = vi.fn();
   const setZoomFactor = vi.fn();
   const surfaces: ChromiumRuntimeSurfacePort = {
+    focusVisible: vi.fn(),
     audioMuted: () => false,
     isCurrentlyAudible: () => false,
     create: vi.fn(async () => { throw new Error("not used"); }),

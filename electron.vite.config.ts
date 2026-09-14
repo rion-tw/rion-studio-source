@@ -71,10 +71,6 @@ export default defineConfig({
             repositoryRoot,
             "third_party/electron-chrome-extensions/src/rion-preload.ts"
           ),
-          extensionStore: resolve(
-            repositoryRoot,
-            "src/electron/preload/extensionStore.ts"
-          ),
           runtimeWindowsHost: resolve(
             repositoryRoot,
             "src/electron/preload/runtimeWindowsHost.ts"

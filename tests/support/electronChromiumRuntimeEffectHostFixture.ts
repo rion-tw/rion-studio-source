@@ -83,7 +83,7 @@ export class FakeChromiumRuntimeEffectHost implements ChromiumRuntimeHostPort {
     return () => this.observers.delete(observer);
   };
   readonly readRuntimeWindowState = () => Object.freeze({
-    platform: "macos" as const,
+    platform: this.appKitIdentity ? "macos" as const : "windows" as const,
     source: "initial" as const,
     sequence: this.sequence,
     lifecycleEpoch: 1,

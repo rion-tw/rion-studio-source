@@ -952,6 +952,15 @@ export class ChromiumRoleSurfaceRegistry {
     this.#syncNativePresentation(record);
   }
 
+  focusVisible(roleId: string, generation: number): void {
+    const record = this.#activeRecord(roleId, generation);
+    if (!record.view.getVisible() || !record.contents.focus) {
+      fail("ELECTRON_ROLE_SURFACE_FOCUS_UNAVAILABLE",
+        "The exact visible Chromium role cannot accept foreground focus.");
+    }
+    record.contents.focus();
+  }
+
   setZoomFactor(roleId: string, generation: number, zoomFactor: number): void {
     validateZoomFactor(zoomFactor);
     const contents = this.#activeRecord(roleId, generation).contents;

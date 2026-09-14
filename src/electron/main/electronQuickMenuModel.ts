@@ -201,7 +201,7 @@ export function buildElectronQuickMenuModel(
     const active = tabs.find((tab) => tab.id === window.activeTabId) ?? tabs[0];
     windowItems.push(item(
       `show-display:${window.windowId}`,
-      `${active?.name ?? "Rion Studio"} · ${labels.temporaryWindow}`,
+      active ? `${active.name} · ${labels.temporaryWindow}` : labels.temporaryWindow,
       true,
       true
     ));

@@ -505,3 +505,58 @@ fn stable_system_webview_launch_does_not_duplicate_preview_focus() {
         core.shutdown();
     }
 }
+
+#[test]
+fn background_chromium_completion_preserves_newer_tab_selection() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform_contract(platform, 23);
+        let game_id = first_game_id(&core);
+        let role_a = create_role(&core, &game_id, 1);
+        let role_b = create_role(&core, &game_id, 2);
+        let window_id = format!("background-completion-{platform}");
+        let launch = |role_id| CoreCommand::BrowserRoleLaunch {
+            role_id,
+            target: launch_focus_target(&window_id),
+            launch_preview_id: None,
+            launch_tab_id: None,
+            zoom_factor: None,
+            restore_role_slots: None,
+        };
+        let (admission_a, _) = drive_launch_through_terminal(Arc::clone(&core), launch(role_a));
+        let tab_a = admission_a["tabId"].as_str().unwrap();
+        let mut selected = false;
+        let (admission_b, actions) = drive_launch_through_terminal_with(
+            Arc::clone(&core), launch(role_b.clone()), |action| {
+                if matches!(action, CoreEffectAction::EmbeddedLoadRoles { roles }
+                    if roles.iter().any(|role| role.role_id == role_b)) {
+                    let before = core.browser_runtime.snapshot().unwrap();
+                    core.apply_runtime_intent(crate::RuntimeIntent::ActivateTab {
+                        expected_revision: Some(before.windows[&window_id].revision),
+                        operation_id: crate::OperationId::new("select-a-during-b-load").unwrap(),
+                        tab_id: crate::RuntimeTabId::new(tab_a).unwrap(),
+                        window_id: window_id.clone(),
+                    }).unwrap();
+                    selected = true;
+                }
+            });
+        assert!(selected, "{platform}");
+        let tab_b = admission_b["tabId"].as_str().unwrap();
+        let ready = actions.iter().rev().find_map(|action| match action {
+            CoreEffectAction::EmbeddedFollowRoleOwnership {
+                roles, windows, reveal_window_ids, focus_window_ids, focus_tab_id, ..
+            } if roles.iter().any(|role| role.role_id == role_b && role.state == "running") => {
+                assert!(reveal_window_ids.is_empty(), "{platform}");
+                assert!(focus_window_ids.is_empty(), "{platform}");
+                assert!(focus_tab_id.is_none(), "{platform}");
+                Some(windows.iter().find(|window| window.window_id == window_id).unwrap())
+            }
+            _ => None,
+        }).expect("B must complete its ready projection");
+        assert_eq!(ready.active_tab_id.as_deref(), Some(tab_a), "{platform}");
+        assert!(ready.tab_phases.iter().any(|phase| phase.tab_id == tab_b
+            && phase.phase == crate::model::RuntimeTabActivationPhaseRecord::Ready), "{platform}");
+        assert_eq!(core.browser_runtime.snapshot().unwrap().windows[&window_id]
+            .selected_tab_id.as_deref(), Some(tab_a), "{platform}");
+        core.shutdown();
+    }
+}

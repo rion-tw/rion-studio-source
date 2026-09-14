@@ -964,8 +964,8 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.executor.snapshot().webSurfaces).toEqual([]);
   });
 
-  it("keeps one active tab visible and follows Core focus ownership", async () => {
-    const subject = harness();
+  it.each(["macos", "windows"] as const)("keeps Core focus ownership on %s", async (platform) => {
+    const subject = harness(undefined, platform);
     const first = tab("tab-1", "window-1", ["role-1"]);
     const second = tab("tab-2", "window-1", ["role-2"]);
     await createTab(subject, first);
@@ -1019,6 +1019,8 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.setVisible).toHaveBeenCalledWith("role-1", 1, true);
     expect(subject.setVisible).toHaveBeenCalledWith("role-2", 1, false);
     expect(subject.executor.snapshot().windows[0]?.activeTabId).toBe("tab-1");
+    if (platform === "macos") expect(subject.focusVisible).toHaveBeenCalledExactlyOnceWith("role-1", 1);
+    else expect(subject.focusVisible).not.toHaveBeenCalled();
   });
 
   it("quarantines exact native ownership after Applied visibility placeholder failure", async () => {
@@ -1069,6 +1071,7 @@ describe("Electron Chromium runtime effect executor", () => {
       status: "applied",
       windows: [expect.any(Object), expect.any(Object)]
     });
+    expect(subject.focusVisible).not.toHaveBeenCalled();
     for (const host of subject.hosts) {
       expect(host.showInactive).toHaveBeenCalledOnce();
       expect(host.focus).not.toHaveBeenCalled();

@@ -55,6 +55,7 @@ function controlledPromise<Value>(): PromiseControl<Value> {
 }
 
 class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
+  readonly focus = vi.fn();
   readonly audioMutedValues: boolean[] = [];
   readonly isolatedWorldExecutions: Array<Readonly<{
     worldId: number;
@@ -409,6 +410,21 @@ function fakeNativeAttachments(
 }
 
 describe("Electron Chromium role-surface registry", () => {
+  it("hands focus only to an active visible generation", async () => {
+    const subject = harness();
+    const creation = subject.registry.create(subject.input());
+    const contents = subject.views[0].webContents;
+    contents.finish("https://game.test/launch");
+    await creation;
+    expect(() => subject.registry.focusVisible("role-1", 2)).toThrow();
+    subject.registry.setVisible("role-1", 1, false);
+    expect(() => subject.registry.focusVisible("role-1", 1)).toThrow();
+    expect(contents.focus).not.toHaveBeenCalled();
+    subject.registry.setVisible("role-1", 1, true);
+    subject.registry.focusVisible("role-1", 1);
+    expect(contents.focus).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ["darwin", { control: false, meta: true }],
     ["win32", { control: true, meta: false }]

@@ -1,3 +1,5 @@
+import { verifyTemporaryWindowTitle } from "../support/temporary-window-title";
+import { verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
 import { join } from "node:path";
 import { $, browser, expect } from "@wdio/globals";
 import { captureNativeApplicationObservation } from "../support/native-application-observation";
@@ -71,6 +73,7 @@ describe("Extensions store and per-role configuration", () => {
       await chromePromotion.waitForExist({ timeout: 10000 });
       await expect(chromePromotion).not.toBeDisplayed();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-store-width.png"));
+      await verifyBusterStoreNavigation(processId, main);
       const search = await $(
         'input[type="search"],input[aria-label*="Search"],input[placeholder*="Search"]'
       );
@@ -81,6 +84,8 @@ describe("Extensions store and per-role configuration", () => {
       const result = await $(`a[href*="/detail/"][href*="${EXTENSION_ID}"]`);
       await result.waitForClickable({ timeout: 30_000 });
       await result.click();
+      await browser.waitUntil(async () => new URL(await browser.getUrl()).pathname.endsWith(`/${EXTENSION_ID}`), { timeout: 30_000 });
+      await $("h1*=AdBlock").waitForDisplayed({ timeout: 30_000 });
       await browser.switchToWindow(main);
       const install = await $("button=Install this extension");
       await install.waitForEnabled({
@@ -133,6 +138,7 @@ describe("Extensions store and per-role configuration", () => {
       const roleTab = runtime.tabs.find((tab) => tab.sourceId === future.id);
       if (!roleTab) throw new Error("The extension Role did not own an exact runtime tab");
       const probe = await electronDesktopE2eProbe();
+      await verifyTemporaryWindowTitle({ platform: probe.platform, processId, windowId: roleTab.windowId });
       if (probe.platform === "macos") {
         await selectMacosVisibleRuntimeTabMenuAction({
           action: "stop",

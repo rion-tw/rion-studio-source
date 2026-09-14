@@ -101,6 +101,15 @@ function submenu(
 }
 
 describe("Electron Quick Menu model", () => {
+  it.each(["darwin", "win32"] as const)("names an empty temporary window without the product name (%s)", (platform) => {
+    const state = snapshot();
+    state.browserRuntime.tabs = state.browserRuntime.tabs.filter((tab) => tab.windowId !== "window-temp");
+    const model = buildElectronQuickMenuModel({ language: "zh-TW", legal: legal(true), platform, snapshot: state });
+    expect(submenu(model, "視窗")).toContainEqual(expect.objectContaining({
+      id: "show-display:window-temp", label: "臨時視窗"
+    }));
+  });
+
   it("restores the complete v8.4 role, workspace, and window model on macOS", () => {
     const model = buildElectronQuickMenuModel({
       language: "zh-TW",

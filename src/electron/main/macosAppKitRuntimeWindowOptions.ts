@@ -6,7 +6,7 @@ export function buildMacosAppKitRuntimeWindowOptions(
   target: EmbeddedLaunchTargetRecord
 ): BaseWindowConstructorOptions {
   return {
-    title: target.persistedName ?? "Rion Studio",
+    title: target.persistedName ?? "",
     x: target.bounds.x,
     y: target.bounds.y,
     width: target.bounds.width,

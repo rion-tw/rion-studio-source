@@ -382,6 +382,7 @@ export class FakeNativeHost implements RawNativeAppKitRuntimeHost {
     windowName?: string
   ): void {
     expect(expected.nativeGeneration).toBe(this.nativeGeneration);
+    if (windowName === "") throw new Error("Native AppKit names use absence for a blank title");
     this.windowName = windowName ?? "";
     this.order.push(`controller-window-name-${this.windowName}`);
     if (this.windowNameFailures.has(this.windowName)) {

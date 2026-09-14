@@ -166,6 +166,7 @@ export type ChromiumPlatformRuntimeHostFactoryInput =
     }>;
 
 interface WindowsHostListeners {
+  readonly pageTitleUpdated: RuntimeHostWindowEventMap["page-title-updated"];
   readonly beforeMouseEvent: RuntimeHostWebContentsEventMap["before-mouse-event"];
   readonly beforeInputEvent: RuntimeHostWebContentsEventMap["before-input-event"];
   readonly blurred: () => void;
@@ -883,6 +884,7 @@ implements ChromiumRuntimeHostFactoryPort {
       record.chrome.bindPlacement(() => this.#onRuntimeWindowPlacement!(record.host));
     }
     record.listeners = {
+      pageTitleUpdated: (event) => event.preventDefault(),
       beforeInputEvent: (event, input) => {
         if (isChromiumRoleQuickAccessShortcut(input, "win32")) {
           event.preventDefault();
@@ -1063,6 +1065,7 @@ implements ChromiumRuntimeHostFactoryPort {
 
   #installListeners(record: WindowsHostRecord): void {
     const { contents, native, listeners } = record;
+    native.on("page-title-updated", listeners.pageTitleUpdated);
     native.on("blur", listeners.blurred);
     native.on("close", listeners.close);
     native.on("closed", listeners.closed);
@@ -1441,6 +1444,7 @@ implements ChromiumRuntimeHostFactoryPort {
     this.#removeReadinessListeners(record);
     const { contents, native, listeners } = record;
     native.removeListener("blur", listeners.blurred);
+    native.removeListener("page-title-updated", listeners.pageTitleUpdated);
     native.removeListener("close", listeners.close);
     native.removeListener("closed", listeners.closed);
     native.removeListener("enter-full-screen", listeners.enteredFullScreen);

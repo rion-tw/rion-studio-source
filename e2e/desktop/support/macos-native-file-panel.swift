@@ -46,7 +46,11 @@ func descendants(_ root: AXUIElement) -> [AXUIElement] {
     guard nodes.count <= 4096 else { fail("file-panel AX tree exceeds bounded search") }
     let node = nodes[cursor]
     cursor += 1
-    if text(node, "AXRole") == "AXWebArea" { continue }
+    let role = text(node, "AXRole")
+    // Dialog controls live outside the file browser and sidebar. Walking their
+    // filesystem rows performs thousands of cross-process AX calls in column
+    // view and can exhaust the action deadline after Go to Folder succeeded.
+    if role == "AXWebArea" || role == "AXBrowser" || role == "AXOutline" { continue }
     for child in children(node) where !nodes.contains(where: { CFEqual($0, child) }) { nodes.append(child) }
   }
   return nodes

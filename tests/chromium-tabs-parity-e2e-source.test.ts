@@ -58,7 +58,7 @@ describe("Chromium native tab exact replacements", () => {
     expect(nativeFocus).toContain(
       "exact runtime tab is not the active AppKit visual owner"
     );
-    expect(spec).toContain("activateNextTabThroughMacosControlTab");
+    expect(spec).toContain("loading.previousTab");
     expect(spec).toContain('command: "nextTab"');
     expect(spec).toContain("expect(await runtimeTabShellErrors()).toEqual([])");
     expect(helper).toContain("const appKit = toolbar.native.appKit");

@@ -24,14 +24,15 @@ Invalid or unavailable metadata falls back to the Puzzle icon and localized
 missing-description or unavailable-size text without disabling management.
 Successful installation returns to the unfiltered catalogue; cancelling confirmation
 returns to the store. Empty and no-match states offer add and clear-search actions. The store is
-an isolated, unprivileged native WebContentsView. The bundled Electron runtime
-cannot safely load current Chrome Web Store detail documents on macOS, so a
-sandboxed preload cancels an unmodified primary click on an exact same-origin
-detail link before the store SPA handles it. Electron main closed-validates and
-retains only that HTTPS detail URL and extension ID as the app-owned selection;
-the search document remains visible, and the Rion-owned install button uses the
-selection. Store DOM state and private Chrome APIs are not installation
-authorities. The store document, header, and main content use 100% of the embedded viewport width,
+an isolated, unprivileged native WebContentsView. Electron 43.7.0 renders the complete remote detail document, including navigation
+from search results and autocomplete. The current main-frame URL and native
+navigation history own the Rion toolbar state; there is no virtual detail selection.
+A Rion-owned install button uses the validated current detail ID; store DOM and
+private Chrome APIs are not installation authorities. Electron 44.3.0 exposed
+`chrome.webstorePrivate` without its native delegate (upstream electron/electron#53752),
+so calling it from store details crashed the browser process. The previous anchor-click
+interception missed autocomplete navigation and is removed with the 43.7.0 pin.
+The store document, header, and main content use 100% of the embedded viewport width,
 overriding the upstream 1280px minimum without changing zoom. Horizontal document
 scrolling is disabled; vertical browsing remains available. A presentation-only
 CSS selector hides the header's specific Chrome-promotion dialog controller
@@ -58,8 +59,8 @@ proof is valid; every other RSA proof requires at least 2048 bits. The verified
 developer SPKI is written to manifest `key` so Electron retains the same ID.
 Existing installed directories are not reverified. Their display metadata is
 backfilled from the already-managed files as described below; package identity
-and executable contents are not migrated. Electron 44.3.0 (bundled Chromium
-152.0.7977.78) loads each package in its assigned Role Session. An audited,
+and executable contents are not migrated. Electron 43.7.0 (bundled Chromium
+150.0.7871.250) loads each package in its assigned Role Session. An audited,
 vendored compatibility layer fills only the API surface listed below; native
 Chromium remains authoritative for declarativeNetRequest and scripting. A
 successful package load does not imply support for undeclared APIs. Popups,
@@ -73,6 +74,31 @@ the current document. Removal first records a tombstone, preserves files used
 by an active lease, and cleans them after the last native release. Extension
 storage remains in the role profile. Failed filesystem cleanup retains the
 tombstone; it is never treated as proof that files were deleted.
+
+## Electron 43.7 rollback validation (2026-09-14)
+
+The exact runtime pin is Electron 43.7.0, Chromium 150.0.7871.250,
+Node 24.21.0, and Node module ABI 148. The official
+[release record](https://releases.electronjs.org/release/v43.7.0) and
+[upstream delegate fix](https://github.com/electron/electron/pull/53752)
+explain the engine selection; `verify:electron-runtime` probes the installed binary.
+
+`RION_DOWNGRADE_PREVIOUS_ELECTRON=<44.3 executable> node scripts/verifyElectronDowngradeStorage.mjs`
+requires the exact old/new versions and performs a clean 44.3 write/exit followed
+by a fresh 43.7 reader. The isolated fixture preserved cookies, LocalStorage,
+IndexedDB, and extension `storage.local`. A stopped existing role profile was
+also copied to a disposable directory and opened with an inert same-origin page
+using `scripts/electronProfileReadbackProbe.cjs`: both binaries returned identical
+hashes for 73 cookies and 9 LocalStorage records (that origin had no IndexedDB).
+The source profile was never opened by the probe, reset, or rewritten. This is
+bounded compatibility evidence for those formats and that copied role, not a
+guarantee for every third-party database schema.
+
+The development computer-use check entered the Buster detail document through
+normal results, autocomplete mouse selection, and autocomplete keyboard selection.
+Reload, Back, and Forward retained real document content and the original process.
+The paired Extensions journeys assert the actual detail URL and visible heading,
+retain process identity, and capture each route; button enablement alone is insufficient.
 
 ## Authority and propagation
 

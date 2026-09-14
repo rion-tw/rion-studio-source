@@ -11,11 +11,11 @@ const MAX_PROBE_OUTPUT_CHARACTERS = 16 * 1024;
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 
 export const EXPECTED_ELECTRON_RUNTIME = Object.freeze({
-  chrome: "152.0.7977.78",
-  electron: "44.3.0",
-  modules: "149",
+  chrome: "150.0.7871.250",
+  electron: "43.7.0",
+  modules: "148",
   napi: "10",
-  node: "24.20.0"
+  node: "24.21.0"
 });
 export const EXPECTED_APPKIT_RUNTIME_ABI = 10;
 

@@ -81,6 +81,7 @@ export interface RuntimeHostInputEvent {
 }
 
 export interface RuntimeHostWindowEventMap {
+  readonly "page-title-updated": (event: RuntimeHostPreventableEvent) => void;
   readonly blur: () => void;
   readonly close: (event: RuntimeHostPreventableEvent) => void;
   readonly closed: () => void;

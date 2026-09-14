@@ -13,7 +13,7 @@ const validProbe = {
   arch: process.arch,
   appKitRuntimeAbi: process.platform === "darwin" ? EXPECTED_APPKIT_RUNTIME_ABI : 0,
   core: "0.1.0",
-  modules: "149",
+  modules: "148",
   napi: "10",
   platform: process.platform
 };

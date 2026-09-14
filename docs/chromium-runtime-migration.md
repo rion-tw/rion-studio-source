@@ -292,7 +292,7 @@ one admitted Role, WebContents, surface generation, document instance, and
 preload frame token. Navigation, close, crash, or debugger detach is an exact
 terminal event for pending work. Command acceptance is submission evidence only;
 trusted DOM receipt remains the success authority. See Electron's
-[`webContents.debugger`](https://github.com/electron/electron/blob/v44.3.0/docs/api/debugger.md)
+[`webContents.debugger`](https://github.com/electron/electron/blob/v43.7.0/docs/api/debugger.md)
 and the Chromium [`Input` domain](https://chromedevtools.github.io/devtools-protocol/tot/Input/).
 
 The transport uses an explicit cross-platform descriptor catalog for all
@@ -940,3 +940,18 @@ confirmed prefixes, compensation, rollback and document provenance. Native
 menus read committed projections and cancel stale intents. Presentation event
 subscriptions stop before clean-exit admission closes. Stored Macro semantics
 and the sole Electron runtime remain unchanged.
+
+### Foreground completion and temporary window names
+
+A Chromium load completion may repair native focus only while its tab remains
+selected in the latest RuntimeKernel topology. A newer user selection takes
+precedence: background completion updates ready/running state without reveal or
+focus effects. Foreground admission and unchanged-selection focus repair remain;
+hydration never requests focus. Electron 43 additionally needs an explicit
+WebContents responder handoff for a standalone Role after the AppKit host
+acknowledges Core's focus request. The follower rechecks the selected tab,
+window generation, topology revision, native focus and surface visibility before
+the handoff. It does not choose a workspace surface or focus a background tab.
+Missing persisted window names project as empty
+native titles on macOS and Windows. Windows shell document titles cannot replace
+the Core-owned title. These restore existing selection and naming semantics.

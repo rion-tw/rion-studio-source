@@ -43,7 +43,7 @@ import {
   selectVisibleWindowsRuntimeTabMenuAction,
   visibleRuntimeTabPhase
 } from "../support/native-runtime-tabs";
-import { readWindowsRuntimeTabLoadingEvidence } from "../support/windows-runtime-tab-close";
+import { activateWindowsRuntimeTabWhileLoading, readWindowsRuntimeTabLoadingEvidence } from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
@@ -299,7 +299,7 @@ async function showSavedWindow(input: Readonly<{
 async function launchRoleIntoWindow(
   role: Role,
   gameWindow: GameWindow,
-  loading?: Readonly<{ mainWindowHandle: string; platform: Platform }>
+  loading?: Readonly<{ mainWindowHandle: string; platform: Platform; previousTab?: { id: string; name: string } }>
 ): Promise<string> {
   await openSection("Home", "/dashboard");
   await $("[data-testid='quick-access-trigger']").click();
@@ -316,7 +316,7 @@ async function launchRoleIntoWindow(
   );
   await savedWindow.waitForClickable({ timeout: 10_000 });
   await captureLaunchDiagnostic("before-visible-destination-click", role, gameWindow);
-  const priorTabIds = new Set(gameWindow.tabs.map((tab) => tab.id));
+  const priorTabIds = new Set((await electronDesktopE2eGameWindowRuntime(gameWindow.id)).currentRuntime?.coreTabIds ?? gameWindow.tabs.map((tab) => tab.id));
   const afterSequence = await fixtureCursor();
   const fixtureId = ROLE_DEFINITIONS.find(
     (definition) => definition.name === role.name
@@ -368,6 +368,19 @@ async function launchRoleIntoWindow(
           windowId: gameWindow.id
         })).toBe("loading");
       }
+      if (loading.previousTab) {
+        if (loading.platform === "macos") {
+          await pressVisibleMacosApplicationShortcut({ command: "nextTab", processId: processId!,
+            runtimeTabName: role.name, targetMode: "focused-runtime" });
+        } else {
+          await activateWindowsRuntimeTabWhileLoading({ processId: processId!,
+            loadingTabName: role.name, selectedTabName: loading.previousTab.name });
+        }
+        await browser.waitUntil(async () => (await currentRuntime(gameWindow.id)).windows
+          .find(window => window.id === gameWindow.id)?.activeTabId === loading.previousTab!.id, {
+          timeout: 20_000, timeoutMsg: "The user tab selection did not commit before B completed"
+        });
+      }
     } finally {
       await fixtureRequest("/api/release", { roleId: fixtureId });
     }
@@ -396,6 +409,21 @@ async function launchRoleIntoWindow(
       tabName: role.name,
       windowId: gameWindow.id
     })).toBe("ready");
+  }
+  if (loading?.previousTab) {
+    const inspection = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
+    const runtime = await currentRuntime(gameWindow.id);
+    expect(runtime.windows.find((window) => window.id === gameWindow.id)?.activeTabId)
+      .toBe(loading.previousTab.id);
+    expect(inspection.surfaces.filter((surface) => surface.visible)).toEqual([
+      expect.objectContaining({ tabId: loading.previousTab.id, visible: true })
+    ]);
+    if (loading.platform === "macos") {
+      await waitForFocusedMacosAppKitRuntime({ processId: processId!,
+        runtimeTabName: loading.previousTab.name, windowId: gameWindow.id });
+    }
+    await expectExactNativeTopology({ activeTabId: loading.previousTab.id, gameWindow,
+      orderedTabIds: [loading.previousTab.id, tabId!], platform: loading.platform });
   }
   return tabId!;
 }
@@ -834,45 +862,6 @@ async function activateAndFocusEveryTab(input: Readonly<{
   }
 }
 
-async function activateNextTabThroughMacosControlTab(input: Readonly<{
-  gameWindow: GameWindow;
-  orderedTabIds: readonly [string, string];
-  processId: number;
-  roles: readonly [Role, Role];
-}>): Promise<void> {
-  await waitForFocusedMacosAppKitRuntime({
-    processId: input.processId,
-    runtimeTabName: input.roles[1].name,
-    windowId: input.gameWindow.id
-  });
-  await pressVisibleMacosApplicationShortcut({
-    command: "nextTab",
-    processId: input.processId,
-    runtimeTabName: input.roles[1].name,
-    targetMode: "focused-runtime"
-  });
-  await browser.waitUntil(async () => (
-    await currentRuntime(input.gameWindow.id)
-  ).windows.find((window) => window.id === input.gameWindow.id)
-    ?.activeTabId === input.orderedTabIds[0], {
-    interval: 100,
-    timeout: 55_000,
-    timeoutMsg: "Physical AppKit Control+Tab did not commit its next tab"
-  });
-  await waitForFocusedMacosAppKitRuntime({
-    processId: input.processId,
-    runtimeTabName: input.roles[0].name,
-    windowId: input.gameWindow.id
-  });
-  await expectExactNativeTopology({
-    activeTabId: input.orderedTabIds[0],
-    gameWindow: input.gameWindow,
-    orderedTabIds: input.orderedTabIds,
-    platform: "macos"
-  });
-  expect(await runtimeTabShellErrors()).toEqual([]);
-}
-
 async function waitForDormantWindow(windowId: string): Promise<void> {
   await browser.waitUntil(async () => (
     await electronDesktopE2eGameWindowRuntime(windowId)
@@ -990,16 +979,9 @@ async function seedPhase(input: Readonly<{
     tabIds.push(await launchRoleIntoWindow(
       role,
       gameWindow,
-      index === 0 ? input : undefined
+      index === 0 ? input : index === 1
+        ? { ...input, previousTab: { id: tabIds[0]!, name: sourceRoles[0]!.name } } : undefined
     ));
-    if (input.platform === "macos" && index === 1) {
-      await activateNextTabThroughMacosControlTab({
-        gameWindow,
-        orderedTabIds: [tabIds[0]!, tabIds[1]!],
-        processId: input.processId,
-        roles: [sourceRoles[0]!, sourceRoles[1]!]
-      });
-    }
   }
   expect(await runtimeTabShellErrors()).toEqual([]);
 

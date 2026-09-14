@@ -131,11 +131,15 @@ impl AppCore {
                         message: "The foreground Chromium tab retired before terminal focus."
                             .to_owned(),
                     })?;
-                (
-                    vec![window_id.clone()],
-                    vec![window_id],
-                    Some(tab_id.to_owned()),
-                )
+                // EventBound: loading may repair focus only while this tab is
+                // still selected. A later user selection owns the terminal projection.
+                let selected = self.browser_runtime.snapshot()?.windows.get(&window_id)
+                    .is_some_and(|window| window.selected_tab_id.as_deref() == Some(tab_id));
+                if selected {
+                    (vec![window_id.clone()], vec![window_id], Some(tab_id.to_owned()))
+                } else {
+                    (Vec::new(), Vec::new(), None)
+                }
             } else {
                 (Vec::new(), Vec::new(), None)
             };

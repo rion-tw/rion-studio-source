@@ -54,7 +54,7 @@ export function buildWindowsRuntimeHostWindowOptions(
   material: WindowsRuntimeHostMaterial = "mica"
 ): BrowserWindowConstructorOptions {
   return {
-    title: target.persistedName ?? "Rion Studio",
+    title: target.persistedName ?? "",
     x: target.bounds.x,
     y: target.bounds.y,
     width: target.bounds.width,
@@ -69,7 +69,7 @@ export function buildWindowsRuntimeHostWindowOptions(
     // Electron documents transparent Windows hosts as non-resizable and not
     // maximizable through normal Windows presentation paths. Keep the native
     // host opaque so Core-owned maximize/fullscreen effects receive their
-    // exact BrowserWindow events; Electron 44 draws Mica as the system
+    // exact BrowserWindow events; Electron draws Mica as the system
     // background material without requiring a transparent HWND.
     transparent: false,
     backgroundColor: material === "mica" ? "#00000000" : "#111318",

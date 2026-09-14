@@ -970,6 +970,7 @@ impl AppCore {
                     let core = Arc::clone(self);
                     completion_permit.send(Box::pin(async move {
                         let PendingEmbeddedWorkspaceLaunch {
+                            launch_attempt_id,
                             handle,
                             lease_id,
                             presentation_intent,
@@ -988,10 +989,10 @@ impl AppCore {
                         let completion_core = Arc::clone(&core);
                         let completion = tokio::task::spawn_blocking(move || {
                             let result = completion_core.commit_embedded_workspace_launch_outcome(
+                                &launch_attempt_id,
                                 role_ids,
                                 tab_id,
                                 persistence_window_id,
-                                workspace_id,
                                 presentation_intent,
                                 launch,
                             );

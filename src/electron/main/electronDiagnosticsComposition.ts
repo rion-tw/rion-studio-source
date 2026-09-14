@@ -18,14 +18,17 @@ declare const __RION_BUILD_COMMIT__: string;
 
 export interface ElectronDiagnosticsCompositionInput {
   readonly applicationName: string;
+  readonly readGpuObservation?: () => unknown;
   readonly applicationLifecycle:
     ElectronRuntimeDiagnosticsCollectorInput["applicationLifecycle"];
   readonly captureDisplayTopology: () => DisplayTopologySnapshotRecord;
   readonly core: ElectronDiagnosticsCorePort;
   readonly projectCoherentSnapshot:
     ElectronRuntimeDiagnosticsCollectorInput["projectCoherentSnapshot"];
-  readonly readCoreSnapshot:
+  readonly readCachedCoreSnapshot?: ElectronRuntimeDiagnosticsCollectorInput["readCachedCoreSnapshot"];
+  readonly readCoreSnapshot?:
     ElectronRuntimeDiagnosticsCollectorInput["readCoreSnapshot"];
+  readonly readCachedNativeSnapshot?: ElectronRuntimeDiagnosticsCollectorInput["readCachedNativeSnapshot"];
   readonly readNativeSnapshot:
     ElectronRuntimeDiagnosticsCollectorInput["readNativeSnapshot"];
   readonly registration: ElectronRuntimeDiagnosticsCollectorInput["registration"];
@@ -43,7 +46,9 @@ export function createElectronDiagnosticsComposition(
     applicationLifecycle: input.applicationLifecycle,
     projectCoherentSnapshot: input.projectCoherentSnapshot,
     readCoreSnapshot: input.readCoreSnapshot,
+    readCachedCoreSnapshot: input.readCachedCoreSnapshot,
     readNativeSnapshot: input.readNativeSnapshot,
+    readCachedNativeSnapshot: input.readCachedNativeSnapshot,
     registration: input.registration
   });
 
@@ -79,7 +84,7 @@ export function createElectronDiagnosticsComposition(
     }),
     captureDisplayTopology: input.captureDisplayTopology,
     captureGpuFeatureStatus: () => app.getGPUFeatureStatus(),
-    captureGpuInfo: () => app.getGPUInfo("complete"),
+    captureGpuInfo: async () => input.readGpuObservation ? input.readGpuObservation() : app.getGPUInfo("complete"),
     captureNativeRuntime: () => runtimeDiagnostics.capture()
   });
 }

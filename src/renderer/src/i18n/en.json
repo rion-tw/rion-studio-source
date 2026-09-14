@@ -1465,5 +1465,7 @@
   "recovery.platformPending": "Native validation for this platform is pending.",
   "recovery.ineligible": "This role is not eligible for failed-session recovery.",
   "recovery.sourceGap": "Source identity or complete data evidence is unavailable.",
-  "recovery.unknown": "Not verified"
+  "recovery.unknown": "Not verified",
+  "settings.logsExportPartial": "Diagnostics exported. Some live data was unavailable.",
+  "settings.logsExportComplete": "Diagnostics exported."
 }

@@ -1,3 +1,4 @@
+import { installDiagnosticsProjectionFault } from "./diagnosticsProjectionFault";
 import { installWorkspaceInitialPresentationBarrier } from "./workspaceInitialPresentationBarrier";
 import { seedRetainedV22Role } from "./retainedRoleSeed";
 import { installGraphicsSettingsViewport } from "./graphicsSettingsViewport";
@@ -1508,6 +1509,7 @@ installElectronDesktopE2eReceiptObserver();
 installElectronDesktopE2eCleanExitDiagnosticsObserver();
 installElectronDesktopE2eGuardedQuitObserver(writeFinalFlushMarker);
 installElectronDesktopE2eDiagnosticsExportObserver();
+installDiagnosticsProjectionFault();
 installElectronDesktopE2eLaunchCompletionObserver();
 installElectronDesktopE2eApplicationLifecycleObserver();
 installElectronDesktopE2eRoleRuntimeObserver();

@@ -30,7 +30,6 @@ import {
   webContents
 } from "electron";
 
-import type { CoreAppSnapshotRecord } from "../../shared/generated";
 import { CoreAddonClient } from "../core/coreAddonClient";
 import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import { createElectronBaselineDispatcher } from "./baselineDispatcher";
@@ -41,6 +40,7 @@ import {
   type ElectronShortcutMainWindowPort
 } from "./electronApplicationShortcutController";
 import { ElectronFocusedApplicationShortcutController } from "./electronFocusedApplicationShortcutController";
+import { setRuntimeOperationJournalSink } from "./runtimeOperationJournal";
 import { createElectronDiagnosticsComposition } from "./electronDiagnosticsComposition";
 import { resolveElectronNewGameWindowTarget } from "./electronNewGameWindowTarget";
 import { projectCoreAppSnapshot } from "./appSnapshotProjection";
@@ -222,6 +222,10 @@ async function createCore(userDataDir: string): Promise<CoreAddonClient> {
 }
 const loadNativeAddon = () => loadElectronNativeAddon(app.isPackaged, process.resourcesPath);
 
+setRuntimeOperationJournalSink(entry => runtimeLogs.info(
+  "browser", "runtime_effect_transition", "Runtime effect advanced.", { ...entry }
+));
+
 function createMacosAppKitAdapter(
   addon: LoadedRionNodeAddon,
   coreClient: CoreAddonClient,
@@ -237,7 +241,6 @@ function createMacosAppKitAdapter(
       core: coreClient,
       onDividerTerminal: (id, gesture) => hostFactory?.retireWorkspaceDividerGesture(id, gesture),
       preparePassiveEventDispatch: async (capturedHosts) => {
-        await chromiumRuntime?.settleCurrentApplicationEffects();
         if (!hostFactory) {
           throw new RionBridgeError({
             code: "ELECTRON_MACOS_APPKIT_HOST_UNAVAILABLE",
@@ -611,20 +614,9 @@ async function createMainWindow(): Promise<BrowserWindow> {
 const readChromiumRuntimeSnapshot = () => requireChromiumRuntimeSnapshot(chromiumRuntime);
 
 async function readAppSnapshot() {
-  await chromiumRuntime?.settleCurrentApplicationEffects();
-  let projectionSequence = await settleRuntimeProjection();
-  while (true) {
-    const snapshot = await activeCore().invoke({ type: "appSnapshot" });
-    try {
-      return projectAppSnapshot(snapshot);
-    } catch (error) {
-      if (error instanceof RionBridgeError && error.code === "ELECTRON_RUNTIME_PROJECTION_NOT_READY") {
-        projectionSequence = await waitForRuntimeProjection(projectionSequence);
-        continue;
-      }
-      throw error;
-    }
-  }
+  const snapshot = await activeCore().invoke({ type: "appSnapshot" });
+  return projectCoreAppSnapshot(snapshot, readChromiumRuntimeSnapshot(),
+    activeDisplayTopology().snapshot(), new Date().toISOString(), "observed");
 }
 
 async function settleRuntimeProjection() { return chromiumRuntime?.settleCurrentProjection() ?? 0; }
@@ -641,16 +633,6 @@ async function waitForRuntimeProjection(afterSequence: number): Promise<number> 
   return settleRuntimeProjection();
 }
 
-function projectAppSnapshot(snapshot: CoreAppSnapshotRecord) {
-  const capturedAt = new Date().toISOString();
-  const currentDisplayTopology = activeDisplayTopology().snapshot();
-  return projectCoreAppSnapshot(
-    snapshot,
-    readChromiumRuntimeSnapshot(),
-    currentDisplayTopology,
-    capturedAt
-  );
-}
 
 let graphicsHost: GraphicsHost | null = null;
 
@@ -1078,6 +1060,7 @@ async function bootstrapReadyPhase(
   });
   const diagnosticsExport = createElectronDiagnosticsComposition({
     applicationName: APP_NAME,
+    readGpuObservation: () => graphicsHost?.diagnostics.diagnosticObservation() ?? { source: "unavailable" },
     applicationLifecycle: () => {
       if (applicationLifecycle) return applicationLifecycle.snapshot();
       throw new RionBridgeError({
@@ -1094,7 +1077,8 @@ async function bootstrapReadyPhase(
         activeDisplayTopology().snapshot(),
         capturedAt
       ),
-    readCoreSnapshot: () => activeCore().invoke({ type: "appSnapshot" }),
+    readCachedCoreSnapshot: () => activeCore().readDiagnosticSnapshot(),
+    readCachedNativeSnapshot: () => chromiumRuntime?.readDiagnosticSnapshot() ?? null,
     readNativeSnapshot: readChromiumRuntimeSnapshot,
     registration: () => {
       if (chromiumRuntime) return chromiumRuntime.registration;
@@ -1181,6 +1165,7 @@ async function bootstrapReadyPhase(
     ...(restoredTabAppKit ? { appKit: restoredTabAppKit } : {})
   });
   const launchCoordinator = new ChromiumRuntimeLaunchCoordinator({
+    observedSnapshots: true,
     core: activeCore(),
     launchCompletions: chromiumLaunchCompletions,
     settleNativeEvents: async () => {
@@ -1251,7 +1236,8 @@ async function bootstrapReadyPhase(
         snapshot,
         native,
         displayTopology,
-        new Date().toISOString()
+        new Date().toISOString(),
+        "observed"
       ),
     readDisplayTopology: () => activeDisplayTopology().snapshot(),
     readNativeSnapshot: readChromiumRuntimeSnapshot

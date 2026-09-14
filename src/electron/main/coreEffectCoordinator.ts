@@ -1,3 +1,4 @@
+import { observeRuntimeEffect, recordRuntimeTransition } from "./runtimeOperationJournal";
 import type {
   CoreErrorPayload,
   CoreEffectDispatchReport,
@@ -27,6 +28,7 @@ export interface ElectronCoreEffectPort extends ElectronCoreEventSource {
 export interface CoreEffectCoordinatorInput {
   core: ElectronCoreEffectPort;
   processReceiptLedger: CoreEffectProcessReceiptLedger;
+  mutationScopes?: (effect: CoreEffectRequest) => readonly string[];
   execute: (
     effect: CoreEffectRequest,
     context: CoreEffectExecutionContext
@@ -80,19 +82,6 @@ interface EffectExecutionRecord {
   cancellationReason: CoreEffectContinuationCancelReason | null;
   continuation: CoreEffectEventContinuation | null;
   settled: boolean;
-}
-
-interface ProjectionAdmissionSignal {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-}
-
-function projectionAdmissionSignal(): ProjectionAdmissionSignal {
-  let resolve!: () => void;
-  const promise = new Promise<void>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
 }
 
 export function createCoreEffectProcessReceiptLedger(): CoreEffectProcessReceiptLedger {
@@ -356,7 +345,6 @@ export class CoreEffectCoordinator {
   readonly #effectRecordOrder: string[] = [];
   #projectionSequence = 0;
   #coreRevision = -1;
-  #nextProjectionAdmission = projectionAdmissionSignal();
   #state: CoordinatorState = "idle";
   #unsubscribe: (() => void) | null = null;
   #unsubscribeEventStreamFailures: (() => void) | null = null;
@@ -405,11 +393,9 @@ export class CoreEffectCoordinator {
    * native terminal receipt and Core acknowledgement before the reader runs.
    */
   async settleCurrentProjectionEffects(): Promise<number> {
-    while (true) {
-      const pending = [...this.#projectionTasks];
-      if (pending.length === 0) return this.#projectionSequence;
-      await Promise.allSettled(pending);
-    }
+    const sequence = this.#projectionSequence;
+    await Promise.allSettled([...this.#projectionTasks]);
+    return sequence;
   }
 
   /**
@@ -423,17 +409,12 @@ export class CoreEffectCoordinator {
   }
 
   async waitForProjectionAfter(sequence: number): Promise<number> {
-    while (this.#projectionSequence <= sequence) {
-      if (this.#state !== "open") {
-        throw new RionBridgeError({
-          code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED",
-          message: "The native projection actor stopped before a newer effect arrived."
-        });
-      }
-      const admission = this.#nextProjectionAdmission.promise;
-      if (this.#projectionSequence > sequence) break;
-      await admission;
+    if (this.#projectionSequence <= sequence && this.#projectionTasks.size === 0) {
+      throw new RionBridgeError({ code: "ELECTRON_RUNTIME_PROJECTION_STALLED",
+        message: "No admitted native projection can resolve the observed topology mismatch." });
     }
+    if (this.#state !== "open") throw new RionBridgeError({
+      code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED", message: "The native projection actor stopped." });
     return this.settleCurrentProjectionEffects();
   }
 
@@ -580,25 +561,34 @@ export class CoreEffectCoordinator {
         this.#projectionTasks.delete(record.projectionSettled);
       });
     }
+    observeRuntimeEffect(effect, "queued");
     this.#enqueueTask(effect, () => this.#executeFirst(effect, record));
   }
 
   #advanceProjectionSequence(): void {
     this.#projectionSequence += 1;
-    const admitted = this.#nextProjectionAdmission;
-    this.#nextProjectionAdmission = projectionAdmissionSignal();
-    admitted.resolve();
   }
 
   #enqueueTask(effect: CoreEffectRequest, task: () => Promise<void>): void {
-    const key = laneKey(effect);
-    const previous = this.#lanes.get(key) ?? Promise.resolve();
-    const current = previous
-      .catch(() => undefined)
-      .then(task);
-    this.#lanes.set(key, current);
+    const reload = laneKey(effect);
+    const keys = reload.startsWith("role-reload") ? [reload] :
+      this.#input.mutationScopes?.(effect) ?? [reload];
+    const effectiveKeys = keys.includes("app") ? [...this.#lanes.keys(), "app"] : [...keys, "app"];
+    const predecessors = [...new Set(effectiveKeys.flatMap(key => {
+      const pending = this.#lanes.get(key);
+      return pending ? [pending] : [];
+    }))];
+    if (predecessors.length) recordRuntimeTransition({
+      operationId: effect.operationId, effectId: effect.effectId, action: effect.action.type,
+      targetKind: effect.target.kind, targetId: effect.target.handleId, stage: "waiting-for-scope",
+      fences: { scopes: effectiveKeys.join(",") }
+    });
+    const previous = predecessors.length > 1 ? Promise.all(predecessors) :
+      predecessors[0] ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(task);
+    for (const key of keys) this.#lanes.set(key, current);
     const release = () => {
-      if (this.#lanes.get(key) === current) this.#lanes.delete(key);
+      for (const key of keys) if (this.#lanes.get(key) === current) this.#lanes.delete(key);
     };
     void current.then(release, release);
   }
@@ -617,6 +607,7 @@ export class CoreEffectCoordinator {
     }
     let execution: unknown;
     try {
+      observeRuntimeEffect(effect, "executing");
       validateEffect(effect);
       execution = await this.#input.execute(effect, {
         signal: record.abort.signal
@@ -635,6 +626,7 @@ export class CoreEffectCoordinator {
       return;
     }
     if (isCoreEffectEventContinuation(execution)) {
+      observeRuntimeEffect(effect, "awaiting-authoritative-event");
       record.continuation = execution;
       try {
         if (this.#state !== "open" && !record.cancellationReason) {
@@ -710,6 +702,7 @@ export class CoreEffectCoordinator {
     result: CoreEffectResult
   ): Promise<void> {
     if (record.settled) return;
+    observeRuntimeEffect(effect, result.ok ? "completed" : "failed", result.error?.code);
     record.settled = true;
     record.continuation = null;
     record.resolve(result);
@@ -734,6 +727,8 @@ export class CoreEffectCoordinator {
     }
     if (record.cancellationReason) return;
     record.cancellationReason = reason;
+    recordRuntimeTransition({ operationId: record.operationId, effectId, action: "cancellation",
+      targetKind: "effect", targetId: effectId, stage: reason });
     if (!record.abort.signal.aborted) record.abort.abort(reason);
     if (record.continuation) {
       this.#cancelContinuation(record, record.continuation, reason);
@@ -773,7 +768,6 @@ export class CoreEffectCoordinator {
     // rejection when no one is present to observe it.
     void this.#disposePromise.catch(() => undefined);
     this.#state = "draining";
-    this.#nextProjectionAdmission.resolve();
     let cancellationFailure: unknown;
     let cancellationFailed = false;
     const attempt = (work: () => void): void => {

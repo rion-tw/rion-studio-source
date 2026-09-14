@@ -1,3 +1,4 @@
+import { admitRuntimeTabClose, type RuntimeTabCloseCorePort } from "./runtimeTabCloseAdmission";
 import type {
   AppKitRuntimeEventReceiptRecord,
   CoreAppSnapshotRecord,
@@ -8,7 +9,6 @@ import type {
   SystemRuntimeOperationSummaryRecord
 } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
-import type { ElectronCoreCommandPort } from "./coreApiDispatcher";
 import type {
   AnyAuthenticatedChromiumRuntimeAction,
   AnyChromiumRuntimeActionReceipt,
@@ -55,7 +55,7 @@ export interface ChromiumNewWindowMovePort {
 }
 
 export interface ChromiumRuntimeActionBackendInput {
-  readonly core: ElectronCoreCommandPort;
+  readonly core: RuntimeTabCloseCorePort;
   readonly platform: "darwin" | "win32";
   readonly readNativeSnapshot: () => ChromiumRuntimeExecutorSnapshot;
   readonly appKit?: Readonly<{
@@ -704,13 +704,16 @@ implements ChromiumRuntimeActionBackend {
         intent.intentId,
         "stopGameWindowTab",
         "tabMutation",
-        "nativeDestroyed",
+        "topologyCommitted",
         fence.logical.windowId,
         tabId,
         receipt
       );
     }
-    await this.#input.core.invoke({
+    const committedRevision = await admitRuntimeTabClose(this.#input.core, {
+      operationId: intent.intentId, tabId, windowId: fence.logical.windowId,
+      windowGeneration: fence.logical.windowGeneration, topologyRevision: fence.logical.revision
+    }, () => this.#input.core.invoke({
       type: "embeddedTabStop",
       request: {
         operationId: intent.intentId,
@@ -722,18 +725,18 @@ implements ChromiumRuntimeActionBackend {
       },
       sourceId: tab.sourceId,
       tabType: tab.tabType
-    });
+    }));
     return terminalSummary({
       platform: this.#input.platform,
       operationId: intent.intentId,
       trigger: "stopGameWindowTab",
       subsystem: "tabMutation",
-      completionScope: "nativeDestroyed",
+      completionScope: "topologyCommitted",
       stage: "runtimeTabStopped",
       windowId: fence.logical.windowId,
       tabId,
       windowGeneration: fence.logical.windowGeneration,
-      topologyRevision: fence.logical.revision
+      topologyRevision: committedRevision
     });
   }
 

@@ -47,6 +47,7 @@ export interface ElectronDesktopE2eFullscreenToolbarInspection {
     kind: "role" | "web";
     tabId: string;
     visible: boolean;
+    retiring?: true;
   }>[];
   readonly tabIds: readonly string[];
   readonly topologyRevision: number;
@@ -95,7 +96,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
     new Set(candidate.tabIds).size !== candidate.tabIds.length ||
     !Array.isArray(candidate.surfaces) || !Array.isArray(candidate.workspaceTabs) ||
     !record(candidate.native)) {
-    throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+    throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 1).");
   }
   if ("nativeWindowHandle" in candidate &&
       (candidate.hostKind !== "windows" || typeof candidate.nativeWindowHandle !== "string" ||
@@ -123,7 +124,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
       "revealed", "toolbarVisible"].some(
       (key) => typeof native[key] !== "boolean"
     )) {
-    throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+    throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 2).");
   }
   if (hasAppKit) {
     const appKit = native.appKit;
@@ -158,14 +159,14 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
       native.toolbarVisible !== (
         appKit.accessoryOnScreen && appKit.tabStripOnScreen
       ) || native.nativeWindowControlCount !== appKit.visibleTrafficLightCount) {
-      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 3).");
     }
     if (hasTabScreenBounds) {
       const bounds = appKit.tabScreenBounds;
       if (!record(bounds) || !exact(bounds, ["height", "width", "x", "y"]) ||
           ![bounds.height, bounds.width, bounds.x, bounds.y].every(Number.isFinite) ||
           Number(bounds.width) <= 0 || Number(bounds.height) <= 0) {
-        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 4).");
       }
     }
     if (hasFullscreenControlBounds) {
@@ -173,7 +174,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
       if (!record(bounds) || !exact(bounds, ["height", "width", "x", "y"]) ||
           ![bounds.height, bounds.width, bounds.x, bounds.y].every(Number.isFinite) ||
           Number(bounds.width) <= 0 || Number(bounds.height) <= 0) {
-        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 5).");
       }
     }
     if (hasTabAnchors) {
@@ -188,11 +189,11 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
               !Number.isFinite(anchor.x) || !Number.isFinite(anchor.y) ||
               Number(anchor.x) < 0 || Number(anchor.y) < 0;
           })) {
-        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 6).");
       }
     }
   } else if (![0, 3].includes(Number(native.nativeWindowControlCount))) {
-    throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+    throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 7).");
   }
   const surfaceIds = new Set<string>();
   for (const surface of candidate.surfaces) {
@@ -204,19 +205,21 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
       : surfaceKind === "web" &&
         new RegExp(`^web-${surfaceTabId}-[1-9][0-9]*$`, "u").test(surfaceId);
     if (!record(surface) || !exact(surface, [
-      "bounds", "generation", "id", "kind", "tabId", "visible"
+      "bounds", "generation", "id", "kind", "tabId", "visible",
+      ...("retiring" in surface ? ["retiring"] : [])
     ]) || !validSurfaceId || !ID.test(surfaceTabId) ||
-      !candidate.tabIds.includes(surfaceTabId) || !positive(surface.generation) ||
+      (candidate.tabIds.includes(surfaceTabId) ? "retiring" in surface :
+        surface.retiring !== true || surface.visible !== false) || !positive(surface.generation) ||
       !new Set(["role", "web"]).has(surfaceKind) ||
       typeof surface.visible !== "boolean" || !record(surface.bounds) ||
       !exact(surface.bounds, ["height", "width", "x", "y"]) ||
       ![surface.bounds.x, surface.bounds.y, surface.bounds.width,
         surface.bounds.height].every(Number.isSafeInteger) ||
       Number(surface.bounds.width) < 1 || Number(surface.bounds.height) < 1) {
-      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 8).");
     }
     if (surfaceIds.has(surfaceId)) {
-      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 9).");
     }
     surfaceIds.add(surfaceId);
   }
@@ -225,7 +228,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
       !ID.test(String(workspace.sourceId)) || !ID.test(String(workspace.tabId)) ||
       !candidate.tabIds.includes(workspace.tabId) || !Array.isArray(workspace.slots) ||
       workspace.slots.length < 1 || workspace.slots.length > 9) {
-      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+      throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 10).");
     }
     for (const slot of workspace.slots) {
       if (!record(slot) || !exact(slot, ["id", "rect", "roleId", "web"]) ||
@@ -242,7 +245,7 @@ export function parseElectronDesktopE2eFullscreenToolbarInspection(
           !exact(slot.web, "lastUrl" in slot.web ? ["lastUrl"] : []) ||
           ("lastUrl" in slot.web && typeof slot.web.lastUrl !== "string"))) ||
         (slot.roleId === null) === (slot.web === null)) {
-        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid.");
+        throw new Error("Electron desktop E2E fullscreen-toolbar inspection is invalid (boundary 11).");
       }
     }
   }

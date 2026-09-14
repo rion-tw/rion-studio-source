@@ -1,3 +1,4 @@
+import { RuntimeScopedQueue } from "./runtimeScopedQueue";
 import { createTransparentRuntimeView } from "./transparentRuntimeView";
 import { pathToFileURL } from "node:url";
 
@@ -107,6 +108,7 @@ interface PlaceholderRecord {
   attached: boolean;
   bounds: ChromiumRoleSurfaceBounds;
   claimPromise: Promise<RuntimeRolePlaceholderClaimReceipt> | null;
+  closePromise: Promise<void> | null;
   descriptor: ChromiumRuntimeRolePlaceholderDescriptor;
   destroyedObserved: boolean;
   loadSettled: boolean;
@@ -214,7 +216,9 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
   ) => Promise<RuntimeRolePlaceholderClaimReceipt>;
   readonly #documentUrl: string;
   readonly #nativeAttachments: ChromiumGlobalWebNativeAttachmentPort | null;
+  readonly #projectionQueue = new RuntimeScopedQueue(4096);
   readonly #records = new Map<string, PlaceholderRecord>();
+  #desired = new Map<string, ChromiumRuntimeRolePlaceholderDescriptor>();
   readonly #recordByContents = new WeakMap<object, PlaceholderRecord>();
   readonly #shell: ChromiumRuntimeRolePlaceholderShellInput;
   readonly #views: ChromiumWebContentsViewFactoryPort;
@@ -289,14 +293,20 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
       }
       desired.set(descriptor.placeholderId, descriptor);
     }
-    for (const descriptor of desired.values()) {
-      const current = this.#records.get(descriptor.placeholderId);
-      if (current) await this.#update(current, descriptor);
-      else await this.#create(descriptor);
-    }
-    for (const record of [...this.#records.values()]) {
-      if (!desired.has(record.placeholderId)) await this.#close(record);
-    }
+    const identities = new Set([...desired.keys(), ...this.#desired.keys(), ...this.#records.keys()]);
+    this.#desired = desired;
+    const results = await Promise.allSettled([...identities].map(placeholderId =>
+      this.#projectionQueue.run([placeholderId], async () => {
+        const descriptor = this.#desired.get(placeholderId);
+        const current = this.#records.get(placeholderId);
+        if (this.#state !== "open") return;
+        if (!descriptor) { if (current) await this.#close(current); }
+        else if (current) await this.#update(current, descriptor);
+        else await this.#create(descriptor);
+      })
+    ));
+    const failed = results.find(result => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
   }
 
   readEvidence(placeholderId: string): ChromiumRuntimeRolePlaceholderEvidence {
@@ -372,6 +382,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
     }
     const destroyed = deferred<void>();
     const loaded = deferred<void>();
+    void loaded.promise.catch(() => undefined);
     const activated = deferred<void>();
     // This event-bound handshake can terminate before a local document sends ready.
     void activated.promise.catch(() => undefined);
@@ -387,6 +398,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
       attached: false,
       bounds: Object.freeze({ ...descriptor.bounds }),
       claimPromise: null,
+      closePromise: null,
       descriptor,
       destroyedObserved: false,
       loadSettled: false,
@@ -401,20 +413,32 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
       view.setVisible(descriptor.visible);
       this.#readProjection(record, descriptor.bounds, descriptor.visible);
       await this.#attach(record);
+      if (record.state !== "opening" || !this.#isWanted(record)) {
+        fail("ELECTRON_ROLE_PLACEHOLDER_RETIRED", "The placeholder closed during attachment.");
+      }
       void contents.loadURL(this.#documentUrl).catch(() => {
         // EventBound: did-fail-load is the authoritative local-load terminal.
       });
-      await loaded.promise;
-      if (record.state !== "opening" || this.#records.get(record.placeholderId) !== record) {
+      // Document readiness is local to this placeholder, never a topology receipt.
+      void loaded.promise.then(() => {
+      if (record.state !== "opening" || !this.#isWanted(record)) {
         fail("ELECTRON_ROLE_PLACEHOLDER_RETIRED", "The local placeholder retired during opening.");
       }
       record.state = "active";
       this.#publishState(record);
       activated.resolve();
+      }).catch(async (error: unknown) => {
+        activated.reject(error);
+        if (this.#isWanted(record) && record.state !== "closing") {
+          this.#onError(normalizeRionBridgeError(error, "ELECTRON_ROLE_PLACEHOLDER_LOAD_FAILED"));
+        }
+        await this.#close(record).catch(() => undefined);
+      });
     } catch (error) {
       activated.reject(error);
-      await this.#close(record).catch(() => undefined);
-      throw error;
+      const superseded = !this.#isWanted(record);
+      await this.#close(record);
+      if (!superseded) throw error;
     }
   }
 
@@ -455,6 +479,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
       record.bounds = Object.freeze({ ...descriptor.bounds });
       this.#publishState(record);
     } catch (error) {
+      if (!this.#isWanted(record)) { await this.#close(record); return; }
       record.state = "quarantined";
       try {
         if (record.attached && record.descriptor.parent !== previous.parent) {
@@ -476,8 +501,24 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
     }
   }
 
-  async #close(record: PlaceholderRecord): Promise<void> {
-    if (!this.#records.has(record.placeholderId)) return;
+  #isWanted(record: PlaceholderRecord): boolean {
+    const desired = this.#desired.get(record.placeholderId);
+    return this.#state === "open" && this.#records.get(record.placeholderId) === record &&
+      desired?.parent === record.descriptor.parent &&
+      desired.windowGeneration === record.descriptor.windowGeneration &&
+      !record.descriptor.parent.isDestroyed();
+  }
+
+  #close(record: PlaceholderRecord): Promise<void> {
+    if (!record.closePromise) record.closePromise = this.#closeExact(record).catch(error => {
+      record.closePromise = null;
+      throw error;
+    });
+    return record.closePromise;
+  }
+
+  async #closeExact(record: PlaceholderRecord): Promise<void> {
+    if (this.#records.get(record.placeholderId) !== record) return;
     record.state = "closing";
     record.activated.reject(placeholderError(
       "ELECTRON_ROLE_PLACEHOLDER_RETIRED", "The local placeholder closed before activation."
@@ -488,7 +529,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
       await record.destroyed.promise;
     }
     this.#removeListeners(record);
-    this.#records.delete(record.placeholderId);
+    if (this.#records.get(record.placeholderId) === record) this.#records.delete(record.placeholderId);
   }
 
   #listeners(record: PlaceholderRecord): PlaceholderListeners {
@@ -563,7 +604,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
         surfaceId: record.placeholderId,
         generation: record.generation,
         parent,
-        isCancelled: () => record.state === "closing" ||
+        isCancelled: () => !this.#isWanted(record) || record.state === "closing" ||
           record.destroyedObserved || parent.isDestroyed(),
         attach: () => {
           parent.contentView.addChildView(record.view);

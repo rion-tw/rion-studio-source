@@ -37,6 +37,7 @@ export function DiagnosticsSettingsSection({
     () => localStorage.getItem(CLEAR_LOGS_AFTER_DIAGNOSTICS_EXPORT_STORAGE_KEY) !== "false"
   );
   const [busy, setBusy] = useState(false);
+  const [exportStatus, setExportStatus] = useState<"complete" | "partial" | null>(null);
   const query = useMemo(() => ({
     ...(search.trim() ? { search: search.trim() } : {}),
     ...(level !== ALL ? { levels: [level] } : {}),
@@ -81,7 +82,9 @@ export function DiagnosticsSettingsSection({
 
   async function exportDiagnostics(): Promise<void> {
     await run(async () => {
+      setExportStatus(null);
       const result = await window.rionStudio.exportDiagnostics();
+      if (result) setExportStatus(result.collectionErrorCodes?.length ? "partial" : "complete");
       if (result && clearLogsAfterExport) {
         await window.rionStudio.clearLogs();
       }
@@ -106,6 +109,9 @@ export function DiagnosticsSettingsSection({
 
   return (
     <div className="grid gap-5">
+      {exportStatus && <p role="status" className="text-body text-muted-foreground">
+        {t(exportStatus === "partial" ? "settings.logsExportPartial" : "settings.logsExportComplete")}
+      </p>}
       <section className="grid gap-2">
         <Surface className="settings-group overflow-hidden [&>*:last-child]:border-b-0" radius="md">
           <div className="settings-row glass-divider flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">

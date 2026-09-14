@@ -1,3 +1,5 @@
+import { recordLaunchAdmission, runRecordedLaunch } from "./runtimeLaunchJournal";
+import { RuntimeScopedQueue } from "./runtimeScopedQueue";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -6,7 +8,6 @@ import type {
   CoreAppSnapshotRecord,
   CoreCommand,
   CoreCommandResult,
-  DisplayInfoRecord,
   DisplayTopologySnapshotRecord,
   EmbeddedLaunchTargetRecord,
   RuntimeLaunchDestinationRequest,
@@ -21,7 +22,10 @@ import { RionBridgeError } from "../ipc/errors";
 import type { ChromiumRuntimeExecutorSnapshot } from "./chromiumRuntimeSnapshot";
 import {
   cloneTarget,
+  displayById,
+  targetMatchesDisplay,
   sameBounds,
+  sameOrderedIds,
   sameNormalBounds,
   validBounds
 } from "./chromiumRuntimeLaunchGeometry";
@@ -45,6 +49,8 @@ export interface ChromiumRuntimeLaunchCorePort {
 export interface ChromiumRuntimeLaunchCoordinatorInput {
   readonly core: ChromiumRuntimeLaunchCorePort;
   readonly createId?: () => string;
+  /** Presentation snapshots may contain unrelated pending windows. */
+  readonly observedSnapshots?: boolean;
   readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
@@ -123,11 +129,6 @@ interface RestoreLaunchTab {
   readonly roleSlots: StateGameWindowRecord["tabs"][number]["roleSlots"];
 }
 
-function sameOrderedIds(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every(
-    (value, index) => value === right[index]
-  );
-}
 
 interface CoherentLaunchSnapshot {
   readonly app: AppSnapshot;
@@ -455,28 +456,6 @@ function normalizedDestination(
   );
 }
 
-function displayById(
-  topology: DisplayTopologySnapshotRecord,
-  displayId: number
-): DisplayInfoRecord | undefined {
-  return topology.displays.find((display) => display.id === displayId);
-}
-
-function targetMatchesDisplay(
-  target: EmbeddedLaunchTargetRecord,
-  topology: DisplayTopologySnapshotRecord
-): boolean {
-  const display = displayById(topology, target.displayId);
-  return display !== undefined &&
-    display.scaleFactor === target.scaleFactor &&
-    sameBounds(display.workArea, target.workArea) &&
-    validBounds(target.bounds, 640, 480) &&
-    target.bounds.x >= target.workArea.x &&
-    target.bounds.y >= target.workArea.y &&
-    target.bounds.x + target.bounds.width <= target.workArea.x + target.workArea.width &&
-    target.bounds.y + target.bounds.height <= target.workArea.y + target.workArea.height;
-}
-
 function clampBounds(
   bounds: EmbeddedLaunchTargetRecord["bounds"],
   workArea: EmbeddedLaunchTargetRecord["workArea"]
@@ -531,8 +510,7 @@ function validateSnapshotRevisions(
 export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPort {
   readonly #input: ChromiumRuntimeLaunchCoordinatorInput;
   readonly #targets = new Map<string, TargetCacheRecord>();
-  #queueTail: Promise<void> = Promise.resolve();
-  #queuedLaunches = 0;
+  readonly #queue = new RuntimeScopedQueue(MAX_QUEUED_LAUNCHES);
 
   constructor(input: ChromiumRuntimeLaunchCoordinatorInput) {
     this.#input = input;
@@ -542,35 +520,35 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     roleId: string,
     destination?: RuntimeLaunchDestinationRequest
   ): Promise<RoleLaunchResult> {
-    return this.#enqueue(() => this.#launch(
+    return this.#enqueue(requestId => this.#launch(
       requireCanonicalId(roleId, "Role"),
       "role",
-      normalizedDestination(destination)
+      normalizedDestination(destination), undefined, requestId
     ).then(({ admission, receipt }) => ({
       launchReceipt: receipt,
       windowId: receipt.windowId,
       status: admission.statuses[0] ?? null
-    })));
+    })), this.#launchScopes("role", roleId, destination));
   }
 
   launchWorkspace(
     workspaceId: string,
     destination?: RuntimeLaunchDestinationRequest
   ): Promise<WorkspaceLaunchResult> {
-    return this.#enqueue(() => this.#launch(
+    return this.#enqueue(requestId => this.#launch(
       requireCanonicalId(workspaceId, "Workspace"),
       "workspace",
-      normalizedDestination(destination)
+      normalizedDestination(destination), undefined, requestId
     ).then(({ admission, receipt }) => ({
       kind: "launched" as const,
       launchReceipt: receipt,
       windowId: receipt.windowId,
       statuses: admission.statuses
-    })));
+    })), this.#launchScopes("workspace", workspaceId, destination));
   }
 
   restoreSavedGameWindow(window: StateGameWindowRecord, foreground = false): Promise<void> {
-    return this.#enqueue(async () => {
+    return this.#enqueue(async requestId => {
       const windowId = requireCanonicalId(window.id, "restore Game Window");
       const tabIds = window.tabs.map((tab) => requireCanonicalId(tab.id, "restore tab"));
       if (new Set(tabIds).size !== tabIds.length) {
@@ -618,7 +596,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           requireCanonicalId(tab.sourceId, `restore ${sourceType}`),
           sourceType,
           { kind: "game-window", windowId },
-          { tabId: tab.id, roleSlots: tab.roleSlots }
+          { tabId: tab.id, roleSlots: tab.roleSlots }, requestId
         );
         // An explicit Show claims foreground at admission, never after navigation.
         if (foreground && tab === launchOrder[0]) {
@@ -726,7 +704,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           "The restored Game Window changed while committing its presentation."
         );
       }
-    });
+    }, [`window:${window.id}`, ...window.tabs.map(tab => `${tab.tabType}:${tab.sourceId}`)]);
   }
 
   openEmptySavedGameWindow(window: StateGameWindowRecord): Promise<void> {
@@ -1036,26 +1014,20 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     }
   }
 
-  #enqueue<Result>(task: () => Promise<Result>): Promise<Result> {
-    if (this.#queuedLaunches >= MAX_QUEUED_LAUNCHES) {
-      return Promise.reject(launchError(
-        "ELECTRON_CHROMIUM_LAUNCH_QUEUE_FULL",
-        "The ordered Chromium launch queue is full."
-      ));
-    }
-    this.#queuedLaunches += 1;
-    const result = this.#queueTail.then(task);
-    this.#queueTail = result.then(() => undefined, () => undefined);
-    return result.finally(() => {
-      this.#queuedLaunches -= 1;
-    });
+  #launchScopes(source: LaunchSourceType, id: string, destination?: RuntimeLaunchDestinationRequest): string[] {
+    return [`${source}:${id}`, ...(destination?.kind === "game-window" ? [`window:${destination.windowId}`] : [])];
+  }
+
+  #enqueue<Result>(task: (requestId: string) => Promise<Result>, scopes: readonly string[] = ["admission"]): Promise<Result> {
+    return runRecordedLaunch(this.#queue, scopes, task);
   }
 
   async #launch(
     sourceId: string,
     sourceType: LaunchSourceType,
     destination: RuntimeLaunchDestinationRequest,
-    restore?: RestoreLaunchTab
+    restore?: RestoreLaunchTab,
+    requestId?: string
   ): Promise<{
     admission: BrowserLaunchAdmissionRecord;
     receipt: RoleLaunchResult["launchReceipt"];
@@ -1107,6 +1079,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
             restoreRoleSlots: restore.roleSlots
           })
         });
+    recordLaunchAdmission(admission, requestId, resolved.target.windowId);
     const afterTopology = await this.#input.readDisplayTopology();
     if (!sameTopologyRevision(expectedTopology, afterTopology)) {
       throw launchError(
@@ -1217,11 +1190,9 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
   }
 
   async #readCoherentSnapshot(waitForProjection = true): Promise<CoherentLaunchSnapshot> {
-    // Required pre-action reads drain earlier AppKit callbacks and projection
-    // effects. The optional post-admission cache check only reads current state;
-    // it cannot make an admitted renderer request wait for native completion.
-    if (waitForProjection) await this.#input.settleNativeEvents?.();
-    let projectionSequence = waitForProjection
+    // Presentation reads are observational; exact mutation fences stay target-local.
+    if (waitForProjection && !this.#input.observedSnapshots) await this.#input.settleNativeEvents?.();
+    let projectionSequence = waitForProjection && !this.#input.observedSnapshots
       ? await this.#input.settleRuntimeProjection?.() ?? 0 : 0;
     while (true) {
       const core = await this.#input.core.invoke({ type: "appSnapshot" });
@@ -1238,7 +1209,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         if (
           error instanceof RionBridgeError &&
           error.code === "ELECTRON_RUNTIME_PROJECTION_NOT_READY" &&
-          waitForProjection && this.#input.waitForRuntimeProjection
+          waitForProjection && !this.#input.observedSnapshots && this.#input.waitForRuntimeProjection
         ) {
           projectionSequence = await this.#input.waitForRuntimeProjection(
             projectionSequence
@@ -1371,23 +1342,23 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     const logical = snapshot.core.logicalWindows.find(
       (window) => window.windowId === windowId
     );
-    if (
-      !cached ||
-      cached.state !== "reconciled" ||
-      !live ||
-      !logical ||
-      cached.windowGeneration !== logical.windowGeneration ||
-      cached.topologyRevision !== logical.revision
-    ) {
-      throw launchError(
-        "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE",
-        "The reconciled Chromium window identity is unavailable or stale."
-      );
+    const native = snapshot.native.windows.find(window => window.windowId === windowId);
+    const logicalIds = logical?.tabs.map(tab => tab.id) ?? [];
+    if (!cached || cached.state !== "reconciled" || !live || !logical ||
+        cached.windowGeneration !== logical.windowGeneration || cached.topologyRevision !== logical.revision ||
+        !native || native.windowGeneration !== logical.windowGeneration ||
+        native.topologyRevision !== logical.revision || !sameOrderedIds(native.tabIds, logicalIds) ||
+        native.activeTabId !== (logical.activeTabId ?? "") ||
+        snapshot.native.tabs.filter(tab => tab.windowId === windowId && !tab.retiring).length !== logicalIds.length) {
+      throw launchError("ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE",
+        "The requested window has not applied its exact Core topology; unrelated windows remain available.");
     }
+
     return this.#currentLiveTarget(
       live,
       snapshot.app.displayTopology,
-      cached.persistedName
+      cached?.state === "reconciled" ? cached.persistedName :
+        snapshot.core.state.gameWindows.find(window => window.id === windowId)?.name
     );
   }
 
@@ -1744,7 +1715,9 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         this.#targets.delete(windowId);
         continue;
       }
-      if (awaitsFirstNativeTopology || webSurfaceReconciliation === "pending") continue;
+      // A healthy window accepts another tab while its existing Web slots load.
+      // Existing conflicting native identities still invalidate the target above.
+      if (awaitsFirstNativeTopology) continue;
       this.#targets.set(windowId, {
         ...(cached.admissionTarget.persistedName === undefined
           ? {}

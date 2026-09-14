@@ -1,3 +1,5 @@
+import { normalizeRionBridgeError } from "../ipc/errors";
+import { runtimeOperationEvidence } from "./runtimeOperationJournal";
 import type {
   ApplicationLifecycleStatusRecord,
   BrowserRuntimeRegistrationRecord,
@@ -36,7 +38,9 @@ export interface ElectronRuntimeDiagnosticsCollectorInput {
     native: ChromiumRuntimeExecutorSnapshot,
     capturedAt: string
   ) => AppSnapshot;
-  readonly readCoreSnapshot: () => Promise<CoreAppSnapshotRecord>;
+  readonly readCachedCoreSnapshot?: () => { capturedAt: string; snapshot: CoreAppSnapshotRecord } | null;
+  readonly readCoreSnapshot?: () => Promise<CoreAppSnapshotRecord>;
+  readonly readCachedNativeSnapshot?: () => { capturedAt: string; snapshot: ChromiumRuntimeExecutorSnapshot } | null;
   readonly readNativeSnapshot: () => ChromiumRuntimeExecutorSnapshot;
   readonly registration: () => BrowserRuntimeRegistrationRecord;
   readonly now?: () => string;
@@ -72,31 +76,77 @@ function capabilityEvidence(
  */
 export class ElectronRuntimeDiagnosticsCollector {
   readonly #input: ElectronRuntimeDiagnosticsCollectorInput;
+  readonly #registration: BrowserRuntimeRegistrationRecord;
 
   constructor(input: ElectronRuntimeDiagnosticsCollectorInput) {
     this.#input = input;
+    this.#registration = structuredClone(input.registration());
   }
 
   async capture(): Promise<SystemRuntimeDiagnosticsRecord> {
-    const core = await this.#input.readCoreSnapshot();
-    const native = this.#input.readNativeSnapshot();
     const capturedAt = (this.#input.now ?? (() => new Date().toISOString()))();
-    this.#input.projectCoherentSnapshot(core, native, capturedAt);
-    const registration = this.#input.registration();
-    const collectionErrorCodes = [...INCOMPLETE_COLLECTION_CODES];
+    const collectionErrorCodes: string[] = [...INCOMPLETE_COLLECTION_CODES];
+    let core: CoreAppSnapshotRecord | undefined;
+    let coreCapturedAt = capturedAt;
+    let native: ChromiumRuntimeExecutorSnapshot | undefined;
+    let nativeCapturedAt = capturedAt;
+    let nativeSource = "live";
+    let applicationLifecycle: ApplicationLifecycleStatusRecord | undefined;
+    try {
+      if (this.#input.readCachedCoreSnapshot) {
+        const cached = this.#input.readCachedCoreSnapshot();
+        core = cached?.snapshot;
+        coreCapturedAt = cached?.capturedAt ?? capturedAt;
+        collectionErrorCodes.push(core ? "ELECTRON_RUNTIME_CORE_SNAPSHOT_CACHED" : "ELECTRON_RUNTIME_CORE_SNAPSHOT_UNAVAILABLE");
+      } else if (this.#input.readCoreSnapshot) core = await this.#input.readCoreSnapshot();
+      else collectionErrorCodes.push("ELECTRON_RUNTIME_CORE_SNAPSHOT_UNAVAILABLE");
+    } catch (error) { collectionErrorCodes.push(normalizeRionBridgeError(error, "ELECTRON_RUNTIME_CORE_SNAPSHOT_UNAVAILABLE").code); }
+    try { native = this.#input.readNativeSnapshot(); }
+    catch (error) {
+      collectionErrorCodes.push(normalizeRionBridgeError(error, "ELECTRON_RUNTIME_NATIVE_SNAPSHOT_UNAVAILABLE").code);
+      try {
+        const cached = this.#input.readCachedNativeSnapshot?.();
+        if (cached) { native = cached.snapshot; nativeCapturedAt = cached.capturedAt; nativeSource = "cached"; }
+      } catch { collectionErrorCodes.push("ELECTRON_RUNTIME_NATIVE_CACHE_UNAVAILABLE"); }
+    }
+    try { applicationLifecycle = this.#input.applicationLifecycle(); }
+    catch (error) { collectionErrorCodes.push(normalizeRionBridgeError(error, "ELECTRON_RUNTIME_LIFECYCLE_UNAVAILABLE").code); }
+    if (core && native) {
+      try { this.#input.projectCoherentSnapshot(core, native, capturedAt); }
+      catch (error) { collectionErrorCodes.push(normalizeRionBridgeError(error, "ELECTRON_RUNTIME_PROJECTION_UNAVAILABLE").code); }
+    }
+    let registration = this.#registration;
+    try { registration = this.#input.registration(); }
+    catch { collectionErrorCodes.push("ELECTRON_RUNTIME_REGISTRATION_CACHED"); }
+    const evidence = {
+      capturedAt, core: core ? { capturedAt: coreCapturedAt,
+        source: this.#input.readCachedCoreSnapshot ? "cached" : "live",
+        revision: core.revision, runtimeRevision: core.runtimeRevision,
+        browserRuntime: core.browserRuntime ? { windows: core.browserRuntime.windows,
+          roles: core.browserRuntime.roles, tabs: core.browserRuntime.tabs?.map(tab => ({
+            tabId: tab.id, windowId: tab.windowId, attemptGeneration: tab.attemptGeneration,
+            sourceId: tab.sourceId, tabType: tab.tabType, hidden: tab.hidden
+          })) } : null,
+        windows: core.logicalWindows?.map(window => ({ windowId: window.windowId,
+          windowGeneration: window.windowGeneration, revision: window.revision,
+          tabIds: window.tabs.map(tab => tab.id), activeTabId: window.activeTabId }))
+      } : null,
+      native: native ? { capturedAt: nativeCapturedAt, source: nativeSource, windows: native.windows, tabs: native.tabs,
+        roles: native.roles, webSurfaces: native.webSurfaces } : null,
+      effects: runtimeOperationEvidence()
+    };
 
     return {
       contractVersion: registration.contractVersion,
       platform: registration.platform,
       shutdownState: "accepting",
-      applicationLifecycle: this.#input.applicationLifecycle(),
+      ...(applicationLifecycle ? { applicationLifecycle } : {}),
       healthy: false,
       snapshotComplete: collectionErrorCodes.length === 0,
       collectionErrorCodes,
-      displayHostCount: native.windows.length,
-      tabCount: native.tabs.length,
-      roleCount: native.roles.length,
-      managedSurfaceCount: native.roles.length + native.webSurfaces.length,
+      runtimeEvidenceRawJson: JSON.stringify(evidence),
+      ...(native ? { displayHostCount: native.windows.length, tabCount: native.tabs.length,
+        roleCount: native.roles.length, managedSurfaceCount: native.roles.length + native.webSurfaces.length } : {}),
       nativeCreationLimit: UNKNOWN_NATIVE_CREATION_LIMIT,
       activeInputFences: [],
       recentInputFenceEvents: [],

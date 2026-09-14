@@ -110,6 +110,7 @@ impl AppCore {
 
     fn completed_chromium_runtime_projection_step(
         &self,
+        window_id: &str,
     ) -> CoreResult<(
         crate::model::BrowserRuntimeSnapshot,
         crate::operation_actor::OperationStep,
@@ -124,7 +125,8 @@ impl AppCore {
             CoreEffectAction::EmbeddedFollowRoleOwnership {
                 lifecycle_epoch: self.application_lifecycle_epoch.load(Ordering::Acquire),
                 roles: snapshot.roles.clone(),
-                windows: self.embedded_runtime_window_projections()?,
+                windows: self.embedded_runtime_window_projections()?.into_iter()
+                    .filter(|window| window.window_id == window_id).collect(),
                 target: None,
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
@@ -138,9 +140,10 @@ impl AppCore {
 
     fn project_completed_chromium_runtime_launch(
         &self,
+        window_id: &str,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let (snapshot, step) =
-            self.completed_chromium_runtime_projection_step()?;
+            self.completed_chromium_runtime_projection_step(window_id)?;
         self.run_effect_plan(vec![step])?;
         self.emit_browser_statuses();
         Ok(snapshot)
@@ -615,7 +618,7 @@ impl AppCore {
         }
         let expected = window_ids.into_iter().collect::<std::collections::HashSet<_>>();
         let before = self.browser_runtime.snapshot()?;
-        let _event_lane = self.appkit_event_sequence.acquire()?;
+        let _event_lane = self.appkit_event_sequence.acquire(expected.iter().cloned().collect())?;
         let mut projected_windows = Vec::with_capacity(observation.hosts.len());
         let mut seen = std::collections::HashSet::new();
         for host in observation.hosts {

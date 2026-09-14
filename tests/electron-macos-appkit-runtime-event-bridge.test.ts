@@ -57,6 +57,56 @@ function receipt(command: Extract<CoreCommand, {
 }
 
 describe("macOS AppKit privileged runtime event bridge", () => {
+  it("releases the exact host after topology acceptance while close cleanup remains pending", async () => {
+    let listener!: (event: CoreEvent) => void;
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const calls: Extract<CoreCommand, { type: "browserAppKitRuntimeEvent" }>[] = [];
+    const bridge = new MacosAppKitRuntimeEventBridge({ core: {
+      subscribeCoreEvents: next => { listener = next; return () => undefined; },
+      invoke: (async (command: CoreCommand) => {
+        if (command.type !== "browserAppKitRuntimeEvent") throw new Error("unexpected command");
+        calls.push(command);
+        if (command.event.action.type === "stop") await pending;
+        return receipt(command);
+      }) as never
+    }, onError: vi.fn() });
+    const closing = bridge.stopTab([primaryObservation()], "b", ["a"]);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    listener({ type: "appKitTopologyCommitted", receipt: receipt(calls[0]!) });
+    await closing;
+    const next = { ...primaryObservation(), topologyRevision: 8 };
+    await bridge.activateTab([next], "a");
+    expect(calls).toHaveLength(2);
+    release();
+    await bridge.dispose();
+  });
+
+  it("rejects an admitted topology waiter when the Core event stream fails", async () => {
+    let failed!: () => void;
+    let release!: () => void;
+    const entered = vi.fn();
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const bridge = new MacosAppKitRuntimeEventBridge({ core: {
+      subscribeCoreEvents: () => () => undefined,
+      subscribeCoreEventStreamFailures: listener => {
+        failed = () => listener({ error: { code: "STREAM_FAILED", message: "injected" } } as never);
+        return () => undefined;
+      },
+      invoke: (async (command: CoreCommand) => {
+        if (command.type !== "browserAppKitRuntimeEvent") throw new Error("unexpected command");
+        entered(); await pending; return receipt(command);
+      }) as never
+    }, onError: vi.fn() });
+    const closing = bridge.stopTab([primaryObservation()], "b", ["a"]);
+    const rejection = expect(closing).rejects.toMatchObject({ code: "ELECTRON_MACOS_APPKIT_EVENT_STREAM_CLOSED" });
+    await vi.waitFor(() => expect(entered).toHaveBeenCalledOnce());
+    failed();
+    await rejection;
+    release();
+    await bridge.dispose();
+  });
+
   it("captures one fenced observation receipt for the exact workspace hosts", async () => {
     const bridge = new MacosAppKitRuntimeEventBridge({
       core: {

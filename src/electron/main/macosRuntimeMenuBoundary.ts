@@ -25,11 +25,7 @@ export async function readRuntimeMenuSnapshot(input: Readonly<{
   readCore: () => Promise<CoreAppSnapshotRecord>;
   readNative: () => ChromiumRuntimeExecutorSnapshot;
 }>) {
-  await input.settleNativeEvents();
-  await input.runtime.settleCurrentApplicationEffects();
-  await input.runtime.settleCurrentProjection();
   const core = await input.readCore();
-  await input.runtime.settleCurrentProjection();
   return { core, native: input.readNative() };
 }
 

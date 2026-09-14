@@ -900,7 +900,7 @@ fn closing_an_available_role_tab_removes_its_demand_record() {
         None,
     );
     assert!(closed.is_ok(), "{closed:?}");
-    assert!(actions.is_empty());
+    assert!(actions.iter().any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { tab_id: id, .. } if id == &tab_id)));
     let snapshot = core
         .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
         .unwrap()

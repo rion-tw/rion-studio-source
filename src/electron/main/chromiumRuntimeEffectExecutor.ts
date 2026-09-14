@@ -1,3 +1,6 @@
+import { setChromiumRuntimeTabAudioMuted } from "./chromiumRuntimeTabAudioEffect";
+import { ChromiumRuntimePlaceholderFollower } from "./chromiumRuntimePlaceholderFollower";
+import { chromiumRuntimeEffectScopes } from "./chromiumRuntimeEffectScopes";
 import { loadChromiumWorkspaceSlots } from "./chromiumWorkspaceSlotLoadExecutor";
 import { captureChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
 import { workspaceWebLaunchUrl } from "../../shared/workspaceStartPage";
@@ -64,6 +67,7 @@ import type { ChromiumRuntimeEffectExecutorInput } from
   "./chromiumRuntimeEffectPorts";
 import {
   projectChromiumRuntimeRolePlaceholderSlots,
+  projectFencedRolePlaceholderSlots,
   reconcileChromiumRuntimeRolePlaceholders
 } from "./chromiumRuntimeRolePlaceholderProjection";
 import {
@@ -123,12 +127,17 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #lastGenerationByRole = new Map<string, number>();
   readonly #lastGenerationByWebSurface = new Map<string, number>();
   readonly #savedWindowRestorePresentations = new Map<string, boolean>();
+  readonly #admittedTabWindows = new Map<string, string>();
+  readonly #retiringWindows = new Set<string>();
+  readonly #closedTabAttempts = new Map<string, string>();
   readonly #ownershipTransitions: ChromiumRuntimeOwnershipTransitionCoordinator;
+  readonly #placeholderFollower: ChromiumRuntimePlaceholderFollower;
   #state: ExecutorState = "open";
   #disposePromise: Promise<void> | null = null;
 
   constructor(input: ChromiumRuntimeEffectExecutorInput) {
     this.#input = input;
+    this.#placeholderFollower = new ChromiumRuntimePlaceholderFollower(input, this.#tabs, this.#windows, () => this.#state === "open");
     this.#ownershipTransitions = new ChromiumRuntimeOwnershipTransitionCoordinator({
       lifecycleEpoch: input.lifecycleEpoch,
       onError: input.onError
@@ -141,6 +150,10 @@ export class ChromiumRuntimeEffectExecutor {
     }
   }
 
+  mutationScopes(effect: CoreEffectRequest): readonly string[] {
+    return chromiumRuntimeEffectScopes(effect, this.#tabs, this.#admittedTabWindows);
+  }
+
   attachedWebSurfaceObservations(windowId: string): import("../../shared/generated").AppKitAttachedWebSurfaceRecord[] {
     return [...this.#projectableWebSurfaces().values()]
       .filter((surface) => surface.windowId === windowId &&
@@ -151,7 +164,13 @@ export class ChromiumRuntimeEffectExecutor {
   }
 
   #projectableWebSurfaces(): Map<string, RuntimeWebSurfaceRecord> {
-    return new Map([...this.#attachedWebSurfaces, ...this.#webSurfaces]);
+    return new Map([...this.#attachedWebSurfaces, ...this.#webSurfaces].filter(
+      ([id, surface]) => this.#closingWebSurfaceGenerations.get(id) !== surface.generation));
+  }
+
+  #projectableRoles(): Map<string, RuntimeRoleRecord> {
+    return new Map([...this.#roles].filter(
+      ([id, role]) => this.#closingRoleGenerations.get(id) !== role.generation));
   }
 
   snapshot(): ChromiumRuntimeExecutorSnapshot {
@@ -206,7 +225,8 @@ export class ChromiumRuntimeEffectExecutor {
     }
   }
   async commitTerminalRoleOwnership(
-    projectedRoles: readonly BrowserRuntimeRoleRecord[]
+    projectedRoles: readonly BrowserRuntimeRoleRecord[],
+    roleId?: string
   ): Promise<void> {
     if (this.#state !== "open") {
       throw runtimeError(
@@ -214,7 +234,7 @@ export class ChromiumRuntimeEffectExecutor {
         "The Chromium runtime is draining and rejects ownership projections."
       );
     }
-    for (const projected of projectedRoles) {
+    for (const projected of projectedRoles.filter(role => roleId === undefined || role.roleId === roleId)) {
       const native = this.#roles.get(projected.roleId);
       if (native && (
         native.tabId !== projected.owner.tabId ||
@@ -226,7 +246,7 @@ export class ChromiumRuntimeEffectExecutor {
         );
       }
     }
-    projectChromiumRuntimeRolePlaceholderSlots(this.#tabs, projectedRoles);
+    projectChromiumRuntimeRolePlaceholderSlots(this.#tabs, projectedRoles, roleId);
     await this.#reconcileRolePlaceholders();
   }
 
@@ -415,13 +435,16 @@ export class ChromiumRuntimeEffectExecutor {
       case "embeddedFocusRole":
         return this.#focusRole(action.roleId, action.zoomFactor ?? undefined);
       case "embeddedSetTabAudioMuted":
-        return this.#setTabAudioMuted(effect, action);
+        return setChromiumRuntimeTabAudioMuted({ ports: this.#input, tabs: this.#tabs, roles: this.#roles, webSurfaces: this.#webSurfaces }, effect, action);
       case "embeddedDestroyRole":
-        return this.#destroyRole(action.roleId);
+        return coreEffectEventContinuation(this.#destroyRole(action.roleId), () => { /* Exact destruction must finish after cancellation. */ });
       case "embeddedClaimRoleSlot":
         return this.#claimRoleSlot(action.tabId, action.slot, action.role);
       case "embeddedDestroyTab":
-        return this.#destroyTab(action.tabId, action.nextActiveTabId ?? undefined);
+        if (action.attemptGeneration !== undefined && this.#tabs.get(action.tabId)?.specification.attemptGeneration !== action.attemptGeneration) {
+          return false;
+        }
+        return coreEffectEventContinuation(this.#destroyTab(action.tabId, action.nextActiveTabId ?? undefined), () => { /* Retain exact native release evidence. */ });
       case "embeddedFollowRoleOwnership":
         return this.#followRoleOwnership(effect, action, context?.signal);
       case "embeddedObserveAppKitWorkspaceAppearance":
@@ -530,6 +553,10 @@ export class ChromiumRuntimeEffectExecutor {
   ): Promise<void> {
     requireIdentifier(tab.tabId, "tab");
     requireIdentifier(tab.target.windowId, "window");
+    if (this.#retiringWindows.has(tab.target.windowId) ||
+      (tab.attemptGeneration !== undefined && this.#closedTabAttempts.get(tab.tabId) === tab.attemptGeneration)) {
+      throw runtimeError("ELECTRON_CHROMIUM_TAB_RETIRED", "The tab attempt or its exact host has already retired.");
+    }
     if (effect.target.handleId !== tab.tabId) {
       throw runtimeError(
         "ELECTRON_CHROMIUM_RUNTIME_TARGET_MISMATCH",
@@ -806,11 +833,12 @@ export class ChromiumRuntimeEffectExecutor {
           );
         }
         let cancellationClose: Promise<boolean> | null = null;
+        let releaseConfirmed = false;
         const closeOpeningSurface = (): Promise<boolean> => {
           cancellationClose ??= this.#input.surfaces.closeRole(
             role.roleId,
             generation
-          );
+          ).then(closed => { releaseConfirmed = closed; return closed; });
           void cancellationClose.catch(() => undefined);
           return cancellationClose;
         };
@@ -840,6 +868,7 @@ export class ChromiumRuntimeEffectExecutor {
           await creation;
           if (this.#tabs.get(tabId) !== tab ||
               this.#openingRoles.get(role.roleId) !== record ||
+              this.#closingRoleGenerations.get(role.roleId) === generation ||
               this.#windows.get(tab.windowId) !== windowRecord) {
             throw runtimeError("ELECTRON_CHROMIUM_ROLE_LOAD_STALE",
               "The loading Role lost its exact native topology before readiness.");
@@ -873,7 +902,10 @@ export class ChromiumRuntimeEffectExecutor {
           throw error;
         } finally {
           signal?.removeEventListener("abort", cancelOpeningSurface);
-          if (this.#openingRoles.get(role.roleId) === record) this.#openingRoles.delete(role.roleId);
+          if (this.#openingRoles.get(role.roleId) === record &&
+              (releaseConfirmed || this.#roles.get(role.roleId) === record || this.#input.surfaces.wasRetired?.(role.roleId, generation))) {
+            this.#openingRoles.delete(role.roleId);
+          }
         }
       });
     const completion = Promise.allSettled(attempts).then(async (results) => {
@@ -1024,12 +1056,13 @@ export class ChromiumRuntimeEffectExecutor {
             "Core cancelled the global Web load before surface creation."
           );
         }
+        let releaseConfirmed = false;
         let cancellationClose: Promise<boolean> | null = null;
         const closeOpeningSurface = (): Promise<boolean> => {
           cancellationClose ??= this.#input.webSurfaces.closeSurface(
             descriptor.surfaceId,
             generation
-          );
+          ).then(closed => { releaseConfirmed = closed; return closed; });
           void cancellationClose.catch(() => undefined);
           return cancellationClose;
         };
@@ -1104,7 +1137,9 @@ export class ChromiumRuntimeEffectExecutor {
             this.#attachedWebSurfaces.delete(descriptor.surfaceId);
           }
           signal?.removeEventListener("abort", cancelOpeningSurface);
-          if (this.#openingWebSurfaces.get(descriptor.surfaceId) === record) {
+          if (this.#openingWebSurfaces.get(descriptor.surfaceId) === record &&
+              (releaseConfirmed || this.#webSurfaces.get(descriptor.surfaceId) === record ||
+                this.#input.webSurfaces.wasRetired?.(descriptor.surfaceId, generation))) {
             this.#openingWebSurfaces.delete(descriptor.surfaceId);
           }
         }
@@ -1198,159 +1233,6 @@ export class ChromiumRuntimeEffectExecutor {
     this.#applyWindowVisibility(windowRecord);
   }
 
-  #setTabAudioMuted(
-    effect: CoreEffectRequest,
-    action: Extract<CoreEffectRequest["action"], { type: "embeddedSetTabAudioMuted" }>
-  ): Readonly<{
-    tabId: string;
-    windowId: string;
-    attemptGeneration: string;
-    muted: boolean;
-    roles: ReadonlyArray<Readonly<{ roleId: string; ownerGeneration: number }>>;
-    webSurfaces: ReadonlyArray<Readonly<{ surfaceId: string; slotId: string }>>;
-  }> {
-    requireIdentifier(action.tabId, "tab");
-    requireIdentifier(action.windowId, "window");
-    requireIdentifier(action.attemptGeneration, "attempt generation");
-    if (effect.target.handleId !== action.tabId) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_RUNTIME_TARGET_MISMATCH",
-        "The Core effect target does not match the audio tab."
-      );
-    }
-    const tab = this.#tabs.get(action.tabId);
-    if (
-      !tab ||
-      tab.windowId !== action.windowId ||
-      tab.specification.attemptGeneration !== action.attemptGeneration ||
-      tab.audioMuted !== action.previousMuted
-    ) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_AUDIO_STALE",
-        "The Chromium tab audio identity or prior state is stale."
-      );
-    }
-    const expectedRoles = [...action.roles].sort((left, right) =>
-      left.roleId.localeCompare(right.roleId)
-    );
-    const expectedWebSurfaces = [...action.webSurfaces].sort((left, right) =>
-      left.surfaceId.localeCompare(right.surfaceId)
-    );
-    for (const role of expectedRoles) requireIdentifier(role.roleId, "audio role");
-    for (const surface of expectedWebSurfaces) {
-      requireIdentifier(surface.surfaceId, "audio Web surface");
-      requireIdentifier(surface.slotId, "audio Web slot");
-    }
-    if (
-      expectedRoles.length + expectedWebSurfaces.length === 0 ||
-      new Set(expectedRoles.map((role) => role.roleId)).size !== expectedRoles.length ||
-      new Set(expectedWebSurfaces.map((surface) => surface.surfaceId)).size !==
-        expectedWebSurfaces.length ||
-      new Set(expectedWebSurfaces.map((surface) => surface.slotId)).size !==
-        expectedWebSurfaces.length
-    ) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_AUDIO_SURFACE_SET_INVALID",
-        "Core supplied an empty or duplicate tab audio surface set."
-      );
-    }
-    const nativeRoles = [...this.#roles.values()]
-      .filter((role) => role.tabId === action.tabId)
-      .sort((left, right) => left.roleId.localeCompare(right.roleId));
-    const identitiesMatch = nativeRoles.length === expectedRoles.length &&
-      nativeRoles.every((role, index) =>
-        role.roleId === expectedRoles[index]?.roleId &&
-        role.ownerGeneration === expectedRoles[index]?.ownerGeneration
-      );
-    if (!identitiesMatch) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_AUDIO_STALE",
-        "The Chromium role ownership generation no longer matches Core."
-      );
-    }
-    const nativeWebSurfaces = [...this.#webSurfaces.values()]
-      .filter((surface) => surface.tabId === action.tabId)
-      .sort((left, right) => left.surfaceId.localeCompare(right.surfaceId));
-    const webIdentitiesMatch =
-      nativeWebSurfaces.length === expectedWebSurfaces.length &&
-      nativeWebSurfaces.every((surface, index) =>
-        surface.surfaceId === expectedWebSurfaces[index]?.surfaceId &&
-        surface.slotId === expectedWebSurfaces[index]?.slotId
-      );
-    if (!webIdentitiesMatch) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_AUDIO_STALE",
-        "The global Web audio surface identity no longer matches Core."
-      );
-    }
-    const previousStates = [
-      ...nativeRoles.map((role) => ({
-        id: role.roleId,
-        generation: role.generation,
-        muted: this.#input.surfaces.audioMuted(role.roleId, role.generation),
-        set: (muted: boolean) => this.#input.surfaces.setAudioMuted(
-          role.roleId,
-          role.generation,
-          muted
-        )
-      })),
-      ...nativeWebSurfaces.map((surface) => ({
-        id: surface.surfaceId,
-        generation: surface.generation,
-        muted: this.#input.webSurfaces.audioMuted(
-          surface.surfaceId,
-          surface.generation
-        ),
-        set: (muted: boolean) => this.#input.webSurfaces.setAudioMuted(
-          surface.surfaceId,
-          surface.generation,
-          muted
-        )
-      }))
-    ];
-    if (previousStates.some((record) => record.muted !== action.previousMuted)) {
-      throw runtimeError(
-        "ELECTRON_CHROMIUM_AUDIO_STATE_DIVERGED",
-        "A Chromium role surface no longer matches the Core audio projection."
-      );
-    }
-
-    const attempted: typeof previousStates = [];
-    try {
-      for (const record of previousStates) {
-        attempted.push(record);
-        record.set(action.muted);
-      }
-    } catch {
-      let rollbackFailures = 0;
-      for (const record of attempted.reverse()) {
-        try {
-          record.set(record.muted);
-        } catch {
-          rollbackFailures += 1;
-        }
-      }
-      throw runtimeError(
-        rollbackFailures === 0
-          ? "ELECTRON_CHROMIUM_AUDIO_APPLY_FAILED"
-          : "BROWSER_RUNTIME_AUDIO_ROLLBACK_FAILED",
-        rollbackFailures === 0
-          ? "Chromium rejected the tab audio mutation and the prior state was restored."
-          : "Chromium tab audio rollback did not restore every exact role surface."
-      );
-    }
-    tab.audioMuted = action.muted;
-    return Object.freeze({
-      tabId: action.tabId,
-      windowId: action.windowId,
-      attemptGeneration: action.attemptGeneration,
-      muted: action.muted,
-      roles: Object.freeze(expectedRoles.map((role) => Object.freeze({ ...role }))),
-      webSurfaces: Object.freeze(
-        expectedWebSurfaces.map((surface) => Object.freeze({ ...surface }))
-      )
-    });
-  }
 
   async #destroyRole(roleId: string): Promise<boolean> {
     requireIdentifier(roleId, "role");
@@ -1418,6 +1300,10 @@ export class ChromiumRuntimeEffectExecutor {
     requireIdentifier(tabId, "tab");
     const tab = this.#tabs.get(tabId);
     if (!tab) return false;
+    if (tab.specification.attemptGeneration) {
+      this.#closedTabAttempts.set(tabId, tab.specification.attemptGeneration);
+      if (this.#closedTabAttempts.size > 4096) this.#closedTabAttempts.delete(this.#closedTabAttempts.keys().next().value!);
+    }
     const windowRecord = this.#windowForTab(tab);
     if (
       nextActiveTabId !== undefined &&
@@ -1428,7 +1314,9 @@ export class ChromiumRuntimeEffectExecutor {
         "Core selected a successor tab outside the closing tab's window."
       );
     }
-    windowRecord.host.discardAppKitSurfaceAttachment?.(tabId);
+    // A committed close projection may already have removed native membership.
+    // The retained exact tab record still owns background resource retirement.
+    if (windowRecord.tabIds.includes(tabId)) windowRecord.host.discardAppKitSurfaceAttachment?.(tabId);
     const ownedRoles = [...this.#roles.values(), ...this.#openingRoles.values()]
       .filter((role) => role.tabId === tabId);
     const ownedWebSurfaces = [...this.#webSurfaces.values(), ...this.#openingWebSurfaces.values()]
@@ -1489,33 +1377,30 @@ export class ChromiumRuntimeEffectExecutor {
       );
     }
     const index = windowRecord.tabIds.indexOf(tabId);
-    if (windowRecord.tabIds.length === 1) {
+    if (windowRecord.tabIds.every(id => id === tabId)) {
+      this.#retiringWindows.add(tab.windowId);
       this.#tabs.delete(tabId);
+      this.#admittedTabWindows.delete(tabId);
       if (index >= 0) windowRecord.tabIds.splice(index, 1);
-      try {
-        await this.#reconcileRolePlaceholders();
-        await windowRecord.host.close();
-      } catch (error) {
-        if (!windowRecord.host.isDestroyed()) {
-          this.#tabs.set(tabId, tab);
-          windowRecord.tabIds.splice(Math.max(index, 0), 0, tabId);
-          await this.#reconcileRolePlaceholders();
-        }
-        throw error;
-      }
+      this.#scheduleRolePlaceholders();
+      // Logical membership is terminal even if the native host cannot prove release.
+      // Keep the exact host record quarantined; never restore the closed tab.
+      await windowRecord.host.close();
       if (this.#windows.get(tab.windowId) === windowRecord) this.#windows.delete(tab.windowId);
+      this.#retiringWindows.delete(tab.windowId);
       return true;
     }
     this.#tabs.delete(tabId);
+    this.#admittedTabWindows.delete(tabId);
     if (index >= 0) windowRecord.tabIds.splice(index, 1);
     // Closing a background tab must preserve the surviving Core-selected tab.
     // An explicit successor remains authoritative for an active-tab close.
-    windowRecord.activeTabId = nextActiveTabId ?? (
-      windowRecord.activeTabId !== tabId ? windowRecord.activeTabId :
-        windowRecord.tabIds[Math.min(Math.max(index, 0), windowRecord.tabIds.length - 1)]
-    );
+    if (windowRecord.activeTabId === tabId) {
+      windowRecord.activeTabId = nextActiveTabId ??
+        windowRecord.tabIds[Math.min(Math.max(index, 0), windowRecord.tabIds.length - 1)] ?? "";
+    }
     if (this.#state === "open") this.#applyWindowVisibility(windowRecord);
-    await this.#reconcileRolePlaceholders();
+    this.#scheduleRolePlaceholders();
     return true;
   }
 
@@ -1544,14 +1429,14 @@ export class ChromiumRuntimeEffectExecutor {
       ports: this.#input,
       windows: this.#windows,
       tabs: this.#tabs,
-      roles: this.#roles,
+      roles: this.#projectableRoles(),
       webSurfaces: this.#projectableWebSurfaces(),
       quarantineWindows: (windowIds) => quarantineChromiumRuntimeWindows({
         ports: this.#input, roles: this.#roles, tabs: this.#tabs,
         webSurfaces: this.#projectableWebSurfaces(), windows: this.#windows, windowIds
       })
     });
-    await this.#reconcileRolePlaceholders();
+    this.#scheduleRolePlaceholders();
     try {
       this.#input.onNativeProjectionChanged?.();
     } catch {
@@ -1583,17 +1468,17 @@ export class ChromiumRuntimeEffectExecutor {
       ownershipTransitions: this.#ownershipTransitions,
       ...(signal ? { signal } : {}),
       beforeNativeSubmission: async () => {
-        projectChromiumRuntimeRolePlaceholderSlots(this.#tabs, action.roles);
-        await this.#reconcileRolePlaceholders();
+        projectFencedRolePlaceholderSlots(this.#tabs, action.roles, this.#windows, action.windows);
+        this.#scheduleRolePlaceholders();
       },
       ports: this.#input,
       windows: this.#windows,
       tabs: this.#tabs,
-      roles: this.#roles,
+      roles: this.#projectableRoles(),
       webSurfaces: this.#projectableWebSurfaces()
     });
-    projectChromiumRuntimeRolePlaceholderSlots(this.#tabs, action.roles);
-    await this.#reconcileRolePlaceholders();
+    projectFencedRolePlaceholderSlots(this.#tabs, action.roles, this.#windows, action.windows);
+    this.#scheduleRolePlaceholders();
     return continuation;
   }
 
@@ -1609,7 +1494,7 @@ export class ChromiumRuntimeEffectExecutor {
       ownershipTransitions: this.#ownershipTransitions,
       ports: this.#input,
       windows: this.#windows,
-      roles: this.#roles,
+      roles: this.#projectableRoles(),
       webSurfaces: this.#projectableWebSurfaces(),
       reconcileProjection: () => this.#reconcileRolePlaceholders(),
       quarantineWindows: (windowIds) => quarantineChromiumRuntimeWindows({
@@ -1621,6 +1506,10 @@ export class ChromiumRuntimeEffectExecutor {
         windowIds
       })
     });
+  }
+
+  #scheduleRolePlaceholders(): void {
+    this.#placeholderFollower.schedule();
   }
 
   async #reconcileRolePlaceholders(): Promise<void> {
@@ -1669,8 +1558,8 @@ export class ChromiumRuntimeEffectExecutor {
     applyChromiumRuntimeWindowSurfaceVisibility({
       ports: this.#input,
       windows: this.#windows,
-      roles: this.#roles,
-      webSurfaces: this.#webSurfaces
+      roles: this.#projectableRoles(),
+      webSurfaces: this.#projectableWebSurfaces()
     }, windowRecord, windowRecord.host.isVisible());
   }
 

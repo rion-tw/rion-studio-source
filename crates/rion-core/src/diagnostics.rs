@@ -70,6 +70,16 @@ pub fn export_bundle(
         Ok(DiagnosticExportResultRecord {
             file_path: output_path.to_string_lossy().into_owned(),
             log_file_count: 1,
+            collection_error_codes: Some(
+                diagnostics
+                    .pointer("/browserEngines/nativeRuntime/collectionErrorCodes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+            ),
         })
     })();
 
@@ -216,6 +226,27 @@ mod tests {
     use super::*;
     use crate::database::LogDatabaseWorker;
     use crate::model::{LogCaptureRecord, LogErrorDetails, LogLevel, LogSource};
+
+    #[test]
+    fn exports_mismatched_topology_and_collection_errors_with_logs() {
+        let directory = tempfile::tempdir().unwrap();
+        let logs = LogDatabaseWorker::start(directory.path().join("logs.sqlite3")).unwrap();
+        let output = directory.path().join("partial.zip");
+        let evidence = serde_json::json!({"browserEngines": {
+            "nativeRuntime": {"snapshotComplete": false, "collectionErrorCodes": ["ELECTRON_RUNTIME_PROJECTION_NOT_READY"]},
+            "runtimeEvidence": {"core": {"revision": 9, "windows": []}, "native": {"windows": [{"windowId": "retiring-b", "topologyRevision": 7}]}}
+        }});
+        let result = export_bundle(&output, &evidence, &logs).unwrap();
+        assert_eq!(
+            result.collection_error_codes.unwrap(),
+            vec!["ELECTRON_RUNTIME_PROJECTION_NOT_READY"]
+        );
+        let bytes = fs::read(output).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("retiring-b"));
+        assert!(text.contains("ELECTRON_RUNTIME_PROJECTION_NOT_READY"));
+        assert!(text.contains("logs/rion-studio-logs.jsonl"));
+    }
 
     #[test]
     fn streams_logs_and_atomically_installs_a_standard_zip() {

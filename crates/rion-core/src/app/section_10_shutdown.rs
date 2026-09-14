@@ -300,10 +300,19 @@ impl AppCore {
             })
         }
         .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let runtime_evidence = snapshot.native_runtime.runtime_evidence_raw_json.as_deref()
+            .filter(|raw| raw.len() <= 2 * 1024 * 1024)
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+        let mut native_runtime = snapshot.native_runtime;
+        if native_runtime.runtime_evidence_raw_json.take().is_some() && runtime_evidence.is_none() {
+            native_runtime.collection_error_codes.push("ELECTRON_RUNTIME_EVIDENCE_INVALID".to_owned());
+            native_runtime.snapshot_complete = false;
+        }
         let mut browser_engines = json!({
             "activeRoles": browser_role_statuses,
             "activeWorkspaces": browser_workspace_statuses,
-            "nativeRuntime": snapshot.native_runtime,
+            "nativeRuntime": native_runtime,
+            "runtimeEvidence": runtime_evidence,
         });
         browser_engines
             .as_object_mut()

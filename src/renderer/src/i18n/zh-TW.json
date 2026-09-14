@@ -1465,5 +1465,7 @@
   "recovery.platformPending": "此平台尚待原生驗證。",
   "recovery.ineligible": "此角色不適用失敗工作階段復原。",
   "recovery.sourceGap": "無法確認來源身份或資料完整性。",
-  "recovery.unknown": "未驗證"
+  "recovery.unknown": "未驗證",
+  "settings.logsExportPartial": "已匯出診斷包，部分即時資料無法取得。",
+  "settings.logsExportComplete": "已匯出診斷包。"
 }

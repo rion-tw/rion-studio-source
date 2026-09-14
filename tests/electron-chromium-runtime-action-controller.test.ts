@@ -46,7 +46,7 @@ function harness(execute?: ChromiumRuntimeActionBackend["execute"]) {
 }
 
 describe("Chromium runtime action controller", () => {
-  it("serializes authenticated actions without a timer and preserves adapter order", async () => {
+  it("admits ordered intents while another window remains pending", async () => {
     let releaseFirst!: () => void;
     const firstPending = new Promise<void>((resolve) => {
       releaseFirst = resolve;
@@ -61,7 +61,8 @@ describe("Chromium runtime action controller", () => {
     const first = controller.showGameWindow(identity, "window-1");
     const second = controller.restoreSavedGameWindows(identity, { scope: "all" });
 
-    await vi.waitFor(() => expect(backendExecute).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(backendExecute).toHaveBeenCalledTimes(2));
+    await second;
     expect(intents[0]).toMatchObject({
       intentId: "intent-1",
       adapterSequence: 1,

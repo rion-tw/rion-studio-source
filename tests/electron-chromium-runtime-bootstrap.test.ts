@@ -794,12 +794,12 @@ describe("Electron Chromium runtime bootstrap", () => {
 
   it("registers the exact conservative v27 capability fixtures", () => {
     const versions = { electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250" };
-    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(40);
+    expect(ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION).toBe(41);
     expect(buildChromiumRuntimeRegistration({
       platform: "win32",
       ...versions
     })).toEqual({
-      contractVersion: 40,
+      contractVersion: 41,
       platform: "windows",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -827,7 +827,7 @@ describe("Electron Chromium runtime bootstrap", () => {
       platform: "darwin",
       ...versions
     })).toEqual({
-      contractVersion: 40,
+      contractVersion: 41,
       platform: "macos",
       engine: "chromium",
       adapterVersion: "electron-43.6.0+chromium-150.0.7871.250",
@@ -865,14 +865,14 @@ describe("Electron Chromium runtime bootstrap", () => {
     });
   });
 
-  it("pins every Electron AppCore creation to runtime contract v40", () => {
+  it("pins every Electron AppCore creation to runtime contract v41", () => {
     const options = withElectronChromiumRuntimeContract({
       userDataDir: "/RionData",
       runtimeContractVersion: 22
     });
     expect(options).toEqual({
       userDataDir: "/RionData",
-      runtimeContractVersion: 40
+      runtimeContractVersion: 41
     });
     expect(Object.isFrozen(options)).toBe(true);
   });
@@ -1184,6 +1184,7 @@ describe("Electron Chromium runtime bootstrap", () => {
     });
     const listeners = new Map<keyof ChromiumRoleSurfaceEventMap, Set<Listener>>();
     let failHostClose = true;
+    let hostDestroyed = false;
     const contentView = {
       addChildView: vi.fn(() => order.push("surface-attached")),
       removeChildView: vi.fn(() => order.push("surface-detached"))
@@ -1198,6 +1199,7 @@ describe("Electron Chromium runtime bootstrap", () => {
           failHostClose = false;
           throw new Error("host close failed");
         }
+        hostDestroyed = true;
       }),
       focus: vi.fn(),
       hide: vi.fn(),
@@ -1209,7 +1211,7 @@ describe("Electron Chromium runtime bootstrap", () => {
         focused: false,
         presentation: "normal"
       }),
-      isDestroyed: () => false,
+      isDestroyed: () => hostDestroyed,
       isVisible: () => true,
       show: vi.fn()
     };

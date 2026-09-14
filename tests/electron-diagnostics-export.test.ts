@@ -188,7 +188,7 @@ describe("Electron diagnostics export", () => {
     expect(replaced.invoke).not.toHaveBeenCalled();
   });
 
-  it("fails closed on invalid native paths and non-serializable GPU evidence", async () => {
+  it("rejects invalid paths but exports partial diagnostics when GPU evidence cannot be serialized", async () => {
     const path = harness();
     path.showNativeSaveDialog.mockResolvedValueOnce("relative/diagnostics.zip");
     await expect(path.diagnostics.export(identity)).rejects.toMatchObject({
@@ -200,9 +200,11 @@ describe("Electron diagnostics export", () => {
     const cyclic: { self?: unknown } = {};
     cyclic.self = cyclic;
     gpu.captureGpuFeatureStatus.mockReturnValueOnce(cyclic);
-    await expect(gpu.diagnostics.export(identity)).rejects.toMatchObject({
-      code: "ELECTRON_DIAGNOSTICS_GPU_SNAPSHOT_INVALID"
-    });
-    expect(gpu.invoke).not.toHaveBeenCalled();
+    await expect(gpu.diagnostics.export(identity)).resolves.toMatchObject({ logFileCount: 4 });
+    expect(gpu.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      snapshot: expect.objectContaining({ gpuFeatureStatusRawJson: "null", nativeRuntime: expect.objectContaining({
+        snapshotComplete: false, collectionErrorCodes: expect.arrayContaining(["ELECTRON_DIAGNOSTICS_GPU_SNAPSHOT_INVALID"])
+      }) })
+    }));
   });
 });

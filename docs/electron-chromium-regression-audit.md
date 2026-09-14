@@ -296,3 +296,15 @@ These additive journeys were introduced after the cutover classification above.
 CHROMIUM-MACOS-APPKIT-EXTENSION-CONTEXT-MENU-001
 CHROMIUM-WINDOWS-EXTENSION-CONTEXT-MENU-001
 ```
+
+## v41 diagnostic export coverage follow-up
+
+The following P1 journeys classify the degraded diagnostic export as a prior
+`test-gap`: an orphaned native host must remain in the exported evidence and
+the visible Settings flow must complete the native save dialog. Windows native
+execution remains `platform-pending` until its CI profile runs.
+
+```text
+CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-DEGRADED-072
+CHROMIUM-WINDOWS-DIAGNOSTICS-DEGRADED-072
+```

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  CoreAppSnapshotRecord,
   CoreCommand,
   CoreCommandResult,
   CoreErrorPayload,
@@ -286,6 +287,7 @@ export class CoreAddonClient {
   >();
   readonly #observer: CoreAddonClientObserver;
   readonly #runtimeOptions: CoreAddonClientRuntimeOptions;
+  #diagnosticSnapshot: { capturedAt: string; snapshot: CoreAppSnapshotRecord } | null = null;
   #eventBridgeStarted = false;
   #eventBridgeTerminal: "open" | "shutdown" | "failed" = "open";
   #eventBridgeFailure: CoreErrorPayload | null = null;
@@ -318,6 +320,11 @@ export class CoreAddonClient {
     }
   }
 
+  /** Observational fallback only: never use this cache to authorize a mutation. */
+  readDiagnosticSnapshot(): { capturedAt: string; snapshot: CoreAppSnapshotRecord } | null {
+    return this.#diagnosticSnapshot ? structuredClone(this.#diagnosticSnapshot) : null;
+  }
+
   invoke<Command extends CoreCommand>(
     command: Command
   ): Promise<CoreCommandResult<Command>> {
@@ -325,7 +332,16 @@ export class CoreAddonClient {
     if (ingressError) return Promise.reject(ingressError);
     return this.#binding.invoke(JSON.stringify(command))
       .catch(rethrowStructuredCoreError)
-      .then((resultJson) => JSON.parse(resultJson) as CoreCommandResult<Command>);
+      .then((resultJson) => {
+        const result = JSON.parse(resultJson) as CoreCommandResult<Command>;
+        if (command.type === "appSnapshot") {
+          const snapshot = result as CoreAppSnapshotRecord;
+          if (!this.#diagnosticSnapshot || snapshot.revision >= this.#diagnosticSnapshot.snapshot.revision) {
+            this.#diagnosticSnapshot = { capturedAt: new Date().toISOString(), snapshot: structuredClone(snapshot) };
+          }
+        }
+        return result;
+      });
   }
 
   /** Privileged Electron-main-only migration journal transition. */

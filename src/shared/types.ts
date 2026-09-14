@@ -181,6 +181,8 @@ export interface EmbeddedRuntimeTabSummary {
 }
 
 export interface EmbeddedRuntimeWindowSummary {
+  /** Observational UI only; mutation admission must validate its exact target. */
+  projectionPending?: boolean;
   id: string;
   windowId: string;
   displayId: number;

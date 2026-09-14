@@ -73,7 +73,7 @@ const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // macro shortcuts to press/hold activation with keyDown/keyUp-only ordering; 34
 // isolates synthetic macro-key modifiers from live physical modifier state.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 40;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 41;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.
@@ -260,6 +260,7 @@ struct ChromeImportRollbackContext {
 }
 
 struct PendingEmbeddedRoleLaunch {
+    launch_attempt_id: String,
     handle: crate::operation_actor::OperationHandle,
     lease_id: String,
     presentation_intent: EmbeddedLaunchPresentationIntent,
@@ -270,6 +271,7 @@ struct PendingEmbeddedRoleLaunch {
 }
 
 struct PendingEmbeddedWorkspaceLaunch {
+    launch_attempt_id: String,
     handle: crate::operation_actor::OperationHandle,
     lease_id: String,
     presentation_intent: EmbeddedLaunchPresentationIntent,
@@ -337,7 +339,7 @@ pub struct AppCore {
     extensions: Mutex<crate::extensions::ExtensionRuntime>,
     app_version: String,
     app_snapshot_sequence: AtomicU64,
-    appkit_event_sequence: Arc<crate::runtime_sequence::RuntimeOperationSequence>,
+    appkit_event_sequence: Arc<crate::runtime_scoped_sequence::RuntimeScopedSequence>,
     appkit_event_sequences: Mutex<std::collections::HashMap<AppKitRuntimeHostIdentityRecord, u64>>,
     appkit_window_visibility_replay:
         crate::runtime_window_visibility_replay::RuntimeWindowVisibilityReplay<
@@ -520,7 +522,7 @@ impl AppCore {
             app_version: options.app_version,
             app_snapshot_sequence: AtomicU64::new(0),
             appkit_event_sequence: Arc::new(
-                crate::runtime_sequence::RuntimeOperationSequence::default(),
+                crate::runtime_scoped_sequence::RuntimeScopedSequence::default(),
             ),
             appkit_event_sequences: Mutex::new(std::collections::HashMap::new()),
             appkit_window_visibility_replay:

@@ -73,7 +73,8 @@ fn embedded_launch_effects(
     // a topology compensation that removes the user's tab.
     let mut steps = vec![create_step];
     if let Some(ownership_projection) = ownership_projection {
-        let windows = ownership_projection.windows;
+        let windows: Vec<_> = ownership_projection.windows.into_iter()
+            .filter(|window| window.window_id == focus_window_id).collect();
         let exact_launch_window = windows.iter().any(|window| {
             window.window_id == focus_window_id
                 && window.active_tab_id.as_deref() == Some(tab_id)
@@ -396,6 +397,8 @@ fn broadcast_events(subscribers: &Mutex<Vec<Sender<Vec<CoreEvent>>>>, events: Ve
             event,
             CoreEvent::CoreEffects { .. }
                 | CoreEvent::CoreEffectCancellations { .. }
+                | CoreEvent::AppKitTopologyCommitted { .. }
+                | CoreEvent::RuntimeTabTopologyCommitted { .. }
                 | CoreEvent::StateChanged { .. }
                 | CoreEvent::BrowserStatuses { .. }
                 | CoreEvent::BrowserLaunchCompleted { .. }

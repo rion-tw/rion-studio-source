@@ -128,7 +128,7 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 40;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 41;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
@@ -541,6 +541,7 @@ export class ChromiumRuntimeBootstrap {
   #shutdownPromise: Promise<void> | null = null;
   #state: BootstrapState = "open";
   #fatalGeneration = 0;
+  #diagnosticSnapshot: { capturedAt: string; snapshot: ChromiumRuntimeExecutorSnapshot } | null = null;
 
   private constructor(
     core: ChromiumRuntimeCorePort,
@@ -926,7 +927,7 @@ export class ChromiumRuntimeBootstrap {
                 "Core did not terminalize the exact visible Role owner."
               );
             }
-            await executor.commitTerminalRoleOwnership(snapshot.roles);
+            await executor.commitTerminalRoleOwnership(snapshot.roles, state.roleId);
             const native = executor.snapshot().windows.find(
               (candidate) => candidate.windowId === state.windowId
             );
@@ -1297,6 +1298,7 @@ export class ChromiumRuntimeBootstrap {
       const coordinator = new CoreEffectCoordinator({
         core: input.core,
         processReceiptLedger: processCoreEffectReceiptLedger,
+        mutationScopes: effect => createdExecutor.mutationScopes(effect),
         execute: (effect, context) => createdExecutor.execute(effect, context),
         // Recovery may issue a new Core BrowserAction for the same role. Keep
         // it outside the effect acknowledgement lane so it cannot wait on the
@@ -1390,7 +1392,13 @@ export class ChromiumRuntimeBootstrap {
         "The Chromium runtime cannot project native state while it is draining."
       );
     }
-    return this.#executor.snapshot();
+    const snapshot = this.#executor.snapshot();
+    this.#diagnosticSnapshot = { capturedAt: new Date().toISOString(), snapshot };
+    return snapshot;
+  }
+
+  readDiagnosticSnapshot() {
+    return this.#diagnosticSnapshot ? structuredClone(this.#diagnosticSnapshot) : null;
   }
 
   beginSavedWindowRestore(windowId: string, foreground = false): void {

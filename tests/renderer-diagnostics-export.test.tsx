@@ -61,6 +61,17 @@ afterEach(() => {
 });
 
 describe("diagnostic export log cleanup", () => {
+  it("announces partial export without presenting it as an export failure", async () => {
+    const { getLogStatus, onError } = renderDiagnostics({
+      exportDiagnostics: async () => ({ filePath: "/exports/partial.zip", logFileCount: 1,
+        collectionErrorCodes: ["ELECTRON_RUNTIME_PROJECTION_NOT_READY"] })
+    });
+    await waitForInitialLogRefresh(getLogStatus);
+    fireEvent.click(screen.getByRole("button", { name: "Export diagnostics" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe(en["settings.logsExportPartial"]));
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("offers log export without retired performance measurement controls", async () => {
     const { getLogStatus } = renderDiagnostics();
     await waitForInitialLogRefresh(getLogStatus);

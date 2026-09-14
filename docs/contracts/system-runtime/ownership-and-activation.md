@@ -175,3 +175,26 @@ readback are absent from the public mutation contract. Native chrome mismatch
 is reconciled and logged in the background. A failed surface reparent retains
 the live destination and schedules forward projection; it never moves the tab
 back to an older owner snapshot.
+
+## Chromium v41 independent tab admission
+
+Core commits tab existence and selection independently of content readiness.
+Accepted launches show and select their new tab; page readiness updates only
+that tab. A background completion has no reveal/focus intent. The latest
+committed selection remains authoritative across delayed or stale completions.
+
+Electron serializes overlapping window topology admissions. Page navigation,
+placeholder document readiness, and exact native resource retirement continue
+outside that lane. Cross-window moves fence both windows. Unrelated window
+mismatches cannot prevent a healthy window's admission or readiness projection.
+
+Closing publishes logical membership before waiting for resource destruction.
+The AppKit topology receipt and Windows RuntimeTabTopologyCommitted event carry
+exact operation/window/tab/generation/revision correlation; their completion
+scope is topologyCommitted, not resource release. Late events cannot recreate a
+closed launch attempt. Unknown release retains the affected role/surface owner;
+there is still exactly one login surface per role.
+
+A current launch failure retains its tab and local retry/close presentation.
+An authoritative close or supersede owns cleanup of an older attempt. Workspace
+slot failures remain local to the slot; unrelated ready slots remain usable.

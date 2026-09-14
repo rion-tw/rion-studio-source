@@ -519,6 +519,18 @@ pub enum CoreEvent {
     CoreEffects {
         effects: Vec<CoreEffectRequest>,
     },
+    RuntimeTabTopologyCommitted {
+        operation_id: String,
+        tab_id: String,
+        window_id: String,
+        #[ts(type = "number")]
+        window_generation: u64,
+        #[ts(type = "number")]
+        topology_revision: u64,
+    },
+    AppKitTopologyCommitted {
+        receipt: AppKitRuntimeEventReceiptRecord,
+    },
     CoreEffectCancellations {
         cancellations: Vec<CoreEffectCancellationRecord>,
     },

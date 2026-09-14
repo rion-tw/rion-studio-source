@@ -47,7 +47,7 @@ impl AppCore {
                 "could not fingerprint the AppKit visibility event: {error}"
             ))
         })?;
-        let lane = self.appkit_event_sequence.acquire()?;
+        let lane = self.appkit_event_sequence.acquire(event.hosts.iter().map(|host| host.identity.logical_window_id.clone()).collect())?;
         let owner = match self
             .appkit_window_visibility_replay
             .admit(&event.event_id, &fingerprint)?

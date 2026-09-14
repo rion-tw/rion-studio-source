@@ -1,3 +1,4 @@
+import type { CoreEventStreamFailure } from "../core/coreAddonClient";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -31,6 +32,7 @@ type ModifierHandoffAction =
 const MAX_MOMENTARY_MODIFIER_COUNT = 8;
 
 interface AppKitCoreCommandPort extends ElectronCoreCommandPort {
+  subscribeCoreEventStreamFailures?: (listener: (failure: CoreEventStreamFailure) => void) => () => void;
   subscribeCoreEvents: (listener: (event: CoreEvent) => void) => () => void;
 }
 
@@ -510,9 +512,27 @@ implements MacosAppKitRendererActionPort {
   >();
   readonly #terminalResults = new Set<Promise<unknown>>();
   readonly #unsubscribeCoreEvents: () => void;
+  readonly #unsubscribeCoreFailures: (() => void) | undefined;
   #adapterSequence = 0;
   #disposePromise: Promise<void> | null = null;
-  #lane: Promise<void> = Promise.resolve();
+  readonly #pendingTopology = new Map<string, {
+    event: AppKitRuntimeEventRecord;
+    resolve: (receipt: AppKitRuntimeEventReceiptRecord) => void;
+    reject: (error: unknown) => void;
+  }>();
+  readonly #lanes = new Map<string, Promise<void>>();
+
+  #priorWindows(ids: readonly string[]): Promise<void> {
+    return Promise.all(ids.map(id => this.#lanes.get(id))).then(() => undefined);
+  }
+
+  #retainWindows(ids: readonly string[], task: Promise<void>): void {
+    const tail = task.catch(() => undefined);
+    for (const id of ids) this.#lanes.set(id, tail);
+    void tail.then(() => {
+      for (const id of ids) if (this.#lanes.get(id) === tail) this.#lanes.delete(id);
+    });
+  }
   #state: BridgeState = "open";
 
   constructor(input: MacosAppKitRuntimeEventBridgeInput) {
@@ -520,6 +540,10 @@ implements MacosAppKitRendererActionPort {
     this.#unsubscribeCoreEvents = input.core.subscribeCoreEvents(
       (event) => this.#receiveCoreEvent(event)
     );
+    this.#unsubscribeCoreFailures = input.core.subscribeCoreEventStreamFailures?.(() => {
+      this.#state = "draining";
+      this.#receiveCoreEvent({ type: "shutdown" });
+    });
   }
 
   receiveAction(event: AppKitRuntimeActionEvent): void {
@@ -754,14 +778,14 @@ implements MacosAppKitRendererActionPort {
 
   /** Waits only for AppKit callbacks admitted before this event-bound fence. */
   async settleCurrentEvents(): Promise<number> {
-    await this.#lane;
+    await Promise.all([...this.#lanes.values()]);
     return this.#adapterSequence;
   }
 
   dispose(): Promise<void> {
     if (this.#disposePromise) return this.#disposePromise;
     this.#state = "draining";
-    this.#disposePromise = this.#lane.then(async () => {
+    this.#disposePromise = Promise.all([...this.#lanes.values()]).then(async () => {
       await Promise.allSettled([...this.#terminalResults]);
       this.#dragSessions.clear();
       this.#workspaceDividerGestures.clear();
@@ -770,6 +794,7 @@ implements MacosAppKitRendererActionPort {
       this.#deferredLayouts.clear();
       this.#pendingVisibilityDispatches.clear();
       this.#unsubscribeCoreEvents();
+      this.#unsubscribeCoreFailures?.();
       this.#state = "disposed";
     });
     return this.#disposePromise;
@@ -1081,7 +1106,7 @@ implements MacosAppKitRendererActionPort {
     pointer: NativeWorkspaceDividerPointer
   ): void {
     const sequence = this.#nextAdapterSequence();
-    const result = this.#lane
+    const result = this.#priorWindows([gesture.windowId])
       .catch(() => undefined)
       .then(async () => {
         if (this.#state === "disposed") {
@@ -1150,7 +1175,7 @@ implements MacosAppKitRendererActionPort {
           this.#workspaceDividerGestures.delete(gesture.gestureId);
         }
       });
-    this.#lane = result.then(() => undefined, () => undefined);
+    this.#retainWindows([gesture.windowId], result.then(() => undefined));
     void result.catch((error: unknown) => {
       gesture.terminal = true;
       this.#workspaceDividerGestures.delete(gesture.gestureId);
@@ -1249,7 +1274,8 @@ implements MacosAppKitRendererActionPort {
       ));
     }
     const sequence = this.#nextAdapterSequence();
-    const start = this.#lane
+    const windowIds = hosts.map(host => host.identity.logicalWindowId);
+    const start = this.#priorWindows(windowIds)
       .catch(() => undefined)
       .then(async () => {
         if (this.#state === "disposed") {
@@ -1270,6 +1296,9 @@ implements MacosAppKitRendererActionPort {
         const dispatch = action.type === "setWindowVisibility"
           ? this.#armVisibilityDispatch(event)
           : undefined;
+        const topology = action.type === "stop" ? new Promise<AppKitRuntimeEventReceiptRecord>((resolve, reject) => {
+          this.#pendingTopology.set(event.eventId, { event, resolve, reject });
+        }) : undefined;
         let invocation: Promise<AppKitRuntimeEventReceiptRecord>;
         try {
           invocation = this.#input.core.invoke({
@@ -1278,6 +1307,7 @@ implements MacosAppKitRendererActionPort {
           });
         } catch (error) {
           if (dispatch) this.#clearVisibilityDispatch(event.eventId, dispatch);
+          this.#pendingTopology.delete(event.eventId);
           throw error;
         }
         const terminal = invocation.then((receipt) => {
@@ -1290,21 +1320,37 @@ implements MacosAppKitRendererActionPort {
             () => this.#clearVisibilityDispatch(event.eventId, dispatch)
           );
         }
+        if (topology) {
+          this.#terminalResults.add(terminal);
+          void terminal.then(receipt => {
+            this.#pendingTopology.delete(event.eventId);
+            this.#terminalResults.delete(terminal);
+            if (receipt.failureCode) this.#input.onError({ code: receipt.failureCode,
+              message: "The closed tab's background cleanup did not complete successfully." });
+          }, error => {
+            this.#pendingTopology.delete(event.eventId);
+            this.#terminalResults.delete(terminal);
+            this.#input.onError(normalizeRionBridgeError(error, "ELECTRON_TAB_CLEANUP_FAILED"));
+          });
+        }
+        // EventBound: either the exact topology receipt or the original terminal ends admission.
+        const response = topology ? new Promise<AppKitRuntimeEventReceiptRecord>((resolve, reject) => {
+          void topology.then(resolve, reject);
+          void terminal.then(resolve, reject);
+        }) : terminal;
         const release = dispatch
           ? new Promise<void>((resolve, reject) => {
               void dispatch.promise.then(resolve, reject);
               void terminal.then(() => resolve(), () => resolve());
             })
-          : terminal.then(() => undefined);
+          : response.then(() => undefined);
         return {
           release,
-          terminal
+          terminal: response
         };
       });
     const result = start.then(({ terminal }) => terminal);
-    this.#lane = start
-      .then(({ release }) => release)
-      .then(() => undefined, () => undefined);
+    this.#retainWindows(windowIds, start.then(({ release }) => release));
     this.#terminalResults.add(result);
     void result.then(
       () => this.#terminalResults.delete(result),
@@ -1391,6 +1437,19 @@ implements MacosAppKitRendererActionPort {
   }
 
   #receiveCoreEvent(event: CoreEvent): void {
+    if (event.type === "appKitTopologyCommitted") {
+      const pending = this.#pendingTopology.get(event.receipt.eventId);
+      if (!pending) return;
+      try {
+        validateReceipt(pending.event, event.receipt);
+        if (!event.receipt.topologyCommitted || !event.receipt.nativeApplied || event.receipt.status !== "applied") {
+          throw bridgeError("ELECTRON_TAB_TOPOLOGY_RECEIPT_INVALID", "Core did not confirm the exact visible tab close.");
+        }
+        pending.resolve(event.receipt);
+      } catch (error) { pending.reject(error); }
+      this.#pendingTopology.delete(event.receipt.eventId);
+      return;
+    }
     if (event.type === "shutdown") {
       const error = bridgeError(
         "ELECTRON_MACOS_APPKIT_EVENT_STREAM_CLOSED",
@@ -1400,6 +1459,8 @@ implements MacosAppKitRendererActionPort {
         pending.reject(error);
       }
       this.#pendingVisibilityDispatches.clear();
+      for (const pending of this.#pendingTopology.values()) pending.reject(error);
+      this.#pendingTopology.clear();
       return;
     }
     if (event.type !== "coreEffects") return;

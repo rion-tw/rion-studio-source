@@ -82,7 +82,8 @@ function applyAppKitOwnershipFences(
   input: FollowChromiumRuntimeOwnershipInput
 ): void {
   const appKitWindows = [...input.windows.values()].filter(
-    (window) => window.host.appKitIdentity !== undefined
+    (window) => window.host.appKitIdentity !== undefined &&
+      input.projectedWindows.some(projection => projection.windowId === window.host.logicalWindowId)
   );
   if (appKitWindows.length === 0) return;
   const transitionWindowIds = new Set([
@@ -275,6 +276,12 @@ function handoffReadyRoleContent(input: FollowChromiumRuntimeOwnershipInput): vo
 export async function followChromiumRuntimeOwnership(
   input: FollowChromiumRuntimeOwnershipInput
 ): Promise<CoreEffectEventContinuation | undefined> {
+  const requiredWindowIds = [...input.revealWindowIds, ...input.focusWindowIds];
+  const targetWindow = input.windows.get(input.effect.target.handleId);
+  if (targetWindow) requiredWindowIds.push(targetWindow.host.logicalWindowId);
+  if (requiredWindowIds.some(id => !input.projectedWindows.some(window => window.windowId === id))) {
+    throw ownershipError("ELECTRON_MACOS_APPKIT_PHASE_PROJECTION_INCOMPLETE", "Core omitted a window involved in this projection.");
+  }
   const seenRoles = new Set<string>();
   for (const role of input.projectedRoles) {
     if (!validIdentifier(role.roleId) || seenRoles.has(role.roleId)) {
@@ -285,7 +292,7 @@ export async function followChromiumRuntimeOwnership(
     }
     seenRoles.add(role.roleId);
     const native = input.roles.get(role.roleId);
-    if (native && native.tabId !== role.owner.tabId) {
+    if (native && input.projectedWindows.some(window => window.windowId === native.windowId) && native.tabId !== role.owner.tabId) {
       throw ownershipError(
         "ELECTRON_CHROMIUM_ROLE_OWNERSHIP_DIVERGED",
         "The native Chromium surface no longer matches Core role ownership."
@@ -363,6 +370,7 @@ export async function followChromiumRuntimeOwnership(
     });
     if (transitions.length === 0) {
       for (const window of input.windows.values()) {
+        if (!input.projectedWindows.some(projection => projection.windowId === window.host.logicalWindowId)) continue;
         applyChromiumRuntimeWindowSurfaceVisibility(
           input,
           window,
@@ -407,6 +415,7 @@ export async function followChromiumRuntimeOwnership(
           ])
         );
         for (const window of input.windows.values()) {
+        if (!input.projectedWindows.some(projection => projection.windowId === window.host.logicalWindowId)) continue;
           applyChromiumRuntimeWindowSurfaceVisibility(
             input,
             window,

@@ -30,6 +30,7 @@ mod popup_lifecycle;
 mod portable;
 mod role_browser_data;
 mod runtime_kernel;
+mod runtime_scoped_sequence;
 mod runtime_sequence;
 mod runtime_window_visibility_replay;
 mod scheduler;

@@ -142,3 +142,24 @@ completion scope, identity fence, popup/security policy, or ordering guarantee
 requires a contract-version bump and matching macOS and Windows behavior tests.
 macOS checks run locally where available; Windows native reachability and SDK
 integration remain mandatory in `windows-latest` CI.
+
+## Chromium v41 diagnostic observations
+
+Diagnostic export does not require coherent runtime topology. Core, Electron,
+and AppKit-derived host observations retain separate revisions, identities,
+source labels, and capture timestamps. Electron exports its most recent Core
+observation without awaiting a fresh runtime projection. A missing source or
+projection discrepancy is recorded in collectionErrorCodes; the ZIP still
+contains available diagnostics and persisted logs. The Settings result reports
+partial collection explicitly.
+
+The bounded operation journal retains 512 identity-only effect transitions,
+including queue admission, execution, authoritative-event wait, cancellation,
+and terminal outcome. Entries carry operation/effect/parent identities and
+available window/tab/generation/revision fences. Overflow is counted. The Rust
+log sink persists transitions for post-restart analysis under the existing log
+retention policy. URLs, document contents, and effect payloads are excluded.
+
+No operation waits for a hypothetical future projection. Waiting requires an
+already-admitted authoritative operation; absence fails locally. Cancellation,
+supersede, actor stop, or event-stream failure terminalizes its exact waiter.

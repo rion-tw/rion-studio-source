@@ -31,6 +31,28 @@ const registration = {
 };
 
 describe("Electron runtime diagnostics collector", () => {
+  it("exports cached Core evidence without awaiting a stalled live read", async () => {
+    const live = vi.fn(() => new Promise<never>(() => undefined));
+    const cached = { capturedAt: "2026-09-14T10:00:00Z", snapshot: {
+      revision: 10, runtimeRevision: 8, logicalWindows: []
+    } };
+    const collector = new ElectronRuntimeDiagnosticsCollector({
+      readCoreSnapshot: live,
+      readCachedCoreSnapshot: () => cached as never,
+      readNativeSnapshot: () => { throw new Error("native stream stopped"); },
+      applicationLifecycle: () => ({ phase: "running" }) as never,
+      registration: () => registration,
+      projectCoherentSnapshot: vi.fn() as never
+    });
+    const result = await collector.capture();
+    expect(live).not.toHaveBeenCalled();
+    expect(result.collectionErrorCodes).toContain("ELECTRON_RUNTIME_NATIVE_SNAPSHOT_UNAVAILABLE");
+    expect(result).not.toHaveProperty("displayHostCount");
+    expect(JSON.parse(result.runtimeEvidenceRawJson!)).toMatchObject({
+      core: { source: "cached", capturedAt: cached.capturedAt, revision: 10, runtimeRevision: 8 }, native: null
+    });
+  });
+
   it("retains bounded input terminal evidence after the Role is gone", async () => {
     resetTrustedInputTerminalJournalForTest();
     recordTrustedInputTerminal({
@@ -176,7 +198,7 @@ describe("Electron runtime diagnostics collector", () => {
     });
   });
 
-  it("rejects export when the Core/native/display coherence proof fails", async () => {
+  it("retains evidence when the Core/native/display coherence proof fails", async () => {
     const collector = new ElectronRuntimeDiagnosticsCollector({
       applicationLifecycle: vi.fn() as never,
       projectCoherentSnapshot: () => {
@@ -191,6 +213,9 @@ describe("Electron runtime diagnostics collector", () => {
       registration: () => registration
     });
 
-    await expect(collector.capture()).rejects.toThrow("stale topology");
+    const result = await collector.capture();
+    expect(result.snapshotComplete).toBe(false);
+    expect(result.collectionErrorCodes).toContain("ELECTRON_RUNTIME_PROJECTION_UNAVAILABLE");
+    expect(JSON.parse(result.runtimeEvidenceRawJson!)).toMatchObject({ native: { windows: [] } });
   });
 });

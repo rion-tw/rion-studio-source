@@ -69,11 +69,36 @@ impl AppCore {
                 message: "The runtime tab identity changed before stop committed.".to_owned(),
             });
         }
+        let close = if self.platform == rion_platform::Platform::Windows {
+            self.prepare_runtime_logical_close(&request.operation_id, &request.source_window_id,
+                Some(request.source_window_generation), None, &request.tab_id, None)?
+        } else { None };
+        let presentation = (|| -> CoreResult<()> {
+        if let Some(close) = close.as_ref() {
+            // Topology commits before potentially blocked surface/storage release.
+            let windows: Vec<_> = self.embedded_runtime_window_projections()?.into_iter()
+                .filter(|window| window.window_id == request.source_window_id).collect();
+            let revision = windows.first().map_or(0, |window| window.topology_revision);
+            self.run_effect_plan_with_parent(vec![effect_step(&request.source_window_id,
+                CoreEffectAction::EmbeddedFollowRoleOwnership {
+                    lifecycle_epoch: self.application_lifecycle_epoch.load(Ordering::Acquire),
+                    roles: snapshot.roles.clone(), windows, target: None,
+                    reveal_window_ids: Vec::new(), focus_window_ids: Vec::new(), focus_tab_id: None,
+                }, Duration::from_secs(15), None)], &request.operation_id)?;
+            self.emit(vec![CoreEvent::RuntimeTabTopologyCommitted {
+                operation_id: close.operation_id.as_str().to_owned(), tab_id: request.tab_id.clone(),
+                window_id: request.source_window_id.clone(), window_generation: request.source_window_generation,
+                topology_revision: revision,
+            }]);
+        }
+            Ok(())
+        })();
+        let result = (|| -> CoreResult<()> {
         if tab_type == "role"
-            && let Some(snapshot) =
+            && let Some(_snapshot) =
                 self.remove_unowned_role_tab_mutation(&request, source_id, tab_type)?
         {
-            return Ok(snapshot);
+            return Ok(());
         }
         if tab_type == "workspace" {
             self.stop_embedded_workspace_with_operation_lease(
@@ -92,6 +117,13 @@ impl AppCore {
                 Some(&request.operation_id),
             )?;
         }
+            Ok(())
+        })();
+        if let Some(close) = close.as_ref() {
+            self.finish_runtime_logical_close(close, if result.is_ok() { "closed" } else { "failed" })?;
+        }
+        result?;
+        presentation?;
         Ok(self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot)
@@ -123,6 +155,12 @@ impl AppCore {
         {
             return Ok(None);
         }
+        let attempt_generation = tab.attempt_generation.clone();
+        drop(sequence);
+        self.run_embedded_runtime_effect(&request.tab_id,
+            CoreEffectAction::EmbeddedDestroyTab { tab_id: request.tab_id.clone(), attempt_generation, next_active_tab_id: None },
+            None, Some(&request.operation_id))?;
+        let sequence = self.embedded_runtime_sequence.acquire()?;
         let next = self
             .invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                 tab_id: request.tab_id.clone(),

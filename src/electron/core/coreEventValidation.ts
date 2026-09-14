@@ -17,6 +17,8 @@ const EVENT_TYPES = new Set<CoreEvent["type"]>([
   "browserActions",
   "coreEffects",
   "coreEffectCancellations",
+  "appKitTopologyCommitted",
+  "runtimeTabTopologyCommitted",
   "browserStatuses",
   "browserLaunchCompleted",
   "macroStatuses",
@@ -112,6 +114,19 @@ const chromeProfileImportProgress = (value: unknown): boolean => check.closed(va
 
 function isClosedCriticalEvent(event: Record<string, unknown>): boolean {
   switch (event.type) {
+    case "runtimeTabTopologyCommitted":
+      return check.closed(event, { type: check.oneOf("runtimeTabTopologyCommitted"),
+        operationId: check.identity, tabId: check.identity, windowId: check.identity,
+        windowGeneration: check.nonnegativeInteger, topologyRevision: check.nonnegativeInteger });
+    case "appKitTopologyCommitted":
+      return check.closed(event, { type: check.oneOf("appKitTopologyCommitted"),
+        receipt: value => check.closed(value, {
+          eventId: check.identity, adapterSequence: check.nonnegativeInteger,
+          status: check.oneOf("applied", "superseded", "failed", "degraded", "indeterminate", "cancelled"),
+          topologyCommitted: check.bool, nativeApplied: check.bool,
+          windowGeneration: check.nonnegativeInteger,
+          topologyRevision: check.nonnegativeInteger
+        }, { failureCode: check.text }) });
     case "roleSessionRecoveryChanged":
       return check.closed(event, { type: check.oneOf("roleSessionRecoveryChanged"), record: isRoleSessionRecoveryRecord });
     case "graphicsSettingsChanged":

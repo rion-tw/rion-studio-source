@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { saveVisibleDiagnostics } from "../support/native-diagnostics-save";
 import { prepareChromiumFontRole, verifyChromiumFontApplication } from "./chromium-font-application-support";
 
 import { $, browser, expect } from "@wdio/globals";
@@ -20,6 +23,8 @@ import {
 // [journey:CHROMIUM-WINDOWS-FONT-APPLICATION-033]
 // [journey:CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-EXPORT-029]
 // [journey:CHROMIUM-WINDOWS-DIAGNOSTICS-EXPORT-029]
+// [journey:CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-DEGRADED-072]
+// [journey:CHROMIUM-WINDOWS-DIAGNOSTICS-DEGRADED-072]
 
 function required(name: string): string {
   const value = process.env[name];
@@ -204,6 +209,30 @@ async function verifyNativeDiagnosticsExportCancel(input: Readonly<{
   });
 }
 
+async function verifyPartialDiagnosticsExport(input: { platform: "macos" | "windows"; processId: number }): Promise<void> {
+  const preserveLogs = await $("button[role='switch'][aria-label='Clear logs after exporting diagnostics']");
+  if (await preserveLogs.getAttribute("aria-checked") === "true") await preserveLogs.click();
+  const path = resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"), "partial-diagnostics.zip");
+  const saved = saveVisibleDiagnostics({ ...input, path });
+  await $("button=Export diagnostics").click();
+  await saved;
+  await $("p=Diagnostics exported. Some live data was unavailable.").waitForDisplayed({ timeout: 30_000 });
+  const zip = await readFile(path);
+  expect(zip.readUInt32LE(0)).toBe(0x04034b50);
+  expect(zip.readUInt16LE(8)).toBe(0); // The archive uses standard stored ZIP entries.
+  const start = zip.indexOf(Buffer.from("diagnostics.json")) + "diagnostics.json".length;
+  const end = zip.indexOf(Buffer.from([0x50, 0x4b, 0x07, 0x08]), start);
+  const report = JSON.parse(zip.subarray(start, end).toString("utf8"));
+  expect(report.browserEngines.nativeRuntime.collectionErrorCodes).toContain("ELECTRON_RUNTIME_PROJECTION_NOT_READY");
+  expect(report.browserEngines.runtimeEvidence.native.windows).toEqual(expect.arrayContaining([
+    expect.objectContaining({ windowId: "e2e-orphaned-native-host", topologyRevision: 999 })
+  ]));
+  expect(report.browserEngines.runtimeEvidence.core.source).toBe("cached");
+  expect(report.browserEngines.runtimeEvidence.effects.entries.length).toBeGreaterThan(0);
+  expect(zip.includes(Buffer.from("logs/rion-studio-logs.jsonl"))).toBe(true);
+  expect(zip.includes(Buffer.from("runtime_effect_transition"))).toBe(true);
+}
+
 async function verifyLegalCancelBoundary(): Promise<void> {
   await openSettingsSection("About & Legal", "about-legal");
   const openDocument = await $("button=Open");
@@ -251,6 +280,7 @@ describe("Chromium system settings boundaries", () => {
     await verifyUpdateBoundary();
     await openSettingsSection("Diagnostics & logs", "diagnostics");
     await verifyNativeDiagnosticsExportCancel(probe);
+    await verifyPartialDiagnosticsExport(probe);
     await verifyLegalCancelBoundary();
   });
 });

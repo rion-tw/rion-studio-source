@@ -115,6 +115,7 @@ export interface ChromiumRuntimeFullscreenToolbarInspection {
     kind: "role" | "web";
     tabId: string;
     visible: boolean;
+    retiring?: true;
   }>[];
   readonly tabIds: readonly string[];
   readonly topologyRevision: number;
@@ -325,6 +326,7 @@ export function inspectChromiumRuntimeFullscreenToolbar(input: {
           id: role.roleId,
           kind: "role" as const,
           tabId: role.tabId,
+          ...(!record.tabIds.includes(role.tabId) ? { retiring: true as const } : {}),
           visible: projection.visible
         });
       }),
@@ -341,6 +343,7 @@ export function inspectChromiumRuntimeFullscreenToolbar(input: {
           id: surface.surfaceId,
           kind: "web" as const,
           tabId: surface.tabId,
+          ...(!record.tabIds.includes(surface.tabId) ? { retiring: true as const } : {}),
           visible: projection.visible
         });
       })

@@ -304,7 +304,7 @@ async function showSavedWindow(input: Readonly<{
 async function launchRoleIntoWindow(
   role: Role,
   gameWindow: GameWindow,
-  loading?: Readonly<{ mainWindowHandle: string; platform: Platform; externalForeground?: boolean; previousTab?: { id: string; name: string } }>
+  loading?: Readonly<{ mainWindowHandle: string; platform: Platform; externalForeground?: boolean; duringLoading?: () => Promise<void>; previousTab?: { id: string; name: string } }>
 ): Promise<string> {
   await openSection("Home", "/dashboard");
   await $("[data-testid='quick-access-trigger']").click();
@@ -409,6 +409,10 @@ async function launchRoleIntoWindow(
             }, { timeout:20_000, timeoutMsg:"Native resize did not update A while B was loading" });
           } });
       }
+      await loading.duringLoading?.();
+      // Observation reads must also complete while this exact network gate remains held.
+      expect((await rendererCall("listRoleStatuses")).find(status => status.roleId === role.id)?.state).toBe("launching");
+      expect((await rendererCall("getEmbeddedRuntimeState")).tabs.some(tab => tab.id === tabId)).toBe(true);
     } finally {
       await fixtureRequest("/api/release", { roleId: fixtureId });
     }
@@ -1020,12 +1024,16 @@ async function seedPhase(input: Readonly<{
   const { gameWindow, roles, targetWindow } = await createEntitiesThroughVisibleUi();
   const sourceRoles = roles.slice(0, SOURCE_ROLE_DEFINITIONS.length);
   const tabIds: string[] = [];
+  let independentTabId: string | undefined;
   for (const [index, role] of sourceRoles.entries()) {
     tabIds.push(await launchRoleIntoWindow(
       role,
       gameWindow,
       index === 0 ? { ...input, externalForeground: true } : index === 1
-        ? { ...input, previousTab: { id: tabIds[0]!, name: sourceRoles[0]!.name } } : undefined
+        ? { ...input, previousTab: { id: tabIds[0]!, name: sourceRoles[0]!.name }, duringLoading: async () => {
+          independentTabId = await launchRoleIntoWindow(roles[3]!, targetWindow);
+          await clickVisibleRuntimeTab({ ...input, tabId: tabIds[0]!, tabName: sourceRoles[0]!.name });
+        } } : undefined
     ));
   }
   expect(await runtimeTabShellErrors()).toEqual([]);
@@ -1083,7 +1091,8 @@ async function seedPhase(input: Readonly<{
     stage: "baseline"
   });
 
-  const targetTabId = await launchRoleIntoWindow(roles[3]!, targetWindow);
+  expect(independentTabId).toBeDefined();
+  const targetTabId = independentTabId!;
   await waitForExactWindowTopology({
     activeTabId: targetTabId,
     orderedTabIds: [targetTabId],

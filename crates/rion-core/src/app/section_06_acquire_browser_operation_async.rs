@@ -1045,6 +1045,7 @@ impl AppCore {
                 let core = Arc::clone(self);
                 completion_permit.send(Box::pin(async move {
                     let PendingEmbeddedRoleLaunch {
+                        launch_attempt_id,
                         handle,
                         lease_id,
                         presentation_intent,
@@ -1066,6 +1067,7 @@ impl AppCore {
                     let completion_core = Arc::clone(&core);
                     let completion = tokio::task::spawn_blocking(move || {
                         let result = completion_core.commit_embedded_role_launch_outcome(
+                            &launch_attempt_id,
                             role,
                             tab_id,
                             persistence_window_id,
@@ -1338,7 +1340,7 @@ impl AppCore {
             appkit_topology_revision: None,
             tab_id: tab_id.clone(),
             audio_muted,
-            attempt_generation: Some(launch_attempt_id),
+            attempt_generation: Some(launch_attempt_id.clone()),
             launch_preview_id,
             source_id: role.id.clone(),
             name: role.name.clone(),
@@ -1387,6 +1389,7 @@ impl AppCore {
         }
         Ok(EmbeddedRoleLaunchStart::Pending(Box::new(
             PendingEmbeddedRoleLaunch {
+                launch_attempt_id,
                 handle,
                 lease_id,
                 presentation_intent,
@@ -1403,6 +1406,7 @@ impl AppCore {
         pending: PendingEmbeddedRoleLaunch,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         let PendingEmbeddedRoleLaunch {
+                        launch_attempt_id,
             handle,
             lease_id: _,
             presentation_intent,
@@ -1416,6 +1420,7 @@ impl AppCore {
             std::slice::from_ref(&role),
         );
         self.commit_embedded_role_launch_outcome(
+            &launch_attempt_id,
             role,
             tab_id,
             window_id,

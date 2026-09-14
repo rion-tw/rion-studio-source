@@ -111,7 +111,7 @@ class FakeView implements ChromiumRoleWebContentsViewPort {
   }
 }
 
-function harness(storagePath: string | null = null) {
+function harness(storagePath: string | null = null, autoFinishLoad = true) {
   const documentPath = resolve("/bundle/runtime-role-placeholder-electron.html");
   const session = { storagePath } as unknown as ChromiumRoleSessionPort;
   const views: FakeView[] = [];
@@ -170,6 +170,7 @@ function harness(storagePath: string | null = null) {
     views: {
       create: () => {
         const view = new FakeView(new FakeContents(session));
+        view.webContents.autoFinishLoad = autoFinishLoad;
         views.push(view);
         return view;
       }
@@ -320,8 +321,9 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
   });
 
   it("waits for activation when ready arrives at DOMContentLoaded", async () => {
-    const subject = harness();
+    const subject = harness(null, false);
     const creation = subject.registry.reconcile([subject.descriptor()]);
+    await creation;
     const contents = subject.views[0]!.webContents;
     contents.autoFinishLoad = false;
     await contents.loadStarted.promise;
@@ -338,18 +340,19 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
   });
 
   it.each(["close", "load-failure"])("terminalizes pending ready on %s", async (failure) => {
-    const subject = harness();
+    const subject = harness(null, false);
     const creation = subject.registry.reconcile([subject.descriptor()]);
+    await creation;
     const contents = subject.views[0]!.webContents;
     contents.autoFinishLoad = false;
     await contents.loadStarted.promise;
     const ready = Promise.resolve(subject.invoke(contents, { type: "ready" }));
     const rejected = expect(ready).rejects.toBeInstanceOf(Error);
-    const creationRejected = expect(creation).rejects.toBeInstanceOf(Error);
+    await expect(creation).resolves.toBeUndefined();
     if (failure === "close") contents.close();
     else contents.emit("did-fail-load", {}, -2, "failed", contents.url, true);
     await rejected;
-    await creationRejected;
+
     expect(subject.onError).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringContaining('"action":"ready"')
     }));
@@ -424,6 +427,27 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
     await expect(Promise.resolve(subject.invoke(newContents, { type: "claim" })))
       .rejects.toMatchObject({ message: expect.stringContaining("payload is invalid") });
     expect(subject.claim).not.toHaveBeenCalled();
+    await subject.registry.dispose();
+  });
+
+  it("supersedes queued creation before attaching a removed placeholder", async () => {
+    const subject = harness();
+    const opening = subject.registry.reconcile([subject.descriptor()]);
+    const removed = subject.registry.reconcile([]);
+    await Promise.all([opening, removed]);
+    expect(subject.views).toHaveLength(0);
+    expect(subject.attached).toHaveLength(0);
+    expect(subject.onError).not.toHaveBeenCalled();
+    await subject.registry.dispose();
+  });
+
+  it("closes an unfinished document without reporting cancellation as a load fault", async () => {
+    const subject = harness(null, false);
+    await subject.registry.reconcile([subject.descriptor()]);
+    await subject.registry.reconcile([]);
+    expect(subject.views[0]!.webContents.destroyed).toBe(true);
+    expect(subject.registry.activeCount).toBe(0);
+    expect(subject.onError).not.toHaveBeenCalled();
     await subject.registry.dispose();
   });
 

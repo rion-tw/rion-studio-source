@@ -127,7 +127,7 @@ impl AppCore {
             return Err(error);
         }
         if self.complete_chromium_runtime_launch(&tab_id, &[])? {
-            self.project_completed_chromium_runtime_launch()?;
+            self.project_completed_chromium_runtime_launch(&window_id)?;
         }
         if let Err(error) =
             self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))

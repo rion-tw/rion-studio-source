@@ -130,7 +130,7 @@ impl AppCore {
         if let Some(visible) = visibility {
             return self.handle_appkit_window_visibility_event(event, primary, visible);
         }
-        let _event_lane = self.appkit_event_sequence.acquire()?;
+        let _event_lane = self.appkit_event_sequence.acquire(event.hosts.iter().map(|host| host.identity.logical_window_id.clone()).collect())?;
         if !self.accept_appkit_event_sequence(&primary.identity, event.adapter_sequence)? {
             return self.appkit_superseded_receipt(&event, &primary, None);
         }
@@ -169,7 +169,7 @@ impl AppCore {
             crate::model::AppKitRuntimeEventActionRecord::Stop {
                 tab_id,
                 ordered_tab_ids,
-            } => self.apply_appkit_stop(event, primary, tab_id, ordered_tab_ids),
+            } => self.apply_appkit_stop(event, primary, tab_id, ordered_tab_ids, _event_lane),
             crate::model::AppKitRuntimeEventActionRecord::SetTabHidden { tab_id, hidden } => {
                 self.apply_appkit_tab_hidden(event, primary, tab_id, hidden)
             }
@@ -986,6 +986,7 @@ impl AppCore {
         primary: crate::model::AppKitRuntimeHostObservationRecord,
         tab_id: String,
         ordered_tab_ids: Vec<String>,
+        event_lane: crate::runtime_scoped_sequence::RuntimeScopedPermit<'_>,
     ) -> CoreResult<AppKitEventReceipt> {
         let Some(close) = self.prepare_appkit_logical_close(
             &event.event_id,
@@ -996,6 +997,14 @@ impl AppCore {
         else {
             return self.reconcile_appkit_superseded(&event, &primary, Some("APPKIT_EVENT_STALE"));
         };
+        // Publish the exact remaining native tab chrome before role/storage cleanup.
+        // This receipt completes only topology, never native resource destruction.
+        let presented = self.finish_appkit_projection(event.clone(), primary.clone(), true);
+        drop(event_lane);
+        if let Ok(receipt) = &presented
+            && receipt.native_applied && receipt.topology_committed {
+            self.emit(vec![CoreEvent::AppKitTopologyCommitted { receipt: receipt.clone() }]);
+        }
         let request = crate::model::RuntimeTabMutationRequestRecord {
             operation_id: close.operation_id.as_str().to_owned(),
             mutation_kind: "stop".to_owned(),
@@ -1036,7 +1045,7 @@ impl AppCore {
                         None,
                     )
                 } else {
-                    let receipt = self.finish_appkit_projection(event, primary, true)?;
+                    let receipt = presented?;
                     if receipt.native_applied && released_placeholders {
                         // Full native membership must commit before the terminal
                         // owner set refreshes placeholders in every surviving host.

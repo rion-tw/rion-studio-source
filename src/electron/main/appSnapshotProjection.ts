@@ -186,7 +186,8 @@ function projectOwnedRuntime(
   snapshot: CoreAppSnapshotRecord,
   nativeRuntime: ChromiumRuntimeExecutorSnapshot,
   displayTopology: DisplayTopology,
-  capturedAt: string
+  capturedAt: string,
+  observed = false
 ): EmbeddedRuntimeState {
   const runtime = snapshot.browserRuntime;
   const coreWindows = uniqueMap(runtime.windows, (window) => window.windowId, "window");
@@ -214,6 +215,7 @@ function projectOwnedRuntime(
     "native role"
   );
 
+  if (!observed) {
   if (
     coreWindows.size !== logicalWindows.size ||
     coreWindows.size !== nativeWindows.size ||
@@ -344,10 +346,13 @@ function projectOwnedRuntime(
     }
   }
 
+  }
+
   const roleNames = new Map(snapshot.state.roles.map((role) => [role.id, role.name]));
-  const tabs = runtime.tabs.map((tab) => {
-    const nativeTab = nativeTabs.get(tab.id)!;
-    const active = nativeWindows.get(tab.windowId)!.activeTabId === tab.id;
+  const tabs = runtime.tabs.filter(tab => !observed ||
+    logicalWindows.get(tab.windowId)?.tabs.some(logical => logical.id === tab.id)).map((tab) => {
+    const nativeTab = nativeTabs.get(tab.id);
+    const active = coreWindows.get(tab.windowId)?.activeTabId === tab.id;
     const roleIds = tab.slots.map((slot) => slot.roleId);
     return {
       id: tab.id,
@@ -363,24 +368,27 @@ function projectOwnedRuntime(
       slots: tab.slots,
       hidden: tab.hidden,
       active,
-      audible: nativeTab.audible,
-      audioMuted: nativeTab.audioMuted
+      audible: nativeTab?.audible ?? false,
+      audioMuted: tab.audioMuted
     };
   });
-  const windows = runtime.windows.map((window) => {
-    const nativeWindow = nativeWindows.get(window.windowId)!;
+  const windows = runtime.windows.filter(window => !observed || logicalWindows.has(window.windowId)).map((window) => {
+    const nativeWindow = nativeWindows.get(window.windowId);
+    const logical = logicalWindows.get(window.windowId);
+    const saved = snapshot.state.gameWindows.find(saved => saved.id === window.windowId);
+    const primary = displayTopology.displays.find(display => String(display.id) === displayTopology.primaryDisplayId)!;
     return {
-      id: window.windowId,
-      windowId: window.windowId,
-      displayId: nativeWindow.displayId,
-      bounds: nativeWindow.bounds,
-      visible: nativeWindow.visible,
-      focused: nativeWindow.focused,
-      ...(nativeWindow.activeTabId.length === 0
-        ? {}
-        : { activeTabId: nativeWindow.activeTabId }),
-      tabCount: nativeWindow.tabIds.length,
-      presentation: nativeWindow.presentation
+      id: window.windowId, windowId: window.windowId,
+      displayId: nativeWindow?.displayId ?? saved?.targetDisplay.id ?? primary.id,
+      bounds: nativeWindow?.bounds ?? saved?.placement.normalBounds ?? primary.workArea,
+      visible: nativeWindow?.visible ?? false, focused: nativeWindow?.focused ?? false,
+      ...(window.activeTabId ? { activeTabId: window.activeTabId } : {}),
+      tabCount: window.tabIds.length,
+      presentation: nativeWindow?.presentation ?? logical?.presentation ?? "normal" as const,
+      ...(observed ? { projectionPending: !nativeWindow ||
+        nativeWindow.windowGeneration !== logical?.windowGeneration ||
+        nativeWindow.topologyRevision !== logical?.revision ||
+        !sameOrder(nativeWindow.tabIds, window.tabIds) } : {})
     };
   });
   const savedWindows = projectSavedRuntimeWindows(snapshot, displayTopology);
@@ -471,7 +479,8 @@ export function projectCoreAppSnapshot(
   snapshot: CoreAppSnapshotRecord,
   nativeRuntime: ChromiumRuntimeExecutorSnapshot,
   displayTopology: DisplayTopology,
-  capturedAt: string
+  capturedAt: string,
+  mode: "exact" | "observed" = "exact"
 ): AppSnapshot {
   return {
     revision: snapshot.revision,
@@ -481,7 +490,8 @@ export function projectCoreAppSnapshot(
       snapshot,
       nativeRuntime,
       displayTopology,
-      capturedAt
+      capturedAt,
+      mode === "observed"
     ),
     games: snapshot.state.games,
     gameWindows: snapshot.state.gameWindows,

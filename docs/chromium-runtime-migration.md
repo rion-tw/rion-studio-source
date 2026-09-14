@@ -102,7 +102,7 @@ load completion cannot restore launch-time selection, geometry, or visibility.
 Cancellation revokes attachment evidence immediately, and both failed and
 cancelled mounts require exact native retirement before another attempt.
 
-The current runtime contract 40/AppKit ABI 11 retains the existing background
+The current runtime contract 41/AppKit ABI 11 retains the existing background
 projection. Each workspace has one content-area background owner. AppKit uses a
 retained container created with the native host, with an internal NSVisualEffectView
 for material or a solid black fill. The initial Core-provided mode is applied via
@@ -149,7 +149,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 40. Version 23 remains the first
+The active runtime contract is version 41. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new

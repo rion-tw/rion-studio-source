@@ -176,52 +176,21 @@ function harness(
 
 describe("Electron Core effect coordinator", () => {
   it.each(["macos", "windows"])(
-    "wakes a %s snapshot reader on the runtime-only close publication",
+    "rejects an unowned %s projection wait and observes subsequent authoritative events",
     async (_platform) => {
       const test = harness(async () => undefined);
       test.emit({ type: "stateChanged", revision: 9, changedCollections: [] });
       const initial = await test.coordinator.settleCurrentProjectionEffects();
-      let awakened = false;
-      const read = test.coordinator.waitForProjectionAfter(initial).then(() => {
-        awakened = true;
-      });
-      // Closing the final Web-only tab publishes an empty BrowserStatuses
-      // after native isolation, without another SQLite revision or effect.
-      test.emit({ type: "browserStatuses", statuses: [] });
-      try {
-        await vi.waitFor(() => expect(awakened).toBe(true));
-        await read;
-        await expect(test.coordinator.waitForProjectionAfter(initial))
-          .resolves.toBe(initial + 1);
-        expect(test.dispatchCoreEffectResults).not.toHaveBeenCalled();
-      } finally {
-        await test.coordinator.dispose();
-        await read.catch(() => undefined);
-      }
-    }
-  );
-
-  it.each(["macos", "windows"])(
-    "wakes a %s snapshot reader on a final Core commit without another native effect",
-    async (_platform) => {
-      const test = harness(async () => undefined);
-      test.emit({ type: "stateChanged", revision: 9, changedCollections: [] });
-      const initial = await test.coordinator.settleCurrentProjectionEffects();
-      let awakened = false;
-      const read = test.coordinator.waitForProjectionAfter(initial).then(() => {
-        awakened = true;
-      });
-      test.emit({ type: "stateChanged", revision: 9, changedCollections: [] });
+      await expect(test.coordinator.waitForProjectionAfter(initial)).rejects
+        .toMatchObject({ code: "ELECTRON_RUNTIME_PROJECTION_STALLED" });
       test.emit({ type: "stateChanged", revision: 8, changedCollections: [] });
-      await Promise.resolve();
-      expect(awakened).toBe(false);
+      await expect(test.coordinator.waitForProjectionAfter(initial)).rejects
+        .toMatchObject({ code: "ELECTRON_RUNTIME_PROJECTION_STALLED" });
+      test.emit({ type: "browserStatuses", statuses: [] });
+      await expect(test.coordinator.waitForProjectionAfter(initial)).resolves.toBe(initial + 1);
       test.emit({ type: "stateChanged", revision: 10, changedCollections: [] });
-      await read;
-      expect(awakened).toBe(true);
+      await expect(test.coordinator.waitForProjectionAfter(initial)).resolves.toBe(initial + 2);
       expect(test.dispatchCoreEffectResults).not.toHaveBeenCalled();
-      // A commit delivered before the reader starts waiting is not lost.
-      await expect(test.coordinator.waitForProjectionAfter(initial))
-        .resolves.toBe(initial + 1);
       await test.coordinator.dispose();
     }
   );
@@ -299,28 +268,12 @@ describe("Electron Core effect coordinator", () => {
     await test.coordinator.dispose();
   });
 
-  it("waits for a future projection effect instead of scanning for native change", async () => {
+  it("does not wait for a hypothetical future projection effect", async () => {
     const test = harness(async () => undefined);
-    let settled = false;
-    const future = test.coordinator.waitForProjectionAfter(0).then((sequence) => {
-      settled = true;
-      return sequence;
-    });
-    test.emit({
-      type: "coreEffects",
-      effects: [{
-        ...effect("overlay-effect", "tab-1", "eventBound", "app"),
-        action: { type: "embeddedInstallOverlays", roleIds: ["role-1"] }
-      }]
-    });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-
-    test.emit({
-      type: "coreEffects",
-      effects: [effect("projection-effect", "tab-1", "deadlineBound", "app")]
-    });
-    await expect(future).resolves.toBe(1);
+    await expect(test.coordinator.waitForProjectionAfter(0)).rejects
+      .toMatchObject({ code: "ELECTRON_RUNTIME_PROJECTION_STALLED" });
+    test.emit({ type: "coreEffects", effects: [effect("projection-effect", "tab-1", "eventBound", "app")] });
+    await expect(test.coordinator.waitForProjectionAfter(0)).resolves.toBe(1);
     await test.coordinator.dispose();
   });
 

@@ -46,6 +46,8 @@ export function captureChromiumRuntimeSnapshot(input: SnapshotInput): ChromiumRu
       tabs: Object.freeze([...input.tabs.entries()]
         .map(([tabId, record]) => Object.freeze({
           tabId,
+          ...(input.windows.get(record.windowId)?.tabIds.includes(tabId) === false
+            ? { retiring: true as const } : {}),
           windowId: record.windowId,
           audioMuted: record.audioMuted,
           audible: [...input.roles.values()]

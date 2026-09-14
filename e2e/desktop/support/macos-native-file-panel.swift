@@ -11,10 +11,11 @@ guard CommandLine.arguments.count >= 3,
       AXIsProcessTrusted() else { fail("exact file-panel input or Accessibility grant unavailable") }
 let action = CommandLine.arguments[2]
 guard (action == "cancel" && CommandLine.arguments.count == 3)
-    || (action == "select-directory" && CommandLine.arguments.count == 4) else {
+    || ((action == "select-directory" || action == "save-file") && CommandLine.arguments.count == 4) else {
   fail("unsupported exact native file-panel action")
 }
-let fixturePath = action == "select-directory" ? CommandLine.arguments[3] : ""
+let selectedPath = action == "cancel" ? "" : CommandLine.arguments[3]
+let fixturePath = action == "save-file" ? URL(fileURLWithPath: selectedPath).deletingLastPathComponent().path : selectedPath
 let application = AXUIElementCreateApplication(targetPid)
 let expiry = Date().addingTimeInterval(10)
 func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -116,6 +117,14 @@ if action == "cancel" {
   exit(0)
 }
 
+if action == "save-file" {
+  let names = descendants(panel).filter { text($0, "AXRole") == "AXTextField" && text($0, "AXValue").contains("Rion-Studio-Diagnostics") }
+  let name = URL(fileURLWithPath: selectedPath).lastPathComponent
+  guard names.count == 1,
+        AXUIElementSetAttributeValue(names[0], kAXValueAttribute as CFString, name as CFString) == .success,
+        text(names[0], "AXValue") == name else { fail("exact Save As field unavailable") }
+}
+
 key(5, flags: [.maskCommand, .maskShift]) // Visible Go to Folder command.
 var sheets: [AXUIElement] = []
 awaitCondition("Go to Folder sheet") {
@@ -131,7 +140,7 @@ key(36)
 awaitCondition("resolved folder") {
   descendants(panel).filter { !CFEqual($0, panel) && text($0, "AXRole") == "AXSheet" }.isEmpty
 }
-let buttons = descendants(panel).filter { text($0, "AXRole") == "AXButton" && text($0, "AXTitle") == "Open" }
+let buttons = descendants(panel).filter { text($0, "AXRole") == "AXButton" && text($0, "AXTitle") == (action == "save-file" ? "Save" : "Open") }
 let currentPanels = panels()
 guard currentPanels.count == 1, CFEqual(currentPanels[0], panel) else { fail("exact attached folder panel changed") }
 guard buttons.count == 1, (attribute(buttons[0], "AXEnabled") as? NSNumber)?.boolValue == true else {

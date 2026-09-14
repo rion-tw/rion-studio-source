@@ -1,4 +1,4 @@
-import type { EmbeddedLaunchTargetRecord } from "../../shared/generated";
+import type { DisplayInfoRecord, DisplayTopologySnapshotRecord, EmbeddedLaunchTargetRecord } from "../../shared/generated";
 
 export function sameBounds(
   left: EmbeddedLaunchTargetRecord["bounds"],
@@ -35,4 +35,32 @@ export function cloneTarget(target: EmbeddedLaunchTargetRecord): EmbeddedLaunchT
     bounds: { ...target.bounds },
     workArea: { ...target.workArea }
   };
+}
+
+export function sameOrderedIds(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every(
+    (value, index) => value === right[index]
+  );
+}
+
+export function displayById(
+  topology: DisplayTopologySnapshotRecord,
+  displayId: number
+): DisplayInfoRecord | undefined {
+  return topology.displays.find((display) => display.id === displayId);
+}
+
+export function targetMatchesDisplay(
+  target: EmbeddedLaunchTargetRecord,
+  topology: DisplayTopologySnapshotRecord
+): boolean {
+  const display = displayById(topology, target.displayId);
+  return display !== undefined &&
+    display.scaleFactor === target.scaleFactor &&
+    sameBounds(display.workArea, target.workArea) &&
+    validBounds(target.bounds, 640, 480) &&
+    target.bounds.x >= target.workArea.x &&
+    target.bounds.y >= target.workArea.y &&
+    target.bounds.x + target.bounds.width <= target.workArea.x + target.workArea.width &&
+    target.bounds.y + target.bounds.height <= target.workArea.y + target.workArea.height;
 }

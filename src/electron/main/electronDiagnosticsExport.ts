@@ -9,7 +9,7 @@ import type {
   DisplayTopologySnapshotRecord,
   SystemRuntimeDiagnosticsRecord
 } from "../../shared/generated";
-import { RionBridgeError } from "../ipc/errors";
+import { normalizeRionBridgeError, RionBridgeError } from "../ipc/errors";
 import type { RendererIdentity } from "./rendererIdentity";
 
 type MaybePromise<Value> = Value | Promise<Value>;
@@ -184,15 +184,21 @@ export class ElectronDiagnosticsExport<
 
     const application = this.#input.captureApplication();
     const versions = this.#input.captureRuntimeVersions();
-    const displays = diagnosticDisplays(this.#input.captureDisplayTopology());
-    const gpuFeatureStatusRawJson = rawJson(
-      this.#input.captureGpuFeatureStatus(),
-      "GPU feature-status snapshot"
-    );
-    const [gpuInfo, nativeRuntime] = await Promise.all([
-      this.#input.captureGpuInfo(),
-      this.#input.captureNativeRuntime(),
+    const errors: string[] = [];
+    const capture = async <T>(read: () => MaybePromise<T>, fallback: T, code: string): Promise<T> => {
+      try { return await read(); }
+      catch (error) { errors.push(normalizeRionBridgeError(error, code).code); return fallback; }
+    };
+    const [displays, gpuFeatureStatusRawJson, gpuInfoRawJson, nativeRuntime] = await Promise.all([
+      capture(() => diagnosticDisplays(this.#input.captureDisplayTopology()), [], "ELECTRON_DIAGNOSTICS_DISPLAYS_UNAVAILABLE"),
+      capture(() => rawJson(this.#input.captureGpuFeatureStatus(), "GPU feature status"), "null", "ELECTRON_DIAGNOSTICS_GPU_FEATURES_UNAVAILABLE"),
+      capture(async () => rawJson(await this.#input.captureGpuInfo(), "GPU information"), "null", "ELECTRON_DIAGNOSTICS_GPU_INFO_UNAVAILABLE"),
+      this.#input.captureNativeRuntime()
     ]);
+    if (errors.length) {
+      nativeRuntime.collectionErrorCodes = [...(nativeRuntime.collectionErrorCodes ?? []), ...errors];
+      nativeRuntime.snapshotComplete = false;
+    }
     this.#resolveExactMainWindow(identity, window);
 
     const snapshot: ApplicationDiagnosticsSnapshotRecord = {
@@ -213,7 +219,7 @@ export class ElectronDiagnosticsExport<
       systemVersion: requiredString(application.systemVersion, "system version"),
       displays,
       gpuFeatureStatusRawJson,
-      gpuInfoRawJson: rawJson(gpuInfo, "GPU information snapshot"),
+      gpuInfoRawJson,
       nativeRuntime
     };
     return this.#input.core.invoke({

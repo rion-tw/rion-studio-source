@@ -21,38 +21,39 @@ struct EmbeddedWorkspaceLeaseLaunchRequest {
 impl AppCore {
     fn commit_embedded_role_launch_outcome(
         &self,
+        launch_attempt_id: &str,
         role: StateRoleRecord,
         tab_id: String,
         window_id: String,
         _presentation_intent: EmbeddedLaunchPresentationIntent,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        let current = self.browser_runtime.snapshot()?;
+        if current.browser_runtime.tabs.iter().find(|tab| tab.id == tab_id)
+            .is_none_or(|tab| tab.attempt_generation.as_deref() != Some(launch_attempt_id)) {
+            return Err(CoreError::Domain { code: "LAUNCH_CANCELLED",
+                message: "The role launch attempt was closed or superseded.".to_owned() });
+        }
         if let Err(error) = launch {
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
-                role_id: role.id.clone(),
-                expected_tab_id: Some(tab_id.clone()),
-            });
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
-                tab_id: tab_id.clone(),
-            });
-            let logical_tab_is_live = self.browser_runtime.snapshot().is_ok_and(|snapshot| {
-                snapshot
-                    .windows
-                    .values()
-                    .any(|window| window.contains_tab(&tab_id))
-            });
-            if !logical_tab_is_live
-                || matches!(error.code(), "LAUNCH_CANCELLED" | "LAUNCH_PREVIEW_STALE")
-            {
-                // An authoritative close/stop/supersede transaction owns native
-                // membership teardown. The AppKit ownership follower is
-                // phase-only, so publishing the already-removed logical tab
-                // before EmbeddedDestroyTab would cross that boundary and
-                // race the exact close acknowledgement.
+            if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
+                self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
+                    role_id: role.id.clone(), expected_tab_id: Some(tab_id.clone()),
+                })?;
+                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab { tab_id: tab_id.clone() })?;
                 self.emit_browser_statuses();
-            } else {
-                self.publish_embedded_runtime_snapshot_best_effort();
+                return Err(error);
             }
+            if !current.windows.values().any(|window| window.contains_tab(&tab_id)) {
+                self.emit_browser_statuses();
+                return Err(error);
+            }
+            self.retain_failed_chromium_tab(&tab_id, launch_attempt_id);
+            self.run_embedded_runtime_effect(&tab_id,
+                CoreEffectAction::EmbeddedDestroyRole { role_id: role.id.clone() }, None, None)?;
+            self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
+                role_id: role.id.clone(), expected_tab_id: Some(tab_id.clone()),
+            })?;
+            self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
         let launched_at = chrono::Utc::now().to_rfc3339();
@@ -70,7 +71,7 @@ impl AppCore {
                     &tab_id,
                     std::slice::from_ref(&role.id),
                 )? {
-                    self.project_completed_chromium_runtime_launch()
+                    self.project_completed_chromium_runtime_launch(&window_id)
                 } else {
                     self.commit_embedded_runtime_snapshot_without_native_effect(
                         &std::collections::HashSet::new(),
@@ -81,26 +82,29 @@ impl AppCore {
                 self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))
             });
         if let Err(error) = completion {
-            let _ = self.run_effect_plan(vec![effect_step(
-                &tab_id,
-                CoreEffectAction::EmbeddedDestroyTab {
-                    tab_id: tab_id.clone(),
-                    attempt_generation: None,
-                    next_active_tab_id: None,
-                },
-                Duration::from_secs(15),
-                None,
-            )]);
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
-                role_id: role.id.clone(),
-                expected_tab_id: Some(tab_id.clone()),
-            });
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab { tab_id });
+            self.retain_failed_chromium_tab(&tab_id, launch_attempt_id);
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
         self.macro_runtime.allow_role_after_launch(&role.id);
         Ok(vec![embedded_launch_result(&role.id, launched_at)])
+    }
+
+    fn retain_failed_chromium_tab(&self, tab_id: &str, launch_attempt_id: &str) {
+        let Ok(snapshot) = self.browser_runtime.snapshot() else { return; };
+        if snapshot.browser_runtime.tabs.iter().find(|tab| tab.id == tab_id)
+            .is_none_or(|tab| tab.attempt_generation.as_deref() != Some(launch_attempt_id)) { return; }
+        let Some(activation) = snapshot.tab_activations.get(tab_id) else { return; };
+        if !snapshot.windows.values().any(|window| window.contains_tab(tab_id)) { return; }
+        let Ok(id) = crate::RuntimeTabId::new(tab_id.to_owned()) else { return; };
+        let phase = if activation.phase == crate::model::RuntimeTabActivationPhaseRecord::Ready {
+            crate::model::RuntimeTabActivationPhaseRecord::Degraded
+        } else { crate::model::RuntimeTabActivationPhaseRecord::Failed };
+        let _ = self.apply_runtime_intent(crate::RuntimeIntent::SetTabActivationPhase {
+            activation_attempt_id: activation.attempt_id.clone(),
+            operation_id: format!("launch-failed:{tab_id}:{}", activation.attempt_id.as_str()),
+            phase, tab_id: id,
+        });
     }
 
     fn start_embedded_workspace_for_roles(
@@ -517,7 +521,7 @@ impl AppCore {
             appkit_topology_revision: None,
             tab_id: tab_id.clone(),
             audio_muted,
-            attempt_generation: Some(launch_attempt_id),
+            attempt_generation: Some(launch_attempt_id.clone()),
             launch_preview_id,
             source_id: workspace.id.clone(),
             name: workspace.name.clone(),
@@ -559,6 +563,7 @@ impl AppCore {
         }
         Ok(EmbeddedWorkspaceLaunchStart::Pending(Box::new(
             PendingEmbeddedWorkspaceLaunch {
+                launch_attempt_id,
                 handle,
                 lease_id,
                 presentation_intent,
@@ -578,6 +583,7 @@ impl AppCore {
         pending: PendingEmbeddedWorkspaceLaunch,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         let PendingEmbeddedWorkspaceLaunch {
+                launch_attempt_id,
             handle,
             lease_id: _,
             presentation_intent,
@@ -587,14 +593,14 @@ impl AppCore {
             target: _,
             title: _,
             window_id,
-            workspace_id,
+            workspace_id: _,
         } = pending;
         let launch = self.finish_system_launch(handle, &roles);
         self.commit_embedded_workspace_launch_outcome(
+            &launch_attempt_id,
             role_ids,
             tab_id,
             window_id,
-            workspace_id,
             presentation_intent,
             launch,
         )
@@ -602,39 +608,43 @@ impl AppCore {
 
     fn commit_embedded_workspace_launch_outcome(
         &self,
+        launch_attempt_id: &str,
         role_ids: Vec<String>,
         tab_id: String,
         window_id: String,
-        _workspace_id: String,
         _presentation_intent: EmbeddedLaunchPresentationIntent,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
+        let current = self.browser_runtime.snapshot()?;
+        if current.browser_runtime.tabs.iter().find(|tab| tab.id == tab_id)
+            .is_none_or(|tab| tab.attempt_generation.as_deref() != Some(launch_attempt_id)) {
+            return Err(CoreError::Domain { code: "LAUNCH_CANCELLED",
+                message: "The workspace launch attempt was closed or superseded.".to_owned() });
+        }
         if let Err(error) = launch {
-            for role_id in &role_ids {
-                let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
-                    role_id: role_id.clone(),
-                    expected_tab_id: Some(tab_id.clone()),
-                });
-            }
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
-                tab_id: tab_id.clone(),
-            });
-            let logical_tab_is_live = self.browser_runtime.snapshot().is_ok_and(|snapshot| {
-                snapshot
-                    .windows
-                    .values()
-                    .any(|window| window.contains_tab(&tab_id))
-            });
-            if !logical_tab_is_live
-                || matches!(error.code(), "LAUNCH_CANCELLED" | "LAUNCH_PREVIEW_STALE")
-            {
-                // The transaction which removed the logical tab owns native
-                // membership teardown; only publish renderer status from this
-                // background outcome.
+            if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
+                for role_id in &role_ids {
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
+                        role_id: role_id.clone(), expected_tab_id: Some(tab_id.clone()),
+                    })?;
+                }
+                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab { tab_id: tab_id.clone() })?;
                 self.emit_browser_statuses();
-            } else {
-                self.publish_embedded_runtime_snapshot_best_effort();
+                return Err(error);
             }
+            if !current.windows.values().any(|window| window.contains_tab(&tab_id)) {
+                self.emit_browser_statuses();
+                return Err(error);
+            }
+            self.retain_failed_chromium_tab(&tab_id, launch_attempt_id);
+            for role_id in &role_ids {
+                self.run_embedded_runtime_effect(&tab_id,
+                    CoreEffectAction::EmbeddedDestroyRole { role_id: role_id.clone() }, None, None)?;
+                self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
+                    role_id: role_id.clone(), expected_tab_id: Some(tab_id.clone()),
+                })?;
+            }
+            self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }
         let role_ids = self.workspace_ready_role_ids(&tab_id, role_ids)?;
@@ -655,7 +665,7 @@ impl AppCore {
             .try_for_each(|command| self.invoke_browser_runtime(command).map(|_| ()))
             .and_then(|_| {
                 if self.complete_chromium_runtime_launch(&tab_id, &role_ids)? {
-                    self.project_completed_chromium_runtime_launch()
+                    self.project_completed_chromium_runtime_launch(&window_id)
                 } else {
                     self.commit_embedded_runtime_snapshot_without_native_effect(
                         &std::collections::HashSet::new(),
@@ -666,23 +676,7 @@ impl AppCore {
                 self.persist_runtime_ui_windows(std::slice::from_ref(&window_id))
             });
         if let Err(error) = completion {
-            let _ = self.run_effect_plan(vec![effect_step(
-                &tab_id,
-                CoreEffectAction::EmbeddedDestroyTab {
-                    tab_id: tab_id.clone(),
-                    attempt_generation: None,
-                    next_active_tab_id: None,
-                },
-                Duration::from_secs(15),
-                None,
-            )]);
-            for role_id in &role_ids {
-                let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
-                    role_id: role_id.clone(),
-                    expected_tab_id: Some(tab_id.clone()),
-                });
-            }
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab { tab_id });
+            self.retain_failed_chromium_tab(&tab_id, launch_attempt_id);
             self.publish_embedded_runtime_snapshot_best_effort();
             return Err(error);
         }

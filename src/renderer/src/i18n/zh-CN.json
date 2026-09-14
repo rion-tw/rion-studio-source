@@ -1396,5 +1396,7 @@
   "recovery.ineligible": "此角色不适用失败会话恢复。",
   "recovery.sourceGap": "无法确认来源身份或数据完整性。",
   "recovery.unknown": "未验证",
-  "settings.logsLevelEvidence": "当前：{level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}"
+  "settings.logsLevelEvidence": "当前：{level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}",
+  "settings.logsExportPartial": "已导出诊断包，部分实时数据无法获取。",
+  "settings.logsExportComplete": "已导出诊断包。"
 }

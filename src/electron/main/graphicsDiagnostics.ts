@@ -22,6 +22,7 @@ export class GraphicsDiagnostics {
   #epoch = 0;
   #disposed = false;
   #completeRequested = false;
+  #capturedAt: string | null = null;
   constructor(
     private readonly app: GraphicsDiagnosticsPort,
     applied: GraphicsSettingsRecord,
@@ -34,6 +35,9 @@ export class GraphicsDiagnostics {
     app.on("gpu-info-update", this.#onUpdate);
   }
   snapshot(): GraphicsStatusRecord { return structuredClone(this.#status); }
+  diagnosticObservation() {
+    return { source: "event-cache", capturedAt: this.#capturedAt, snapshot: this.snapshot() };
+  }
   dispose(): void {
     this.#disposed = true;
     this.#epoch += 1;
@@ -71,6 +75,7 @@ export class GraphicsDiagnostics {
     return this.snapshot();
   }
   #commit(patch: Partial<GraphicsStatusRecord>): void {
+    this.#capturedAt = new Date().toISOString();
     this.#status = { ...this.#status, ...patch, sequence: this.#status.sequence + 1 };
     this.publish(this.snapshot());
   }

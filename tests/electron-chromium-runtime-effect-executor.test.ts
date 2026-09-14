@@ -27,6 +27,11 @@ import {
 } from "./support/electronChromiumRuntimeEffectExecutorHarness";
 
 
+async function executeTerminal(subject: ReturnType<typeof harness>, request: Parameters<typeof subject.executor.execute>[0]) {
+  const result = await subject.executor.execute(request);
+  return isCoreEffectEventContinuation(result) ? result.completion : result;
+}
+
 describe("Electron Chromium runtime effect executor", () => {
   it("observes the exact live AppKit workspace hosts once", async () => {
     const subject = harness();
@@ -530,7 +535,7 @@ describe("Electron Chromium runtime effect executor", () => {
       expect(subject.isWebCurrentlyAudible).not.toHaveBeenCalled();
       return true;
     });
-    await subject.executor.execute(effect(specification.tabId, {
+    await executeTerminal(subject, effect(specification.tabId, {
       type: "embeddedDestroyTab",
       tabId: specification.tabId,
       attemptGeneration: specification.attemptGeneration
@@ -560,7 +565,7 @@ describe("Electron Chromium runtime effect executor", () => {
     await loadWebSurfaces(subject, specification);
     subject.closeWebSurface.mockRejectedValueOnce(new Error("native close unknown"));
 
-    await expect(subject.executor.execute(effect(specification.tabId, {
+    await expect(executeTerminal(subject, effect(specification.tabId, {
       type: "embeddedDestroyTab",
       tabId: specification.tabId,
       attemptGeneration: specification.attemptGeneration
@@ -572,7 +577,7 @@ describe("Electron Chromium runtime effect executor", () => {
     });
     expect(subject.hosts[0]!.close).not.toHaveBeenCalled();
 
-    await expect(subject.executor.execute(effect(specification.tabId, {
+    await expect(executeTerminal(subject, effect(specification.tabId, {
       type: "embeddedDestroyTab",
       tabId: specification.tabId,
       attemptGeneration: specification.attemptGeneration
@@ -640,7 +645,7 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.executor.overlayManagedShortcutIdentity(identity, "keyUp"))
       .toMatchObject({ roleId: "role-1", tabId: "tab-1" });
 
-    await subject.executor.execute(effect("role-1", {
+    await executeTerminal(subject, effect("role-1", {
       type: "embeddedDestroyRole",
       roleId: "role-1"
     }));
@@ -683,7 +688,7 @@ describe("Electron Chromium runtime effect executor", () => {
     }, "mismatched-overlay"))).rejects.toMatchObject({
       code: "ELECTRON_ROLE_OVERLAY_EFFECT_TARGET_MISMATCH"
     });
-    await subject.executor.execute(effect("role-1", {
+    await executeTerminal(subject, effect("role-1", {
       type: "embeddedDestroyRole",
       roleId: "role-1"
     }));
@@ -1250,7 +1255,7 @@ describe("Electron Chromium runtime effect executor", () => {
       expect.objectContaining({ tabId: "target-tab", ownerGeneration: 1 })
     ]);
 
-    await subject.executor.execute(effect("role-1", {
+    await executeTerminal(subject, effect("role-1", {
       type: "embeddedDestroyRole",
       roleId: "role-1"
     }));
@@ -1373,7 +1378,7 @@ describe("Electron Chromium runtime effect executor", () => {
     });
   });
 
-  it("destroys a newly provisioned empty host when the same effect cannot complete", async () => {
+  it("rejects incomplete affected scope before provisioning an empty host", async () => {
     const subject = harness();
     const target = tab("unused-tab", "empty-window", []).target;
 
@@ -1393,10 +1398,10 @@ describe("Electron Chromium runtime effect executor", () => {
       revealWindowIds: ["empty-window", "missing-window"],
       focusWindowIds: ["empty-window"]
     }, "empty-window-failed-effect"))).rejects.toMatchObject({
-      code: "ELECTRON_CHROMIUM_WINDOW_NOT_FOUND"
+      code: "ELECTRON_MACOS_APPKIT_PHASE_PROJECTION_INCOMPLETE"
     });
 
-    expect(subject.hosts[0]?.close).toHaveBeenCalledOnce();
+    expect(subject.createEmptyHost).not.toHaveBeenCalled();
     expect(subject.executor.snapshot().windows).toEqual([]);
   });
 
@@ -1442,7 +1447,7 @@ describe("Electron Chromium runtime effect executor", () => {
     await createTab(subject, specification);
     await loadRoles(subject, specification);
 
-    await subject.executor.execute(effect("tab-1", {
+    await executeTerminal(subject, effect("tab-1", {
       type: "embeddedDestroyTab",
       tabId: "tab-1"
     }));
@@ -1481,7 +1486,8 @@ describe("Electron Chromium runtime effect executor", () => {
     const secondDispose = subject.executor.dispose();
     expect(secondDispose).toBe(firstDispose);
     await expect(firstDispose).rejects.toThrow("host close failed");
-    expect(subject.executor.snapshot().tabs.map((item) => item.tabId)).toEqual(["tab-1"]);
+    expect(subject.executor.snapshot().tabs).toEqual([]);
+    expect(subject.executor.snapshot().windows).toHaveLength(1);
     await subject.executor.dispose();
 
     expect(subject.hosts[0].close).toHaveBeenCalledTimes(2);

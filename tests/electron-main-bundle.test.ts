@@ -21,7 +21,7 @@ describe("Electron executable main bundles", () => {
     expect(() => plugin.generateBundle({}, { entry: { type: "chunk", isEntry: true, code: "start();" } })).not.toThrow();
   });
 
-  it("settles application effects before reading a projected app snapshot", async () => {
+  it("reads observed app state without a global native projection gate", async () => {
     const source = await readFile(resolve("src/electron/main/index.ts"), "utf8");
     const start = source.indexOf("async function readAppSnapshot()");
     const end = source.indexOf("\nasync function settleRuntimeProjection", start);
@@ -31,8 +31,9 @@ describe("Electron executable main bundles", () => {
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    expect(applicationEffectFence).toBeGreaterThan(-1);
-    expect(applicationEffectFence).toBeLessThan(projectionFence);
+    expect(applicationEffectFence).toBe(-1);
+    expect(projectionFence).toBe(-1);
+    expect(body).toContain('"observed"');
   });
 
   it.each(["production", "e2e"] as const)("builds the actual %s entry with the pinned Electron plugins", async mode => {

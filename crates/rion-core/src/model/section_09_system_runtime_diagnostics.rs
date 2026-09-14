@@ -849,6 +849,10 @@ pub struct SystemRuntimeDiagnosticsRecord {
     pub healthy: bool,
     pub snapshot_complete: bool,
     pub collection_error_codes: Vec<String>,
+    // Bounded, identity-only observations; never a coherent topology authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_evidence_raw_json: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub recovery_required: Option<bool>,

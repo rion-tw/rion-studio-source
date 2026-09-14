@@ -23,7 +23,7 @@ describe("shared runtime health diagnostics", () => {
       ]);
 
 
-    expect(core).toContain('"nativeRuntime": snapshot.native_runtime');
+    expect(core).toContain('"nativeRuntime": native_runtime');
     expect(snapshot).toContain("nativeRuntime: SystemRuntimeDiagnosticsRecord");
     expect(diagnostics).toContain("snapshotComplete: boolean");
     expect(diagnostics).toContain("recentFailures: Array<SystemRuntimeFailureRecord>");

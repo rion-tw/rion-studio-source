@@ -27,6 +27,8 @@ export interface ChromiumRuntimeExecutorSnapshot {
     windowId: string;
     audioMuted: boolean;
     audible: boolean;
+    /** Native membership committed removal; exact resource release is still retained. */
+    retiring?: true;
     attemptGeneration?: string;
   }>>;
   readonly roles: ReadonlyArray<Readonly<{

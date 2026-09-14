@@ -586,6 +586,9 @@ pub struct ApplicationDiagnosticsSnapshotRecord {
 pub struct DiagnosticExportResultRecord {
     pub file_path: String,
     pub log_file_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub collection_error_codes: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]

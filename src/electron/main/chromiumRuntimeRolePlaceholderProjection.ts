@@ -1,4 +1,4 @@
-import type { BrowserRuntimeRoleRecord } from "../../shared/generated";
+import type { BrowserRuntimeRoleRecord, EmbeddedRuntimeWindowProjectionRecord } from "../../shared/generated";
 import type { ChromiumRuntimeEffectExecutorInput } from
   "./chromiumRuntimeEffectPorts";
 import type {
@@ -13,14 +13,15 @@ function projectionError(code: string, message: string): RionBridgeError {
 
 export function projectChromiumRuntimeRolePlaceholderSlots(
   tabs: Map<string, ChromiumRuntimeTabRecord>,
-  projectedRoles: readonly BrowserRuntimeRoleRecord[]
+  projectedRoles: readonly BrowserRuntimeRoleRecord[],
+  roleId?: string
 ): void {
   const projectedByRole = new Map(projectedRoles.map((role) => [role.roleId, role]));
   for (const tab of tabs.values()) {
     tab.specification = {
       ...tab.specification,
       slots: tab.specification.slots.map((slot) => {
-        if (slot.web !== undefined) return slot;
+        if (slot.web !== undefined || (roleId !== undefined && slot.role.id !== roleId)) return slot;
         const projected = projectedByRole.get(slot.role.id);
         if (!projected) {
           return { ...slot, state: "available" as const, owner: undefined };
@@ -37,15 +38,38 @@ export function projectChromiumRuntimeRolePlaceholderSlots(
   }
 }
 
+/** A phase-only reply cannot overwrite another window or a newer committed phase. */
+export function projectFencedRolePlaceholderSlots(
+  tabs: Map<string, ChromiumRuntimeTabRecord>,
+  roles: readonly BrowserRuntimeRoleRecord[],
+  windows: ReadonlyMap<string, ChromiumRuntimeWindowRecord>,
+  projections: readonly EmbeddedRuntimeWindowProjectionRecord[] | undefined
+): void {
+  if (!projections) { projectChromiumRuntimeRolePlaceholderSlots(tabs, roles); return; }
+  const scope = new Set(projections.filter(projection => {
+    const current = windows.get(projection.windowId);
+    return current?.windowGeneration === projection.windowGeneration &&
+      current.topologyRevision === projection.topologyRevision;
+  }).map(projection => projection.windowId));
+  projectChromiumRuntimeRolePlaceholderSlots(
+    new Map([...tabs].filter(([, tab]) => scope.has(tab.windowId))), roles
+  );
+}
+
 export async function reconcileChromiumRuntimeRolePlaceholders(input: Readonly<{
   ports: ChromiumRuntimeEffectExecutorInput;
   tabs: Map<string, ChromiumRuntimeTabRecord>;
   windows: Map<string, ChromiumRuntimeWindowRecord>;
+  isCurrent?: () => boolean;
 }>): Promise<void> {
   const placeholders = input.ports.rolePlaceholders;
   if (!placeholders) return;
   const descriptors = [];
   for (const tab of input.tabs.values()) {
+    if (input.isCurrent?.() === false) return;
+    const liveWindow = input.windows.get(tab.windowId);
+    // A tombstoned tab retains resources until exact release, but owns no presentation.
+    if (liveWindow && !liveWindow.tabIds.includes(tab.specification.tabId)) continue;
     const placeholdersSlots = tab.specification.slots.filter((slot) =>
       slot.web === undefined && (slot.state === "blocked" || slot.state === "available")
     );
@@ -64,6 +88,7 @@ export async function reconcileChromiumRuntimeRolePlaceholders(input: Readonly<{
       tab.specification,
       window.host
     );
+    if (input.isCurrent?.() === false) return;
     for (const slot of placeholdersSlots) {
       const owner = slot.owner;
       const ownerTab = owner ? input.tabs.get(owner.tabId) : undefined;
@@ -102,5 +127,6 @@ export async function reconcileChromiumRuntimeRolePlaceholders(input: Readonly<{
       }));
     }
   }
+  if (input.isCurrent?.() === false) return;
   await placeholders.reconcile(descriptors);
 }

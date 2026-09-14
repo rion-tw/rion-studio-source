@@ -242,7 +242,7 @@ function cloneUpdateInput(input: UpdateGameWindowInput): UpdateGameWindowInput {
 }
 
 /**
- * Converts authenticated bridge calls into an ordered privileged intent lane.
+ * Admits authenticated intents in order; Core/native scopes own their independent completion.
  * No deadline is used: each action terminalizes only from the backend's exact
  * Core/native receipt, cancellation/supersede, or stream failure.
  */
@@ -251,7 +251,6 @@ implements ElectronChromiumRuntimeActionPort {
   readonly #input: ChromiumRuntimeActionControllerInput;
   readonly #latestGenerationByRenderer = new Map<string, number>();
   #adapterSequence = 0;
-  #lane: Promise<void> = Promise.resolve();
   #queuedActions = 0;
 
   constructor(input: ChromiumRuntimeActionControllerInput) {
@@ -455,7 +454,7 @@ implements ElectronChromiumRuntimeActionPort {
     }
     const instanceId = this.#authenticateRenderer(identity);
     this.#queuedActions += 1;
-    const result = this.#lane.then(async () => {
+    const result = Promise.resolve().then(async () => {
       const sequence = this.#nextAdapterSequence();
       const intent = Object.freeze({
         intentId: requireIdentifier(
@@ -473,7 +472,6 @@ implements ElectronChromiumRuntimeActionPort {
       this.#validateReceipt(intent, receipt);
       return receipt.value;
     });
-    this.#lane = result.then(() => undefined, () => undefined);
     return result.finally(() => {
       this.#queuedActions -= 1;
     });

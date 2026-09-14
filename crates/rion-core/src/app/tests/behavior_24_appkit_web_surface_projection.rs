@@ -353,7 +353,7 @@ fn appkit_workspace_stop_projects_surviving_membership_and_reports_native_failur
                     && projection.windows[0].topology_revision > prior_revision)
             })
             .unwrap();
-        assert!(destroy_index < projection_index);
+        assert!(projection_index < destroy_index);
         assert_eq!(
             core.browser_runtime.snapshot().unwrap().windows["appkit-stop"].all_tab_ids(),
             vec![survivor]

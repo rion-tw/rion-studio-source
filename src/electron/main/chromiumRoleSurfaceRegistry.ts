@@ -779,6 +779,7 @@ export class ChromiumRoleSurfaceRegistry {
         () => {
           try {
             this.#syncNativePresentation(record);
+            if (record.state === "opening" && record.attached && !record.destroyed) input.onAttached?.();
             this.#loadAttachedRecord(record, url);
           } catch {
             this.#failInitialAttachment(record);
@@ -789,6 +790,7 @@ export class ChromiumRoleSurfaceRegistry {
     } else {
       try {
         this.#attachTo(record, input.parent);
+        input.onAttached?.();
         this.#loadAttachedRecord(record, url);
       } catch {
         this.#failInitialAttachment(record);
@@ -799,7 +801,7 @@ export class ChromiumRoleSurfaceRegistry {
 
   setBounds(roleId: string, generation: number, bounds: ChromiumRoleSurfaceBounds): void {
     validateBounds(bounds);
-    const record = this.#activeRecord(roleId, generation);
+    const record = this.#activeRecord(roleId, generation, true);
     const view = record.view;
     view.setBounds({ ...bounds });
     if (!sameBounds(view.getBounds(), bounds)) {
@@ -819,7 +821,7 @@ export class ChromiumRoleSurfaceRegistry {
     visible: boolean;
     zoomFactor: number;
   }> {
-    const record = this.#activeRecord(roleId, generation);
+    const record = this.#activeRecord(roleId, generation, true);
     const view = record.view;
     return Object.freeze({
       bounds: Object.freeze({ ...view.getBounds() }),
@@ -963,7 +965,7 @@ export class ChromiumRoleSurfaceRegistry {
   }
 
   setVisible(roleId: string, generation: number, visible: boolean): void {
-    const record = this.#activeRecord(roleId, generation);
+    const record = this.#activeRecord(roleId, generation, true);
     record.view.setVisible(visible);
     if (record.view.getVisible() !== visible) {
       fail(
@@ -985,7 +987,7 @@ export class ChromiumRoleSurfaceRegistry {
 
   setZoomFactor(roleId: string, generation: number, zoomFactor: number): void {
     validateZoomFactor(zoomFactor);
-    const contents = this.#activeRecord(roleId, generation).contents;
+    const contents = this.#activeRecord(roleId, generation, true).contents;
     contents.setZoomFactor(zoomFactor);
     if (contents.getZoomFactor() !== zoomFactor) {
       fail(
@@ -1471,7 +1473,7 @@ export class ChromiumRoleSurfaceRegistry {
     return retirement;
   }
 
-  #activeRecord(roleId: string, generation: number): SurfaceRecord {
+  #activeRecord(roleId: string, generation: number, presentation = false): SurfaceRecord {
     validateGeneration(generation);
     const record = this.#recordsByRole.get(roleId);
     if (!record) {
@@ -1486,7 +1488,9 @@ export class ChromiumRoleSurfaceRegistry {
         "The role-surface generation no longer owns the native surface."
       );
     }
-    if (record.state !== "active") {
+    if (record.state !== "active" && !(presentation && record.state === "opening" &&
+        record.attached && !record.destroyed && !record.contents.isDestroyed() &&
+        record.physicalParent && !record.physicalParent.isDestroyed())) {
       fail(
         "ELECTRON_ROLE_SURFACE_NOT_ACTIVE",
         "The native Chromium role surface is not active."

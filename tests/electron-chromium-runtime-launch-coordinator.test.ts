@@ -379,6 +379,80 @@ describe("Electron Chromium runtime launch coordinator", () => {
     else await expect(launch).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_LIVE_WINDOW_TARGET_UNAVAILABLE" });
   });
 
+  it.each(["applied", "closed", "generation", "failed", "conflict"] as const)(
+    "waits only for an admitted target projection and handles %s", async outcome => {
+      let release!: () => void, entered!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      const waiting = new Promise<void>(resolve => { entered = resolve; });
+      const settleWindowProjection = vi.fn(async (windowId: string) => {
+        expect(windowId).toBe(WINDOW_ID);
+        entered(); await pending;
+        if (outcome === "failed") throw new Error("projection stream failed");
+        return settleWindowProjection.mock.calls.length === 1;
+      });
+      const { coordinator, state, launchCommands } = launchHarness({ observedSnapshots: true, settleWindowProjection });
+      await coordinator.launchRole(ROLE_ID, { kind: "new-window" });
+      advanceWindowTopology(state, 1);
+      state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+        ({ ...window, topologyRevision: window.topologyRevision - 1 })) };
+      const launch = coordinator.launchWorkspace(WORKSPACE_ID, { kind: "game-window", windowId: WINDOW_ID });
+      await waiting;
+      expect(launchCommands).toHaveLength(1);
+      if (outcome === "closed") removeRuntimeWindow(state);
+      else if (outcome === "generation") state.coreSnapshot.logicalWindows[0]!.windowGeneration += 1;
+      else state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+        ({ ...window, topologyRevision: state.coreSnapshot.logicalWindows[0]!.revision,
+          ...(outcome === "conflict" ? { tabIds: ["wrong-tab"] } : {}) })) };
+      release();
+      if (outcome === "applied") {
+        await expect(launch).resolves.toMatchObject({ windowId: WINDOW_ID });
+        expect(launchCommands).toHaveLength(2);
+      } else {
+        await expect(launch).rejects.toThrow(outcome === "failed" ? "projection stream failed" : /requested window/);
+        expect(launchCommands).toHaveLength(1);
+      }
+    }
+  );
+
+  it("keeps host eligibility when the original pending admission closes before native projection catches up", async () => {
+    const subject = launchHarness({ observedSnapshots: true,
+      settleWindowProjection: async () => { subject.state.nativeSnapshot = coherent; return true; },
+      onLaunch: (command, state) => {
+        if (command.type === "browserRoleLaunch") {
+          state.nativeSnapshot = { ...state.nativeSnapshot, windows: state.nativeSnapshot.windows.map(window =>
+            ({ ...window, windowGeneration: 0, topologyRevision: 0 })) };
+        }
+      }
+    });
+    await subject.coordinator.launchRole(ROLE_ID, { kind: "new-window" });
+    // Another already admitted source is a deterministic Core precondition.
+    await subject.coreInvoke({ type: "browserWorkspaceLaunch", workspaceId: WORKSPACE_ID,
+      target: subject.launchCommands[0]!.target });
+    const older = subject.state.nativeSnapshot;
+    closeRuntimeTab(subject.state, TAB_ID);
+    const coherent = subject.state.nativeSnapshot;
+    subject.state.nativeSnapshot = older;
+    await expect(subject.coordinator.launchWorkspace(WORKSPACE_ID, { kind: "game-window", windowId: WINDOW_ID }))
+      .resolves.toMatchObject({ windowId: WINDOW_ID });
+  });
+
+  it.each(["behind", "not-created"] as const)("retains a new host while native topology is %s", async nativeState => {
+    let projected: ChromiumRuntimeExecutorSnapshot | undefined;
+    const { coordinator, state } = launchHarness({ observedSnapshots: true,
+      onLaunch: (command, current) => {
+        if (command.type !== "browserRoleLaunch") return;
+        advanceWindowTopology(current, 1);
+        projected = current.nativeSnapshot;
+        current.nativeSnapshot = { ...current.nativeSnapshot, windows: nativeState === "not-created" ? [] :
+          current.nativeSnapshot.windows.map(window => ({ ...window, topologyRevision: window.topologyRevision - 1 })) };
+      }
+    });
+    await coordinator.launchRole(ROLE_ID, { kind: "new-window" });
+    state.nativeSnapshot = projected!;
+    await expect(coordinator.launchWorkspace(WORKSPACE_ID, { kind: "game-window", windowId: WINDOW_ID }))
+      .resolves.toMatchObject({ windowId: WINDOW_ID });
+  });
+
   it("promotes a pending target after an exact admission revision 3 to terminal revision 6", async () => {
     let admitted = false;
     const { coordinator, launchCommands, state } = launchHarness({

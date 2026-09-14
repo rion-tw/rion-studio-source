@@ -154,13 +154,13 @@ export async function activateWindowsRuntimeTabWhileLoading(input: Readonly<{
     processId: input.processId, tabName: input.loadingTabName
   });
   await invokeWindowsRuntimeTabClose({ ...evidence,
-    controlName: `Activate ${input.selectedTabName}`
+    controlName: `Activate ${input.selectedTabName}`, pointer: true
   }, nativePort());
 }
 
 async function invokeWindowsRuntimeTabClose(
   evidence: Readonly<Pick<WindowsRuntimeTabCloseEvidence,
-    "processId" | "nativeHandle" | "controlName">>,
+    "processId" | "nativeHandle" | "controlName">> & { pointer?: boolean },
   port: NativeClosePort
 ): Promise<void> {
   if (!/^[1-9]\d*$/u.test(evidence.nativeHandle)) throw new Error("Invalid native close handle");
@@ -172,8 +172,22 @@ if ($null -eq $window -or $window.Current.ProcessId -ne $targetPid -or $window.C
 }
 $buttons = @(FindCloseButton $window)
 if ($buttons.Count -ne 1) { throw 'The exact visible parent tab close control changed' }
-$buttons[0].SetFocus()
-$invoke = $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-$invoke.Invoke()
+if ($payload.pointer) {
+  Add-Type @'
+using System.Runtime.InteropServices;
+public static class LoadingTabPointer {
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, System.UIntPtr extra);
+}
+'@
+  $rect = $buttons[0].Current.BoundingRectangle
+  if (-not [LoadingTabPointer]::SetCursorPos([int]($rect.X+$rect.Width/2), [int]($rect.Y+$rect.Height/2))) { throw 'tab pointer positioning failed' }
+  [LoadingTabPointer]::mouse_event(2,0,0,0,[System.UIntPtr]::Zero)
+  [LoadingTabPointer]::mouse_event(4,0,0,0,[System.UIntPtr]::Zero)
+} else {
+  $buttons[0].SetFocus()
+  $invoke = $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+  $invoke.Invoke()
+}
 `, { ...evidence }, { timeoutMilliseconds: 30_000 });
 }

@@ -411,6 +411,52 @@ function fakeNativeAttachments(
 }
 
 describe("Electron Chromium role-surface registry", () => {
+  it("does not publish a native attachment that closes before acknowledgement", async () => {
+    const attachment = controlledPromise<void>();
+    const native = fakeNativeAttachments(async () => undefined);
+    native.attach = async input => {
+      await attachment.promise;
+      if (!input.isCancelled()) input.attach();
+    };
+    const subject = harness(undefined, undefined, native);
+    const onAttached = vi.fn();
+    const creation = subject.registry.create(subject.input("role-1", { onAttached }));
+    const rejected = expect(creation).rejects.toThrow();
+    const closing = subject.registry.closeRole("role-1", 1);
+    subject.views[0]!.webContents.destroy();
+    attachment.resolve();
+    await closing; await rejected;
+    expect(onAttached).not.toHaveBeenCalled();
+    expect(subject.views[0]!.webContents.loadedUrls).toEqual([]);
+  });
+
+  it("publishes attachment before navigation and allows presentation without early keyboard focus", async () => {
+    const navigation = controlledPromise<void>();
+    const subject = harness(undefined, session => {
+      const view = new FakeWebContentsView(session);
+      view.webContents.loadResult = navigation.promise;
+      return view;
+    });
+    const attached = controlledPromise<void>();
+    const onAttached = vi.fn(() => attached.resolve());
+    const opening = subject.registry.create(subject.input("role-1", { onAttached }));
+    await attached.promise;
+    subject.registry.setVisible("role-1", 1, false);
+    subject.registry.setBounds("role-1", 1, { x: 0, y: 0, width: 500, height: 400 });
+    expect(subject.registry.readProjection("role-1", 1).visible).toBe(false);
+    expect(() => subject.registry.focusVisible("role-1", 1)).toThrow();
+    navigation.resolve();
+    subject.views[0]!.webContents.finish("https://game.test/launch");
+    await opening;
+    expect(onAttached).toHaveBeenCalledTimes(1);
+    expect(subject.registry.readProjection("role-1", 1).visible).toBe(false);
+    expect(subject.views[0]!.webContents.focus).not.toHaveBeenCalled();
+    const closing = subject.registry.closeRole("role-1", 1);
+    subject.views[0]!.webContents.destroy();
+    await closing;
+    expect(() => subject.registry.setVisible("role-1", 1, true)).toThrow();
+  });
+
   it("hands focus only to an active visible generation", async () => {
     const subject = harness();
     const creation = subject.registry.create(subject.input());

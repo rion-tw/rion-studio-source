@@ -81,6 +81,7 @@ export interface ApplyChromiumRuntimeAppKitProjectionInput {
   readonly windows: Map<string, ChromiumRuntimeWindowRecord>;
   readonly tabs: Map<string, ChromiumRuntimeTabRecord>;
   readonly roles: Map<string, ChromiumRuntimeRoleRecord>;
+  readonly attachedRoles?: ReadonlyMap<string, ChromiumRuntimeRoleRecord>;
   readonly webSurfaces: Map<string, ChromiumRuntimeWebSurfaceRecord>;
   readonly quarantineWindows: (windowIds: readonly string[]) => Promise<void>;
 }
@@ -481,12 +482,15 @@ export async function applyChromiumRuntimeAppKitProjection(
       }, current);
     }
     for (const role of roles.values()) {
-      if (
-        touchedWindowIds.has(role.windowId) &&
-        !projectedLayoutsByRole.has(role.roleId) &&
-        roleSurfaceSnapshots.get(role.roleId)?.visible === true
-      ) {
-        ports.surfaces.setVisible(role.roleId, role.generation, false);
+      const windowProjection = projectionsByWindow.get(role.windowId);
+      if (!windowProjection || projectedLayoutsByRole.has(role.roleId)) continue;
+      // Readiness owns Core layouts; exact mounted loading owners still take
+      // part in this same reversible visibility transaction.
+      const visible = input.attachedRoles?.get(role.roleId) === role &&
+        windowProjection.windowVisible && windowProjection.activeTabId === role.tabId &&
+        !windowProjection.hiddenTabIds.includes(role.tabId);
+      if (roleSurfaceSnapshots.get(role.roleId)?.visible !== visible) {
+        ports.surfaces.setVisible(role.roleId, role.generation, visible);
       }
     }
     for (const surface of webSurfaces.values()) {

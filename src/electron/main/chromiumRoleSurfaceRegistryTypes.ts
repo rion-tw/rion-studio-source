@@ -17,6 +17,8 @@ export type ChromiumRoleSurfaceRegistryState =
   | "draining"
   | "disposed";
 export interface CreateChromiumRoleSurfaceInput {
+  /** Exact native attachment, independently of initial navigation readiness. */
+  readonly onAttached?: () => void;
   readonly roleId: string;
   readonly tabId: string;
   readonly rolePaths: RolePathsRecord;

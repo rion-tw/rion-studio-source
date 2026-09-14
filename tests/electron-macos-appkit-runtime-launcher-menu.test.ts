@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  AppKitRuntimeHostIdentityRecord,
   AppKitRuntimeHostObservationRecord,
   CoreAppSnapshotRecord,
   DisplayTopologySnapshotRecord
@@ -14,7 +15,7 @@ import type { ChromiumRuntimeExecutorSnapshot } from
 import type { MacosAppKitRuntimeTabMenuItem } from
   "../src/electron/main/macosAppKitRuntimeTabMenu";
 
-const identity = Object.freeze({
+const identity: AppKitRuntimeHostIdentityRecord = Object.freeze({
   logicalWindowId: "window-transient",
   launchGeneration: "launch-1",
   nativeGeneration: 4
@@ -315,9 +316,12 @@ describe("macOS retained AppKit scoped launcher menu", () => {
     );
   });
 
-  it("fails closed when the AppKit topology changes before selection", async () => {
+  it.each(["membership", "window-generation", "native-generation", "launch-generation",
+    "parent", "lifecycle", "definition", "unapplied-revision", "revision-rollback", "closed"] as const)(
+    "rejects a stale launcher %s before selection", async (change) => {
     const { core, display, host, native } = fixtures();
     const popup = vi.fn();
+    let epoch = 12;
     const onError = vi.fn();
     const launchRole = vi.fn(async () => undefined);
     const controller = new MacosAppKitRuntimeLauncherMenuController({
@@ -328,7 +332,7 @@ describe("macOS retained AppKit scoped launcher menu", () => {
         saveWindow: vi.fn(async () => undefined)
       },
       language: () => "en",
-      lifecycleEpoch: () => 12,
+      lifecycleEpoch: () => epoch,
       nativeMenu: { popup },
       onError,
       readCoreSnapshot: async () => core,
@@ -342,15 +346,77 @@ describe("macOS retained AppKit scoped launcher menu", () => {
       topologyRevision: 8
     };
     core.logicalWindows[0]!.revision = 8;
+    switch (change) {
+      case "membership":
+        core.logicalWindows[0]!.tabs = [];
+        native.windows[0]!.tabIds = [];
+        break;
+      case "window-generation":
+        core.logicalWindows[0]!.windowGeneration += 1;
+        native.windows[0]!.windowGeneration += 1;
+        break;
+      case "native-generation":
+        native.windows[0]!.appKitIdentity = { ...identity, nativeGeneration: 5 };
+        break;
+      case "launch-generation":
+        native.windows[0]!.appKitIdentity = { ...identity, launchGeneration: "replacement" };
+        break;
+      case "parent": native.windows[0]!.parentNativeHostId += 1; break;
+      case "lifecycle": epoch += 1; break;
+      case "definition": core.state.roles[0] = { ...core.state.roles[0]!, name: "Changed" }; break;
+      case "unapplied-revision": core.logicalWindows[0]!.revision += 1; break;
+      case "revision-rollback":
+        core.logicalWindows[0]!.revision = 6;
+        native.windows[0]!.topologyRevision = 6;
+        break;
+      case "closed": core.logicalWindows = []; native.windows = []; break;
+    }
     const items = popup.mock.calls[0]![0].items as readonly MacosAppKitRuntimeTabMenuItem[];
     menuItem(items, "runtime-launcher-role-role-1").click!();
     await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
 
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      code: "ELECTRON_MACOS_APPKIT_LAUNCHER_FENCE_STALE"
+      code: change === "unapplied-revision" || change === "closed"
+        ? "ELECTRON_MACOS_APPKIT_LAUNCHER_TOPOLOGY_STALE"
+        : "ELECTRON_MACOS_APPKIT_LAUNCHER_FENCE_STALE"
     }));
     expect(launchRole).not.toHaveBeenCalled();
   });
+
+  it.each(["role", "workspace"] as const)(
+    "launches a %s when a sibling finishes loading while the menu is open",
+    async (kind) => {
+      const { core, display, host, native } = fixtures();
+      const popup = vi.fn();
+      const onError = vi.fn();
+      const launchRole = vi.fn(async () => undefined);
+      const launchWorkspace = vi.fn(async () => undefined);
+      const saveWindow = vi.fn(async () => undefined);
+      core.roleStatuses = [];
+      const controller = new MacosAppKitRuntimeLauncherMenuController({
+        actions: { activateTab: vi.fn(), launchRole, launchWorkspace, saveWindow },
+        language: () => "en", lifecycleEpoch: () => 12,
+        nativeMenu: { popup }, onError,
+        readCoreSnapshot: async () => core,
+        readDisplayTopology: () => display, readNativeSnapshot: () => native
+      });
+      await controller.open({ hosts: [host], identity });
+      const items = popup.mock.calls[0]![0].items as readonly MacosAppKitRuntimeTabMenuItem[];
+      // A mounted sibling becomes ready, advancing topology without replacing the host.
+      core.logicalWindows[0]!.revision = 11;
+      native.windows[0]!.topologyRevision = 11;
+      menuItem(items, `runtime-launcher-${kind}-${kind}-1`).click!();
+      await vi.waitFor(() => expect(launchRole.mock.calls.length +
+        launchWorkspace.mock.calls.length + onError.mock.calls.length).toBe(1));
+      expect(onError).not.toHaveBeenCalled();
+      expect(kind === "role" ? launchRole : launchWorkspace)
+        .toHaveBeenCalledWith(`${kind}-1`, "window-transient");
+      // Saving the contents still requires the exact menu-open topology.
+      menuItem(items, "runtime-launcher-save-window").click!();
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+      expect(saveWindow).not.toHaveBeenCalled();
+    }
+  );
 
   it("focuses a checked Role through its exact Workspace owner without relaunching", async () => {
     const { core, display, host, native } = fixtures();

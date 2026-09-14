@@ -1166,6 +1166,7 @@ async function bootstrapReadyPhase(
   });
   const launchCoordinator = new ChromiumRuntimeLaunchCoordinator({
     observedSnapshots: true,
+    settleWindowProjection: windowId => chromiumRuntime!.settleWindowProjection(windowId),
     core: activeCore(),
     launchCompletions: chromiumLaunchCompletions,
     settleNativeEvents: async () => {

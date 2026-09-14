@@ -117,6 +117,7 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #tabs = new Map<string, RuntimeTabRecord>();
   readonly #retiredSlotLoads = new Set<string>();
   readonly #roles = new Map<string, RuntimeRoleRecord>();
+  readonly #attachedRoles = new Map<string, RuntimeRoleRecord>();
   readonly #openingRoles = new Map<string, RuntimeRoleRecord>();
   readonly #webSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
   readonly #attachedWebSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
@@ -169,7 +170,7 @@ export class ChromiumRuntimeEffectExecutor {
   }
 
   #projectableRoles(): Map<string, RuntimeRoleRecord> {
-    return new Map([...this.#roles].filter(
+    return new Map([...this.#attachedRoles, ...this.#roles].filter(
       ([id, role]) => this.#closingRoleGenerations.get(id) !== role.generation));
   }
 
@@ -319,8 +320,8 @@ export class ChromiumRuntimeEffectExecutor {
   ): ChromiumRuntimeFullscreenToolbarInspection {
     return inspectChromiumRuntimeFullscreenToolbar({
       ports: this.#input,
-      roles: this.#roles,
-      webSurfaces: this.#webSurfaces,
+      roles: this.#projectableRoles(),
+      webSurfaces: this.#projectableWebSurfaces(),
       windows: this.#windows,
       windowId
     });
@@ -838,6 +839,7 @@ export class ChromiumRuntimeEffectExecutor {
         }
         let cancellationClose: Promise<boolean> | null = null;
         let releaseConfirmed = false;
+        let creationReturned = false;
         const closeOpeningSurface = (): Promise<boolean> => {
           cancellationClose ??= this.#input.surfaces.closeRole(
             role.roleId,
@@ -847,10 +849,19 @@ export class ChromiumRuntimeEffectExecutor {
           return cancellationClose;
         };
         const cancelOpeningSurface = (): void => {
+          if (this.#attachedRoles.get(role.roleId) === record) this.#attachedRoles.delete(role.roleId);
           void closeOpeningSurface();
         };
         try {
+          this.#openingRoles.set(role.roleId, record);
           const creation = this.#input.surfaces.create({
+            onAttached: () => {
+              if (signal?.aborted || this.#openingRoles.get(role.roleId) !== record ||
+                  this.#tabs.get(tabId) !== tab || this.#windows.get(tab.windowId) !== windowRecord ||
+                  this.#closingRoleGenerations.get(role.roleId) === generation) return;
+              this.#attachedRoles.set(role.roleId, record);
+              this.#applyWindowVisibility(windowRecord);
+            },
             roleId: role.roleId,
             tabId,
             rolePaths: paths,
@@ -866,9 +877,9 @@ export class ChromiumRuntimeEffectExecutor {
             ),
             audioMuted: tab.audioMuted
           });
+          creationReturned = true;
           signal?.addEventListener("abort", cancelOpeningSurface, { once: true });
           if (signal?.aborted) cancelOpeningSurface();
-          this.#openingRoles.set(role.roleId, record);
           await creation;
           if (this.#tabs.get(tabId) !== tab ||
               this.#openingRoles.get(role.roleId) !== record ||
@@ -892,6 +903,7 @@ export class ChromiumRuntimeEffectExecutor {
           }
           this.#roles.set(role.roleId, record);
         } catch (error) {
+          if (this.#attachedRoles.get(role.roleId) === record) this.#attachedRoles.delete(role.roleId);
           try {
             const closed = await closeOpeningSurface();
             if (closed || this.#input.surfaces.wasRetired?.(role.roleId, generation)) {
@@ -907,8 +919,9 @@ export class ChromiumRuntimeEffectExecutor {
         } finally {
           signal?.removeEventListener("abort", cancelOpeningSurface);
           if (this.#openingRoles.get(role.roleId) === record &&
-              (releaseConfirmed || this.#roles.get(role.roleId) === record || this.#input.surfaces.wasRetired?.(role.roleId, generation))) {
+              (!creationReturned || releaseConfirmed || this.#roles.get(role.roleId) === record || this.#input.surfaces.wasRetired?.(role.roleId, generation))) {
             this.#openingRoles.delete(role.roleId);
+            if (this.#attachedRoles.get(role.roleId) === record) this.#attachedRoles.delete(role.roleId);
           }
         }
       });
@@ -1247,6 +1260,7 @@ export class ChromiumRuntimeEffectExecutor {
     if (closed) {
       this.#input.overlays?.retire(roleId, role.generation);
       if (this.#roles.get(roleId) === role) this.#roles.delete(roleId);
+      if (this.#attachedRoles.get(roleId) === role) this.#attachedRoles.delete(roleId);
       if (this.#openingRoles.get(roleId) === role) this.#openingRoles.delete(roleId);
       if (this.#closingRoleGenerations.get(roleId) === role.generation) {
         this.#closingRoleGenerations.delete(roleId);
@@ -1352,6 +1366,7 @@ export class ChromiumRuntimeEffectExecutor {
       this.#input.overlays?.retire(role.roleId, role.generation);
       if (this.#roles.get(role.roleId) === role) this.#roles.delete(role.roleId);
       if (this.#openingRoles.get(role.roleId) === role) this.#openingRoles.delete(role.roleId);
+      if (this.#attachedRoles.get(role.roleId) === role) this.#attachedRoles.delete(role.roleId);
       if (this.#closingRoleGenerations.get(role.roleId) === role.generation) {
         this.#closingRoleGenerations.delete(role.roleId);
       }
@@ -1437,6 +1452,7 @@ export class ChromiumRuntimeEffectExecutor {
       windows: this.#windows,
       tabs: this.#tabs,
       roles: this.#projectableRoles(),
+      attachedRoles: this.#attachedRoles,
       webSurfaces: this.#projectableWebSurfaces(),
       quarantineWindows: (windowIds) => quarantineChromiumRuntimeWindows({
         ports: this.#input, roles: this.#roles, tabs: this.#tabs,

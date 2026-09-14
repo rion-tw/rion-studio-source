@@ -10,12 +10,14 @@ type Bounds = { x: number; y: number; width: number; height: number };
 export async function captureWorkspacePixels(input: {
   inspection: ElectronDesktopE2eFullscreenToolbarRuntimeInspection;
   reference: Bounds; region: Bounds; points: { x: number; y: number }[]; name: string;
+  observeOnly?: boolean;
+  windowEdges?: boolean;
 }): Promise<{ samples: number[][]; labels: string[]; path: string }> {
   const { processId, platform } = await electronDesktopE2eProbe();
   const path = resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, `${input.name}.png`);
   const payload = { ...input, path, processId, windowId: input.inspection.windowId };
   if (platform === "macos") {
-    await focusVisibleMacosAppKitRuntime({ processId, windowId: payload.windowId });
+    if (!input.observeOnly) await focusVisibleMacosAppKitRuntime({ processId, windowId: payload.windowId });
     const request = path.replace(/\.png$/u, ".json");
     await writeFile(request, JSON.stringify(payload));
     const result = await runWorkspaceSwift("workspace-pixels", request);
@@ -24,7 +26,7 @@ export async function captureWorkspacePixels(input: {
     return evidence;
   }
   const nativeWindowHandle = input.inspection.nativeWindowHandle!;
-  await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
+  if (!input.observeOnly) await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle });
   const result = await runEncodedPowerShellJson(String.raw`
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName UIAutomationClient

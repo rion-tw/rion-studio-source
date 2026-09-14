@@ -1,4 +1,5 @@
 import { observeRuntimeEffect, recordRuntimeTransition } from "./runtimeOperationJournal";
+import { RuntimeWindowProjectionFence } from "./runtimeWindowProjectionFence";
 import type {
   CoreErrorPayload,
   CoreEffectDispatchReport,
@@ -77,6 +78,7 @@ interface EffectExecutionRecord {
   readonly rejectCancellationFailure: (error: unknown) => void;
   readonly projectionSettled: Promise<void>;
   readonly resolveProjectionSettled: () => void;
+  projectionFailure?: RionBridgeError;
   cancellationFailed: boolean;
   cancellationFailure: unknown;
   cancellationReason: CoreEffectContinuationCancelReason | null;
@@ -341,6 +343,7 @@ export class CoreEffectCoordinator {
   readonly #lanes = new Map<string, Promise<void>>();
   readonly #terminalTasks = new Set<Promise<void>>();
   readonly #projectionTasks = new Set<Promise<void>>();
+  readonly #windowProjections = new RuntimeWindowProjectionFence();
   readonly #recordsByEffectId = new Map<string, EffectExecutionRecord>();
   readonly #effectRecordOrder: string[] = [];
   #projectionSequence = 0;
@@ -396,6 +399,15 @@ export class CoreEffectCoordinator {
     const sequence = this.#projectionSequence;
     await Promise.allSettled([...this.#projectionTasks]);
     return sequence;
+  }
+
+  async settleWindowProjection(windowId: string): Promise<boolean> {
+    if (this.#state !== "open") throw new RionBridgeError({
+      code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED", message: "The native projection actor stopped." });
+    const settled = await this.#windowProjections.settle(windowId);
+    if (this.#state !== "open") throw new RionBridgeError({
+      code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED", message: "The native projection actor stopped." });
+    return settled;
   }
 
   /**
@@ -555,6 +567,12 @@ export class CoreEffectCoordinator {
     this.#recordsByEffectId.set(effect.effectId, record);
     this.#effectRecordOrder.push(effect.effectId);
     if (mutatesRuntimeProjection(effect)) {
+      // Destruction cleanup can outlive committed topology. It is not a launch fence.
+      if (effect.action.type !== "embeddedDestroyTab" && effect.action.type !== "embeddedDestroyRole") {
+        this.#windowProjections.retain(this.#input.mutationScopes?.(effect) ?? [], record.projectionSettled.then(() => {
+          if (record.projectionFailure) throw record.projectionFailure;
+        }));
+      }
       this.#advanceProjectionSequence();
       this.#projectionTasks.add(record.projectionSettled);
       void record.projectionSettled.then(() => {
@@ -707,7 +725,10 @@ export class CoreEffectCoordinator {
     record.continuation = null;
     record.resolve(result);
     this.#pruneEffectRecords();
-    await this.#acknowledge(effect, result);
+    const acknowledgement = await this.#acknowledge(effect, result);
+    if (!result.ok) record.projectionFailure = new RionBridgeError(result.error ?? {
+      code: "ELECTRON_CORE_EFFECT_FAILED", message: "The target native projection failed." });
+    else if (acknowledgement) record.projectionFailure = acknowledgement;
     record.resolveProjectionSettled();
   }
 
@@ -848,7 +869,7 @@ export class CoreEffectCoordinator {
   async #acknowledge(
     effect: CoreEffectRequest,
     result: CoreEffectResult
-  ): Promise<void> {
+  ): Promise<RionBridgeError | null> {
     let report: CoreEffectDispatchReport;
     try {
       report = await this.#input.core.dispatchCoreEffectResults([result]);
@@ -858,7 +879,7 @@ export class CoreEffectCoordinator {
         error,
         "ELECTRON_CORE_EFFECT_ACK_FAILED"
       );
-      return;
+      return new RionBridgeError(normalizeRionBridgeError(error, "ELECTRON_CORE_EFFECT_ACK_FAILED"));
     }
     try {
       await this.#input.afterDispatch?.(effect, result, report);
@@ -867,7 +888,9 @@ export class CoreEffectCoordinator {
         error,
         "ELECTRON_CORE_EFFECT_POST_DISPATCH_FAILED"
       );
+      return new RionBridgeError(normalizeRionBridgeError(error, "ELECTRON_CORE_EFFECT_POST_DISPATCH_FAILED"));
     }
+    return null;
   }
 
   #reportError(error: unknown, fallbackCode: string): void {

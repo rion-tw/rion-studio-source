@@ -806,6 +806,7 @@ CGEvent(mouseEventSource: source, mouseType: .rightMouseUp,
 
 /** Presses the retained AppKit `+` control and selects one scoped source. */
 export async function selectMacosVisibleRuntimeLauncherRole(input: Readonly<{
+  afterOpen?: () => Promise<void>;
   language?: AppLanguage;
   roleName: string;
   windowId: string;
@@ -818,10 +819,11 @@ export async function selectMacosVisibleRuntimeLauncherRole(input: Readonly<{
     processId,
     windowId: input.windowId
   });
-  await executeFile("/usr/bin/xcrun", [
+  const runPhase = async (phase: "open" | "select" | "complete") => executeFile("/usr/bin/xcrun", [
     "swift",
     resolve(import.meta.dirname, "macos-appkit-launcher-menu.swift"),
     JSON.stringify({
+      phase,
       actionLabel: input.roleName,
       groupLabel: LAUNCHER_ROLE_LABELS[input.language ?? "en"],
       launcherLabels: APPKIT_LAUNCHER_LABELS,
@@ -829,4 +831,9 @@ export async function selectMacosVisibleRuntimeLauncherRole(input: Readonly<{
       windowId: input.windowId
     })
   ], { encoding: "utf8", timeout: 15_000 });
+  if (input.afterOpen) {
+    await runPhase("open");
+    await input.afterOpen();
+    await runPhase("select");
+  } else await runPhase("complete");
 }

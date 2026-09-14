@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 
 private struct Input: Decodable {
+  let phase: String?
   let actionLabel: String
   let groupLabel: String
   let launcherLabels: [String]
@@ -79,65 +80,68 @@ guard CommandLine.arguments.count == 2,
 }
 
 let application = AXUIElementCreateApplication(input.processId)
-let windowIdentifier = "com.rionstudio.runtime.appkit-window.v1:" + input.windowId
-let windows = (attribute(application, kAXWindowsAttribute as CFString)
-  as? [AXUIElement] ?? []).filter {
-    text($0, kAXIdentifierAttribute as CFString) == windowIdentifier
-  }
-guard windows.count == 1 else { fail("exact AppKit launcher window is unavailable") }
-let buttons = descendants(windows[0]).filter {
-  let identifier = text($0, kAXIdentifierAttribute as CFString)
-  let label = text($0, kAXDescriptionAttribute as CFString)
-  return text($0, kAXRoleAttribute as CFString) == "AXButton" &&
-    (identifier == "com.rionstudio.runtime.appkit-launcher.v1" ||
-      input.launcherLabels.contains(label))
-}
-guard buttons.count == 1, enabled(buttons[0]),
-      let position = attribute(buttons[0], kAXPositionAttribute as CFString),
-      CFGetTypeID(position) == AXValueGetTypeID(),
-      let size = attribute(buttons[0], kAXSizeAttribute as CFString),
-      CFGetTypeID(size) == AXValueGetTypeID() else {
-  let diagnostics = descendants(windows[0]).compactMap { element -> String? in
-    guard text(element, kAXRoleAttribute as CFString) == "AXButton" else {
-      return nil
+if input.phase != "select" {
+  let windowIdentifier = "com.rionstudio.runtime.appkit-window.v1:" + input.windowId
+  let windows = (attribute(application, kAXWindowsAttribute as CFString)
+    as? [AXUIElement] ?? []).filter {
+      text($0, kAXIdentifierAttribute as CFString) == windowIdentifier
     }
-    return [
-      text(element, kAXSubroleAttribute as CFString),
-      text(element, kAXIdentifierAttribute as CFString),
-      text(element, kAXTitleAttribute as CFString),
-      text(element, kAXDescriptionAttribute as CFString),
-      text(element, kAXHelpAttribute as CFString),
-      enabled(element) ? "enabled" : "disabled"
-    ].joined(separator: ":")
+  guard windows.count == 1 else { fail("exact AppKit launcher window is unavailable") }
+  let buttons = descendants(windows[0]).filter {
+    let identifier = text($0, kAXIdentifierAttribute as CFString)
+    let label = text($0, kAXDescriptionAttribute as CFString)
+    return text($0, kAXRoleAttribute as CFString) == "AXButton" &&
+      (identifier == "com.rionstudio.runtime.appkit-launcher.v1" ||
+        input.launcherLabels.contains(label))
   }
-  fail("exact AppKit launcher button is unavailable; observed=" +
-    diagnostics.joined(separator: "|"))
-}
-var origin = CGPoint.zero
-var extent = CGSize.zero
-guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
-      AXValueGetValue(size as! AXValue, .cgSize, &extent),
-      extent.width > 0, extent.height > 0,
-      let source = CGEventSource(stateID: .hidSystemState) else {
-  fail("exact AppKit launcher geometry is unavailable")
-}
-let point = CGPoint(x: origin.x + extent.width / 2,
-                    y: origin.y + extent.height / 2)
-for eventType in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
-  guard let event = CGEvent(mouseEventSource: source,
-                            mouseType: eventType,
-                            mouseCursorPosition: point,
-                            mouseButton: .left) else {
-    fail("exact AppKit launcher pointer event is unavailable")
+  guard buttons.count == 1, enabled(buttons[0]),
+        let position = attribute(buttons[0], kAXPositionAttribute as CFString),
+        CFGetTypeID(position) == AXValueGetTypeID(),
+        let size = attribute(buttons[0], kAXSizeAttribute as CFString),
+        CFGetTypeID(size) == AXValueGetTypeID() else {
+    let diagnostics = descendants(windows[0]).compactMap { element -> String? in
+      guard text(element, kAXRoleAttribute as CFString) == "AXButton" else {
+        return nil
+      }
+      return [
+        text(element, kAXSubroleAttribute as CFString),
+        text(element, kAXIdentifierAttribute as CFString),
+        text(element, kAXTitleAttribute as CFString),
+        text(element, kAXDescriptionAttribute as CFString),
+        text(element, kAXHelpAttribute as CFString),
+        enabled(element) ? "enabled" : "disabled"
+      ].joined(separator: ":")
+    }
+    fail("exact AppKit launcher button is unavailable; observed=" +
+      diagnostics.joined(separator: "|"))
   }
-  event.post(tap: .cghidEventTap)
-  usleep(25_000)
-}
-let group = waitForMenuItem(application, title: input.groupLabel)
-guard AXUIElementPerformAction(group, kAXPressAction as CFString) == .success else {
-  fail("AppKit launcher submenu did not open")
+  var origin = CGPoint.zero
+  var extent = CGSize.zero
+  guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
+        AXValueGetValue(size as! AXValue, .cgSize, &extent),
+        extent.width > 0, extent.height > 0,
+        let source = CGEventSource(stateID: .hidSystemState) else {
+    fail("exact AppKit launcher geometry is unavailable")
+  }
+  let point = CGPoint(x: origin.x + extent.width / 2,
+                      y: origin.y + extent.height / 2)
+  for eventType in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+    guard let event = CGEvent(mouseEventSource: source,
+                              mouseType: eventType,
+                              mouseCursorPosition: point,
+                              mouseButton: .left) else {
+      fail("exact AppKit launcher pointer event is unavailable")
+    }
+    event.post(tap: .cghidEventTap)
+    usleep(25_000)
+  }
+  let group = waitForMenuItem(application, title: input.groupLabel)
+  guard AXUIElementPerformAction(group, kAXPressAction as CFString) == .success else {
+    fail("AppKit launcher submenu did not open")
+  }
 }
 let action = waitForMenuItem(application, title: input.actionLabel)
+if input.phase == "open" { exit(0) }
 guard AXUIElementPerformAction(action, kAXPressAction as CFString) == .success else {
   fail("AppKit launcher action did not execute")
 }

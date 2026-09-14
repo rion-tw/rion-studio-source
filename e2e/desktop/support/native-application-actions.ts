@@ -92,6 +92,7 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
 }
 
 export type VisibleWindowsApplicationShortcut =
+  | "nextTab"
   | "shiftDigit3"
   | "shiftDigit3Twice"
   | "escape"
@@ -528,6 +529,7 @@ $SHIFT = [byte]0x10
 $modifier = $true
 $shiftModifier = $false
 switch ($command) {
+  'nextTab' { $key = [byte]0x09 }
   'shiftDigit3' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
   'shiftDigit3Twice' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
   'escape' { $key = [byte]0x1B; $modifier = $false }

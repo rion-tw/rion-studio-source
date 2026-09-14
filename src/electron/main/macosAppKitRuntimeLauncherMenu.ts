@@ -135,14 +135,18 @@ function exactIdentity(
     left.nativeGeneration === right.nativeGeneration;
 }
 
-function exactFence(left: LauncherFence, right: LauncherFence): boolean {
+function sameSourceFence(left: LauncherFence, right: LauncherFence): boolean {
   return left.windowId === right.windowId &&
     left.windowGeneration === right.windowGeneration &&
-    left.topologyRevision === right.topologyRevision &&
     left.lifecycleEpoch === right.lifecycleEpoch &&
     left.parentNativeHostId === right.parentNativeHostId &&
     exactIdentity(left.appKitIdentity, right.appKitIdentity) &&
     exactIds(left.tabIds, right.tabIds);
+}
+
+function exactFence(left: LauncherFence, right: LauncherFence): boolean {
+  return sameSourceFence(left, right) &&
+    left.topologyRevision === right.topologyRevision;
 }
 
 function exactDefinition(left: unknown, right: unknown): boolean {
@@ -283,7 +287,10 @@ export class MacosAppKitRuntimeLauncherMenuController {
       ? current.snapshot.state.roles
       : current.snapshot.state.launchWorkspaces;
     const definition = definitions.find((value) => value.id === target.definition.id);
-    if (!exactFence(current.fence, context.fence) ||
+    // The menu retains a source host, not its sibling's loading/status revision.
+    // Capture still proves the current exact Core/native topology before dispatch.
+    if (!sameSourceFence(current.fence, context.fence) ||
+      current.fence.topologyRevision < context.fence.topologyRevision ||
       !exactDefinition(definition, target.definition)) {
       throw launcherError(
         "ELECTRON_MACOS_APPKIT_LAUNCHER_FENCE_STALE",

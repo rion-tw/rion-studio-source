@@ -182,11 +182,12 @@ interface NativeAttachmentObservation {
   readonly roleId: string;
   readonly sequence: number;
   readonly stage: "attach-entered" | "attach-returned" | "attach-resolved" |
-    "attach-rejected" | "attach-threw";
+    "attach-rejected" | "attach-threw" | "visibility";
+  readonly visible?: boolean;
   readonly webContentsId: number | null;
 }
 
-/** Records the Windows native-attachment Promise boundary without changing it. */
+/** Records the native attachment Promise boundary without changing it. */
 export function installElectronDesktopE2eNativeAttachmentLifecycleObserver(
   prototype: NativeAttachmentPrototype,
   artifactDirectory: string | undefined
@@ -198,6 +199,7 @@ export function installElectronDesktopE2eNativeAttachmentLifecycleObserver(
     "electron-windows-role-attachment-observations.json"
   );
   const originalAttach = prototype.attach;
+  const observedViews = new WeakSet<object>();
   let nextSequence = 1;
   const capture = (
     input: ChromiumRoleSurfaceNativeAttachmentInput,
@@ -212,6 +214,7 @@ export function installElectronDesktopE2eNativeAttachmentLifecycleObserver(
       roleId: input.roleId,
       sequence: nextSequence++,
       stage,
+      ...(input.view && !input.view.webContents.isDestroyed() ? { visible: input.view.getVisible() } : {}),
       webContentsId: input.view?.webContents.id ?? null
     }));
     writeFileSync(outputPath, `${JSON.stringify(observations, null, 2)}\n`);
@@ -220,6 +223,16 @@ export function installElectronDesktopE2eNativeAttachmentLifecycleObserver(
     this: NativeAttachmentPrototype,
     input: ChromiumRoleSurfaceNativeAttachmentInput
   ): Promise<void> {
+    if (process.env.RION_STUDIO_E2E_PHASE === "chromium-tabs-visible-seed" && input.view && !observedViews.has(input.view)) {
+      const view = input.view;
+      observedViews.add(view);
+      const setVisible = view.setVisible;
+      view.setVisible = function (visible) {
+        setVisible.call(this, visible);
+        // Observe the native View directly, independently of executor readiness.
+        capture(input, "visibility");
+      };
+    }
     capture(input, "attach-entered");
     let completion: Promise<void>;
     try {

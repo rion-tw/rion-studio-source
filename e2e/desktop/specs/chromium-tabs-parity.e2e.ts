@@ -1,4 +1,6 @@
+import { exerciseMacosLauncherDuringLoading } from "./chromium-launcher-loading";
 import { runMacosTabFocusRegression } from "./chromium-tab-content-focus-setup";
+import { expectLoadingTabPresentation, expectReadyTabAboveLoadingSibling } from "./chromium-loading-tab-evidence";
 import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
 import { leaveLaunchInBackground } from "../support/launch-foreground";
 import { $, browser, expect } from "@wdio/globals";
@@ -31,6 +33,7 @@ import {
 import {
   pressVisibleMacosApplicationShortcut,
   pressVisibleMacosRoleKey,
+  pressVisibleWindowsApplicationShortcut,
   waitForFocusedMacosAppKitRuntime
 } from "../support/native-application-actions";
 import {
@@ -47,7 +50,7 @@ import {
   selectVisibleWindowsRuntimeTabMenuAction,
   visibleRuntimeTabPhase
 } from "../support/native-runtime-tabs";
-import { activateWindowsRuntimeTabWhileLoading, readWindowsRuntimeTabLoadingEvidence } from "../support/windows-runtime-tab-close";
+import { activateWindowsRuntimeTabWhileLoading, closeLoadingWindowsRuntimeTab, readWindowsRuntimeTabLoadingEvidence } from "../support/windows-runtime-tab-close";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   acceptLegalAndSkipFirstRun,
@@ -305,7 +308,8 @@ async function showSavedWindow(input: Readonly<{
 async function launchRoleIntoWindow(
   role: Role,
   gameWindow: GameWindow,
-  loading?: Readonly<{ mainWindowHandle: string; platform: Platform; externalForeground?: boolean; duringLoading?: () => Promise<void>; previousTab?: { id: string; name: string } }>
+  loading?: Readonly<{ mainWindowHandle: string; platform: Platform; externalForeground?: boolean; afterLoadingTabClose?: () => Promise<void>; duringLoading?: () => Promise<void>; previousTab?: { id: string; name: string } }>,
+  afterSubmit?: () => Promise<void>
 ): Promise<string> {
   await openSection("Home", "/dashboard");
   await $("[data-testid='quick-access-trigger']").click();
@@ -322,12 +326,14 @@ async function launchRoleIntoWindow(
   );
   await savedWindow.waitForClickable({ timeout: 10_000 });
   await captureLaunchDiagnostic("before-visible-destination-click", role, gameWindow);
-  const priorTabIds = new Set((await electronDesktopE2eGameWindowRuntime(gameWindow.id)).currentRuntime?.coreTabIds ?? gameWindow.tabs.map((tab) => tab.id));
+  const priorTabIds = new Set((await rendererCall("getEmbeddedRuntimeState")).tabs
+    .filter(tab => tab.windowId === gameWindow.id).map(tab => tab.id));
   const afterSequence = await fixtureCursor();
   const fixtureId = new URL(role.launchUrl).pathname.split("/").at(-1)!;
   const processId = loading ? (await electronDesktopE2eProbe()).processId : undefined;
   if (loading) await fixtureRequest("/api/gate", { roleId: fixtureId });
   await savedWindow.click();
+  await afterSubmit?.();
   if (!loading) await captureLaunchDiagnostic("after-visible-destination-click", role, gameWindow);
 
   let tabId: string | undefined;
@@ -386,17 +392,29 @@ async function launchRoleIntoWindow(
           await activateWindowsRuntimeTabWhileLoading({ processId: processId!,
             loadingTabName: role.name, selectedTabName: role.name });
         }
+        await expectLoadingTabPresentation(gameWindow.id);
         if (loading.platform === "macos") {
           await pressVisibleMacosApplicationShortcut({ command: "nextTab", processId: processId!,
             runtimeTabName: role.name, targetMode: "focused-runtime" });
         } else {
-          await activateWindowsRuntimeTabWhileLoading({ processId: processId!,
-            loadingTabName: role.name, selectedTabName: loading.previousTab.name });
+          await pressVisibleWindowsApplicationShortcut({ command: "nextTab", processId: processId!,
+            targetMode: "focused-runtime" });
         }
         await browser.waitUntil(async () => (await currentRuntime(gameWindow.id)).windows
           .find(window => window.id === gameWindow.id)?.activeTabId === loading.previousTab!.id, {
           timeout: 20_000, timeoutMsg: "The user tab selection did not commit before B completed"
         });
+        // Exercise the reported mouse path as well as the keyboard selection above.
+        if (loading.platform === "macos") {
+          await clickVisibleRuntimeTab({ ...loading, tabId: tabId!, tabName: role.name });
+          await clickVisibleRuntimeTab({ ...loading, tabId: loading.previousTab.id, tabName: loading.previousTab.name });
+        } else {
+          await activateWindowsRuntimeTabWhileLoading({ processId: processId!, loadingTabName: role.name, selectedTabName: role.name });
+          await activateWindowsRuntimeTabWhileLoading({ processId: processId!, loadingTabName: role.name, selectedTabName: loading.previousTab.name });
+        }
+        await browser.waitUntil(async () => (await currentRuntime(gameWindow.id)).windows
+          .find(window => window.id === gameWindow.id)?.activeTabId === loading.previousTab!.id, { timeout: 20_000 });
+        await expectReadyTabAboveLoadingSibling(gameWindow.id, loading.previousTab.id, tabId!, role.id);
         const beforeResize = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
         const oldBounds = beforeResize.surfaces.find(surface => surface.tabId === loading.previousTab!.id)!.bounds;
         await resizeWorkspaceWindow({ inspection:beforeResize, edge:"bottomRight", moves:[{x:-48,y:-32}],
@@ -412,10 +430,19 @@ async function launchRoleIntoWindow(
       // Observation reads must also complete while this exact network gate remains held.
       expect((await rendererCall("listRoleStatuses")).find(status => status.roleId === role.id)?.state).toBe("launching");
       expect((await rendererCall("getEmbeddedRuntimeState")).tabs.some(tab => tab.id === tabId)).toBe(true);
+      if (loading.afterLoadingTabClose) {
+        if (loading.platform === "macos") {
+          await closeVisibleRuntimeTab({ ...loading, tabId: tabId!, tabName: role.name, windowId: gameWindow.id });
+        } else await closeLoadingWindowsRuntimeTab({ processId: processId!, tabName: role.name });
+        await browser.waitUntil(async () => !(await rendererCall("getEmbeddedRuntimeState")).tabs.some(tab => tab.id === tabId),
+          { timeout: 20_000, timeoutMsg: "Closing B waited for its gated navigation" });
+        await loading.afterLoadingTabClose();
+      }
     } finally {
       await fixtureRequest("/api/release", { roleId: fixtureId });
     }
   }
+  if (loading?.afterLoadingTabClose) return tabId!;
   await browser.waitUntil(async () => {
     const runtime = await rendererCall("getEmbeddedRuntimeState");
     const tab = runtime.tabs.find((candidate) => candidate.sourceId === role.id);
@@ -1014,6 +1041,31 @@ async function closeAndReopenSavedWindow(input: Readonly<{
   await activateAndFocusEveryTab({ ...input, gameWindow: saved });
 }
 
+async function launchWithPendingTargetProjection(input: Readonly<{
+  mainWindowHandle: string; platform: Platform;
+}>, gameWindow: GameWindow, targetWindow: GameWindow, roles: readonly Role[], tabIds: readonly string[], independentTabId: string): Promise<string> {
+  await clickVisibleRuntimeTab({ ...input, tabId: tabIds[0]!, tabName: roles[0]!.name });
+  const projectionGateId = `target-projection-${gameWindow.id}`;
+  const projectionCursor = await fixtureCursor();
+  await fixtureRequest("/api/gate", { roleId: projectionGateId });
+  await writeFile(resolve(required("RION_STUDIO_E2E_ARTIFACT_DIR"), "target-projection-gate.json"), JSON.stringify({ windowId: gameWindow.id }));
+  try {
+    await clickVisibleRuntimeTab({ ...input, tabId: tabIds[1]!, tabName: roles[1]!.name });
+    const waiting = await fetch(`${required("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/api/gates/${projectionGateId}/waiting`,
+      { signal: AbortSignal.timeout(30_000) });
+    expect(waiting.ok).toBe(true);
+    return await launchRoleIntoWindow(roles[2]!, gameWindow, undefined, async () => {
+      await waitFixtureEvent({ afterSequence: projectionCursor, roleId: projectionGateId,
+        kind: "launch-waiting-for-target-projection" });
+      expect((await currentRuntime(gameWindow.id)).tabs.some(tab => tab.sourceId === roles[2]!.id)).toBe(false);
+      await clickVisibleRuntimeTab({ ...input, tabId: independentTabId!, tabName: roles[3]!.name });
+      await expectExactNativeTopology({ activeTabId: independentTabId!, gameWindow: targetWindow,
+        orderedTabIds: [independentTabId!], platform: input.platform });
+      await fixtureRequest("/api/release", { roleId: projectionGateId });
+    });
+  } finally { await fixtureRequest("/api/release", { roleId: projectionGateId }); }
+}
+
 async function seedPhase(input: Readonly<{
   mainWindowHandle: string;
   platform: Platform;
@@ -1021,10 +1073,30 @@ async function seedPhase(input: Readonly<{
 }>): Promise<void> {
   await fixtureRequest("/api/reset", {});
   const { gameWindow, roles, targetWindow } = await createEntitiesThroughVisibleUi();
+  if (input.platform === "macos") await exerciseMacosLauncherDuringLoading({
+    ...input, window: await createGameWindowThroughVisibleUi("Native Launcher Loading Window"), roles,
+    launchRole: (role, window, afterSubmit) => launchRoleIntoWindow(role, window, undefined, afterSubmit)
+  });
   const sourceRoles = roles.slice(0, SOURCE_ROLE_DEFINITIONS.length);
   const tabIds: string[] = [];
   let independentTabId: string | undefined;
   for (const [index, role] of sourceRoles.entries()) {
+    if (index === 2) {
+      tabIds.push(await launchWithPendingTargetProjection(input, gameWindow, targetWindow, roles, tabIds, independentTabId!));
+      continue;
+    }
+    if (index === 1) {
+      await launchRoleIntoWindow(role, gameWindow, { ...input,
+        previousTab: { id: tabIds[0]!, name: sourceRoles[0]!.name },
+        afterLoadingTabClose: async () => {
+          const c = await launchRoleIntoWindow(roles[2]!, gameWindow);
+          await expectExactNativeTopology({ activeTabId: c, gameWindow,
+            orderedTabIds: [tabIds[0]!, c], platform: input.platform });
+          await closeVisibleRuntimeTab({ ...input, tabId: c, tabName: roles[2]!.name, windowId: gameWindow.id });
+          await browser.waitUntil(async () => !(await currentRuntime(gameWindow.id)).tabs.some(tab => tab.id === c),
+            { timeout: 20_000 });
+        } });
+    }
     tabIds.push(await launchRoleIntoWindow(
       role,
       gameWindow,

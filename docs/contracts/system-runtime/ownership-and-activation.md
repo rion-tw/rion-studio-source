@@ -198,3 +198,23 @@ there is still exactly one login surface per role.
 A current launch failure retains its tab and local retry/close presentation.
 An authoritative close or supersede owns cleanup of an older attempt. Workspace
 slot failures remain local to the slot; unrelated ready slots remain usable.
+
+### Mounted Role presentation and target projection fences
+Electron retains each exact native Role attachment for presentation before readiness.
+Mounted and ready surfaces follow the latest applied window generation, selection
+and hidden state. Selecting A hides loading B immediately; selecting B shows its
+loading document. Completion cannot replay initial visibility or acquire foreground.
+Closing, cancellation and supersede retire the claim; late events cannot revive it.
+A live window's launch eligibility belongs to its native host generation, not its
+first Role admission. A lower native revision retains pending eligibility. Launch
+fixes its destination, awaits only that window's accepted topology and Core receipt,
+then validates the exact snapshot. It never awaits navigation, cleanup or another
+window, re-sends launch, or chooses a fallback. Closure, generation replacement,
+actor stop and stream failure terminate the wait; conflicting topology or owner
+identity remains an error. There is no polling or reconciliation timer.
+
+The AppKit launcher revalidates the current exact Core/native snapshot on selection.
+A forward status or placement revision may advance while the menu is open without
+invalidating its host. Host identity, generations, lifecycle, parent, ordered tab IDs
+and selected source definition must remain unchanged. Saving window contents still
+requires the exact menu-open revision. No selection waits for a sibling's navigation.

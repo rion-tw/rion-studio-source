@@ -1,3 +1,5 @@
+import { MacosAppKitInputSurfaceAttachmentCoordinator } from "../main/macosAppKitInputSurfaceAttachmentCoordinator";
+import { installRuntimeTargetProjectionBarrier } from "./runtimeTargetProjectionBarrier";
 import { installDiagnosticsProjectionFault } from "./diagnosticsProjectionFault";
 import { installWorkspaceInitialPresentationBarrier } from "./workspaceInitialPresentationBarrier";
 import { seedRetainedV22Role } from "./retainedRoleSeed";
@@ -1518,6 +1520,7 @@ installElectronDesktopE2eNativeAttachmentLifecycleObserver(
   ChromiumViewAttachmentCoordinator.prototype,
   artifactDirectory
 );
+installElectronDesktopE2eNativeAttachmentLifecycleObserver(MacosAppKitInputSurfaceAttachmentCoordinator.prototype, artifactDirectory);
 installElectronDesktopE2eViewInputObservationObserver(ChromiumViewAttachmentCoordinator.prototype, artifactDirectory);
 installElectronDesktopE2eTrustedInputDiagnostics(artifactDirectory, listener => app.on("will-quit", listener));
 installElectronDesktopE2eTrustedInputObserver();
@@ -1530,6 +1533,7 @@ applicationShortcutRuntimeObserver.install();
 runtimeTabReloadObserver.install();
 appKitTabMenuRuntimeObserver.install();
 installWorkspaceInitialPresentationBarrier();
+installRuntimeTargetProjectionBarrier();
 const mainRuntime = await import("../main/index");
 const { focusElectronMainWindow, prepareElectronMainQuit } = mainRuntime;
 applicationShortcutRuntimeObserver.bindTerminalFullscreenExit(async (windowId) => {

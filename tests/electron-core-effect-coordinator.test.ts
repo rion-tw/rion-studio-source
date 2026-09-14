@@ -128,7 +128,8 @@ function harness(
   ) => Promise<unknown>,
   afterDispatch?: ConstructorParameters<typeof CoreEffectCoordinator>[0]["afterDispatch"],
   processReceiptLedger: CoreEffectProcessReceiptLedger =
-    createCoreEffectProcessReceiptLedger()
+    createCoreEffectProcessReceiptLedger(),
+  mutationScopes?: ConstructorParameters<typeof CoreEffectCoordinator>[0]["mutationScopes"]
 ) {
   let listener: ((event: CoreEvent) => void) | undefined;
   let failureListener: ((failure: CoreEventStreamFailure) => void) | undefined;
@@ -152,6 +153,7 @@ function harness(
     core,
     processReceiptLedger,
     execute,
+    mutationScopes,
     ...(afterDispatch ? { afterDispatch } : {}),
     onEventStreamFailure,
     onError
@@ -194,6 +196,51 @@ describe("Electron Core effect coordinator", () => {
       await test.coordinator.dispose();
     }
   );
+
+  it.each(["native", "acknowledgement", "stream"] as const)("rejects the target wait on %s failure", async failure => {
+    const native = deferred<unknown>();
+    const test = harness(async () => native.promise, undefined, undefined, effect => [`window:${effect.target.handleId}`]);
+    const target = effect("target", "window-a", "eventBound", "app");
+    target.action = { type: "embeddedFollowRoleOwnership", roles: [], lifecycleEpoch: 1, revealWindowIds: [], focusWindowIds: [] };
+    test.emit({ type: "coreEffects", effects: [target] });
+    const waiting = test.coordinator.settleWindowProjection("window-a");
+    const assertion = expect(waiting).rejects.toThrow();
+    if (failure === "native") native.reject(new Error("native projection failed"));
+    else {
+      if (failure === "acknowledgement") test.dispatchCoreEffectResults.mockRejectedValueOnce(new Error("acknowledgement failed"));
+      else test.fail();
+      native.resolve(undefined);
+    }
+    await assertion;
+    await test.coordinator.dispose();
+  });
+
+  it("scopes a launch fence to native topology acknowledgement without navigation or cleanup", async () => {
+    const native = deferred<unknown>();
+    const acknowledgement = deferred<void>();
+    const unrelated = deferred<unknown>();
+    const test = harness(async request => request.effectId === "target" ? native.promise : unrelated.promise,
+      async effect => { if (effect.effectId === "target") await acknowledgement.promise; },
+      undefined, effect => [`window:${effect.target.handleId}`]);
+    const target = effect("target", "window-a", "eventBound", "app");
+    target.action = { type: "embeddedSetTabAudioMuted", tabId: "tab-a", windowId: "window-a", attemptGeneration: "attempt-a", roles: [], webSurfaces: [], previousMuted: false, muted: true };
+    const navigation = effect("navigation", "window-a", "eventBound", "app");
+    navigation.action = { type: "embeddedLoadRoles", roles: [] };
+    test.emit({ type: "coreEffects", effects: [target, navigation,
+      effect("cleanup", "window-a", "eventBound", "app")] });
+    await expect(test.coordinator.settleWindowProjection("window-b")).resolves.toBe(false);
+    let finished = false;
+    const waiting = test.coordinator.settleWindowProjection("window-a").then(value => { finished = true; return value; });
+    native.resolve(undefined);
+    await vi.waitFor(() => expect(test.dispatchCoreEffectResults).toHaveBeenCalled());
+    expect(finished).toBe(false);
+    acknowledgement.resolve();
+    await expect(waiting).resolves.toBe(true);
+    await expect(test.coordinator.settleWindowProjection("window-a")).resolves.toBe(false);
+    unrelated.resolve(undefined);
+    await test.coordinator.dispose();
+    await expect(test.coordinator.settleWindowProjection("window-a")).rejects.toMatchObject({ code: "ELECTRON_CORE_EFFECT_ACTOR_STOPPED" });
+  });
 
   it("settles a projection fence only after current native work and its Core acknowledgement", async () => {
     const native = deferred<unknown>();

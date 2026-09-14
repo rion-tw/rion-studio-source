@@ -1431,6 +1431,10 @@ export class ChromiumRuntimeBootstrap {
     return this.#coordinator.settleCurrentProjectionEffects();
   }
 
+  settleWindowProjection(windowId: string): Promise<boolean> {
+    return this.#coordinator.settleWindowProjection(windowId);
+  }
+
   settleCurrentApplicationEffects(): Promise<void> {
     if (this.#state !== "open") {
       return Promise.reject(bootstrapError(

@@ -350,6 +350,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const workspaceWindowOpenEnabled = roleId === "chromium-workspace-web-slot";
     let verificationComplete = false;
     document.querySelector("#role-id").textContent = roleId;
+    if (roleId === "chromium-tabs-alpha") document.body.style.background = "rgb(16,200,80)";
+    if (roleId === "chromium-tabs-beta") document.body.style.background = "rgb(40,80,220)";
     const render = (kind) => {
       for (const [key, value] of Object.entries(counts)) {
         const element = document.querySelector("#" + key);

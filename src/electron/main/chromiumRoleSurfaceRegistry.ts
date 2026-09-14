@@ -1,3 +1,4 @@
+import { createTransparentRuntimeView } from "./transparentRuntimeView";
 import { compatibleInputSource, type ChromiumCompatibleInputCommand } from "../ipc/chromiumCompatibleInputProtocol";
 import type { BrowserAction } from "../../shared/generated";
 import type { RionBridgeError } from "../ipc/errors";
@@ -663,7 +664,7 @@ export class ChromiumRoleSurfaceRegistry {
     const sessionHandle = this.#sessions.ensure(input.roleId, input.rolePaths);
     let view: ChromiumRoleWebContentsViewPort;
     try {
-      view = this.#views.create({
+      view = createTransparentRuntimeView(this.#views, {
         webPreferences: { ...webPreferences, session: sessionHandle.session }
       });
     } catch {

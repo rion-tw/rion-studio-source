@@ -418,6 +418,8 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
     this.#ownerByNativeWindow.set(native, record);
     installMacosAppKitRuntimeWindowListeners(record.native, record.listeners);
     try {
+      native.contentView.setBackgroundColor("#00000000");
+      native.setWindowButtonVisibility(true);
       const handle = native.getNativeWindowHandle();
       if (!Buffer.isBuffer(handle)) {
         fail(
@@ -574,8 +576,9 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       appKitIdentity: identity,
       nativeWindow: native,
       contentView: native.contentView,
-      notifySurfaceAttachment: () => this.#input.onLayout?.({
-        identity: record.identity, hosts: [this.#snapshotObservation(record)]
+      notifySurfaceAttachment: () => this.#withCurrent(record as HostRecord, () => {
+        record.presentationGate.surfaceAttached();
+        this.#refreshLayout(record as HostRecord);
       }),
       close: () => this.#close(record as HostRecord),
       focus: () => this.#withCurrent(record as HostRecord, () => {

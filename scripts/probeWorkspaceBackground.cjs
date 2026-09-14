@@ -1,0 +1,64 @@
+const { app, BaseWindow, WebContentsView } = require("electron");
+const { writeFileSync } = require("node:fs");
+const { resolve } = require("node:path");
+const assert = require("node:assert/strict");
+
+app.setPath("userData", process.argv[3]);
+app.setActivationPolicy("prohibited");
+app.whenReady().then(async () => {
+  const addon = require(resolve(`build/native/${process.platform}-${process.arch}/rion-core.node`));
+  const window = new BaseWindow({ show: false, width: 900, height: 640, frame: true,
+    transparent: true, backgroundColor: "#00000000" });
+  window.contentView.setBackgroundColor("#00000000");
+  window.setWindowButtonVisibility(true);
+  const identity = { logicalWindowId: "background-probe", launchGeneration: "probe-launch", nativeGeneration: 1 };
+  const native = addon.attachAppKitRuntimeHost(window.getNativeWindowHandle(), identity, () => {});
+  const views = [];
+  let revision = 0;
+  let address;
+  const observations = [];
+  const project = (width, height, background) => {
+    const bounds = { x: 0, y: 8, width, height };
+    const dividers = [{ tabId: "tab-a", attemptGeneration: "attempt-a", dividerIndex: 0,
+      axis: "vertical", bounds: { x: width / 2, y: 8, width: 16, height }, visible: true }];
+    native.applyWorkspaceDividerProjection(identity, String(++revision), bounds, dividers, background);
+    const tree = native.snapshotNativeViewTree(identity);
+    const backgrounds = tree.filter(node => node.className === "RionWorkspaceBackgroundView");
+    assert.equal(backgrounds.length, 1);
+    address ??= backgrounds[0].address;
+    assert.equal(backgrounds[0].address, address);
+    assert.equal(backgrounds[0].width, width);
+    assert.equal(backgrounds[0].height, height);
+    const divider = tree.find(node => node.className === "RionRuntimeWorkspaceDividerView");
+    assert.equal(tree.filter(node => node.parentAddress === divider.address).length, 0);
+    assert.equal(tree.filter(node => node.className === "NSVisualEffectView" && node.parentAddress === address).length, 1);
+    observations.push({ background, width, height, address, nativeViews: tree.length });
+    return { bounds, dividers, tree };
+  };
+  try {
+    native.applyTabProjection(identity, "1", [{ tabId: "tab-a", name: "A", phase: "ready", tabType: "workspace", workspaceTemplate: "two_columns" }], "tab-a");
+    project(900, 540, "material");
+    // Attaching content after the underlay exists must preserve one background.
+    for (let i=0; i<2; i++) {
+      const view = new WebContentsView();
+      view.setBackgroundColor("#00000000");
+      window.contentView.addChildView(view);
+      views.push(view);
+    }
+    for (let i=0; i<12; i++) {
+      const width = i % 2 ? 640 : 1200, height = i % 2 ? 400 : 800;
+      window.setContentSize(width, height + 8);
+      project(width, height, i % 3 ? "black" : "material");
+    }
+    const before = project(900, 540, "black");
+    assert.throws(() => native.applyWorkspaceDividerProjection(identity, String(++revision),
+      { ...before.bounds, width: -1 }, before.dividers, "material"));
+    assert.deepEqual(native.snapshotNativeViewTree(identity), before.tree);
+    writeFileSync(process.argv[2], JSON.stringify({ platform: process.platform, observations, rejectedProjectionPreserved: true }));
+  } finally {
+    for (const view of views) view.webContents.close({ waitForBeforeUnload: false });
+    native.destroy(identity);
+    window.destroy();
+  }
+  app.exit(0);
+}).catch(error => { console.error(error); app.exit(1); });

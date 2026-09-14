@@ -159,6 +159,7 @@ export interface ChromiumRoleSurfaceWebContentsPort {
 }
 
 export interface ChromiumRoleWebContentsViewPort {
+  setBackgroundColor: (color: string) => void;
   readonly webContents: ChromiumRoleSurfaceWebContentsPort;
   getBounds: () => ChromiumRoleSurfaceBounds;
   getVisible: () => boolean;

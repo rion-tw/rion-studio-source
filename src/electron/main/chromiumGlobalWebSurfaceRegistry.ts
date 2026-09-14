@@ -1,3 +1,4 @@
+import { createTransparentRuntimeView } from "./transparentRuntimeView";
 import { observeWorkspaceStartPage } from "./workspaceStartPage";
 import { isWorkspaceStartUrl } from "../../shared/workspaceStartPage";
 import type { GlobalWebProfilePathsRecord } from "../../shared/generated";
@@ -470,7 +471,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     let view: ChromiumRoleWebContentsViewPort;
     try {
       this.#installNetworkFailureObservation(sessionLease.session);
-      view = this.#views.create({
+      view = createTransparentRuntimeView(this.#views, {
         webPreferences: {
           ...buildUnprivilegedRemoteContentWebPreferences(),
           session: sessionLease.session

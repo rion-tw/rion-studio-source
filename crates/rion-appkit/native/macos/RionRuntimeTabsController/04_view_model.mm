@@ -292,8 +292,7 @@ NS_ASSUME_NONNULL_BEGIN
   NSMutableDictionary<NSString *, NSImage *> *_tabIconCache;
   NSMutableDictionary<NSString *, NSString *> *_tabIconCacheKeys;
   RionRuntimeWorkspaceDividerOverlayView *_workspaceDividerOverlay;
-  NSVisualEffectView *_workspaceBackground;
-  RionWorkspaceBlackBackground *_workspaceBlackBackground;
+  RionWorkspaceBackgroundView *_workspaceBackground;
   NSMutableDictionary<NSString *, RionRuntimeWorkspaceDividerView *> *
       _workspaceDividerViews;
   NSDictionary<NSString *, id> *_workspaceDividerProjection;

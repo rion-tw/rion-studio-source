@@ -17,11 +17,14 @@ import {
 type Listener = (...arguments_: unknown[]) => unknown;
 
 export class FakeBaseWindow {
+  readonly setWindowButtonVisibility: Mock<(visible: boolean) => void> = vi.fn();
   readonly nativeId: number;
   readonly contentView: {
+    setBackgroundColor(color: string): void;
     addChildView(view: unknown): void;
     removeChildView(view: unknown): void;
   } = {
+    setBackgroundColor: vi.fn(),
     addChildView: vi.fn(),
     removeChildView: vi.fn()
   };

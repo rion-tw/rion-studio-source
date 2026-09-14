@@ -102,14 +102,33 @@ load completion cannot restore launch-time selection, geometry, or visibility.
 Cancellation revokes attachment evidence immediately, and both failed and
 cancelled mounts require exact native retirement before another attempt.
 
-Chromium v38/AppKit ABI 11 carries the complete workspace background with each
-window projection. A retained native underlay covers the content area, and each
-native gap paints the same background above Chromium's potentially stale host
-backing store. Black uses an opaque native fill; material uses native visual
-effects. AppKit converts Core's top-left coordinates into the content view's
-coordinate system. Windows retains its local host background. Background,
-bounds, visibility, and divider changes participate in the existing projection
-compensation. All inactive Role, Website content, and chrome surfaces are hidden.
+The current runtime contract 40/AppKit ABI 11 retains the existing background
+projection. Each workspace has one content-area background owner. AppKit uses a
+retained container with an internal NSVisualEffectView for material, or a solid
+black fill. The container remains below content, outside the native titlebar;
+splitters handle input and feedback without painting gaps. Only changed mode,
+geometry, or structural ordering is applied. Background and surface changes use
+the existing projection compensation.
+
+The macOS BaseWindow enables transparent composition at creation and keeps its
+native frame; Electron's public window-button visibility API restores the native
+traffic lights before AppKit attaches. Its root content View is clear. Merely
+clearing NSView colors leaves Chromium's opaque compositor retaining uncovered
+pixels. No Chromium private view class is overridden.
+
+Electron main creates Role, Website, local Website toolbar, and placeholder
+WebContentsViews with a transparent native background before attachment or
+navigation. Initialization failure closes the unmounted WebContents. This does
+not modify document CSS: transparent document regions reveal the workspace,
+while websites and games retain their own opaque paint. Windows retains Mica,
+a non-transparent resizable HWND, and its single local content background.
+AppKit converts Core's top-left geometry into content coordinates. Resize and
+tab activation retain Core's latest dimensions and hide all inactive Role,
+Website content, and toolbar surfaces. Native window resize preserves normalized
+slot dimensions and never starts divider ratio feedback. After the first exact
+native surface attachment, AppKit layout events remain live while sibling tabs
+load; network completion cannot hold or replay window geometry. Initial
+window-state admission retains its separate presentation fence.
 
 Core also supplies divider-linked surface bounds and labels derived from accepted
 normalized dimensions, formatted as `33.3% × 50%` (at most one decimal). AppKit

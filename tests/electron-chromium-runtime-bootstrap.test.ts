@@ -1294,7 +1294,8 @@ describe("Electron Chromium runtime bootstrap", () => {
           return {
             webContents: contents,
             getBounds: () => ({ ...bounds }),
-            getVisible: () => visible,
+            setBackgroundColor: vi.fn(),
+      getVisible: () => visible,
             setBounds: vi.fn((value: typeof bounds) => { bounds = { ...value }; }),
             setVisible: vi.fn((value: boolean) => { visible = value; })
           } as ChromiumRoleWebContentsViewPort;

@@ -34,10 +34,15 @@ export async function expectWorkspacePixels(input: {
     x: top.x + top.width * (i + 1) / 10, y: top.y + top.height + gapY / 2
   })));
   const gapSampleCount = points.length;
-  if (input.name !== "gap-restart") points.push(...surfaces.map(surface => ({
-    x: surface.bounds.x + surface.bounds.width / 2,
-    y: surface.bounds.y + surface.bounds.height / 2
-  })));
+  // Interior edge/corner samples catch content lost during native window resizing.
+  const contentPoints = surfaces.flatMap(surface => {
+    const b = surface.bounds;
+    return [{x:b.x+b.width/2,y:b.y+b.height/2},
+      {x:b.x+12,y:b.y+Math.min(60,b.height/2)},
+      {x:b.x+b.width-12,y:b.y+Math.min(60,b.height/2)},
+      {x:b.x+12,y:b.y+b.height-12},{x:b.x+b.width-12,y:b.y+b.height-12}];
+  });
+  if (input.name !== "gap-restart") points.push(...contentPoints);
   const result = await captureWorkspacePixels({ inspection: input.inspection,
     reference: { x: main.x+main.width, y: main.y, width: gapX, height: main.height },
     region: { x: main.x, y: main.y, width: top.x+top.width-main.x, height: main.height },

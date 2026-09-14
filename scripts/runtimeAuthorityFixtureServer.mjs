@@ -1048,6 +1048,13 @@ const server = createServer(async (request, response) => {
   }
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
   try {
+    if (request.method === "GET" && url.pathname === "/workspace-transparency") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      response.end(`<!doctype html><title>Workspace transparency fixture</title>
+        <style>html,body{margin:0;background:transparent}#opaque{position:fixed;inset:25%;background:rgb(16,200,80)}</style>
+        <div id="opaque" aria-label="Opaque green document paint"></div>`);
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       json(response, 200, { ok: true, port: activePort });
       return;

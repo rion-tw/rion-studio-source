@@ -280,29 +280,14 @@ NS_ASSUME_NONNULL_BEGIN
     overlayFrame.origin.y = NSHeight(_window.contentView.bounds) - NSMaxY(overlayFrame);
   }
   if (!_workspaceBackground) {
-    _workspaceBackground = [[RionWorkspaceMaterialBackground alloc] initWithFrame:overlayFrame];
-    _workspaceBackground.autoresizingMask = NSViewNotSizable;
-    _workspaceBackground.wantsLayer = YES;
-    _workspaceBackground.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    _workspaceBackground.material = NSVisualEffectMaterialUnderWindowBackground;
+    _workspaceBackground = [[RionWorkspaceBackgroundView alloc] initWithFrame:overlayFrame];
+    [_window.contentView addSubview:_workspaceBackground positioned:NSWindowBelow relativeTo:nil];
   }
-  _workspaceBackground.frame = overlayFrame;
-  BOOL black = [projection[@"background"] isEqualToString:@"black"];
-  _workspaceBackground.state = NSVisualEffectStateFollowsWindowActiveState;
-  _workspaceBackground.hidden = black;
-  if (!_workspaceBlackBackground) {
-    _workspaceBlackBackground = [[RionWorkspaceBlackBackground alloc] initWithFrame:overlayFrame];
-    _workspaceBlackBackground.wantsLayer = YES;
-    _workspaceBlackBackground.clipsToBounds = YES;
+  if (_window.contentView.subviews.firstObject != _workspaceBackground) {
+    [_window.contentView addSubview:_workspaceBackground positioned:NSWindowBelow relativeTo:nil];
   }
-  _workspaceBlackBackground.frame = overlayFrame;
-  _workspaceBlackBackground.hidden = !black;
-  // Keep the underlay inside the Chromium content boundary, below every
-  // surface. Never insert workspace views into AppKit's titlebar hierarchy.
-  [_window.contentView addSubview:_workspaceBlackBackground positioned:NSWindowBelow relativeTo:nil];
-  [_window.contentView addSubview:_workspaceBackground positioned:NSWindowBelow relativeTo:nil];
-  [_workspaceBlackBackground setNeedsDisplay:YES];
-  [_workspaceBackground setNeedsDisplay:YES];
+  if (!NSEqualRects(_workspaceBackground.frame, overlayFrame)) _workspaceBackground.frame = overlayFrame;
+  [_workspaceBackground applyBackground:projection[@"background"]];
 
   if (!_workspaceDividerOverlay) {
     _workspaceDividerOverlay =
@@ -318,12 +303,7 @@ NS_ASSUME_NONNULL_BEGIN
     [self removeWorkspaceDividerEventMonitor];
   }
   NSView *contentView = _window.contentView;
-  if (_workspaceDividerOverlay.superview != contentView) {
-    [_workspaceDividerOverlay removeFromSuperview];
-    [contentView addSubview:_workspaceDividerOverlay
-                 positioned:NSWindowAbove
-                 relativeTo:nil];
-  } else {
+  if (contentView.subviews.lastObject != _workspaceDividerOverlay) {
     [contentView addSubview:_workspaceDividerOverlay
                  positioned:NSWindowAbove
                  relativeTo:nil];
@@ -360,9 +340,6 @@ NS_ASSUME_NONNULL_BEGIN
         bounds[@"width"].doubleValue,
         bounds[@"height"].doubleValue);
     [divider applyProjection:dividerProjection localFrame:localFrame];
-    // Chromium's full host backing store can retain vacated child pixels above
-    // the underlay. Native gap paint also covers those exact unoccupied rects.
-    [divider applyBackground:projection[@"background"]];
     if (!divider.hidden) [accessibilityDividers addObject:divider];
   }
   for (NSString *staleKey in _workspaceDividerViews.allKeys.copy) {
@@ -409,12 +386,10 @@ NS_ASSUME_NONNULL_BEGIN
     expectedOverlayFrame.origin.y = NSHeight(_window.contentView.bounds) - NSMaxY(expectedOverlayFrame);
   }
   BOOL black = [projection[@"background"] isEqualToString:@"black"];
-  if (!_workspaceBackground || !_workspaceBlackBackground ||
+  if (!_workspaceBackground ||
       _workspaceBackground.superview != _window.contentView ||
-      _workspaceBlackBackground.superview != _window.contentView ||
-      _workspaceBackground.hidden != black || _workspaceBlackBackground.hidden == black ||
+      _workspaceBackground.black != black ||
       !NSEqualRects(_workspaceBackground.frame, expectedOverlayFrame) ||
-      !NSEqualRects(_workspaceBlackBackground.frame, expectedOverlayFrame) ||
       !_workspaceDividerOverlay ||
       !_window.contentView ||
       _workspaceDividerOverlay.superview != _window.contentView ||
@@ -465,8 +440,6 @@ NS_ASSUME_NONNULL_BEGIN
   _workspaceDividerOverlay = nil;
   [_workspaceBackground removeFromSuperview];
   _workspaceBackground = nil;
-  [_workspaceBlackBackground removeFromSuperview];
-  _workspaceBlackBackground = nil;
   _workspaceDividerProjection = nil;
   [self hideStatus];
   [_statusBackdrop removeFromSuperview];

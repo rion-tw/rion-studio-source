@@ -148,8 +148,9 @@ export interface MacosAppKitPreventableWindowEvent {
 }
 
 export interface MacosAppKitBaseWindowPort {
+  setWindowButtonVisibility: (visible: boolean) => void;
   readonly id: number;
-  readonly contentView: ChromiumRuntimeHostPort["contentView"];
+  readonly contentView: ChromiumRuntimeHostPort["contentView"] & { setBackgroundColor: (color: string) => void };
   close: () => void;
   destroy: () => void;
   focus: () => void;

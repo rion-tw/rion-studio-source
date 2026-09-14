@@ -363,10 +363,14 @@ describe("macOS AppKit Chromium runtime host", () => {
     expect(fixture.options).toEqual([buildMacosAppKitRuntimeWindowOptions(launchTarget)]);
     expect(fixture.options[0]).toMatchObject({
       frame: true,
+      transparent: true,
+      backgroundColor: "#00000000",
       show: false,
       useContentSize: true
     });
     expect(fixture.options[0]).not.toHaveProperty("webPreferences");
+    expect(fixture.windows[0]!.setWindowButtonVisibility).toHaveBeenCalledWith(true);
+    expect(fixture.windows[0]!.contentView.setBackgroundColor).toHaveBeenCalledWith("#00000000");
     expect(fixture.order.slice(0, 7)).toEqual([
       "window-created-hidden",
       "controller-attach",
@@ -769,7 +773,28 @@ describe("macOS AppKit Chromium runtime host", () => {
       .toBeLessThan(fixture.onAction.mock.invocationCallOrder[1]!);
   });
 
-  it("re-arms the presentation gate when an existing host admits a new tab", async () => {
+  it("publishes each resize after native attachment while the first tab is still loading", async () => {
+    const fixture = new Fixture();
+    const launchTarget = target();
+    const host = await fixture.factory.create(launchTarget, tab(launchTarget));
+    const identity = host.appKitIdentity!;
+    host.notifySurfaceAttachment?.();
+    fixture.onLayout.mockClear();
+    for (const yOffset of [8, 12, 4]) {
+      fixture.addon.emit(0, {
+        type: "layout", identity, layout: { heightInset: 40 + yOffset, yOffset, valid: true }
+      });
+      expect(fixture.onLayout).toHaveBeenLastCalledWith({ identity,
+        hosts: [expect.objectContaining({ contentBounds: {
+          x: 0, y: yOffset, width: 960, height: 640 - yOffset
+        } })] });
+    }
+    expect(fixture.onLayout).toHaveBeenCalledTimes(3);
+    host.releaseAppKitSurfaceAttachment?.("tab-1");
+    expect(fixture.onLayout).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps resize live while a new tab defers window-state presentation", async () => {
     const fixture = new Fixture();
     const launchTarget = target();
     const host = await fixture.factory.create(launchTarget, tab(launchTarget));
@@ -800,13 +825,13 @@ describe("macOS AppKit Chromium runtime host", () => {
       layout: { heightInset: 52, yOffset: 12, valid: true }
     });
     expect(fixture.onAction).not.toHaveBeenCalled();
-    expect(fixture.onLayout).not.toHaveBeenCalled();
+    expect(fixture.onLayout).toHaveBeenCalledOnce();
 
     host.releaseAppKitSurfaceAttachment?.("tab-2");
     expect(fixture.onAction).toHaveBeenCalledOnce();
     expect(fixture.onLayout).toHaveBeenCalledOnce();
-    expect(fixture.onAction.mock.invocationCallOrder[0])
-      .toBeLessThan(fixture.onLayout.mock.invocationCallOrder[0]!);
+    expect(fixture.onLayout.mock.invocationCallOrder[0])
+      .toBeLessThan(fixture.onAction.mock.invocationCallOrder[0]!);
     expect(() => host.releaseAppKitSurfaceAttachment?.("missing-tab"))
       .toThrow(expect.objectContaining({
         code: "ELECTRON_MACOS_APPKIT_SURFACE_ATTACHMENT_STALE"
@@ -826,7 +851,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       layout: { heightInset: 56, yOffset: 16, valid: true }
     });
     host.discardAppKitSurfaceAttachment?.("tab-3");
-    expect(fixture.onLayout).not.toHaveBeenCalled();
+    expect(fixture.onLayout).toHaveBeenCalledOnce();
     expect(fixture.onAction).not.toHaveBeenCalled();
   });
 

@@ -1,7 +1,6 @@
-import { execFile } from "node:child_process";
+import { runWorkspaceSwift } from "./compiled-workspace-swift";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { promisify } from "node:util";
 import { runEncodedPowerShellJson } from "../../../scripts/encodedPowerShell.mjs";
 import { electronDesktopE2eProbe, type ElectronDesktopE2eFullscreenToolbarRuntimeInspection } from "./electron-driver";
 import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
@@ -19,9 +18,8 @@ export async function captureWorkspacePixels(input: {
     await focusVisibleMacosAppKitRuntime({ processId, windowId: payload.windowId });
     const request = path.replace(/\.png$/u, ".json");
     await writeFile(request, JSON.stringify(payload));
-    const result = await promisify(execFile)("/usr/bin/xcrun", ["swift",
-      resolve(import.meta.dirname, "workspace-pixels.swift"), request], { timeout: 30_000 });
-    const evidence = { ...JSON.parse(result.stdout), path };
+    const result = await runWorkspaceSwift("workspace-pixels", request);
+    const evidence = { ...JSON.parse(result), path };
     await writeFile(path.replace(/\.png$/u, ".pixels.json"), JSON.stringify(evidence, null, 2));
     return evidence;
   }

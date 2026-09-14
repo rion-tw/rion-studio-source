@@ -18,6 +18,9 @@ export function buildMacosAppKitRuntimeWindowOptions(
     frame: true,
     focusable: true,
     fullscreenable: true,
-    backgroundColor: "#111318"
+    // The Chromium compositor must clear uncovered pixels, as well as the
+    // native content View. A clear color alone leaves an opaque compositor.
+    transparent: true,
+    backgroundColor: "#00000000"
   };
 }

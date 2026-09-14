@@ -171,6 +171,7 @@ class FakeWebContents implements ChromiumRoleSurfaceWebContentsPort {
 }
 
 class FakeView implements ChromiumRoleWebContentsViewPort {
+  readonly setBackgroundColor = vi.fn();
   readonly bounds: ChromiumRoleSurfaceBounds[] = [];
   readonly visibility: boolean[] = [];
   readonly ownedWebContents: FakeWebContents;

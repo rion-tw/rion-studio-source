@@ -1,3 +1,4 @@
+import { createTransparentRuntimeView } from "./transparentRuntimeView";
 import { WORKSPACE_START_URL } from "../../shared/workspaceStartPage";
 import { readWorkspaceWebTheme, subscribeWorkspaceWebTheme } from "./workspaceWebTheme";
 import { pathToFileURL } from "node:url";
@@ -280,7 +281,7 @@ export class ChromiumGlobalWebPresentationRegistry {
         "The Workspace Web surface already owns paired Rion chrome."
       );
     }
-    const view = this.#views.create({
+    const view = createTransparentRuntimeView(this.#views, {
       webPreferences: {
         ...buildRemoteContentWebPreferences({
           preloadPath: this.#shell.preloadPath

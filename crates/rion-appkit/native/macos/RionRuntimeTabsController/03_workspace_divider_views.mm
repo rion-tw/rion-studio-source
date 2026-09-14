@@ -1,19 +1,40 @@
 NS_ASSUME_NONNULL_BEGIN
-
-@interface RionWorkspaceBlackBackground : NSView
+// One background owner below Chromium. Splitters never paint the workspace.
+@interface RionWorkspaceBackgroundView : NSView
+@property(nonatomic, readonly) BOOL black;
+- (void)applyBackground:(NSString *)background;
 @end
-@implementation RionWorkspaceBlackBackground
-- (BOOL)isOpaque { return YES; }
-- (void)drawRect:(NSRect)dirtyRect {
-  [NSColor.blackColor setFill];
-  NSRectFill(NSIntersectionRect(dirtyRect, self.bounds));
+@implementation RionWorkspaceBackgroundView {
+  NSVisualEffectView *_material;
+  BOOL _black;
 }
-- (nullable NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
-@end
-
-@interface RionWorkspaceMaterialBackground : NSVisualEffectView
-@end
-@implementation RionWorkspaceMaterialBackground
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  self.clipsToBounds = YES;
+  _material = [[NSVisualEffectView alloc] initWithFrame:self.bounds];
+  _material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  _material.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+  _material.material = NSVisualEffectMaterialUnderWindowBackground;
+  _material.state = NSVisualEffectStateFollowsWindowActiveState;
+  [self addSubview:_material];
+  return self;
+}
+- (BOOL)black { return _black; }
+- (BOOL)isOpaque { return _black; }
+- (void)applyBackground:(NSString *)background {
+  BOOL black = [background isEqualToString:@"black"];
+  if (_black == black) return;
+  _black = black;
+  _material.hidden = black;
+  self.needsDisplay = YES;
+}
+- (void)drawRect:(NSRect)dirtyRect {
+  NSRect rect = NSIntersectionRect(dirtyRect, self.bounds);
+  if (_black) { [NSColor.blackColor setFill]; NSRectFill(rect); }
+  else { [NSColor.clearColor setFill]; NSRectFillUsingOperation(rect, NSCompositingOperationCopy); }
+}
 - (nullable NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 @end
 
@@ -59,13 +80,11 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
              localFrame:(NSRect)localFrame;
 - (void)cancelActiveGesture;
 - (void)retireGesture:(NSString *)gestureID;
-- (void)applyBackground:(NSString *)background;
 - (void)mouseDraggedAtOverlayPoint:(NSPoint)point;
 
 @end
 
 @implementation RionRuntimeWorkspaceDividerOverlayView
-
 - (instancetype)initWithFrame:(NSRect)frameRect {
   self = [super initWithFrame:frameRect];
   if (self) {
@@ -124,8 +143,6 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   RionRuntimeWorkspaceDividerActionHandler _actionHandler;
   NSTrackingArea *_trackingArea;
   NSArray<NSDictionary *> *_resizeIndicators;
-  RionWorkspaceBlackBackground *_blackBackground;
-  RionWorkspaceMaterialBackground *_materialBackground;
   NSMutableArray<NSView *> *_indicatorViews;
 }
 
@@ -218,25 +235,6 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   _resizeIndicators = [projection[@"resizeIndicators"] copy];
   if (self.hidden) [self cancelActiveGesture];
   [self updateResizeIndicators];
-}
-
-- (void)applyBackground:(NSString *)background {
-  if (!_blackBackground) {
-    _blackBackground = [[RionWorkspaceBlackBackground alloc] initWithFrame:self.bounds];
-    _blackBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    _blackBackground.wantsLayer = YES;
-    _blackBackground.clipsToBounds = YES;
-    [self addSubview:_blackBackground positioned:NSWindowBelow relativeTo:nil];
-    _materialBackground = [[RionWorkspaceMaterialBackground alloc] initWithFrame:self.bounds];
-    _materialBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    _materialBackground.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    _materialBackground.material = NSVisualEffectMaterialUnderWindowBackground;
-    [self addSubview:_materialBackground positioned:NSWindowBelow relativeTo:nil];
-  }
-  BOOL black = [background isEqualToString:@"black"];
-  _blackBackground.hidden = !black;
-  _materialBackground.hidden = black;
-  [_blackBackground setNeedsDisplay:YES];
 }
 
 - (void)updateResizeIndicators {

@@ -10,12 +10,14 @@ export type MacosAppKitPendingPresentationEvent =
 
 /**
  * Coalesces native presentation callbacks while an AppKit tab is still
- * acquiring its exact Chromium surfaces. User-authored tab actions stay on
- * their normal event lane; only layout/window-state evidence is deferred.
+ * acquiring its exact Chromium surfaces. Once a surface is attached, geometry
+ * stays live even while sibling tabs load. Window-state evidence retains its
+ * admission fence; user-authored tab actions stay on their normal event lane.
  */
 export class MacosAppKitRuntimeHostPresentationGate {
   readonly #pendingTabIds = new Set<string>();
   #nextSequence = 0;
+  #geometryReady = false;
   #layoutSequence: number | null = null;
   #windowState: Extract<
     MacosAppKitPendingPresentationEvent,
@@ -26,8 +28,13 @@ export class MacosAppKitRuntimeHostPresentationGate {
     this.#pendingTabIds.add(tabId);
   }
 
+  surfaceAttached(): void {
+    this.#geometryReady = true;
+    this.#layoutSequence = null;
+  }
+
   deferLayout(): boolean {
-    if (this.#pendingTabIds.size === 0) return false;
+    if (this.#geometryReady || this.#pendingTabIds.size === 0) return false;
     this.#layoutSequence = this.#nextEventSequence();
     return true;
   }
@@ -46,6 +53,7 @@ export class MacosAppKitRuntimeHostPresentationGate {
     if (!this.#pendingTabIds.delete(tabId) || this.#pendingTabIds.size > 0) {
       return [];
     }
+    this.#geometryReady = true;
     const pending: MacosAppKitPendingPresentationEvent[] = [];
     if (this.#layoutSequence !== null) {
       pending.push(Object.freeze({

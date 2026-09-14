@@ -1,3 +1,4 @@
+import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
 import { leaveLaunchInBackground } from "../support/launch-foreground";
 import { $, browser, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
@@ -332,6 +333,7 @@ async function launchRoleIntoWindow(
 
   let tabId: string | undefined;
   let verifyForeground: (() => Promise<void>) | undefined;
+  let resizedWhileLoading: { x:number; y:number; width:number; height:number } | undefined;
   if (loading) {
     try {
       await browser.waitUntil(async () => {
@@ -396,6 +398,16 @@ async function launchRoleIntoWindow(
           .find(window => window.id === gameWindow.id)?.activeTabId === loading.previousTab!.id, {
           timeout: 20_000, timeoutMsg: "The user tab selection did not commit before B completed"
         });
+        const beforeResize = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
+        const oldBounds = beforeResize.surfaces.find(surface => surface.tabId === loading.previousTab!.id)!.bounds;
+        await resizeWorkspaceWindow({ inspection:beforeResize, edge:"bottomRight", moves:[{x:-48,y:-32}],
+          whileHeld: async () => {
+            await browser.waitUntil(async () => {
+              const current = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
+              resizedWhileLoading = current.surfaces.find(surface => surface.tabId === loading.previousTab!.id)!.bounds;
+              return resizedWhileLoading.width < oldBounds.width && resizedWhileLoading.height < oldBounds.height;
+            }, { timeout:20_000, timeoutMsg:"Native resize did not update A while B was loading" });
+          } });
       }
     } finally {
       await fixtureRequest("/api/release", { roleId: fixtureId });
@@ -432,6 +444,7 @@ async function launchRoleIntoWindow(
     const runtime = await currentRuntime(gameWindow.id);
     expect(runtime.windows.find((window) => window.id === gameWindow.id)?.activeTabId)
       .toBe(loading.previousTab.id);
+    expect(inspection.surfaces.find(surface => surface.tabId === loading.previousTab!.id)!.bounds).toEqual(resizedWhileLoading);
     expect(inspection.surfaces.filter((surface) => surface.visible)).toEqual([
       expect.objectContaining({ tabId: loading.previousTab.id, visible: true })
     ]);

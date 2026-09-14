@@ -132,6 +132,7 @@ class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
 }
 
 class FakeView implements ChromiumRoleWebContentsViewPort {
+  readonly setBackgroundColor = vi.fn();
   readonly webContents: FakeContents;
   bounds: ChromiumRoleSurfaceBounds = { x: 0, y: 0, width: 0, height: 0 };
   visible = false;
@@ -282,13 +283,20 @@ describe("Chromium paired Workspace Web presentation", () => {
     const creation = fixture.subject.create({ ...fixture.input, onAttached: attached });
     await vi.waitFor(() => expect(attached).toHaveBeenCalledOnce());
     const bounds = { x: 20, y: 60, width: 420, height: 380 };
-    fixture.subject.setBounds(fixture.input.surfaceId, 1, bounds);
+    for (const resize of [
+      { x: 0, y: 8, width: 900, height: 700 },
+      { x: 90, y: 80, width: 240, height: 180 }, bounds
+    ]) fixture.subject.setBounds(fixture.input.surfaceId, 1, resize);
     fixture.subject.setVisible(fixture.input.surfaceId, 1, false);
     fixture.subject.setZoomFactor(fixture.input.surfaceId, 1, 0.8);
     expect(fixture.subject.readProjection(fixture.input.surfaceId, 1)).toMatchObject({ bounds, visible: false });
     const shell = fixture.views[0]!.webContents;
     const content = fixture.views[1]!.webContents;
     shell.finish(shell.loadedUrls[0]!);
+    // A toolbar completion between native resize events cannot restore its
+    // launch rectangle or reveal the now-inactive paired content.
+    fixture.subject.setBounds(fixture.input.surfaceId, 1, { ...bounds, width: 700 });
+    fixture.subject.setBounds(fixture.input.surfaceId, 1, bounds);
     content.finish("https://fixture.test/start");
     await creation;
     expect(fixture.subject.readProjection(fixture.input.surfaceId, 1)).toMatchObject({ bounds, visible: false, zoomFactor: 0.8 });

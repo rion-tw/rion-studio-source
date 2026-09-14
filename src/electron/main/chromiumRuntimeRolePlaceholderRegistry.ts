@@ -1,3 +1,4 @@
+import { createTransparentRuntimeView } from "./transparentRuntimeView";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -356,7 +357,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
   ): Promise<void> {
     const generation = (this.#generations.get(descriptor.placeholderId) ?? 0) + 1;
     this.#generations.set(descriptor.placeholderId, generation);
-    const view = this.#views.create({
+    const view = createTransparentRuntimeView(this.#views, {
       webPreferences: {
         ...buildRemoteContentWebPreferences({ preloadPath: this.#shell.preloadPath }),
         session: this.#shell.session

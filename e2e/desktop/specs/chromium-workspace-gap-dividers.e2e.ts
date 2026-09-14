@@ -1,3 +1,7 @@
+import { resizeWorkspaceWithLoadingSibling, resizeActiveWebsiteTab } from "./chromium-workspace-tab-resize";
+import { exerciseWorkspaceWindowTransitions } from "./chromium-workspace-window-transitions";
+import { captureWorkspaceWebsiteHandles, exerciseWorkspaceTransparency } from "./chromium-workspace-transparency-evidence";
+import { exerciseWorkspaceResize } from "./chromium-workspace-resize-evidence";
 import { expectWorkspacePixels, paintWorkspaceTargets } from "./chromium-workspace-gap-evidence";
 import { fixtureRequest } from "../support/fixture";
 import { activateWindowsRuntimeTabWhileLoading } from "../support/windows-runtime-tab-close";
@@ -19,7 +23,7 @@ import {
 } from "../support/electron-driver";
 import { dragWindowsVisibleWorkspaceDivider } from
   "../support/electron-role-surface";
-import { dragMacosVisibleWorkspaceDivider } from
+import { dragMacosVisibleWorkspaceDivider, readMacosVisibleRuntimeTabPoint } from
   "../support/macos-appkit-ui";
 import {
   installRuntimeTabShellErrorJournal,
@@ -356,6 +360,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     tabId: launched.tabId,
     windowId: gameWindow.id
   });
+  const websiteHandles = await captureWorkspaceWebsiteHandles(launched.mainWindowHandle);
   await paintWorkspaceTargets(launched.mainWindowHandle, "rgb(240,0,240)");
   await expectWorkspacePixels({ inspection: initial, tabId: launched.tabId, name: "gap-1-material", background: "material" });
   await setVisibleWorkspaceGap(1, "black");
@@ -459,10 +464,18 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   });
   await fixtureRequest("/api/gate", { roleId: fixtureId });
   let launchedB: Awaited<ReturnType<typeof launchWorkspace>>;
+  let resizedWhileLoadingWidth = 0;
   try {
     launchedB = await launchWorkspace(workspaceB, gameWindow, [], async loadingTabId => {
       const waiting = await fetch(`${fixtureOrigin}/api/gates/${fixtureId}/waiting`, { signal: AbortSignal.timeout(30_000) });
       expect(waiting.ok).toBe(true);
+      if (platform === "macos") await browser.waitUntil(async () => {
+        try {
+          await readMacosVisibleRuntimeTabPoint({ windowId: gameWindow.id,
+            tabId: loadingTabId, tabName: workspaceB.name });
+          return true;
+        } catch { return false; }
+      }, { timeout: 20_000, timeoutMsg: "Loading tab did not appear in the native tab strip" });
       for (const selected of [loadingTabId, launched.tabId]) {
         if (platform === "macos") {
           await clickVisibleRuntimeTab({ mainWindowHandle: launched.mainWindowHandle, platform,
@@ -472,6 +485,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
             loadingTabName: workspaceB.name, selectedTabName: selected === loadingTabId ? workspaceB.name : WORKSPACE_NAME });
         }
       }
+      resizedWhileLoadingWidth = await resizeWorkspaceWithLoadingSibling(gameWindow.id, launched.tabId);
       expect((await rendererCall("getEmbeddedRuntimeState")).windows.find(w => w.id === gameWindow.id)?.activeTabId).toBe(launched.tabId);
     });
   } catch (error) {
@@ -484,6 +498,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   await clickVisibleRuntimeTab({ mainWindowHandle: launched.mainWindowHandle, platform, tabId: launchedB.tabId, tabName: workspaceB.name });
   await paintWorkspaceTargets(launched.mainWindowHandle, "rgb(0,240,240)",
     new Set((await browser.getWindowHandles()).filter(h => !beforeB.has(h))));
+  await resizeActiveWebsiteTab(gameWindow.id, launchedB.tabId, resizedWhileLoadingWidth);
   for (const selected of [launched.tabId, launchedB.tabId, launched.tabId]) {
     await clickVisibleRuntimeTab({ mainWindowHandle: launched.mainWindowHandle, platform, tabId: selected,
       tabName: selected === launched.tabId ? WORKSPACE_NAME : workspaceB.name });
@@ -501,6 +516,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     await setVisibleWorkspaceGap(gap, background);
     await waitForExactGap({ gap, primaryRoleId: primary.id, secondaryRoleId: secondary.id,
       tabId: launched.tabId, windowId: gameWindow.id });
+    await exerciseWorkspaceResize({ windowId: gameWindow.id, tabId: launched.tabId, gap, background });
     for (const axis of ["vertical", "horizontal"] as const) {
       const before = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
       await dragDivider({ axis, dividerIndex: axis === "vertical" ? 0 : 1, gap, delta,
@@ -523,6 +539,11 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     await expectWorkspacePixels({ inspection: await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id),
       tabId: launched.tabId, name: `matrix-${gap}-${background}-a-b-a`, background });
   }
+  await exerciseWorkspaceWindowTransitions({ windowId: gameWindow.id, tabId: launched.tabId,
+    mainWindowHandle: launched.mainWindowHandle, platform });
+  await exerciseWorkspaceTransparency({ windowId: gameWindow.id, tabId: launched.tabId,
+    mainWindowHandle: launched.mainWindowHandle, fixtureOrigin, handles: websiteHandles, platform,
+    background: mode => setVisibleWorkspaceGap(16, mode) });
   expect(finalInspection!.workspaceTabs.find(
     (tab) => tab.tabId === launched.tabId
   )!.slots).toHaveLength(3);
@@ -573,7 +594,8 @@ async function restartPhase(): Promise<void> {
 }
 
 describe("Chromium live Workspace gap and paired dividers", () => {
-  it("projects a live 1px to 16px update and persists both native divider axes", async () => {
+  it("projects a live 1px to 16px update and persists both native divider axes", async function () {
+    this.timeout(12 * 60_000);
     const platform = await preparePhase();
     const phase = required("RION_STUDIO_E2E_PHASE");
     if (phase === "chromium-workspace-gap-dividers-seed") {

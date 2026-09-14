@@ -81,7 +81,8 @@ export const config = {
   connectionRetryTimeout: 70_000,
   waitforTimeout: 10_000,
   mochaOpts: {
-    timeout: 8 * 60_000
+    // Native resize/pixel matrices include both initial loading barriers.
+    timeout: (phase === "chromium-workspace-gap-dividers-seed" ? 20 : 8) * 60_000
   },
   beforeSession: (): void => {
     if (packaged) return;

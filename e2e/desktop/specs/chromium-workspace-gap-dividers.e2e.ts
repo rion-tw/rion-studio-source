@@ -1,3 +1,5 @@
+import { captureWorkspaceTransitionFrames } from "../support/workspace-transition-frames";
+import { armFirstWorkspaceHost, exerciseFirstWorkspaceHost } from "./chromium-workspace-first-host";
 import { resizeWorkspaceWithLoadingSibling, resizeActiveWebsiteTab } from "./chromium-workspace-tab-resize";
 import { exerciseWorkspaceWindowTransitions } from "./chromium-workspace-window-transitions";
 import { captureWorkspaceWebsiteHandles, exerciseWorkspaceTransparency } from "./chromium-workspace-transparency-evidence";
@@ -239,9 +241,9 @@ async function launchWorkspace(
     );
     window = runtime.windows.find((candidate) => candidate.id === gameWindow.id);
     const running = await rendererCall("listRoleStatuses");
-    return Boolean(tab && window?.visible) && roleIds.every((roleId) =>
+    return Boolean(tab && window?.visible) && (Boolean(whileLoading) || roleIds.every((roleId) =>
       running.some((status) => status.roleId === roleId && status.state === "running")
-    );
+    ));
   }, {
     interval: 100,
     timeout: 45_000,
@@ -350,9 +352,16 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
   await setVisibleWorkspaceGap(1);
   const workspace = await createWorkspace(primary, secondary);
   const gameWindow = await createSavedWindow();
-  const launched = await launchWorkspace(
-    workspace, gameWindow, [primary.id, secondary.id]
-  );
+  // Saved-placement precondition keeps every native border clear of the Dock.
+  await rendererCall("updateGameWindow", gameWindow.id, { placement: { ...gameWindow.placement,
+    normalBounds: { ...gameWindow.placement.normalBounds, width: 960, height: 640 } } });
+  await armFirstWorkspaceHost(gameWindow.id);
+  const firstMainHandle = await browser.getWindowHandle();
+  const launched = await captureWorkspaceTransitionFrames(platform, "first-host-opening", () => launchWorkspace(
+    workspace, gameWindow, [primary.id, secondary.id], async () => undefined
+  ));
+  await exerciseFirstWorkspaceHost({windowId:gameWindow.id, tabId:launched.tabId,
+    mainWindowHandle:firstMainHandle, platform, setAppearance:setVisibleWorkspaceGap});
   const initial = await waitForExactGap({
     gap: 1,
     primaryRoleId: primary.id,
@@ -595,7 +604,7 @@ async function restartPhase(): Promise<void> {
 
 describe("Chromium live Workspace gap and paired dividers", () => {
   it("projects a live 1px to 16px update and persists both native divider axes", async function () {
-    this.timeout(12 * 60_000);
+    this.timeout(20 * 60_000);
     const platform = await preparePhase();
     const phase = required("RION_STUDIO_E2E_PHASE");
     if (phase === "chromium-workspace-gap-dividers-seed") {

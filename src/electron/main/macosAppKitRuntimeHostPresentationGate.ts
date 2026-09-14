@@ -8,103 +8,44 @@ export type MacosAppKitPendingPresentationEvent =
       sequence: number;
     }>;
 
-/**
- * Coalesces native presentation callbacks while an AppKit tab is still
- * acquiring its exact Chromium surfaces. Once a surface is attached, geometry
- * stays live even while sibling tabs load. Window-state evidence retains its
- * admission fence; user-authored tab actions stay on their normal event lane.
- */
+/** Admission is owned by the first exact Core host projection, never page loading. */
 export class MacosAppKitRuntimeHostPresentationGate {
-  readonly #pendingTabIds = new Set<string>();
+  #admitted = false;
   #nextSequence = 0;
-  #geometryReady = false;
   #layoutSequence: number | null = null;
-  #windowState: Extract<
-    MacosAppKitPendingPresentationEvent,
-    { kind: "windowState" }
-  > | null = null;
+  readonly #windowStates = new Map<string, Extract<MacosAppKitPendingPresentationEvent, { kind: "windowState" }>>();
 
-  begin(tabId: string): void {
-    this.#pendingTabIds.add(tabId);
-  }
-
-  surfaceAttached(): void {
-    this.#geometryReady = true;
-    this.#layoutSequence = null;
-  }
+  get admitted(): boolean { return this.#admitted; }
 
   deferLayout(): boolean {
-    if (this.#geometryReady || this.#pendingTabIds.size === 0) return false;
-    this.#layoutSequence = this.#nextEventSequence();
+    if (this.#admitted) return false;
+    this.#layoutSequence = ++this.#nextSequence;
     return true;
   }
 
   deferWindowState(action: Readonly<Record<string, unknown>>): boolean {
-    if (this.#pendingTabIds.size === 0) return false;
-    this.#windowState = Object.freeze({
-      action: Object.freeze({ ...action }),
-      kind: "windowState" as const,
-      sequence: this.#nextEventSequence()
-    });
+    if (this.#admitted) return false;
+    this.#windowStates.set(String(action.type), Object.freeze({
+      action: Object.freeze({ ...action }), kind: "windowState", sequence: ++this.#nextSequence
+    }));
     return true;
   }
 
-  release(tabId: string): readonly MacosAppKitPendingPresentationEvent[] {
-    if (!this.#pendingTabIds.delete(tabId) || this.#pendingTabIds.size > 0) {
-      return [];
-    }
-    this.#geometryReady = true;
-    const pending: MacosAppKitPendingPresentationEvent[] = [];
-    if (this.#layoutSequence !== null) {
-      pending.push(Object.freeze({
-        kind: "layout",
-        sequence: this.#layoutSequence
-      }));
-    }
-    if (this.#windowState) pending.push(this.#windowState);
-    this.#clearPendingEvents();
-    return Object.freeze(pending.sort((left, right) =>
-      left.sequence - right.sequence
-    ));
-  }
-
-  discard(tabId: string): void {
-    if (!this.#pendingTabIds.delete(tabId) || this.#pendingTabIds.size > 0) return;
-    this.#clearPendingEvents();
-  }
-
-  #nextEventSequence(): number {
-    this.#nextSequence += 1;
-    return this.#nextSequence;
-  }
-
-  #clearPendingEvents(): void {
+  admit(): readonly MacosAppKitPendingPresentationEvent[] {
+    if (this.#admitted) return [];
+    this.#admitted = true;
+    const pending: MacosAppKitPendingPresentationEvent[] = [...this.#windowStates.values()];
+    if (this.#layoutSequence !== null) pending.push({ kind: "layout", sequence: this.#layoutSequence });
     this.#layoutSequence = null;
-    this.#windowState = null;
+    this.#windowStates.clear();
+    return pending.sort((left, right) => left.sequence - right.sequence);
   }
 }
 
-export function releaseMacosAppKitSurfaceAttachment(input: Readonly<{
-  gate: MacosAppKitRuntimeHostPresentationGate;
-  ownsTab: boolean;
-  publishLayout: () => void;
-  publishWindowState: (action: Readonly<Record<string, unknown>>) => void;
-  tabId: string;
-}>): void {
-  requireOwnedTab(input.ownsTab, "completed");
-  for (const event of input.gate.release(input.tabId)) {
-    if (event.kind === "layout") input.publishLayout();
-    else input.publishWindowState(event.action);
-  }
-}
-
-export function discardMacosAppKitSurfaceAttachment(input: Readonly<{
-  gate: MacosAppKitRuntimeHostPresentationGate;
-  ownsTab: boolean;
-  tabId: string;
-}>): void {
-  requireOwnedTab(input.ownsTab, "discarded");
-  input.gate.discard(input.tabId);
+export function requireMacosAppKitSurfaceAttachmentOwner(
+  ownsTab: boolean, outcome: "completed" | "discarded"
+): void {
+  requireOwnedTab(ownsTab, outcome);
 }
 
 function requireOwnedTab(ownsTab: boolean, outcome: "completed" | "discarded"): void {

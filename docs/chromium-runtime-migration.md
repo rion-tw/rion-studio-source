@@ -104,11 +104,15 @@ cancelled mounts require exact native retirement before another attempt.
 
 The current runtime contract 40/AppKit ABI 11 retains the existing background
 projection. Each workspace has one content-area background owner. AppKit uses a
-retained container with an internal NSVisualEffectView for material, or a solid
-black fill. The container remains below content, outside the native titlebar;
-splitters handle input and feedback without painting gaps. Only changed mode,
-geometry, or structural ordering is applied. Background and surface changes use
-the existing projection compensation.
+retained container created with the native host, with an internal NSVisualEffectView
+for material or a solid black fill. The initial Core-provided mode is applied via
+the existing native projection API and revision ledger before first presentation.
+The same container autoresizes to the content root even without a Core projection,
+remains below content across fullscreen transitions, and stays outside the native
+titlebar. Splitters handle input and feedback without painting gaps. Compensation
+restores the confirmed mode and content projections while background coverage
+always follows the current root size. Windows initializes the mode before show
+and pins its single local background to the client area.
 
 The macOS BaseWindow enables transparent composition at creation and keeps its
 native frame; Electron's public window-button visibility API restores the native
@@ -125,10 +129,17 @@ a non-transparent resizable HWND, and its single local content background.
 AppKit converts Core's top-left geometry into content coordinates. Resize and
 tab activation retain Core's latest dimensions and hide all inactive Role,
 Website content, and toolbar surfaces. Native window resize preserves normalized
-slot dimensions and never starts divider ratio feedback. After the first exact
-native surface attachment, AppKit layout events remain live while sibling tabs
-load; network completion cannot hold or replay window geometry. Initial
-window-state admission retains its separate presentation fence.
+slot dimensions and never starts divider ratio feedback. A divider ending at a
+resizable window edge yields the native 4 DIP border to window resizing. The first exact Core host
+ownership/generation/topology projection admits both layout and window-state
+events, without waiting for any surface attachment or network completion. Before
+admission only the latest layout and each window-state event kind are retained;
+a microtask forwards them through the existing ordered event lane after local
+ownership application. Late surface completion first receives current bounds and
+visibility and cannot restore launch-time geometry, presentation, or selection.
+AppKit ownership projections also refresh the local normalized slot specification;
+confirmed full projections refresh its appearance before resolving loading
+placeholders. This prevents startup settings from covering newly widened gaps.
 
 Core also supplies divider-linked surface bounds and labels derived from accepted
 normalized dimensions, formatted as `33.3% × 50%` (at most one decimal). AppKit

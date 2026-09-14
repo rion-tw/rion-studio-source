@@ -25,6 +25,57 @@ function plan(): Extract<CoreEffectRequest["action"], { type: "embeddedLoadWorks
 }
 
 for (const platform of ["macos", "windows"] as const) describe(`workspace slot loads on ${platform}`, () => {
+  it("does not recreate loading placeholders after cancellation during layout resolution", async () => {
+    const subject = harness(undefined, platform);
+    const specification = mixedTab();
+    await createTab(subject, specification);
+    const gate = deferred<void>(); const started = deferred<void>();
+    const originalBounds = await subject.resolveRoleBounds(specification);
+    subject.resolveRoleBounds.mockImplementation(async () => {
+      started.resolve(); await gate.promise; return originalBounds;
+    });
+    subject.hosts[0]!.applyWorkspaceSlotLoads.mockClear();
+    const run = await subject.executor.execute(effect(specification.tabId, plan()));
+    if (!isCoreEffectEventContinuation(run)) throw new Error("missing continuation");
+    await started.promise;
+    const terminal = expect(run.completion).rejects.toBeDefined();
+    run.cancel("coreCancelled"); gate.resolve(); await terminal;
+    expect(subject.hosts[0]!.applyWorkspaceSlotLoads).not.toHaveBeenCalled();
+    expect(subject.createSurface).not.toHaveBeenCalled();
+    expect(subject.createWebSurface).not.toHaveBeenCalled();
+  });
+
+  for (const kind of ["role", "web", "mixed"] as const) it(`applies latest ${kind} geometry before showing delayed initial content`, async () => {
+    const gate = deferred<void>();
+    const started = deferred<void>();
+    const subject = harness(undefined, platform);
+    const specification = mixedTab();
+    const slots = specification.slots.filter(slot => kind === "mixed" || Boolean(slot.web) === (kind === "web"));
+    const selected = { ...specification, slots, roles: specification.roles.filter(role => slots.some(slot => slot.role.id === role.role.id)) };
+    const request = plan();
+    request.roles = request.roles.filter(role => slots.some(slot => slot.role.id === role.roleId));
+    request.surfaces = request.surfaces.filter(web => slots.some(slot => slot.role.id === web.surfaceId));
+    subject.reportSlotLoad.mockImplementation(async (record: WorkspaceSlotLoadRecord) => {
+      if (record.phase === "ready") { started.resolve(); await gate.promise; }
+      return { ...record, revision: record.revision + 1 };
+    });
+    await createTab(subject, selected);
+    const run = await subject.executor.execute(effect(selected.tabId, request));
+    if (!isCoreEffectEventContinuation(run)) throw new Error("missing event continuation");
+    await started.promise;
+    const latest = { x: 8, y: 72, width: 333, height: 444 };
+    subject.resolveRoleBounds.mockResolvedValue(new Map(slots.map(slot => [slot.role.id, latest])));
+    subject.setBounds.mockClear(); subject.setWebBounds.mockClear();
+    subject.setVisible.mockClear(); subject.setWebVisible.mockClear();
+    gate.resolve(); await run.completion;
+    for (const slot of slots) {
+      const bounds = slot.web ? subject.setWebBounds : subject.setBounds;
+      const visible = slot.web ? subject.setWebVisible : subject.setVisible;
+      expect(bounds).toHaveBeenLastCalledWith(slot.role.id, 1, latest);
+      expect(bounds.mock.invocationCallOrder.at(-1)).toBeLessThan(visible.mock.invocationCallOrder.at(-1)!);
+    }
+  });
+
   it("reveals a ready Website while the Role still awaits its exact native event", async () => {
     const gate = deferred<void>();
     const webReady = deferred<void>();

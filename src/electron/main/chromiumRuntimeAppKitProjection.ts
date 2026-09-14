@@ -527,6 +527,12 @@ export async function applyChromiumRuntimeAppKitProjection(
     window.activeTabId = windowProjection.activeTabId ?? "";
     window.topologyRevision = windowProjection.topologyRevision;
     window.lastAdapterSequence = windowProjection.adapterSequence;
+    // All loading slots must use the same confirmed appearance as native dividers.
+    for (const tabId of windowProjection.logicalTabIds) {
+      const tab = tabs.get(tabId)!;
+      tab.specification = { ...tab.specification,
+        workspaceAppearance: { ...windowProjection.workspaceAppearance } };
+    }
   }
   for (const { transaction } of committedHosts) transaction.finalize?.();
   for (const [tabId, windowId] of projectedWindowByTab) {

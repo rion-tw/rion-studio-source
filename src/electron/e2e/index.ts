@@ -1,3 +1,4 @@
+import { installWorkspaceInitialPresentationBarrier } from "./workspaceInitialPresentationBarrier";
 import { seedRetainedV22Role } from "./retainedRoleSeed";
 import { installGraphicsSettingsViewport } from "./graphicsSettingsViewport";
 import { installElectronDesktopE2eViewInputObservationObserver } from "./viewInputObservationObserver";
@@ -1526,6 +1527,7 @@ installElectronDesktopE2eSavedWindowRestoreObserver();
 applicationShortcutRuntimeObserver.install();
 runtimeTabReloadObserver.install();
 appKitTabMenuRuntimeObserver.install();
+installWorkspaceInitialPresentationBarrier();
 const mainRuntime = await import("../main/index");
 const { focusElectronMainWindow, prepareElectronMainQuit } = mainRuntime;
 applicationShortcutRuntimeObserver.bindTerminalFullscreenExit(async (windowId) => {

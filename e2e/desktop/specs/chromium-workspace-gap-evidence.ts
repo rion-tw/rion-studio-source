@@ -9,7 +9,7 @@ export async function paintWorkspaceTargets(main: string, color: string, only?: 
     if (handle === main || (only && !only.has(handle))) continue;
     await switchTrackedWindow(handle);
     await browser.execute((color) => {
-      if (document.querySelector("#location, [data-runtime-tabs]")) return;
+      if (document.querySelector("#location, [data-runtime-tabs], #workspace-background-checker")) return;
       let paint = document.getElementById("workspace-gap-paint");
       if (!paint) { paint = document.createElement("div"); paint.id = "workspace-gap-paint"; document.body.append(paint); }
       paint.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:2147483647;background:${color}`;

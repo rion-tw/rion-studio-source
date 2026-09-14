@@ -34,7 +34,7 @@ if (!bridge || !toolbar || !revealEdge || !tabs || !windowControls ||
 }
 
 const workspaceBackground = document.createElement("div");
-workspaceBackground.style.cssText = "position:fixed;pointer-events:none;z-index:-1";
+workspaceBackground.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:-1";
 workspaceBackground.setAttribute("aria-hidden", "true");
 document.body.prepend(workspaceBackground);
 
@@ -490,12 +490,7 @@ function render(projection: WindowsRuntimeHostProjection): void {
   cancelTabDrag();
   closeTabMenu();
   current = projection;
-  const bounds = projection.contentBounds;
-  Object.assign(workspaceBackground.style, {
-    left: `${bounds.x}px`, top: `${bounds.y}px`,
-    width: `${bounds.width}px`, height: `${bounds.height}px`,
-    background: projection.workspaceBackground === "black" ? "#000" : "transparent"
-  });
+  workspaceBackground.style.background = projection.workspaceBackground === "black" ? "#000" : "transparent";
   toolbar!.hidden = !projection.toolbarVisible;
   revealEdge!.hidden = projection.toolbarVisible || !projection.fullscreen ||
     projection.alwaysShowToolbarInFullScreen;

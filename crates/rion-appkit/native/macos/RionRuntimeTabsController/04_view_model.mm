@@ -352,6 +352,10 @@ NS_ASSUME_NONNULL_BEGIN
   if (!self) return nil;
 
   _window = window;
+  // The underlay belongs to the host, including the interval before any slot mounts.
+  _workspaceBackground = [[RionWorkspaceBackgroundView alloc] initWithFrame:window.contentView.bounds];
+  _workspaceBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  [window.contentView addSubview:_workspaceBackground positioned:NSWindowBelow relativeTo:nil];
   // The plus button exists before the first tab. Bind the controller to its
   // Game Window during construction so an empty host can still scope
   // openLauncher to the correct launch target.

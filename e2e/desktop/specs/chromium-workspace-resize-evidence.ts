@@ -21,13 +21,20 @@ export async function exerciseWorkspaceResize(input: ResizeInput): Promise<void>
   for (const edge of ["right", "bottom", "bottomRight", "left", "top"] as const) {
     const first = { x: edge === "bottom" || edge === "top" ? 0 : edge === "left" ? 72 : -72,
       y: edge === "right" || edge === "left" ? 0 : edge === "top" ? 48 : -48 };
-    let previous = JSON.stringify((await inspect(input.windowId)).surfaces.map(s => s.bounds));
+    const extent = (current: Awaited<ReturnType<typeof inspect>>) => {
+      const boxes = current.surfaces.filter(s => s.tabId === input.tabId).map(s => s.bounds);
+      return {width:Math.max(...boxes.map(b => b.x+b.width))-Math.min(...boxes.map(b => b.x)),
+        height:Math.max(...boxes.map(b => b.y+b.height))-Math.min(...boxes.map(b => b.y))};
+    };
+    const original = extent(await inspect(input.windowId));
     await resizeWorkspaceWindow({ inspection: await inspect(input.windowId), edge,
       moves: [first, { x: -first.x/2, y: -first.y/2 }, {x:0,y:0}],
-      whileHeld: async step => {
-        await browser.waitUntil(async () => JSON.stringify((await inspect(input.windowId)).surfaces.map(s => s.bounds)) !== previous,
-          { timeout: 20_000, timeoutMsg: `Core geometry did not update during ${edge} native resize` });
-        previous = JSON.stringify((await inspect(input.windowId)).surfaces.map(s => s.bounds));
+      whileHeld: async (step, frame, initialFrame) => {
+        await browser.waitUntil(async () => {
+          const current = extent(await inspect(input.windowId));
+          return Math.abs(current.width-original.width-(frame.width-initialFrame.width)) <= 1 &&
+            Math.abs(current.height-original.height-(frame.height-initialFrame.height)) <= 1;
+        }, { timeout:20_000, timeoutMsg:`Core geometry did not match the actual ${edge} native resize` });
         await check(`resize-${input.gap}-${input.background}-${edge}-${step}-held`);
       } });
     await check(`resize-${input.gap}-${input.background}-${edge}-ended`);

@@ -7,17 +7,18 @@ import { focusVisibleMacosAppKitRuntime } from "./native-application-actions";
 import { focusWindowsRuntimeNativeWindow } from "./windows-runtime-foreground";
 
 type Point = { x: number; y: number };
+type NativeFrame = Point & { width:number; height:number; windowX:number; windowY:number };
 /** Real native border input, held across read-only geometry/pixel evidence. */
 export async function resizeWorkspaceWindow(input: {
   inspection: Inspection; edge: "right" | "bottom" | "bottomRight" | "left" | "top";
-  moves: Point[]; rapid?: boolean; whileHeld: (step: number) => Promise<void>;
+  moves: Point[]; rapid?: boolean; whileHeld: (step: number, frame: NativeFrame, initialFrame: NativeFrame) => Promise<void>;
 }): Promise<void> {
   const { processId, platform } = await electronDesktopE2eProbe();
   const windowId = input.inspection.windowId;
   const nativeWindowHandle = input.inspection.nativeWindowHandle;
   if (platform === "macos") await focusVisibleMacosAppKitRuntime({ processId, windowId });
   else await focusWindowsRuntimeNativeWindow({ processId, nativeWindowHandle: nativeWindowHandle! });
-  const action = async (phase: string, point: Point): Promise<Point> => {
+  const action = async (phase: string, point: Point): Promise<NativeFrame> => {
     const payload = { processId, windowId, nativeWindowHandle, phase, edge: input.edge, rapid: input.rapid ?? false, ...point };
     if (platform === "macos") {
       const request = resolve(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "resize-request.json");
@@ -72,16 +73,19 @@ if ($payload.phase -eq 'move') {
 [WorkspaceResize]::SetCursorPos([int]$x,[int]$y) | Out-Null
 $flag=if($payload.phase -eq 'start'){0x0002}elseif($payload.phase -eq 'end'){0x0004}else{0x0001}
 [WorkspaceResize]::mouse_event($flag,0,0,0,[UIntPtr]::Zero)
-@{x=$x/$scale;y=$y/$scale} | ConvertTo-Json -Compress
+Start-Sleep -Milliseconds 100 # Native input pacing, not a product completion boundary.
+if (-not [WorkspaceResize]::GetWindowRect($h,[ref]$r)) { throw 'resized frame unavailable' }
+@{x=$x/$scale;y=$y/$scale;windowX=$r.left/$scale;windowY=$r.top/$scale;width=($r.right-$r.left)/$scale;height=($r.bottom-$r.top)/$scale} | ConvertTo-Json -Compress
 `, payload, { timeoutMilliseconds: 30_000 }));
   };
-  let point = await action("start", { x: 0, y: 0 });
+  const initialFrame = await action("start", {x:0,y:0});
+  let point: Point = initialFrame;
   const start = point;
   try {
     for (const [step, move] of input.moves.entries()) {
       point = { x: start.x + move.x, y: start.y + move.y };
-      await action("move", point);
-      await input.whileHeld(step);
+      const frame = await action("move", point);
+      await input.whileHeld(step, frame, initialFrame);
     }
   } finally { await action("end", point); }
 }

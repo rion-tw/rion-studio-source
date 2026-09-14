@@ -1,3 +1,4 @@
+import { projectWorkspaceSpecification } from "./chromiumRuntimeWorkspaceSpecification";
 import type {
   BrowserRuntimeRoleRecord,
   CoreEffectRequest,
@@ -136,7 +137,17 @@ function applyAppKitOwnershipFences(
         "The retained AppKit host cannot consume Core activation phases."
       );
     }
+    const workspaceTabIds = new Set<string>();
+    const workspaceSpecifications = (projection.workspaceTabs ?? []).map(workspace => {
+      const tab = input.tabs.get(workspace.tabId);
+      if (!tab || tab.windowId !== projection.windowId || !projection.tabIds.includes(workspace.tabId) || workspaceTabIds.has(workspace.tabId)) {
+        throw ownershipError("ELECTRON_MACOS_APPKIT_WORKSPACE_TAB_STALE", "The workspace projection lost its exact tab.");
+      }
+      workspaceTabIds.add(workspace.tabId);
+      return { tab, specification: projectWorkspaceSpecification(tab, workspace) };
+    });
     current.host.applyAppKitPhaseProjection(projection);
+    for (const { tab, specification } of workspaceSpecifications) tab.specification = specification;
     current.topologyRevision = projection.topologyRevision;
   }
 }

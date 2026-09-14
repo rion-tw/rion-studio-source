@@ -214,6 +214,7 @@ NS_ASSUME_NONNULL_BEGIN
   NSPoint point = NSZeroPoint;
   if (![self workspaceDividerPointForEvent:event overlayPoint:&point]) return event;
   if (event.type == NSEventTypeLeftMouseDown) {
+    if (RionWorkspacePointIsOnWindowResizeBorder(_workspaceDividerOverlay, point)) return event;
     if (_activeWorkspaceDivider) {
       [_activeWorkspaceDivider cancelActiveGesture];
       _activeWorkspaceDivider = nil;
@@ -279,14 +280,13 @@ NS_ASSUME_NONNULL_BEGIN
   if (!_window.contentView.isFlipped) {
     overlayFrame.origin.y = NSHeight(_window.contentView.bounds) - NSMaxY(overlayFrame);
   }
-  if (!_workspaceBackground) {
-    _workspaceBackground = [[RionWorkspaceBackgroundView alloc] initWithFrame:overlayFrame];
-    [_window.contentView addSubview:_workspaceBackground positioned:NSWindowBelow relativeTo:nil];
-  }
   if (_window.contentView.subviews.firstObject != _workspaceBackground) {
     [_window.contentView addSubview:_workspaceBackground positioned:NSWindowBelow relativeTo:nil];
   }
-  if (!NSEqualRects(_workspaceBackground.frame, overlayFrame)) _workspaceBackground.frame = overlayFrame;
+  // Native autoresizing owns coverage. Core contentBounds only place slots and dividers.
+  if (!NSEqualRects(_workspaceBackground.frame, _window.contentView.bounds)) {
+    _workspaceBackground.frame = _window.contentView.bounds;
+  }
   [_workspaceBackground applyBackground:projection[@"background"]];
 
   if (!_workspaceDividerOverlay) {
@@ -389,7 +389,7 @@ NS_ASSUME_NONNULL_BEGIN
   if (!_workspaceBackground ||
       _workspaceBackground.superview != _window.contentView ||
       _workspaceBackground.black != black ||
-      !NSEqualRects(_workspaceBackground.frame, expectedOverlayFrame) ||
+      !NSEqualRects(_workspaceBackground.frame, _window.contentView.bounds) ||
       !_workspaceDividerOverlay ||
       !_window.contentView ||
       _workspaceDividerOverlay.superview != _window.contentView ||

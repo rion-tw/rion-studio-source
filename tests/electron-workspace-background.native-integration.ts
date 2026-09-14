@@ -15,6 +15,7 @@ it.skipIf(process.platform !== "darwin")("retains one AppKit workspace backgroun
       ["scripts/probeWorkspaceBackground.cjs", path, join(directory, "data")], { timeout: 30_000 });
     const result = JSON.parse(await readFile(path, "utf8"));
     expect(result.platform).toBe("darwin");
+    expect(result.beforeProjectionCoverage).toBe(true);
     expect(result.rejectedProjectionPreserved).toBe(true);
     expect(result.observations).toHaveLength(14);
     expect(new Set(result.observations.map((item: { address: string }) => item.address)).size).toBe(1);

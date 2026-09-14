@@ -36,7 +36,7 @@ function projection(active = tabId) {
   };
 }
 
-function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>) {
+function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>, initialWorkspaceBackground: "black" | "material" = "material") {
   const state = {
     destroyed: false,
     fullscreen: false,
@@ -88,6 +88,7 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
     visible: true
   });
   const controller = new WindowsRuntimeHostChromeController({
+    initialWorkspaceBackground,
     documentUrl,
     hostGeneration: 1,
     native,
@@ -112,6 +113,13 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
 }
 
 describe("Windows runtime-host chrome controller", () => {
+  for (const background of ["black", "material"] as const) it(`retains initial ${background} when the first ownership projection omits appearance`, async () => {
+    const subject = harness(undefined, background);
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    expect(subject.send).toHaveBeenLastCalledWith(WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL,
+      expect.objectContaining({ workspaceBackground: background }));
+  });
   it("keeps visible tab commands available while a single slot retries", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection(projection());

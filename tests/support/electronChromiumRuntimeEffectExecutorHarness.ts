@@ -1,10 +1,11 @@
 import { isCoreEffectEventContinuation } from "../../src/electron/main/coreEffectContinuation";
 import type {
   BrowserActionRequest,
+  LayoutBounds,
   EmbeddedRoleViewEffectRecord,
   EmbeddedTabEffectRecord
 } from "../../src/shared/generated";
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 import {
   ChromiumRuntimeEffectExecutor,
   type ChromiumRuntimeBrowserDataClearPort,
@@ -32,6 +33,7 @@ import { FakeChromiumRuntimeEffectHost as FakeHost } from
   "./electronChromiumRuntimeEffectHostFixture";
 
 export interface Harness {
+  readonly resolveRoleBounds: Mock<(specification: EmbeddedTabEffectRecord) => Promise<ReturnType<typeof roleBounds>>>;
   readonly reportSlotLoad: ReturnType<typeof vi.fn>;
   readonly executor: ChromiumRuntimeEffectExecutor;
   readonly hosts: FakeHost[];
@@ -146,6 +148,7 @@ export function harness(
     return result;
   });
   const closeRole = vi.fn(async () => true);
+  const resolveRoleBounds = vi.fn(async (specification: EmbeddedTabEffectRecord) => roleBounds(specification));
   const setBounds = vi.fn();
   const audioMuted = vi.fn((roleId: string, generation: number) =>
     audioStates.get(`${roleId}:${generation}`) ?? false
@@ -312,7 +315,7 @@ export function harness(
       createEmpty: createEmptyHost
     },
     layout: {
-      resolveRoleBounds: async (specification) => roleBounds(specification),
+      resolveRoleBounds,
       ...(platform === "windows" ? {
         resolveWorkspaceLayout: async (specification: EmbeddedTabEffectRecord) => ({
           roles: roleBounds(specification),
@@ -354,6 +357,7 @@ export function harness(
     webSurfaces
   });
   return {
+    resolveRoleBounds,
     reportSlotLoad,
     executor,
     hosts,
@@ -451,7 +455,7 @@ export async function loadWebSurfaces(
   if (isCoreEffectEventContinuation(execution)) await execution.completion;
 }
 
-function roleBounds(specification: EmbeddedTabEffectRecord) {
+function roleBounds(specification: EmbeddedTabEffectRecord): Map<string, LayoutBounds> {
   return new Map([
     ...specification.roles.map((role, index) => [
       role.role.id, { x: index * 500, y: 44, width: 500, height: 656 }

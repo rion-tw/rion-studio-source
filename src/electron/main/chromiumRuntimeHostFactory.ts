@@ -592,7 +592,7 @@ implements ChromiumRuntimeHostFactoryPort {
     initialTab: EmbeddedTabEffectRecord
   ): Promise<ChromiumRuntimeHostPort> {
     const launchGeneration = validateRuntimeHostRequest(target, initialTab);
-    return this.#createHost(target, launchGeneration);
+    return this.#createHost(target, launchGeneration, initialTab.workspaceAppearance.background);
   }
 
   createEmpty(
@@ -638,7 +638,8 @@ implements ChromiumRuntimeHostFactoryPort {
 
   #createHost(
     target: EmbeddedLaunchTargetRecord,
-    launchGeneration: string
+    launchGeneration: string,
+    background: "material" | "black" = "material"
   ): Promise<ChromiumRuntimeHostPort> {
     if (this.#activeByLogicalWindow.has(target.windowId)) {
       fail(
@@ -696,7 +697,8 @@ implements ChromiumRuntimeHostFactoryPort {
       this.#nextOwnerRevision(),
       native,
       nativeId,
-      nativeHandle
+      nativeHandle,
+      background
     );
     const nativeOwner = this.#ownerByNativeWindow.get(native);
     const idOwner = this.#ownerByNativeId.get(nativeId);
@@ -758,7 +760,8 @@ implements ChromiumRuntimeHostFactoryPort {
     ownerRevision: string,
     native: WindowsRuntimeHostWindowPort,
     nativeId: number,
-    nativeHandle: Buffer
+    nativeHandle: Buffer,
+    background: "material" | "black"
   ): WindowsHostRecord {
     const record: WindowsHostRecord = {
       logicalWindowId: target.windowId,
@@ -788,6 +791,7 @@ implements ChromiumRuntimeHostFactoryPort {
       contentGeometry: new WindowsRuntimeContentGeometry()
     };
     record.chrome = new WindowsRuntimeHostChromeController({
+      initialWorkspaceBackground: background,
       resizeIndicators: this.#windows.createResizeIndicators?.(native),
       documentUrl: record.documentUrl,
       native,

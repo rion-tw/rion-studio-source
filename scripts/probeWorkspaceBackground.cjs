@@ -17,18 +17,30 @@ app.whenReady().then(async () => {
   let revision = 0;
   let address;
   const observations = [];
+  const initialTree = native.snapshotNativeViewTree(identity);
+  const initialBackground = initialTree.filter(node => node.className === "RionWorkspaceBackgroundView");
+  assert.equal(initialBackground.length, 1);
+  address = initialBackground[0].address;
+  const assertCoverage = () => {
+    const tree = native.snapshotNativeViewTree(identity);
+    const background = tree.find(node => node.address === address);
+    const root = tree.find(node => node.address === background.parentAddress);
+    assert.equal(background.x, 0); assert.equal(background.y, 0);
+    assert.equal(background.width, root.width); assert.equal(background.height, root.height);
+    return tree;
+  };
+  assertCoverage();
   const project = (width, height, background) => {
     const bounds = { x: 0, y: 8, width, height };
     const dividers = [{ tabId: "tab-a", attemptGeneration: "attempt-a", dividerIndex: 0,
       axis: "vertical", bounds: { x: width / 2, y: 8, width: 16, height }, visible: true }];
     native.applyWorkspaceDividerProjection(identity, String(++revision), bounds, dividers, background);
-    const tree = native.snapshotNativeViewTree(identity);
+    const tree = assertCoverage();
     const backgrounds = tree.filter(node => node.className === "RionWorkspaceBackgroundView");
     assert.equal(backgrounds.length, 1);
     address ??= backgrounds[0].address;
     assert.equal(backgrounds[0].address, address);
-    assert.equal(backgrounds[0].width, width);
-    assert.equal(backgrounds[0].height, height);
+
     const divider = tree.find(node => node.className === "RionRuntimeWorkspaceDividerView");
     assert.equal(tree.filter(node => node.parentAddress === divider.address).length, 0);
     assert.equal(tree.filter(node => node.className === "NSVisualEffectView" && node.parentAddress === address).length, 1);
@@ -48,13 +60,18 @@ app.whenReady().then(async () => {
     for (let i=0; i<12; i++) {
       const width = i % 2 ? 640 : 1200, height = i % 2 ? 400 : 800;
       window.setContentSize(width, height + 8);
+      assertCoverage(); // No Core projection has arrived for the resized host.
       project(width, height, i % 3 ? "black" : "material");
     }
     const before = project(900, 540, "black");
     assert.throws(() => native.applyWorkspaceDividerProjection(identity, String(++revision),
       { ...before.bounds, width: -1 }, before.dividers, "material"));
     assert.deepEqual(native.snapshotNativeViewTree(identity), before.tree);
-    writeFileSync(process.argv[2], JSON.stringify({ platform: process.platform, observations, rejectedProjectionPreserved: true }));
+    window.setContentSize(1180, 760);
+    assertCoverage();
+    native.restoreLastVerifiedWorkspaceDividerProjection(identity);
+    assertCoverage(); // Compensation restores paint, never stale coverage dimensions.
+    writeFileSync(process.argv[2], JSON.stringify({ platform: process.platform, observations, rejectedProjectionPreserved: true, beforeProjectionCoverage: true }));
   } finally {
     for (const view of views) view.webContents.close({ waitForBeforeUnload: false });
     native.destroy(identity);

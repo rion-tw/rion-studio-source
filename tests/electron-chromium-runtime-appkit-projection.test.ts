@@ -285,6 +285,29 @@ function applyProjection(
 }
 
 describe("Chromium AppKit projection transaction", () => {
+  it("resolves loading placeholders with confirmed appearance even before surfaces exist", async () => {
+    const nativeHost = host("window-1", 1);
+    const tab = tabRecord("tab-1", "window-1");
+    tab.specification.workspaceAppearance = {gap:1,background:"material"};
+    tab.slotLoads = new Map();
+    const subject = ports();
+    const projection: AppKitRuntimeProjectionEffectRecord = {
+      eventId:"appkit-loading-appearance", windows:[{
+        identity:nativeHost.appKitIdentity!, adapterSequence:1, windowGeneration:3, topologyRevision:8,
+        logicalTabIds:["tab-1"], hiddenTabIds:[], activeTabId:"tab-1",
+        tabs:[{tabId:"tab-1",name:"Loading workspace",phase:"loading",tabType:"workspace",audioMuted:false}],
+        roles:[], webSurfaces:[], workspaceDividers:[], workspaceAppearance:{gap:16,background:"black"}, windowVisible:true
+      }]
+    };
+    await applyProjection({effect:effect("window-1",projection),projection,ports:subject.executorPorts,
+      windows:new Map([["window-1",windowRecord(nativeHost,["tab-1"])]]), tabs:new Map([["tab-1",tab]]),
+      roles:new Map(), webSurfaces:new Map()});
+    expect(subject.executorPorts.layout.resolveRoleBounds).toHaveBeenLastCalledWith(
+      expect.objectContaining({workspaceAppearance:{gap:16,background:"black"}}),nativeHost);
+    expect(subject.setBounds).not.toHaveBeenCalled();
+    expect(subject.setWebBounds).not.toHaveBeenCalled();
+  });
+
   it("does not rewrite unchanged Chromium surface projections", async () => {
     const nativeHost = host("window-1", 1);
     const windows = new Map<string, ChromiumRuntimeWindowRecord>([

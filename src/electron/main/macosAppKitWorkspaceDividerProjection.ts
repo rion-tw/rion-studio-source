@@ -199,6 +199,25 @@ MacosAppKitWorkspaceDividerProjectionState {
   };
 }
 
+/** Seed the native underlay from the admitted launch settings before showing the host. */
+export function initializeMacosAppKitWorkspaceBackground(input: {
+  state: MacosAppKitWorkspaceDividerProjectionState;
+  contentBounds: ChromiumRoleSurfaceBounds;
+  background: "material" | "black";
+  apply: PrepareWorkspaceDividerProjectionInput["apply"];
+}): void {
+  const { state, contentBounds, background } = input;
+  if (state.nativeRevision !== 0 || state.version !== 0 || state.poisoned) {
+    throw dividerError("ELECTRON_MACOS_APPKIT_BACKGROUND_ALREADY_INITIALIZED",
+      "The native workspace background has already been initialized.");
+  }
+  requireContainedDividers(contentBounds, []);
+  const receipt = input.apply("1", contentBounds, [], background);
+  validateReceipt(receipt, 1, contentBounds, 0);
+  Object.assign(state, { nativeRevision: 1, version: 1,
+    contentBounds: cloneBounds(contentBounds), background });
+}
+
 export function prepareMacosAppKitWorkspaceDividerProjection(
   input: PrepareWorkspaceDividerProjectionInput
 ): ChromiumRuntimeAppKitProjectionTransaction {

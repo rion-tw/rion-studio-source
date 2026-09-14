@@ -34,7 +34,6 @@ export async function loadChromiumWorkspaceSlots(
     window.host.bindWorkspaceSlotRetry?.((record) => port.retry(record));
     const cancellation = new AbortController();
     const loadSignal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal;
-    const bounds = await input.ports.layout.resolveRoleBounds(tab.specification, window.host);
     const descriptors = [
       ...plan.roles.map((role) => ({ id: role.roleId, kind: "role" as const, role })),
       ...plan.surfaces.map((web) => ({ id: web.surfaceId, kind: "web" as const, web }))
@@ -54,7 +53,10 @@ export async function loadChromiumWorkspaceSlots(
         });
         if (!record || loadSignal.aborted || input.tabs.get(tabId) !== tab) return;
         tab.slotLoads!.set(slot.slotId, record);
-        projectWorkspaceSlotLoads(tab, window, bounds);
+        const loadingWindow = input.windowForTab(tab);
+        const loadingBounds = await input.ports.layout.resolveRoleBounds(tab.specification, loadingWindow.host);
+        if (loadSignal.aborted || input.tabs.get(tabId) !== tab || input.windowForTab(tab) !== loadingWindow) return;
+        projectWorkspaceSlotLoads(tab, loadingWindow, loadingBounds);
         let phase: "ready" | "failed" = "ready";
         let retryable = false;
         const generations = descriptor.kind === "role" ? input.roleGenerations : input.webGenerations;
@@ -83,11 +85,15 @@ export async function loadChromiumWorkspaceSlots(
         tab.slotLoads!.set(slot.slotId, record);
         const currentWindow = input.windowForTab(tab);
         const currentBounds = await input.ports.layout.resolveRoleBounds(tab.specification, currentWindow.host);
+        if (loadSignal.aborted || input.tabs.get(tabId) !== tab || input.windowForTab(tab) !== currentWindow) return;
         projectWorkspaceSlotLoads(tab, currentWindow, currentBounds);
         if (record.phase === "ready") {
           const visible = currentWindow.activeTabId === tabId && currentWindow.host.isVisible();
-          if (descriptor.kind === "role") input.ports.surfaces.setVisible(descriptor.id, record.surfaceGeneration, visible);
-          else input.ports.webSurfaces.setVisible(descriptor.id, record.surfaceGeneration, visible);
+          const latestBounds = currentBounds.get(descriptor.id);
+          if (!latestBounds) throw runtimeError("WORKSPACE_SLOT_LAYOUT_MISSING", "The ready slot has no current geometry.");
+          const surfaces = descriptor.kind === "role" ? input.ports.surfaces : input.ports.webSurfaces;
+          surfaces.setBounds(descriptor.id, record.surfaceGeneration, latestBounds);
+          surfaces.setVisible(descriptor.id, record.surfaceGeneration, visible);
           currentWindow.host.releaseAppKitSurfaceAttachment?.(tabId);
         }
       });

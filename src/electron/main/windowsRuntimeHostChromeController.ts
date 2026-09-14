@@ -153,6 +153,7 @@ export class WindowsRuntimeHostChromeController {
 
   constructor(input: Readonly<{
     documentUrl: string;
+    initialWorkspaceBackground?: "material" | "black";
     native: WindowsRuntimeHostChromeNativePort;
     readProjection: () => ChromiumRuntimeHostProjection;
     readCursorScreenPoint?: () => Readonly<{ x: number; y: number }>;
@@ -177,6 +178,7 @@ export class WindowsRuntimeHostChromeController {
     resizeIndicators?: import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort;
   }>) {
     this.#windowId = input.windowId;
+    this.#workspaceBackground = input.initialWorkspaceBackground ?? "material";
     this.#resizeIndicators = input.resizeIndicators;
     this.#documentUrl = input.documentUrl;
     this.#native = input.native;
@@ -326,7 +328,7 @@ export class WindowsRuntimeHostChromeController {
     this.#tabs = tabs;
     this.#moveTargets = moveTargets;
     this.#contentBounds = contentBounds;
-    this.#workspaceBackground = projection.workspaceBackground ?? "material";
+    this.#workspaceBackground = projection.workspaceBackground ?? this.#workspaceBackground;
     this.#workspaceDividers = workspaceDividers;
     this.#advanceProjection();
     this.#publish();

@@ -15,6 +15,13 @@ import {
   target
 } from "./support/macosAppKitRuntimeHostFactoryFixtures";
 
+async function admitHost(host: Awaited<ReturnType<Fixture["factory"]["create"]>>): Promise<void> {
+  host.applyAppKitPhaseProjection!({ windowId: "window-1", windowGeneration: 1,
+    topologyRevision: 1, tabIds: ["tab-1"], hiddenTabIds: [], activeTabId: "tab-1",
+    tabPhases: [{ tabId: "tab-1", phase: "activating" }] });
+  await Promise.resolve();
+}
+
 describe("macOS AppKit Chromium runtime host", () => {
   it("creates an invisible exact zero-tab host before a Core-owned move", async () => {
     const fixture = new Fixture();
@@ -148,6 +155,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     });
     coreProjection.commit();
     coreProjection.finalize?.();
+    await Promise.resolve();
     fixture.addon.emit(0, {
       type: "action",
       identity,
@@ -173,6 +181,9 @@ describe("macOS AppKit Chromium runtime host", () => {
       windowGeneration: 1,
       topologyRevision: 1
     });
+    host.applyAppKitPhaseProjection!({ windowId: "window-1", windowGeneration: 1,
+      topologyRevision: 1, tabIds: [], hiddenTabIds: [], tabPhases: [] });
+    await Promise.resolve();
     const identity = host.appKitIdentity!;
     fixture.windows[0]!.normalBounds = {
       x: 140,
@@ -516,7 +527,7 @@ describe("macOS AppKit Chromium runtime host", () => {
     const fixture = new Fixture();
     const launchTarget = target();
     const host = await fixture.factory.create(launchTarget, tab(launchTarget));
-    host.releaseAppKitSurfaceAttachment?.("tab-1");
+    await admitHost(host);
     const controller = fixture.addon.controllers[0]!;
     const native = fixture.windows[0]!;
     const readLayout = controller.snapshotContentLayout.bind(controller);
@@ -691,168 +702,67 @@ describe("macOS AppKit Chromium runtime host", () => {
     }));
   });
 
-  it("coalesces initial presentation callbacks until the exact tab surfaces release", async () => {
+  it("admits latest geometry and placement before any surface attaches or loads", async () => {
     const fixture = new Fixture();
-    const launchTarget = target();
-    const host = await fixture.factory.create(launchTarget, tab(launchTarget));
-    const identity = {
-      logicalWindowId: "window-1",
-      launchGeneration: "launch-generation-1",
-      nativeGeneration: 1
-    };
-
-    fixture.addon.emit(0, {
-      type: "layout",
-      identity,
-      layout: { heightInset: 44, yOffset: 4, valid: true }
-    });
-    fixture.addon.emit(0, {
-      type: "layout",
-      identity,
-      layout: { heightInset: 48, yOffset: 8, valid: true }
-    });
-    fixture.addon.emit(0, {
-      type: "action",
-      identity,
-      action: {
-        type: "windowFocusChanged",
-        sourceWindowId: "window-1",
-        focused: false,
-        minimized: false,
-        visible: false
-      }
-    });
-    fixture.addon.emit(0, {
-      type: "action",
-      identity,
-      action: {
-        type: "selectTab",
-        tabId: "tab-1",
-        sourceWindowId: "window-1"
-      }
-    });
-
-    expect(fixture.onLayout).not.toHaveBeenCalled();
-    expect(fixture.onAction).toHaveBeenCalledOnce();
-    host.releaseAppKitSurfaceAttachment?.("tab-1");
-
-    expect(fixture.onLayout).toHaveBeenCalledOnce();
-    expect(fixture.onLayout).toHaveBeenCalledWith({
-      identity,
-      hosts: [expect.objectContaining({
-        contentBounds: { x: 0, y: 8, width: 960, height: 632 }
-      })]
-    });
-    expect(fixture.onAction).toHaveBeenCalledWith({
-      identity,
-      action: {
-        type: "selectTab",
-        tabId: "tab-1",
-        sourceWindowId: "window-1"
-      },
-      hosts: [expect.objectContaining({
-        windowGeneration: 1,
-        topologyRevision: 1
-      })]
-    });
-    expect(fixture.onAction).toHaveBeenLastCalledWith({
-      identity,
-      action: {
-        type: "windowFocusChanged",
-        sourceWindowId: "window-1",
-        focused: false,
-        minimized: false,
-        visible: false
-      },
-      hosts: [expect.objectContaining({
-        windowGeneration: 1,
-        topologyRevision: 1
-      })]
-    });
-    expect(fixture.onLayout.mock.invocationCallOrder[0])
-      .toBeLessThan(fixture.onAction.mock.invocationCallOrder[1]!);
-  });
-
-  it("publishes each resize after native attachment while the first tab is still loading", async () => {
-    const fixture = new Fixture();
-    const launchTarget = target();
-    const host = await fixture.factory.create(launchTarget, tab(launchTarget));
-    const identity = host.appKitIdentity!;
+    const host = await fixture.factory.create(target(), tab(target()));
+    const native = fixture.windows[0]!;
+    native.contentBounds = { x: 42, y: 30, width: 800, height: 560 };
+    native.emit("resize");
+    native.contentBounds = { x: 20, y: 10, width: 1000, height: 760 };
+    native.emit("resize");
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
     host.notifySurfaceAttachment?.();
+    host.releaseAppKitSurfaceAttachment?.("tab-1");
+    expect(fixture.onLayout).not.toHaveBeenCalled();
+    expect(fixture.onAction).not.toHaveBeenCalled();
+    await admitHost(host);
+    expect(fixture.onLayout).toHaveBeenCalledOnce();
+    expect(fixture.onLayout).toHaveBeenLastCalledWith({ identity: host.appKitIdentity!,
+      hosts: [expect.objectContaining({ contentBounds: { x: 0, y: 0, width: 1000, height: 720 } })] });
+    expect(fixture.onAction).toHaveBeenCalledOnce();
     fixture.onLayout.mockClear();
-    for (const yOffset of [8, 12, 4]) {
-      fixture.addon.emit(0, {
-        type: "layout", identity, layout: { heightInset: 40 + yOffset, yOffset, valid: true }
-      });
-      expect(fixture.onLayout).toHaveBeenLastCalledWith({ identity,
-        hosts: [expect.objectContaining({ contentBounds: {
-          x: 0, y: yOffset, width: 960, height: 640 - yOffset
-        } })] });
+    for (const width of [640, 1280, 960]) {
+      native.contentBounds.width = width;
+      native.emit("resize");
+      expect(fixture.onLayout).toHaveBeenLastCalledWith({ identity: host.appKitIdentity!,
+        hosts: [expect.objectContaining({ contentBounds: expect.objectContaining({ width }) })] });
     }
     expect(fixture.onLayout).toHaveBeenCalledTimes(3);
     host.releaseAppKitSurfaceAttachment?.("tab-1");
     expect(fixture.onLayout).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps resize live while a new tab defers window-state presentation", async () => {
+  it("does not re-arm geometry or placement admission for subsequent loading tabs", async () => {
     const fixture = new Fixture();
-    const launchTarget = target();
-    const host = await fixture.factory.create(launchTarget, tab(launchTarget));
-    const identity = host.appKitIdentity!;
-    host.releaseAppKitSurfaceAttachment?.("tab-1");
+    const host = await fixture.factory.create(target(), tab(target()));
+    await admitHost(host);
     fixture.onLayout.mockClear();
     fixture.onAction.mockClear();
-
-    host.initializeAppKitTab?.({
-      ...tab(launchTarget),
-      tabId: "tab-2",
-      appkitTopologyRevision: 2,
-      attemptGeneration: "launch-generation-2",
-      sourceId: "role-2",
-      name: "Role 2"
-    });
-    fixture.addon.emit(0, {
-      type: "action",
-      identity,
-      action: {
-        type: "windowPlacementChanged",
-        sourceWindowId: "window-1"
-      }
-    });
-    fixture.addon.emit(0, {
-      type: "layout",
-      identity,
-      layout: { heightInset: 52, yOffset: 12, valid: true }
-    });
-    expect(fixture.onAction).not.toHaveBeenCalled();
-    expect(fixture.onLayout).toHaveBeenCalledOnce();
-
-    host.releaseAppKitSurfaceAttachment?.("tab-2");
+    host.initializeAppKitTab?.({ ...tab(target()), tabId: "tab-2", appkitTopologyRevision: 2,
+      attemptGeneration: "launch-generation-2", sourceId: "role-2", name: "Role 2" });
+    fixture.addon.emit(0, { type: "action", identity: host.appKitIdentity!,
+      action: { type: "windowPlacementChanged", sourceWindowId: "window-1" } });
+    fixture.windows[0]!.emit("resize");
     expect(fixture.onAction).toHaveBeenCalledOnce();
     expect(fixture.onLayout).toHaveBeenCalledOnce();
-    expect(fixture.onLayout.mock.invocationCallOrder[0])
-      .toBeLessThan(fixture.onAction.mock.invocationCallOrder[0]!);
-    expect(() => host.releaseAppKitSurfaceAttachment?.("missing-tab"))
-      .toThrow(expect.objectContaining({
-        code: "ELECTRON_MACOS_APPKIT_SURFACE_ATTACHMENT_STALE"
-      }));
-
-    fixture.onLayout.mockClear();
-    fixture.onAction.mockClear();
-    host.initializeAppKitTab?.({
-      ...tab(launchTarget),
-      tabId: "tab-3",
-      appkitTopologyRevision: 3,
-      attemptGeneration: "launch-generation-3"
-    });
-    fixture.addon.emit(0, {
-      type: "layout",
-      identity,
-      layout: { heightInset: 56, yOffset: 16, valid: true }
-    });
-    host.discardAppKitSurfaceAttachment?.("tab-3");
+    host.releaseAppKitSurfaceAttachment?.("tab-2");
+    host.discardAppKitSurfaceAttachment?.("tab-2");
+    expect(fixture.onAction).toHaveBeenCalledOnce();
     expect(fixture.onLayout).toHaveBeenCalledOnce();
-    expect(fixture.onAction).not.toHaveBeenCalled();
+    expect(() => host.releaseAppKitSurfaceAttachment?.("missing-tab"))
+      .toThrow(expect.objectContaining({ code: "ELECTRON_MACOS_APPKIT_SURFACE_ATTACHMENT_STALE" }));
+  });
+
+  it("initializes the selected background before native presentation begins", async () => {
+    const fixture = new Fixture();
+    const launchTarget = target({ presentation: "fullscreen" });
+    const creating = fixture.factory.create(launchTarget, tab(launchTarget));
+    expect(fixture.order.indexOf("controller-project-workspace-dividers"))
+      .toBeLessThan(fixture.order.indexOf("window-fullscreen-true"));
+    fixture.windows[0]!.emit("enter-full-screen");
+    await creating;
+    expect(fixture.addon.controllers[0]!.workspaceDividerRevision).toBe("1");
   });
 
   it("poisons and closes a host on stale native callback evidence", async () => {

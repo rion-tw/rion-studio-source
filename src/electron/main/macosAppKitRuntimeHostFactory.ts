@@ -40,9 +40,8 @@ import {
   validateMacosAppKitRuntimeHostRequest
 } from "./macosAppKitRuntimeHostValidation";
 import {
-  discardMacosAppKitSurfaceAttachment,
   MacosAppKitRuntimeHostPresentationGate,
-  releaseMacosAppKitSurfaceAttachment
+  requireMacosAppKitSurfaceAttachmentOwner
 } from "./macosAppKitRuntimeHostPresentationGate";
 import { MacosAppKitRuntimePresentationController } from
   "./macosAppKitRuntimePresentationController";
@@ -61,6 +60,7 @@ export type { MacosAppKitRuntimeHostFactoryInput } from
   "./macosAppKitRuntimeHostSupport";
 import {
   createMacosAppKitWorkspaceDividerProjectionState,
+  initializeMacosAppKitWorkspaceBackground,
   prepareMacosAppKitWorkspaceDividerProjection,
 } from "./macosAppKitWorkspaceDividerProjection";
 import { applyMacosAppKitRuntimeWindowPreferences } from
@@ -412,7 +412,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       windowGeneration,
       topologyRevision
     );
-    if (initialTab) record.presentationGate.begin(initialTab.tabId);
     this.#activeByLogicalWindow.set(target.windowId, record);
     this.#ownerByNativeId.set(nativeId, record);
     this.#ownerByNativeWindow.set(native, record);
@@ -476,6 +475,13 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         this.#commitNativeProjection(record);
       }
       this.#refreshLayout(record);
+      initializeMacosAppKitWorkspaceBackground({
+        state: record.workspaceDividerProjection,
+        contentBounds: this.#projectContentBounds(record),
+        background: initialTab?.workspaceAppearance.background ?? "material",
+        apply: (revision, bounds, dividers, background) => record.controller!.applyWorkspaceDividerProjection!(
+          record.identity, revision, bounds, dividers, background)
+      });
       this.#submitPresentation(record);
       await record.presentationReady.promise;
       if (record.state !== "opening") {
@@ -577,7 +583,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       nativeWindow: native,
       contentView: native.contentView,
       notifySurfaceAttachment: () => this.#withCurrent(record as HostRecord, () => {
-        record.presentationGate.surfaceAttached();
         this.#refreshLayout(record as HostRecord);
       }),
       close: () => this.#close(record as HostRecord),
@@ -622,17 +627,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         () => {
           const current = record as HostRecord;
           const exactTabId = requireMacosAppKitIdentifier(tabId, "tab");
-          releaseMacosAppKitSurfaceAttachment({
-            gate: current.presentationGate,
-            ownsTab: current.projectedTabs.has(exactTabId),
-            publishLayout: () => this.#publishLayout(current),
-            publishWindowState: (action) => this.#input.onAction({
-              identity: current.identity,
-              action,
-              hosts: this.#observationsForAction(current, action)
-            }),
-            tabId: exactTabId
-          });
+          requireMacosAppKitSurfaceAttachmentOwner(current.projectedTabs.has(exactTabId), "completed");
         }
       ),
       discardAppKitSurfaceAttachment: (tabId: string) => this.#withCurrent(
@@ -640,11 +635,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         () => {
           const current = record as HostRecord;
           const exactTabId = requireMacosAppKitIdentifier(tabId, "tab");
-          discardMacosAppKitSurfaceAttachment({
-            gate: current.presentationGate,
-            ownsTab: current.projectedTabs.has(exactTabId),
-            tabId: exactTabId
-          });
+          requireMacosAppKitSurfaceAttachmentOwner(current.projectedTabs.has(exactTabId), "discarded");
         }
       ),
       prepareAppKitProjection: (projection: AppKitRuntimeWindowProjectionRecord) =>
@@ -787,7 +778,6 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
 
   #initializeTab(record: HostRecord, tab: EmbeddedTabEffectRecord): void {
     const tabId = requireMacosAppKitIdentifier(tab.tabId, "tab");
-    record.presentationGate.begin(tabId);
     if (tab.target.windowId !== record.identity.logicalWindowId) {
       fail(
         "ELECTRON_MACOS_APPKIT_TAB_WINDOW_MISMATCH",
@@ -940,11 +930,11 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
           throw error;
         }
       }),
-      finalize: () => record.presentation.coreProjectionApplied({
-        topologyRevision: projection.topologyRevision,
-        windowGeneration: projection.windowGeneration,
-        windowId: projection.identity.logicalWindowId
-      }),
+      finalize: () => {
+        record.presentation.coreProjectionApplied({ topologyRevision: projection.topologyRevision,
+          windowGeneration: projection.windowGeneration, windowId: projection.identity.logicalWindowId });
+        this.#admitPresentation(record);
+      },
       requiresQuarantine: () => quarantineRequired,
       rollback: () => {
         if (state === "rolled-back") return;
@@ -1071,6 +1061,25 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       }
       throw error;
     }
+    this.#admitPresentation(record);
+  }
+
+  #admitPresentation(record: HostRecord): void {
+    if (record.presentationGate.admitted) return;
+    // EventBound: finish local ownership-fence application before forwarding
+    // coalesced native observations to the ordered Core event lane.
+    queueMicrotask(() => {
+      if (record.state !== "active" || !this.#isExactOwner(record)) return;
+      try {
+        for (const event of record.presentationGate.admit()) {
+          if (event.kind === "layout") this.#refreshLayout(record);
+          else this.#input.onAction({ identity: record.identity, action: event.action,
+            hosts: this.#observationsForAction(record, event.action) });
+        }
+      } catch (error) {
+        this.#markProjectionPoisoned(record, error);
+      }
+    });
   }
 
   #commitNativeProjection(record: HostRecord): void {

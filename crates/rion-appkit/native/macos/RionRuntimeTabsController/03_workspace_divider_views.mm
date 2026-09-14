@@ -1,3 +1,13 @@
+// The window resize border wins over a divider ending at the content edge.
+static BOOL RionWorkspacePointIsOnWindowResizeBorder(NSView * _Nonnull view, NSPoint point) {
+  NSWindow *window = view.window;
+  if (!window || !(window.styleMask & NSWindowStyleMaskResizable) ||
+      (window.styleMask & NSWindowStyleMaskFullScreen)) return NO;
+  NSView *root = window.contentView;
+  NSPoint rootPoint = [root convertPoint:point fromView:view];
+  return !NSPointInRect(rootPoint, NSInsetRect(root.bounds, 4.0, 4.0));
+}
+
 NS_ASSUME_NONNULL_BEGIN
 // One background owner below Chromium. Splitters never paint the workspace.
 @interface RionWorkspaceBackgroundView : NSView
@@ -114,7 +124,8 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 }
 
 - (nullable NSView *)hitTest:(NSPoint)point {
-  if (self.hidden || !NSPointInRect(point, self.bounds)) return nil;
+  if (self.hidden || !NSPointInRect(point, self.bounds) ||
+      RionWorkspacePointIsOnWindowResizeBorder(self, point)) return nil;
   // The full-size overlay is presentation-only. Only exact Core-projected
   // native divider hit rects may consume pointer input; every other point
   // falls through to the retained Chromium content surfaces below it.

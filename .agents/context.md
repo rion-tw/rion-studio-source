@@ -1,30 +1,30 @@
 # Rion Studio AI Context Index
 
-Rion Studio uses Electron/Chromium while retaining Rust runtime authority and
-the macOS AppKit native host. Tauri/System WebView runtime retirement is owner
-authorized; retain consumed legacy data compatibility. For substantial work, use the deterministic
-router before loading topic documents:
+Global rules and the owner-locked release decision live in `AGENTS.md`;
+routing lives in `.agents/context-map.json`.
+For substantial work, route before reading domain documents:
 
 ```bash
-pnpm run ai:context -- --list
 pnpm run ai:context -- --intent <area-id> --change-kind unknown
-pnpm run ai:context -- --changed --change-kind <kind>
+pnpm run ai:context -- --paths <task-paths> --change-kind <kind>
 ```
 
-`.agents/context-map.json` is the routing authority. Read only the files emitted
-by the router. If the command is unavailable, use this fallback table:
+Use `--list` only when intent IDs are unknown. Read emitted context once; reuse
+unchanged files already loaded. Canonical documents are lookup targets: search
+headings/symbols, then read the relevant sections and dependent clauses before
+changing behavior. Follow their links when needed to resolve the task.
+`--verbose` shows all match reasons; `--json` always retains the complete report.
 
-| Task area | Context | Canonical source |
+Use this task's paths for validation. `--changed` includes every worktree change,
+including other tasks; reconcile that inventory with this task's actual diff.
+If the router is unavailable, use the matching fallback below:
+
+| Task | Context | Authority |
 | --- | --- | --- |
-| Architecture, IPC, shared contracts | `.agents/context/architecture.md` | `docs/system-webview-runtime-contract.md` |
-| SQLite, role stores, portable data | `.agents/context/data.md` | Source schema and transaction tests |
-| WebView, tabs, input, macros, native code | `.agents/context/system-runtime.md` | Relevant part linked by the runtime contract index |
-| React UI, styling, translations | `.agents/context/renderer.md` | `docs/design-system.md` |
-| Tests, E2E, source hygiene | `.agents/context/testing.md` | `docs/e2e-strategy.md` and queried manifest entries |
-| CI, packaging, updater, release | `.agents/context/release.md` | `docs/updater-transaction-contract.md` |
-| AI context or documentation maintenance | `.agents/context/testing.md` | `docs/ai-development.md` |
-
-Repository ownership remains: Core owns domain and persisted state; the active
-desktop shell owns only native handles and effects; shared contracts own
-cross-boundary types; the renderer is browser-safe. Global invariants, migration
-limits, and the owner-locked release decision live in `AGENTS.md`.
+| IPC, shared contracts | `.agents/context/architecture.md` | `docs/system-webview-runtime-contract.md` |
+| SQLite, role stores | `.agents/context/data.md` | Schema and transaction tests |
+| Tabs, input, macros, native | `.agents/context/system-runtime.md` | Relevant runtime contract part |
+| React UI | `.agents/context/renderer.md` | `docs/design-system.md` |
+| Tests, tooling | `.agents/context/testing.md` | Adjacent tests; E2E strategy for desktop journeys |
+| Packaging, updater, release | `.agents/context/release.md` | `docs/updater-transaction-contract.md` |
+| AI context, documentation | `.agents/context/testing.md` | `docs/ai-development.md` |

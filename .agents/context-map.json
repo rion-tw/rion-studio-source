@@ -16,10 +16,15 @@
         "pnpm run check:ai-context"
       ],
       "requiredChecks": [
-        "pnpm run check:hygiene",
-        "pnpm run lint",
-        "pnpm run test",
+        "pnpm run check:docs",
+        "pnpm run check:ai-context",
         "git diff --check"
+      ]
+    },
+    "ai-context": {
+      "fastChecks": [],
+      "requiredChecks": [
+        "pnpm exec vitest run tests/ai-context-router.test.ts tests/documentation-structure.test.ts tests/release-workflows.test.ts"
       ]
     },
     "renderer": {
@@ -100,13 +105,24 @@
   "areas": [
     {
       "id": "documentation",
-      "intentAliases": ["ai-context", "docs", "documentation"],
+      "intentAliases": ["docs", "documentation"],
       "pathGlobs": ["AGENTS.md", ".agents/**", "docs/**"],
       "contextFiles": [".agents/context/testing.md"],
       "canonicalDocs": ["docs/README.md", "docs/ai-development.md"],
       "risks": ["context-drift", "source-of-truth"],
       "platforms": ["portable"],
       "validationProfiles": ["documentation"],
+      "e2eFeatures": []
+    },
+    {
+      "id": "ai-context",
+      "intentAliases": ["ai-context"],
+      "pathGlobs": ["AGENTS.md", ".agents/**", "docs/ai-development.md", "scripts/aiContext.*", "tests/ai-context-router.test.ts", "tests/documentation-structure.test.ts"],
+      "contextFiles": [".agents/context/testing.md"],
+      "canonicalDocs": ["docs/ai-development.md"],
+      "risks": ["context-drift", "source-of-truth"],
+      "platforms": ["portable"],
+      "validationProfiles": ["documentation", "ai-context"],
       "e2eFeatures": []
     },
     {
@@ -189,9 +205,9 @@
     {
       "id": "build-ci",
       "intentAliases": ["build", "ci", "tooling"],
-      "pathGlobs": [".github/**", "scripts/**", "tests/**", "build/*.nsh", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "electron.vite.config.ts", "electron-builder.config.mjs", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
-      "contextFiles": [".agents/context/testing.md", ".agents/context/release.md"],
-      "canonicalDocs": ["docs/e2e-strategy.md"],
+      "pathGlobs": [".github/**", "scripts/**", "tests/**", "docs/event-topology-exceptions.json", "build/*.nsh", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "electron.vite.config.ts", "electron-builder.config.mjs", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
+      "contextFiles": [".agents/context/testing.md"],
+      "canonicalDocs": [],
       "risks": ["ci-reachability", "tooling-drift"],
       "platforms": ["linux", "macos", "windows"],
       "validationProfiles": ["tooling"],

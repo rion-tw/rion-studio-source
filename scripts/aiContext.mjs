@@ -248,14 +248,18 @@ export async function validateAiContext(root = ROOT) {
   return failures;
 }
 
-export function formatContextReport(report) {
+export function formatContextReport(report, { verbose = false } = {}) {
   const lines = [
     `Change kind: ${report.changeKind}`,
     `Areas: ${report.areas.map((area) => area.id).join(", ")}`
   ];
-  for (const area of report.areas) lines.push(`- ${area.id}: ${area.reasons.join(", ")}`);
-  appendList(lines, "Context", report.contextFiles);
-  appendList(lines, "Canonical docs", report.canonicalDocs);
+  for (const area of report.areas) {
+    const reasons = verbose ? area.reasons : area.reasons.slice(0, 1);
+    const remaining = area.reasons.length - reasons.length;
+    lines.push(`- ${area.id}: ${reasons.join(", ")}${remaining ? ` (+${remaining} more; --verbose)` : ""}`);
+  }
+  appendList(lines, "Context (read once)", report.contextFiles);
+  appendList(lines, "Canonical docs (read relevant sections)", report.canonicalDocs);
   appendList(lines, "Risks", report.risks);
   appendList(lines, "Fast checks", report.fastChecks);
   appendList(lines, "Required checks", report.requiredChecks);
@@ -292,7 +296,7 @@ async function main() {
     paths,
     changeKind: options.changeKind
   });
-  process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : formatContextReport(report));
+  process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : formatContextReport(report, options));
 }
 
 function parseArguments(args) {
@@ -304,6 +308,7 @@ function parseArguments(args) {
     json: false,
     list: false,
     paths: [],
+    verbose: false,
     validate: false
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -311,6 +316,7 @@ function parseArguments(args) {
     if (argument === "--") continue;
     if (argument === "--changed") options.changed = true;
     else if (argument === "--json") options.json = true;
+    else if (argument === "--verbose") options.verbose = true;
     else if (argument === "--list") options.list = true;
     else if (argument === "--validate") options.validate = true;
     else if (["--base", "--change-kind", "--intent"].includes(argument)) {

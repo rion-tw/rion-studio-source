@@ -27,4 +27,4 @@ export function analyzeContext(options: {
 }): Promise<ContextReport>;
 export function collectChangedPaths(root?: string, base?: string): Promise<string[]>;
 export function validateAiContext(root?: string): Promise<string[]>;
-export function formatContextReport(report: ContextReport): string;
+export function formatContextReport(report: ContextReport, options?: { verbose?: boolean }): string;

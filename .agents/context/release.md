@@ -6,10 +6,9 @@ entry and retired the old migration backlog on 2026-09-09; see
 `docs/chromium-migration-execution-ledger.md` and `docs/v22-configuration-delta.md`.
 
 CI validates portable code on Linux and native Electron/Chromium on
-`macos-latest` and `windows-latest`. Rust remains authoritative for updater
-transactions and persisted data. macOS retains AppKit hosting and trusted input.
-Build/package commands do not launch the application as validation. Explicit
-native integration and desktop E2E commands have separate evidence.
+`macos-latest` and `windows-latest`. Build/package commands do not launch the
+application as validation. Explicit native integration and desktop E2E commands
+have separate evidence.
 
 `dev`, `build`, `package`, and `dist` target Electron. The desktop-release
 workflows build the exact source SHA and reuse the existing release App,
@@ -19,8 +18,7 @@ GitHub environment, credential, or recovery infrastructure is required.
 not a desktop runtime dependency. Private signing keys must be removed from
 build, runtime, and test subprocess environments and exposed only to the signer.
 
-Updater signatures and SHA-256 checks remain mandatory. Production macOS uses
-ad-hoc signing without notarization; Windows remains Authenticode-unsigned.
+Distribution/signing constraints are in root `AGENTS.md`.
 Compressed distribution budgets account for bundled Chromium: 256 MiB for each
 macOS archive/DMG and 128 MiB for the Windows installer. The prior Windows
 fixture was about 97 MiB; these are size limits, not performance settings.

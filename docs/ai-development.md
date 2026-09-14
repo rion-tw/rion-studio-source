@@ -1,8 +1,10 @@
 # AI Development Workflow
 
 Rion Studio gives Codex a small durable instruction chain and loads detailed
-context only when the current task requires it. The objective is deterministic
-routing, not a larger prompt.
+context only when the current task requires it. The current working default is
+GPT-6 Astra with high reasoning effort. Keep that quality budget; reduce repeated
+reading, irrelevant context, and redundant checks. This repository does not
+override personal model settings or set speculative token/compaction limits.
 
 ## Where information belongs
 
@@ -28,15 +30,42 @@ Use an intent when planning and paths when concrete files are known:
 ```bash
 pnpm run ai:context -- --list
 pnpm run ai:context -- --intent renderer --change-kind user-visible
+pnpm run ai:context -- --intent ai-context --change-kind internal-only
 pnpm run ai:context -- --paths src/renderer/src/features/settings --change-kind unknown
 pnpm run ai:context -- --changed --change-kind internal-only
 pnpm run ai:context -- --changed --base origin/main --json
+pnpm run ai:context -- --changed --verbose
 ```
 
-The router unions overlapping areas, explains every match, and reports fast
-checks separately from handoff gates. It never executes a command or turns a
-recommendation into evidence. An unknown intent, missing path, invalid Git base,
-or unclassified routed path is an error.
+The router unions overlapping areas and separates fast checks from handoff
+gates. Text reports show the first reason per area and the remaining count;
+`--verbose` shows every reason. `--json` always retains all fields and reasons,
+even with `--verbose`. Checks, platforms, and journey IDs are never truncated.
+An unknown intent, missing path, invalid Git base, or unclassified routed path
+is an error. The router never executes checks or proves they passed.
+
+## Read and validate proportionally
+
+- Read emitted context once; reuse unchanged instructions already loaded.
+  Canonical documents are lookup targets, not a whole-file reading checklist.
+  Search headings and symbols, then read relevant sections and dependent clauses
+  before changing behavior. Follow referenced contracts when the task needs them.
+- Prefer targeted searches and batch independent reads. Retain failure diagnostics;
+  summarize successful checks instead of repeatedly loading full logs. Re-run
+  checks after relevant changes, failures, or new evidence, not unchanged success.
+- Plain documentation changes require documentation, AI-context, and diff checks.
+  AI routing/instruction changes additionally require the router and documentation
+  tests plus release-workflow guards for owner-locked instruction text.
+  Script/test changes also select the full tooling validation profile.
+  Executable policy registries retain their validation (the event-topology
+  ledger selects tooling; journey coverage selects desktop E2E). Mixed tasks
+  union all requirements; product, native, and CI gates remain in force.
+- General tooling starts with testing context. Release and desktop E2E tasks
+  select their respective routes, including by intent when a generic CI/script
+  path alone cannot express the task's release or journey impact.
+- Compare unique required-context bytes, optional reference bytes, and report
+  bytes separately for representative tasks. These are input-size measurements,
+  not measured token savings or quality scores.
 
 ## Maintain the routing map
 
@@ -54,7 +83,8 @@ or unclassified routed path is an error.
 
 ## Task completion
 
-Run the router again with `--changed`, then reconcile its output with the actual
-diff. Report observed results, affected journey IDs, the exact E2E omission
-reason when applicable, and any native platform still pending CI. A green
+Route this task's actual `--paths` again after edits. Use `--changed` to inventory
+the whole worktree (including unrelated tasks), then reconcile with this task's
+diff before selecting validation. Report observed results, affected journey IDs,
+the exact E2E omission reason when applicable, and native platforms pending CI. A green
 portable check is not native Windows or macOS evidence.

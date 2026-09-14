@@ -1,14 +1,22 @@
 ---
 name: rion-task-router
-description: Route substantive Rion Studio planning, implementation, diagnosis, review, and verification work to the minimum repository context and validation set. Use when a task touches renderer UI, shared contracts, Rust Core, macros, Tauri/System WebView runtime, desktop E2E, release/CI, or engineering documentation.
+description: Select Rion Studio task context and validation by intent or changed paths for planning, implementation, diagnosis, and review of repository code or engineering documentation.
 ---
 
 # Route a Rion Studio task
 
-1. Run `pnpm run ai:context -- --list` only when the intent IDs are unknown.
-2. Before substantial work, run `pnpm run ai:context -- --intent <id>` or pass existing targets with `--paths`. Add `--change-kind` when the task classification is known.
-3. Read only the context and canonical documents emitted by the router. Treat `.agents/context.md` as the fallback when the command is unavailable.
-4. After edits, run `pnpm run ai:context -- --changed --change-kind <kind>` and reconcile its required checks, platform obligations, and candidate journeys with the actual change.
-5. Stop and inspect the routing map when the command reports an unknown intent, missing reference, or unclassified path. Do not guess around a failed route.
+1. Run `pnpm run ai:context -- --intent <id>` or pass concrete targets with
+   `--paths`. Use `--list` only for unknown IDs. Set `--change-kind` when known.
+2. Read emitted context once, reusing unchanged content already loaded.
+   Canonical documents are lookup targets: search headings/symbols, then read
+   relevant sections and dependent clauses before changing behavior. Follow
+   contract links as needed. Use `.agents/context.md` if the router is unavailable.
+3. After edits, route this task's actual paths for checks and platform/journey
+   obligations. Use `--changed` for whole-worktree inventory; reconcile unrelated
+   changes instead of treating them as this task. Use `--verbose` for all match
+   reasons or `--json` for the complete machine-readable report.
+4. Inspect the map on unknown intent, missing reference, or unclassified path;
+   do not guess around failed routing.
 
-The router recommends checks; it never proves they ran. Report only observed command results, and keep unavailable native platforms pending their required CI or physical-host gates.
+Report observed checks, never recommendations as evidence. Keep unavailable
+native platforms pending CI or their required physical-host gates.

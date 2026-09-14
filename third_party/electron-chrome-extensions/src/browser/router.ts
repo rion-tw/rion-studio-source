@@ -1,4 +1,5 @@
 import { app, ipcMain, Session } from 'electron'
+import { ExtensionApiError, type ExtensionApiFailure } from './api-error'
 
 const d = (..._arguments: unknown[]) => undefined
 
@@ -388,11 +389,12 @@ export class ExtensionRouter {
         ? { type: event.type, sender: event.sender, extension: extension! }
         : { type: event.type, sender: event.serviceWorker, extension: extension! }
 
-    const result = await handler.callback(extEvent, ...args)
-
-    d(`${handlerName} completed`)
-
-    return result
+    try {
+      return await handler.callback(extEvent, ...args)
+    } catch (error) {
+      if (!(error instanceof ExtensionApiError)) throw error
+      return { rionExtensionApiError: error.message } satisfies ExtensionApiFailure
+    }
   }
 
   private handle(name: string, callback: HandlerCallback, opts?: Partial<HandlerOptions>): void {

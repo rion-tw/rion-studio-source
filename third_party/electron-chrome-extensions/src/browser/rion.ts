@@ -3,8 +3,9 @@ import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 
 import { AlarmsAPI } from './api/alarms'
+import { RionContextMenusAPI } from './api/rion-context-menus'
 import { CommandsAPI } from './api/commands'
-import { CompatibilityAPI, CompatibilityReadyRecord } from './api/compatibility'
+import { CompatibilityAPI, CompatibilityReadyCallback } from './api/compatibility'
 import { NotificationsAPI } from './api/notifications'
 import { OffscreenAPI } from './api/offscreen'
 import { PermissionsAPI } from './api/permissions'
@@ -21,7 +22,7 @@ export interface RionChromeExtensionOptions extends ChromeExtensionImpl {
   license: License
   preloadPath: string
   session?: Electron.Session
-  onCompatibilityReady?: (extensionId: string, record: CompatibilityReadyRecord) => void
+  onCompatibilityReady?: CompatibilityReadyCallback
 }
 
 const sessionMap = new WeakMap<Electron.Session, RionChromeExtensions>()
@@ -38,6 +39,7 @@ export class RionChromeExtensions extends EventEmitter {
 
   readonly #ctx: ExtensionContext
   readonly #tabs: TabsAPI
+  readonly #contextMenus: RionContextMenusAPI
 
   constructor(opts: RionChromeExtensionOptions) {
     super()
@@ -56,6 +58,7 @@ export class RionChromeExtensions extends EventEmitter {
     const store = new ExtensionStore(impl)
     this.#ctx = { emit: this.emit.bind(this), router, session, store }
     this.#tabs = new TabsAPI(this.#ctx)
+    this.#contextMenus = new RionContextMenusAPI(this.#ctx)
     new AlarmsAPI(this.#ctx)
     new CommandsAPI(this.#ctx)
     new CompatibilityAPI(this.#ctx, onCompatibilityReady)
@@ -83,10 +86,12 @@ export class RionChromeExtensions extends EventEmitter {
   addTab(tab: Electron.WebContents, window: Electron.BaseWindow) {
     this.#checkSession(tab)
     this.#ctx.store.addTab(tab, window)
+    this.#contextMenus.addTab(tab, window)
   }
 
   removeTab(tab: Electron.WebContents) {
     this.#checkSession(tab)
+    this.#contextMenus.removeTab(tab)
     this.#ctx.store.removeTab(tab)
   }
 

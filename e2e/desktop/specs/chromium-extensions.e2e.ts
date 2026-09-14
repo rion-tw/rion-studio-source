@@ -1,4 +1,5 @@
 import { verifyTemporaryWindowTitle } from "../support/temporary-window-title";
+import { extensionTerminalIds, expectExtensionPassedClassification, verifyExtensionPermissionsAfterRestart } from "../support/extensions-permissions";
 import { verifyBusterStoreNavigation } from "../support/extensions-store-navigation";
 import { join } from "node:path";
 import { $, browser, expect } from "@wdio/globals";
@@ -119,6 +120,7 @@ describe("Extensions store and per-role configuration", () => {
       await card.moveTo();
       await installRuntimeTabShellErrorJournal();
       await captureNativeApplicationObservation("extensions-before-role-open");
+      const initialTerminals = await extensionTerminalIds();
       await $(`[data-selection-id='${future.id}']`)
         .$("button[aria-label='Open']").click();
       try {
@@ -133,6 +135,7 @@ describe("Extensions store and per-role configuration", () => {
         await captureNativeApplicationObservation("extensions-after-role-open");
       }
       await browser.switchToWindow(main);
+      await expectExtensionPassedClassification(future.id, initialTerminals);
       await browser.waitUntil(async () => (await rendererCall("listRoleStatuses")).some(r => r.roleId === future.id && r.state === "running"), { timeout: 30000 });
       const runtime = await rendererCall("getEmbeddedRuntimeState");
       const roleTab = runtime.tabs.find((tab) => tab.sourceId === future.id);
@@ -170,6 +173,7 @@ describe("Extensions store and per-role configuration", () => {
       });
       expect(await runtimeTabShellErrors()).toEqual([]);
       expect((await electronDesktopE2eProbe()).processId).toBe(probe.processId);
+      const previousTerminals = await extensionTerminalIds();
       await $(`[data-selection-id='${future.id}']`)
         .$("button[aria-label='Open']").click();
       await browser.waitUntil(async () => {
@@ -188,6 +192,7 @@ describe("Extensions store and per-role configuration", () => {
         timeoutMsg: "The extension Role did not reopen with compatibility readiness"
       });
       expect(await runtimeTabShellErrors()).toEqual([]);
+      await expectExtensionPassedClassification(future.id, previousTerminals);
     } else if (phase === "chromium-extensions-restart") {
       await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*1$/);
       const snapshot = (await rendererCall("extensions", { type: "snapshot" })).snapshot;
@@ -197,8 +202,12 @@ describe("Extensions store and per-role configuration", () => {
       expect(installed?.description?.trim().length).toBeGreaterThan(0);
       expect(installed?.iconDataUrl?.startsWith("data:image/")).toBe(true);
       expect(installed?.sizeBytes).toBeGreaterThan(0);
+      expect(installed?.permissions).toContain("management");
+      expect(installed?.requiredApiPermissions).toBeDefined();
+      expect(installed?.requiredApiPermissions).not.toContain("management");
       await expectInstalledCardMetadata();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-installed-dark.png"));
+      await verifyExtensionPermissionsAfterRestart();
       await $("button=Manage").click();
       await $('[role="dialog"]').$("button=Selected roles").click();
       const checkbox = await $("label*=Extensions journey role").$("[role=checkbox]");

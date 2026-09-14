@@ -2,6 +2,7 @@
 mod crx;
 mod error;
 mod package;
+mod permissions;
 
 use crate::model::{ExtensionPackageRecord, ExtensionPreparedRecord, ExtensionRoleRecord};
 pub(crate) use error::ExtensionPackageError;
@@ -76,6 +77,7 @@ fn prepare_downloaded(
                 icon_data_url: metadata.icon_data_url,
                 size_bytes: Some(metadata.size_bytes),
                 permissions,
+                required_api_permissions: Some(permissions::required_api_permissions(&manifest)?),
                 sha256,
                 directory: directory.path().to_string_lossy().into_owned(),
                 enabled_role_ids: Vec::new(),
@@ -91,7 +93,8 @@ pub(crate) fn backfill_metadata(
     user_data_dir: &std::path::Path,
     record: &mut ExtensionPackageRecord,
 ) -> Result<bool> {
-    if record.description.is_some() && record.size_bytes.is_some() {
+    let needs_display = record.description.is_none() || record.size_bytes.is_none();
+    if !needs_display && record.required_api_permissions.is_some() {
         return Ok(false);
     }
     let managed_root = std::fs::canonicalize(user_data_dir.join("extensions"))?;
@@ -99,8 +102,27 @@ pub(crate) fn backfill_metadata(
     if directory.parent() != Some(managed_root.as_path()) {
         return Err(ExtensionPackageError::PackageInvalid);
     }
-    let metadata = package::installed_metadata(&directory)?;
+    // Gather every fallible value before changing the durable record.
+    let required = if record.required_api_permissions.is_none() {
+        Some(permissions::required_api_permissions(
+            &package::installed_manifest(&directory)?,
+        )?)
+    } else {
+        None
+    };
+    let metadata = if needs_display {
+        Some(package::installed_metadata(&directory)?)
+    } else {
+        None
+    };
     let mut changed = false;
+    if let Some(required) = required {
+        record.required_api_permissions = Some(required);
+        changed = true;
+    }
+    let Some(metadata) = metadata else {
+        return Ok(changed);
+    };
     if record.description.is_none() {
         record.description = Some(metadata.description);
         changed = true;

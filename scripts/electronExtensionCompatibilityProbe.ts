@@ -45,12 +45,16 @@ void app.whenReady().then(async () => {
       matches: ["http://127.0.0.1/*"],
       run_at: "document_end"
     }],
-    declarative_net_request: { rule_resources: [{ enabled: true, id: "probe", path: "rules.json" }] },
+    declarative_net_request: { rule_resources: [
+      { enabled: true, id: "probe", path: "rules.json" },
+      { enabled: false, id: "disabled", path: "rules.json" }
+    ] },
     host_permissions: ["http://127.0.0.1/*"],
     key: publicKey,
     manifest_version: 3,
     name: "Rion extension compatibility probe",
-    permissions: ["declarativeNetRequest", "notifications", "offscreen", "storage", "webNavigation"],
+    permissions: ["contextMenus", "declarativeNetRequest", "notifications", "offscreen", "storage", "webNavigation"],
+    optional_permissions: ["management"],
     version: "1.0.0"
   }));
   writeFileSync(join(extensionPath, "rules.json"), JSON.stringify([{
@@ -68,6 +72,32 @@ void app.whenReady().then(async () => {
       void (async () => {
         await chrome.storage.session.set({ probe: 'ready' });
         const stored = await chrome.storage.session.get('probe');
+        const managementBefore = await chrome.permissions.contains({ permissions: ['management'] });
+        const managementGranted = await chrome.permissions.request({ permissions: ['management'] });
+        const managementAfter = await chrome.permissions.contains({ permissions: ['management'] });
+        const self = await chrome.management.getSelf();
+        let managementListDenied = false;
+        try {
+          await chrome.management.getAll();
+        } catch {
+          managementListDenied = true;
+        }
+        const menuId = chrome.contextMenus.create({ id: 'probe-menu', title: 'Probe menu' });
+        const duplicateMenuDenied = await new Promise(resolve => {
+          chrome.contextMenus.create({ id: 'probe-menu', title: 'Duplicate' }, () => resolve(Boolean(chrome.runtime.lastError)));
+        });
+        const unavailableTab = await new Promise(resolve => {
+          chrome.tabs.create({ url: 'https://example.invalid/' }, result => resolve({
+            resultMissing: result === undefined, error: chrome.runtime.lastError?.message
+          }));
+        });
+        const lastErrorCleared = chrome.runtime.lastError === undefined;
+        const missingMenu = await new Promise(resolve => {
+          chrome.contextMenus.update('missing-menu', { title: 'Missing' }, () => resolve(chrome.runtime.lastError?.message));
+        });
+        await chrome.contextMenus.update('probe-menu', { title: 'Updated probe menu' });
+        await chrome.contextMenus.remove('probe-menu');
+        await chrome.contextMenus.removeAll();
         const permissionLevel = await chrome.notifications.getPermissionLevel();
         const tabs = await chrome.tabs.query({ active: true });
         const enabledRulesets = await chrome.declarativeNetRequest.getEnabledRulesets();
@@ -77,6 +107,9 @@ void app.whenReady().then(async () => {
         const offscreenCreated = await chrome.offscreen.hasDocument();
         await chrome.offscreen.closeDocument();
         reply({
+          menuId, duplicateMenuDenied, unavailableTab, lastErrorCleared, missingMenu,
+          managementBefore, managementGranted, managementAfter, managementListDenied,
+          managementSelf: self.id === chrome.runtime.id,
           enabledRulesets,
           notificationApi: typeof permissionLevel === 'string',
           offscreenCreated,
@@ -133,6 +166,15 @@ void app.whenReady().then(async () => {
   await view.webContents.loadURL(`http://127.0.0.1:${address.port}/`);
   const result = await withDeadline(response);
   assert.deepEqual(result, {
+    menuId: "probe-menu", duplicateMenuDenied: true,
+    unavailableTab: { resultMissing: true, error: 'RION_EXTENSION_API_UNAVAILABLE:tabs.create' },
+    lastErrorCleared: true,
+    missingMenu: 'RION_CONTEXT_MENU_NOT_FOUND',
+    managementBefore: false,
+    managementGranted: false,
+    managementAfter: false,
+    managementListDenied: true,
+    managementSelf: true,
     enabledRulesets: ["probe"],
     notificationApi: true,
     offscreenCreated: true,

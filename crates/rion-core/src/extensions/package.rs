@@ -310,11 +310,15 @@ fn unpack_verified(
 }
 
 pub(super) fn installed_metadata(directory: &Path) -> Result<PackageDisplayMetadata> {
+    installed_metadata_from_manifest(&installed_manifest(directory)?, directory)
+}
+
+pub(super) fn installed_manifest(directory: &Path) -> Result<serde_json::Value> {
     let bytes = read_contained_regular_file(directory, Path::new("manifest.json"), 1024 * 1024)
         .ok_or(ExtensionPackageError::ManifestUnsupported)?;
     let manifest = serde_json::from_slice::<serde_json::Value>(&bytes)
         .map_err(|_| ExtensionPackageError::ManifestUnsupported)?;
-    installed_metadata_from_manifest(&manifest, directory)
+    Ok(manifest)
 }
 
 fn installed_metadata_from_manifest(

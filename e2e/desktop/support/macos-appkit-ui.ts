@@ -44,7 +44,8 @@ export async function clickMacosVisibleRoleControl(
   windowId: string,
   roleId: string,
   point: VisibleElectronPagePoint,
-  kind: "role" | "web" = "role"
+  kind: "role" | "web" = "role",
+  button: "left" | "right" = "left"
 ): Promise<void> {
   if (
     process.platform !== "darwin" ||
@@ -114,12 +115,12 @@ guard let source = CGEventSource(stateID: .hidSystemState) else {
 }
 let point = CGPoint(x: ${clickX}, y: ${clickY})
 CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+  mouseCursorPosition: point, mouseButton: .${button})?.post(tap: .cghidEventTap)
 usleep(50_000)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseDown,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
-  mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+CGEvent(mouseEventSource: source, mouseType: .${button}MouseDown,
+  mouseCursorPosition: point, mouseButton: .${button})?.post(tap: .cghidEventTap)
+CGEvent(mouseEventSource: source, mouseType: .${button}MouseUp,
+  mouseCursorPosition: point, mouseButton: .${button})?.post(tap: .cghidEventTap)
 usleep(100_000)
 `;
   await executeFile("/usr/bin/xcrun", ["swift", "-e", script], {

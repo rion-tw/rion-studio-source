@@ -8,7 +8,6 @@ const FORBIDDEN_MAIN_PATTERNS = Object.freeze([
   "runtime.sendNativeMessage",
   "websocket.connect",
   "websocket.close",
-  "contextMenus.create",
   "downloads.download",
   "identity.launchWebAuthFlow",
   "management.uninstallSelf"
@@ -31,6 +30,7 @@ export async function verifyElectronExtensionCompatibilityBundle(
     "RION_EXTENSION_API_UNAVAILABLE",
     "compatibility.ready",
     "permissions.onRemoved",
+    "contextMenus.onClicked",
     "webNavigation.onCompleted"
   ]) {
     if (!preload.includes(required)) {

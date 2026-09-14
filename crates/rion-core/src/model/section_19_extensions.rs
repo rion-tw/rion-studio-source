@@ -25,6 +25,9 @@ pub struct ExtensionPackageRecord {
     #[ts(optional, rename = "sizeBytes", type = "number")]
     pub size_bytes: Option<u64>,
     pub permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, rename = "requiredApiPermissions")]
+    pub required_api_permissions: Option<Vec<String>>,
     pub sha256: String,
     pub directory: String,
     pub enabled_role_ids: Vec<String>,

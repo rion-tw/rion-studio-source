@@ -113,7 +113,7 @@ Settings commits publish revisioned snapshots only after successful persistence.
 The compatibility layer is a bounded fork of Rambox's
 `@ramboxapp/electron-chrome-extensions` 4.10.3 at commit
 `026cea78b6d743a81e2aa0e84d236081fccf4c72`. Rion compiles only the audited
-alarms, commands, notifications, offscreen, permissions, session-storage, tabs,
+alarms, commands, document context menus, notifications, offscreen, permissions, session-storage, tabs,
 and web-navigation modules plus its compatibility handshake. It deliberately
 does not compile the upstream remote-session, WebSocket, native-messaging,
 downloads, identity, management, context-menu, cookie, or window-mutation
@@ -121,15 +121,21 @@ modules.
 
 Supported compatibility APIs are `permissions` (including `onAdded` and
 `onRemoved`), `webNavigation` events, `notifications`, `offscreen`, `commands`,
-`alarms`, `storage.session`, and safe `tabs` read/query/reload/navigation events.
+`alarms`, document `contextMenus`, `storage.session`, and safe `tabs` read/query/reload/navigation events.
 `action` and `browserAction` expose bounded read/no-op behavior; popup opening is
 not supported. Chromium supplies Manifest V3 service workers, content scripts,
 `declarativeNetRequest` including static rulesets, and `scripting`. This covers
 the core blocking flow used by uBlock Origin Lite and the core challenge flow
 used by Buster; it is not a promise of arbitrary Chrome extension parity.
 
-Packages requesting `debugger`, `enterprise.*`, `management`,
-`nativeMessaging`, `proxy`, or `vpnProvider` are rejected before load. Native
+Packages requiring `debugger`, `enterprise.*`, `management`,
+`nativeMessaging`, `proxy`, or `vpnProvider` are rejected before load. Rust supplies
+`requiredApiPermissions` from manifest `permissions`, separately from the combined
+`permissions` list shown during installation. Optional permissions do not block
+loading and are not granted; requests continue to be denied. Native
+`management.getSelf()` remains available without the management permission.
+Missing classification metadata skips that package with
+`ELECTRON_EXTENSION_PERMISSION_METADATA_UNAVAILABLE`, never an implicit empty list. Native
 messaging, native clients, toolbar popups, arbitrary tab/window mutation,
 renderer/preload debugger access, external Chrome/CDP clients, and a Node
 WebSocket proxy remain outside the security boundary.
@@ -222,12 +228,14 @@ manifest failures are reported as unsupported.
   remote-session, WebSocket, or privileged management surfaces.
 - `CHROMIUM-MACOS-APPKIT-EXTENSIONS-001` and
   `CHROMIUM-WINDOWS-EXTENSIONS-001` cover visible AdBlock installation, role assignment,
-  a terminal role compatibility outcome, application restart, disabling, and cancel/confirm removal in their existing
+  native worker-running plus validated compatibility readiness, application restart, disabling, and cancel/confirm removal in their existing
   Chromium smoke profiles. These journeys explicitly depend on live store
-  availability; external failure fails the journey. AdBlock currently requests
-  the deliberately unsupported `management` permission, so its valid terminal
-  outcome is `degraded`; deterministic extension fixtures separately prove
-  native load and exact unload completion.
+  availability; external failure fails the journey. AdBlock 6.45.5 declares
+  `management` only as optional. These journeys require fresh `ELECTRON_EXTENSION_READY`
+  evidence after classification, including close/reopen and application restart;
+  a generic `degraded` role status alone is insufficient. Later API incompatibilities
+  remain visible and do not establish complete AdBlock support. Deterministic
+  extension fixtures separately prove native load and exact unload completion.
 
 Production eligibility requires both native platforms. Local macOS evidence
 does not satisfy Windows or the broader Chromium cutover gates.
@@ -330,3 +338,204 @@ exact ID, and persisted metadata in light and dark views. Focused Rust metadata
 and migration tests, generated bindings, Renderer/Event Vitest, Rust lint, and
 the two-process Electron Extension probe also passed. The matching Windows
 journey and native validation remain required CI gates.
+
+## Required permission metadata migration
+
+Startup backfills missing `requiredApiPermissions` from a bounded manifest read
+inside the Rust-managed extension directory, even when display metadata is already
+complete. Missing means unknown; an empty array means no required API permissions.
+The existing atomic catalogue migration increments its revision only when records
+change. It preserves package files, identity, assignment, storage, and tombstones.
+Unreadable or invalid manifests retain unknown classification and emit migration
+warnings. Classified records are not reread on later startups. No polling, new
+permission prompt, automatic grant, or extension content rewrite is introduced.
+Existing installations take effect after restarting the application.
+
+The native compatibility probe verifies optional management remains ungranted
+before and after a denied request, native `getSelf()` succeeds, and `getAll()`
+cannot return an extension inventory without the grant. Full AdBlock filtering,
+idle integration, popups, and settings remain outside the optional-permission fix.
+Generic document context menus were added in the subsequent follow-up below.
+
+### Optional-permission correction validation (2026-09-14)
+
+The focused macOS `chromium-macos-appkit-smoke` extension seed/restart phases
+passed with live AdBlock 6.45.5. Initial load, close/reopen, and application
+restart passed required-permission classification and reached native loading.
+AdBlock subsequently reported `ELECTRON_EXTENSION_BOOTSTRAP_DEADLINE_EXCEEDED`;
+this remains a separate compatibility limitation, not proof of working ad filtering.
+The isolated native probe passed denied optional management and native self-query
+checks. Rust migration tests covered existing complete metadata and restart
+idempotence; both platform tables passed. Windows native probe and desktop
+journey execution remain pending Windows CI.
+
+The broader macOS `smoke` run completed 61 PASS phases and four expected
+force-termination phases, then failed to establish a WebDriver session in
+`chromium-role-session-recovery` before scenario execution (`DevToolsActivePort`
+missing). An isolated retry and the separately attempted
+`chromium-role-session-upgrade-seed` also failed session creation with
+`unable to discover open pages`; upgrade restart was not reached. These
+non-extension startup failures remain unresolved; this is not a complete
+smoke/full-profile pass. Smoke and full resolve to the same native phase set.
+
+
+## Worker startup failures and generic context menus (2026-09-14)
+
+Each service-worker bootstrap now observes the exact Session before native load.
+A worker's extension scope and version are captured at `starting`; native load,
+`running`, and a sender-version-bound compatibility receipt are all required for
+success. An early receipt alone cannot hide a script evaluation exception.
+JavaScript error events (`source=javascript`, `level=3`) terminate the matching
+attempt immediately. Warnings, console API errors, network messages and stopping
+alone do not establish a failed initialization. Unknown acknowledgements retain
+the existing deadline; cancellation disposes the observer without retrying.
+
+After native load has a known outcome and exact unload completes, diagnostics
+record `ELECTRON_EXTENSION_SERVICE_WORKER_RUNTIME_ERROR` with sanitized relative
+source and line, and Core completes the lease as degraded. Role navigation can
+then proceed without spending the bootstrap deadline on an already-known error.
+Native load uncertainty still fences navigation and retains late cleanup.
+
+The owner authorized generic API support in the same follow-up. The audited host
+now provides document `contextMenus.create/update/remove/removeAll/onClicked`,
+including nested menus, checkbox/radio state, URL/context filtering, and native
+Electron Menu presentation attached only to managed Role WebContents. Mutations
+require declared `contextMenus`; optional permission grants remain denied. Menu
+IDs are extension-local, stale clicks are ignored, and retirement removes native
+listeners. MV3 creation requires a string ID; callback errors use runtime.lastError.
+Toolbar/action contexts, inline onclick callbacks and persistence across application
+restart are outside this surface; extensions recreate menus on startup. A generic
+fixture exercises native menu cancellation and selection through the paired P1
+`CHROMIUM-*-EXTENSION-CONTEXT-MENU-001` journeys. Fixture loading is a deterministic precondition, not store-install evidence.
+
+The original AdBlock contextMenus failure is no longer an expected compatibility
+limit. Remaining initialization or filtering failures are recorded independently;
+this change does not certify full AdBlock operation. The failure probe deliberately
+throws after registering contextMenus.onClicked so failure handling remains covered
+when the generic API is available. A separate successful worker verifies that
+ordinary console.error does not cause failure, before and after process restart.
+
+
+Electron can still emit `ExtensionLoadWarning: Permission ... is unknown` for
+`contextMenus`, `notifications` and `webNavigation`: its native manifest validator
+does not recognize Rion's independently provided compatibility APIs. These warnings
+are retained, not converted to fatal classification or suppressed by rewriting the
+manifest. Native probes exercise real calls to distinguish working compatibility
+APIs from worker initialization errors; a warning alone proves neither outcome.
+
+
+Static ruleset receipt validation compares only manifest resources enabled by
+default, matching the preload's declared work. Disabled resources remain disabled.
+AdBlock 6.45.5 declares 37 resources but enables three by default; comparing all
+37 against the receipt of three incorrectly rejected an otherwise valid bootstrap.
+
+
+### Follow-up validation evidence
+
+The macOS smoke run at `.desktop-e2e-artifacts/2026-09-14T10-18-40-870Z-darwin`
+passed native context-menu cancellation/selection and the live AdBlock 6.45.5
+installation and restart phases. AdBlock recorded `ELECTRON_EXTENSION_READY`
+on initial open, same-process reopen and application restart, at 10:19:23.816Z,
+10:19:27.117Z and 10:19:33.175Z respectively, before Role navigation completed.
+This supersedes the earlier timeout observation; filtering effectiveness is still
+not part of these assertions. The later shell phase failed because its existing
+Dock selector found five Rion items (`Rion Dock isolation unavailable; Rion=5`).
+Other running applications were not closed to alter the user's desktop.
+
+Earlier focused attempts failed in live-store Back/Forward navigation before
+installation; those failures were not accepted as extension evidence. The eventual
+smoke install/restart run passed without weakening those store assertions.
+
+
+The later `full` run at
+`.desktop-e2e-artifacts/2026-09-14T10-20-46-808Z-darwin` again passed the generic
+menu click/cancel phase, including navigation-fenced menu ownership, then failed
+before installation when live Buster search results did not become clickable.
+Neither broad run is a complete smoke/full-profile pass. The successful AdBlock
+seed/restart evidence above remains the observed native result for this change.
+
+Final code validation passed 4,244 JavaScript/TypeScript tests (19 skipped) and
+1,222 Rust tests (five ignored), typecheck, lint (23 existing renderer warnings),
+Rust lint, hygiene/docs/context/dependency checks and coverage validation. The
+coverage manifest now contains paired native P1 context-menu journeys. Windows
+parameterized tests pass locally; Windows native probe and desktop CI results
+remain pending and are not inferred from macOS execution.
+
+
+## Existing dev Role acceptance and native DNR blocker (2026-09-14)
+
+The existing dev Role `a78cc6e9-f7b5-4d81-8c91-58fa1a63f8c4` was opened through the visible Roles UI against
+`https://universe.flyff.com/play`, preserving its installed AdBlock 6.45.5 and
+Role store. This reproduced failures after `ELECTRON_EXTENSION_READY` that the
+isolated bootstrap journey did not certify. READY is bootstrap evidence only.
+
+The generic API corrections deliver expected context-menu failures as typed
+API replies, then reject the extension Promise or expose `runtime.lastError`
+for the duration of its callback. Duplicate IDs still fail without replacing
+existing items. Security checks and unexpected host faults still reject IPC.
+AdBlock deliberately creates a duplicate ID during its startup API test and
+reads the callback error; that handled failure must not become a main-process
+IPC exception. The same callback semantics now apply to unavailable APIs and
+other bridged calls. In particular, `tabs.create` remains unsupported and fails
+explicitly instead of resolving a missing Tab as success. Frame queries omit
+uncommitted empty-URL frames and retain committed `about:blank` frames.
+
+Visible dev reopening confirmed the duplicate-ID IPC exceptions and
+`Invalid frame URL` errors disappeared, and the previous `undefined.id` error
+became the accurate `RION_EXTENSION_API_UNAVAILABLE:tabs.create` error. The game
+still opened. The three native unknown-permission warnings remain as described
+above. AdBlock's native DNR update failure remains; this is not full AdBlock
+acceptance and does not prove filtering effectiveness.
+
+Run `node scripts/verifyElectronExtensionRulesetAllocation.mjs` for the isolated
+engine regression. It uses no Rion preload, AdBlock scripts, or user profile.
+It enables 31,001 synthetic static rules in two resources, exits normally, then
+starts a second process against the same temporary Session. On Electron 43.7.0 /
+Chromium 150.0.7871.250 on macOS, seed succeeds; restart reports
+`The set of enabled rulesets exceeds the rule count limit.` when disabling the
+one-rule resource. Both resources remain enabled. The runner exits nonzero for
+this failed native acknowledgement; it does not accept elapsed time or log
+suppression as success. This separately reproduces the real Role's failure and
+requires an engine-level repair and rerun before DNR restart compatibility can
+be certified. Preferences, user filters, quotas, and extension package contents
+are not cleared or rewritten as a workaround. Windows native reproduction is
+pending CI/a Windows host.
+
+
+Dev evidence on 2026-09-14 (UTC): the original reproduction reported READY at
+10:33:30.628 and Role launch completion at 10:33:32.330, while still emitting
+16 handled duplicate-ID IPC exceptions, one empty frame URL error, two missing
+Tab ID errors, and two DNR quota errors. With the API fixes, opening at
+10:41:43.199 and reopening at 10:42:17.808 each reached READY, followed by Role
+launch completion at 10:41:45.552 and 10:42:19.331. Across those two launches,
+there were zero duplicate-ID IPC exceptions, zero empty frame URL errors, and
+zero missing Tab ID errors. Each launch retained one explicit unsupported
+`tabs.create` error and one native DNR quota error. The first launch displayed
+the in-game scene; reopening displayed the game's existing-session login prompt,
+which was not accepted to disconnect another session.
+
+The additional macOS smoke run
+`.desktop-e2e-artifacts/2026-09-14T10-45-05-991Z-darwin/report.json` passed
+`CHROMIUM-MACOS-APPKIT-EXTENSION-CONTEXT-MENU-001` (native selection/cancellation).
+`CHROMIUM-MACOS-APPKIT-EXTENSIONS-001` failed earlier in the unchanged Buster
+store Forward-navigation assertion (`extensions-store-navigation.ts:65`), before
+AdBlock installation. This is not a complete smoke pass; the existing dev Role
+verification above is separate visible-UI evidence. Windows native and CI results
+remain pending.
+
+
+A final fresh dev process after the completed production build again opened the
+same existing Role into the in-game scene. Its launch retained zero duplicate-ID
+IPC exceptions, empty frame URLs, or missing Tab ID errors; the unsupported
+`tabs.create` and native DNR quota failures each remained once. The dev application
+was left running on that Role for inspection.
+
+Validation for these corrections: 4,254 JS/TS tests passed (19 skipped), 1,222 Rust
+tests passed (five ignored), typecheck, lint (23 existing renderer warnings),
+Rust lint, hygiene, coverage, production build, production E2E isolation, and the
+standard native extension probe passed. The final focused API suite passed 25
+cases, including storage values that resemble error metadata. The standalone
+DNR allocation restart probe failed as documented above. The native probe also
+asserts that handled menu callback errors do not escape as main-process IPC
+exceptions, optional management remains denied, native getSelf works, and
+getAll cannot obtain the extension inventory without permission.

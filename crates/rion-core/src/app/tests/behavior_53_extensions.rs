@@ -45,6 +45,7 @@ fn extension_configuration_is_durable_and_active_leases_are_frozen() {
                 icon_data_url: None,
                 size_bytes: Some(2),
                 permissions: vec![],
+                required_api_permissions: Some(vec![]),
                 sha256: "0".repeat(64),
                 directory: staging.path().to_string_lossy().into_owned(),
                 enabled_role_ids: vec![],
@@ -353,6 +354,7 @@ fn extension_metadata_is_backfilled_once_without_blocking_unreadable_legacy_reco
             )
         );
         assert!(valid["sizeBytes"].as_u64().is_some_and(|size| size > 0));
+        assert_eq!(valid["requiredApiPermissions"], json!([]));
         let invalid = snapshot["installed"]
             .as_array()
             .unwrap()
@@ -361,6 +363,7 @@ fn extension_metadata_is_backfilled_once_without_blocking_unreadable_legacy_reco
             .unwrap();
         assert!(invalid.get("description").is_none());
         assert!(invalid.get("sizeBytes").is_none());
+        assert!(invalid.get("requiredApiPermissions").is_none());
         let unreadable = snapshot["installed"]
             .as_array()
             .unwrap()
@@ -369,6 +372,7 @@ fn extension_metadata_is_backfilled_once_without_blocking_unreadable_legacy_reco
             .unwrap();
         assert!(unreadable.get("description").is_none());
         assert!(unreadable.get("sizeBytes").is_none());
+        assert!(unreadable.get("requiredApiPermissions").is_none());
         restored.shutdown();
 
         let restarted = create();
@@ -379,6 +383,51 @@ fn extension_metadata_is_backfilled_once_without_blocking_unreadable_legacy_reco
             .unwrap()["snapshot"]["revision"]
             .clone();
         assert_eq!(revision, 8);
+        restarted.shutdown();
+    }
+}
+
+#[test]
+fn extension_permission_backfill_preserves_complete_catalogue_and_is_durable() {
+    for platform in ["darwin", "win32"] {
+        let (directory, core) = core_for_platform_contract(platform, 23);
+        let package_directory = directory.path().join("extensions").join("permissions-fixture");
+        std::fs::create_dir_all(&package_directory).unwrap();
+        std::fs::write(package_directory.join("manifest.json"), br#"{
+            "manifest_version":3,"name":"Fixture","version":"1",
+            "permissions":["storage"],"optional_permissions":["management"]
+        }"#).unwrap();
+        let mut package = json!({
+            "id": "f".repeat(32), "name": "Fixture", "version": "1",
+            "description": "Complete", "sizeBytes": 123,
+            "permissions": ["management", "storage"], "sha256": "0".repeat(64),
+            "directory": package_directory, "enabledRoleIds": ["saved-role"],
+            "applyToAllRoles": true, "removed": false
+        });
+        core.with_runtime(|runtime| runtime.state.replace_scalar("extensions".to_owned(), json!({
+            "revision": 10, "roles": [], "installed": [package]
+        }))).unwrap();
+        core.shutdown();
+        let create = || AppCore::create(AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(), build_commit: None, packaged: false,
+            platform: platform.to_owned(), runtime_contract_version: Some(23),
+            user_data_dir: directory.path().to_string_lossy().into_owned(),
+        }).unwrap();
+        let restored = create();
+        let snapshot = restored.invoke(command(json!({
+            "type":"extensions", "command":{"type":"snapshot"}
+        }))).unwrap()["snapshot"].clone();
+        package["requiredApiPermissions"] = json!(["storage"]);
+        assert_eq!(snapshot["installed"], json!([package]));
+        assert_eq!(snapshot["revision"], 11);
+        restored.shutdown();
+        // Completed classification is not inferred again from mutable files.
+        std::fs::remove_file(package_directory.join("manifest.json")).unwrap();
+        let restarted = create();
+        let after = restarted.invoke(command(json!({
+            "type":"extensions", "command":{"type":"snapshot"}
+        }))).unwrap()["snapshot"].clone();
+        assert_eq!(after, snapshot);
         restarted.shutdown();
     }
 }

@@ -817,7 +817,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
           modifiers: { alt: event.altKey, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey },
           targetId: event.target instanceof Element ? event.target.id : undefined
         });
-        if (kind === "contextmenu") event.preventDefault();
+        if (kind === "contextmenu" && new URL(location.href).searchParams.get("nativeContextMenu") !== "1") event.preventDefault();
       });
     }
     addEventListener("keydown", (event) => recordConsumerKeyboard("consumer-keydown", event));

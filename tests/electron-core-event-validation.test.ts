@@ -81,6 +81,17 @@ describe("Core extension event validation", () => {
     expect(() => parseCoreEvents(extensionsChanged({ ...extensionPackage, unexpected: true })))
       .toThrow("The Core event batch is invalid.");
   });
+
+  it("accepts classified permissions without conflating absent and empty metadata", () => {
+    for (const requiredApiPermissions of [[], ["storage"]]) {
+      expect(() => parseCoreEvents(extensionsChanged({ ...extensionPackage, requiredApiPermissions })))
+        .not.toThrow();
+    }
+    for (const requiredApiPermissions of [null, "storage", [1]]) {
+      expect(() => parseCoreEvents(extensionsChanged({ ...extensionPackage, requiredApiPermissions })))
+        .toThrow("The Core event batch is invalid.");
+    }
+  });
 });
 
 describe("Core browser-action event validation", () => {

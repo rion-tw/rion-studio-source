@@ -33,7 +33,7 @@ describe.each(["darwin", "win32"])("Extension session lifecycle (%s)", platform 
     });
     let generation = 0;
     const core = { invoke: vi.fn(async (input: { command: { type: string } }) => ({
-      snapshot: { revision: 1, roles: [], installed: [{ id, removed: false, directory: platform === "win32" ? "C:\\fixture" : "/fixture" }] },
+      snapshot: { revision: 1, roles: [], installed: [{ id, removed: false, requiredApiPermissions: [] as string[], directory: platform === "win32" ? "C:\\fixture" : "/fixture" }] },
       lease: input.command.type === "acquire" ? { roleId: "role", leaseId: `lease-${++generation}`, extensionIds: [id], status: "loading" } : null,
       prepared: null
     })) };
@@ -78,7 +78,7 @@ describe.each(["darwin", "win32"])("Extension session lifecycle (%s)", platform 
     core.invoke.mockImplementation(async (input: { command: { type: string } }) => ({
       snapshot: { revision: 1, roles: [], installed: [{
         id, removed: false, directory: compatibilityFixture,
-        permissions: ["nativeMessaging"]
+        permissions: ["nativeMessaging"], requiredApiPermissions: ["nativeMessaging"]
       }] },
       lease: input.command.type === "acquire"
         ? { roleId: "role", leaseId: "lease-blocked", extensionIds: [id], status: "loading" }
@@ -294,7 +294,7 @@ it("waits for the exact compatibility receipt and unloads a bootstrap timeout", 
   });
   const core = { invoke: vi.fn(async (input: { command: { type: string } }) => ({
     snapshot: { revision: 1, roles: [], installed: [{
-      id, removed: false, directory: compatibilityFixture, permissions: []
+      id, removed: false, requiredApiPermissions: [], directory: compatibilityFixture, permissions: []
     }] },
     lease: input.command.type === "acquire"
       ? { roleId: "role", leaseId: "lease-timeout", extensionIds: [id], status: "loading" }
@@ -307,7 +307,7 @@ it("waits for the exact compatibility receipt and unloads a bootstrap timeout", 
     deadlineMs: 1
   });
   const handle = {
-    roleId: "role", chromiumUserDataDir: "/role", session: { extensions: native }
+    roleId: "role", chromiumUserDataDir: "/role", session: { extensions: native, serviceWorkers: new EventEmitter() }
   } as unknown as ChromiumRoleSessionHandle;
   await expect(sessions.prepare(handle, {
     contents: {}, window: {}
@@ -319,24 +319,31 @@ it("waits for the exact compatibility receipt and unloads a bootstrap timeout", 
 });
 
 it("accepts a matching compatibility receipt after static rulesets are enabled", async () => {
+  const workers = Object.assign(new EventEmitter(), {
+    getWorkerFromVersionID: () => ({ scope: `chrome-extension://${id}/`, scriptURL: `chrome-extension://${id}/background.js` })
+  });
   let ready!: (extensionId: string, record: {
     availableApis: string[];
     staticRulesetCount: number;
     staticRulesetStatus: "enabled";
     unavailableApis: string[];
-  }) => void;
+  }, versionId: number) => void;
   const native = Object.assign(new EventEmitter(), {
     current: [] as { id: string }[],
     getAllExtensions: vi.fn(() => native.current),
     loadExtension: vi.fn(async () => {
       native.current.push({ id });
-      queueMicrotask(() => ready(id, {
+      queueMicrotask(() => {
+        workers.emit("running-status-changed", { versionId: 1, runningStatus: "starting" });
+        workers.emit("running-status-changed", { versionId: 1, runningStatus: "running" });
+        ready(id, {
         availableApis: [
-          "action", "alarms", "commands", "notifications", "offscreen", "permissions",
+          "action", "alarms", "commands", "contextMenus", "notifications", "offscreen", "permissions",
           "storage.session", "tabs", "webNavigation"
         ], staticRulesetCount: 1,
         staticRulesetStatus: "enabled", unavailableApis: ["nativeMessaging"]
-      }));
+      }, 1);
+      });
       return { id };
     }),
     removeExtension: vi.fn((removedId: string) => {
@@ -346,7 +353,7 @@ it("accepts a matching compatibility receipt after static rulesets are enabled",
   });
   const core = { invoke: vi.fn(async (input: { command: { type: string } }) => ({
     snapshot: { revision: 1, roles: [], installed: [{
-      id, removed: false, directory: compatibilityFixture, permissions: []
+      id, removed: false, requiredApiPermissions: [], directory: compatibilityFixture, permissions: []
     }] },
     lease: input.command.type === "acquire"
       ? { roleId: "role", leaseId: "lease-ready", extensionIds: [id], status: "loading" }
@@ -362,7 +369,7 @@ it("accepts a matching compatibility receipt after static rulesets are enabled",
     deadlineMs: 100
   });
   const handle = {
-    roleId: "role", chromiumUserDataDir: "/role", session: { extensions: native }
+    roleId: "role", chromiumUserDataDir: "/role", session: { extensions: native, serviceWorkers: workers }
   } as unknown as ChromiumRoleSessionHandle;
   const surface = { contents: {}, window: {} };
   await expect(sessions.prepare(handle, surface)).resolves.toBeUndefined();

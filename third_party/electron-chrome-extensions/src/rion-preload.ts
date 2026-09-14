@@ -42,19 +42,13 @@ async function invokeExtension(
   handlerName: string,
   ...inputArguments: unknown[]
 ) {
-  const args = [...inputArguments]
-  const callback = typeof args.at(-1) === 'function' ? args.pop() as Listener : undefined
-  try {
-    const result = await ipcRenderer.invoke('crx-msg', extensionId, handlerName, ...args)
-    if (callback) callback(result)
-    return result
-  } catch (error) {
-    if (callback) {
-      callback(undefined)
-      return undefined
-    }
-    throw error
+  const result = await ipcRenderer.invoke('crx-msg', extensionId, handlerName, ...inputArguments)
+  // Only contextMenus returns this failure reply; arbitrary storage values
+  // must never be interpreted as transport metadata.
+  if (handlerName.startsWith('contextMenus.') && result && typeof result.rionExtensionApiError === 'string') {
+    throw new Error(result.rionExtensionApiError)
   }
+  return result
 }
 
 const electronContext = Object.freeze({
@@ -71,8 +65,26 @@ function injectMainWorld() {
   if (typeof extensionId !== 'string' || !/^[a-p]{32}$/u.test(extensionId)) return
 
   const manifest = chrome.runtime?.getManifest?.() || {}
-  const invoke = (name: string) => (...args: unknown[]) =>
-    bridge.invokeExtension(extensionId, name, ...args)
+  const complete = (pending: Promise<unknown>, callback?: Listener) => {
+    if (!callback) return pending
+    void pending.then(result => callback(result), (error: unknown) => {
+      const previous = Object.getOwnPropertyDescriptor(chrome.runtime, 'lastError')
+      try {
+        Object.defineProperty(chrome.runtime, 'lastError', {
+          configurable: true, value: { message: error instanceof Error ? error.message : String(error) },
+        })
+        callback(undefined)
+      } finally {
+        if (previous) Object.defineProperty(chrome.runtime, 'lastError', previous)
+        else delete chrome.runtime.lastError
+      }
+    })
+    return undefined
+  }
+  const invoke = (name: string) => (...args: unknown[]) => {
+    const callback = typeof args.at(-1) === 'function' ? args.pop() as Listener : undefined
+    return complete(bridge.invokeExtension(extensionId, name, ...args), callback)
+  }
   const event = (name: string) => {
     const listenerIds = new Map<Listener, string>()
     return Object.freeze({
@@ -94,16 +106,31 @@ function injectMainWorld() {
   const unavailable = (api: string) => (...args: unknown[]) => {
     const callback = typeof args.at(-1) === 'function' ? args.at(-1) as Listener : undefined
     const error = new Error(`RION_EXTENSION_API_UNAVAILABLE:${api}`)
-    if (callback) {
-      queueMicrotask(() => callback(undefined))
-      return undefined
-    }
-    return Promise.reject(error)
+    return complete(Promise.reject(error), callback)
   }
   const resolved = (value?: unknown) => (...args: unknown[]) => {
     const callback = typeof args.at(-1) === 'function' ? args.at(-1) as Listener : undefined
     if (callback) queueMicrotask(() => callback(value))
     return callback ? undefined : Promise.resolve(value)
+  }
+
+  const menuCall = (name: string, args: unknown[], callback?: Listener) =>
+    complete(bridge.invokeExtension(extensionId, `contextMenus.${name}`, ...args), callback)
+
+  const contextMenus = {
+    create: (properties: any, callback?: Listener) => {
+      if (manifest.manifest_version === 3 && typeof properties?.id !== 'string') {
+        throw new TypeError('contextMenus.create requires an id in a service worker')
+      }
+      const id = properties?.id ?? `rion-menu-${globalThis.crypto.randomUUID()}`
+      const pending = menuCall('create', [{ ...properties, id }], callback)
+      if (pending) void pending.catch((error: unknown) => console.error(String(error)))
+      return id
+    },
+    update: (id: string, properties: unknown, callback?: Listener) => menuCall('update', [id, properties], callback),
+    remove: (id: string, callback?: Listener) => menuCall('remove', [id], callback),
+    removeAll: (callback?: Listener) => menuCall('removeAll', [], callback),
+    onClicked: event('contextMenus.onClicked'),
   }
 
   const permissions = {
@@ -218,6 +245,7 @@ function injectMainWorld() {
     commands: { configurable: true, enumerable: true, value: {
       getAll: invoke('commands.getAll'), onCommand: event('commands.onCommand'),
     } },
+    contextMenus: { configurable: true, enumerable: true, value: contextMenus },
     notifications: { configurable: true, enumerable: true, value: notifications },
     offscreen: { configurable: true, enumerable: true, value: offscreen },
     permissions: { configurable: true, enumerable: true, value: permissions },
@@ -258,7 +286,7 @@ function injectMainWorld() {
     }
     await bridge.invokeExtension(extensionId, 'compatibility.ready', {
       availableApis: [
-        'action', 'alarms', 'commands', 'notifications', 'offscreen', 'permissions',
+        'action', 'alarms', 'commands', 'contextMenus', 'notifications', 'offscreen', 'permissions',
         'storage.session', 'tabs', 'webNavigation',
       ],
       staticRulesetCount: rulesets.length,

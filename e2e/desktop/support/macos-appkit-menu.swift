@@ -6,6 +6,7 @@ private struct Input: Decodable {
   let hideLabels: [String]
   let moveToNewWindowLabels: [String]
   let processId: Int32
+  let cancel: Bool?
   let targetWindowName: String?
 }
 
@@ -143,6 +144,19 @@ let actionItem = waitForMenuItem(
     Set(input.moveToNewWindowLabels)
   ]
 )
+if input.cancel == true {
+  guard let source = CGEventSource(stateID: .hidSystemState) else { fail("native keyboard source unavailable") }
+  CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true)?.post(tap: .cghidEventTap)
+  CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: false)?.post(tap: .cghidEventTap)
+  for _ in 0..<100 {
+    if findMenuItem(application: application, acceptedLabels: Set(input.actionLabels), requiredSiblingLabels: []) == nil {
+      exit(0)
+    }
+    usleep(50_000)
+  }
+  fail("native context menu did not dismiss after Escape")
+}
+
 guard AXUIElementPerformAction(
   actionItem,
   kAXPressAction as CFString

@@ -284,3 +284,15 @@ above remains a record of that run, not evidence for this working tree.
 CHROMIUM-MACOS-APPKIT-INPUT-CONFINEMENT-045
 CHROMIUM-WINDOWS-INPUT-CONFINEMENT-045
 ```
+
+
+### Generic extension context menu follow-up (2026-09-14)
+
+The macOS native menu click/cancel journey passed locally. The paired Windows
+journey is automated but remains platform-pending until native Windows CI runs.
+These additive journeys were introduced after the cutover classification above.
+
+```text
+CHROMIUM-MACOS-APPKIT-EXTENSION-CONTEXT-MENU-001
+CHROMIUM-WINDOWS-EXTENSION-CONTEXT-MENU-001
+```

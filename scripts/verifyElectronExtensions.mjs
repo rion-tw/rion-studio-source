@@ -62,6 +62,9 @@ try {
       ? resolve()
       : reject(new Error(`Extension compatibility probe failed: ${code ?? signal}`)));
   });
+  if (compatibilityOutput.includes("Error occurred in handler for 'crx-msg'")) {
+    throw new Error("Handled extension API errors escaped through the native IPC handler.");
+  }
   const diagnosis = classifyElectronDevOutput(compatibilityOutput);
   const serviceWorkerFailure = diagnosis.findings.find((finding) =>
     finding.id === "extension-service-worker-registration-failed" ||
@@ -70,4 +73,35 @@ try {
   if (serviceWorkerFailure) {
     throw new Error(`Extension compatibility probe retained ${serviceWorkerFailure.id}.`);
   }
+  const bootstrapMain = join(root, "electron-extension-bootstrap-probe.cjs");
+  await build({
+    bundle: true,
+    entryPoints: [fileURLToPath(new URL("./electronExtensionBootstrapProbe.ts", import.meta.url))],
+    external: ["electron"], format: "cjs", logLevel: "silent",
+    outfile: bootstrapMain, platform: "node", target: "node24"
+  });
+  for (const phase of ["seed", "restart"]) {
+    const bootstrap = spawn(executable, [bootstrapMain], {
+      env: {
+        ...process.env, RION_EXTENSION_BOOTSTRAP_PROBE_DIR: root,
+        RION_EXTENSION_BOOTSTRAP_PROBE_PHASE: phase,
+        RION_EXTENSION_COMPAT_PRELOAD: fileURLToPath(new URL("../out/preload/extensionCompat.cjs", import.meta.url))
+      }, stdio: ["ignore", "pipe", "pipe"]
+    });
+    let bootstrapOutput = "";
+    bootstrap.stdout.setEncoding("utf8");
+    bootstrap.stdout.on("data", chunk => { bootstrapOutput += chunk; process.stdout.write(chunk); });
+    bootstrap.stderr.pipe(process.stderr);
+    await new Promise((resolve, reject) => {
+      bootstrap.once("error", reject);
+      bootstrap.once("exit", (code, signal) => code === 0 ? resolve()
+        : reject(new Error(`Extension bootstrap ${phase} probe failed: ${code ?? signal}`)));
+    });
+    for (const kind of ["failure", "success"]) {
+      if (!bootstrapOutput.includes(`"phase":"${phase}","kind":"${kind}"`)) {
+        throw new Error(`Bootstrap probe omitted ${phase}/${kind} completion evidence`);
+      }
+    }
+  }
+
 } finally { await rm(root, { recursive: true, force: true }); }

@@ -18,14 +18,17 @@ import {
   RionChromeExtensions
 } from "../../../third_party/electron-chrome-extensions/src/browser/rion";
 import type {
-  CompatibilityReadyRecord
+  CompatibilityReadyCallback
 } from "../../../third_party/electron-chrome-extensions/src/browser/api/compatibility";
+
+import { ChromiumExtensionBootstrap } from "./chromiumExtensionBootstrap";
 
 const EXTENSION_DEADLINE_MS = 15_000;
 const REQUIRED_COMPATIBILITY_APIS = Object.freeze([
   "action",
   "alarms",
   "commands",
+  "contextMenus",
   "notifications",
   "offscreen",
   "permissions",
@@ -64,7 +67,7 @@ export interface ChromiumExtensionSessionsInput {
   readonly compatibilityPreloadPath?: string;
   readonly createCompatibilityHost?: (
     session: Session,
-    onReady: (extensionId: string, record: CompatibilityReadyRecord) => void
+    onReady: CompatibilityReadyCallback
   ) => CompatibilityHostPort;
   readonly deadlineMs?: number;
   readonly logger?: ExtensionLoggerPort;
@@ -112,7 +115,9 @@ async function readManifestSummary(directory: string): Promise<ManifestSummary |
         background && typeof background === "object" &&
         typeof (background as { service_worker?: unknown }).service_worker === "string"
       ),
-      staticRulesetCount: Array.isArray(rules) ? Math.min(rules.length, 256) : 0
+      staticRulesetCount: Array.isArray(rules) ? rules.filter(rule =>
+        rule && typeof rule === "object" && rule.enabled !== false && typeof rule.id === "string"
+      ).length : 0
     });
   } catch {
     return null;
@@ -124,9 +129,9 @@ export class ChromiumExtensionSessions {
   readonly #entries = new Map<string, Entry>();
   readonly #hosts = new WeakMap<Session, CompatibilityHostPort>();
   readonly #poisonedSessions = new WeakSet<Session>();
-  readonly #readinessResolvers = new WeakMap<
+  readonly #bootstraps = new WeakMap<
     Session,
-    Map<string, (record: CompatibilityReadyRecord) => void>
+    Map<string, ChromiumExtensionBootstrap>
   >();
   readonly #input: ChromiumExtensionSessionsInput;
 
@@ -227,7 +232,12 @@ export class ChromiumExtensionSessions {
     native: Session["extensions"],
     packageRecord: ExtensionPackageRecord
   ): Promise<"loaded" | "degraded"> {
-    const blockedPermission = (packageRecord.permissions ?? []).find((permission) =>
+    if (!Array.isArray(packageRecord.requiredApiPermissions)) {
+      this.#record(entry, packageRecord.id, "classification", "degraded",
+        "ELECTRON_EXTENSION_PERMISSION_METADATA_UNAVAILABLE");
+      return "degraded";
+    }
+    const blockedPermission = packageRecord.requiredApiPermissions.find((permission) =>
       FATAL_PERMISSIONS.has(permission) || permission.startsWith("enterprise.")
     );
     if (blockedPermission) {
@@ -249,28 +259,34 @@ export class ChromiumExtensionSessions {
         "ELECTRON_EXTENSION_MANIFEST_UNREADABLE");
       return "degraded";
     }
+    if (entry.released) throw new Error("EXTENSIONS_SESSION_RELEASED");
     const readiness = manifest?.hasServiceWorker && entry.host
-      ? this.#beginReadiness(entry.handle.session as Session, packageRecord.id)
+      ? this.#beginBootstrap(entry.handle.session as Session, packageRecord.id)
       : null;
-    const loadPromise = native.loadExtension(packageRecord.directory, {
+    const loadPromise = (async () => native.loadExtension(packageRecord.directory, {
       allowFileAccess: false
-    });
+    }))();
     const loaded = await this.#deadline(loadPromise);
     if (loaded.status === "indeterminate") {
-      this.#clearReadiness(entry.handle.session as Session, packageRecord.id);
+      this.#clearBootstrap(entry.handle.session as Session, packageRecord.id);
       this.#record(entry, packageRecord.id, "load", "indeterminate",
         "ELECTRON_EXTENSION_LOAD_INDETERMINATE");
       void loadPromise.then((extension) => this.#unload(native, extension.id)).catch(() => undefined);
       throw new Error("EXTENSIONS_LOAD_INDETERMINATE");
     }
     if (loaded.status === "failed") {
-      this.#clearReadiness(entry.handle.session as Session, packageRecord.id);
-      this.#record(entry, packageRecord.id, "load", "degraded",
-        stableErrorCode(loaded.error, "ELECTRON_EXTENSION_LOAD_FAILED"));
+      this.#clearBootstrap(entry.handle.session as Session, packageRecord.id);
+      if (readiness?.outcome?.status === "failed") {
+        this.#record(entry, packageRecord.id, "bootstrap", "degraded",
+          readiness.outcome.code, undefined, readiness.outcome);
+      } else {
+        this.#record(entry, packageRecord.id, "load", "degraded",
+          stableErrorCode(loaded.error, "ELECTRON_EXTENSION_LOAD_FAILED"));
+      }
       return "degraded";
     }
     if (loaded.value.id !== packageRecord.id) {
-      this.#clearReadiness(entry.handle.session as Session, packageRecord.id);
+      this.#clearBootstrap(entry.handle.session as Session, packageRecord.id);
       await this.#unload(native, loaded.value.id);
       this.#record(entry, packageRecord.id, "load", "degraded",
         "ELECTRON_EXTENSION_ID_MISMATCH");
@@ -278,8 +294,9 @@ export class ChromiumExtensionSessions {
     }
 
     if (readiness) {
-      const bootstrapped = await this.#deadline(readiness);
-      this.#clearReadiness(entry.handle.session as Session, packageRecord.id);
+      readiness.nativeLoaded();
+      const bootstrapped = await this.#deadline(readiness.result);
+      this.#clearBootstrap(entry.handle.session as Session, packageRecord.id);
       if (bootstrapped.status !== "completed") {
         await this.#unload(native, packageRecord.id);
         this.#record(entry, packageRecord.id, "bootstrap", "degraded",
@@ -288,11 +305,22 @@ export class ChromiumExtensionSessions {
             : "ELECTRON_EXTENSION_BOOTSTRAP_FAILED");
         return "degraded";
       }
+      if (bootstrapped.value.status === "cancelled") {
+        await this.#unload(native, packageRecord.id);
+        throw new Error(bootstrapped.value.code);
+      }
+      if (bootstrapped.value.status === "failed") {
+        await this.#unload(native, packageRecord.id);
+        this.#record(entry, packageRecord.id, "bootstrap", "degraded",
+          bootstrapped.value.code, undefined, bootstrapped.value);
+        return "degraded";
+      }
+      const receipt = bootstrapped.value.receipt;
       if (
         REQUIRED_COMPATIBILITY_APIS.some((api) =>
-          !bootstrapped.value.availableApis.includes(api)
+          !receipt.availableApis.includes(api)
         ) ||
-        bootstrapped.value.staticRulesetCount !== manifest?.staticRulesetCount
+        receipt.staticRulesetCount !== manifest?.staticRulesetCount
       ) {
         await this.#unload(native, packageRecord.id);
         this.#record(entry, packageRecord.id, "bootstrap", "degraded",
@@ -301,7 +329,7 @@ export class ChromiumExtensionSessions {
       }
       if (
         manifest && manifest.staticRulesetCount > 0 &&
-        bootstrapped.value.staticRulesetStatus !== "enabled"
+        receipt.staticRulesetStatus !== "enabled"
       ) {
         await this.#unload(native, packageRecord.id);
         this.#record(entry, packageRecord.id, "rulesets", "degraded",
@@ -327,8 +355,8 @@ export class ChromiumExtensionSessions {
     }
     let host = this.#hosts.get(session);
     if (!host) {
-      const onReady = (extensionId: string, record: CompatibilityReadyRecord) => {
-        this.#readinessResolvers.get(session)?.get(extensionId)?.(record);
+      const onReady: CompatibilityReadyCallback = (extensionId, record, versionId) => {
+        this.#bootstraps.get(session)?.get(extensionId)?.compatibilityReady(record, versionId);
       };
       if (this.#input.createCompatibilityHost) {
         host = this.#input.createCompatibilityHost(session, onReady);
@@ -389,7 +417,7 @@ export class ChromiumExtensionSessions {
     const session = entry.handle.session as Session;
     this.#poisonedSessions.add(session);
     this.#hosts.delete(session);
-    this.#readinessResolvers.delete(session);
+    this.#cancelBootstraps(session, "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED");
     entry.compatibilityError = "ELECTRON_EXTENSION_COMPATIBILITY_TAB_RETIRE_FAILED";
     this.#recordSurfaceRetirementFailure(entry, reason);
   }
@@ -410,26 +438,26 @@ export class ChromiumExtensionSessions {
     );
   }
 
-  #beginReadiness(
-    session: Session,
-    extensionId: string
-  ): Promise<CompatibilityReadyRecord> {
-    let resolvers = this.#readinessResolvers.get(session);
-    if (!resolvers) {
-      resolvers = new Map();
-      this.#readinessResolvers.set(session, resolvers);
+  #beginBootstrap(session: Session, extensionId: string): ChromiumExtensionBootstrap {
+    let pending = this.#bootstraps.get(session);
+    if (!pending) {
+      pending = new Map();
+      this.#bootstraps.set(session, pending);
     }
-    const promise = new Promise<CompatibilityReadyRecord>((resolve) => {
-      resolvers!.set(extensionId, (record) => {
-        resolvers!.delete(extensionId);
-        resolve(record);
-      });
-    });
-    return promise;
+    const bootstrap = new ChromiumExtensionBootstrap(session.serviceWorkers, extensionId);
+    pending.set(extensionId, bootstrap);
+    return bootstrap;
   }
 
-  #clearReadiness(session: Session, extensionId: string): void {
-    this.#readinessResolvers.get(session)?.delete(extensionId);
+  #clearBootstrap(session: Session, extensionId: string): void {
+    const pending = this.#bootstraps.get(session);
+    pending?.get(extensionId)?.cancel();
+    pending?.delete(extensionId);
+  }
+
+  #cancelBootstraps(session: Session, code: string): void {
+    for (const bootstrap of this.#bootstraps.get(session)?.values() ?? []) bootstrap.cancel(code);
+    this.#bootstraps.delete(session);
   }
 
   #deadline<Value>(promise: Promise<Value>): Promise<DeadlineResult<Value>> {
@@ -464,10 +492,13 @@ export class ChromiumExtensionSessions {
     stage: ChromiumExtensionRuntimeStage,
     status: ChromiumExtensionRuntimeStatus,
     code: string,
-    api?: string
+    api?: string,
+    location?: { relativeFile?: string; line?: number }
   ): void {
     const record = recordChromiumExtensionRuntimeDiagnostic({
       api,
+      relativeFile: location?.relativeFile,
+      line: location?.line,
       capturedAt: (this.#input.now ?? (() => new Date().toISOString()))(),
       code,
       extensionId,
@@ -491,6 +522,7 @@ export class ChromiumExtensionSessions {
     if (!entry) return;
     if (entry.handle !== handle) throw new Error("EXTENSIONS_STALE_SESSION");
     entry.released = true;
+    this.#cancelBootstraps(handle.session as Session, "EXTENSIONS_SESSION_RELEASED");
     if (entry.surfaceState !== "retired") {
       entry.surfaceState = "retired";
       entry.surface = null;

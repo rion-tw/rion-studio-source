@@ -8,14 +8,20 @@ export interface CompatibilityReadyRecord {
   unavailableApis: string[]
 }
 
+export type CompatibilityReadyCallback = (
+  extensionId: string, record: CompatibilityReadyRecord, workerVersionId: number,
+) => void
+
 const API_NAME = /^[A-Za-z][A-Za-z0-9.]{0,63}$/u
 
 export class CompatibilityAPI {
   constructor(
     ctx: ExtensionContext,
-    onReady: (extensionId: string, record: CompatibilityReadyRecord) => void,
+    onReady: CompatibilityReadyCallback,
   ) {
-    ctx.router.apiHandler()('compatibility.ready', ({ extension }: ExtensionEvent, value: unknown) => {
+    ctx.router.apiHandler()('compatibility.ready', (event: ExtensionEvent, value: unknown) => {
+      if (event.type !== 'service-worker') throw new Error('RION_EXTENSION_COMPAT_READY_SENDER_INVALID')
+      const { extension, sender } = event
       if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error('RION_EXTENSION_COMPAT_READY_INVALID')
       }
@@ -38,7 +44,7 @@ export class CompatibilityAPI {
         staticRulesetCount: record.staticRulesetCount!,
         staticRulesetStatus: record.staticRulesetStatus!,
         unavailableApis: [...record.unavailableApis],
-      })
+      }, sender.versionId)
       return true
     })
   }

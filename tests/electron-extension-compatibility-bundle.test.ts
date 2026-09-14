@@ -26,6 +26,7 @@ async function fixture(main: string): Promise<string> {
     "RION_EXTENSION_API_UNAVAILABLE",
     "compatibility.ready",
     "permissions.onRemoved",
+    "contextMenus.onClicked",
     "webNavigation.onCompleted"
   ].join("\n"));
   return root;

@@ -99,7 +99,7 @@ export class WebNavigationAPI {
       })
     }
 
-    return targetFrame ? getFrameDetails(targetFrame) : null
+    return targetFrame?.url ? getFrameDetails(targetFrame) : null
   }
 
   private getAllFrames(
@@ -109,7 +109,7 @@ export class WebNavigationAPI {
     if (typeof details.tabId !== 'number') return []
     const tab = this.ctx.store.getTabById(details.tabId)
     if (!tab || !('mainFrame' in tab)) return []
-    return (tab as any).mainFrame.framesInSubtree.filter(isLiveFrame).map(getFrameDetails)
+    return (tab as any).mainFrame.framesInSubtree.filter(isLiveFrame).filter((frame: Electron.WebFrameMain) => frame.url !== '').map(getFrameDetails)
   }
 
   private sendNavigationEvent = (eventName: string, details: { url: string }) => {

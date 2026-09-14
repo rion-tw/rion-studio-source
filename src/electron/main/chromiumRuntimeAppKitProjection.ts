@@ -44,6 +44,8 @@ export interface ChromiumRuntimeTabRecord {
   readonly roleViews: Map<string, EmbeddedRoleViewEffectRecord>;
   readonly webViews: Map<string, EmbeddedRoleViewEffectRecord>;
   audioMuted: boolean;
+  /** One content responder handoff after an explicit native focus admission. */
+  pendingContentFocus?: boolean;
   slotRetry?: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>;
   slotLoads?: Map<string, import("../../shared/generated").WorkspaceSlotLoadRecord>;
   workspaceLoadPlan?: Extract<CoreEffectRequest["action"], { type: "embeddedLoadWorkspaceSlots" }>;

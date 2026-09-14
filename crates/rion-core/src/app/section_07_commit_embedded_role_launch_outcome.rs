@@ -24,7 +24,7 @@ impl AppCore {
         role: StateRoleRecord,
         tab_id: String,
         window_id: String,
-        presentation_intent: EmbeddedLaunchPresentationIntent,
+        _presentation_intent: EmbeddedLaunchPresentationIntent,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         if let Err(error) = launch {
@@ -70,10 +70,7 @@ impl AppCore {
                     &tab_id,
                     std::slice::from_ref(&role.id),
                 )? {
-                    self.project_completed_chromium_runtime_launch(
-                        &tab_id,
-                        presentation_intent,
-                    )
+                    self.project_completed_chromium_runtime_launch()
                 } else {
                     self.commit_embedded_runtime_snapshot_without_native_effect(
                         &std::collections::HashSet::new(),
@@ -609,7 +606,7 @@ impl AppCore {
         tab_id: String,
         window_id: String,
         _workspace_id: String,
-        presentation_intent: EmbeddedLaunchPresentationIntent,
+        _presentation_intent: EmbeddedLaunchPresentationIntent,
         launch: CoreResult<crate::operation_actor::OperationOutcome>,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
         if let Err(error) = launch {
@@ -658,10 +655,7 @@ impl AppCore {
             .try_for_each(|command| self.invoke_browser_runtime(command).map(|_| ()))
             .and_then(|_| {
                 if self.complete_chromium_runtime_launch(&tab_id, &role_ids)? {
-                    self.project_completed_chromium_runtime_launch(
-                        &tab_id,
-                        presentation_intent,
-                    )
+                    self.project_completed_chromium_runtime_launch()
                 } else {
                     self.commit_embedded_runtime_snapshot_without_native_effect(
                         &std::collections::HashSet::new(),

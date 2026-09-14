@@ -540,16 +540,16 @@ function installElectronDesktopE2eWorkspaceWebObserver(): void {
       throw error;
     });
   };
-  launchCoordinator.restoreSavedGameWindow = function (window) {
+  launchCoordinator.restoreSavedGameWindow = function (window, foreground) {
     const identity = nextCoreFlowIdentity(`restore:${window.id}`);
     appendCoreFlowObservation({
       boundary: "launch",
-      details: { tabIds: window.tabs.map((tab) => tab.id) },
+      details: { foreground: foreground ?? false, tabIds: window.tabs.map((tab) => tab.id) },
       identity,
       status: "started",
       type: "restoreSavedGameWindow"
     });
-    return originalRestoreSavedGameWindow.call(this, window).then(() => {
+    return originalRestoreSavedGameWindow.call(this, window, foreground).then(() => {
       appendCoreFlowObservation({
         boundary: "launch",
         identity,

@@ -1,3 +1,4 @@
+import { leaveLaunchInBackground } from "../support/launch-foreground";
 import { verifyWorkspaceStartPage } from "../support/workspace-start-page";
 import { verifyVisibleWorkspaceWebAddress } from "../support/workspace-web-address";
 import { $, browser, expect } from "@wdio/globals";
@@ -10,7 +11,7 @@ import {
 } from "../support/electron-driver";
 import { navigateVisibleElectronWorkspaceWebChrome } from
   "../support/electron-role-surface";
-import { fixtureCursor, waitFixtureEvent } from
+import { fixtureCursor, fixtureRequest, waitFixtureEvent } from
   "../support/fixture";
 import {
   clickVisibleRuntimeTab,
@@ -268,11 +269,17 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
   expect(tab.slots).toEqual([]);
   const entrance = await waitInspectionPhase(tab.windowId, "ready");
   expect(entrance.web.contentUrl).toBe("rion-start://home/");
-  await navigateVisibleElectronWorkspaceWebChrome(
-    entrance.web.chromeShellUrl,
-    input.mainWindowHandle,
-    webUrl()
-  );
+  await fixtureRequest("/api/gate", { roleId: FIXTURE_ID });
+  let verifyForeground: (() => Promise<void>) | undefined;
+  try {
+    await navigateVisibleElectronWorkspaceWebChrome(
+      entrance.web.chromeShellUrl, input.mainWindowHandle, webUrl()
+    );
+    verifyForeground = await leaveLaunchInBackground({ fixtureId: FIXTURE_ID,
+      processId: input.processId, windowId: tab.windowId });
+  } finally {
+    await fixtureRequest("/api/release", { roleId: FIXTURE_ID });
+  }
   const session = await waitFixtureEvent({
     afterSequence: sessionCursor,
     kind: "session",
@@ -293,6 +300,7 @@ async function seed(input: Awaited<ReturnType<typeof prepare>>): Promise<void> {
     timeout: 20_000,
     timeoutMsg: "The Web-only visible navigation was not committed"
   });
+  await verifyForeground?.();
   expectExactWebOnly(ready, input.platform);
   expect(await rendererCall("listRoleStatuses")).toEqual([]);
 

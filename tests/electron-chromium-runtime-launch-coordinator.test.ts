@@ -41,7 +41,7 @@ interface HarnessOptions {
   readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
-  readonly beginSavedWindowRestore?: (windowId: string) => void;
+  readonly beginSavedWindowRestore?: (windowId: string, foreground?: boolean) => void;
   readonly finishSavedWindowRestore?: (windowId: string) => void | Promise<void>;
   readonly activateRestoredTab?: (
     windowId: string, tabId: string, harness: LaunchHarness
@@ -54,6 +54,7 @@ interface HarnessOptions {
     fence: ChromiumRuntimeExistingTabActivationFence,
     harness: LaunchHarness
   ) => Promise<void>;
+  readonly onShow?: () => void;
   readonly completeRestores?: boolean;
   readonly nativeReady?: boolean;
   readonly projectionRevisionOffset?: number;
@@ -282,6 +283,10 @@ function launchHarness(options: HarnessOptions = {}) {
 
   const coreInvoke = vi.fn(async (command: CoreCommand): Promise<unknown> => {
     if (command.type === "appSnapshot") return state.coreSnapshot;
+    if (command.type === "embeddedWindowsShow") {
+      options.onShow?.();
+      return state.coreSnapshot.browserRuntime;
+    }
     if (command.type === "embeddedWindowRegister") {
       state.coreSnapshot.browserRuntime.windows.push({
         windowId: command.target.windowId,
@@ -399,8 +404,7 @@ function launchHarness(options: HarnessOptions = {}) {
     ...(options.beginSavedWindowRestore === undefined
       ? {}
       : {
-          beginSavedWindowRestore: (windowId: string) =>
-            options.beginSavedWindowRestore!(windowId)
+          beginSavedWindowRestore: options.beginSavedWindowRestore
         }),
     ...(options.finishSavedWindowRestore === undefined
       ? {}
@@ -1325,14 +1329,15 @@ describe("Electron Chromium runtime launch coordinator", () => {
       target: { windowId: WINDOW_ID },
       type: "browserRoleLaunch"
     });
-    expect(beginRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID);
+    expect(beginRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID, false);
     expect(activateRestoredTab).not.toHaveBeenCalled();
     expect(finishRestore).toHaveBeenCalledExactlyOnceWith(WINDOW_ID);
   });
 
-  it("restores saved tabs and active Role ownership before reveal", async () => {
+  it.each([false, true])("restores saved tabs with a single admission focus only for explicit Show (%s)", async foreground => {
+    const order: string[] = [];
     const beginRestore = vi.fn();
-    const finishRestore = vi.fn();
+    const finishRestore = vi.fn(() => { order.push("finished"); });
     const activateRestoredTab = vi.fn(async (
       windowId: string,
       tabId: string,
@@ -1403,7 +1408,9 @@ describe("Electron Chromium runtime launch coordinator", () => {
       completeRestores: true,
       finishSavedWindowRestore: finishRestore,
       reorderRestoredTab,
+      onShow: () => { order.push("focus"); },
       onLaunch: (command, current) => {
+        order.push(command.type);
         if (command.type !== "browserWorkspaceLaunch") return;
         const role = current.coreSnapshot.browserRuntime.roles[0]!;
         role.owner = {
@@ -1464,8 +1471,10 @@ describe("Electron Chromium runtime launch coordinator", () => {
     };
     state.coreSnapshot.state.gameWindows.push(saved);
 
-    await expect(coordinator.restoreSavedGameWindow(saved)).resolves.toBeUndefined();
+    await expect(coordinator.restoreSavedGameWindow(saved, foreground)).resolves.toBeUndefined();
 
+    expect(order).toEqual(["browserRoleLaunch", ...(foreground ? ["focus"] : []),
+      "browserWorkspaceLaunch", "finished"]);
     expect(launchCommands.map((command) => command.type)).toEqual([
       "browserRoleLaunch",
       "browserWorkspaceLaunch"

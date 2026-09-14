@@ -146,12 +146,12 @@ fn foreground_focus_action<'a>(
                 }
             ))
             .count(),
-        2
+        1
     );
     (index, roles)
 }
 
-fn terminal_ready_focus_action<'a>(
+fn terminal_ready_projection_action<'a>(
     actions: &'a [CoreEffectAction],
     window_id: &str,
     tab_id: &str,
@@ -171,9 +171,9 @@ fn terminal_ready_focus_action<'a>(
                 focus_window_ids,
                 focus_tab_id,
                 ..
-            } if reveal_window_ids == &[window_id]
-                && focus_window_ids == &[window_id]
-                && focus_tab_id.as_deref() == Some(tab_id) => windows
+            } if reveal_window_ids.is_empty()
+                && focus_window_ids.is_empty()
+                && focus_tab_id.is_none() => windows
                 .iter()
                 .find(|window| {
                     window.window_id == window_id
@@ -186,7 +186,7 @@ fn terminal_ready_focus_action<'a>(
                 .map(|window| (index, window, roles.as_slice())),
             _ => None,
         })
-        .expect("foreground launch must project and preserve terminal native focus")
+        .expect("launch completion must project readiness without requesting foreground")
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn fresh_chromium_role_launch_focuses_after_tab_creation_before_navigation() {
             })
             .unwrap();
         let (ready_index, ready_window, terminal_roles) =
-            terminal_ready_focus_action(&actions, &window_id, tab_id);
+            terminal_ready_projection_action(&actions, &window_id, tab_id);
 
         assert!(
             create_index < focus_index && focus_index < load_index,
@@ -367,7 +367,7 @@ fn fresh_chromium_web_only_workspace_focuses_before_web_surface_navigation() {
             })
             .unwrap();
         let (ready_index, ready_window, terminal_roles) =
-            terminal_ready_focus_action(&actions, &window_id, tab_id);
+            terminal_ready_projection_action(&actions, &window_id, tab_id);
 
         assert!(
             create_index < focus_index && focus_index < load_index,
@@ -381,6 +381,39 @@ fn fresh_chromium_web_only_workspace_focuses_before_web_surface_navigation() {
         );
         assert!(roles.is_empty(), "{platform}");
         assert!(terminal_roles.is_empty(), "{platform}");
+        core.shutdown();
+    }
+}
+
+#[test]
+fn restored_chromium_role_admits_before_navigation_and_completes_without_focus() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform_contract(platform, 23);
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let window_id = format!("restore-role-window-{platform}");
+        let (admission, actions) = drive_launch_through_terminal(
+            Arc::clone(&core),
+            CoreCommand::BrowserRoleLaunch {
+                role_id: role_id.clone(),
+                target: launch_focus_target(&window_id),
+                launch_preview_id: None,
+                launch_tab_id: None,
+                zoom_factor: None,
+                restore_role_slots: Some(vec![GameWindowRoleSlotRecord {
+                    slot_id: "restored-slot".to_owned(),
+                    role_id,
+                    rect: full_window_rect(),
+                    browser_zoom_percent: Some(100.0),
+                }]),
+            },
+        );
+        assert_eq!(admission["completion"], "pendingNativeCompletion", "{platform}");
+        assert!(actions.iter().all(|action| !matches!(
+            action, CoreEffectAction::EmbeddedFollowRoleOwnership {
+                reveal_window_ids, focus_window_ids, focus_tab_id, ..
+            } if !reveal_window_ids.is_empty() || !focus_window_ids.is_empty() || focus_tab_id.is_some()
+        )), "{platform}");
+        terminal_ready_projection_action(&actions, &window_id, admission["tabId"].as_str().unwrap());
         core.shutdown();
     }
 }

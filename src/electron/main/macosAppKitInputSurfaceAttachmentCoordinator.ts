@@ -85,8 +85,6 @@ export interface MacosAppKitInputHostResolverPort {
   resolve: (
     parent: ChromiumRoleSurfaceParentPort
   ) => MacosAppKitInputHostBinding | null;
-  /** True only while the retained Rion launcher still owns application focus. */
-  shouldRestoreInitialFocus?: () => boolean;
 }
 
 export interface MacosAppKitNonInputSurfaceMutationInput {
@@ -213,7 +211,6 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
   readonly #resolver: MacosAppKitInputHostResolverPort;
   readonly #lanes = new Map<string, HostLane>();
   readonly #ownerByRole = new Map<string, InputSurfaceOwner>();
-  readonly #initialFocusPreservation = new Map<string, number>();
   readonly #closedBindings = new WeakSet<MacosAppKitInputHostBinding>();
 
   constructor(resolver: MacosAppKitInputHostResolverPort) {
@@ -309,7 +306,6 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
         // transaction returns, so the captured foreground owner must always
         // be reasserted rather than guarded by an immediate focus readback.
         if (preserveFocus) {
-          this.#initialFocusPreservation.set(input.roleId, input.generation);
           binding.focus();
         }
       } catch (error) {
@@ -379,27 +375,11 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
     const current = this.resolveOwnedInputHost(roleId, generation);
     if (!current) fail("ELECTRON_MACOS_APPKIT_INPUT_OWNER_STALE",
       "The loaded Role no longer owns its native input surface.");
-    current.native.probeCdpInputSurface(current.identity, roleId, generation);
-    const pendingGeneration = this.#initialFocusPreservation.get(roleId);
-    if (pendingGeneration === undefined) return;
-    const binding = this.#requireBinding(parent);
-    const owner = this.#ownerByRole.get(roleId);
-    if (
-      pendingGeneration !== generation || !owner ||
-      owner.generation !== generation || !sameBinding(owner.binding, binding)
-    ) {
-      fail(
-        "ELECTRON_MACOS_APPKIT_INITIAL_FOCUS_STALE",
-        "The loaded Chromium surface no longer owns its captured AppKit focus lease."
-      );
+    if (!sameBinding(current, this.#requireBinding(parent))) {
+      fail("ELECTRON_MACOS_APPKIT_INPUT_OWNER_STALE",
+        "The loaded Role no longer belongs to its exact AppKit parent.");
     }
-    this.#initialFocusPreservation.delete(roleId);
-    if (binding.isFocused()) return;
-    // Do not reactivate Rion after the user selected an external application
-    // or another runtime host. The launcher is the only expected same-app
-    // recipient of Chromium's attachment-time focus handoff.
-    if (this.#resolver.shouldRestoreInitialFocus?.() !== true) return;
-    binding.focus();
+    current.native.probeCdpInputSurface(current.identity, roleId, generation);
   }
 
   async reparent(input: ChromiumRoleSurfaceNativeReparentInput): Promise<void> {
@@ -700,9 +680,6 @@ implements ChromiumRoleSurfaceNativeAttachmentPort {
       sameBinding(owner.binding, binding)
     ) {
       this.#ownerByRole.delete(roleId);
-      if (this.#initialFocusPreservation.get(roleId) === generation) {
-        this.#initialFocusPreservation.delete(roleId);
-      }
     }
   }
 }

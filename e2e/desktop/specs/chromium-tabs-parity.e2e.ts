@@ -1,3 +1,4 @@
+import { leaveLaunchInBackground } from "../support/launch-foreground";
 import { $, browser, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -27,6 +28,7 @@ import {
 } from "../support/macos-appkit-ui";
 import {
   pressVisibleMacosApplicationShortcut,
+  pressVisibleMacosRoleKey,
   waitForFocusedMacosAppKitRuntime
 } from "../support/native-application-actions";
 import {
@@ -233,6 +235,7 @@ async function showSavedWindow(input: Readonly<{
   gameWindow: GameWindow;
   orderedTabIds: readonly string[];
   validate?: (evidence: NativeTopologyEvidence) => Promise<void>;
+  beforeReady?: () => Promise<void>;
 }>): Promise<number> {
   let observedGeneration = 0;
   await openSection("Windows", "/game-windows");
@@ -242,6 +245,7 @@ async function showSavedWindow(input: Readonly<{
   const show = await row.$("button[aria-label='Show']");
   await show.waitForClickable({ timeout: 10_000 });
   await show.click();
+  await input.beforeReady?.();
   try {
     await browser.waitUntil(async () => {
       try {
@@ -260,7 +264,7 @@ async function showSavedWindow(input: Readonly<{
         const visibleSurfaceTabIds = inspection.surfaces
           .filter((surface) => surface.visible)
           .map((surface) => surface.tabId);
-        const matches = current?.visible === true && current.focused &&
+        const matches = current?.visible === true && (input.beforeReady ? !current.focused : current.focused) &&
           sameOrderedIds(current.coreTabIds, input.orderedTabIds) &&
           sameOrderedIds(current.nativeTabIds, input.orderedTabIds) &&
           sameOrderedIds(liveTabIds, input.orderedTabIds) &&
@@ -299,7 +303,7 @@ async function showSavedWindow(input: Readonly<{
 async function launchRoleIntoWindow(
   role: Role,
   gameWindow: GameWindow,
-  loading?: Readonly<{ mainWindowHandle: string; platform: Platform; previousTab?: { id: string; name: string } }>
+  loading?: Readonly<{ mainWindowHandle: string; platform: Platform; externalForeground?: boolean; previousTab?: { id: string; name: string } }>
 ): Promise<string> {
   await openSection("Home", "/dashboard");
   await $("[data-testid='quick-access-trigger']").click();
@@ -327,6 +331,7 @@ async function launchRoleIntoWindow(
   if (!loading) await captureLaunchDiagnostic("after-visible-destination-click", role, gameWindow);
 
   let tabId: string | undefined;
+  let verifyForeground: (() => Promise<void>) | undefined;
   if (loading) {
     try {
       await browser.waitUntil(async () => {
@@ -367,6 +372,10 @@ async function launchRoleIntoWindow(
           tabName: role.name,
           windowId: gameWindow.id
         })).toBe("loading");
+      }
+      if (loading.externalForeground) {
+        verifyForeground = await leaveLaunchInBackground({ fixtureId, processId: processId!,
+          windowId: gameWindow.id });
       }
       if (loading.previousTab) {
         // Clicking the already-selected loading tab must apply only its mounted native surfaces.
@@ -409,6 +418,7 @@ async function launchRoleIntoWindow(
     kind: "session",
     roleId: fixtureId
   });
+  await verifyForeground?.();
   if (loading) {
     expect(await visibleRuntimeTabPhase({
       ...loading,
@@ -776,6 +786,7 @@ async function expectExactNativeTopology(input: Readonly<{
   gameWindow: GameWindow;
   orderedTabIds: readonly string[];
   platform: Platform;
+  focused?: boolean;
 }>, evidence?: NativeTopologyEvidence): Promise<void> {
   const inspection = evidence?.inspection ?? await electronDesktopE2eFullscreenToolbarRuntime(
     input.gameWindow.id
@@ -792,7 +803,7 @@ async function expectExactNativeTopology(input: Readonly<{
   ]);
   expect(windowOwner.currentRuntime).toEqual(expect.objectContaining({
     coreTabIds: input.orderedTabIds,
-    focused: true,
+    focused: input.focused ?? true,
     nativeTabIds: input.orderedTabIds,
     visible: true
   }));
@@ -958,17 +969,31 @@ async function closeAndReopenSavedWindow(input: Readonly<{
   expect(saved.tabs.map((tab) => tab.id)).toEqual(input.orderedTabIds);
   expect(saved.activeTabId).toBe(input.orderedTabIds.at(-1));
 
-  const reopenedGeneration = await showSavedWindow({
-    activeTabId: input.orderedTabIds.at(-1)!,
-    gameWindow: saved,
-    orderedTabIds: input.orderedTabIds,
-    validate: (evidence) => expectExactNativeTopology({
-      activeTabId: input.orderedTabIds.at(-1)!,
-      gameWindow: saved,
+  const fixtureId = ROLE_DEFINITIONS.find(item => item.name === input.roles[0]!.name)!.fixtureId;
+  const processId = (await electronDesktopE2eProbe()).processId;
+  await fixtureRequest("/api/gate", { roleId: fixtureId });
+  let verifyForeground: (() => Promise<void>) | undefined;
+  let reopenedGeneration: number;
+  try {
+    reopenedGeneration = await showSavedWindow({
+      activeTabId: input.orderedTabIds.at(-1)!, gameWindow: saved,
       orderedTabIds: input.orderedTabIds,
-      platform: input.platform
-    }, evidence)
-  });
+      validate: (evidence) => expectExactNativeTopology({
+        activeTabId: input.orderedTabIds.at(-1)!, gameWindow: saved,
+        orderedTabIds: input.orderedTabIds, platform: input.platform, focused: false
+      }, evidence),
+      beforeReady: async () => {
+        verifyForeground = await leaveLaunchInBackground({ fixtureId, processId,
+          windowId: saved.id });
+      }
+    });
+    await browser.waitUntil(async () => (await rendererCall("listRoleStatuses"))
+      .filter(status => input.roles.some(role => role.id === status.roleId))
+      .every(status => status.state === "running"), { timeout: 45_000 });
+    await verifyForeground?.();
+  } finally {
+    await fixtureRequest("/api/release", { roleId: fixtureId });
+  }
   expect(reopenedGeneration).toBeGreaterThan(generation);
   await activateAndFocusEveryTab({ ...input, gameWindow: saved });
 }
@@ -986,11 +1011,19 @@ async function seedPhase(input: Readonly<{
     tabIds.push(await launchRoleIntoWindow(
       role,
       gameWindow,
-      index === 0 ? input : index === 1
+      index === 0 ? { ...input, externalForeground: true } : index === 1
         ? { ...input, previousTab: { id: tabIds[0]!, name: sourceRoles[0]!.name } } : undefined
     ));
   }
   expect(await runtimeTabShellErrors()).toEqual([]);
+  if (input.platform === "macos") {
+    const keyCursor = await fixtureCursor();
+    await pressVisibleMacosRoleKey({ code: "KeyY", processId: input.processId,
+      runtimeTabName: sourceRoles[2]!.name, runtimeWindowId: gameWindow.id });
+    const key = await waitFixtureEvent({ afterSequence: keyCursor, kind: "keydown",
+      roleId: ROLE_DEFINITIONS[2].fixtureId });
+    expect(key).toMatchObject({ code: "KeyY", isTrusted: true });
+  }
 
   await activateAndFocusEveryTab({
     gameWindow,

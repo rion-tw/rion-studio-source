@@ -25,7 +25,6 @@ function harness() {
   let failRetireRole: string | null = null;
   const owned = new Map<string, number>();
   let focused = false;
-  let launcherFocused = false;
   const native: RawNativeAppKitInputSurfaceHost = {
     beginInputSurfaceCapture: (_identity, roleId, surfaceGeneration) => {
       order.push(`begin:${roleId}`);
@@ -118,8 +117,7 @@ function harness() {
   const coordinator = new MacosAppKitInputSurfaceAttachmentCoordinator({
     resolve: (candidate) => candidate === host
       ? binding
-      : candidate === targetHost ? targetBinding : null,
-    shouldRestoreInitialFocus: () => launcherFocused
+      : candidate === targetHost ? targetBinding : null
   });
   const input = (roleId: string) => ({
     roleId,
@@ -144,7 +142,6 @@ function harness() {
     },
     setCancelFailure: (roleId: string | null) => { failCancelRole = roleId; },
     setFocused: (value: boolean) => { focused = value; },
-    setLauncherFocused: (value: boolean) => { launcherFocused = value; },
     setRetireFailure: (roleId: string | null) => { failRetireRole = roleId; }
   };
 }
@@ -181,12 +178,11 @@ describe("macOS AppKit input-surface attachment coordinator", () => {
     ]);
   });
 
-  it("settles a captured focus lease at initial load only from the same-app launcher", async () => {
+  it("never reclaims host focus at initial load or duplicate completion", async () => {
     const subject = harness();
     subject.setFocused(true);
     await subject.coordinator.attach(subject.input("role-1"));
     subject.setFocused(false);
-    subject.setLauncherFocused(true);
 
     subject.coordinator.initialLoadCommitted(
       "role-1",
@@ -195,7 +191,7 @@ describe("macOS AppKit input-surface attachment coordinator", () => {
     );
     expect(subject.order).toEqual([
       "begin:role-1", "add:role-1", "commit:role-1",
-      "focus:window-1", "focus:window-1"
+      "focus:window-1"
     ]);
 
     subject.coordinator.initialLoadCommitted(
@@ -204,7 +200,7 @@ describe("macOS AppKit input-surface attachment coordinator", () => {
       subject.input("x").parent
     );
     expect(subject.order.filter((entry) => entry === "focus:window-1"))
-      .toHaveLength(2);
+      .toHaveLength(1);
 
     const external = harness();
     external.setFocused(true);
@@ -217,6 +213,19 @@ describe("macOS AppKit input-surface attachment coordinator", () => {
     );
     expect(external.order.filter((entry) => entry === "focus:window-1"))
       .toHaveLength(1);
+  });
+
+  it("rejects a stale generation, parent or closed host without activating it", async () => {
+    const subject = harness();
+    await subject.coordinator.attach(subject.input("role-1"));
+    expect(() => subject.coordinator.initialLoadCommitted("role-1", 2,
+      subject.input("x").parent)).toThrow("no longer owns");
+    expect(() => subject.coordinator.initialLoadCommitted("role-1", 1,
+      subject.targetHost)).toThrow("exact AppKit parent");
+    await subject.coordinator.closeHost(subject.binding);
+    expect(() => subject.coordinator.initialLoadCommitted("role-1", 1,
+      subject.input("x").parent)).toThrow("no longer owns");
+    expect(subject.order.filter(entry => entry.startsWith("focus:"))).toEqual([]);
   });
 
   it("serializes a non-input Web surface add between role capture intervals", async () => {

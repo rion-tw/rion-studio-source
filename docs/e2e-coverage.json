@@ -2737,7 +2737,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create two ready Chromium Role tabs through visible UI, send a physical Control+Tab through the retained AppKit host, require its exact source identity, modifier handoff, Core selection, native AXValue active style, and empty shell-error journal, then launch the third Role through the same still-current host. Activate and focus every tab through the retained AppKit radio controls, close and relaunch one tab through native chrome, and preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host. While B is gated in loading, visibly select ready tab A; after B completes, Core selection and the visible native surface must remain A. Explicitly click the selected loading B tab before selecting A, preserving real stale-owner errors. The adjacent Workspace gap journey exercises paired Website attachment/loading and native gap-pixel evidence."
+      "description": "Create two ready Chromium Role tabs through visible UI, send a physical Control+Tab through the retained AppKit host, require its exact source identity, modifier handoff, Core selection, native AXValue active style, and empty shell-error journal, then launch the third Role through the same still-current host. Activate and focus every tab through the retained AppKit radio controls, close and relaunch one tab through native chrome, and preserve selection and visibility across dormant close/reopen and process restart without replacing AppKit chrome. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host. While B is gated in loading, visibly select ready tab A; after B completes, Core selection and the visible native surface must remain A. Explicitly click the selected loading B tab before selecting A, preserving real stale-owner errors. The adjacent Workspace gap journey exercises paired Website attachment/loading and native gap-pixel evidence. Deterministic navigation gates and native foreground observations verify that launch, saved-window hydration or Workspace navigation completion cannot reclaim foreground after the user selects an external application."
     },
     {
       "id": "CHROMIUM-WINDOWS-TABS-VISIBLE-ACTIVATION-019",
@@ -2764,7 +2764,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host. While B is gated in loading, visibly select ready tab A; after B completes, Core selection and the visible native surface must remain A. Explicitly click the selected loading B tab before selecting A, preserving real stale-owner errors. The adjacent Workspace gap journey exercises paired Website attachment/loading and native gap-pixel evidence."
+      "description": "Create three ready Chromium Role tabs through visible UI, activate and focus each through the sandboxed bundled-Chromium tab buttons, require one exact visible surface, close and relaunch one tab through native chrome, then preserve selection and visibility across dormant close/reopen and process restart; ordinary-window hover must not emit fullscreen chrome commands or stale shell errors. Retain the exact surviving Core/native window topology before relaunching the latest admitted tab; delayed admission projection must not revoke a previously reconciled host. While B is gated in loading, visibly select ready tab A; after B completes, Core selection and the visible native surface must remain A. Explicitly click the selected loading B tab before selecting A, preserving real stale-owner errors. The adjacent Workspace gap journey exercises paired Website attachment/loading and native gap-pixel evidence. Deterministic navigation gates and native foreground observations verify that launch, saved-window hydration or Workspace navigation completion cannot reclaim foreground after the user selects an external application."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-WINDOWS-TABS-020",
@@ -2842,7 +2842,7 @@
         "success",
         "restart"
       ],
-      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and retained AppKit Chromium ownership through close, dormant reopen, native topology changes, and restart. Saved destination names remain visible; the paired Extensions journey checks the empty native title on its unsaved role window."
+      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and retained AppKit Chromium ownership through close, dormant reopen, native topology changes, and restart. Saved destination names remain visible; the paired Extensions journey checks the empty native title on its unsaved role window. Deterministic navigation gates and native foreground observations verify that launch, saved-window hydration or Workspace navigation completion cannot reclaim foreground after the user selects an external application."
     },
     {
       "id": "CHROMIUM-WINDOWS-RUNTIME-LAUNCH-DESTINATIONS-008",
@@ -2868,7 +2868,7 @@
         "success",
         "restart"
       ],
-      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and bundled Chromium ownership through close, dormant reopen, native topology changes, and restart. Saved destination names remain visible; the paired Extensions journey checks the empty native title on its unsaved role window."
+      "description": "Launch four Roles through visible quick-access destination pickers into two exact saved Game Windows, preserving Rust authority and bundled Chromium ownership through close, dormant reopen, native topology changes, and restart. Saved destination names remain visible; the paired Extensions journey checks the empty native title on its unsaved role window. Deterministic navigation gates and native foreground observations verify that launch, saved-window hydration or Workspace navigation completion cannot reclaim foreground after the user selects an external application."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-RUNTIME-TAB-TOPOLOGY-009",
@@ -3081,7 +3081,7 @@
         "failure",
         "restart"
       ],
-      "description": "Create a setting-free single Rion Website Workspace and prove empty Role topology plus isolated persistent content and memory-only chrome sessions in the retained AppKit host. Navigate from the entrance, persist and resume the canonical last URL, ignore failed navigation, and recover through visible tab close/reopen and process restart. The entrance exposes 26 cards in four groups; a visible card navigation is persisted, Home clears the last URL, and reopening starts at the entrance again."
+      "description": "Create a setting-free single Rion Website Workspace and prove empty Role topology plus isolated persistent content and memory-only chrome sessions in the retained AppKit host. Navigate from the entrance, persist and resume the canonical last URL, ignore failed navigation, and recover through visible tab close/reopen and process restart. The entrance exposes 26 cards in four groups; a visible card navigation is persisted, Home clears the last URL, and reopening starts at the entrance again. Deterministic navigation gates and native foreground observations verify that launch, saved-window hydration or Workspace navigation completion cannot reclaim foreground after the user selects an external application."
     },
     {
       "id": "CHROMIUM-WINDOWS-WORKSPACE-WEB-ONLY-024",
@@ -3108,7 +3108,7 @@
         "failure",
         "restart"
       ],
-      "description": "Run the same setting-free Rion Website lifecycle in the bundled Windows Chromium host: empty Role topology, isolated sessions, entrance-to-address navigation, canonical per-slot last-URL persistence, failed-navigation exclusion, visible close/reopen, and restart continuation. Home clears the last URL and reopening returns to the 26-card entrance. Final native close and clean exit drain every accepted navigation commit; Windows retains an independent CI verdict."
+      "description": "Run the same setting-free Rion Website lifecycle in the bundled Windows Chromium host: empty Role topology, isolated sessions, entrance-to-address navigation, canonical per-slot last-URL persistence, failed-navigation exclusion, visible close/reopen, and restart continuation. Home clears the last URL and reopening returns to the 26-card entrance. Final native close and clean exit drain every accepted navigation commit; Windows retains an independent CI verdict. Deterministic navigation gates and native foreground observations verify that launch, saved-window hydration or Workspace navigation completion cannot reclaim foreground after the user selects an external application."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025",

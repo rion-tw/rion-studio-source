@@ -122,7 +122,7 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #rolePaths = new Map<string, RolePathsRecord>();
   readonly #lastGenerationByRole = new Map<string, number>();
   readonly #lastGenerationByWebSurface = new Map<string, number>();
-  readonly #savedWindowRestorePresentations = new Set<string>();
+  readonly #savedWindowRestorePresentations = new Map<string, boolean>();
   readonly #ownershipTransitions: ChromiumRuntimeOwnershipTransitionCoordinator;
   #state: ExecutorState = "open";
   #disposePromise: Promise<void> | null = null;
@@ -164,7 +164,7 @@ export class ChromiumRuntimeEffectExecutor {
   desktopE2eStatusPresentation(windowId: string): number | undefined {
     return this.#windows.get(windowId)?.host.desktopE2eStatusPresentation?.(); }
 
-  beginSavedWindowRestore(windowId: string): void {
+  beginSavedWindowRestore(windowId: string, foreground = false): void {
     requireIdentifier(windowId, "saved-window restore");
     if (this.#state !== "open") {
       throw runtimeError(
@@ -172,7 +172,7 @@ export class ChromiumRuntimeEffectExecutor {
         "The Chromium runtime cannot begin a saved-window restore while draining."
       );
     }
-    this.#savedWindowRestorePresentations.add(windowId);
+    this.#savedWindowRestorePresentations.set(windowId, foreground);
   }
 
   finishSavedWindowRestore(windowId: string): void {
@@ -193,11 +193,15 @@ export class ChromiumRuntimeEffectExecutor {
         "The restored Game Window has no exact native host to reveal."
       );
     }
+    const foreground = this.#savedWindowRestorePresentations.get(windowId)!;
     this.#savedWindowRestorePresentations.delete(windowId);
     try {
-      this.#revealLoadedWindow(windowRecord);
+      // Explicit Show already revealed this host before hydration. Preserve a
+      // subsequent user hide/minimize instead of revealing it again at completion.
+      if (foreground) this.#applyWindowVisibility(windowRecord);
+      else this.#revealRestoredWindow(windowRecord);
     } catch (error) {
-      this.#savedWindowRestorePresentations.add(windowId);
+      this.#savedWindowRestorePresentations.set(windowId, foreground);
       throw error;
     }
   }
@@ -884,7 +888,7 @@ export class ChromiumRuntimeEffectExecutor {
       }
       if (slotLoad) return;
       if (tab.webViews.size === 0) {
-        this.#revealLoadedWindow(windowRecord);
+        this.#applyWindowVisibility(windowRecord);
         windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
       } else {
         this.#applyWindowVisibility(windowRecord);
@@ -1116,7 +1120,7 @@ export class ChromiumRuntimeEffectExecutor {
           "The loading Web tab retired before native readiness.");
       }
       if (slotLoad) return;
-      this.#revealLoadedWindow(windowRecord);
+      this.#applyWindowVisibility(windowRecord);
       windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
     });
     return coreEffectEventContinuation(completion, () => cancellation.abort());
@@ -1670,12 +1674,8 @@ export class ChromiumRuntimeEffectExecutor {
     }, windowRecord, windowRecord.host.isVisible());
   }
 
-  #revealLoadedWindow(windowRecord: RuntimeWindowRecord): void {
-    if (this.#savedWindowRestorePresentations.has(windowRecord.host.logicalWindowId)) {
-      this.#applyWindowVisibility(windowRecord);
-      return;
-    }
-    if (!windowRecord.host.isVisible()) windowRecord.host.show();
+  #revealRestoredWindow(windowRecord: RuntimeWindowRecord): void {
+    if (!windowRecord.host.isVisible()) windowRecord.host.showInactive!();
     if (!windowRecord.host.isVisible()) {
       throw runtimeError(
         "ELECTRON_CHROMIUM_WINDOW_REVEAL_NOT_OBSERVED",

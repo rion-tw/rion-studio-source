@@ -110,8 +110,6 @@ impl AppCore {
 
     fn completed_chromium_runtime_projection_step(
         &self,
-        tab_id: &str,
-        presentation_intent: EmbeddedLaunchPresentationIntent,
     ) -> CoreResult<(
         crate::model::BrowserRuntimeSnapshot,
         crate::operation_actor::OperationStep,
@@ -119,30 +117,8 @@ impl AppCore {
         let snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let (reveal_window_ids, focus_window_ids, focus_tab_id) =
-            if presentation_intent == EmbeddedLaunchPresentationIntent::Foreground {
-                let window_id = snapshot
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.id == tab_id)
-                    .map(|tab| tab.window_id.clone())
-                    .ok_or_else(|| CoreError::Domain {
-                        code: "CHROMIUM_LAUNCH_ACTIVATION_STALE",
-                        message: "The foreground Chromium tab retired before terminal focus."
-                            .to_owned(),
-                    })?;
-                // EventBound: loading may repair focus only while this tab is
-                // still selected. A later user selection owns the terminal projection.
-                let selected = self.browser_runtime.snapshot()?.windows.get(&window_id)
-                    .is_some_and(|window| window.selected_tab_id.as_deref() == Some(tab_id));
-                if selected {
-                    (vec![window_id.clone()], vec![window_id], Some(tab_id.to_owned()))
-                } else {
-                    (Vec::new(), Vec::new(), None)
-                }
-            } else {
-                (Vec::new(), Vec::new(), None)
-            };
+        // EventBound: completion publishes readiness, never a new foreground intent.
+        // The admission focus already settled; later user focus owns the desktop.
         let step = effect_step(
             "embedded-runtime-projection",
             CoreEffectAction::EmbeddedFollowRoleOwnership {
@@ -150,9 +126,9 @@ impl AppCore {
                 roles: snapshot.roles.clone(),
                 windows: self.embedded_runtime_window_projections()?,
                 target: None,
-                reveal_window_ids,
-                focus_window_ids,
-                focus_tab_id,
+                reveal_window_ids: Vec::new(),
+                focus_window_ids: Vec::new(),
+                focus_tab_id: None,
             },
             Duration::from_secs(15),
             None,
@@ -162,11 +138,9 @@ impl AppCore {
 
     fn project_completed_chromium_runtime_launch(
         &self,
-        tab_id: &str,
-        presentation_intent: EmbeddedLaunchPresentationIntent,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let (snapshot, step) =
-            self.completed_chromium_runtime_projection_step(tab_id, presentation_intent)?;
+            self.completed_chromium_runtime_projection_step()?;
         self.run_effect_plan(vec![step])?;
         self.emit_browser_statuses();
         Ok(snapshot)

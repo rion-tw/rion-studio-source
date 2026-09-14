@@ -96,7 +96,7 @@ describe("desktop E2E build isolation", () => {
     expect(drag).toContain("!sourceWindow.isVisible || !targetWindow.isVisible");
   });
 
-  it("reasserts retained AppKit focus after Chromium attachment drains", async () => {
+  it("forbids deferred native foreground claims after explicit activation", async () => {
     const bridge = await readFile(
       "crates/rion-appkit/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
       "utf8"
@@ -106,10 +106,8 @@ describe("desktop E2E build isolation", () => {
       bridge.indexOf("bool rion_runtime_tabs_set_reveal_locked(")
     );
 
-    expect(focus).toContain("dispatch_async(dispatch_get_main_queue()")
-    expect(focus).toContain("!NSApp.isActive")
-    expect(focus).toContain("[focusedWindow makeKeyAndOrderFront:nil]")
-    expect(focus.indexOf("[window makeKeyAndOrderFront:nil]"))
-      .toBeLessThan(focus.indexOf("dispatch_async(dispatch_get_main_queue()"));
+    expect(focus).not.toContain("dispatch_async");
+    expect(focus).not.toContain("dispatch_after");
+
   });
 });

@@ -227,6 +227,40 @@ async function compensateEmptySavedWindow(
   }
 }
 
+// EventBound: ready projections may finish the content responder handoff once,
+// but cannot obtain native foreground. Consume even when the user moved away.
+function handoffReadyRoleContent(input: FollowChromiumRuntimeOwnershipInput): void {
+  for (const [tabId, tab] of input.tabs) {
+    if (!tab.pendingContentFocus) continue;
+    const window = input.windows.get(tab.windowId);
+    const projected = input.projectedWindows.find(item => item.windowId === tab.windowId);
+    if (!window || window.host.isDestroyed() || !projected ||
+        projected.windowGeneration !== window.windowGeneration ||
+        projected.topologyRevision !== window.topologyRevision) continue;
+    const phase = projected.tabPhases.find(item => item.tabId === tabId)?.phase;
+    if (phase === "loading" || phase === "activating") continue;
+    delete tab.pendingContentFocus;
+    if (phase !== "ready" || !window.host.appKitIdentity ||
+        tab.specification.workspaceId || tab.webViews.size !== 0 ||
+        window.activeTabId !== tabId || window.hiddenTabIds.has(tabId)) continue;
+    const native = window.host.readRuntimeWindowState?.();
+    if (!native?.focused || !native.foreground || !native.visible || native.minimized ||
+        native.windowGeneration !== window.windowGeneration ||
+        native.topologyRevision !== window.topologyRevision ||
+        native.lifecycleEpoch !== input.lifecycleEpoch ||
+        !window.host.readProjection().focused) continue;
+    const roles = [...input.roles.values()].filter(role =>
+      role.windowId === tab.windowId && role.tabId === tabId);
+    if (roles.length !== 1) continue;
+    const role = roles[0]!;
+    const owner = input.projectedRoles.find(item => item.roleId === role.roleId);
+    if (owner?.state !== "running" || owner.owner.tabId !== tabId ||
+        owner.owner.generation !== role.ownerGeneration ||
+        !input.ports.surfaces.readProjection(role.roleId, role.generation).visible) continue;
+    input.ports.surfaces.focusVisible(role.roleId, role.generation);
+  }
+}
+
 export async function followChromiumRuntimeOwnership(
   input: FollowChromiumRuntimeOwnershipInput
 ): Promise<CoreEffectEventContinuation | undefined> {
@@ -324,6 +358,7 @@ export async function followChromiumRuntimeOwnership(
           window.host.isVisible()
         );
       }
+      if (!input.signal?.aborted) handoffReadyRoleContent(input);
       return undefined;
     }
     if (input.signal?.aborted) {
@@ -368,29 +403,10 @@ export async function followChromiumRuntimeOwnership(
               window.host.isVisible()
           );
         }
-        // EventBound: Electron 43 does not reliably hand the AppKit key window's
-        // responder to its Role. Only Core's still-current explicit focus target
-        // may complete that handoff after the native focus acknowledgement.
-        const focused = input.windows.get(input.focusWindowIds[0] ?? "");
-        const focusedTab = input.tabs.get(input.focusTabId ?? "");
-        const observed = receipt.windows.find(window =>
-          window.logicalWindowId === focused?.host.logicalWindowId);
-        if (focused?.host.appKitIdentity && input.focusTabId &&
-            focusedTab && !focusedTab.specification.workspaceId &&
-            focusedTab.webViews.size === 0 &&
-            observed?.focused &&
-            observed.windowGeneration === focused.windowGeneration &&
-            observed.topologyRevision === focused.topologyRevision &&
-            focused.activeTabId === input.focusTabId &&
-            focused.host.readProjection().focused) {
-          const roles = [...input.roles.values()].filter(role =>
-            role.windowId === focused.host.logicalWindowId &&
-            role.tabId === input.focusTabId);
-          if (roles.length === 1 && input.ports.surfaces.readProjection(
-            roles[0].roleId, roles[0].generation).visible) {
-            input.ports.surfaces.focusVisible(roles[0].roleId, roles[0].generation);
-          }
-        }
+        const focusedWindow = input.windows.get(input.focusWindowIds[0] ?? "");
+        const focusedTab = input.tabs.get(input.focusTabId ?? focusedWindow?.activeTabId ?? "");
+        if (focusedTab) focusedTab.pendingContentFocus = true;
+        if (!input.signal?.aborted) handoffReadyRoleContent(input);
       }
       return receipt;
     }),

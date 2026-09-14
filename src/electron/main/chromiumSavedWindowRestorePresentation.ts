@@ -20,7 +20,7 @@ type RestorePresentationCallbacks = Pick<
 >;
 
 interface SavedWindowRestorePresentationRuntimePort {
-  beginSavedWindowRestore: (windowId: string) => void;
+  beginSavedWindowRestore: (windowId: string, foreground?: boolean) => void;
   finishSavedWindowRestore: (windowId: string) => void;
 }
 
@@ -84,9 +84,9 @@ export function createChromiumSavedWindowRestorePresentation(
   };
 
   return Object.freeze({
-    beginSavedWindowRestore: (windowId: string) => {
+    beginSavedWindowRestore: (windowId: string, foreground = false) => {
       input.appKit?.events.beginSavedWindowRestore(windowId);
-      input.runtime.beginSavedWindowRestore(windowId);
+      input.runtime.beginSavedWindowRestore(windowId, foreground);
     },
     finishSavedWindowRestore: async (windowId: string) => {
       await input.appKit?.events.finishSavedWindowRestore(windowId);

@@ -47,7 +47,7 @@ export interface ChromiumRuntimeActionsFactoryInput {
   readonly readDisplayTopology: () => DisplayTopologySnapshotRecord;
   readonly readNativeSnapshot: () => ChromiumRuntimeExecutorSnapshot;
   readonly restoreSavedGameWindow: (
-    window: StateGameWindowRecord
+    window: StateGameWindowRecord, foreground?: boolean
   ) => Promise<void>;
   readonly restoreSession: ChromiumRuntimeRestoreSessionMutationPort;
   readonly openEmptySavedGameWindow: (

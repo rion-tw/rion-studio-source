@@ -317,11 +317,11 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.hosts[0]!.show).not.toHaveBeenCalled();
     expect(subject.hosts[0]!.isVisible()).toBe(false);
     subject.executor.finishSavedWindowRestore(specification.target.windowId);
-    expect(subject.hosts[0]!.show).toHaveBeenCalledOnce();
+    expect(subject.hosts[0]!.showInactive).toHaveBeenCalledOnce();
     expect(subject.hosts[0]!.isVisible()).toBe(true);
   });
 
-  it("reveals an initially hidden host only after its role surface is attached", async () => {
+  it("keeps an initially hidden host hidden after its role surface is attached", async () => {
     const subject = harness();
     subject.createHost.mockImplementationOnce(async (
       target: EmbeddedTabEffectRecord["target"]
@@ -342,9 +342,9 @@ describe("Electron Chromium runtime effect executor", () => {
       roleId: "role-1",
       visible: false
     }));
-    expect(subject.hosts[0]?.show).toHaveBeenCalledOnce();
-    expect(subject.hosts[0]?.isVisible()).toBe(true);
-    expect(subject.setVisible).toHaveBeenCalledWith("role-1", 1, true);
+    expect(subject.hosts[0]?.show).not.toHaveBeenCalled();
+    expect(subject.hosts[0]?.isVisible()).toBe(false);
+    expect(subject.setVisible).toHaveBeenCalledWith("role-1", 1, false);
     expect(subject.hosts[0]?.releaseAppKitSurfaceAttachment)
       .toHaveBeenCalledWith("tab-1");
   });

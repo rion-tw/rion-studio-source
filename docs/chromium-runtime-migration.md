@@ -983,15 +983,20 @@ and the sole Electron runtime remain unchanged.
 
 ### Foreground completion and temporary window names
 
-A Chromium load completion may repair native focus only while its tab remains
-selected in the latest RuntimeKernel topology. A newer user selection takes
-precedence: background completion updates ready/running state without reveal or
-focus effects. Foreground admission and unchanged-selection focus repair remain;
-hydration never requests focus. Electron 43 additionally needs an explicit
-WebContents responder handoff for a standalone Role after the AppKit host
-acknowledges Core's focus request. The follower rechecks the selected tab,
-window generation, topology revision, native focus and surface visibility before
-the handoff. It does not choose a workspace surface or focus a background tab.
+A user launch claims native foreground once, before navigation. Explicit saved-window
+Show uses the first native tab admission; restored Role navigation returns the
+existing pending-completion receipt so Show cannot wait until hydration finishes.
+Subsequent tabs and automatic recovery remain focus-neutral. Completion only
+projects ready/running ownership and never reveals or focuses a window, even if
+the launch tab remains selected. A newer external application, launcher, runtime
+window or tab selection owns focus. Restore hydration never requests focus.
+Electron 43 can finish a standalone Role's content responder handoff after that
+explicit admission, once the Role becomes ready. The follower consumes the handoff
+once, rechecking the exact selected tab, window and surface generations, topology
+revision, native foreground/focus and surface visibility. It never activates a
+window, chooses a workspace surface, or retries after background completion.
+AppKit document readiness only registers passive native input observation; it
+never restores launcher focus or queues a later key-window activation.
 Missing persisted window names project as empty
 native titles on macOS and Windows. Windows shell document titles cannot replace
 the Core-owned title. These restore existing selection and naming semantics.

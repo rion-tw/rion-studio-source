@@ -30,7 +30,6 @@ describe("Chromium native tab exact replacements", () => {
       "logical?.activeTabId === input.activeTabId",
       "const alreadyActive =",
       "if (afterSequence !== undefined)",
-      "focused: true",
       "clickVisibleElectronRolePageButton",
       "button=New game",
       "button=New game window",

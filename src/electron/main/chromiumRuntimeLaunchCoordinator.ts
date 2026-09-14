@@ -48,7 +48,7 @@ export interface ChromiumRuntimeLaunchCoordinatorInput {
   readonly settleNativeEvents?: () => Promise<void>;
   readonly settleRuntimeProjection?: () => Promise<number>;
   readonly waitForRuntimeProjection?: (afterSequence: number) => Promise<number>;
-  readonly beginSavedWindowRestore?: (windowId: string) => void;
+  readonly beginSavedWindowRestore?: (windowId: string, foreground?: boolean) => void;
   readonly finishSavedWindowRestore?: (
     windowId: string
   ) => MaybePromise<void>;
@@ -114,7 +114,7 @@ export interface ElectronRuntimeLaunchPort {
     workspaceId: string,
     destination?: RuntimeLaunchDestinationRequest
   ) => Promise<WorkspaceLaunchResult>;
-  restoreSavedGameWindow?: (window: StateGameWindowRecord) => Promise<void>;
+  restoreSavedGameWindow?: (window: StateGameWindowRecord, foreground?: boolean) => Promise<void>;
   openEmptySavedGameWindow?: (window: StateGameWindowRecord) => Promise<void>;
 }
 
@@ -569,7 +569,7 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
     })));
   }
 
-  restoreSavedGameWindow(window: StateGameWindowRecord): Promise<void> {
+  restoreSavedGameWindow(window: StateGameWindowRecord, foreground = false): Promise<void> {
     return this.#enqueue(async () => {
       const windowId = requireCanonicalId(window.id, "restore Game Window");
       const tabIds = window.tabs.map((tab) => requireCanonicalId(tab.id, "restore tab"));
@@ -608,10 +608,10 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
         );
       }
       // Core merges each partial restore against the saved ordered cohort. Keep
-      // admission in that order while the native host remains hidden, then
-      // commit the saved active tab once the complete cohort is hydrated.
+      // admission in that order, revealing the first tab only for explicit Show.
+      // Commit the saved active tab once the complete cohort is hydrated.
       const launchOrder = window.tabs;
-      beginRestore(windowId);
+      beginRestore(windowId, foreground);
       for (const tab of launchOrder) {
         const sourceType = tab.tabType;
         const result = await this.#launch(
@@ -620,6 +620,11 @@ export class ChromiumRuntimeLaunchCoordinator implements ElectronRuntimeLaunchPo
           { kind: "game-window", windowId },
           { tabId: tab.id, roleSlots: tab.roleSlots }
         );
+        // An explicit Show claims foreground at admission, never after navigation.
+        if (foreground && tab === launchOrder[0]) {
+          await this.#readCoherentSnapshot();
+          await this.#input.core.invoke({ type: "embeddedWindowsShow", windowId });
+        }
         if (result.admission.completion === "pendingNativeCompletion") {
           const completions = this.#input.launchCompletions;
           if (!completions) {

@@ -1393,14 +1393,14 @@ export class ChromiumRuntimeBootstrap {
     return this.#executor.snapshot();
   }
 
-  beginSavedWindowRestore(windowId: string): void {
+  beginSavedWindowRestore(windowId: string, foreground = false): void {
     if (this.#state !== "open") {
       throw bootstrapError(
         "ELECTRON_CHROMIUM_RUNTIME_DRAINING",
         "The Chromium runtime cannot begin a saved-window restore while draining."
       );
     }
-    this.#executor.beginSavedWindowRestore(windowId);
+    this.#executor.beginSavedWindowRestore(windowId, foreground);
   }
 
   finishSavedWindowRestore(windowId: string): void {

@@ -23,7 +23,7 @@ export interface ChromiumSavedWindowRestoreCorePort {
 
 export interface ChromiumSavedWindowRestoreLaunchPort {
   openEmptySavedGameWindow: (window: StateGameWindowRecord) => Promise<void>;
-  restoreSavedGameWindow: (window: StateGameWindowRecord) => Promise<void>;
+  restoreSavedGameWindow: (window: StateGameWindowRecord, foreground?: boolean) => Promise<void>;
 }
 
 export interface ChromiumSavedWindowRestoreControllerInput {
@@ -57,8 +57,9 @@ implements ChromiumSavedWindowActionPort {
           if (dormant.tabs.length === 0) {
             await this.#openEmpty(snapshot, windowId);
           } else {
-            await this.#restore(snapshot, { scope: "window", windowId });
+            await this.#restore(snapshot, { scope: "window", windowId }, true);
           }
+          return; // Empty admission or the first restored tab already owns Show.
         }
       }
       await this.#input.core.invoke({ type: "embeddedWindowsShow", windowId });
@@ -157,14 +158,15 @@ implements ChromiumSavedWindowActionPort {
 
   async #restore(
     snapshot: CoreAppSnapshotRecord,
-    input: RestoreSavedGameWindowsInput
+    input: RestoreSavedGameWindowsInput,
+    foreground = false
   ): Promise<void> {
     const session = await this.#input.restoreSession.inspect();
     const windows = this.#selectWindows(snapshot, session, input);
     for (const window of windows) {
       await this.#markRestoring(session, window);
       // Failure deliberately leaves the persisted in-progress identity for resume.
-      await this.#input.launches.restoreSavedGameWindow(window);
+      await this.#input.launches.restoreSavedGameWindow(window, foreground);
       await this.#markRestored(window.id);
     }
   }

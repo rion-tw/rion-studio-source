@@ -979,7 +979,9 @@ impl AppCore {
                     core.browser_operations.complete(&lease.id)?;
                     Ok(EmbeddedRoleLaunchStart::Completed(value))
                 }
-                Ok(EmbeddedRoleLaunchStart::Pending(pending)) if restoring => {
+                Ok(EmbeddedRoleLaunchStart::Pending(pending))
+                    if restoring && core.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION =>
+                {
                     let result = core.settle_embedded_role_launch_blocking(*pending);
                     let completion = core.browser_operations.complete(&lease.id);
                     match (result, completion) {

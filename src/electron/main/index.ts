@@ -278,8 +278,7 @@ function createMacosAppKitAdapter(
       }
     );
     attachments = new MacosAppKitInputSurfaceAttachmentCoordinator({
-      resolve: (parent) => hostFactory.resolveInputHost(parent),
-      shouldRestoreInitialFocus: () => !!mainWindow?.isFocused()
+      resolve: (parent) => hostFactory.resolveInputHost(parent)
     });
     appKitRuntimeEvents = eventBridge;
     return {
@@ -1280,8 +1279,8 @@ async function bootstrapReadyPhase(
     },
     openEmptySavedGameWindow: (window) =>
       launchCoordinator.openEmptySavedGameWindow(window),
-    restoreSavedGameWindow: (window) =>
-      launchCoordinator.restoreSavedGameWindow(window),
+    restoreSavedGameWindow: (window, foreground) =>
+      launchCoordinator.restoreSavedGameWindow(window, foreground),
     restoreSession: activeRuntimeRestoreSession(),
     publishQuickAccessRequest: (request) => {
       if (mainIdentity) {

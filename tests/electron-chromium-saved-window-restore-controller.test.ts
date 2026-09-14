@@ -110,7 +110,7 @@ class RestoreHarness {
   session: RuntimeRestoreSessionRecord;
   readonly commands: CoreCommand[] = [];
   readonly openEmpty = vi.fn(async (_window: StateGameWindowRecord) => undefined);
-  readonly launches = vi.fn(async (_window: StateGameWindowRecord) => undefined);
+  readonly launches = vi.fn(async (_window: StateGameWindowRecord, _foreground?: boolean) => undefined);
 
   constructor(windows: StateGameWindowRecord[]) {
     this.snapshot = appSnapshot(windows);
@@ -161,17 +161,14 @@ class RestoreHarness {
 }
 
 describe("Chromium saved Game Window restore controller", () => {
-  it("restores then shows a dormant window through one ordered native action", async () => {
+  it("requests foreground at restore admission without another Show after completion", async () => {
     const saved = savedWindow(WINDOW_ONE);
     const harness = new RestoreHarness([saved]);
 
     await harness.controller().show(WINDOW_ONE);
 
-    expect(harness.launches).toHaveBeenCalledWith(saved);
-    expect(harness.commands.at(-1)).toEqual({
-      type: "embeddedWindowsShow",
-      windowId: WINDOW_ONE
-    });
+    expect(harness.launches).toHaveBeenCalledWith(saved, true);
+    expect(harness.commands.some(command => command.type === "embeddedWindowsShow")).toBe(false);
     expect(harness.session.liveWindowIds).toEqual([WINDOW_ONE]);
   });
 
@@ -281,7 +278,7 @@ describe("Chromium saved Game Window restore controller", () => {
     await harness.controller().restore({ scope: "last-visible" });
 
     expect(harness.launches).toHaveBeenCalledOnce();
-    expect(harness.launches).toHaveBeenCalledWith(second);
+    expect(harness.launches).toHaveBeenCalledWith(second, false);
   });
 
   it("discards only the selected recovery window and retains its peer", async () => {

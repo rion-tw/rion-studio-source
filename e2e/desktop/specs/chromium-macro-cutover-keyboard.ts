@@ -85,8 +85,8 @@ async function waitExactKey(input: Readonly<{
   }
 }
 
-function exactTrustedKey(event: FixtureEvent, code: string): void {
-  expect(event).toEqual(expect.objectContaining({ code, isTrusted: true }));
+function exactCompatibleKey(event: FixtureEvent, code: string): void {
+  expect(event).toEqual(expect.objectContaining({ code, isTrusted: false }));
 }
 
 async function waitAppliedKeyObservation(input: Readonly<{
@@ -198,7 +198,7 @@ async function exerciseRapidShiftShortcuts(input: Readonly<{
       const exact = (kind: "keydown" | "keyup", code: string, key: string,
         shift: boolean): boolean => collisionEvents.some((event) =>
         event.kind === kind && event.code === code && event.key === key &&
-        event.isTrusted === true && event.modifiers?.shift === shift);
+        event.isTrusted === false && event.modifiers?.shift === shift);
       return exact("keydown", "Digit2", "2", false) &&
         exact("keyup", "Digit2", "2", false) &&
         exact("keydown", "Digit0", "0", false) &&
@@ -445,7 +445,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     kind: "keydown",
     roleId: ROLE_A_FIXTURE
   });
-  exactTrustedKey(pressedOne, "Digit1");
+  exactCompatibleKey(pressedOne, "Digit1");
   expect(pressedOne).toEqual(expect.objectContaining({
     key: "!",
     modifiers: { alt: false, control: false, meta: false, shift: true }
@@ -456,7 +456,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     kind: "keyup",
     roleId: ROLE_A_FIXTURE
   });
-  exactTrustedKey(releasedOne, "Digit1");
+  exactCompatibleKey(releasedOne, "Digit1");
   expect(releasedOne).toEqual(expect.objectContaining({
     key: "!",
     modifiers: { alt: false, control: false, meta: false, shift: true }
@@ -467,7 +467,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     kind: "keyup",
     roleId: ROLE_A_FIXTURE
   });
-  exactTrustedKey(triggerUp, "Digit3");
+  exactCompatibleKey(triggerUp, "Digit3");
   expect(pressedOne.sequence).toBeLessThan(triggerUp.sequence);
   const firstChordEvents = await fixtureEvents({
     afterSequence: reentryFixture,
@@ -493,22 +493,21 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   });
   expect(triggerRelease.receipt.confirmedInputNeutrality).toBe(true);
   expect(reentryRelease.sequence).toBeLessThan(triggerRelease.sequence);
-  let modifierApplicationPaths: unknown[] = [];
   await browser.waitUntil(async () => {
     const entries = (await rendererCall("queryLogs", {
       levels: ["debug"],
       limit: 100,
       search: "trusted_input_terminal"
     })).entries;
-    modifierApplicationPaths = entries
+    const modifierTerminals = entries
       .filter((entry) => entry.event === "trusted_input_terminal" &&
-        entry.context?.roleId === roleA.id)
-      .map((entry) => entry.context?.applicationPath);
-    return modifierApplicationPaths.includes("physical-modifier-adoption") &&
-      modifierApplicationPaths.includes("modifier-ownership-release");
+        entry.context?.roleId === roleA.id && entry.context?.code === "ShiftLeft" &&
+        entry.context?.applicationPath === "canvas-compatibility" &&
+        entry.context?.cdpSubmissionCertainty === "not-invoked" && entry.context?.terminalCode === "APPLIED");
+    return ["rawKeyDown", "keyUp"].every(phase => modifierTerminals.some(entry => entry.context?.phase === phase));
   }, {
     timeout: 10_000,
-    timeoutMsg: "Shift+3 did not persist modifier adoption and release terminal evidence"
+    timeoutMsg: "Shift+3 did not persist compatible modifier press and release terminal evidence"
   });
 
   await exerciseRepeatedShiftShortcut({
@@ -624,7 +623,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit3",
       processId: (await electronDesktopE2eProbe()).processId, targetMode: "focused-runtime" });
   }
-  exactTrustedKey(await waitExactKey({
+  exactCompatibleKey(await waitExactKey({
     afterSequence: releasedReentryFixture,
     code: "Digit1",
     kind: "keydown",
@@ -656,7 +655,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     kind: "keydown",
     roleId: ROLE_A_FIXTURE
   });
-  exactTrustedKey(continuityOneDown, "Digit1");
+  exactCompatibleKey(continuityOneDown, "Digit1");
   expect(continuityOneDown).toEqual(expect.objectContaining({
     key: "1",
     modifiers: { alt: false, control: false, meta: false, shift: false }
@@ -667,7 +666,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     kind: "keyup",
     roleId: ROLE_A_FIXTURE
   });
-  exactTrustedKey(continuityOneUp, "Digit1");
+  exactCompatibleKey(continuityOneUp, "Digit1");
   expect(continuityOneUp).toEqual(expect.objectContaining({
     key: "1",
     modifiers: { alt: false, control: false, meta: false, shift: false }
@@ -807,7 +806,7 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const outputFixture = await fixtureCursor();
   const outputCursor = await startChromiumMacroVisible(macros.output, [roleA.id]);
   const [left, middle, right] = await Promise.all([
-    waitFixtureEvent({ afterSequence: outputFixture, kind: "click", roleId: ROLE_A_FIXTURE }),
+    waitFixtureEvent({ afterSequence: outputFixture, kind: "game-click", roleId: ROLE_A_FIXTURE }),
     waitFixtureEvent({ afterSequence: outputFixture, kind: "auxclick", roleId: ROLE_A_FIXTURE }),
     waitFixtureEvent({
       afterSequence: outputFixture,
@@ -819,9 +818,9 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     button: event.button,
     isTrusted: event.isTrusted
   }))).toEqual([
-    { button: 0, isTrusted: true },
-    { button: 1, isTrusted: true },
-    { button: 2, isTrusted: true }
+    { button: 0, isTrusted: false },
+    { button: 1, isTrusted: false },
+    { button: 2, isTrusted: false }
   ]);
   await waitForMacroProjection({
     absent: true,

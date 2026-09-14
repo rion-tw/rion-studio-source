@@ -75,7 +75,7 @@ describe("Chromium Macro standby recovery exact replacement source", () => {
       'electronDesktopE2eApplicationLifecycleSignal("resume")',
       "suspendCleanup.receipt.confirmedInputNeutrality",
       "waitForEnabled({ reverse: true",
-      "event.code === input.code && event.isTrusted === true",
+      "event.code === input.code && event.isTrusted === false",
       "secondHold.request.requestId",
       "clickVisibleRuntimeTab",
       "appKitIdentity",

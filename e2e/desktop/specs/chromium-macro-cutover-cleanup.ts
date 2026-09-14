@@ -173,7 +173,7 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     kind: "keydown",
     roleId: FIXTURES.parent
   });
-  expect(childKey).toEqual(expect.objectContaining({ code: "KeyC", isTrusted: true }));
+  expect(childKey).toEqual(expect.objectContaining({ code: "KeyC", isTrusted: false }));
   await stopChromiumMacroVisible(parent, parentCursor);
   await waitForMacroProjection({
     absent: true,
@@ -315,14 +315,14 @@ export async function restartChromiumMacroTerminalCleanup(): Promise<void> {
     kind: "keydown",
     roleId: FIXTURES.shutdown
   });
-  expect(keyDown).toEqual(expect.objectContaining({ code: "KeyA", isTrusted: true }));
+  expect(keyDown).toEqual(expect.objectContaining({ code: "KeyA", isTrusted: false }));
   await stopChromiumMacroVisible(macro, macroCursor);
   const keyUp = await waitFixtureEvent({
     afterSequence: keyDown.sequence,
     kind: "keyup",
     roleId: FIXTURES.shutdown
   });
-  expect(keyUp.isTrusted).toBe(true);
+  expect(keyUp.isTrusted).toBe(false);
   expect((await fixtureState())[FIXTURES.shutdown]?.pressedCodes).toEqual([]);
   await writeChromiumMacroEvidence("chromium-macro-terminal-cleanup-restart.json", {
     binding,

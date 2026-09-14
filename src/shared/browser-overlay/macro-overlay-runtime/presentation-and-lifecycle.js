@@ -870,6 +870,7 @@
     document.addEventListener("visibilitychange", handleVisibilityChange, true);
     window[controllerKey] = {
       automaticInputContext,
+      dispatchCompatibleInput,
       clearSuppressedMiddleButtonShortcut,
       clearSuppressedShortcut,
       completeMacroModifierTransition,

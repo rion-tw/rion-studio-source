@@ -1,3 +1,4 @@
+import { ChromiumCompatibleInput, type ChromiumCompatibleInputPort } from "./chromiumCompatibleInput";
 import { observeChromiumGameDelivery } from "./chromiumGameDeliveryEvidence";
 import { ChromiumTrustedInputDocumentEvidence } from "./chromiumTrustedInputDocumentEvidence";
 import { createTrustedInputArmEnvelope } from "./chromiumTrustedInputArmEnvelope";
@@ -437,6 +438,7 @@ implements ChromiumNativeTrustedInputPort {
   readonly #pending: ChromiumTrustedInputPendingLane<PendingDispatch>;
   readonly #unsubscribeLifecycle: () => void;
   readonly #unsubscribeCdpTerminal: () => void;
+  readonly #compatible: ChromiumCompatibleInput | null;
   readonly #documentEvidence = new ChromiumTrustedInputDocumentEvidence();
   readonly #ipcListener = (
     event: WindowsChromiumTrustedInputIpcEventPort,
@@ -460,6 +462,7 @@ implements ChromiumNativeTrustedInputPort {
     deadlines: WindowsChromiumTrustedInputDeadlinePort;
     backgroundSupported: boolean;
     physicalModifierCodes: () => readonly string[];
+    compatibility?: ChromiumCompatibleInputPort;
     createInputSequence?: () => string;
   }>) {
     this.#hosts = input.hosts;
@@ -470,6 +473,10 @@ implements ChromiumNativeTrustedInputPort {
     this.#deadlines = input.deadlines;
     this.#backgroundSupported = input.backgroundSupported;
     this.#physicalModifierCodes = input.physicalModifierCodes;
+    this.#compatible = input.compatibility ? new ChromiumCompatibleInput({
+      port: input.compatibility, platform: "win32", nowMs: this.#nowMs,
+      timers: { setTimeout: this.#deadlines.schedule, cancel: this.#deadlines.cancel }
+    }) : null;
     this.#createInputSequence = input.createInputSequence ?? randomUUID;
     this.#pending = new ChromiumTrustedInputPendingLane({
       nowMs: this.#nowMs,
@@ -530,7 +537,7 @@ implements ChromiumNativeTrustedInputPort {
           "The role has no exact live Win32 child input host."
         );
       }
-      if (request.action.type === "focus") {
+      if (request.action.type === "focus" && !this.#compatible) {
         return host.native.focusForeground(host.identity, request);
       }
       const resolvedMode = host.native.currentInputDeliveryMode(host.identity);
@@ -553,6 +560,20 @@ implements ChromiumNativeTrustedInputPort {
           "SYSTEM_TRUSTED_INPUT_NATIVE_PROBE_INVALID",
           "The Windows host returned malformed physical modifier evidence."
         );
+      }
+      if (this.#compatible) {
+        const originalHost = host;
+        return this.#compatible.dispatch(request, frame,
+          physicalChromiumModifierCodesForAction(request.action, observedPhysicalModifierCodes),
+          request.action.type === "click" ? this.#clicks.resolve(request, frame) : null, () => {
+            const currentHost = this.#hosts.resolve(request.roleId, request.surfaceGeneration);
+            if (this.#disposed || !currentHost || !sameHost(currentHost, originalHost) ||
+                !sameFrame(this.#surfaces.currentTrustedInputFrame(request.roleId, request.surfaceGeneration), frame))
+              throw new Error("Compatible input host retired.");
+            const mode = currentHost.native.currentInputDeliveryMode(currentHost.identity);
+            if (mode !== "foreground" && mode !== "background") throw new Error("Compatible input host unavailable.");
+            validateProbe(currentHost.native.probeExactInputSurface(currentHost.identity, mode), currentHost.identity, mode);
+          });
       }
       prepared = prepareDispatch(request, frame, this.#clicks);
     } catch (error) {
@@ -970,6 +991,7 @@ implements ChromiumNativeTrustedInputPort {
   }
 
   dispose(): void {
+    this.#compatible?.dispose();
     if (this.#disposed) return;
     this.#disposed = true;
     this.#documentEvidence.clear();
@@ -1244,6 +1266,7 @@ implements ChromiumNativeTrustedInputPort {
   }
 
   #onSurfaceLifecycle(event: ChromiumRoleOverlayLifecycleEvent): void {
+    this.#compatible?.retire(event.roleId);
     this.#documentEvidence.retire(event.roleId, event.reason === "document-superseded");
     this.#pending.surfaceChanged(event);
   }

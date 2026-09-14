@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v62";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-09-13.1";
+  const scriptVersion = "2026-09-14.1";
   const inputContextLossVersion = 1;
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
@@ -290,6 +290,7 @@
   }
 
   function handleGameSurfacePointerDown(event) {
+    if (forwardedMacroGameEvents.has(event)) return;
     // A physical pointer event can arrive while this document already owns the
     // keyboard responder. Reapplying native WebView focus in that state resets
     // held-key input in both WKWebView and WebView2 (for example, W + right

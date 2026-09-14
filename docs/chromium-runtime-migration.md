@@ -119,7 +119,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 39. Version 23 remains the first
+The active runtime contract is version 40. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -995,3 +995,15 @@ the handoff. It does not choose a workspace surface or focus a background tab.
 Missing persisted window names project as empty
 native titles on macOS and Windows. Windows shell document titles cannot replace
 the Core-owned title. These restore existing selection and naming semantics.
+
+### v40 background-compatible macro input
+
+The owner selected Canvas-compatible keyboard and pointer delivery as the default
+for every Macro, including existing definitions, on 2026-09-14. The complete
+invocation uses the fixed original Canvas in the main document. An embedded
+verification frame keeps physical focus while Macro steps continue through the
+private isolated-world endpoint with `isTrusted=false`. Core still serializes
+key ownership, scheduling, cleanup and terminality. There is no automatic
+transport switch, original-action retry, data migration, or verification solver.
+See [Trusted Input Receipts](contracts/system-runtime/trusted-input-receipts.md)
+for the distinct compatible receipt guarantee.

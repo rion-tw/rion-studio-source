@@ -1,3 +1,4 @@
+import { ChromiumCompatibleInput, type ChromiumCompatibleInputPort } from "./chromiumCompatibleInput";
 import { observeChromiumGameDelivery } from "./chromiumGameDeliveryEvidence";
 import { ChromiumTrustedInputDocumentEvidence } from "./chromiumTrustedInputDocumentEvidence";
 import { normalizeRionBridgeError } from "../ipc/errors";
@@ -628,6 +629,7 @@ implements ChromiumNativeTrustedInputPort {
   readonly #pending: ChromiumTrustedInputPendingLane<PendingDispatch>;
   readonly #unsubscribeLifecycle: () => void;
   readonly #unsubscribeCdpTerminal: () => void;
+  readonly #compatible: ChromiumCompatibleInput | null;
   readonly #documentEvidence = new ChromiumTrustedInputDocumentEvidence();
   readonly #ipcListener = (
     event: MacosAppKitTrustedInputIpcEventPort,
@@ -650,6 +652,7 @@ implements ChromiumNativeTrustedInputPort {
     cdp: ChromiumCdpInputTransportPort;
     nowMs: () => number;
     timers?: MacosAppKitTrustedInputTimerPort;
+    compatibility?: ChromiumCompatibleInputPort;
     createInputSequence?: () => string;
   }>) {
     this.#hosts = input.hosts;
@@ -662,6 +665,10 @@ implements ChromiumNativeTrustedInputPort {
       schedule: (callback, delayMs) => setTimeout(callback, delayMs),
       cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>)
     };
+    this.#compatible = input.compatibility ? new ChromiumCompatibleInput({
+      port: input.compatibility, platform: "darwin", nowMs: this.#nowMs,
+      timers: { setTimeout: this.#timers.schedule, cancel: this.#timers.cancel }
+    }) : null;
     this.#createInputSequence = input.createInputSequence ?? randomUUID;
     this.#pending = new ChromiumTrustedInputPendingLane({
       nowMs: this.#nowMs,
@@ -730,6 +737,20 @@ implements ChromiumNativeTrustedInputPort {
         request.roleId,
         request.surfaceGeneration
       );
+      if (this.#compatible) {
+        const originalHost = host;
+        return this.#compatible.dispatch(request, frame,
+          physicalChromiumModifierCodesForAction(request.action, nativeProbe.physicalModifierCodes),
+          request.action.type === "click" ? this.#clicks.resolve(request, frame) : null, () => {
+            const currentHost = this.#hosts.resolve(request.roleId, request.surfaceGeneration);
+            if (this.#disposed || !currentHost || !sameHost(currentHost, originalHost) ||
+                !sameFrame(this.#surfaces.currentTrustedInputFrame(request.roleId, request.surfaceGeneration), frame))
+              throw new Error("Compatible input host retired.");
+            const currentProbe = validateAppKitProbe(currentHost.native.probeCdpInputSurface(
+              currentHost.identity, request.roleId, request.surfaceGeneration), currentHost, request.roleId, request.surfaceGeneration);
+            if (!sameAppKitStableSurface(currentProbe, nativeProbe)) throw new Error("Compatible input host changed.");
+          });
+      }
       if (request.action.type === "focus") {
         const observedAtMs = this.#nowMs();
         const liveFrame = this.#surfaces.currentTrustedInputFrame(
@@ -1197,6 +1218,7 @@ implements ChromiumNativeTrustedInputPort {
   }
 
   dispose(): void {
+    this.#compatible?.dispose();
     if (this.#disposed) return;
     this.#disposed = true;
     this.#documentEvidence.clear();
@@ -1463,6 +1485,7 @@ implements ChromiumNativeTrustedInputPort {
   }
 
   #onSurfaceLifecycle(event: ChromiumRoleOverlayLifecycleEvent): void {
+    this.#compatible?.retire(event.roleId);
     this.#documentEvidence.retire(event.roleId, event.reason === "document-superseded");
     this.#pending.surfaceChanged(event);
   }

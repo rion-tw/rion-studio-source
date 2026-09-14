@@ -98,7 +98,7 @@ function keyEvent(
   code: string,
   roleId: string
 ) {
-  return { code, isTrusted: true, kind, roleId, sequence };
+  return { code, isTrusted: code === "KeyZ", kind, roleId, sequence };
 }
 
 function hiddenPresentation(input: Readonly<{

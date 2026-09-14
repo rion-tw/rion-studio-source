@@ -1,3 +1,4 @@
+import type { ChromiumCompatibleInputPort } from "../src/electron/main/chromiumCompatibleInput";
 import type { BrowserAction } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
 
@@ -81,6 +82,7 @@ function clickAction(
 }
 
 function harness(options: Readonly<{
+  compatibility?: ChromiumCompatibleInputPort;
   focusChangeAtProbe?: number;
   resolvedClick?: Readonly<{
     clientX: number;
@@ -347,6 +349,7 @@ function harness(options: Readonly<{
       }
     },
     cdp,
+    compatibility: options.compatibility,
     clicks: { resolve: () => resolvedClick },
     nowMs: () => nowMs,
     timers: {
@@ -458,6 +461,31 @@ function harness(options: Readonly<{
 }
 
 describe("macOS AppKit trusted-input adapter", () => {
+  it("delivers compatible readiness, keys and clicks without CDP, arming or native focus", async () => {
+    const send: ChromiumCompatibleInputPort["dispatchCompatibleInput"] = vi.fn(async (_frame, command) => ({
+      ...command, targetToken: "original-canvas", isTrusted: false,
+      eventCount: command.action === "focus" ? 0 : command.action === "key" ? 1 : 5,
+      status: "applied", errorCode: null
+    }));
+    const subject = harness({ compatibility: { dispatchCompatibleInput: send } });
+    const keyDispatch = vi.spyOn(subject.cdp, "dispatchKey");
+    const mouseDispatch = vi.spyOn(subject.cdp, "dispatchMouse");
+    const readiness = await subject.adapter.dispatch(nativeRequest("ready", { type: "focus" }));
+    expect(readiness.status).toBe("applied");
+    const key = await subject.adapter.dispatch(nativeRequest("key", keyAction("hold"), {
+      keyEffect: { phase: "rawKeyDown", code: "KeyA", activeCodesBefore: [],
+        activeCodes: ["KeyA"], autoRepeat: false, suppressShortcut: true }
+    }));
+    expect(key.status).toBe("applied");
+    const click = await subject.adapter.dispatch(nativeRequest("click", clickAction()));
+    expect(click.status).toBe("applied");
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(subject.controls).toEqual([]);
+    expect(keyDispatch).not.toHaveBeenCalled();
+    expect(mouseDispatch).not.toHaveBeenCalled();
+    subject.adapter.dispose();
+  });
+
   it("adopts an exact physical Shift without submitting a duplicate CDP keydown", async () => {
     const subject = harness();
     subject.setNativePhysicalModifierCodes(["ShiftLeft"]);

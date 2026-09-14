@@ -132,10 +132,11 @@ async function createScenario(
   return { gameId: game.id, macro, roles: [roleA, roleB], window };
 }
 
-async function waitExactTrustedKey(input: Readonly<{
+async function waitExactKey(input: Readonly<{
   afterSequence: number;
   code: string;
   kind: "consumer-keydown" | "consumer-keyup" | "keydown" | "keyup";
+  isTrusted?: boolean;
   roleId: string;
 }>): Promise<FixtureEvent> {
   let cursor = input.afterSequence;
@@ -146,7 +147,7 @@ async function waitExactTrustedKey(input: Readonly<{
       roleId: input.roleId
     });
     if (event.code === input.code) {
-      expect(event.isTrusted).toBe(true);
+      expect(event.isTrusted).toBe(input.isTrusted ?? false);
       return event;
     }
     cursor = event.sequence;
@@ -222,9 +223,10 @@ async function submitToggleShortcut(input: Readonly<{
     });
     // CGEvent posting completes before Chromium consumes the final modifier.
     // Wait for both exact consumer releases; either delivery order is valid.
-    await Promise.all(["Digit4", "ShiftLeft"].map(code => waitExactTrustedKey({
+    await Promise.all(["Digit4", "ShiftLeft"].map(code => waitExactKey({
       afterSequence: shortcutAfter,
       code,
+      isTrusted: code === "ShiftLeft",
       kind: "consumer-keyup",
       roleId: input.roleFixtureId
     })));
@@ -295,7 +297,7 @@ async function startFromShortcut(input: Readonly<{
     roleFixtureId: input.sourceFixtureId
   });
   const [keydown] = await Promise.all([
-    waitExactTrustedKey({
+    waitExactKey({
       afterSequence: input.fixtureAfter,
       code: "Digit2",
       kind: "keydown",
@@ -329,7 +331,7 @@ async function stopFromShortcut(input: Readonly<{
     roleFixtureId: input.sourceFixtureId
   });
   const [keyup] = await Promise.all([
-    waitExactTrustedKey({
+    waitExactKey({
       afterSequence: fixtureAfter,
       code: "Digit2",
       kind: "keyup",
@@ -378,7 +380,7 @@ describe("Chromium Macro background-tab exact replacement", () => {
       phase: "hold",
       roleId: scenario.roles[0].id
     });
-    const firstConsumerKeydown = await waitExactTrustedKey({
+    const firstConsumerKeydown = await waitExactKey({
       afterSequence: firstKeydown.sequence,
       code: "Digit2",
       kind: "consumer-keydown",
@@ -403,7 +405,7 @@ describe("Chromium Macro background-tab exact replacement", () => {
     let continuityHold: ElectronDesktopE2eTrustedInputObservation | null = null;
     let firstHiddenKeydown: FixtureEvent | null = null;
     if (context.platform === "windows") {
-      firstHiddenKeydown = await waitExactTrustedKey({
+      firstHiddenKeydown = await waitExactKey({
         afterSequence: firstHiddenEvent.sequence,
         code: "Digit2",
         kind: "keydown",
@@ -428,9 +430,10 @@ describe("Chromium Macro background-tab exact replacement", () => {
       [{ key: "z", phase: "keyDown" }, { key: "z", phase: "keyUp" }],
       { windowId: WINDOW_ID }
     );
-    const roleBKeyup = await waitExactTrustedKey({
+    const roleBKeyup = await waitExactKey({
       afterSequence: operationAfter,
       code: "KeyZ",
+      isTrusted: true,
       kind: "keyup",
       roleId: ROLE_B_FIXTURE
     });
@@ -493,7 +496,7 @@ describe("Chromium Macro background-tab exact replacement", () => {
       hidden: tabA,
       visible: tabB
     });
-    await waitExactTrustedKey({
+    await waitExactKey({
       afterSequence: secondKeydown.sequence,
       code: "Digit2",
       kind: "consumer-keydown",

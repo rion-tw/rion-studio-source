@@ -53,6 +53,7 @@ function surfaces(): WindowsChromiumTrustedInputRuntimeSurfacePort {
       throw new Error("no active CDP binding");
     },
     resolveInputSurface: () => null,
+    dispatchCompatibleInput: async () => { throw new Error("no active frame"); },
     resolveTrustedInputClick: () => ({
       clientX: 0,
       clientY: 0,

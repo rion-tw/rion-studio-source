@@ -162,10 +162,9 @@ async function ensureRoleAvailableThroughVisibleUi(role: Role): Promise<void> {
   expect(status.hostKind).toBe(expectedHostKind());
 }
 
-async function expectFocusedRoleRuntime(role: Role): Promise<void> {
+async function expectLiveRoleRuntime(role: Role): Promise<void> {
   const inspection = await electronDesktopE2eRoleSessionRuntime(role.id);
   expect(inspection.currentRuntime).toEqual(expect.objectContaining({
-    focused: true,
     hostKind: expectedHostKind(),
     visible: true
   }));
@@ -176,12 +175,12 @@ async function expectFocusedRoleRuntime(role: Role): Promise<void> {
   }
 }
 
-function expectTrustedEvent(
+function expectCompatibleEvent(
   event: FixtureEvent,
   expected: Readonly<Partial<FixtureEvent>>
 ): void {
   expect(event).toEqual(expect.objectContaining({
-    isTrusted: true,
+    isTrusted: false,
     roleId: ROLE_FIXTURE_ID,
     ...expected
   }));
@@ -191,7 +190,7 @@ async function waitForExactNativeEffects(
   afterSequence: number
 ): Promise<void> {
   const semanticEvents = Promise.all([
-    waitFixtureEvent({ afterSequence, kind: "click", roleId: ROLE_FIXTURE_ID }),
+    waitFixtureEvent({ afterSequence, kind: "game-click", roleId: ROLE_FIXTURE_ID }),
     waitFixtureEvent({ afterSequence, kind: "auxclick", roleId: ROLE_FIXTURE_ID }),
     waitFixtureEvent({ afterSequence, kind: "contextmenu", roleId: ROLE_FIXTURE_ID })
   ]);
@@ -200,13 +199,13 @@ async function waitForExactNativeEffects(
     kind: "keydown",
     roleId: ROLE_FIXTURE_ID
   });
-  expectTrustedEvent(keyDown, { code: "KeyA", key: "a" });
+  expectCompatibleEvent(keyDown, { code: "KeyA", key: "a" });
   const keyUp = await waitFixtureEvent({
     afterSequence: keyDown.sequence,
     kind: "keyup",
     roleId: ROLE_FIXTURE_ID
   });
-  expectTrustedEvent(keyUp, { code: "KeyA", key: "a" });
+  expectCompatibleEvent(keyUp, { code: "KeyA", key: "a" });
 
   const leftUp = await waitFixtureEvent({
     afterSequence: keyUp.sequence,
@@ -224,22 +223,18 @@ async function waitForExactNativeEffects(
     roleId: ROLE_FIXTURE_ID
   });
   const [leftClick, middleAuxClick, contextMenu] = await semanticEvents;
-  expectTrustedEvent(leftClick, { button: 0, buttons: 0, targetId: "qa-target" });
-  expectTrustedEvent(middleAuxClick, {
+  expectCompatibleEvent(leftClick, { button: 0, buttons: 0, targetId: "game-input-canvas" });
+  expectCompatibleEvent(middleAuxClick, {
     button: 1,
     buttons: 0,
-    targetId: "qa-target"
+    targetId: "game-input-canvas"
   });
-  expectTrustedEvent(contextMenu, {
+  expectCompatibleEvent(contextMenu, {
     button: 2,
-    buttons: platform() === "windows" ? 0 : 2,
-    targetId: "qa-target"
+    buttons: 0,
+    targetId: "game-input-canvas"
   });
-  if (platform() === "windows") {
-    expect(contextMenu.sequence).toBeGreaterThan(rightUp.sequence);
-  } else {
-    expect(contextMenu.sequence).toBeLessThan(rightUp.sequence);
-  }
+  expect(contextMenu.sequence).toBeGreaterThan(rightUp.sequence);
 
   const transitions = (await fixtureEvents({
     afterSequence,
@@ -257,22 +252,22 @@ async function waitForExactNativeEffects(
       ? event.targetId
       : undefined
   }))).toEqual([
-    { button: undefined, buttons: undefined, code: "KeyA", isTrusted: true,
+    { button: undefined, buttons: undefined, code: "KeyA", isTrusted: false,
       kind: "keydown", targetId: undefined },
-    { button: undefined, buttons: undefined, code: "KeyA", isTrusted: true,
+    { button: undefined, buttons: undefined, code: "KeyA", isTrusted: false,
       kind: "keyup", targetId: undefined },
-    { button: 0, buttons: 1, code: undefined, isTrusted: true,
-      kind: "mousedown", targetId: "qa-target" },
-    { button: 0, buttons: 0, code: undefined, isTrusted: true,
-      kind: "mouseup", targetId: "qa-target" },
-    { button: 1, buttons: 4, code: undefined, isTrusted: true,
-      kind: "mousedown", targetId: "qa-target" },
-    { button: 1, buttons: 0, code: undefined, isTrusted: true,
-      kind: "mouseup", targetId: "qa-target" },
-    { button: 2, buttons: 2, code: undefined, isTrusted: true,
-      kind: "mousedown", targetId: "qa-target" },
-    { button: 2, buttons: 0, code: undefined, isTrusted: true,
-      kind: "mouseup", targetId: "qa-target" }
+    { button: 0, buttons: 1, code: undefined, isTrusted: false,
+      kind: "mousedown", targetId: "game-input-canvas" },
+    { button: 0, buttons: 0, code: undefined, isTrusted: false,
+      kind: "mouseup", targetId: "game-input-canvas" },
+    { button: 1, buttons: 4, code: undefined, isTrusted: false,
+      kind: "mousedown", targetId: "game-input-canvas" },
+    { button: 1, buttons: 0, code: undefined, isTrusted: false,
+      kind: "mouseup", targetId: "game-input-canvas" },
+    { button: 2, buttons: 2, code: undefined, isTrusted: false,
+      kind: "mousedown", targetId: "game-input-canvas" },
+    { button: 2, buttons: 0, code: undefined, isTrusted: false,
+      kind: "mouseup", targetId: "game-input-canvas" }
   ]);
 }
 
@@ -285,7 +280,7 @@ async function startObserveAndStopThroughVisibleUi(macro: Macro, role: Role): Pr
   await start.waitForEnabled({ timeout: 20_000 });
   await start.click();
   await waitForExactNativeEffects(afterSequence);
-  await expectFocusedRoleRuntime(role);
+  await expectLiveRoleRuntime(role);
   await browser.waitUntil(async () => (await rendererCall("listMacroStatuses"))
     .some((status) => status.macroId === macro.id && status.state === "running"), {
     timeout: 20_000,
@@ -306,7 +301,7 @@ async function startObserveAndStopThroughVisibleUi(macro: Macro, role: Role): Pr
 }
 
 describe("Chromium Macro native-effect exact replacement", () => {
-  it("delivers trusted foreground key and three-button effects from visible controls", async () => {
+  it("delivers compatible Canvas key and three-button effects from visible controls", async () => {
     const probe = await electronDesktopE2eProbe();
     expect(probe.runtimeTarget).toBe(required("RION_STUDIO_E2E_RUNTIME_TARGET"));
     expect(required("RION_STUDIO_E2E_PHASE")).toBe("chromium-macro-native-effect");

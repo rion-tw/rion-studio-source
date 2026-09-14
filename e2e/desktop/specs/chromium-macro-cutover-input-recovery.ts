@@ -54,7 +54,7 @@ import {
 const FIXTURE_ID = "macro-input-recovery";
 const WINDOW_ID = "c8e00000-0000-4000-8000-000000000022";
 
-async function waitExactTrustedCanvasMouseUp(afterSequence: number): Promise<void> {
+async function waitExactCompatibleCanvasMouseUp(afterSequence: number): Promise<void> {
   let cursor = afterSequence;
   while (true) {
     const event = await waitFixtureEvent({
@@ -62,7 +62,7 @@ async function waitExactTrustedCanvasMouseUp(afterSequence: number): Promise<voi
       kind: "mouseup",
       roleId: FIXTURE_ID
     });
-    if (event.isTrusted === true && event.targetId === "game-input-canvas") return;
+    if (event.isTrusted === false && event.targetId === "game-input-canvas") return;
     cursor = event.sequence;
   }
 }
@@ -230,7 +230,7 @@ async function waitExactKey(input: Readonly<{
       kind: input.kind,
       roleId: input.roleId
     });
-    if (event.code === input.code && event.isTrusted === true) return event;
+    if (event.code === input.code && event.isTrusted === false) return event;
     cursor = event.sequence;
   }
 }
@@ -256,8 +256,9 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     repeat: { intervalMs: 0, type: "loop" },
     roleIds: [role.id],
     steps: [
+      { id: "recovery-key", type: "key", action: "tap", code: "KeyJ" },
       { id: "recovery-click", type: "click", xPercent: 5, yPercent: 5 },
-      { id: "recovery-event-gap", ms: 5_000, type: "delay" }
+      { id: "recovery-event-gap", ms: 250, type: "delay" }
     ]
   });
   const window = await createChromiumMacroWindow(
@@ -298,12 +299,13 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
   const baselineRuntime = await electronDesktopE2eRoleSessionRuntime(role.id);
   const firstEffectCursor = await fixtureCursor();
   const macroCursor = await startChromiumMacroVisible(macro, [role.id]);
-  await waitExactTrustedCanvasMouseUp(firstEffectCursor);
+  await waitExactCompatibleCanvasMouseUp(firstEffectCursor);
   const beforeRecovery = await electronDesktopE2eTrustedInputRuntime(role.id);
   const beforeSequence = beforeRecovery.at(-1)?.sequence ?? 0;
+  const beforeStatus = (await rendererCall("listMacroStatuses")).find(status => status.macroId === macro.id);
+  expect(beforeStatus?.state).toBe("running");
 
   const verificationCursor = await fixtureCursor();
-  const recoveryProjection = await rendererEventCursor();
   if (context.platform === "macos") {
     await clickMacosVisibleRoleControl(
       WINDOW_ID,
@@ -326,22 +328,18 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     kind: "verification-open",
     roleId: FIXTURE_ID
   });
-  await waitForMacroProjection({
-    afterSequence: recoveryProjection,
-    macroId: macro.id,
-    roleIds: [role.id],
-    state: "recovering"
-  });
+  await waitExactCompatibleCanvasMouseUp(verificationOpen.sequence);
+  const duringKey = await waitExactKey({ afterSequence: verificationOpen.sequence, code: "KeyJ", kind: "keyup", roleId: FIXTURE_ID });
+  expect(duringKey.activeElementId).toBe("verification-frame");
+  const duringClick = await waitFixtureEvent({ afterSequence: duringKey.sequence, kind: "game-click", roleId: FIXTURE_ID });
+  expect(duringClick).toEqual(expect.objectContaining({ activeElementId: "verification-frame", isTrusted: false, targetId: "game-input-canvas" }));
+  const duringStatus = (await rendererCall("listMacroStatuses")).find(status => status.macroId === macro.id);
+  expect(duringStatus).toEqual(expect.objectContaining({ state: "running", startedAt: beforeStatus?.startedAt }));
+  expect(duringStatus?.iteration ?? 0).toBeGreaterThanOrEqual(beforeStatus?.iteration ?? 0);
   const duringRecovery = await electronDesktopE2eTrustedInputRuntime(role.id);
-  const verificationOpenedAtMs = Date.parse(verificationOpen.timestamp);
-  expect(Number.isFinite(verificationOpenedAtMs)).toBe(true);
-  expect(duringRecovery.filter((entry) =>
-    entry.request.scheduledAtMs >= verificationOpenedAtMs
-  )).toEqual([]);
-  const recoveryBoundarySequence = Math.max(
-    beforeSequence,
-    ...duringRecovery.map((entry) => entry.sequence)
-  );
+  expect(duringRecovery.filter(entry => entry.sequence > beforeSequence).every(entry =>
+    entry.receipt.status === "applied" && entry.request.inputEpoch === beforeRecovery.at(-1)?.request.inputEpoch)).toBe(true);
+  const recoveryBoundarySequence = Math.max(beforeSequence, ...duringRecovery.map(entry => entry.sequence));
 
   if (context.platform === "macos") {
     await clickMacosVisibleRoleControl(
@@ -361,30 +359,11 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     roleId: FIXTURE_ID
   });
   const resumedEffectCursor = await fixtureCursor();
-  if (context.platform === "macos") {
-    await clickMacosVisibleRoleControl(
-      WINDOW_ID,
-      role.id,
-      await readVisibleElectronPageElementPoint(
-        roleUrl,
-        context.mainWindowHandle,
-        "#qa-target"
-      )
-    );
-  } else {
-    await clickVisibleElectronPageElementWithPointer(
-      roleUrl,
-      context.mainWindowHandle,
-      "#qa-target"
-    );
-  }
-  await waitForMacroProjection({
-    afterSequence: recoveryProjection,
-    macroId: macro.id,
-    roleIds: [role.id],
-    state: "running"
-  });
-  await waitExactTrustedCanvasMouseUp(resumedEffectCursor);
+  const afterStatus = (await rendererCall("listMacroStatuses")).find(status => status.macroId === macro.id);
+  expect(afterStatus).toEqual(expect.objectContaining({ state: "running", startedAt: beforeStatus?.startedAt }));
+  await waitExactCompatibleCanvasMouseUp(resumedEffectCursor);
+  expect((await fixtureEvents({ afterSequence: verificationOpen.sequence, roleId: FIXTURE_ID }))
+    .filter(event => event.kind === "verification-input-leak")).toEqual([]);
   const recoveredRuntime = await electronDesktopE2eRoleSessionRuntime(role.id);
   expect(recoveredRuntime.currentRuntime).toEqual(expect.objectContaining({
     generation: baselineRuntime.currentRuntime?.generation,

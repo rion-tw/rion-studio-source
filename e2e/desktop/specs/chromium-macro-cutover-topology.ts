@@ -116,7 +116,7 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
     waitFixtureEvent({ afterSequence: fixtureAfter, kind: "keydown", roleId: ROLE_B_FIXTURE })
   ]);
   expect([sharedKey, roleBKey].every((event) =>
-    event.code === "KeyM" && event.isTrusted === true
+    event.code === "KeyM" && event.isTrusted === false
   )).toBe(true);
   const focusCursor = await fixtureCursor();
   await clickVisibleElectronRolePageButton(roleB.launchUrl!, context.mainWindowHandle);
@@ -174,10 +174,10 @@ export async function seedChromiumMacroTopologyCutover(): Promise<void> {
     kind: "keydown",
     roleId: SHARED_FIXTURE
   });
-  expect(sharedOnly).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  expect(sharedOnly).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: false }));
   const released = await waitFixtureEvent({ afterSequence: sharedOnly.sequence,
     kind: "consumer-keyup", roleId: SHARED_FIXTURE });
-  expect(released).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  expect(released).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: false }));
   await waitForMacroProjection({ afterSequence: singleCursor, macroId: singleMacro.id, absent: true });
   expect(await fixtureEvents({
     afterSequence: singleFixture,
@@ -230,10 +230,10 @@ export async function restartChromiumMacroTopologyCutover(): Promise<void> {
     kind: "keydown",
     roleId: SHARED_FIXTURE
   });
-  expect(key).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  expect(key).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: false }));
   const released = await waitFixtureEvent({ afterSequence: key.sequence,
     kind: "consumer-keyup", roleId: SHARED_FIXTURE });
-  expect(released).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: true }));
+  expect(released).toEqual(expect.objectContaining({ code: "KeyS", isTrusted: false }));
   await waitForMacroProjection({ afterSequence: singleCursor, macroId: singleMacro.id, absent: true });
   await writeChromiumMacroEvidence("chromium-macro-topology-restart-evidence.json", {
     binding,

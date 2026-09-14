@@ -760,7 +760,7 @@
         "success",
         "failure"
       ],
-      "description": "Prove a managed Role shortcut and CDP output before opening an Electron named OAuth popup. While the popup owns the visible WebContents target, submit the same trusted chord and prove it remains local to the popup: no parent shortcut activation and no new trusted-input receipt. Complete the callback and automatic close, then prove the same Role surface generation/native binding produces the shortcut output again without rebuilding its CDP transport."
+      "description": "Prove a managed Role shortcut produces compatible Canvas output before opening a named OAuth popup. While the popup owns focus, the physical chord stays trusted and local to the popup, with no parent Macro activation or input receipt. Complete the callback and automatic close, then prove shortcut output returns on the same Role generation and native binding. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-POPUP-MACRO-FOCUS-039",
@@ -782,7 +782,7 @@
         "success",
         "failure"
       ],
-      "description": "Prove a managed Role shortcut and CDP output before opening an Electron named OAuth popup. While the popup owns the visible WebContents target, submit the same trusted chord and prove it remains local to the popup: no parent shortcut activation and no new trusted-input receipt. Complete the callback and automatic close, then prove the same Role surface generation/native binding produces the shortcut output again without rebuilding its CDP transport."
+      "description": "Prove a managed Role shortcut produces compatible Canvas output before opening a named OAuth popup. While the popup owns focus, the physical chord stays trusted and local to the popup, with no parent Macro activation or input receipt. Complete the callback and automatic close, then prove shortcut output returns on the same Role generation and native binding. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-GAME-CRUD-002",
@@ -1167,7 +1167,7 @@
         "success",
         "failure"
       ],
-      "description": "Create a Role-assigned KeyA, left, middle, right, and long-delay Macro through visible macOS Chromium UI; open its managed Role, start the Macro visibly, and require exact trusted keydown/keyup plus button/buttons DOM sequences and semantic click, auxclick, and contextmenu evidence from the assigned fixture before visibly stopping it. Read-only runtime evidence binds every effect to the retained AppKit Chromium host and the AppKit trusted-input adapter. The v32 private receipt lane requires native physical provenance to remain disjoint from every CDP effect receipt."
+      "description": "Create a Role-assigned KeyA, left, middle, right and long-delay Macro through visible UI. Open its managed Role, start the Macro visibly and require exact synthetic keydown/keyup and button/buttons sequences plus game-click, auxclick and contextmenu on the original Canvas before visibly stopping. Contract v40 compatible delivery preserves native host and document identity without requiring Canvas focus. Keep Windows right-button release ordering and independent native physical-input gates; the background-tab journey covers hidden delivery."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-NATIVE-EFFECT-018",
@@ -1192,7 +1192,7 @@
         "success",
         "failure"
       ],
-      "description": "Create a Role-assigned KeyA, left, middle, right, and long-delay Macro through visible Windows Chromium UI; open its managed Role, start the Macro visibly, require exact foreground-focus acknowledgement after the BrowserWindow parent activation event and the target View focus event, and require exact trusted keydown/keyup plus button/buttons DOM sequences and semantic click, auxclick, and contextmenu evidence before visibly stopping it. On Windows, require contextmenu after right-button release with buttons zero; retain all exact down/up transitions. The v32 private receipt lane requires exact-HWND physical provenance to remain disjoint from every CDP effect receipt; the separate background-tab replacement owns hidden delivery and continuity."
+      "description": "Create a Role-assigned KeyA, left, middle, right and long-delay Macro through visible UI. Open its managed Role, start the Macro visibly and require exact synthetic keydown/keyup and button/buttons sequences plus game-click, auxclick and contextmenu on the original Canvas before visibly stopping. Contract v40 compatible delivery preserves native host and document identity without requiring Canvas focus. Keep Windows right-button release ordering and independent native physical-input gates; the background-tab journey covers hidden delivery."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-BACKGROUND-TAB-004",
@@ -1217,7 +1217,7 @@
         "success",
         "failure"
       ],
-      "description": "Create a one-shot press Macro assigned to Role A with Roles A and B as visible shortcut sources. On macOS, trigger it with a real CGEvent Shift+Digit4 lifecycle while Shift remains physically held through the primary key. Hold trusted Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose trusted Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their trusted native release. Before asserting final neutrality, observe both the shortcut main-key release and final physical Shift release; native event posting alone does not prove page consumption."
+      "description": "Create a one-shot press Macro assigned to Role A with Roles A and B as visible shortcut sources. On macOS, trigger it with a real CGEvent Shift+Digit4 lifecycle while Shift remains physically held through the primary key. Hold compatible Digit2 on A, select and operate B while A remains hidden, return to A for exact neutral cleanup, then select B and visibly trigger a second run whose compatible Digit2 reaches hidden A without showing, selecting, or focusing it. Require no Digit2 on B, no residual consumer key or Macro status, exact shared-parent topology, and retained AppKit Chromium identities throughout. Ordinary Macro keys must remain owned across in-page focus cleanup until their Core-authorized compatible release. Before asserting final neutrality, observe both the shortcut main-key release and final physical Shift release; native event posting alone does not prove page consumption. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-BACKGROUND-TAB-004",
@@ -1243,7 +1243,7 @@
         "success",
         "failure"
       ],
-      "description": "Run the same visible two-Role held-key lifecycle in the Windows Chromium host. Exact View ownership plus native/read-only receipts must prove same-owner Digit2 continuity after selecting B hides A's View while both tabs remain in the tab strip, a fresh trusted Digit2 run started from visible B reaches hidden A without show, select, focus, or activation APIs, B receives no target input, the foreground parent and visible sibling remain unchanged, and cleanup terminalizes every native and Core-held key. Restoring the Role and focusing the stop canvas must not release the Macro key through synthetic physical-key cleanup before its trusted native release. The live physical verdict remains independently required on Windows CI. Before asserting final neutrality, observe both the shortcut main-key release and final physical Shift release; native event posting alone does not prove page consumption."
+      "description": "Run the same visible two-Role held-key lifecycle in the Windows Chromium host. Exact View ownership plus native/read-only receipts must prove same-owner Digit2 continuity after selecting B hides A's View while both tabs remain in the tab strip, a fresh compatible Digit2 run started from visible B reaches hidden A without show, select, focus, or activation APIs, B receives no target input, the foreground parent and visible sibling remain unchanged, and cleanup terminalizes every native and Core-held key. Restoring the Role and focusing the stop canvas must not release the Macro key through synthetic physical-key cleanup before its Core-authorized compatible release. The live physical verdict remains independently required on Windows CI. Before asserting final neutrality, observe both the shortcut main-key release and final physical Shift release; native event posting alone does not prove page consumption. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-STANDBY-RECOVERY-023",
@@ -1268,7 +1268,7 @@
         "success",
         "failure"
       ],
-      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI, leave its assigned Role hidden behind a second tab in the retained AppKit Game Window, and emit a synthetic suspend event through Electron powerMonitor and its installed production listener. Require the Core terminal lifecycle projection, native cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then emit resume through the same powerMonitor ingress, visibly restart the hidden Role Macro from a new run/input epoch, visibly stop it, and retain exact AppKit host and tab evidence."
+      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI, leave its assigned Role hidden behind a second tab in the retained AppKit Game Window, and emit a synthetic suspend event through Electron powerMonitor and its installed production listener. Require the Core terminal lifecycle projection, compatible cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then emit resume through the same powerMonitor ingress, visibly restart the hidden Role Macro from a new run/input epoch, visibly stop it, and retain exact AppKit host and tab evidence. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-STANDBY-RECOVERY-023",
@@ -1293,7 +1293,7 @@
         "success",
         "failure"
       ],
-      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI while its bundled-Chromium Role owns required foreground focus, move visibly to a second native tab, and emit a synthetic suspend event through Electron powerMonitor and its installed production listener. Require the Core terminal lifecycle projection, native cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then emit resume through the same powerMonitor ingress, reselect the Role for this standby scenario, visibly restart from a new run/input epoch, visibly stop it, and retain exact Windows native-host and tab evidence."
+      "description": "Start a held-KeyS Macro through the visible Chromium Macro UI while its bundled-Chromium Role owns required foreground focus, move visibly to a second native tab, and emit a synthetic suspend event through Electron powerMonitor and its installed production listener. Require the Core terminal lifecycle projection, compatible cleanup keyup and neutral receipt, terminal Macro, and disabled Start while suspended; then emit resume through the same powerMonitor ingress, reselect the Role for this standby scenario, visibly restart from a new run/input epoch, visibly stop it, and retain exact Windows native-host and tab evidence. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-INPUT-RECOVERY-011",
@@ -1318,7 +1318,7 @@
         "success",
         "failure"
       ],
-      "description": "In the visible retained AppKit Role, start and stop a 250ms KeyJ loop press Macro with zero-gap real CGEvent KeyY lifecycles while interleaving KeyW, pointer clicks, Shift, and Alt; prove each AppKit key edge reaches Chromium once without native fallback amplification, every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. The second KeyY must persist v36 Core stop-before-replacement evidence, so its acknowledgement cannot recursively dispatch a new press. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its live AppKit Chromium surface and becomes restart-required. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "With visible physical UI, start a keyboard-and-pointer loop, open and complete a cross-origin verification iframe, and prove compatible untrusted events keep reaching the original game Canvas. The same Macro startedAt, iteration progression, input epoch and Role surface survive without returning focus to Canvas. Direct player input remains native. Explicit navigation failure still fences the live Role; cleanup never replays a failed action. Default Macro output uses contract v40 fixed-target compatible dispatch."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-INPUT-RECOVERY-011",
@@ -1344,7 +1344,7 @@
         "success",
         "failure"
       ],
-      "description": "In the visible bundled-Chromium Role, start and stop a 250ms KeyJ loop press Macro with physical KeyY while interleaving KeyW, pointer clicks, Shift, and Alt; prove every player event reaches the game, CDP receipts continue, the loop remains running, and no held page key, Core run, quarantine, or shell error remains after the second KeyY. The second KeyY must persist v36 Core stop-before-replacement evidence, so its acknowledgement cannot recursively dispatch a new press. Then open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Finally arm a navigation failure and use its visible page control to prove a genuinely unresumable role keeps its bundled Chromium surface and becomes restart-required, with the independent ABI-v3 physical gate required. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "With visible physical UI, start a keyboard-and-pointer loop, open and complete a cross-origin verification iframe, and prove compatible untrusted events keep reaching the original game Canvas. The same Macro startedAt, iteration progression, input epoch and Role surface survive without returning focus to Canvas. Direct player input remains native. Explicit navigation failure still fences the live Role; cleanup never replays a failed action. Default Macro output uses contract v40 fixed-target compatible dispatch."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MIDDLE-BUTTON-013",
@@ -1369,7 +1369,7 @@
         "success",
         "failure"
       ],
-      "description": "Use visible native middle-button presses in selected AppKit-bound roles to exercise press-on-mousedown and hold-until-mouseup macros while proving mousedown, mouseup, and auxclick remain intercepted from the page; then execute left, middle, and right macro click steps and observe all three trusted native button effects without recursively re-entering the shortcut."
+      "description": "Use visible native middle-button presses to exercise press-on-mousedown and hold-until-mouseup Macros while physical mousedown, mouseup and auxclick are intercepted from the page. Execute left, middle and right Macro clicks through the compatible Canvas endpoint; prove all three synthetic button lifecycles reach the original game target without recursively activating shortcuts. Retain each platform native binding and physical-input gate. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MIDDLE-BUTTON-013",
@@ -1395,7 +1395,7 @@
         "success",
         "failure"
       ],
-      "description": "Use visible native middle-button presses in selected bundled-Chromium roles to exercise press-on-mousedown and hold-until-mouseup macros while proving mousedown, mouseup, and auxclick remain intercepted from the page; then execute left, middle, and right macro click steps and observe all three trusted native button effects without recursively re-entering the shortcut, with the ABI-v3 physical gate required."
+      "description": "Use visible native middle-button presses to exercise press-on-mousedown and hold-until-mouseup Macros while physical mousedown, mouseup and auxclick are intercepted from the page. Execute left, middle and right Macro clicks through the compatible Canvas endpoint; prove all three synthetic button lifecycles reach the original game target without recursively activating shortcuts. Retain each platform native binding and physical-input gate. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MODIFIER-CONTINUITY-008",
@@ -1420,7 +1420,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and AppKit Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return reasserts the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, unsupported native action, or shell error left behind. Rapidly overlap real Shift+2 then Shift+3 and Shift+3 then Shift+2 while Shift remains held; both orders must complete with unshifted Digit2/Digit0 and shifted Digit1 without receipt theft, duplicate modifier keydown, residual status, or a closed Core event stream. Preserve v33 exact-side adoption and retain the total/key-down/key-up provenance cursors without terminating an unrelated CDP receipt. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and native window focus loss. Require unmodified synthetic Digit1 to remain 1, explicitly shifted Digit1 to remain !, physical Shift+4 to remain trusted $, and replacement releases to complete with current modifiers. Repeat both Shift+2/Shift+3 overlap orders; require correct Digit2/Digit0/Digit1 output, same-side continuity, no duplicate Macro activation, no residual Core or game key, and an open Core event stream. Compatible output receipts stay independent of physical journal consumption; verify same-side hold/release and stop-order cases. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MODIFIER-CONTINUITY-008",
@@ -1446,7 +1446,7 @@
         "success",
         "failure"
       ],
-      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and bundled Game Window focus loss; prove a v34 synthetic unmodified Digit1 keydown/keyup remains key 1 with no modifier flags, an explicitly shifted Digit1 remains key ! with only Shift, focus return preserves the same still-held physical side without polluting synthetic events, the replacement main-key release uses the freshly armed modifier state and reaches a trusted terminal receipt, and direct Shift+4 remains key $ until physical release, with no Core lease, page key, or shell error left behind and the ABI-v3 physical gate required. Rapidly overlap Shift+2 then Shift+3 and Shift+3 then Shift+2; both orders must complete with unshifted Digit2/Digit0 and shifted Digit1 without receipt theft, duplicate modifier keydown, residual status, or a closed Core event stream. Visible tab hover must preserve the held WebDriver keyboard source instead of implicitly releasing all actions. Preserve v33 exact-side adoption and retain exact-HWND provenance. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Keep an exact physical Shift side held across managed hold acknowledgements and native window focus loss. Require unmodified synthetic Digit1 to remain 1, explicitly shifted Digit1 to remain !, physical Shift+4 to remain trusted $, and replacement releases to complete with current modifiers. Repeat both Shift+2/Shift+3 overlap orders; require correct Digit2/Digit0/Digit1 output, same-side continuity, no duplicate Macro activation, no residual Core or game key, and an open Core event stream. Compatible output receipts stay independent of physical journal consumption; verify same-side hold/release and stop-order cases. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-MULTIROLE-005",
@@ -1471,7 +1471,7 @@
         "success",
         "failure"
       ],
-      "description": "Launch a mixed three-slot Workspace containing two AppKit-bound Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles with balanced trusted effects through a visible focus change, and stop it from the second Role without deadlock or lost consumer state."
+      "description": "Launch a mixed three-slot Workspace containing two AppKit-bound Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles with balanced trusted effects through a visible focus change, and stop it from the second Role without deadlock or lost consumer state. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-MULTIROLE-005",
@@ -1497,7 +1497,7 @@
         "success",
         "failure"
       ],
-      "description": "Launch a mixed three-slot Workspace containing two bundled-Chromium Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles with balanced trusted effects through a visible focus change, and stop it from the second Role without deadlock or lost consumer state, with the ABI-v3 physical gate required."
+      "description": "Launch a mixed three-slot Workspace containing two bundled-Chromium Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles with balanced trusted effects through a visible focus change, and stop it from the second Role without deadlock or lost consumer state, with the ABI-v3 physical gate required. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-OWNERSHIP-TRANSFER-010",
@@ -1524,7 +1524,7 @@
         "failure",
         "restart"
       ],
-      "description": "Keep a macro attached to shared Role identity through successful AppKit ownership transfer while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart."
+      "description": "Keep a macro attached to shared Role identity through successful AppKit ownership transfer while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-OWNERSHIP-TRANSFER-010",
@@ -1552,7 +1552,7 @@
         "failure",
         "restart"
       ],
-      "description": "Keep a macro attached to shared Role identity through successful bundled-Chromium ownership transfer and user focus changes during arming while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart, with the ABI-v3 physical gate required."
+      "description": "Keep a macro attached to shared Role identity through successful bundled-Chromium ownership transfer and user focus changes during arming while blocking input to non-target and placeholder occurrences, then restore the exact saved tab cohort after native topology acknowledgement and prove the transferred exact owner remains eligible after restart, with the ABI-v3 physical gate required. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-SHORTCUT-REENTRY-007",
@@ -1577,7 +1577,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+3 main-key lifecycle in the managed AppKit Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains. While physical Shift remains continuously held, two separate Shift+3 presses must each project a complete trusted Shift+1 lifecycle. Rapid Shift+2 then Shift+3 and the user-reported Shift+3 then Shift+2 order must both reconcile CDP and native physical receipts without leaving either one-shot Macro running or closing the Core event stream. Under v36, Core distinguishes stop control from replacement-input outcome; quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Capture a physical Shift+3 lifecycle, acknowledge the managed keyDown, and dispatch exactly one press action before physical keyup. Require release cleanup to permit the next invocation without recursive reentry or residual key ownership. Two presses with Shift continuously held each produce a complete compatible Shift+1 lifecycle. Exercise both Shift+2/Shift+3 overlap orders, stop-before-replacement semantics and guard release on quarantine. Verify consumer neutrality after repeated chords, including 100 presses in hardware profiles, and retain the independent platform physical-input gate. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-SHORTCUT-REENTRY-007",
@@ -1603,7 +1603,7 @@
         "success",
         "failure"
       ],
-      "description": "Capture the original Shift+3 main-key lifecycle in the managed bundled-Chromium Role, acknowledge the managed keyDown and dispatch exactly one press action before physical keyup; prove the same held physical press cannot re-enter, then require the exact keyUp to cross recovery fences as cleanup so release permits the next invocation and no residual key ownership or recursive macro start remains, with the ABI-v3 physical gate required. While physical Shift remains continuously held, two separate Shift+3 presses must each project a complete trusted Shift+1 lifecycle. Rapid Shift+2 then Shift+3 and Shift+3 then Shift+2 must both reconcile CDP and native physical receipts without leaving either one-shot Macro running or closing the Core event stream. Under v36, Core distinguishes stop control from replacement-input outcome; quarantine or restart-required projection must release the managed shortcut guard and physical pass-through ownership. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Capture a physical Shift+3 lifecycle, acknowledge the managed keyDown, and dispatch exactly one press action before physical keyup. Require release cleanup to permit the next invocation without recursive reentry or residual key ownership. Two presses with Shift continuously held each produce a complete compatible Shift+1 lifecycle. Exercise both Shift+2/Shift+3 overlap orders, stop-before-replacement semantics and guard release on quarantine. Verify consumer neutrality after repeated chords, including 100 presses in hardware profiles, and retain the independent platform physical-input gate. Contract v40 Macro output is synthetic; direct player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-MACRO-TERMINAL-CLEANUP-006",
@@ -1630,7 +1630,7 @@
         "failure",
         "restart"
       ],
-      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through retained AppKit tab close, window close, and application Quit while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through retained AppKit tab close, window close, and application Quit while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-MACRO-TERMINAL-CLEANUP-006",
@@ -1658,7 +1658,7 @@
         "failure",
         "restart"
       ],
-      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through bundled native tab close, window close, and application Close while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart, with the ABI-v3 physical gate required. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through bundled native tab close, window close, and application Close while proving exact input-neutrality receipts, removal of the closed window and its tabs from Core projection before the next launch, and clean restart, with the ABI-v3 physical gate required. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-ROLE-KEY-BLUR-004",
@@ -3582,7 +3582,7 @@
         "success",
         "failure"
       ],
-      "description": "Core-authorized standalone Role activation completes the Chromium responder handoff only after exact AppKit focus acknowledgement. Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Core-authorized standalone Role activation completes the Chromium responder handoff only after exact AppKit focus acknowledgement. Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     },
     {
       "id": "CHROMIUM-WINDOWS-INPUT-CONFINEMENT-045",
@@ -3605,7 +3605,7 @@
         "success",
         "failure"
       ],
-      "description": "Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors. Contract v37 correlates physical key identities and document observation watermarks, requires paired game-target delivery, and keeps expired recovery release-only with no focus-triggered local keydown replay. The keyboard phase verifies consumer neutrality after each repeated Shift+3 to Shift+1 pair; hardware profiles exercise 100 presses. Focus-preserving canvas compatibility and removed-target behavior have adjacent 100-cycle consumer tests."
+      "description": "Press unbound physical Y in the visible Role and prove one trusted down/up, no macro transport submission, and identical native window bounds, presentation and host generation. Then bind Y to a press loop, press twice to start/stop, and require the same native display before and after both managed cycles plus no held keys or shell errors. Contract v40 default Macro output is explicitly untrusted Canvas-compatible delivery; physical player input remains trusted."
     }
   ],
   "retiredCompatibility": {

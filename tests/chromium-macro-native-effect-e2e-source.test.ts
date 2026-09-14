@@ -10,7 +10,7 @@ async function source(path: string): Promise<string> {
 }
 
 describe("Chromium Macro native-effect exact replacement source", () => {
-  it("uses visible authoring/start/stop and event-bound trusted fixture evidence", async () => {
+  it("uses visible authoring/start/stop and event-bound compatible fixture evidence", async () => {
     const [spec, fixture] = await Promise.all([
       source("e2e/desktop/specs/chromium-macro-native-effect.e2e.ts"),
       source("scripts/runtimeAuthorityFixtureServer.mjs")
@@ -25,15 +25,15 @@ describe("Chromium Macro native-effect exact replacement source", () => {
       'selectOption(3, "Mouse button", "Right click")',
       'button[aria-label=\'Start\']',
       'button[aria-label=\'Stop\']',
-      "expectFocusedRoleRuntime",
+      "expectLiveRoleRuntime",
       "semanticEvents = Promise.all",
       'kind: "auxclick"',
       'kind: "contextmenu"',
       "fixtureEvents",
-      "isTrusted: true",
+      "isTrusted: false",
       "buttons: 4",
       "buttons: 2",
-      "focused: true",
+      "visible: true",
       "electronDesktopE2eRoleSessionRuntime",
       "appKitIdentity"
     ]) {

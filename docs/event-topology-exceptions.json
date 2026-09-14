@@ -68,6 +68,17 @@
       "reason": "A Win32 message or Chromium renderer acknowledgement may never arrive, which must not block the role lane or shutdown indefinitely.",
       "terminalOutcome": "Deadline expiry terminalizes indeterminate and cancels the exact pending input; elapsed time never becomes success.",
       "cleanup": "Every exact receipt, navigation, cancellation, surface retirement, disposal, or deadline clears the one-shot timer and fences all late receipts."
+    },
+    {
+      "id": "canvas-compatible-input-receipt-deadline",
+      "paths": [
+        "src/electron/main/chromiumCompatibleInput.ts"
+      ],
+      "mechanism": "One-shot Core-owned BrowserAction deadline around fixed Canvas delivery in the exact isolated document.",
+      "authoritativeEvent": "The exact role, generation, document, epoch, request, sequence and target receipt confirms synthetic dispatch.",
+      "reason": "The external Chromium renderer may never settle its delivery promise; the role lane must terminalize without retrying.",
+      "terminalOutcome": "Unknown submitted delivery becomes indeterminate. Expiry never becomes success or initiates a transport fallback.",
+      "cleanup": "Exact completion, document retirement or disposal clears the timer; late receipts cannot affect the terminal outcome."
     }
   ]
 }

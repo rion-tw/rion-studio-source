@@ -106,7 +106,8 @@ Chromium v32 receipt provenance, neutralization, quarantine, and retained
 terminal-evidence rules are normative in
 [Trusted Input Receipts](trusted-input-receipts.md).
 
-An actually focused iframe is a temporary non-game automatic-input context.
+v40 [compatible Macro input](compatible-macro-input.md) continues across iframe focus; the context-blocked rules below apply to the retained trusted route.
+An actually focused iframe is a temporary non-game trusted automatic-input context.
 The overlay reports only focus, pointer-lock, and Canvas focus/pointer events as
 the authoritative `game`, `embedded-frame`, or `document` context stream. It
 does not inspect frame URLs, providers, or DOM content, and frame presence alone

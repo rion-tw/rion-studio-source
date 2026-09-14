@@ -24,11 +24,11 @@ function exactKeys(candidate, keys) {
     Object.keys(candidate).sort().join("|") === [...keys].sort().join("|");
 }
 
-function requireTrustedKey(event, input) {
+function requireExactKey(event, input) {
   requireEvidence(event?.roleId === input.roleId && event.kind === input.kind &&
-    event.code === input.code && event.isTrusted === true &&
+    event.code === input.code && event.isTrusted === (input.isTrusted ?? false) &&
     Number.isSafeInteger(event.sequence) && event.sequence > 0,
-  `${input.label}: exact trusted DOM key evidence drifted`);
+  `${input.label}: exact DOM key provenance drifted`);
 }
 
 function requireInputObservation(observation, input) {
@@ -193,24 +193,24 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
     evidence.secondHiddenEvent.hidden === true,
   `${input.phase}: second hidden DOM event drifted`);
 
-  requireTrustedKey(evidence.firstKeydown, {
+  requireExactKey(evidence.firstKeydown, {
     code: "Digit2", kind: "keydown", label: "first start", roleId: "chromium-background-a"
   });
-  requireTrustedKey(evidence.firstConsumerKeydown, {
+  requireExactKey(evidence.firstConsumerKeydown, {
     code: "Digit2", kind: "consumer-keydown", label: "first consumer start",
     roleId: "chromium-background-a"
   });
-  requireTrustedKey(evidence.firstKeyup, {
+  requireExactKey(evidence.firstKeyup, {
     code: "Digit2", kind: "keyup", label: "first stop", roleId: "chromium-background-a"
   });
-  requireTrustedKey(evidence.secondKeydown, {
+  requireExactKey(evidence.secondKeydown, {
     code: "Digit2", kind: "keydown", label: "hidden start", roleId: "chromium-background-a"
   });
-  requireTrustedKey(evidence.secondKeyup, {
+  requireExactKey(evidence.secondKeyup, {
     code: "Digit2", kind: "keyup", label: "second stop", roleId: "chromium-background-a"
   });
-  requireTrustedKey(evidence.roleBKeyup, {
-    code: "KeyZ", kind: "keyup", label: "visible sibling operation",
+  requireExactKey(evidence.roleBKeyup, {
+    code: "KeyZ", kind: "keyup", isTrusted: true, label: "visible sibling operation",
     roleId: "chromium-background-b"
   });
 
@@ -242,7 +242,7 @@ export async function validateChromiumMacroBackgroundTabRuntimeEvidence(input) {
       label: "hidden continuity hold",
       roleId: evidence.roleAId
     });
-    requireTrustedKey(evidence.firstHiddenKeydown, {
+    requireExactKey(evidence.firstHiddenKeydown, {
       code: "Digit2", kind: "keydown", label: "hidden continuity DOM receipt",
       roleId: "chromium-background-a"
     });

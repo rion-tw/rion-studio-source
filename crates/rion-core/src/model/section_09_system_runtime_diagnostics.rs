@@ -746,7 +746,7 @@ pub struct TrustedInputTerminalEvidenceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "\"synthetic\" | \"physical-pass-through\"")]
     pub modifier_ownership: Option<String>,
-    #[ts(type = "\"none\" | \"cdp\" | \"physical-modifier-adoption\" | \"modifier-ownership-release\"")]
+    #[ts(type = "\"none\" | \"cdp\" | \"physical-modifier-adoption\" | \"modifier-ownership-release\" | \"canvas-compatibility\"")]
     pub application_path: String,
     pub expected_dom_event_count: u32,
     pub observed_dom_event_count: u32,

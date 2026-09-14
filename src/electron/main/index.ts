@@ -287,7 +287,7 @@ function createMacosAppKitAdapter(
       lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,
       rendererActions: eventBridge,
       nativeAttachments: attachments,
-      createTrustedInput: (surfaces, preflightAutomaticInputContext,
+      createTrustedInput: (surfaces, _preflightAutomaticInputContext,
         onRecoveryProof, embeddedInput) => {
         const cdp = new ChromiumCdpInputTransport({ platform: "darwin", surfaces });
         const native = new MacosAppKitTrustedInputAdapter({
@@ -302,7 +302,8 @@ function createMacosAppKitAdapter(
           cdp,
           clicks: { resolve: (request, frame) =>
             surfaces.resolveTrustedInputClick(request, frame) },
-          nowMs: addon.macroInputEpochMillis
+          nowMs: addon.macroInputEpochMillis,
+          compatibility: surfaces
         });
         const disposeInput = () => { try { native.dispose(); } finally { cdp.dispose(); } };
         try {
@@ -314,7 +315,6 @@ function createMacosAppKitAdapter(
           embeddedInput,
           platform: "darwin",
           nowMs: addon.macroInputEpochMillis,
-          preflightAutomaticInputContext,
           onRecoveryProof
         });
         return {

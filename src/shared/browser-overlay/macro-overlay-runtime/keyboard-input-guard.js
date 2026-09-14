@@ -794,6 +794,7 @@
   }
 
   function handleMiddleButtonDown(event) {
+    if (forwardedMacroGameEvents.has(event)) return;
     if (!isTrustedUserEvent(event)) return;
     if (suppressedMiddleButtonShortcutPhase?.phase === "down") {
       suppressedMiddleButtonShortcutPhase.phase = "up";
@@ -848,6 +849,7 @@
   }
 
   function handleMiddleButtonUp(event) {
+    if (forwardedMacroGameEvents.has(event)) return;
     if (!isTrustedUserEvent(event)) return;
     if (suppressedMiddleButtonShortcutPhase?.phase === "up") {
       suppressedMiddleButtonShortcutPhase.phase = "aux";
@@ -868,6 +870,7 @@
   }
 
   function handleMiddleButtonAuxClick(event) {
+    if (forwardedMacroGameEvents.has(event)) return;
     if (suppressedMiddleButtonShortcutPhase?.phase === "aux" && isTrustedUserEvent(event)) {
       const guard = suppressedMiddleButtonShortcutPhase;
       suppressedMiddleButtonShortcutPhase = null;

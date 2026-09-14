@@ -7,9 +7,11 @@ terminal evidence. The broader recovery transaction remains defined by
 It preserves consumed System WebView Runtime Contract version 22 data
 compatibility without restoring that retired shell.
 
+The v40 default Macro route is defined in [Compatible Macro Input](compatible-macro-input.md).
+
 ## Transport and provenance
 
-The only production automatic-input transport is in-process CDP on the exact
+The only trusted automatic-input transport is in-process CDP on the exact
 managed Role `WebContents`, restricted to `Input.dispatchKeyEvent` and
 `Input.dispatchMouseEvent`. A debugger detach or rejected command is terminal
 for that document. The runtime does not reconnect, switch transports, or infer

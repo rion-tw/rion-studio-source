@@ -1,3 +1,4 @@
+import { compatibleInputSource, type ChromiumCompatibleInputCommand } from "../ipc/chromiumCompatibleInputProtocol";
 import type { BrowserAction } from "../../shared/generated";
 import type { RionBridgeError } from "../ipc/errors";
 import {
@@ -389,6 +390,21 @@ export class ChromiumRoleSurfaceRegistry {
       }),
       debugger: debuggerPort
     });
+  }
+
+  async dispatchCompatibleInput(expected: ChromiumRoleOverlayFrameIdentity,
+    command: ChromiumCompatibleInputCommand): Promise<unknown> {
+    const current = this.currentTrustedInputFrame(expected.roleId, expected.generation);
+    if (!sameOverlayFrame(current, expected) || command.frameToken !== expected.frameToken ||
+        command.roleId !== expected.roleId || command.generation !== expected.generation ||
+        command.documentInstanceId !== expected.documentInstanceId)
+      fail("SYSTEM_COMPATIBLE_INPUT_STALE", "The compatible input document was superseded.");
+    const value = await this.#recordsByRole.get(expected.roleId)!.contents.executeJavaScriptInIsolatedWorld(
+      CHROMIUM_ROLE_OVERLAY_WORLD_ID,
+      [{ code: compatibleInputSource(command), url: "rion-studio://compatible-game-input.js" }], false);
+    if (!sameOverlayFrame(this.currentTrustedInputFrame(expected.roleId, expected.generation), expected))
+      fail("SYSTEM_COMPATIBLE_INPUT_STALE", "The compatible input document was superseded.");
+    return value;
   }
 
   sendTrustedInputControl(

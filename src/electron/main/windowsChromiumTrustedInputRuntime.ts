@@ -1,3 +1,4 @@
+import type { ChromiumCompatibleInputPort } from "./chromiumCompatibleInput";
 import type { EngineCapabilitySnapshotRecord } from "../../shared/generated";
 import { RionBridgeError } from "../ipc/errors";
 import type { ChromiumRuntimeTrustedInputPort } from
@@ -30,7 +31,7 @@ import {
 } from "./chromiumCdpInputTransport";
 
 export interface WindowsChromiumTrustedInputRuntimeSurfacePort
-  extends WindowsChromiumTrustedInputSurfacePort, ChromiumCdpInputSurfacePort {
+  extends WindowsChromiumTrustedInputSurfacePort, ChromiumCdpInputSurfacePort, ChromiumCompatibleInputPort {
   resolveInputSurface: ChromiumTrustedInputSurfacePort["resolveInputSurface"];
   resolveTrustedInputClick:
     WindowsChromiumTrustedInputClickResolverPort["resolve"];
@@ -121,7 +122,7 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
     nativeAttachments: attachments,
     createTrustedInput: (
       surfaces: WindowsChromiumTrustedInputRuntimeSurfacePort,
-      preflightAutomaticInputContext: (
+      _preflightAutomaticInputContext: (
         roleId: string,
         surfaceGeneration: number
       ) => void | Promise<void>,
@@ -150,6 +151,7 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
         nowMs: configuration.nowMs,
         deadlines: configuration.deadlines,
         backgroundSupported,
+        compatibility: surfaces,
         physicalModifierCodes: configuration.addon.readWindowsPhysicalModifierCodes
       });
       try {
@@ -168,7 +170,6 @@ export function createWindowsChromiumTrustedInputRuntime(input: Readonly<{
         embeddedInput,
         platform: "win32",
         nowMs: configuration.nowMs,
-        preflightAutomaticInputContext,
         ...(onRecoveryProof ? { onRecoveryProof } : {})
       });
       return Object.freeze({

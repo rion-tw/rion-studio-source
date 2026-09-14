@@ -21,7 +21,12 @@ cohesive within hygiene limits; never hand-edit `src/shared/generated`.
 - macOS 14+ retains AppKit-native game-window/tab chrome, gestures, host identity,
   physical modifier observation, and focus-neutrality proof. Adapt Chromium to
   this host; never replace it with HTML chrome or a BrowserWindow-only host.
-- In-process CDP Input owns only final Chromium key/mouse submission. Only
+- Owner-authorized on 2026-09-14: Macro output defaults to fixed-target Canvas
+  compatibility dispatch for the complete invocation, including keyboard and
+  pointer effects. It uses the private isolated-world endpoint, reports
+  `isTrusted=false`, retains Core ownership and native host/document fences,
+  and never switches transports on focus loss or retries unknown delivery.
+- In-process CDP Input owns final trusted Chromium key/mouse submission. Only
   Electron main may attach `webContents.debugger`, to the exact managed Role
   WebContents, allowing only `Input.dispatchKeyEvent`/`Input.dispatchMouseEvent`.
   Detach terminalizes input; no arbitrary methods, reconnect, or fallback.

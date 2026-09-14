@@ -1,3 +1,4 @@
+import compatibleInputSource from "../../shared/browser-overlay/macro-overlay-runtime/compatible-input.js?raw";
 import designTokensCss from "../../shared/designTokens.css?raw";
 import keyboardInputGuardSource from
   "../../shared/browser-overlay/macro-overlay-runtime/keyboard-input-guard.js?raw";
@@ -69,6 +70,7 @@ export function assembleChromiumRoleOverlaySource(): string {
   const runtime = [
     stateAndInputSource,
     keyboardInputGuardSource,
+    compatibleInputSource,
     presentationAndLifecycleSource
   ].join("\n");
   const replacements = [

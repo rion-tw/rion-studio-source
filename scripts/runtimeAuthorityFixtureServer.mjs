@@ -119,6 +119,8 @@ function normalizedOauth(input) {
 
 function recordFixtureEvent(input) {
   const event = {
+    activeElementId: typeof input.activeElementId === "string" || input.activeElementId === null
+      ? input.activeElementId : undefined,
     bodyBytes: Number.isSafeInteger(input.bodyBytes) && input.bodyBytes >= 0
       ? input.bodyBytes
       : undefined,
@@ -544,9 +546,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       if (verificationEnabled && !verificationComplete) {
         const frame = document.querySelector("#verification-frame");
         frame.hidden = false;
-        frame.addEventListener("load", () => frame.focus(), { once: true });
+        frame.addEventListener("load", () => { frame.focus(); record("verification-open"); }, { once: true });
         frame.src = challengeUrl;
-        record("verification-open");
         return;
       }
       document.querySelector("#game-input-canvas").focus();
@@ -745,7 +746,9 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       }
     }
     addEventListener("message", (event) => {
-      if (!verificationEnabled || event.origin !== challengeOrigin || event.data !== "verification-complete") return;
+      if (!verificationEnabled || event.origin !== challengeOrigin) return;
+      if (event.data === "verification-input-leak") { record("verification-input-leak"); return; }
+      if (event.data !== "verification-complete") return;
       const frame = document.querySelector("#verification-frame");
       frame.remove();
       verificationComplete = true;
@@ -753,6 +756,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       record("verification-complete");
     });
     const keyboardDetails = (event) => ({
+      activeElementId: document.activeElement?.id ?? null,
       code: event.code,
       defaultPrevented: event.defaultPrevented,
       isTrusted: event.isTrusted,
@@ -767,7 +771,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const resetConsumerInputOnContextLoss = new URL(location.href)
       .searchParams.get("resetConsumerInputOnContextLoss") === "1";
     const recordConsumerKeyboard = (kind, event) => {
-      if (event.isTrusted) {
+      if (event.isTrusted || new URL(location.href).searchParams.get("requireTrustedInput") !== "1") {
         if (kind === "consumer-keydown") {
           consumerPressedCodes.add(event.code);
           const completesShiftChord = event.code.startsWith("Shift") || event.code.startsWith("Digit");
@@ -804,6 +808,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     for (const kind of ["mousedown", "mouseup", "auxclick", "contextmenu"]) {
       addEventListener(kind, (event) => {
         record(kind, {
+          activeElementId: document.activeElement?.id ?? null,
           button: typeof event.button === "number"
             ? event.button
             : event.which === 1 ? 0 : event.which === 2 ? 1 : event.which === 3 ? 2 : undefined,
@@ -819,10 +824,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     addEventListener("keyup", (event) => recordConsumerKeyboard("consumer-keyup", event));
     document.querySelector("#game-input-canvas").addEventListener("click", (event) => {
       record("game-click", {
+        activeElementId: document.activeElement?.id ?? null,
+        button: event.button, buttons: event.buttons, isTrusted: event.isTrusted,
         coordinates: { x: event.clientX, y: event.clientY },
         targetId: event.currentTarget.id
       });
-      event.currentTarget.focus();
+      if (event.isTrusted) event.currentTarget.focus();
     });
     addEventListener("focus", () => record("focus"));
     addEventListener("blur", () => {
@@ -917,6 +924,11 @@ function sendChallengePage(response, roleId) {
 <body>
   <button id="verification-complete" type="button">I’m not a robot · ${safeRoleId}</button>
   <script>
+    for (const type of ["keydown", "keyup", "pointerdown", "mousedown", "mouseup", "click", "auxclick"]) {
+      addEventListener(type, event => {
+        if (!event.isTrusted) parent.postMessage("verification-input-leak", "http://127.0.0.1:${activePort}");
+      }, true);
+    }
     document.querySelector("#verification-complete").addEventListener("click", () => {
       parent.postMessage("verification-complete", "http://127.0.0.1:${activePort}");
     });

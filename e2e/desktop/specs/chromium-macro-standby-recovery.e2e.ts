@@ -188,7 +188,7 @@ async function waitMacroTerminal(macroId: string): Promise<void> {
   });
 }
 
-async function waitExactTrustedKey(input: Readonly<{
+async function waitExactCompatibleKey(input: Readonly<{
   afterSequence: number;
   code: string;
   kind: "keydown" | "keyup";
@@ -201,7 +201,7 @@ async function waitExactTrustedKey(input: Readonly<{
       kind: input.kind,
       roleId: input.roleId
     });
-    if (event.code === input.code && event.isTrusted === true) return event;
+    if (event.code === input.code && event.isTrusted === false) return event;
     cursor = event.sequence;
   }
 }
@@ -262,7 +262,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
     const start = await row.$("button[aria-label='Start']");
     await start.waitForEnabled({ timeout: 20_000 });
     await start.click();
-    const firstKeydown = await waitExactTrustedKey({
+    const firstKeydown = await waitExactCompatibleKey({
       afterSequence: firstCursor,
       code: "KeyS",
       kind: "keydown",
@@ -288,7 +288,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
       state: "suspended"
     }));
     await waitMacroTerminal(scenario.macro.id);
-    await waitExactTrustedKey({
+    await waitExactCompatibleKey({
       afterSequence: firstKeydown.sequence,
       code: "KeyS",
       kind: "keyup",
@@ -325,7 +325,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
     await resumedStart.waitForEnabled({ timeout: 20_000 });
     const secondCursor = await fixtureCursor();
     await resumedStart.click();
-    const secondKeydown = await waitExactTrustedKey({
+    const secondKeydown = await waitExactCompatibleKey({
       afterSequence: secondCursor,
       code: "KeyS",
       kind: "keydown",
@@ -352,7 +352,7 @@ describe("Chromium Macro standby recovery exact replacement", () => {
     await stop.waitForEnabled({ timeout: 20_000 });
     await stop.click();
     await waitMacroTerminal(scenario.macro.id);
-    await waitExactTrustedKey({
+    await waitExactCompatibleKey({
       afterSequence: secondKeydown.sequence,
       code: "KeyS",
       kind: "keyup",

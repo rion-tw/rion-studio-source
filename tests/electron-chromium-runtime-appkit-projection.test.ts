@@ -308,7 +308,7 @@ describe("Chromium AppKit projection transaction", () => {
         activeTabId: "tab-1",
         roles: [{ roleId: "role-1", tabId: "tab-1", ownerGeneration: 1,
           bounds: { x: 0, y: 44, width: 500, height: 656 } }],
-        webSurfaces: [], workspaceDividers: [], windowVisible: true
+        webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
       }]
     };
 
@@ -347,7 +347,7 @@ describe("Chromium AppKit projection transaction", () => {
         activeTabId: "tab-1",
         roles: [{ roleId: "role-1", tabId: "tab-1", ownerGeneration: 1,
           bounds: { x: 0, y: 44, width: 500, height: 656 } }],
-        webSurfaces: [], workspaceDividers: [], windowVisible: true
+        webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
       }]
     };
 
@@ -399,7 +399,7 @@ describe("Chromium AppKit projection transaction", () => {
           identity: sourceHost.appKitIdentity!, adapterSequence: 1,
           windowGeneration: 3, topologyRevision: 8,
           logicalTabIds: [], hiddenTabIds: [], tabs: [], roles: [],
-          webSurfaces: [], workspaceDividers: [], windowVisible: true
+          webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         },
         {
           identity: targetHost.appKitIdentity!, adapterSequence: 1,
@@ -420,7 +420,7 @@ describe("Chromium AppKit projection transaction", () => {
               bounds: { x: 500, y: 44, width: 500, height: 656 }
             }
           ],
-          webSurfaces: [], workspaceDividers: [], windowVisible: true
+          webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         }
       ]
     };
@@ -502,7 +502,7 @@ describe("Chromium AppKit projection transaction", () => {
           identity: sourceHost.appKitIdentity!, adapterSequence: 1,
           windowGeneration: 3, topologyRevision: 8,
           logicalTabIds: [], hiddenTabIds: [], tabs: [], roles: [],
-          webSurfaces: [], workspaceDividers: [], windowVisible: true
+          webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         },
         {
           identity: targetHost.appKitIdentity!, adapterSequence: 1,
@@ -515,18 +515,18 @@ describe("Chromium AppKit projection transaction", () => {
           activeTabId: "web-tab-1", roles: [],
           webSurfaces: [
             {
-              surfaceId: "web-surface-1", slotId: "web-slot-1",
+              surfaceGeneration: 1, surfaceId: "web-surface-1", slotId: "web-slot-1",
               tabId: "web-tab-1", attemptGeneration: "web-tab-1-attempt-1",
               bounds: { x: 40, y: 52, width: 920, height: 604 }, visible: true
             },
             {
-              surfaceId: "web-surface-2", slotId: "web-slot-1",
+              surfaceGeneration: 1, surfaceId: "web-surface-2", slotId: "web-slot-1",
               tabId: "web-tab-2", attemptGeneration: "web-tab-2-attempt-1",
               bounds: { x: 0, y: 44, width: 1000, height: 656 }, visible: false
             }
           ],
           workspaceDividers: [],
-          windowVisible: true
+          workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         }
       ]
     };
@@ -596,7 +596,7 @@ describe("Chromium AppKit projection transaction", () => {
           identity: sourceHost.appKitIdentity!, adapterSequence: 1,
           windowGeneration: 3, topologyRevision: 8,
           logicalTabIds: [], hiddenTabIds: [], tabs: [], roles: [],
-          webSurfaces: [], workspaceDividers: [], windowVisible: true
+          webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         },
         {
           identity: targetHost.appKitIdentity!, adapterSequence: 1,
@@ -614,12 +614,12 @@ describe("Chromium AppKit projection transaction", () => {
               bounds: { x: 500, y: 44, width: 500, height: 656 } }
           ],
           webSurfaces: [{
-            surfaceId: "web-surface-1", slotId: "web-slot-1",
+            surfaceGeneration: 1, surfaceId: "web-surface-1", slotId: "web-slot-1",
             tabId: "mixed-tab-1", attemptGeneration: "mixed-tab-1-attempt-1",
             bounds: { x: 500, y: 44, width: 500, height: 656 }, visible: true
           }],
           workspaceDividers: [],
-          windowVisible: true
+          workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         }
       ]
     };
@@ -666,7 +666,7 @@ describe("Chromium AppKit projection transaction", () => {
           tabs: [{ tabId: "tab-1", name: "tab-1", phase: "ready", tabType: "role",
             audioMuted: false }],
           activeTabId: "tab-1", roles: [], webSurfaces: [],
-          workspaceDividers: [], windowVisible: true
+          workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         },
         {
           identity: targetHost.appKitIdentity!, adapterSequence: 1,
@@ -675,7 +675,7 @@ describe("Chromium AppKit projection transaction", () => {
           tabs: [{ tabId: "tab-2", name: "tab-2", phase: "ready", tabType: "role",
             audioMuted: false }],
           activeTabId: "tab-2", roles: [], webSurfaces: [],
-          workspaceDividers: [], windowVisible: true
+          workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         }
       ]
     };
@@ -720,7 +720,7 @@ describe("Chromium AppKit projection transaction", () => {
           tabs: [{ tabId: "tab-1", name: "tab-1", phase: "ready", tabType: "role",
             audioMuted: false }],
           activeTabId: "tab-1", roles: [], webSurfaces: [],
-          workspaceDividers: [], windowVisible: true
+          workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         },
         {
           identity: targetHost.appKitIdentity!, adapterSequence: 1,
@@ -729,7 +729,7 @@ describe("Chromium AppKit projection transaction", () => {
           tabs: [{ tabId: "tab-2", name: "tab-2", phase: "ready", tabType: "role",
             audioMuted: false }],
           activeTabId: "tab-2", roles: [], webSurfaces: [],
-          workspaceDividers: [], windowVisible: true
+          workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         }
       ]
     };
@@ -770,7 +770,7 @@ describe("Chromium AppKit projection transaction", () => {
         activeTabId: "tab-1",
         roles: [{ roleId: "role-1", tabId: "tab-1", ownerGeneration: 1,
           bounds: { x: 30, y: 52, width: 800, height: 540 } }],
-        webSurfaces: [], workspaceDividers: [], windowVisible: true
+        webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
       }]
     };
 
@@ -822,7 +822,7 @@ describe("Chromium AppKit projection transaction", () => {
         activeTabId: "tab-1",
         roles: [{ roleId: "role-1", tabId: "tab-1", ownerGeneration: 1,
           bounds: { x: 30, y: 52, width: 800, height: 540 } }],
-        webSurfaces: [], workspaceDividers: [], windowVisible: true
+        webSurfaces: [], workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
       }]
     };
 
@@ -861,7 +861,7 @@ describe("Chromium AppKit projection transaction", () => {
           tabs: [{ tabId: "tab-1", name: "tab-1", phase: "ready", tabType: "role",
             audioMuted: false }],
           activeTabId: "tab-1", roles: [], webSurfaces: [],
-          workspaceDividers: [], windowVisible: true
+          workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         },
         {
           identity: targetHost.appKitIdentity!, adapterSequence: 1,
@@ -870,7 +870,7 @@ describe("Chromium AppKit projection transaction", () => {
           tabs: [{ tabId: "tab-2", name: "tab-2", phase: "ready", tabType: "role",
             audioMuted: false }],
           activeTabId: "tab-2", roles: [], webSurfaces: [],
-          workspaceDividers: [], windowVisible: true
+          workspaceDividers: [], workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
         }
       ]
     };
@@ -915,7 +915,7 @@ describe("Chromium AppKit projection transaction", () => {
         roles: [],
         webSurfaces: [],
         workspaceDividers: [],
-        windowVisible: true
+        workspaceAppearance: { background: "material" as const, gap: 1 as const }, windowVisible: true
       }]
     };
     const request = () => applyProjection({

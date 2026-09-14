@@ -241,6 +241,7 @@ export async function applyChromiumRuntimeAppKitProjection(
       if (
         projectedLayoutsByWebSurface.has(surfaceId) || !surface || !tab ||
         surface.tabId !== webLayout.tabId || surface.slotId !== slotId ||
+        surface.generation !== webLayout.surfaceGeneration ||
         tab.specification.attemptGeneration !== webLayout.attemptGeneration ||
         projectedWindowByTab.get(surface.tabId) !== windowId ||
         (webLayout.visible && (

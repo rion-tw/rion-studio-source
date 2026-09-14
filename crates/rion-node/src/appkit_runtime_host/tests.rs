@@ -133,6 +133,7 @@ fn workspace_divider_projection_requires_exact_contained_unique_geometry() {
         height: 640,
     };
     let divider = || AppKitRuntimeWorkspaceDividerProjection {
+        resize_indicators: None,
         tab_id: "tab-1".to_owned(),
         attempt_generation: "attempt-1".to_owned(),
         divider_index: 0,

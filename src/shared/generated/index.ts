@@ -8,6 +8,8 @@ export type { ExtensionResultRecord } from "./ExtensionResultRecord";
 export type { BrowserActionRequest } from "./BrowserActionRequest";
 export type { BrowserAction } from "./BrowserAction";
 export type { BrowserActionResult } from "./BrowserActionResult";
+export type { AppKitAttachedWebSurfaceRecord } from "./AppKitAttachedWebSurfaceRecord";
+export type { WorkspaceResizeIndicatorRecord } from "./WorkspaceResizeIndicatorRecord";
 export type { AppKitRuntimeEventActionRecord } from "./AppKitRuntimeEventActionRecord";
 export type { AppKitRuntimeEventReceiptRecord } from "./AppKitRuntimeEventReceiptRecord";
 export type { AppKitRuntimeEventRecord } from "./AppKitRuntimeEventRecord";

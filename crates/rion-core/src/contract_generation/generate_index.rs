@@ -45,6 +45,8 @@ fn export_bindings_index() {
                 "export type { BrowserActionRequest } from \"./BrowserActionRequest\";\n",
                 "export type { BrowserAction } from \"./BrowserAction\";\n",
                 "export type { BrowserActionResult } from \"./BrowserActionResult\";\n",
+                "export type { AppKitAttachedWebSurfaceRecord } from \"./AppKitAttachedWebSurfaceRecord\";\n",
+                "export type { WorkspaceResizeIndicatorRecord } from \"./WorkspaceResizeIndicatorRecord\";\n",
                 "export type { AppKitRuntimeEventActionRecord } from \"./AppKitRuntimeEventActionRecord\";\n",
                 "export type { AppKitRuntimeEventReceiptRecord } from \"./AppKitRuntimeEventReceiptRecord\";\n",
                 "export type { AppKitRuntimeEventRecord } from \"./AppKitRuntimeEventRecord\";\n",

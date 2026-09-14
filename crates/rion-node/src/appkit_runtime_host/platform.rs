@@ -138,6 +138,23 @@ pub(super) fn projection_matches(
 }
 
 #[cfg(target_os = "macos")]
+pub(super) fn retire_workspace_divider_gesture(
+    controller: NonNull<c_void>,
+    gesture_id: &CStr,
+) -> Result<bool> {
+    // SAFETY: N-API validated the exact host and retains the string through this synchronous call.
+    unsafe { rion_appkit::runtime_tabs_retire_workspace_divider_gesture(controller, gesture_id) }
+        .map_err(native_controller_error)
+}
+#[cfg(not(target_os = "macos"))]
+pub(super) fn retire_workspace_divider_gesture(
+    _controller: NonNull<c_void>,
+    _gesture_id: &CStr,
+) -> Result<bool> {
+    Err(appkit_platform_unavailable())
+}
+
+#[cfg(target_os = "macos")]
 pub(super) fn apply_workspace_divider_projection(
     controller: NonNull<c_void>,
     projection_json: &CStr,

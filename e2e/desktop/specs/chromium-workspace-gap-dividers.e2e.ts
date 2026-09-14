@@ -1,3 +1,7 @@
+import { expectWorkspacePixels, paintWorkspaceTargets } from "./chromium-workspace-gap-evidence";
+import { fixtureRequest } from "../support/fixture";
+import { activateWindowsRuntimeTabWhileLoading } from "../support/windows-runtime-tab-close";
+import { clickVisibleRuntimeTab } from "../support/native-runtime-tabs";
 import { $, browser, expect } from "@wdio/globals";
 
 import type {
@@ -144,7 +148,7 @@ async function createWorkspace(primary: Role, secondary: Role): Promise<LaunchWo
   return workspace;
 }
 
-async function setVisibleWorkspaceGap(gap: 1 | 16): Promise<void> {
+async function setVisibleWorkspaceGap(gap: 1 | 16, background: "material" | "black" = "material"): Promise<void> {
   await openSection("Settings", "/settings");
   const settingsSidebar = await $(".settings-mode-sidebar");
   await settingsSidebar.waitForDisplayed({ timeout: 10_000 });
@@ -166,6 +170,11 @@ async function setVisibleWorkspaceGap(gap: 1 | 16): Promise<void> {
     timeout: 20_000,
     timeoutMsg: `The visible Workspace gap did not settle at ${gap}px`
   });
+  const backgroundControl = await $(`button=${background === "black" ? "Solid black" : "Transparent material"}`);
+  await backgroundControl.waitForClickable({ timeout: 10_000 });
+  await backgroundControl.click();
+  await browser.waitUntil(async () => (await rendererCall("getGameBrowserSettings")).workspace.background === background,
+    { timeout: 20_000 });
   const back = await $(".settings-back");
   await back.waitForClickable({ timeout: 10_000 });
   await back.click();
@@ -194,7 +203,8 @@ async function createSavedWindow(): Promise<GameWindow> {
 async function launchWorkspace(
   workspace: LaunchWorkspace,
   gameWindow: GameWindow,
-  roleIds: readonly string[]
+  roleIds: readonly string[],
+  whileLoading?: (tabId: string) => Promise<void>
 ): Promise<Readonly<{
   mainWindowHandle: string;
   tabId: string;
@@ -233,6 +243,7 @@ async function launchWorkspace(
     timeout: 45_000,
     timeoutMsg: "The three-slot Workspace did not reach its visible native host"
   });
+  if (whileLoading) await whileLoading(tab!.id);
   return { mainWindowHandle, tabId: tab!.id, window: window! };
 }
 
@@ -295,6 +306,9 @@ async function waitForExactGap(input: Readonly<{
 }
 
 async function dragDivider(input: Readonly<{
+  whileDragging?: () => Promise<void>;
+  gap?: number;
+  delta?: number;
   axis: "horizontal" | "vertical";
   dividerIndex: number;
   mainWindowHandle: string;
@@ -302,22 +316,23 @@ async function dragDivider(input: Readonly<{
   windowId: string;
 }>): Promise<void> {
   const request = {
+    whileDragging: input.whileDragging,
     axis: input.axis,
     dividerIndex: input.dividerIndex,
-    expectedThickness: 16
+    expectedThickness: input.gap ?? 16
   };
   if (input.platform === "macos") {
     await dragMacosVisibleWorkspaceDivider({
       ...request,
       // Remains inside the 960x640 host while crossing Core's 5% snap even
       // when the CI display reports a scaled accessibility coordinate.
-      deltaScreenPixels: 192,
+      deltaScreenPixels: input.delta ?? 192,
       windowId: input.windowId
     });
   } else {
     await dragWindowsVisibleWorkspaceDivider(input.mainWindowHandle, {
       ...request,
-      deltaCssPixels: 192,
+      deltaCssPixels: input.delta ?? 192,
       windowId: input.windowId
     });
   }
@@ -341,6 +356,12 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     tabId: launched.tabId,
     windowId: gameWindow.id
   });
+  await paintWorkspaceTargets(launched.mainWindowHandle, "rgb(240,0,240)");
+  await expectWorkspacePixels({ inspection: initial, tabId: launched.tabId, name: "gap-1-material", background: "material" });
+  await setVisibleWorkspaceGap(1, "black");
+  await expectWorkspacePixels({ inspection: await waitForExactGap({ gap: 1, primaryRoleId: primary.id,
+    secondaryRoleId: secondary.id, tabId: launched.tabId, windowId: gameWindow.id }),
+    tabId: launched.tabId, name: "gap-1-black", background: "black" });
   const initialPrimary = await electronDesktopE2eRoleSessionRuntime(primary.id);
   const initialSecondary = await electronDesktopE2eRoleSessionRuntime(secondary.id);
 
@@ -376,10 +397,17 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     });
   }
 
+  await expectWorkspacePixels({ inspection: updated, tabId: launched.tabId, name: "gap-16-material", background: "material" });
+  await setVisibleWorkspaceGap(16, "black");
+  const whileDragging = (axis: "horizontal" | "vertical") => async () => {
+    await expectWorkspacePixels({ inspection: await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id),
+      tabId: launched.tabId, name: `drag-${axis}`, background: "black", indicators: axis });
+  };
   const beforeVertical = updated.workspaceTabs.find(
     (tab) => tab.tabId === launched.tabId
   )!;
   await dragDivider({
+    whileDragging: whileDragging("vertical"),
     axis: "vertical", dividerIndex: 0,
     mainWindowHandle: launched.mainWindowHandle, platform, windowId: gameWindow.id
   });
@@ -398,6 +426,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     (tab) => tab.tabId === launched.tabId
   )!.slots;
   await dragDivider({
+    whileDragging: whileDragging("horizontal"),
     axis: "horizontal", dividerIndex: 1,
     mainWindowHandle: launched.mainWindowHandle, platform, windowId: gameWindow.id
   });
@@ -411,6 +440,89 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
       coreTab?.slots[1]?.rect.height !== slotsAfterVertical[1]!.rect.height;
   }, { timeout: 20_000, timeoutMsg: "Horizontal divider did not commit its Core slot rect" });
 
+  await expectWorkspacePixels({ inspection: finalInspection!, tabId: launched.tabId, name: "gap-after-drag", background: "black" });
+  // A separate website-only B fills A's gaps with a different color before native A → B → A.
+  const beforeB = new Set(await browser.getWindowHandles());
+  await openSection("Workspaces", "/workspaces");
+  await clickWorkspaceCreateAction();
+  await setEditorName("Chromium Gap Paint B");
+  await clickWorkspaceSlot(0);
+  await $("#workspace-slot-content").click();
+  await $("[role='option']=Website").click();
+  await submitEditor("/workspaces");
+  let workspaceB = await findNamed<LaunchWorkspace>(() => rendererCall("listLaunchWorkspaces"), "Chromium Gap Paint B");
+  const fixtureId = "workspace-gap-loading-b";
+  const fixtureOrigin = required("RION_STUDIO_E2E_FIXTURE_ORIGIN");
+  // A controlled fixture navigation is the precondition, while launch and tab activation remain visible UI.
+  workspaceB = await rendererCall("updateLaunchWorkspace", workspaceB.id, {
+    slots: workspaceB.slots.map(slot => ({ ...slot, web: { lastUrl: `${fixtureOrigin}/role/${fixtureId}` } }))
+  });
+  await fixtureRequest("/api/gate", { roleId: fixtureId });
+  let launchedB: Awaited<ReturnType<typeof launchWorkspace>>;
+  try {
+    launchedB = await launchWorkspace(workspaceB, gameWindow, [], async loadingTabId => {
+      const waiting = await fetch(`${fixtureOrigin}/api/gates/${fixtureId}/waiting`, { signal: AbortSignal.timeout(30_000) });
+      expect(waiting.ok).toBe(true);
+      for (const selected of [loadingTabId, launched.tabId]) {
+        if (platform === "macos") {
+          await clickVisibleRuntimeTab({ mainWindowHandle: launched.mainWindowHandle, platform,
+            tabId: selected, tabName: selected === loadingTabId ? workspaceB.name : WORKSPACE_NAME });
+        } else {
+          await activateWindowsRuntimeTabWhileLoading({ processId: (await electronDesktopE2eProbe()).processId,
+            loadingTabName: workspaceB.name, selectedTabName: selected === loadingTabId ? workspaceB.name : WORKSPACE_NAME });
+        }
+      }
+      expect((await rendererCall("getEmbeddedRuntimeState")).windows.find(w => w.id === gameWindow.id)?.activeTabId).toBe(launched.tabId);
+    });
+  } catch (error) {
+    console.error("Loading tab shell errors", await runtimeTabShellErrors());
+    throw error;
+  } finally { await fixtureRequest("/api/release", { roleId: fixtureId }); }
+  await browser.waitUntil(async () => (await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id)).surfaces
+    .some(surface => surface.tabId === launchedB.tabId), { timeout: 30_000 });
+  expect((await rendererCall("getEmbeddedRuntimeState")).windows.find(w => w.id === gameWindow.id)?.activeTabId).toBe(launched.tabId);
+  await clickVisibleRuntimeTab({ mainWindowHandle: launched.mainWindowHandle, platform, tabId: launchedB.tabId, tabName: workspaceB.name });
+  await paintWorkspaceTargets(launched.mainWindowHandle, "rgb(0,240,240)",
+    new Set((await browser.getWindowHandles()).filter(h => !beforeB.has(h))));
+  for (const selected of [launched.tabId, launchedB.tabId, launched.tabId]) {
+    await clickVisibleRuntimeTab({ mainWindowHandle: launched.mainWindowHandle, platform, tabId: selected,
+      tabName: selected === launched.tabId ? WORKSPACE_NAME : workspaceB.name });
+    await browser.waitUntil(async () => (await rendererCall("getEmbeddedRuntimeState")).windows
+      .find(w => w.id === gameWindow.id)?.activeTabId === selected, { timeout: 20_000 });
+  }
+  const afterSwitch = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
+  expect(afterSwitch.surfaces.filter(s => s.tabId === launchedB.tabId).every(s => !s.visible)).toBe(true);
+  await expectWorkspacePixels({ inspection: afterSwitch, tabId: launched.tabId, name: "gap-a-b-a", background: "black" });
+  // Exercise both real drag axes and A → B → A for every gap/background pair.
+  for (const [gap, background, delta] of [
+    [1, "material", -96], [1, "black", 96],
+    [16, "material", -96], [16, "black", 96]
+  ] as const) {
+    await setVisibleWorkspaceGap(gap, background);
+    await waitForExactGap({ gap, primaryRoleId: primary.id, secondaryRoleId: secondary.id,
+      tabId: launched.tabId, windowId: gameWindow.id });
+    for (const axis of ["vertical", "horizontal"] as const) {
+      const before = await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id);
+      await dragDivider({ axis, dividerIndex: axis === "vertical" ? 0 : 1, gap, delta,
+        mainWindowHandle: launched.mainWindowHandle, platform, windowId: gameWindow.id,
+        whileDragging: async () => expectWorkspacePixels({
+          inspection: await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id),
+          tabId: launched.tabId, name: `matrix-${gap}-${background}-${axis}-held`, background, indicators: axis
+        }) });
+      await browser.waitUntil(async () => (await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id))
+        .topologyRevision > before.topologyRevision, { timeout: 20_000 });
+      await expectWorkspacePixels({ inspection: await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id),
+        tabId: launched.tabId, name: `matrix-${gap}-${background}-${axis}-ended`, background });
+    }
+    for (const selected of [launchedB.tabId, launched.tabId]) {
+      await clickVisibleRuntimeTab({ mainWindowHandle: launched.mainWindowHandle, platform,
+        tabId: selected, tabName: selected === launched.tabId ? WORKSPACE_NAME : workspaceB.name });
+      await browser.waitUntil(async () => (await rendererCall("getEmbeddedRuntimeState")).windows
+        .find(w => w.id === gameWindow.id)?.activeTabId === selected, { timeout: 20_000 });
+    }
+    await expectWorkspacePixels({ inspection: await electronDesktopE2eFullscreenToolbarRuntime(gameWindow.id),
+      tabId: launched.tabId, name: `matrix-${gap}-${background}-a-b-a`, background });
+  }
   expect(finalInspection!.workspaceTabs.find(
     (tab) => tab.tabId === launched.tabId
   )!.slots).toHaveLength(3);
@@ -449,13 +561,14 @@ async function restartPhase(): Promise<void> {
       window.id === gameWindow.id && window.visible
     );
   }, { timeout: 45_000, timeoutMsg: "The saved three-slot Workspace did not restore" });
-  await waitForExactGap({
+  const restored = await waitForExactGap({
     gap: 16,
     primaryRoleId: primary.id,
     secondaryRoleId: secondary.id,
     tabId,
     windowId: gameWindow.id
   });
+  await expectWorkspacePixels({ inspection: restored, tabId, name: "gap-restart", background: "black" });
   expect(await runtimeTabShellErrors()).toEqual([]);
 }
 

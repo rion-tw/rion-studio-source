@@ -14,6 +14,7 @@ fn appkit_test_observation(
     native_generation: u32,
 ) -> crate::model::AppKitRuntimeHostObservationRecord {
     crate::model::AppKitRuntimeHostObservationRecord {
+            attached_web_surfaces: None,
         identity: appkit_test_identity(logical_window_id, native_generation),
         window_generation: 3,
         topology_revision: 7,

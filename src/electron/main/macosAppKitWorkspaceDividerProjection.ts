@@ -9,6 +9,7 @@ import type { ChromiumRuntimeAppKitProjectionTransaction } from
   "./chromiumRuntimeProjectionTransaction";
 
 export interface MacosAppKitWorkspaceDividerProjectionState {
+  background: "material" | "black";
   nativeRevision: number;
   version: number;
   poisoned: boolean;
@@ -30,7 +31,8 @@ interface PrepareWorkspaceDividerProjectionInput {
   readonly apply: (
     revision: string,
     contentBounds: ChromiumRoleSurfaceBounds,
-    dividers: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[]
+    dividers: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[],
+    background: "material" | "black"
   ) => WorkspaceDividerProjectionReceipt;
 }
 
@@ -85,7 +87,8 @@ function sameDividers(
       divider.attemptGeneration === candidate.attemptGeneration &&
       divider.dividerIndex === candidate.dividerIndex &&
       divider.axis === candidate.axis && divider.visible === candidate.visible &&
-      sameBounds(divider.bounds, candidate.bounds);
+      sameBounds(divider.bounds, candidate.bounds) &&
+      JSON.stringify(divider.resizeIndicators) === JSON.stringify(candidate.resizeIndicators);
   });
 }
 
@@ -187,6 +190,7 @@ function nextRevision(current: number): number {
 export function createMacosAppKitWorkspaceDividerProjectionState():
 MacosAppKitWorkspaceDividerProjectionState {
   return {
+    background: "material",
     nativeRevision: 0,
     version: 0,
     poisoned: false,
@@ -226,6 +230,8 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
   const previousContentBounds = state.contentBounds &&
     cloneBounds(state.contentBounds);
   const previousDividers = state.dividers;
+  const previousBackground = state.background;
+  const nextBackground = projection.workspaceAppearance.background;
   let phase: "prepared" | "committed" | "rolled-back" | "failed" =
     "prepared";
   let committedVersion = 0;
@@ -234,15 +240,17 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
 
   const applyExact = (
     contentBounds: ChromiumRoleSurfaceBounds,
-    dividers: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[]
+    dividers: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[],
+    background: "material" | "black"
   ): number => {
     requireContainedDividers(contentBounds, dividers);
     const revision = nextRevision(state.nativeRevision);
-    const receipt = input.apply(String(revision), contentBounds, dividers);
+    const receipt = input.apply(String(revision), contentBounds, dividers, background);
     validateReceipt(receipt, revision, contentBounds, dividers.length);
     state.nativeRevision = revision;
     state.contentBounds = cloneBounds(contentBounds);
     state.dividers = dividers;
+    state.background = background;
     state.version += 1;
     state.poisoned = false;
     return state.version;
@@ -253,7 +261,7 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
   ): boolean => {
     const contentBounds = previousContentBounds ?? fallbackContentBounds;
     try {
-      applyExact(contentBounds, previousDividers);
+      applyExact(contentBounds, previousDividers, previousBackground);
       return true;
     } catch {
       state.poisoned = true;
@@ -280,14 +288,14 @@ export function prepareMacosAppKitWorkspaceDividerProjection(
       requireContainedDividers(nextContentBounds, nextDividers);
       if (
         previousContentBounds && sameBounds(previousContentBounds, nextContentBounds) &&
-        sameDividers(previousDividers, nextDividers)
+        sameDividers(previousDividers, nextDividers) && previousBackground === nextBackground
       ) {
         committedVersion = state.version;
         phase = "committed";
         return;
       }
       try {
-        committedVersion = applyExact(nextContentBounds, nextDividers);
+        committedVersion = applyExact(nextContentBounds, nextDividers, nextBackground);
         nativeMutationCommitted = true;
         phase = "committed";
       } catch (error) {

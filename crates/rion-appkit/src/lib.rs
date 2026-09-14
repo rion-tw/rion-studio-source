@@ -9,7 +9,7 @@ use std::ffi::c_void;
 #[cfg(target_os = "macos")]
 use std::{ffi::CStr, ptr::NonNull};
 
-pub const RUNTIME_TABS_ABI_VERSION: u32 = 10;
+pub const RUNTIME_TABS_ABI_VERSION: u32 = 11;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElectronViewWindowResolutionError {
@@ -466,6 +466,10 @@ unsafe extern "C" {
         controller: *mut c_void,
         tab_identifiers_json: *const std::ffi::c_char,
         active_tab_identifier: *const std::ffi::c_char,
+    ) -> bool;
+    fn rion_runtime_tabs_retire_workspace_divider_gesture(
+        controller: *mut c_void,
+        gesture_id: *const std::ffi::c_char,
     ) -> bool;
     fn rion_runtime_tabs_apply_workspace_divider_projection(
         controller: *mut c_void,
@@ -1354,6 +1358,22 @@ pub unsafe fn runtime_tabs_projection_matches(
             ordered_identifiers_json.as_ptr(),
             active_tab_identifier.map_or(std::ptr::null(), CStr::as_ptr),
         )
+    })
+}
+
+/// Retires presentation for one exact terminal gesture without emitting another Core event.
+///
+/// # Safety
+/// The controller must be live on the AppKit main thread and the string must remain valid.
+#[cfg(target_os = "macos")]
+pub unsafe fn runtime_tabs_retire_workspace_divider_gesture(
+    controller: NonNull<c_void>,
+    gesture_id: &CStr,
+) -> Result<bool, RuntimeTabsControllerError> {
+    require_main_thread()?;
+    // SAFETY: inherited from this function's exact-controller lifetime contract.
+    Ok(unsafe {
+        rion_runtime_tabs_retire_workspace_divider_gesture(controller.as_ptr(), gesture_id.as_ptr())
     })
 }
 

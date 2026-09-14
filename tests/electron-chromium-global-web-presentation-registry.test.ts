@@ -276,6 +276,28 @@ async function finishCreate(subject: ReturnType<typeof harness>) {
 }
 
 describe("Chromium paired Workspace Web presentation", () => {
+  it.each(["darwin", "win32"] as const)("projects attached loading content and preserves the latest geometry on %s", async (platform) => {
+    const fixture = harness(null, platform);
+    const attached = vi.fn();
+    const creation = fixture.subject.create({ ...fixture.input, onAttached: attached });
+    await vi.waitFor(() => expect(attached).toHaveBeenCalledOnce());
+    const bounds = { x: 20, y: 60, width: 420, height: 380 };
+    fixture.subject.setBounds(fixture.input.surfaceId, 1, bounds);
+    fixture.subject.setVisible(fixture.input.surfaceId, 1, false);
+    fixture.subject.setZoomFactor(fixture.input.surfaceId, 1, 0.8);
+    expect(fixture.subject.readProjection(fixture.input.surfaceId, 1)).toMatchObject({ bounds, visible: false });
+    const shell = fixture.views[0]!.webContents;
+    const content = fixture.views[1]!.webContents;
+    shell.finish(shell.loadedUrls[0]!);
+    content.finish("https://fixture.test/start");
+    await creation;
+    expect(fixture.subject.readProjection(fixture.input.surfaceId, 1)).toMatchObject({ bounds, visible: false, zoomFactor: 0.8 });
+    expect(attached).toHaveBeenCalledOnce();
+    shell.close.mockImplementation(() => shell.destroy());
+    content.close.mockImplementation(() => content.destroy());
+    await fixture.subject.dispose();
+  });
+
   it.each(["darwin", "win32"] as const)("rehydrates and broadcasts themes to live and hidden chrome on %s", async platform => {
     updateWorkspaceWebTheme("dark");
     const first = harness(null, platform);

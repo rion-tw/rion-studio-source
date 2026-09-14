@@ -863,6 +863,7 @@ fn appkit_tab_surface_layouts(
     for role in output.roles {
         if let Some(identity) = web_by_surface.get(role.role_id.as_str()) {
             web_surface_layouts.push(crate::model::AppKitRuntimeWebSurfaceLayoutRecord {
+                surface_generation: 0,
                 surface_id: identity.surface_id.clone(),
                 slot_id: identity.slot_id.clone(),
                 tab_id: tab.id.clone(),
@@ -896,6 +897,7 @@ fn appkit_tab_surface_layouts(
                     )
                 })?;
             Ok(crate::model::AppKitRuntimeWorkspaceDividerLayoutRecord {
+                resize_indicators: divider.resize_indicators,
                 tab_id: tab.id.clone(),
                 attempt_generation: attempt_generation.to_owned(),
                 divider_index: divider.index,
@@ -1413,7 +1415,20 @@ impl AppCore {
                     roles = layouts.roles;
                     workspace_dividers = layouts.workspace_dividers;
                 }
-                web_surfaces.extend(layouts.web_surfaces);
+                // A declared slot is not evidence of an attached native view. Geometry
+                // still includes every slot; only exact attachments receive effects.
+                for mut layout in layouts.web_surfaces {
+                    if let Some(attached) = event.hosts.iter().flat_map(|host| host.attached_web_surfaces.as_deref().unwrap_or_default()).find(|attached| {
+                            attached.surface_id == layout.surface_id
+                                && attached.slot_id == layout.slot_id
+                                && attached.tab_id == layout.tab_id
+                                && attached.attempt_generation == layout.attempt_generation
+                                && attached.surface_generation > 0
+                        }) {
+                        layout.surface_generation = attached.surface_generation;
+                        web_surfaces.push(layout);
+                    }
+                }
             }
             windows.push(crate::model::AppKitRuntimeWindowProjectionRecord {
                 identity: observation.identity.clone(),
@@ -1453,6 +1468,7 @@ impl AppCore {
                 roles,
                 web_surfaces,
                 workspace_dividers,
+                workspace_appearance: settings.workspace.clone(),
                 window_visible: observation.visible && !observation.minimized,
             });
         }

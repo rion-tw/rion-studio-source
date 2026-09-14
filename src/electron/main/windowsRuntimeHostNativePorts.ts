@@ -205,6 +205,7 @@ export interface WindowsRuntimeHostDisplayResolverPort {
 }
 
 export interface WindowsBrowserWindowFactoryPort {
+  createResizeIndicators?: (parent: WindowsRuntimeHostWindowPort) => import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort;
   create: (options: BrowserWindowConstructorOptions) => WindowsRuntimeHostWindowPort;
 }
 

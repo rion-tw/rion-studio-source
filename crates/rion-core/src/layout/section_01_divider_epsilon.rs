@@ -35,7 +35,7 @@ pub fn resolve(input: &WorkspaceLayoutInput) -> WorkspaceLayoutOutput {
         .iter()
         .map(|role| (role.role_id.as_str(), &role.rect))
         .collect::<HashMap<_, _>>();
-    let roles = input
+    let roles: Vec<LayoutRoleBounds> = input
         .roles
         .iter()
         .map(|role| {
@@ -127,7 +127,19 @@ pub fn resolve(input: &WorkspaceLayoutInput) -> WorkspaceLayoutOutput {
                     height: input.gap as i32,
                 }
             };
+            let resize_indicators = input.roles.iter().filter(|role| {
+                divider.before_role_ids.contains(&role.role_id)
+                    || divider.after_role_ids.contains(&role.role_id)
+            }).filter_map(|role| {
+                let bounds = roles.iter().find(|value| value.role_id == role.role_id)?.bounds.clone();
+                let percent = |value: f64| (value * 1000.0).round() / 10.0;
+                Some(crate::model::WorkspaceResizeIndicatorRecord {
+                    surface_id: role.role_id.clone(), bounds,
+                    label: format!("{}% × {}%", percent(role.rect.width), percent(role.rect.height)),
+                })
+            }).collect();
             Some(LayoutDividerBounds {
+                resize_indicators: Some(resize_indicators),
                 index: index as u32,
                 bounds,
             })

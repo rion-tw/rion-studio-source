@@ -315,6 +315,9 @@ export class ChromiumGlobalWebPresentationRegistry {
         this.#content.create({
           ...input,
           bounds: bounds.content,
+          onAttached: () => {
+            if (record.state === "opening" && record.attached && !record.destroyedObserved) input.onAttached?.();
+          },
           onNavigationChange: (evidence) => {
             if (record.state === "active" && this.#records.get(record.surfaceId) === record) {
               this.#publishState(record, evidence);
@@ -345,8 +348,8 @@ export class ChromiumGlobalWebPresentationRegistry {
       }
       this.#readPairedProjection(
         record,
-        input.bounds,
-        input.visible,
+        record.slotBounds,
+        record.visible,
         record.containedFullscreen
       );
       record.state = "active";
@@ -366,7 +369,7 @@ export class ChromiumGlobalWebPresentationRegistry {
     visible: boolean;
     zoomFactor?: number;
   }> {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const projection = this.#readPairedProjection(record);
     return Object.freeze({
       bounds: projection.bounds,
@@ -431,7 +434,7 @@ export class ChromiumGlobalWebPresentationRegistry {
     generation: number,
     bounds: ChromiumRoleSurfaceBounds
   ): void {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     validateBounds(bounds);
     const previous = record.slotBounds;
     try {
@@ -474,7 +477,7 @@ export class ChromiumGlobalWebPresentationRegistry {
   }
 
   setVisible(surfaceId: string, generation: number, visible: boolean): void {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const previous = record.visible;
     try {
       record.view.setVisible(record.containedFullscreen ? false : visible);
@@ -892,7 +895,11 @@ export class ChromiumGlobalWebPresentationRegistry {
     }
   }
 
-  #activeRecord(surfaceId: string, generation: number): ChromeRecord {
+  #projectableRecord(surfaceId: string, generation: number): ChromeRecord {
+    return this.#activeRecord(surfaceId, generation, true);
+  }
+
+  #activeRecord(surfaceId: string, generation: number, presentation = false): ChromeRecord {
     if (!validIdentifier(surfaceId) || !Number.isSafeInteger(generation) || generation < 1) {
       fail(
         "ELECTRON_WORKSPACE_WEB_PRESENTATION_ID_INVALID",
@@ -900,7 +907,8 @@ export class ChromiumGlobalWebPresentationRegistry {
       );
     }
     const record = this.#records.get(surfaceId);
-    if (!record || record.generation !== generation || record.state !== "active") {
+    if (!record || record.generation !== generation ||
+        (record.state !== "active" && !(presentation && record.state === "opening" && record.attached)) || record.destroyedObserved) {
       fail(
         "ELECTRON_WORKSPACE_WEB_PRESENTATION_STALE",
         "The paired Workspace Web presentation is no longer active."

@@ -788,6 +788,7 @@ implements ChromiumRuntimeHostFactoryPort {
       contentGeometry: new WindowsRuntimeContentGeometry()
     };
     record.chrome = new WindowsRuntimeHostChromeController({
+      resizeIndicators: this.#windows.createResizeIndicators?.(native),
       documentUrl: record.documentUrl,
       native,
       readProjection: () => this.#readProjection(record),
@@ -859,6 +860,9 @@ implements ChromiumRuntimeHostFactoryPort {
         record,
         () => record.chrome.applyRetainedPhaseLayoutProjection(projection)
       ),
+      notifySurfaceAttachment: () => this.#withCurrent(record, () => {
+        void record.chrome.notifySurfaceAttachment().catch(this.#onCommandError);
+      }),
       bindRuntimeWindowLayout: (observer: () => Promise<void>) => this.#withCurrent(
         record,
         () => record.chrome.bindLayout(observer)

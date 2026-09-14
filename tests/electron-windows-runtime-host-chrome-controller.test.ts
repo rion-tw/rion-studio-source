@@ -58,6 +58,7 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
     setFullScreen: vi.fn((value: boolean) => { state.fullscreen = value; }),
     unmaximize: vi.fn(() => { state.maximized = false; })
   };
+  const resizeIndicators = { update: vi.fn() };
   const send = vi.fn();
   const requestWindowControl = vi.fn(async () => undefined);
   const requestTabControl = vi.fn(async () => undefined);
@@ -98,13 +99,14 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
     requestTabControl,
     requestTabReload,
     requestWorkspaceDividerPointer,
+    resizeIndicators,
     send,
     windowId
   });
   const relayout = vi.fn(async () => undefined);
   controller.bindLayout(relayout);
   return {
-    controller, native, readProjection, relayout, requestWindowControl,
+    resizeIndicators, controller, native, readProjection, relayout, requestWindowControl,
     requestTabControl, requestTabReload, requestWorkspaceDividerPointer, send, state
   };
 }
@@ -773,6 +775,7 @@ describe("Windows runtime-host chrome controller", () => {
         attemptGeneration,
         axis: "vertical" as const,
         bounds: { x: 478, y: 40, width: 4, height: 640 },
+        resizeIndicators: [{surfaceId: "a", label: "50% × 100%", bounds: {x:0,y:40,width:478,height:640}}],
         dividerIndex: 0,
         tabId,
         visible: true
@@ -798,6 +801,7 @@ describe("Windows runtime-host chrome controller", () => {
     });
 
     await subject.controller.handleCommand(documentUrl, command("start", 1));
+    expect(subject.resizeIndicators.update).toHaveBeenLastCalledWith(coreProjection.workspaceDividers[0]!.resizeIndicators);
     await subject.controller.handleCommand(documentUrl, command("move", 2));
     await subject.controller.applyCoreProjection({
       ...coreProjection,
@@ -813,6 +817,7 @@ describe("Windows runtime-host chrome controller", () => {
     expect(subject.requestWorkspaceDividerPointer.mock.calls.at(-1)?.[0])
       .toMatchObject({ phase: "end", pointerSequence: 3, topologyRevision: 10 });
     expect(subject.controller.hasActiveWorkspaceDividerGestures).toBe(false);
+    expect(subject.resizeIndicators.update).toHaveBeenLastCalledWith([]);
   });
 
   it("accepts a transient Windows divider end without claiming durability", async () => {

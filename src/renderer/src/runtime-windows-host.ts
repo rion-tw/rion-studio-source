@@ -33,6 +33,11 @@ if (!bridge || !toolbar || !revealEdge || !tabs || !windowControls ||
   throw new Error("The bundled Windows runtime-host document is incomplete.");
 }
 
+const workspaceBackground = document.createElement("div");
+workspaceBackground.style.cssText = "position:fixed;pointer-events:none;z-index:-1";
+workspaceBackground.setAttribute("aria-hidden", "true");
+document.body.prepend(workspaceBackground);
+
 let current: WindowsRuntimeHostProjection | null = null;
 let resizeEventCount = 0;
 let activeTabDrag: Readonly<{
@@ -446,6 +451,12 @@ function render(projection: WindowsRuntimeHostProjection): void {
   cancelTabDrag();
   closeTabMenu();
   current = projection;
+  const bounds = projection.contentBounds;
+  Object.assign(workspaceBackground.style, {
+    left: `${bounds.x}px`, top: `${bounds.y}px`,
+    width: `${bounds.width}px`, height: `${bounds.height}px`,
+    background: projection.workspaceBackground === "black" ? "#000" : "transparent"
+  });
   toolbar!.hidden = !projection.toolbarVisible;
   revealEdge!.hidden = projection.toolbarVisible || !projection.fullscreen ||
     projection.alwaysShowToolbarInFullScreen;

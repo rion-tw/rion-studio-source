@@ -178,7 +178,11 @@ const appKitRole: Check = (value) => closed(value, {
   ownerGeneration: nonnegativeInteger,
   bounds: layoutBounds
 });
+const resizeIndicator: Check = (value) => closed(value, {
+  surfaceId: identity, label: text, bounds: layoutBounds
+});
 const appKitWebSurface: Check = (value) => closed(value, {
+  surfaceGeneration: positiveInteger,
   surfaceId: identity,
   slotId: identity,
   tabId: identity,
@@ -193,7 +197,7 @@ const appKitDivider: Check = (value) => closed(value, {
   axis: oneOf("horizontal", "vertical"),
   bounds: layoutBounds,
   visible: bool
-});
+}, { resizeIndicators: arrayOf(resizeIndicator) });
 const appKitWindow: Check = (value) => closed(value, {
   identity: appKitIdentity,
   adapterSequence: nonnegativeInteger,
@@ -205,6 +209,7 @@ const appKitWindow: Check = (value) => closed(value, {
   roles: arrayOf(appKitRole),
   webSurfaces: arrayOf(appKitWebSurface),
   workspaceDividers: arrayOf(appKitDivider),
+  workspaceAppearance: appearance,
   windowVisible: bool
 }, { activeTabId: identity, contentBounds: layoutBounds });
 const appKitProjection: Check = (value) => closed(value, {

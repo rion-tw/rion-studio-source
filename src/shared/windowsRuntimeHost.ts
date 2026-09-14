@@ -21,6 +21,7 @@ export interface WindowsRuntimeHostMoveTargetProjection {
 }
 
 export interface WindowsRuntimeHostProjection {
+  readonly workspaceBackground?: "material" | "black";
   readonly activeTabId: string | null;
   readonly alwaysShowToolbarInFullScreen: boolean;
   readonly contentBounds: LayoutBounds;
@@ -37,6 +38,7 @@ export interface WindowsRuntimeHostProjection {
 }
 
 export interface WindowsRuntimeWorkspaceDividerProjection {
+  readonly resizeIndicators?: readonly import("./generated").WorkspaceResizeIndicatorRecord[];
   readonly attemptGeneration: string;
   readonly axis: "horizontal" | "vertical";
   readonly bounds: LayoutBounds;
@@ -137,7 +139,8 @@ function validUuid(value: unknown): value is string {
 export function isWindowsRuntimeHostProjection(
   value: unknown
 ): value is WindowsRuntimeHostProjection {
-  if (!isRecord(value) || Object.keys(value).length !== 13 ||
+  if (!isRecord(value) || Object.keys(value).length !== (value.workspaceBackground === undefined ? 13 : 14) ||
+      (value.workspaceBackground !== undefined && value.workspaceBackground !== "material" && value.workspaceBackground !== "black") ||
       !validIdentifier(value.windowId) ||
       !Number.isSafeInteger(value.projectionRevision) ||
       Number(value.projectionRevision) < 1 ||
@@ -202,7 +205,7 @@ export function isWindowsRuntimeHostProjection(
   }
   const dividerKeys = new Set<string>();
   for (const divider of value.workspaceDividers) {
-    if (!isRecord(divider) || Object.keys(divider).length !== 6 ||
+    if (!isRecord(divider) || ![6, 7].includes(Object.keys(divider).length) ||
         !validIdentifier(divider.tabId) ||
         !validIdentifier(divider.attemptGeneration) ||
         !["horizontal", "vertical"].includes(String(divider.axis)) ||
@@ -215,6 +218,11 @@ export function isWindowsRuntimeHostProjection(
         (divider.visible && divider.tabId !== value.activeTabId)) {
       return false;
     }
+    if (divider.resizeIndicators !== undefined && (!Array.isArray(divider.resizeIndicators) ||
+        divider.resizeIndicators.length > 128 || divider.resizeIndicators.some((indicator) =>
+          !isRecord(indicator) || !validIdentifier(indicator.surfaceId) ||
+          typeof indicator.label !== "string" || indicator.label.length < 1 || indicator.label.length > 40 ||
+          !validBounds(indicator.bounds) || !containsBounds(value.contentBounds as LayoutBounds, indicator.bounds as LayoutBounds)))) return false;
     const key = `${divider.tabId}:${divider.dividerIndex}`;
     if (dividerKeys.has(key)) return false;
     dividerKeys.add(key);

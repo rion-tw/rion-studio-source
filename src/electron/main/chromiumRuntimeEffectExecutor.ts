@@ -1,3 +1,4 @@
+import { captureChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
 import { workspaceWebLaunchUrl } from "../../shared/workspaceStartPage";
 import { observeAppKitWorkspaceAppearance } from
   "./appKitWorkspaceAppearanceObservation";
@@ -70,7 +71,6 @@ import {
   requireIdentifier,
   runtimeError,
   sameNormalizedRect,
-  sortedSnapshot,
   targetMatchesCurrentHost
 } from "./chromiumRuntimeEffectExecutorSupport";
 import { commitChromiumRuntimeWindowsPlacementTarget } from
@@ -120,6 +120,7 @@ export class ChromiumRuntimeEffectExecutor {
   readonly #roles = new Map<string, RuntimeRoleRecord>();
   readonly #openingRoles = new Map<string, RuntimeRoleRecord>();
   readonly #webSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
+  readonly #attachedWebSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
   readonly #openingWebSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
   readonly #closingRoleGenerations = new Map<string, number>();
   readonly #closingWebSurfaceGenerations = new Map<string, number>();
@@ -145,77 +146,24 @@ export class ChromiumRuntimeEffectExecutor {
     }
   }
 
+  attachedWebSurfaceObservations(windowId: string): import("../../shared/generated").AppKitAttachedWebSurfaceRecord[] {
+    return [...this.#projectableWebSurfaces().values()]
+      .filter((surface) => surface.windowId === windowId &&
+        !this.#closingWebSurfaceGenerations.has(surface.surfaceId))
+      .map((surface) => ({ surfaceId: surface.surfaceId, slotId: surface.slotId,
+        tabId: surface.tabId, surfaceGeneration: surface.generation,
+        attemptGeneration: this.#tabs.get(surface.tabId)!.specification.attemptGeneration! }));
+  }
+
+  #projectableWebSurfaces(): Map<string, RuntimeWebSurfaceRecord> {
+    return new Map([...this.#attachedWebSurfaces, ...this.#webSurfaces]);
+  }
+
   snapshot(): ChromiumRuntimeExecutorSnapshot {
-    return Object.freeze({
-      windows: Object.freeze(sortedSnapshot([...this.#windows.entries()].map(
-        ([windowId, record]) => {
-          const projection = record.host.readProjection();
-          return Object.freeze({
-            windowId,
-            activeTabId: record.activeTabId,
-            tabIds: Object.freeze([...record.tabIds]),
-            displayId: projection.displayId,
-            bounds: Object.freeze({ ...projection.bounds }),
-            visible: projection.visible,
-            focused: projection.focused,
-            presentation: projection.presentation,
-            windowGeneration: record.windowGeneration,
-            topologyRevision: record.topologyRevision,
-            windowZoomFactor: record.windowZoomFactor ?? 1,
-            parentNativeHostId: record.host.id,
-            ...(record.host.appKitIdentity
-              ? { appKitIdentity: Object.freeze({ ...record.host.appKitIdentity }) }
-              : {}),
-            target: Object.freeze({
-              ...record.hostTarget,
-              displayId: projection.displayId,
-              bounds: Object.freeze({ ...projection.bounds }),
-              presentation: projection.presentation
-            })
-          });
-        }
-      ))),
-      tabs: Object.freeze([...this.#tabs.entries()]
-        .map(([tabId, record]) => Object.freeze({
-          tabId,
-          windowId: record.windowId,
-          audioMuted: record.audioMuted,
-          audible: [...this.#roles.values()]
-            .filter((role) => role.tabId === tabId &&
-              this.#closingRoleGenerations.get(role.roleId) !== role.generation)
-            .some((role) => this.#input.surfaces.isCurrentlyAudible(
-              role.roleId, role.generation)) || [...this.#webSurfaces.values()]
-            .filter((surface) => surface.tabId === tabId &&
-              this.#closingWebSurfaceGenerations.get(surface.surfaceId) !==
-                surface.generation)
-            .some((surface) => this.#input.webSurfaces.isCurrentlyAudible(
-              surface.surfaceId, surface.generation)),
-          attemptGeneration: requireIdentifier(
-            record.specification.attemptGeneration ?? "",
-            "tab attempt generation")
-        }))
-        .sort((left, right) => left.tabId.localeCompare(right.tabId))),
-      roles: Object.freeze(sortedSnapshot([...this.#roles.values()].map((record) =>
-        Object.freeze({
-          roleId: record.roleId,
-          tabId: record.tabId,
-          windowId: record.windowId,
-          generation: record.generation,
-          ownerGeneration: record.ownerGeneration,
-          zoomFactor: record.zoomFactor
-        })
-      ))),
-      webSurfaces: Object.freeze(sortedSnapshot(
-        [...this.#webSurfaces.values()].map((record) => Object.freeze({
-          surfaceId: record.surfaceId,
-          slotId: record.slotId,
-          tabId: record.tabId,
-          windowId: record.windowId,
-          generation: record.generation,
-          zoomFactor: record.zoomFactor
-        }))
-      ))
-    });
+    return captureChromiumRuntimeSnapshot({ windows: this.#windows, tabs: this.#tabs,
+      roles: this.#roles, webSurfaces: this.#webSurfaces, ports: this.#input,
+      closingRoleGenerations: this.#closingRoleGenerations,
+      closingWebSurfaceGenerations: this.#closingWebSurfaceGenerations });
   }
 
   desktopE2eStatusPresentation(windowId: string): number | undefined {
@@ -505,7 +453,7 @@ export class ChromiumRuntimeEffectExecutor {
           ports: this.#input,
           windows: this.#windows,
           roles: this.#roles,
-          webSurfaces: this.#webSurfaces
+          webSurfaces: this.#projectableWebSurfaces()
         });
       case "embeddedPrepareTabRoleReload":
         return this.#input.roleReload?.prepare(effect, action) ??
@@ -638,7 +586,7 @@ export class ChromiumRuntimeEffectExecutor {
         record: windowRecord,
         tabs: this.#tabs,
         roles: this.#roles,
-        webSurfaces: this.#webSurfaces
+        webSurfaces: this.#attachedWebSurfaces
       });
     }
 
@@ -1065,10 +1013,20 @@ export class ChromiumRuntimeEffectExecutor {
           return cancellationClose;
         };
         const cancelOpeningSurface = (): void => {
+          if (this.#attachedWebSurfaces.get(descriptor.surfaceId) === record) {
+            this.#attachedWebSurfaces.delete(descriptor.surfaceId);
+          }
           void closeOpeningSurface();
         };
         try {
+          this.#openingWebSurfaces.set(descriptor.surfaceId, record);
           const creation = this.#input.webSurfaces.create({
+            onAttached: () => {
+              if (signal?.aborted || this.#openingWebSurfaces.get(descriptor.surfaceId) !== record ||
+                  this.#tabs.get(tabId) !== tab) return;
+              this.#attachedWebSurfaces.set(descriptor.surfaceId, record);
+              windowRecord.host.notifySurfaceAttachment?.();
+            },
             attemptGeneration: requireIdentifier(
               tab.specification.attemptGeneration ?? "",
               "tab attempt generation"),
@@ -1089,7 +1047,6 @@ export class ChromiumRuntimeEffectExecutor {
           });
           signal?.addEventListener("abort", cancelOpeningSurface, { once: true });
           if (signal?.aborted) cancelOpeningSurface();
-          this.#openingWebSurfaces.set(descriptor.surfaceId, record);
           await creation;
           if (this.#tabs.get(tabId) !== tab ||
               this.#openingWebSurfaces.get(descriptor.surfaceId) !== record ||
@@ -1111,6 +1068,7 @@ export class ChromiumRuntimeEffectExecutor {
             );
           }
           this.#webSurfaces.set(descriptor.surfaceId, record);
+          this.#attachedWebSurfaces.set(descriptor.surfaceId, record);
         } catch (error) {
           try {
             await closeOpeningSurface();
@@ -1120,6 +1078,10 @@ export class ChromiumRuntimeEffectExecutor {
           }
           throw error;
         } finally {
+          if (this.#webSurfaces.get(descriptor.surfaceId) !== record &&
+              this.#attachedWebSurfaces.get(descriptor.surfaceId) === record) {
+            this.#attachedWebSurfaces.delete(descriptor.surfaceId);
+          }
           signal?.removeEventListener("abort", cancelOpeningSurface);
           if (this.#openingWebSurfaces.get(descriptor.surfaceId) === record) {
             this.#openingWebSurfaces.delete(descriptor.surfaceId);
@@ -1485,6 +1447,7 @@ export class ChromiumRuntimeEffectExecutor {
       if (this.#webSurfaces.get(surface.surfaceId) === surface) {
         this.#webSurfaces.delete(surface.surfaceId);
       }
+      this.#attachedWebSurfaces.delete(surface.surfaceId);
       if (this.#openingWebSurfaces.get(surface.surfaceId) === surface) {
         this.#openingWebSurfaces.delete(surface.surfaceId);
       }
@@ -1560,10 +1523,10 @@ export class ChromiumRuntimeEffectExecutor {
       windows: this.#windows,
       tabs: this.#tabs,
       roles: this.#roles,
-      webSurfaces: this.#webSurfaces,
+      webSurfaces: this.#projectableWebSurfaces(),
       quarantineWindows: (windowIds) => quarantineChromiumRuntimeWindows({
         ports: this.#input, roles: this.#roles, tabs: this.#tabs,
-        webSurfaces: this.#webSurfaces, windows: this.#windows, windowIds
+        webSurfaces: this.#projectableWebSurfaces(), windows: this.#windows, windowIds
       })
     });
     await this.#reconcileRolePlaceholders();
@@ -1605,7 +1568,7 @@ export class ChromiumRuntimeEffectExecutor {
       windows: this.#windows,
       tabs: this.#tabs,
       roles: this.#roles,
-      webSurfaces: this.#webSurfaces
+      webSurfaces: this.#projectableWebSurfaces()
     });
     projectChromiumRuntimeRolePlaceholderSlots(this.#tabs, action.roles);
     await this.#reconcileRolePlaceholders();
@@ -1625,13 +1588,13 @@ export class ChromiumRuntimeEffectExecutor {
       ports: this.#input,
       windows: this.#windows,
       roles: this.#roles,
-      webSurfaces: this.#webSurfaces,
+      webSurfaces: this.#projectableWebSurfaces(),
       reconcileProjection: () => this.#reconcileRolePlaceholders(),
       quarantineWindows: (windowIds) => quarantineChromiumRuntimeWindows({
         ports: this.#input,
         roles: this.#roles,
         tabs: this.#tabs,
-        webSurfaces: this.#webSurfaces,
+        webSurfaces: this.#projectableWebSurfaces(),
         windows: this.#windows,
         windowIds
       })

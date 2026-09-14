@@ -73,11 +73,13 @@ export interface RawNativeAppKitRuntimeHost {
     tabCount: number;
     activeTabId?: string;
   }>;
+  retireWorkspaceDividerGesture?: (expected: AppKitRuntimeHostIdentity, gestureId: string) => boolean;
   applyWorkspaceDividerProjection: (
     expected: AppKitRuntimeHostIdentity,
     projectionRevision: string,
     contentBounds: ChromiumRoleSurfaceBounds,
-    dividers: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[]
+    dividers: readonly AppKitRuntimeWorkspaceDividerLayoutRecord[],
+    background: "material" | "black"
   ) => Readonly<{
     projectionRevision: string;
     dividerCount: number;

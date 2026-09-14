@@ -440,6 +440,7 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.resolvePaths).not.toHaveBeenCalled();
     expect(subject.createSurface).not.toHaveBeenCalled();
     expect(subject.createWebSurface).toHaveBeenCalledWith({
+      onAttached: expect.any(Function),
       attemptGeneration: "web-tab-1-attempt-1", surfaceId: "web-surface-1",
       slotId: "web-slot-1",
       generation: 1,
@@ -917,8 +918,8 @@ describe("Electron Chromium runtime effect executor", () => {
     expect(subject.executor.snapshot().roles).toEqual([]);
   });
 
-  it("retires an opening Web surface when Core cancels its event-bound load", async () => {
-    const subject = harness();
+  it.each(["macos", "windows"] as const)("retires attached loading Web evidence on cancellation on %s", async (platform) => {
+    const subject = harness(undefined, platform);
     let rejectCreation!: (error: unknown) => void;
     subject.createWebSurface.mockImplementationOnce(() =>
       new Promise((_resolve, reject) => {
@@ -955,7 +956,16 @@ describe("Electron Chromium runtime effect executor", () => {
     );
     await vi.waitFor(() => expect(subject.createWebSurface).toHaveBeenCalledOnce());
 
+    expect(subject.executor.attachedWebSurfaceObservations(specification.target.windowId)).toEqual([]);
+    const attached = subject.createWebSurface.mock.calls[0]![0].onAttached!;
+    attached();
+    expect(subject.executor.attachedWebSurfaceObservations(specification.target.windowId)).toEqual([
+      expect.objectContaining({ surfaceId: "web-surface-1", surfaceGeneration: 1,
+        tabId: specification.tabId, attemptGeneration: specification.attemptGeneration })
+    ]);
     controller.abort("coreCancelled");
+    attached();
+    expect(subject.executor.attachedWebSurfaceObservations(specification.target.windowId)).toEqual([]);
 
     const admitted = await loading;
     if (!isCoreEffectEventContinuation(admitted)) throw new Error("missing Web load continuation");

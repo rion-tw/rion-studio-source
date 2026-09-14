@@ -781,6 +781,7 @@ export async function movePointerToWindowsRuntimeContent(windowId: string): Prom
 export async function dragWindowsVisibleWorkspaceDivider(
   mainWindowHandle: string,
   input: Readonly<{
+    whileDragging?: () => Promise<void>;
     axis: "horizontal" | "vertical";
     dividerIndex: number;
     deltaCssPixels?: number;
@@ -867,14 +868,14 @@ public static class RionWorkspaceDividerDrag {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
-  public static void Drag(Point start, Point end) {
+  public static void Drag(Point start, Point end, bool held) {
     if (!SetCursorPos(start.x, start.y)) throw new InvalidOperationException("divider start placement failed");
     mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
     Thread.Sleep(16);
     if (!SetCursorPos(end.x, end.y)) throw new InvalidOperationException("divider end placement failed");
     mouse_event(0x0001, 0, 0, 0, UIntPtr.Zero);
     Thread.Sleep(16);
-    mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+    if (!held) mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
   }
 }
 '@
@@ -901,13 +902,14 @@ if (-not [RionWorkspaceDividerDrag]::ClientToScreen($handle, [ref]$start) -or
     -not [RionWorkspaceDividerDrag]::ClientToScreen($handle, [ref]$end)) {
   throw 'exact divider client coordinates could not be mapped to screen'
 }
-[RionWorkspaceDividerDrag]::Drag($start, $end)
+[RionWorkspaceDividerDrag]::Drag($start, $end, [bool]$payload.held)
 $actual = New-Object RionWorkspaceDividerDrag+Point
 if (-not [RionWorkspaceDividerDrag]::GetCursorPos([ref]$actual) -or
     $actual.x -ne $end.x -or $actual.y -ne $end.y) {
   throw 'exact divider endpoint was not preserved'
 }
 `, {
+      held: Boolean(input.whileDragging),
       endX: startX + (exactAxis === "vertical" ? deltaCssPixels : 0),
       endY: startY + (exactAxis === "horizontal" ? deltaCssPixels : 0),
       nativeWindowHandle,
@@ -915,6 +917,20 @@ if (-not [RionWorkspaceDividerDrag]::GetCursorPos([ref]$actual) -or
       startX,
       startY
     }, { timeoutMilliseconds: 10_000 });
+    if (input.whileDragging) {
+      try { await input.whileDragging(); }
+      finally {
+        await runEncodedPowerShellJson(String.raw`
+Add-Type @'
+using System; using System.Runtime.InteropServices;
+public static class DividerRelease {
+ [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e);
+}
+'@
+[DividerRelease]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+`, {}, { timeoutMilliseconds: 10_000 });
+      }
+    }
     await browser.waitUntil(async () =>
       (await divider.getAttribute("data-dragging")) !== "true", {
       timeout: 10_000,

@@ -99,7 +99,7 @@ export type {
   RawNativeAppKitRuntimeHost
 } from "./macosAppKitRuntimePorts";
 
-export const RION_APPKIT_RUNTIME_ABI_VERSION = 10;
+export const RION_APPKIT_RUNTIME_ABI_VERSION = 11;
 const MAX_NATIVE_EVENT_BYTES = 96 * 1024;
 function requireNativeController(
   record: HostRecord,
@@ -280,6 +280,12 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       identity: Object.freeze({ ...record.identity }),
       name: record.windowName
     });
+  }
+
+  retireWorkspaceDividerGesture(expected: AppKitRuntimeHostIdentityRecord, gestureId: string): void {
+    const record = this.#activeByLogicalWindow.get(expected.logicalWindowId);
+    if (!record || record.state !== "active" || !matchesMacosAppKitHostIdentity(expected, record.identity)) return;
+    record.controller?.retireWorkspaceDividerGesture?.(record.identity, gestureId);
   }
 
   quarantineHost(
@@ -567,6 +573,9 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       appKitIdentity: identity,
       nativeWindow: native,
       contentView: native.contentView,
+      notifySurfaceAttachment: () => this.#input.onLayout?.({
+        identity: record.identity, hosts: [this.#snapshotObservation(record)]
+      }),
       close: () => this.#close(record as HostRecord),
       focus: () => this.#withCurrent(record as HostRecord, () => {
         const current = record as HostRecord;
@@ -976,12 +985,13 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         record.windowGeneration === projection.windowGeneration &&
         record.topologyRevision === projection.topologyRevision &&
         record.lastAdapterSequence === projection.adapterSequence,
-      apply: (revision, contentBounds, dividers) =>
+      apply: (revision, contentBounds, dividers, background) =>
         controller.applyWorkspaceDividerProjection(
           record.identity,
           revision,
           contentBounds,
-          dividers
+          dividers,
+          background
         )
     });
   }
@@ -1290,13 +1300,13 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
     record: HostRecord,
     captured?: MacosAppKitCapturedWindowState
   ): AppKitRuntimeHostObservationRecord {
-    return snapshotMacosAppKitRuntimeHostObservation({
+    return { ...snapshotMacosAppKitRuntimeHostObservation({
       ...(captured ? { captured } : {}),
       contentBounds: this.#projectContentBounds(record),
       current: this.#isExactOwner(record),
       displays: this.#input.displays,
       record
-    });
+    }), attachedWebSurfaces: this.#input.attachedWebSurfaces?.(record.identity.logicalWindowId) ?? [] };
   }
 
   #contentBounds(record: HostRecord): ChromiumRoleSurfaceBounds {

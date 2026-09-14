@@ -95,6 +95,7 @@ export interface ChromiumRuntimeResolvedWorkspaceLayout {
     axis: "horizontal" | "vertical";
     bounds: ChromiumRoleSurfaceBounds;
     index: number;
+    resizeIndicators?: import("../../shared/generated").WorkspaceResizeIndicatorRecord[];
   }>[];
   readonly roles: ReadonlyMap<string, ChromiumRoleSurfaceBounds>;
   readonly visible: boolean;

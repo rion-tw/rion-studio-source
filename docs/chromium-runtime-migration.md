@@ -93,7 +93,33 @@ safe-dialog protection remains enabled for every privileged and unprivileged
 content surface.
 
 
-The active runtime contract is version 36. Version 23 remains the first
+Workspace presentation in v38 uses AppKit ABI 11. Native attachment and network
+readiness are separate events: paired Website content and local chrome publish
+attachment with exact tab, slot, attempt, surface generation, and host evidence.
+Core resolves all slots but projects only attached surfaces. Bounds, visibility,
+and zoom are valid during loading; navigation retains its readiness fence. Late
+load completion cannot restore launch-time selection, geometry, or visibility.
+Cancellation revokes attachment evidence immediately, and both failed and
+cancelled mounts require exact native retirement before another attempt.
+
+Chromium v38/AppKit ABI 11 carries the complete workspace background with each
+window projection. A retained native underlay covers the content area, and each
+native gap paints the same background above Chromium's potentially stale host
+backing store. Black uses an opaque native fill; material uses native visual
+effects. AppKit converts Core's top-left coordinates into the content view's
+coordinate system. Windows retains its local host background. Background,
+bounds, visibility, and divider changes participate in the existing projection
+compensation. All inactive Role, Website content, and chrome surfaces are hidden.
+
+Core also supplies divider-linked surface bounds and labels derived from accepted
+normalized dimensions, formatted as `33.3% × 50%` (at most one decimal). AppKit
+uses native, input-transparent labels; Windows uses an input-transparent local
+child presentation window. Only affected slots show labels, centered 16 DIP below
+their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
+and supersede retire the presentation. Exact gesture and paint revisions prevent
+late events from reviving it. These changes do not alter portable or SQLite schemas.
+
+The active runtime contract is version 38. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new

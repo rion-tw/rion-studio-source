@@ -1017,6 +1017,44 @@ describe("Electron Chromium global Web surface registry", () => {
     expect(subject.sessions.activeSurfaceCount).toBe(0);
   });
 
+  it.each(["cancel", "failure"] as const)("revokes a %s before mount and fences late events from a retry", async (outcome) => {
+    const gate = controlledPromise<void>();
+    let attempt = 0;
+    const attached = vi.fn();
+    const subject = harness({
+      attachNonInputSurface: async (input) => {
+        if (attempt++ === 0) await gate.promise;
+        if (input.isCancelled()) throw new Error("cancelled attachment");
+        input.attach();
+      },
+      detachNonInputSurface: async () => undefined
+    });
+    const input = { ...subject.input(), onAttached: attached };
+    const created = subject.surfaces.create(input);
+    const failed = expect(created).rejects.toBeDefined();
+    expect(() => subject.surfaces.setVisible(input.surfaceId, 1, false)).toThrow();
+    expect(attached).not.toHaveBeenCalled();
+    const old = subject.views[0]!.webContents;
+    const close = outcome === "cancel" ? subject.surfaces.closeSurface(input.surfaceId, 1) : null;
+    void close?.catch(() => undefined);
+    if (outcome === "failure") gate.reject(new Error("native mount rejected"));
+    else gate.resolve();
+    await vi.waitFor(() => expect(old.closeOptions.length).toBeGreaterThan(0));
+    old.destroy();
+    await failed;
+    if (close) await close;
+    else await subject.surfaces.closeSurface(input.surfaceId, 1);
+    expect(attached).not.toHaveBeenCalled();
+    const retry = subject.surfaces.create({ ...input, generation: 2 });
+    await vi.waitFor(() => expect(attached).toHaveBeenCalledOnce());
+    subject.surfaces.setVisible(input.surfaceId, 2, false);
+    old.finish(input.url);
+    expect(() => subject.surfaces.readProjection(input.surfaceId, 1)).toThrow();
+    subject.views[1]!.webContents.finish(input.url);
+    await retry;
+    expect(subject.surfaces.readProjection(input.surfaceId, 2).visible).toBe(false);
+  });
+
   it("serializes AppKit non-input attachment before navigation and retirement", async () => {
     const nativeOrder: string[] = [];
     let attachment: ChromiumGlobalWebNativeAttachmentInput | undefined;

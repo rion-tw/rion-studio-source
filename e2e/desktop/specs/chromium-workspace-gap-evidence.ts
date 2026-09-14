@@ -1,0 +1,59 @@
+import { browser, expect } from "@wdio/globals";
+import { captureWorkspacePixels } from "../support/workspace-pixels";
+import { switchTrackedWindow } from "../support/electron-role-surface";
+import type { ElectronDesktopE2eFullscreenToolbarRuntimeInspection as Inspection } from "../support/electron-driver";
+
+/** Deterministic paint is a precondition; activation and resize still use native UI. */
+export async function paintWorkspaceTargets(main: string, color: string, only?: Set<string>): Promise<void> {
+  for (const handle of await browser.getWindowHandles()) {
+    if (handle === main || (only && !only.has(handle))) continue;
+    await switchTrackedWindow(handle);
+    await browser.execute((color) => {
+      if (document.querySelector("#location, [data-runtime-tabs]")) return;
+      let paint = document.getElementById("workspace-gap-paint");
+      if (!paint) { paint = document.createElement("div"); paint.id = "workspace-gap-paint"; document.body.append(paint); }
+      paint.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:2147483647;background:${color}`;
+    }, color);
+  }
+  await switchTrackedWindow(main);
+}
+
+export async function expectWorkspacePixels(input: {
+  inspection: Inspection; tabId: string; name: string; background: "black" | "material";
+  indicators?: "horizontal" | "vertical";
+}): Promise<void> {
+  const surfaces = input.inspection.surfaces.filter(s => s.tabId === input.tabId);
+  const main = surfaces.reduce((a, b) => a.bounds.x < b.bounds.x ? a : b).bounds;
+  const right = surfaces.filter(s => s.bounds.x > main.x).sort((a,b) => a.bounds.y-b.bounds.y);
+  const top = right[0]!.bounds, bottom = right[1]!.bounds;
+  const gapX = top.x - (main.x + main.width), gapY = bottom.y - (top.y + top.height);
+  const points = Array.from({ length: 9 }, (_, i) => ({
+    x: main.x + main.width + gapX / 2,
+    y: main.y + main.height * (i + 1) / 10
+  })).concat(Array.from({ length: 9 }, (_, i) => ({
+    x: top.x + top.width * (i + 1) / 10, y: top.y + top.height + gapY / 2
+  })));
+  const gapSampleCount = points.length;
+  if (input.name !== "gap-restart") points.push(...surfaces.map(surface => ({
+    x: surface.bounds.x + surface.bounds.width / 2,
+    y: surface.bounds.y + surface.bounds.height / 2
+  })));
+  const result = await captureWorkspacePixels({ inspection: input.inspection,
+    reference: { x: main.x+main.width, y: main.y, width: gapX, height: main.height },
+    region: { x: main.x, y: main.y, width: top.x+top.width-main.x, height: main.height },
+    points, name: input.name });
+  for (const [r,g,b] of result.samples.slice(0, gapSampleCount)) {
+    // Color differences tolerate macOS display-profile conversion while identifying
+    // both saturated surface paints; neither may remain in a gap.
+    expect(r! > 180 && b! > 180 && r! - g! > 100 && b! - g! > 100).toBe(false);
+    expect(g! > 180 && b! > 180 && g! - r! > 100 && b! - r! > 100).toBe(false);
+    if (input.background === "black") expect(Math.max(r!,g!,b!)).toBeLessThanOrEqual(8);
+  }
+  for (const [r,g,b] of result.samples.slice(gapSampleCount)) {
+    expect(r! > 180 && b! > 180 && r! - g! > 100 && b! - g! > 100).toBe(true);
+  }
+  const slots = input.inspection.workspaceTabs.find(t => t.tabId === input.tabId)!.slots;
+  const expected = input.indicators ? slots.filter(slot => input.indicators === "vertical" || slot.rect.x > 0)
+    .map(slot => `${Math.round(slot.rect.width*1000)/10}% × ${Math.round(slot.rect.height*1000)/10}%`).sort() : [];
+  expect(result.labels.sort()).toEqual(expected);
+}

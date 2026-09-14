@@ -34,6 +34,7 @@ export interface MacosAppKitRuntimeHostFactoryInput {
   readonly onHostClosing?: (
     binding: MacosAppKitInputHostBinding
   ) => Promise<void>;
+  readonly attachedWebSurfaces?: (windowId: string) => import("../../shared/generated").AppKitAttachedWebSurfaceRecord[];
   readonly onLayout?: (event: AppKitRuntimeLayoutEvent) => void;
 }
 

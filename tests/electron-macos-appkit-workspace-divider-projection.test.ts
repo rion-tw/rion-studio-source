@@ -44,6 +44,7 @@ function projection(
       bounds,
       visible: true
     }],
+    workspaceAppearance: { background: "material" as const, gap: 1 as const },
     windowVisible: true
   };
 }
@@ -72,8 +73,8 @@ describe("macOS retained AppKit workspace-divider projection", () => {
         dividerIndex: 0,
         axis: "vertical",
         bounds: { x: 478, y: 40, width: 4, height: 640 }
-      })]],
-      ["2", contentBounds, []]
+      })], "material"],
+      ["2", contentBounds, [], "material"]
     ]);
     expect(state).toMatchObject({
       nativeRevision: 2,
@@ -142,7 +143,7 @@ describe("macOS retained AppKit workspace-divider projection", () => {
       apply
     }).commit();
 
-    expect(apply).toHaveBeenCalledExactlyOnceWith("1", contentBounds, dividers);
+    expect(apply).toHaveBeenCalledExactlyOnceWith("1", contentBounds, dividers, "material");
     expect(state.dividers).toEqual(dividers);
   });
 

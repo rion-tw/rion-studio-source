@@ -124,7 +124,8 @@ function validateOutput(
     return Object.freeze({
       axis: descriptor.axis,
       bounds: Object.freeze({ ...divider.bounds }),
-      index: divider.index
+      index: divider.index,
+      resizeIndicators: divider.resizeIndicators
     });
   });
   if (dividers.length !== descriptors.length) {

@@ -350,6 +350,7 @@ print("\\(settled.x),\\(settled.y)")
 /** Drags the retained native NSSplitter hit surface with platform CGEvents. */
 export async function dragMacosVisibleWorkspaceDivider(
   input: Readonly<{
+    whileDragging?: () => Promise<void>;
     axis: "horizontal" | "vertical";
     dividerIndex: number;
     deltaScreenPixels?: number;
@@ -542,8 +543,8 @@ warp(end)
 CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged,
   mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
 usleep(200_000)
-CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
-  mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+${input.whileDragging ? "" : `CGEvent(mouseEventSource: source, mouseType: .leftMouseUp,
+  mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)`}
 usleep(100_000)
 guard let settled = CGEvent(source: nil)?.location else {
   fatalError("system pointer readback unavailable")
@@ -554,6 +555,14 @@ print("\\(settled.x),\\(settled.y)")
     encoding: "utf8",
     timeout: 30_000
   });
+  if (input.whileDragging) {
+    try { await input.whileDragging(); }
+    finally {
+      await executeFile("/usr/bin/xcrun", ["swift", "-e", `import CoreGraphics
+CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: .leftMouseUp,
+  mouseCursorPosition: CGPoint(x: ${endX}, y: ${endY}), mouseButton: .left)?.post(tap: .cghidEventTap)`], { timeout: 30_000 });
+    }
+  }
   const settled = result.stdout.trim().split(",").map(Number);
   if (
     settled.length !== 2 || settled.some((value) => !Number.isFinite(value)) ||

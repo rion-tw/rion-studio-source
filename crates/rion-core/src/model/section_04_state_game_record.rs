@@ -730,6 +730,9 @@ pub struct LayoutRoleBounds {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct LayoutDividerBounds {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resize_indicators: Option<Vec<WorkspaceResizeIndicatorRecord>>,
     pub index: u32,
     pub bounds: LayoutBounds,
 }

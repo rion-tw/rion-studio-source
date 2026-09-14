@@ -1,10 +1,48 @@
 NS_ASSUME_NONNULL_BEGIN
 
+@interface RionWorkspaceBlackBackground : NSView
+@end
+@implementation RionWorkspaceBlackBackground
+- (BOOL)isOpaque { return YES; }
+- (void)drawRect:(NSRect)dirtyRect {
+  [NSColor.blackColor setFill];
+  NSRectFill(NSIntersectionRect(dirtyRect, self.bounds));
+}
+- (nullable NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+@end
+
+@interface RionWorkspaceMaterialBackground : NSVisualEffectView
+@end
+@implementation RionWorkspaceMaterialBackground
+- (nullable NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+@end
+
+@interface RionWorkspaceResizeLabelCell : NSTextFieldCell
+@end
+@implementation RionWorkspaceResizeLabelCell
+- (NSRect)drawingRectForBounds:(NSRect)bounds {
+  NSRect rect = [super drawingRectForBounds:NSInsetRect(bounds, 10, 0)];
+  CGFloat height = MIN(self.cellSize.height, NSHeight(bounds));
+  rect.origin.y = NSMidY(bounds) - height / 2;
+  rect.size.height = height;
+  return rect;
+}
+@end
+
+@interface RionWorkspaceResizeLabel : NSTextField
+@end
+@implementation RionWorkspaceResizeLabel
+- (nullable NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (BOOL)acceptsFirstResponder { return NO; }
+@end
+
+
 typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
     NSDictionary<NSString *, id> *action);
 
 @interface RionRuntimeWorkspaceDividerOverlayView
     : NSView <NSAccessibilityGroup>
+@property(nonatomic) NSPoint layoutOrigin;
 @end
 
 @interface RionRuntimeWorkspaceDividerView : NSView
@@ -20,6 +58,8 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 - (void)applyProjection:(NSDictionary<NSString *, id> *)projection
              localFrame:(NSRect)localFrame;
 - (void)cancelActiveGesture;
+- (void)retireGesture:(NSString *)gestureID;
+- (void)applyBackground:(NSString *)background;
 - (void)mouseDraggedAtOverlayPoint:(NSPoint)point;
 
 @end
@@ -29,6 +69,7 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
 - (instancetype)initWithFrame:(NSRect)frameRect {
   self = [super initWithFrame:frameRect];
   if (self) {
+    self.wantsLayer = YES;
     self.accessibilityElement = YES;
     self.accessibilityRole = NSAccessibilityGroupRole;
     self.accessibilityLabel = @"Workspace layout controls";
@@ -61,7 +102,8 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   for (NSView *subview in self.subviews.reverseObjectEnumerator) {
     if (!subview.hidden && NSPointInRect(point, subview.frame)) {
       NSPoint local = [subview convertPoint:point fromView:self];
-      return [subview hitTest:local];
+      NSView *hit = [subview hitTest:local];
+      if (hit) return hit;
     }
   }
   return nil;
@@ -81,6 +123,10 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   BOOL _gestureActive;
   RionRuntimeWorkspaceDividerActionHandler _actionHandler;
   NSTrackingArea *_trackingArea;
+  NSArray<NSDictionary *> *_resizeIndicators;
+  RionWorkspaceBlackBackground *_blackBackground;
+  RionWorkspaceMaterialBackground *_materialBackground;
+  NSMutableArray<NSView *> *_indicatorViews;
 }
 
 - (instancetype)initWithProjectionKey:(NSString *)projectionKey
@@ -90,6 +136,7 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   self = [super initWithFrame:NSZeroRect];
   if (!self) return nil;
   _projectionKey = [projectionKey copy];
+  _indicatorViews = [NSMutableArray array];
   _windowID = [windowID copy];
   _actionHandler = [actionHandler copy];
   self.wantsLayer = YES;
@@ -123,6 +170,10 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   return [_axis isEqualToString:@"vertical"]
       ? @"Resize workspace columns"
       : @"Resize workspace rows";
+}
+
+- (nullable NSArray *)accessibilityChildren {
+  return NSAccessibilityUnignoredChildren(_indicatorViews);
 }
 
 - (nullable id)accessibilityParent {
@@ -164,6 +215,66 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   self.frame = localFrame;
   self.hidden = ![projection[@"visible"] boolValue];
   self.accessibilityValue = @(_dividerIndex);
+  _resizeIndicators = [projection[@"resizeIndicators"] copy];
+  if (self.hidden) [self cancelActiveGesture];
+  [self updateResizeIndicators];
+}
+
+- (void)applyBackground:(NSString *)background {
+  if (!_blackBackground) {
+    _blackBackground = [[RionWorkspaceBlackBackground alloc] initWithFrame:self.bounds];
+    _blackBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _blackBackground.wantsLayer = YES;
+    _blackBackground.clipsToBounds = YES;
+    [self addSubview:_blackBackground positioned:NSWindowBelow relativeTo:nil];
+    _materialBackground = [[RionWorkspaceMaterialBackground alloc] initWithFrame:self.bounds];
+    _materialBackground.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _materialBackground.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+    _materialBackground.material = NSVisualEffectMaterialUnderWindowBackground;
+    [self addSubview:_materialBackground positioned:NSWindowBelow relativeTo:nil];
+  }
+  BOOL black = [background isEqualToString:@"black"];
+  _blackBackground.hidden = !black;
+  _materialBackground.hidden = black;
+  [_blackBackground setNeedsDisplay:YES];
+}
+
+- (void)updateResizeIndicators {
+  for (NSView *view in _indicatorViews) [view removeFromSuperview];
+  [_indicatorViews removeAllObjects];
+  if (!_gestureActive || !self.superview || self.hidden) return;
+  NSPoint origin = ((RionRuntimeWorkspaceDividerOverlayView *)self.superview).layoutOrigin;
+  for (NSDictionary *indicator in _resizeIndicators) {
+    NSDictionary *bounds = indicator[@"bounds"];
+    RionWorkspaceResizeLabel *label = [[RionWorkspaceResizeLabel alloc] initWithFrame:NSZeroRect];
+    label.cell = [[RionWorkspaceResizeLabelCell alloc] initTextCell:indicator[@"label"]];
+    label.stringValue = indicator[@"label"];
+    label.editable = NO;
+    label.selectable = NO;
+    label.bezeled = NO;
+    label.drawsBackground = NO;
+    label.textColor = [NSColor colorWithCalibratedWhite:0.98 alpha:1.0];
+    label.alignment = NSTextAlignmentCenter;
+    label.font = [NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightSemibold];
+    label.wantsLayer = YES;
+    label.layer.backgroundColor = [NSColor colorWithCalibratedRed:0.07 green:0.085 blue:0.12 alpha:0.94].CGColor;
+    label.layer.cornerRadius = 8;
+    label.layer.borderWidth = 0.5;
+    label.layer.borderColor = [NSColor colorWithCalibratedWhite:1 alpha:0.2].CGColor;
+    label.layer.masksToBounds = YES;
+    label.accessibilityElement = YES;
+    label.accessibilityParent = self;
+    label.accessibilityRole = NSAccessibilityStaticTextRole;
+    label.accessibilityLabel = @"Workspace size ratio";
+    [label sizeToFit];
+    CGFloat width = MIN(label.frame.size.width + 20, [bounds[@"width"] doubleValue]);
+    CGFloat height = MIN(28, [bounds[@"height"] doubleValue]);
+    CGFloat x = [bounds[@"x"] doubleValue] - origin.x + ([bounds[@"width"] doubleValue] - width) / 2;
+    CGFloat y = [bounds[@"y"] doubleValue] - origin.y + MIN(16, MAX(0, [bounds[@"height"] doubleValue] - height));
+    label.frame = NSMakeRect(x, y, width, height);
+    [self.superview addSubview:label positioned:NSWindowAbove relativeTo:nil];
+    [_indicatorViews addObject:label];
+  }
 }
 
 - (void)emitPhase:(NSString *)phase
@@ -194,6 +305,7 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   _gestureID = NSUUID.UUID.UUIDString.lowercaseString;
   _pointerSequence = 0;
   _gestureActive = YES;
+  [self updateResizeIndicators];
   [self emitPhase:@"start" requestedPosition:nil];
 }
 
@@ -226,6 +338,7 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   [self emitPhase:@"end" requestedPosition:nil];
   _gestureActive = NO;
   _gestureID = nil;
+  [self updateResizeIndicators];
 }
 
 - (void)cancelOperation:(nullable id)sender {
@@ -233,11 +346,19 @@ typedef void (^RionRuntimeWorkspaceDividerActionHandler)(
   [self cancelActiveGesture];
 }
 
+- (void)retireGesture:(NSString *)gestureID {
+  if (![_gestureID isEqualToString:gestureID]) return;
+  _gestureActive = NO;
+  _gestureID = nil;
+  [self updateResizeIndicators];
+}
+
 - (void)cancelActiveGesture {
   if (!_gestureActive) return;
   [self emitPhase:@"cancel" requestedPosition:nil];
   _gestureActive = NO;
   _gestureID = nil;
+  [self updateResizeIndicators];
 }
 
 - (void)viewWillMoveToWindow:(nullable NSWindow *)newWindow {
@@ -332,12 +453,14 @@ RionRuntimeValidatedWorkspaceDividerProjection(id rawProjection) {
   if (![rawProjection isKindOfClass:NSDictionary.class]) return nil;
   NSDictionary<NSString *, id> *projection = rawProjection;
   if (!RionRuntimeWorkspaceDividerExactKeys(
-          projection, @[ @"contentBounds", @"dividers" ])) {
+          projection, @[ @"contentBounds", @"dividers", @"background" ])) {
     return nil;
   }
   NSDictionary<NSString *, NSNumber *> *contentBounds =
       RionRuntimeWorkspaceDividerBounds(projection[@"contentBounds"], YES);
   NSArray *rawDividers = projection[@"dividers"];
+  NSString *background = projection[@"background"];
+  if (![@[ @"material", @"black" ] containsObject:background]) return nil;
   if (!contentBounds || ![rawDividers isKindOfClass:NSArray.class] ||
       rawDividers.count > 128) {
     return nil;
@@ -356,7 +479,7 @@ RionRuntimeValidatedWorkspaceDividerProjection(id rawProjection) {
     NSDictionary<NSString *, id> *divider = rawDivider;
     if (!RionRuntimeWorkspaceDividerExactKeys(
             divider, @[ @"tabId", @"attemptGeneration", @"dividerIndex",
-                        @"axis", @"bounds", @"visible" ])) {
+                        @"axis", @"bounds", @"visible", @"resizeIndicators" ])) {
       return nil;
     }
     NSString *tabID = divider[@"tabId"];
@@ -385,7 +508,18 @@ RionRuntimeValidatedWorkspaceDividerProjection(id rawProjection) {
         maxY > contentMaxY) {
       return nil;
     }
+    NSArray *indicators = divider[@"resizeIndicators"];
+    if (![indicators isKindOfClass:NSArray.class] || indicators.count > 128) return nil;
+    for (NSDictionary *indicator in indicators) {
+      if (![indicator isKindOfClass:NSDictionary.class] ||
+          !RionRuntimeWorkspaceDividerExactKeys(indicator, @[ @"surfaceId", @"label", @"bounds" ]) ||
+          !RionRuntimeWorkspaceDividerIdentifier(indicator[@"surfaceId"]) ||
+          ![indicator[@"label"] isKindOfClass:NSString.class] ||
+          [indicator[@"label"] length] == 0 || [indicator[@"label"] length] > 40 ||
+          !RionRuntimeWorkspaceDividerBounds(indicator[@"bounds"], YES)) return nil;
+    }
     NSDictionary<NSString *, id> *canonical = @{
+      @"resizeIndicators" : indicators,
       @"tabId" : tabID,
       @"attemptGeneration" : attempt,
       @"dividerIndex" : @(index),
@@ -398,7 +532,7 @@ RionRuntimeValidatedWorkspaceDividerProjection(id rawProjection) {
     [keys addObject:key];
     [dividers addObject:canonical];
   }
-  return @{ @"contentBounds" : contentBounds,
+  return @{ @"contentBounds" : contentBounds, @"background" : background,
             @"dividers" : [dividers copy] };
 }
 

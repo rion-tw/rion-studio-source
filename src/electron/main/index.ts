@@ -1,3 +1,5 @@
+import { requireChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
+import { createWindowsRuntimeWindows } from "./windowsWorkspaceResizeIndicators";
 import { coreRendererPublishers } from "./coreRendererPublishers";
 import "./startScheme";
 import { sharedUserDataDirectory } from "./electronUserDataDirectory";
@@ -67,7 +69,6 @@ import {
 } from "./macosRuntimeWindowPreferencesMenu";
 import type { ChromiumRoleWebContentsViewPort } from "./chromiumRoleSurfacePorts";
 import type {
-  WindowsRuntimeHostWindowPort,
   WindowsRuntimeShortcutOwnerDiagnostic
 } from "./chromiumRuntimeHostFactory";
 import { MacosAppKitChromiumRuntimeHostFactory,
@@ -219,10 +220,7 @@ async function createCore(userDataDir: string): Promise<CoreAddonClient> {
   nativeAddon = initialized.addon;
   return initialized.core;
 }
-
-function loadNativeAddon(): LoadedRionNodeAddon {
-  return loadElectronNativeAddon(app.isPackaged, process.resourcesPath);
-}
+const loadNativeAddon = () => loadElectronNativeAddon(app.isPackaged, process.resourcesPath);
 
 function createMacosAppKitAdapter(
   addon: LoadedRionNodeAddon,
@@ -237,6 +235,7 @@ function createMacosAppKitAdapter(
     let hostFactory: MacosAppKitChromiumRuntimeHostFactory | null = null;
     const eventBridge = new MacosAppKitRuntimeEventBridge({
       core: coreClient,
+      onDividerTerminal: (id, gesture) => hostFactory?.retireWorkspaceDividerGesture(id, gesture),
       preparePassiveEventDispatch: async (capturedHosts) => {
         await chromiumRuntime?.settleCurrentApplicationEffects();
         if (!hostFactory) {
@@ -255,7 +254,7 @@ function createMacosAppKitAdapter(
       addon,
       BaseWindow,
       {
-            displays: { displayMatching },
+        displays: { displayMatching },
         onAction: (event) => {
           logMacosAppKitWindowPlacement(runtimeLogs, event);
           eventBridge.receiveAction(event);
@@ -271,6 +270,8 @@ function createMacosAppKitAdapter(
           }
           return attachments.closeHost(binding);
         },
+        attachedWebSurfaces: id =>
+          chromiumRuntime?.attachedWebSurfaceObservations(id) ?? [],
         onLayout: (event) => eventBridge.receiveLayout(event),
         onError: revealShellError,
         lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1
@@ -467,6 +468,7 @@ function revealShellError(error: ReturnType<typeof normalizeRionBridgeError>): v
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
   if (mainIdentity) ipcBridge?.publish(mainIdentity, "onShellError", error);
 }
+
 async function disposeShellAfterFatalTermination(): Promise<void> {
   disposeOperationalLogHooks?.(); disposeOperationalLogHooks = null;
   quickMenu?.dispose(); quickMenu = null;
@@ -480,6 +482,7 @@ async function disposeShellAfterFatalTermination(): Promise<void> {
   ipcBridge?.dispose(); ipcBridge = null;
   await runtimeLogs.dispose();
 }
+
 function fatalTerminationCoordinator(): ElectronFatalTerminationCoordinator {
   return fatalTermination ??= new ElectronFatalTerminationCoordinator({
     lifecycle: () => lifecycle, runtime: () => chromiumRuntime, core: () => core,
@@ -606,16 +609,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   }
   return window;
 }
-
-function readChromiumRuntimeSnapshot() {
-  if (!chromiumRuntime) {
-    throw new RionBridgeError({
-      code: "ELECTRON_CHROMIUM_RUNTIME_UNAVAILABLE",
-      message: "The Chromium runtime is unavailable for app snapshot projection."
-    });
-  }
-  return chromiumRuntime.snapshot();
-}
+const readChromiumRuntimeSnapshot = () => requireChromiumRuntimeSnapshot(chromiumRuntime);
 
 async function readAppSnapshot() {
   await chromiumRuntime?.settleCurrentApplicationEffects();
@@ -917,13 +911,8 @@ async function bootstrapReadyPhase(
     ...(runtimePlatform === "win32"
       ? {
           windows: {
-            browserWindows: {
-              create: (options: Electron.BrowserWindowConstructorOptions) =>
-                new BrowserWindow({
-                  ...options,
-                  ...(applicationIcon ? { icon: applicationIcon.path } : {})
-                }) as unknown as WindowsRuntimeHostWindowPort
-            },
+            browserWindows: createWindowsRuntimeWindows(BrowserWindow, applicationIcon?.path,
+              (error) => revealShellError(normalizeRionBridgeError(error, "ELECTRON_WORKSPACE_RESIZE_PRESENTATION_FAILED"))),
         displays: { displayMatching },
             displayTopology: () => activeDisplayTopology().snapshot(),
             lifecycleEpoch: () => applicationLifecycle?.lifecycleEpoch ?? 1,

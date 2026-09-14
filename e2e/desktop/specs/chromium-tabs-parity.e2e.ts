@@ -369,6 +369,13 @@ async function launchRoleIntoWindow(
         })).toBe("loading");
       }
       if (loading.previousTab) {
+        // Clicking the already-selected loading tab must apply only its mounted native surfaces.
+        if (loading.platform === "macos") {
+          await clickVisibleRuntimeTab({ ...loading, tabId: tabId!, tabName: role.name });
+        } else {
+          await activateWindowsRuntimeTabWhileLoading({ processId: processId!,
+            loadingTabName: role.name, selectedTabName: role.name });
+        }
         if (loading.platform === "macos") {
           await pressVisibleMacosApplicationShortcut({ command: "nextTab", processId: processId!,
             runtimeTabName: role.name, targetMode: "focused-runtime" });

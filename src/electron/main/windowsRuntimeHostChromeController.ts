@@ -57,6 +57,7 @@ interface Deferred<Value> {
 }
 
 interface ActiveWorkspaceDividerGesture {
+  indicatorsRetired?: boolean;
   readonly attemptGeneration: string;
   readonly dividerIndex: number;
   readonly gestureId: string;
@@ -98,6 +99,7 @@ function nativePresentation(
  * lane. It never commits Core state; only the requesting Rust effect may do so.
  */
 export class WindowsRuntimeHostChromeController {
+  readonly #resizeIndicators: import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort | undefined;
   readonly #windowId: string;
   readonly #documentUrl: string;
   readonly #native: WindowsRuntimeHostChromeNativePort;
@@ -130,8 +132,10 @@ export class WindowsRuntimeHostChromeController {
   #tabs: ChromiumRuntimeWindowChromeProjection["tabs"] = Object.freeze([]);
   #moveTargets: readonly WindowsRuntimeHostMoveTargetProjection[] = Object.freeze([]);
   #contentBounds: ChromiumRuntimeWindowChromeProjection["contentBounds"] | null = null;
+  #workspaceBackground: "material" | "black" = "material";
   #workspaceDividers: readonly WindowsRuntimeWorkspaceDividerProjection[] =
     Object.freeze([]);
+  readonly #endedIndicatorGestures = new Set<string>();
   readonly #dividerGestures = new Map<string, ActiveWorkspaceDividerGesture>();
   #layoutObserver: (() => Promise<void>) | null = null;
   #layoutLane: Promise<void> = Promise.resolve();
@@ -168,8 +172,10 @@ export class WindowsRuntimeHostChromeController {
     hostGeneration: number;
     send: (channel: string, projection: WindowsRuntimeHostProjection) => void;
     windowId: string;
+    resizeIndicators?: import("./windowsWorkspaceResizeIndicators").WorkspaceResizeIndicatorPort;
   }>) {
     this.#windowId = input.windowId;
+    this.#resizeIndicators = input.resizeIndicators;
     this.#documentUrl = input.documentUrl;
     this.#native = input.native;
     this.#readCursorScreenPoint = input.readCursorScreenPoint ?? null;
@@ -211,6 +217,10 @@ export class WindowsRuntimeHostChromeController {
       );
     }
     this.#layoutObserver = observer;
+  }
+
+  notifySurfaceAttachment(): Promise<void> {
+    return this.#relayout();
   }
 
   bindPlacement(observer: () => Promise<void>): void {
@@ -314,6 +324,7 @@ export class WindowsRuntimeHostChromeController {
     this.#tabs = tabs;
     this.#moveTargets = moveTargets;
     this.#contentBounds = contentBounds;
+    this.#workspaceBackground = projection.workspaceBackground ?? "material";
     this.#workspaceDividers = workspaceDividers;
     this.#advanceProjection();
     this.#publish();
@@ -379,6 +390,10 @@ export class WindowsRuntimeHostChromeController {
 
   async handleCommand(url: string, candidate: unknown): Promise<void> {
     const validCandidate = isWindowsRuntimeHostCommand(candidate);
+    const indicatorTerminal = validCandidate && url === this.#documentUrl && candidate.windowId === this.#windowId &&
+      candidate.type === "workspaceDividerPointer" && (candidate.phase === "end" || candidate.phase === "cancel")
+      ? candidate.gestureId : null;
+    if (indicatorTerminal) { this.#endedIndicatorGestures.add(indicatorTerminal); this.#paintResizeIndicators(); }
     const observedDividerPosition = validCandidate &&
       candidate.type === "workspaceDividerPointer" && candidate.phase === "move"
       ? this.#readNativeDividerPosition(candidate)
@@ -440,7 +455,7 @@ export class WindowsRuntimeHostChromeController {
         )
       : operation.catch(publishFailure);
     this.#commandLane = (isReload ? operation : terminal).catch(() => undefined);
-    return terminal;
+    return terminal.finally(() => { if (indicatorTerminal) this.#endedIndicatorGestures.delete(indicatorTerminal); });
   }
 
   async setPresentation(
@@ -877,15 +892,28 @@ export class WindowsRuntimeHostChromeController {
       const receipt = await this.#requestWorkspaceDividerPointer(event);
       this.#validateWorkspaceDividerReceipt(event, receipt);
       this.#topologyRevision = receipt.topologyRevision;
+      if (receipt.status === "superseded" || receipt.status === "cancelled") gesture!.indicatorsRetired = true;
       gesture!.lastPointerSequence = command.pointerSequence;
       gesture!.topologyRevision = receipt.topologyRevision;
     } catch (error) {
       this.#dividerGestures.delete(command.gestureId);
+      this.#paintResizeIndicators();
       throw error;
     }
     if (command.phase === "end" || command.phase === "cancel") {
       this.#dividerGestures.delete(command.gestureId);
     }
+    this.#paintResizeIndicators();
+  }
+
+  #paintResizeIndicators(): void {
+    const active = [...this.#dividerGestures.values()].filter(gesture => !gesture.indicatorsRetired && !this.#endedIndicatorGestures.has(gesture.gestureId));
+    const indicators = this.#workspaceDividers.filter((divider) =>
+      divider.visible && divider.tabId === this.#activeTabId && active.some((gesture) =>
+        gesture.tabId === divider.tabId && gesture.attemptGeneration === divider.attemptGeneration &&
+        gesture.dividerIndex === divider.dividerIndex))
+      .flatMap((divider) => divider.resizeIndicators ?? []);
+    this.#resizeIndicators?.update(this.#native.isDestroyed() || this.#native.isMinimized() ? [] : indicators);
   }
 
   #validateWorkspaceDividerReceipt(
@@ -934,6 +962,7 @@ export class WindowsRuntimeHostChromeController {
         this.#dividerGestures.delete(gesture.gestureId);
       }
     }
+    this.#paintResizeIndicators();
     if (failures.length > 0) {
       throw chromeError(
         "ELECTRON_WINDOWS_RUNTIME_DIVIDER_DRAIN_FAILED",
@@ -1018,6 +1047,7 @@ export class WindowsRuntimeHostChromeController {
       topologyRevision: this.#topologyRevision,
       windowGeneration: this.#windowGeneration,
       windowId: this.#windowId,
+      workspaceBackground: this.#workspaceBackground,
       workspaceDividers: this.#workspaceDividers
     });
     if (!isWindowsRuntimeHostProjection(projection)) {
@@ -1027,6 +1057,7 @@ export class WindowsRuntimeHostChromeController {
       );
     }
     this.#send(WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL, projection);
+    this.#paintResizeIndicators();
   }
 
 }

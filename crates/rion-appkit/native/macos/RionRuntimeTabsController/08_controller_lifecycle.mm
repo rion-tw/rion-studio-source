@@ -255,6 +255,12 @@ NS_ASSUME_NONNULL_BEGIN
   }
 }
 
+- (void)retireWorkspaceDividerGesture:(NSString *)gestureID {
+  for (RionRuntimeWorkspaceDividerView *divider in _workspaceDividerViews.allValues) {
+    [divider retireGesture:gestureID];
+  }
+}
+
 - (BOOL)applyWorkspaceDividerProjection:
     (NSDictionary<NSString *, id> *)rawProjection {
   if (_destroyed || !_window || !_window.contentView || !_actionHandler) return NO;
@@ -269,11 +275,41 @@ NS_ASSUME_NONNULL_BEGIN
       contentBounds[@"y"].doubleValue,
       contentBounds[@"width"].doubleValue,
       contentBounds[@"height"].doubleValue);
+  // Core/Electron rectangles use a top-left origin; AppKit contentView may be unflipped.
+  if (!_window.contentView.isFlipped) {
+    overlayFrame.origin.y = NSHeight(_window.contentView.bounds) - NSMaxY(overlayFrame);
+  }
+  if (!_workspaceBackground) {
+    _workspaceBackground = [[RionWorkspaceMaterialBackground alloc] initWithFrame:overlayFrame];
+    _workspaceBackground.autoresizingMask = NSViewNotSizable;
+    _workspaceBackground.wantsLayer = YES;
+    _workspaceBackground.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+    _workspaceBackground.material = NSVisualEffectMaterialUnderWindowBackground;
+  }
+  _workspaceBackground.frame = overlayFrame;
+  BOOL black = [projection[@"background"] isEqualToString:@"black"];
+  _workspaceBackground.state = NSVisualEffectStateFollowsWindowActiveState;
+  _workspaceBackground.hidden = black;
+  if (!_workspaceBlackBackground) {
+    _workspaceBlackBackground = [[RionWorkspaceBlackBackground alloc] initWithFrame:overlayFrame];
+    _workspaceBlackBackground.wantsLayer = YES;
+    _workspaceBlackBackground.clipsToBounds = YES;
+  }
+  _workspaceBlackBackground.frame = overlayFrame;
+  _workspaceBlackBackground.hidden = !black;
+  // Keep the underlay inside the Chromium content boundary, below every
+  // surface. Never insert workspace views into AppKit's titlebar hierarchy.
+  [_window.contentView addSubview:_workspaceBlackBackground positioned:NSWindowBelow relativeTo:nil];
+  [_window.contentView addSubview:_workspaceBackground positioned:NSWindowBelow relativeTo:nil];
+  [_workspaceBlackBackground setNeedsDisplay:YES];
+  [_workspaceBackground setNeedsDisplay:YES];
+
   if (!_workspaceDividerOverlay) {
     _workspaceDividerOverlay =
         [[RionRuntimeWorkspaceDividerOverlayView alloc] initWithFrame:overlayFrame];
     _workspaceDividerOverlay.autoresizingMask = NSViewNotSizable;
   }
+  _workspaceDividerOverlay.layoutOrigin = NSMakePoint(contentBounds[@"x"].doubleValue, contentBounds[@"y"].doubleValue);
   _workspaceDividerOverlay.frame = overlayFrame;
   _workspaceDividerOverlay.hidden = dividers.count == 0;
   if (dividers.count > 0) {
@@ -319,11 +355,14 @@ NS_ASSUME_NONNULL_BEGIN
     }
     NSDictionary<NSString *, NSNumber *> *bounds = dividerProjection[@"bounds"];
     NSRect localFrame = NSMakeRect(
-        bounds[@"x"].doubleValue - NSMinX(overlayFrame),
-        bounds[@"y"].doubleValue - NSMinY(overlayFrame),
+        bounds[@"x"].doubleValue - contentBounds[@"x"].doubleValue,
+        bounds[@"y"].doubleValue - contentBounds[@"y"].doubleValue,
         bounds[@"width"].doubleValue,
         bounds[@"height"].doubleValue);
     [divider applyProjection:dividerProjection localFrame:localFrame];
+    // Chromium's full host backing store can retain vacated child pixels above
+    // the underlay. Native gap paint also covers those exact unoccupied rects.
+    [divider applyBackground:projection[@"background"]];
     if (!divider.hidden) [accessibilityDividers addObject:divider];
   }
   for (NSString *staleKey in _workspaceDividerViews.allKeys.copy) {
@@ -366,7 +405,17 @@ NS_ASSUME_NONNULL_BEGIN
       contentBounds[@"y"].doubleValue,
       contentBounds[@"width"].doubleValue,
       contentBounds[@"height"].doubleValue);
-  if (!_workspaceDividerOverlay ||
+  if (!_window.contentView.isFlipped) {
+    expectedOverlayFrame.origin.y = NSHeight(_window.contentView.bounds) - NSMaxY(expectedOverlayFrame);
+  }
+  BOOL black = [projection[@"background"] isEqualToString:@"black"];
+  if (!_workspaceBackground || !_workspaceBlackBackground ||
+      _workspaceBackground.superview != _window.contentView ||
+      _workspaceBlackBackground.superview != _window.contentView ||
+      _workspaceBackground.hidden != black || _workspaceBlackBackground.hidden == black ||
+      !NSEqualRects(_workspaceBackground.frame, expectedOverlayFrame) ||
+      !NSEqualRects(_workspaceBlackBackground.frame, expectedOverlayFrame) ||
+      !_workspaceDividerOverlay ||
       !_window.contentView ||
       _workspaceDividerOverlay.superview != _window.contentView ||
       !NSEqualRects(_workspaceDividerOverlay.frame, expectedOverlayFrame) ||
@@ -380,8 +429,8 @@ NS_ASSUME_NONNULL_BEGIN
     RionRuntimeWorkspaceDividerView *divider = _workspaceDividerViews[key];
     NSDictionary<NSString *, NSNumber *> *bounds = dividerProjection[@"bounds"];
     NSRect expected = NSMakeRect(
-        bounds[@"x"].doubleValue - NSMinX(expectedOverlayFrame),
-        bounds[@"y"].doubleValue - NSMinY(expectedOverlayFrame),
+        bounds[@"x"].doubleValue - contentBounds[@"x"].doubleValue,
+        bounds[@"y"].doubleValue - contentBounds[@"y"].doubleValue,
         bounds[@"width"].doubleValue,
         bounds[@"height"].doubleValue);
     if (!divider || divider.superview != _workspaceDividerOverlay ||
@@ -410,6 +459,10 @@ NS_ASSUME_NONNULL_BEGIN
   [_workspaceDividerViews removeAllObjects];
   [_workspaceDividerOverlay removeFromSuperview];
   _workspaceDividerOverlay = nil;
+  [_workspaceBackground removeFromSuperview];
+  _workspaceBackground = nil;
+  [_workspaceBlackBackground removeFromSuperview];
+  _workspaceBlackBackground = nil;
   _workspaceDividerProjection = nil;
   [self hideStatus];
   [_statusBackdrop removeFromSuperview];

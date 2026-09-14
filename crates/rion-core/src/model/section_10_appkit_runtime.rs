@@ -17,6 +17,10 @@ pub struct AppKitRuntimeHostObservationRecord {
     #[ts(type = "number")]
     pub topology_revision: u64,
     pub content_bounds: LayoutBounds,
+    // Exact native attachment evidence, independent of network readiness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub attached_web_surfaces: Option<Vec<AppKitAttachedWebSurfaceRecord>>,
     pub normal_bounds: StatePixelBoundsRecord,
     pub saved_work_area: StatePixelBoundsRecord,
     pub target_display: DisplayTargetRecord,
@@ -130,6 +134,8 @@ pub struct AppKitRuntimeRoleLayoutRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct AppKitRuntimeWebSurfaceLayoutRecord {
+    #[ts(type = "number")]
+    pub surface_generation: u64,
     pub surface_id: String,
     pub slot_id: String,
     pub tab_id: String,
@@ -142,6 +148,9 @@ pub struct AppKitRuntimeWebSurfaceLayoutRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct AppKitRuntimeWorkspaceDividerLayoutRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resize_indicators: Option<Vec<WorkspaceResizeIndicatorRecord>>,
     pub tab_id: String,
     pub attempt_generation: String,
     pub divider_index: u32,
@@ -174,6 +183,7 @@ pub struct AppKitRuntimeWindowProjectionRecord {
     pub roles: Vec<AppKitRuntimeRoleLayoutRecord>,
     pub web_surfaces: Vec<AppKitRuntimeWebSurfaceLayoutRecord>,
     pub workspace_dividers: Vec<AppKitRuntimeWorkspaceDividerLayoutRecord>,
+    pub workspace_appearance: WorkspaceAppearanceSettingsRecord,
     pub window_visible: bool,
 }
 
@@ -202,4 +212,25 @@ pub struct AppKitRuntimeEventReceiptRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub failure_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct AppKitAttachedWebSurfaceRecord {
+    pub surface_id: String,
+    pub slot_id: String,
+    pub tab_id: String,
+    pub attempt_generation: String,
+    #[ts(type = "number")]
+    pub surface_generation: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct WorkspaceResizeIndicatorRecord {
+    pub surface_id: String,
+    pub label: String,
+    pub bounds: LayoutBounds,
 }

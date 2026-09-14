@@ -41,6 +41,7 @@ export interface ChromiumRuntimeHostPort {
     observer: ChromiumRuntimeWindowStateObserver
   ) => () => void;
   readRuntimeWindowState?: () => ChromiumRuntimeWindowStateObservation;
+  notifySurfaceAttachment?: () => void;
   readonly appKitIdentity?: AppKitRuntimeHostIdentityRecord;
   initializeAppKitTab?: (tab: EmbeddedTabEffectRecord) => void;
   releaseAppKitSurfaceAttachment?: (tabId: string) => void;
@@ -97,6 +98,7 @@ export interface ChromiumRuntimeWindowStateObservation {
   readonly focused: boolean;
   /** Exact key-window/foreground-HWND ownership, not Electron isFocused alone. */
   readonly foreground: boolean;
+  notifySurfaceAttachment?: () => void;
   readonly appKitIdentity?: AppKitRuntimeHostIdentityRecord;
   readonly failureCode?: string;
 }

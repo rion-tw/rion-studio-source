@@ -6,7 +6,7 @@ static const int32_t kRionAppKitWindowResolutionNotMainThread = 2;
 static const int32_t kRionAppKitWindowResolutionDetachedView = 3;
 
 uint32_t rion_appkit_runtime_tabs_abi_version(void) {
-  return 10;
+  return 11;
 }
 
 int32_t rion_appkit_resolve_electron_native_view_window(
@@ -588,6 +588,17 @@ RionRuntimeWorkspaceDividerProjectionFromJSON(
                                                       error:&error]
                   : nil;
   return !error && [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
+
+bool rion_runtime_tabs_retire_workspace_divider_gesture(
+    void * _Nullable rawController, const char *gestureID) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawController || !gestureID) return false;
+    NSString *identity = [NSString stringWithUTF8String:gestureID];
+    if (!identity.length) return false;
+    [(__bridge RionRuntimeTabsController *)rawController retireWorkspaceDividerGesture:identity];
+    return true;
+  }
 }
 
 bool rion_runtime_tabs_apply_workspace_divider_projection(

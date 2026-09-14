@@ -234,6 +234,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
            audioMutedLabel:(NSString *)audioMutedLabel
           scrollLeftLabel:(NSString *)scrollLeftLabel
          scrollRightLabel:(NSString *)scrollRightLabel;
+- (void)retireWorkspaceDividerGesture:(NSString *)gestureID;
 - (BOOL)applyWorkspaceDividerProjection:
     (NSDictionary<NSString *, id> *)projection;
 - (BOOL)matchesWorkspaceDividerProjection:
@@ -371,6 +372,7 @@ bool rion_runtime_tabs_matches_projection(
     const char * _Nullable activeTabIdentifier);
 bool rion_runtime_tabs_matches_phases(
     void * _Nullable controller, const char *tabPhasesJSON);
+bool rion_runtime_tabs_retire_workspace_divider_gesture(void * _Nullable rawController, const char *gestureID);
 bool rion_runtime_tabs_apply_workspace_divider_projection(
     void * _Nullable controller, const char *projectionJSON);
 bool rion_runtime_tabs_matches_workspace_divider_projection(

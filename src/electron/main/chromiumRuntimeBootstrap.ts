@@ -128,12 +128,12 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 37;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 38;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(
   options: Options
-): Readonly<Options & { runtimeContractVersion: 37 }> {
+): Readonly<Options & { runtimeContractVersion: 38 }> {
   return Object.freeze({
     ...options,
     runtimeContractVersion: ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION
@@ -1368,6 +1368,10 @@ export class ChromiumRuntimeBootstrap {
       await managedShortcuts?.dispose().catch(() => undefined);
       throw error;
     }
+  }
+
+  attachedWebSurfaceObservations(windowId: string) {
+    return this.#state === "open" ? this.#executor.attachedWebSurfaceObservations(windowId) : [];
   }
 
   snapshot(): ChromiumRuntimeExecutorSnapshot {

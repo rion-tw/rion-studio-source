@@ -35,6 +35,7 @@ export interface ChromiumRuntimeWindowChromeLayoutTab {
 }
 
 export interface ChromiumRuntimeWindowChromeProjection {
+  readonly workspaceBackground?: "material" | "black";
   readonly activeTabId: string | null;
   readonly contentBounds: Readonly<{ x: number; y: number; width: number; height: number }>;
   readonly moveTargets: readonly WindowsRuntimeHostMoveTargetProjection[];
@@ -229,6 +230,7 @@ export function bindChromiumRuntimeWindowLayout(input: {
             axis: divider.axis,
             bounds: Object.freeze({ ...divider.bounds }),
             dividerIndex: divider.index,
+            resizeIndicators: divider.resizeIndicators,
             tabId,
             visible: record.activeTabId === tabId &&
               !record.hiddenTabIds.has(tabId) && record.host.isVisible()
@@ -274,6 +276,7 @@ export function bindChromiumRuntimeWindowLayout(input: {
         topologyRevision: record.topologyRevision,
         windowGeneration: record.windowGeneration,
         windowId: record.host.logicalWindowId,
+        workspaceBackground: input.tabs.get(record.activeTabId ?? "")?.specification.workspaceAppearance?.background ?? "material",
         workspaceDividers: Object.freeze(workspaceDividers)
       });
     }

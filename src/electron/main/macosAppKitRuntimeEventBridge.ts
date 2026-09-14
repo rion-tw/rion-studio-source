@@ -35,6 +35,7 @@ interface AppKitCoreCommandPort extends ElectronCoreCommandPort {
 }
 
 export interface MacosAppKitRuntimeEventBridgeInput {
+  readonly onDividerTerminal?: (identity: AppKitRuntimeHostIdentity, gestureId: string) => void;
   readonly core: AppKitCoreCommandPort;
   readonly preparePassiveEventDispatch?: (
     capturedHosts: readonly AppKitRuntimeHostObservationRecord[]
@@ -117,6 +118,7 @@ interface DragSession {
 }
 
 interface WorkspaceDividerGesture {
+  terminal?: boolean;
   readonly gestureId: string;
   readonly tabId: string;
   readonly attemptGeneration: string;
@@ -390,6 +392,7 @@ function layoutObservationsMatch(
       boundsMatch(host.savedWorkArea, other.savedWorkArea) &&
       displayTargetsMatch(host.targetDisplay, other.targetDisplay) &&
       host.presentation === other.presentation &&
+      JSON.stringify(host.attachedWebSurfaces) === JSON.stringify(other.attachedWebSurfaces) &&
       host.focused === other.focused &&
       host.minimized === other.minimized &&
       host.visible === other.visible;
@@ -1087,6 +1090,7 @@ implements MacosAppKitRendererActionPort {
             "The AppKit divider lane was disposed before completion."
           );
         }
+        if (gesture.terminal) return;
         const current = this.#workspaceDividerGestures.get(gesture.gestureId);
         if (current !== gesture) {
           throw bridgeError(
@@ -1137,13 +1141,20 @@ implements MacosAppKitRendererActionPort {
           );
         }
         gesture.currentTopologyRevision = receipt.topologyRevision;
+        if (receipt.status === "superseded" || receipt.status === "cancelled") {
+          gesture.terminal = true;
+          this.#workspaceDividerGestures.delete(gesture.gestureId);
+          this.#input.onDividerTerminal?.(gesture.identity, gesture.gestureId);
+        }
         if (pointer.phase === "end" || pointer.phase === "cancel") {
           this.#workspaceDividerGestures.delete(gesture.gestureId);
         }
       });
     this.#lane = result.then(() => undefined, () => undefined);
     void result.catch((error: unknown) => {
+      gesture.terminal = true;
       this.#workspaceDividerGestures.delete(gesture.gestureId);
+      this.#input.onDividerTerminal?.(gesture.identity, gesture.gestureId);
       this.#input.onError(normalizeRionBridgeError(
         error,
         "ELECTRON_MACOS_APPKIT_DIVIDER_EVENT_FAILED"

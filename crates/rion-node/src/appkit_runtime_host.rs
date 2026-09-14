@@ -90,7 +90,15 @@ pub struct AppKitWorkspaceDividerBounds {
 }
 
 #[napi(object)]
+pub struct AppKitRuntimeResizeIndicator {
+    pub surface_id: String,
+    pub label: String,
+    pub bounds: AppKitWorkspaceDividerBounds,
+}
+
+#[napi(object)]
 pub struct AppKitRuntimeWorkspaceDividerProjection {
+    pub resize_indicators: Option<Vec<AppKitRuntimeResizeIndicator>>,
     pub tab_id: String,
     pub attempt_generation: String,
     pub divider_index: u32,
@@ -218,7 +226,15 @@ struct WorkspaceDividerBoundsFingerprint {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+struct WorkspaceResizeIndicatorFingerprint {
+    surface_id: String,
+    label: String,
+    bounds: WorkspaceDividerBoundsFingerprint,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct WorkspaceDividerFingerprint {
+    resize_indicators: Vec<WorkspaceResizeIndicatorFingerprint>,
     tab_id: String,
     attempt_generation: String,
     divider_index: u32,
@@ -229,6 +245,7 @@ struct WorkspaceDividerFingerprint {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct WorkspaceDividerProjectionFingerprint {
+    background: String,
     content_bounds: WorkspaceDividerBoundsFingerprint,
     dividers: Vec<WorkspaceDividerFingerprint>,
 }
@@ -702,6 +719,22 @@ impl NativeAppKitRuntimeHost {
         ))
     }
 
+    #[napi(js_name = "retireWorkspaceDividerGesture")]
+    pub fn retire_workspace_divider_gesture(
+        &self,
+        expected: AppKitRuntimeHostIdentity,
+        gesture_id: String,
+    ) -> Result<bool> {
+        self.require_identity(&expected)?;
+        validate_identifier(&gesture_id, "gesture id")?;
+        self.require_exact_native_window()?;
+        let state = self.state.lock().map_err(|_| state_poisoned_error())?;
+        platform::retire_workspace_divider_gesture(
+            controller_pointer(&state)?,
+            &CString::new(gesture_id).map_err(|_| malformed_projection_error())?,
+        )
+    }
+
     #[napi(js_name = "applyWorkspaceDividerProjection")]
     pub fn apply_workspace_divider_projection(
         &self,
@@ -709,10 +742,15 @@ impl NativeAppKitRuntimeHost {
         projection_revision: String,
         content_bounds: AppKitWorkspaceDividerBounds,
         dividers: Vec<AppKitRuntimeWorkspaceDividerProjection>,
+        background: String,
     ) -> Result<AppKitRuntimeWorkspaceDividerProjectionReceipt> {
         self.require_identity(&expected)?;
         let revision = validate_projection_revision(&projection_revision)?;
-        let projection = validate_workspace_divider_projection(content_bounds, dividers)?;
+        let mut projection = validate_workspace_divider_projection(content_bounds, dividers)?;
+        if !matches!(background.as_str(), "material" | "black") {
+            return Err(malformed_projection_error());
+        }
+        projection.background = background;
         let projection_json = workspace_divider_projection_json(&projection)?;
         let mut state = self.state.lock().map_err(|_| state_poisoned_error())?;
         let controller = controller_pointer(&state)?;
@@ -1150,6 +1188,7 @@ pub fn attach_appkit_runtime_host(
             failed_projected_tab_ids: Vec::new(),
             workspace_divider_projection_revision: 0,
             workspace_divider_projection: WorkspaceDividerProjectionFingerprint {
+                background: "material".to_owned(),
                 content_bounds: WorkspaceDividerBoundsFingerprint {
                     x: 0,
                     y: 0,
@@ -1360,7 +1399,34 @@ fn validate_workspace_divider_projection(
                 "The AppKit workspace-divider hit rect escapes its exact content host.",
             ));
         }
+        let indicators = divider.resize_indicators.unwrap_or_default();
+        if indicators.len() > 128 {
+            return Err(malformed_projection_error());
+        }
+        let resize_indicators = indicators
+            .into_iter()
+            .map(|indicator| {
+                validate_identifier(&indicator.surface_id, "resize indicator surface")?;
+                if indicator.label.is_empty() || indicator.label.len() > 40 {
+                    return Err(malformed_projection_error());
+                }
+                let bounds = workspace_divider_bounds_fingerprint(indicator.bounds, "indicator")?;
+                if bounds.x < content_bounds.x
+                    || bounds.y < content_bounds.y
+                    || bounds.x + bounds.width > content_max_x
+                    || bounds.y + bounds.height > content_max_y
+                {
+                    return Err(malformed_projection_error());
+                }
+                Ok(WorkspaceResizeIndicatorFingerprint {
+                    surface_id: indicator.surface_id,
+                    label: indicator.label,
+                    bounds,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         validated.push(WorkspaceDividerFingerprint {
+            resize_indicators,
             tab_id: divider.tab_id,
             attempt_generation: divider.attempt_generation,
             divider_index: divider.divider_index,
@@ -1370,6 +1436,7 @@ fn validate_workspace_divider_projection(
         });
     }
     Ok(WorkspaceDividerProjectionFingerprint {
+        background: "material".to_owned(),
         content_bounds,
         dividers: validated,
     })
@@ -1387,8 +1454,13 @@ fn workspace_divider_projection_json(
         })
     };
     let value = serde_json::json!({
+        "background": projection.background,
         "contentBounds": bounds_json(&projection.content_bounds),
         "dividers": projection.dividers.iter().map(|divider| serde_json::json!({
+            "resizeIndicators": divider.resize_indicators.iter().map(|indicator| serde_json::json!({
+                "surfaceId": indicator.surface_id, "label": indicator.label,
+                "bounds": bounds_json(&indicator.bounds),
+            })).collect::<Vec<_>>(),
             "tabId": divider.tab_id,
             "attemptGeneration": divider.attempt_generation,
             "dividerIndex": divider.divider_index,

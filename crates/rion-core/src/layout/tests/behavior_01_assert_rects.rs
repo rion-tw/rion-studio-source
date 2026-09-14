@@ -51,6 +51,10 @@ use super::*;
             }],
         });
         assert!(output.visible);
+        let indicators = output.dividers[0].resize_indicators.as_ref().unwrap();
+        assert_eq!(indicators.len(), 2);
+        assert_eq!(indicators[0].label, "50% × 100%");
+        assert_eq!(indicators[0].bounds, output.roles[0].bounds);
         assert_eq!(output.roles[0].bounds.width, 498);
         assert_eq!(output.roles[1].bounds.x, 502);
         assert_eq!(
@@ -130,6 +134,10 @@ use super::*;
             assert_eq!(bottom.y - (top.y + top.height), gap as i32, "gap={gap}");
             assert_eq!(output.dividers[0].bounds.width, gap as i32, "gap={gap}");
             assert_eq!(output.dividers[1].bounds.height, gap as i32, "gap={gap}");
+            let indicators = output.dividers[1].resize_indicators.as_ref().unwrap();
+            assert_eq!(indicators.len(), 2, "only the linked right slots receive row resize indicators");
+            assert!(indicators.iter().all(|item| item.bounds.x > output.roles[0].bounds.x));
+
 
             for bounds in output
                 .roles

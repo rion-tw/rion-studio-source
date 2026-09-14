@@ -1,3 +1,14 @@
+fn attached_web_test_evidence(core: &AppCore, window_id: &str) -> Vec<crate::model::AppKitAttachedWebSurfaceRecord> {
+    core.browser_runtime.snapshot().unwrap().browser_runtime.tabs.iter()
+        .filter(|tab| tab.window_id == window_id).flat_map(|tab| tab.web_surfaces.iter().map(|surface| {
+            crate::model::AppKitAttachedWebSurfaceRecord {
+                surface_id: surface.surface_id.clone(), slot_id: surface.slot_id.clone(),
+                tab_id: tab.id.clone(), attempt_generation: tab.attempt_generation.clone().unwrap(),
+                surface_generation: 1,
+            }
+        })).collect()
+}
+
 fn appkit_web_projection(
     core: &AppCore,
     window_id: &str,
@@ -8,6 +19,7 @@ fn appkit_web_projection(
     let snapshot = core.browser_runtime.snapshot().unwrap();
     let window = snapshot.windows.get(window_id).unwrap();
     let mut observation = appkit_test_observation(window_id, 1);
+    observation.attached_web_surfaces = Some(attached_web_test_evidence(core, window_id));
     observation.window_generation = window.window_generation;
     observation.topology_revision = window.revision;
     observation.content_bounds.width = width;
@@ -185,9 +197,11 @@ fn appkit_cross_window_move_reparents_exact_web_surface_attempt_and_generation_f
     let source = snapshot.windows.get("appkit-source-window").unwrap();
     let target = snapshot.windows.get("appkit-target-window").unwrap();
     let mut target_observation = appkit_test_observation("appkit-target-window", 2);
+    target_observation.attached_web_surfaces = Some(attached_web_test_evidence(&core, "appkit-target-window"));
     target_observation.window_generation = target.window_generation;
     target_observation.topology_revision = target.revision;
     let mut source_observation = appkit_test_observation("appkit-source-window", 1);
+    source_observation.attached_web_surfaces = Some(attached_web_test_evidence(&core, "appkit-source-window"));
     source_observation.window_generation = source.window_generation;
     source_observation.topology_revision = source.revision;
     let event = crate::model::AppKitRuntimeEventRecord {
@@ -346,4 +360,28 @@ fn appkit_workspace_stop_projects_surviving_membership_and_reports_native_failur
         );
         core.shutdown();
     }
+}
+
+#[test]
+fn appkit_declared_web_slots_require_exact_attachment_before_projection() {
+    let (_directory, core) = chromium_web_core("darwin");
+    let workspace = create_web_only_workspace(&core, "Attachment fence");
+    launch_appkit_web_workspace(Arc::clone(&core), &workspace, "attachment-window");
+    let snapshot = core.browser_runtime.snapshot().unwrap();
+    let window = snapshot.windows.get("attachment-window").unwrap();
+    let mut host = appkit_test_observation("attachment-window", 1);
+    host.window_generation = window.window_generation;
+    host.topology_revision = window.revision;
+    host.attached_web_surfaces = Some(Vec::new());
+    let mut event = crate::model::AppKitRuntimeEventRecord {
+        event_id: "attachment-layout".to_owned(), adapter_sequence: 1, hosts: vec![host],
+        action: crate::model::AppKitRuntimeEventActionRecord::Layout { layout_sequence: 1 },
+    };
+    assert!(core.build_appkit_projection(&event).unwrap().windows[0].web_surfaces.is_empty());
+    event.hosts[0].attached_web_surfaces = Some(attached_web_test_evidence(&core, "attachment-window"));
+    let projection = core.build_appkit_projection(&event).unwrap();
+    assert_eq!(projection.windows[0].web_surfaces.len(), 1);
+    assert_eq!(projection.windows[0].web_surfaces[0].surface_generation, 1);
+    event.hosts[0].attached_web_surfaces.as_mut().unwrap()[0].attempt_generation = "retired-attempt".to_owned();
+    assert!(core.build_appkit_projection(&event).unwrap().windows[0].web_surfaces.is_empty());
 }

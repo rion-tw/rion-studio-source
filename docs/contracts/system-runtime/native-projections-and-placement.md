@@ -164,6 +164,7 @@ topology revision and supersedes unfinished divider gestures. Native failure
 restores the setting and layout; unprovable compensation quarantines the host
 and reports `indeterminate`.
 
+For v38 native backgrounds, mounted/loading Websites, and resize indicators, see [the Chromium contract](../../chromium-runtime-migration.md).
 A runtime tab drag has one stable tab identity and a lifecycle fence from
 pointer-down to drop. Gesture completion is not receipt- or deadline-gated;
 duplicate and late semantic events are silent `superseded`. A newer user gesture supersedes older background projection;

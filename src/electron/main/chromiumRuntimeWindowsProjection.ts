@@ -53,6 +53,7 @@ interface ProjectedTab {
   readonly dividers: readonly Readonly<{
     axis: "horizontal" | "vertical";
     bounds: Readonly<{ x: number; y: number; width: number; height: number }>;
+    resizeIndicators?: import("../../shared/generated").WorkspaceResizeIndicatorRecord[];
     index: number;
   }>[];
   readonly specification: ChromiumRuntimeTabRecord["specification"];
@@ -434,6 +435,7 @@ export async function applyChromiumRuntimeWindowsProjection(
         topologyRevision: projection.topologyRevision,
         windowGeneration: projection.windowGeneration,
         windowId,
+        workspaceBackground: projectedTabs.get(projection.activeTabId ?? "")?.specification.workspaceAppearance?.background ?? "material",
         workspaceDividers: Object.freeze(projection.tabIds.flatMap((tabId) => {
           const projected = projectedTabs.get(tabId)!;
           const attemptGeneration = projected.specification.attemptGeneration;
@@ -443,6 +445,7 @@ export async function applyChromiumRuntimeWindowsProjection(
             axis: divider.axis,
             bounds: Object.freeze({ ...divider.bounds }),
             dividerIndex: divider.index,
+            resizeIndicators: divider.resizeIndicators,
             tabId,
             visible: projected.active && !projected.hidden && host.isVisible()
           }));

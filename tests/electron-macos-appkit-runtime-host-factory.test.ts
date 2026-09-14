@@ -144,7 +144,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       roles: [],
       webSurfaces: [],
       workspaceDividers: [],
-      windowVisible: true
+      workspaceAppearance: { background: "material" as const, gap: 1 as const },      windowVisible: true
     });
     coreProjection.commit();
     coreProjection.finalize?.();
@@ -293,7 +293,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       roles: [],
       webSurfaces: [],
       workspaceDividers: [],
-      windowVisible: true
+      workspaceAppearance: { background: "material" as const, gap: 1 as const },      windowVisible: true
     });
 
     transaction.commit();
@@ -599,7 +599,7 @@ describe("macOS AppKit Chromium runtime host", () => {
         roles: [],
         webSurfaces: [],
         workspaceDividers: [],
-        windowVisible: true
+        workspaceAppearance: { background: "material" as const, gap: 1 as const },        windowVisible: true
       }).commit();
     };
 
@@ -884,7 +884,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       roles: [],
       webSurfaces: [],
       workspaceDividers: [],
-      windowVisible: true
+      workspaceAppearance: { background: "material" as const, gap: 1 as const },      windowVisible: true
     });
     expect(() => transaction.commit()).toThrowError(expect.objectContaining({
       code: "ELECTRON_MACOS_APPKIT_PROJECTION_RECEIPT_INVALID"
@@ -930,7 +930,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       roles: [],
       webSurfaces: [],
       workspaceDividers: [],
-      windowVisible: true
+      workspaceAppearance: { background: "material" as const, gap: 1 as const },      windowVisible: true
     };
     const failed = host.prepareAppKitProjection!(projection);
 
@@ -970,7 +970,7 @@ describe("macOS AppKit Chromium runtime host", () => {
       roles: [],
       webSurfaces: [],
       workspaceDividers: [],
-      windowVisible: true
+      workspaceAppearance: { background: "material" as const, gap: 1 as const },      windowVisible: true
     };
     const transaction = host.prepareAppKitProjection!(projection);
 
@@ -1038,7 +1038,7 @@ describe("macOS AppKit Chromium runtime host", () => {
   it("rejects ABI and controller identity mismatches without a fallback host", async () => {
     const order: string[] = [];
     const addon = new FakeAddon(order);
-    expect(RION_APPKIT_RUNTIME_ABI_VERSION).toBe(10);
+    expect(RION_APPKIT_RUNTIME_ABI_VERSION).toBe(11);
     addon.abiVersion = 1;
     expect(() => new MacosAppKitChromiumRuntimeHostFactory({
       addon,

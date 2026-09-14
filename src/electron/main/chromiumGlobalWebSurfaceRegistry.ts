@@ -72,6 +72,8 @@ export interface ChromiumGlobalWebNativeAttachmentPort {
 }
 
 export interface CreateChromiumGlobalWebSurfaceInput {
+  /** Native attachment precedes navigation readiness; never called on a retired handle. */
+  readonly onAttached?: () => void;
   readonly attemptGeneration: string;
   readonly surfaceId: string;
   readonly slotId: string;
@@ -584,13 +586,18 @@ export class ChromiumGlobalWebSurfaceRegistry {
       });
       record.nativeAttachmentSettlement = settlement;
       void settlement.then(
-        () => this.#loadAttachedRecord(record, url),
+        () => {
+          if (record.state !== "opening" || !record.attached || record.destroyed || record.parent.isDestroyed()) return;
+          try { input.onAttached?.(); this.#loadAttachedRecord(record, url); }
+          catch { this.#failInitialAttachment(record); }
+        },
         () => this.#failInitialAttachment(record)
       );
     } else {
       try {
         record.parent.contentView.addChildView(record.view);
         record.attached = true;
+        input.onAttached?.();
         this.#loadAttachedRecord(record, url);
       } catch {
         this.#failInitialAttachment(record);
@@ -605,7 +612,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     bounds: ChromiumRoleSurfaceBounds
   ): void {
     validateBounds(bounds);
-    const view = this.#activeRecord(surfaceId, generation).view;
+    const view = this.#projectableRecord(surfaceId, generation).view;
     view.setBounds({ ...bounds });
     if (!sameBounds(view.getBounds(), bounds)) {
       fail(
@@ -623,7 +630,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     visible: boolean;
     zoomFactor: number;
   }> {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const view = record.view;
     return Object.freeze({
       bounds: Object.freeze({ ...view.getBounds() }),
@@ -633,12 +640,12 @@ export class ChromiumGlobalWebSurfaceRegistry {
   }
 
   setVisible(surfaceId: string, generation: number, visible: boolean): void {
-    this.#activeRecord(surfaceId, generation).view.setVisible(visible);
+    this.#projectableRecord(surfaceId, generation).view.setVisible(visible);
   }
 
   setZoomFactor(surfaceId: string, generation: number, zoomFactor: number): void {
     validateZoomFactor(zoomFactor);
-    const contents = this.#activeRecord(surfaceId, generation).contents;
+    const contents = this.#projectableRecord(surfaceId, generation).contents;
     contents.setZoomFactor(zoomFactor);
     if (contents.getZoomFactor() !== zoomFactor) {
       fail(
@@ -652,7 +659,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     surfaceId: string,
     generation: number
   ): ChromiumGlobalWebSurfaceRuntimeEvidence {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const contents = this.#navigableContents(record);
     return Object.freeze({
       canGoBack: contents.navigationHistory.canGoBack(),
@@ -668,7 +675,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     generation: number,
     url: string
   ): Promise<ChromiumGlobalWebSurfaceRuntimeEvidence> {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const destination = canonicalWebUrl(url);
     return this.#observeNavigation(
       record,
@@ -681,7 +688,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     surfaceId: string,
     generation: number
   ): Promise<ChromiumGlobalWebSurfaceRuntimeEvidence> {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const contents = this.#navigableContents(record);
     if (!contents.navigationHistory.canGoBack()) {
       return Promise.resolve(this.runtimeEvidence(surfaceId, generation));
@@ -693,7 +700,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     surfaceId: string,
     generation: number
   ): Promise<ChromiumGlobalWebSurfaceRuntimeEvidence> {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const contents = this.#navigableContents(record);
     if (!contents.navigationHistory.canGoForward()) {
       return Promise.resolve(this.runtimeEvidence(surfaceId, generation));
@@ -708,7 +715,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     surfaceId: string,
     generation: number
   ): Promise<ChromiumGlobalWebSurfaceRuntimeEvidence> {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     const contents = this.#navigableContents(record);
     return this.#observeNavigation(record, () => contents.reload());
   }
@@ -718,7 +725,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     generation: number,
     parent: ChromiumRoleSurfaceParentPort
   ): Promise<void> {
-    const record = this.#activeRecord(surfaceId, generation);
+    const record = this.#projectableRecord(surfaceId, generation);
     this.#validateParent(parent);
     if (record.parent === parent) return;
     const targetOwner = this.#parentsById.get(parent.id);
@@ -736,7 +743,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
     });
     const currentTargetOwner = this.#parentsById.get(parent.id);
     if (
-      this.#activeRecord(surfaceId, generation) !== record ||
+      this.#projectableRecord(surfaceId, generation) !== record ||
       record.parent !== previous || parent.isDestroyed() ||
       (currentTargetOwner !== undefined && currentTargetOwner.parent !== parent)
     ) {
@@ -834,7 +841,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
   }
 
   audioMuted(surfaceId: string, generation: number): boolean {
-    return this.#activeRecord(surfaceId, generation).contents.isAudioMuted();
+    return this.#projectableRecord(surfaceId, generation).contents.isAudioMuted();
   }
 
   isCurrentlyAudible(surfaceId: string, generation: number): boolean {
@@ -1256,14 +1263,13 @@ export class ChromiumGlobalWebSurfaceRegistry {
   #retireNativeAttachment(record: SurfaceRecord): Promise<void> {
     if (!this.#nativeAttachments) return Promise.resolve();
     if (record.nativeRetirement) return record.nativeRetirement;
+    const retire = () => this.#nativeAttachments!.detachNonInputSurface(
+      record.surfaceId, record.generation, record.parent
+    );
+    // Both attachment outcomes require the exact native retirement receipt.
+    // A rejected mount must not prevent destruction and block the next attempt.
     const requestedRetirement = (record.nativeAttachmentSettlement ??
-      Promise.resolve()).then(() =>
-        this.#nativeAttachments!.detachNonInputSurface(
-          record.surfaceId,
-          record.generation,
-          record.parent
-        )
-      );
+      Promise.resolve()).then(retire, retire);
     const retirement = requestedRetirement.catch((error: unknown) => {
       if (record.nativeRetirement === retirement) {
         record.nativeRetirement = null;
@@ -1343,7 +1349,11 @@ export class ChromiumGlobalWebSurfaceRegistry {
     );
   }
 
-  #activeRecord(surfaceId: string, generation: number): SurfaceRecord {
+  #projectableRecord(surfaceId: string, generation: number): SurfaceRecord {
+    return this.#activeRecord(surfaceId, generation, true);
+  }
+
+  #activeRecord(surfaceId: string, generation: number, presentation = false): SurfaceRecord {
     validateIdentifier(surfaceId, "surface");
     validateGeneration(generation);
     const record = this.#records.get(surfaceId);
@@ -1359,7 +1369,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
         "The global Web surface generation is stale."
       );
     }
-    if (record.state !== "active" || record.destroyed) {
+    if ((record.state !== "active" && !(presentation && record.state === "opening" && record.attached)) || record.destroyed) {
       fail(
         "ELECTRON_GLOBAL_WEB_SURFACE_NOT_ACTIVE",
         "The global Web Chromium surface is not active."

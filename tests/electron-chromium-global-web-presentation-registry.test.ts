@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { updateWorkspaceWebTheme } from "../src/electron/main/workspaceWebTheme";
 
 import type { GlobalWebProfilePathsRecord } from "../src/shared/generated";
 import {
@@ -275,6 +276,62 @@ async function finishCreate(subject: ReturnType<typeof harness>) {
 }
 
 describe("Chromium paired Workspace Web presentation", () => {
+  it.each(["darwin", "win32"] as const)("rehydrates and broadcasts themes to live and hidden chrome on %s", async platform => {
+    updateWorkspaceWebTheme("dark");
+    const first = harness(null, platform);
+    const second = harness(null, platform);
+    const a = await finishCreate(first);
+    const b = await finishCreate(second);
+    const theme = (shell: FakeContents) => (shell.sent.at(-1)?.value as { resolvedTheme: string }).resolvedTheme;
+    expect(theme(a.shell)).toBe("dark");
+    expect(theme(b.shell)).toBe("dark");
+    second.subject.setVisible(second.input.surfaceId, 1, false);
+    const loads = [a.content.loadedUrls.length, b.content.loadedUrls.length];
+    updateWorkspaceWebTheme("light");
+    expect(theme(a.shell)).toBe("light");
+    expect(theme(b.shell)).toBe("light");
+    expect([a.content.loadedUrls.length, b.content.loadedUrls.length]).toEqual(loads);
+    expect(a.content.reload).not.toHaveBeenCalled();
+    expect(b.content.reload).not.toHaveBeenCalled();
+    const sent = a.shell.sent.length;
+    updateWorkspaceWebTheme("light");
+    expect(a.shell.sent).toHaveLength(sent);
+    a.shell.sent.length = 0;
+    a.shell.finish(a.shell.loadedUrls[0]!);
+    expect(theme(a.shell)).toBe("light");
+    for (const pair of [a, b]) {
+      pair.shell.close.mockImplementation(() => pair.shell.destroy());
+      pair.content.close.mockImplementation(() => pair.content.destroy());
+    }
+    await first.subject.dispose();
+    const closedSent = a.shell.sent.length;
+    updateWorkspaceWebTheme("dark");
+    expect(a.shell.sent).toHaveLength(closedSent);
+    expect(theme(b.shell)).toBe("dark");
+    await second.subject.dispose();
+    updateWorkspaceWebTheme("light");
+    expect(first.errors).not.toHaveBeenCalled();
+    expect(second.errors).not.toHaveBeenCalled();
+  });
+
+  it.each(["darwin", "win32"] as const)("uses the latest theme when a pending shell finishes loading on %s", async platform => {
+    updateWorkspaceWebTheme("light");
+    const subject = harness(null, platform);
+    const creation = subject.subject.create(subject.input);
+    await vi.waitFor(() => expect(subject.views).toHaveLength(2));
+    updateWorkspaceWebTheme("dark");
+    const shell = subject.views[0]!.webContents;
+    const content = subject.views[1]!.webContents;
+    expect(shell.sent).toHaveLength(0);
+    shell.finish(shell.loadedUrls[0]!);
+    content.finish("https://fixture.test/start");
+    await creation;
+    expect(shell.sent.at(-1)?.value).toMatchObject({ resolvedTheme: "dark" });
+    shell.close.mockImplementation(() => shell.destroy());
+    content.close.mockImplementation(() => content.destroy());
+    await subject.subject.dispose();
+    updateWorkspaceWebTheme("light");
+  });
   it.each(["darwin", "win32"] as const)("terminalizes a rejected shell navigation without a load event on %s", async platform => {
     const subject = harness(null, platform);
     const failure = new Error("ERR_ABORTED: local shell navigation cancelled");

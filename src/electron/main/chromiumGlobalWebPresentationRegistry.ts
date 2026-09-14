@@ -1,4 +1,5 @@
 import { WORKSPACE_START_URL } from "../../shared/workspaceStartPage";
+import { readWorkspaceWebTheme, subscribeWorkspaceWebTheme } from "./workspaceWebTheme";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -100,6 +101,7 @@ interface ChromeListeners {
 }
 
 interface ChromeRecord {
+  readonly unsubscribeTheme: () => void;
   readonly surfaceId: string;
   readonly chromeSurfaceId: string;
   readonly slotId: string;
@@ -623,6 +625,7 @@ export class ChromiumGlobalWebPresentationRegistry {
       destroyed,
       loaded,
       listeners: undefined as unknown as ChromeListeners,
+      unsubscribeTheme: () => {},
       parent: input.parent,
       slotBounds: Object.freeze({ ...input.bounds }),
       visible: input.visible,
@@ -638,6 +641,7 @@ export class ChromiumGlobalWebPresentationRegistry {
     record.listeners = {
       destroyed: () => {
         record.destroyedObserved = true;
+        record.unsubscribeTheme();
         if (!record.loadSettled) {
           record.loadSettled = true;
           record.loaded.reject(presentationError(
@@ -648,7 +652,11 @@ export class ChromiumGlobalWebPresentationRegistry {
         record.destroyed.resolve();
       },
       didFinishLoad: () => {
-        if (record.loadSettled || record.contents.getURL() !== this.#documentUrl) return;
+        if (record.contents.getURL() !== this.#documentUrl) return;
+        if (record.loadSettled) {
+          this.#refreshChromeState(record);
+          return;
+        }
         record.loadSettled = true;
         record.loaded.resolve();
       },
@@ -668,6 +676,7 @@ export class ChromiumGlobalWebPresentationRegistry {
         if (destination !== this.#documentUrl) event.preventDefault();
       }
     };
+    record.unsubscribeTheme = subscribeWorkspaceWebTheme(() => this.#refreshChromeState(record));
     return record;
   }
 
@@ -761,6 +770,7 @@ export class ChromiumGlobalWebPresentationRegistry {
   }
 
   #removeListeners(record: ChromeRecord): void {
+    record.unsubscribeTheme();
     record.contents.removeListener("destroyed", record.listeners.destroyed);
     record.contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
     record.contents.removeListener("did-fail-load", record.listeners.didFailLoad);
@@ -966,6 +976,16 @@ export class ChromiumGlobalWebPresentationRegistry {
     if (record.state === "active") this.#publishState(record, evidence);
   }
 
+  #refreshChromeState(record: ChromeRecord): void {
+    if (this.#state !== "open" || record.state !== "active" ||
+        record.destroyedObserved || this.#records.get(record.surfaceId) !== record) return;
+    try {
+      this.#publishState(record, this.#content.runtimeEvidence(record.surfaceId, record.generation));
+    } catch (error) {
+      this.#onError(normalizeRionBridgeError(error, "ELECTRON_WORKSPACE_WEB_CHROME_STATE_FAILED"));
+    }
+  }
+
   #publishState(
     record: ChromeRecord,
     evidence: ChromiumGlobalWebSurfaceRuntimeEvidence
@@ -974,6 +994,7 @@ export class ChromiumGlobalWebPresentationRegistry {
       surfaceId: record.surfaceId,
       generation: record.generation,
       url: evidence.currentUrl,
+      resolvedTheme: readWorkspaceWebTheme(),
       canGoBack: evidence.canGoBack,
       canGoForward: evidence.canGoForward
     });

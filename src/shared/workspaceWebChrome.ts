@@ -1,4 +1,5 @@
 import { isWorkspaceStartUrl } from "./workspaceStartPage";
+import type { ResolvedTheme } from "./types";
 export const WORKSPACE_WEB_CHROME_ACTION_CHANNEL =
   "rion:workspace-web-chrome:action";
 export const WORKSPACE_WEB_CHROME_STATE_CHANNEL =
@@ -22,6 +23,7 @@ export interface WorkspaceWebChromeAction {
 }
 
 export interface WorkspaceWebChromeState {
+  readonly resolvedTheme: ResolvedTheme;
   readonly surfaceId: string;
   readonly generation: number;
   readonly url: string;
@@ -100,19 +102,21 @@ export function parseWorkspaceWebChromeState(
   if (
     !isRecord(value) ||
     !exactKeys(value, [
-      "surfaceId", "generation", "url", "canGoBack", "canGoForward"
+      "surfaceId", "generation", "url", "canGoBack", "canGoForward", "resolvedTheme"
     ]) ||
     !validIdentifier(value.surfaceId) ||
     !Number.isSafeInteger(value.generation) ||
     (value.generation as number) < 1 ||
     !(canonicalUrlInput(value.url) || (typeof value.url === "string" && isWorkspaceStartUrl(value.url))) ||
     typeof value.canGoBack !== "boolean" ||
-    typeof value.canGoForward !== "boolean"
+    typeof value.canGoForward !== "boolean" ||
+    (value.resolvedTheme !== "light" && value.resolvedTheme !== "dark")
   ) return null;
   return Object.freeze({
     surfaceId: value.surfaceId,
     generation: value.generation as number,
     url: value.url,
+    resolvedTheme: value.resolvedTheme,
     canGoBack: value.canGoBack,
     canGoForward: value.canGoForward
   });

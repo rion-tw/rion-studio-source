@@ -1,8 +1,12 @@
 @import "../shared/designTokens.css";
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family: var(--font-ui);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 * {

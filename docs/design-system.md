@@ -121,6 +121,10 @@ no runtime favicon service is used.
   `setRuntimeTheme` whenever the resolved theme changes; runtime state is memory-only.
 - The Windows runtime tab document updates `data-theme` and `color-scheme` from
   the projection, so open windows update immediately.
+- The Website navigation row on both platforms receives the resolved theme
+  through its exact local-shell state. Open and hidden rows follow acknowledged
+  setting events; new or reloaded rows receive the current theme. Shared tokens
+  style the controls without reloading website content or changing address drafts.
 - The macOS native tab controller does not receive theme; its appearance and API
   remain unchanged.
 - Shadow DOM overlays use the same token names, but `:host` fixes a high-contrast

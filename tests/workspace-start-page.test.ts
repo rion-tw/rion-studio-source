@@ -45,7 +45,7 @@ describe("packaged website entrance", () => {
     expect(isWorkspaceStartUrl(nativeUrl)).toBe(platform === "macos");
     expect(isWorkspaceStartUrl(`${WORKSPACE_START_URL}?injected=1`)).toBe(false);
     const identity = { surfaceId: "web-1", generation: 1 };
-    expect(parseWorkspaceWebChromeState({ ...identity, url: WORKSPACE_START_URL, canGoBack: false, canGoForward: false })).not.toBeNull();
+    expect(parseWorkspaceWebChromeState({ ...identity, url: WORKSPACE_START_URL, canGoBack: false, canGoForward: false, resolvedTheme: "light" })).not.toBeNull();
     expect(parseWorkspaceWebChromeAction({ ...identity, type: "navigate", url: WORKSPACE_START_URL })).toBeNull();
     expect(resolveWorkspaceWebAddress(WORKSPACE_START_URL)).toBeNull();
   });

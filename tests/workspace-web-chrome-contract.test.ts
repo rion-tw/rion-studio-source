@@ -54,9 +54,15 @@ describe("Workspace Web chrome shared contract", () => {
       generation: 3,
       url: "https://fixture.test/start",
       canGoBack: false,
-      canGoForward: true
+      canGoForward: true,
+      resolvedTheme: "light"
     };
     expect(parseWorkspaceWebChromeState(state)).toEqual(state);
+    expect(parseWorkspaceWebChromeState({ ...state, resolvedTheme: "dark" }))
+      .toEqual({ ...state, resolvedTheme: "dark" });
+    for (const resolvedTheme of [undefined, null, "system", "", 1]) {
+      expect(parseWorkspaceWebChromeState({ ...state, resolvedTheme })).toBeNull();
+    }
     expect(parseWorkspaceWebChromeState({ ...state, generation: -1 })).toBeNull();
     expect(parseWorkspaceWebChromeState({ ...state, url: "fixture.test/start" }))
       .toBeNull();

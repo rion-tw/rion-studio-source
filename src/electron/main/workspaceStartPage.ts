@@ -2,11 +2,12 @@ import page from "../../shared/generated/workspace-start.html?raw";
 import { isWorkspaceStartUrl, WORKSPACE_START_URL, workspaceStartAppearanceScript } from "../../shared/workspaceStartPage";
 import type { ChromiumRoleSessionPort } from "./chromiumRoleSessionRegistry";
 import type { ChromiumRoleSurfaceWebContentsPort } from "./chromiumRoleSurfacePorts";
+import type { ResolvedTheme } from "../../shared/types";
+import { readWorkspaceWebTheme, updateWorkspaceWebTheme } from "./workspaceWebTheme";
 
 const sessions = new WeakSet<ChromiumRoleSessionPort>();
 const contents = new Set<ChromiumRoleSurfaceWebContentsPort>();
 let language = "en";
-let theme = "light";
 
 export function installWorkspaceStartProtocol(session: ChromiumRoleSessionPort): void {
   if (sessions.has(session)) return;
@@ -22,7 +23,7 @@ function apply(target: ChromiumRoleSurfaceWebContentsPort): void {
   if (target.isDestroyed() || !isWorkspaceStartUrl(target.getURL())) return;
   // EventBound: presentation follows the acknowledged setting or exact page-load event.
   void target.executeJavaScriptInIsolatedWorld(997, [
-    { code: workspaceStartAppearanceScript(language, theme) }
+    { code: workspaceStartAppearanceScript(language, readWorkspaceWebTheme()) }
   ]).catch(() => undefined); // A superseded/destroyed document has no presentation work left.
 }
 
@@ -38,8 +39,8 @@ export function observeWorkspaceStartPage(target: ChromiumRoleSurfaceWebContents
   target.on("destroyed", destroyed);
 }
 
-export function updateWorkspaceStartAppearance(patch: { language?: string; theme?: string }): void {
+export function updateWorkspaceStartAppearance(patch: { language?: string; theme?: ResolvedTheme }): void {
   language = patch.language ?? language;
-  theme = patch.theme ?? theme;
+  if (patch.theme !== undefined) updateWorkspaceWebTheme(patch.theme);
   for (const target of contents) apply(target);
 }

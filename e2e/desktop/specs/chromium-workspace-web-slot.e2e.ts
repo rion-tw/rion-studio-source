@@ -1,4 +1,5 @@
 import { clickWorkspaceSlot } from "../support/ui";
+import { exerciseWorkspaceWebThemes, expectWorkspaceWebTheme } from "../support/workspace-web-theme";
 import { $, browser, expect } from "@wdio/globals";
 
 import type {
@@ -578,6 +579,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     transientTab.windowId
   );
   expect(entrance.web.contentUrl).toBe("rion-start://home/");
+  await exerciseWorkspaceWebThemes({ ...entrance.web, mainWindowHandle });
   await navigateVisibleElectronWorkspaceWebChrome(
     entrance.web.chromeShellUrl,
     mainWindowHandle,
@@ -630,6 +632,7 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     gameWindow
   );
   const before = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
+  await expectWorkspaceWebTheme({ ...before.web, mainWindowHandle: launched.mainWindowHandle }, "dark");
   expect(before.tabId).toBe(launched.tabId);
   await expectExactSessionsAndLayout({
     inspection: before,
@@ -682,6 +685,7 @@ async function restartPhase(platform: "macos" | "windows"): Promise<void> {
     timeoutMsg: "The persistent global-Web Chromium session was not restored"
   });
   const restored = await electronDesktopE2eWorkspaceWebRuntime(launched.windowId);
+  await expectWorkspaceWebTheme({ ...restored.web, mainWindowHandle: launched.mainWindowHandle }, "dark");
   await expectExactSessionsAndLayout({
     inspection: restored,
     platform,

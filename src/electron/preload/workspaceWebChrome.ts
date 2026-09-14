@@ -55,10 +55,15 @@ ipcRenderer.on(
       surfaceId: state.surfaceId,
       generation: state.generation
     });
+    document.documentElement.dataset.theme = state.resolvedTheme;
+    document.documentElement.style.colorScheme = state.resolvedTheme;
+    const navigationChanged = committedUrl !== state.url;
     committedUrl = state.url;
     const controls = elements();
-    applyAddress?.(state.url);
-    controls.location?.removeAttribute("aria-invalid");
+    if (navigationChanged) {
+      applyAddress?.(state.url);
+      controls.location?.removeAttribute("aria-invalid");
+    }
     if (controls.back) controls.back.disabled = !state.canGoBack;
     if (controls.forward) controls.forward.disabled = !state.canGoForward;
   }

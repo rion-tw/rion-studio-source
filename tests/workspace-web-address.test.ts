@@ -49,6 +49,8 @@ for (const platform of ["macos", "windows"] as const) {
       });
       vi.resetModules(); invoke.mockClear(); send.mockClear(); listeners.clear();
       document.body.innerHTML = '<button id="back"></button><button id="forward"></button><button id="reload"></button><button id="home"></button><form id="location-form"><input id="location"></form>';
+      delete document.documentElement.dataset.theme;
+      document.documentElement.style.colorScheme = "";
       await import("../src/electron/preload/workspaceWebChrome");
       window.dispatchEvent(new Event("DOMContentLoaded"));
     });
@@ -56,13 +58,39 @@ for (const platform of ["macos", "windows"] as const) {
       for (const [type, listener] of registered) window.removeEventListener(type, listener);
       vi.restoreAllMocks();
     });
-    const project = (url: string) => {
-      const state = { url, canGoBack: true, canGoForward: false, documentEpoch: 4 };
+    const project = (url: string, resolvedTheme = "light", identity = { surfaceId: "surface-a", generation: 1 }) => {
+      const state = { url, canGoBack: true, canGoForward: false, documentEpoch: 4, resolvedTheme };
       const { documentEpoch: _epoch, ...rest } = state;
       listeners.get(WORKSPACE_WEB_CHROME_STATE_CHANNEL)?.(null, {
-        ...rest, surfaceId: "surface-a", generation: 1
+        ...rest, ...identity
       });
     };
+    it("updates themes without changing an address draft, selection, focus or validation", () => {
+      project("https://www.example.com/start", "dark");
+      expect(document.documentElement.dataset.theme).toBe("dark");
+      expect(document.documentElement.style.colorScheme).toBe("dark");
+      const input = document.querySelector<HTMLInputElement>("#location")!;
+      input.focus(); input.value = "file:///draft";
+      input.setSelectionRange(3, 7);
+      document.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      project("https://www.example.com/start", "light");
+      expect(document.documentElement.dataset.theme).toBe("light");
+      expect(document.documentElement.style.colorScheme).toBe("light");
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe("file:///draft");
+      expect([input.selectionStart, input.selectionEnd]).toEqual([3, 7]);
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(send).not.toHaveBeenCalled();
+    });
+    it("ignores invalid themes and mismatched surface generations", () => {
+      project("https://www.example.com/start", "light");
+      project("https://www.example.com/start", "system");
+      project("https://www.example.com/start", "dark", { surfaceId: "surface-other", generation: 1 });
+      project("https://www.example.com/start", "dark", { surfaceId: "surface-a", generation: 2 });
+      expect(document.documentElement.dataset.theme).toBe("light");
+      expect(document.documentElement.style.colorScheme).toBe("light");
+    });
     it("restores full URLs on focus and latest committed state on blur and Escape", () => {
       const input = document.querySelector<HTMLInputElement>("#location")!;
       project("https://www.example.com/start");

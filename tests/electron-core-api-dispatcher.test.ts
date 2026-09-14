@@ -1,5 +1,6 @@
 import type { CoreCommand } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
+import { readWorkspaceWebTheme, subscribeWorkspaceWebTheme, updateWorkspaceWebTheme } from "../src/electron/main/workspaceWebTheme";
 
 import {
   createElectronCoreApiDispatcher,
@@ -95,6 +96,36 @@ function runtimeActionHarness() {
 }
 
 describe("Electron Core-backed API dispatcher", () => {
+  it.each(["macos", "windows"])("publishes a theme only after Core acknowledges it on %s", async (_platform) => {
+    updateWorkspaceWebTheme("light");
+    const changed = vi.fn();
+    const unsubscribe = subscribeWorkspaceWebTheme(changed);
+    const h = harness();
+    let acknowledge!: () => void;
+    h.coreInvoke.mockImplementationOnce(async command => {
+      if (command.type === "logsStatus") return { marker: "log-status" };
+      await new Promise<void>(resolve => { acknowledge = resolve; });
+      return { command };
+    });
+    try {
+      const pending = h.dispatcher.invoke(identity, "setRuntimeTheme", ["dark"]);
+      expect(h.coreInvoke).toHaveBeenCalledWith({ type: "runtimeThemeSet", theme: "dark" });
+      expect(readWorkspaceWebTheme()).toBe("light");
+      expect(changed).not.toHaveBeenCalled();
+      acknowledge();
+      await pending;
+      expect(readWorkspaceWebTheme()).toBe("dark");
+      expect(changed).toHaveBeenCalledOnce();
+      h.coreInvoke.mockRejectedValueOnce(new Error("Core rejected the setting"));
+      await expect(h.dispatcher.invoke(identity, "setRuntimeTheme", ["light"]))
+        .rejects.toThrow("Core rejected the setting");
+      expect(readWorkspaceWebTheme()).toBe("dark");
+      expect(changed).toHaveBeenCalledOnce();
+    } finally {
+      unsubscribe();
+      updateWorkspaceWebTheme("light");
+    }
+  });
   it("refreshes the native Quick Menu after Core accepts a language change", async () => {
     const onOverlayLanguageChanged = vi.fn();
     const h = harness(undefined, undefined, onOverlayLanguageChanged);

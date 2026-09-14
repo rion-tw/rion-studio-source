@@ -96,7 +96,7 @@ while true {
         }
         guard tabs.count <= 1 else { fail("ambiguous exact AppKit runtime tab") }
         let requiresActiveTab = command == "active" || mode == "roleKey" ||
-          (mode == "shortcut" && command == "nextTab")
+          (mode == "shortcut" && (command == "nextTab" || command == "previousTab"))
         if let tab = tabs.first, let owner = object(tab, "AXWindow"),
            text(owner, "AXRole") == "AXWindow",
            text(owner, "AXIdentifier") == focusedWindowIdentifier,
@@ -135,6 +135,7 @@ if mode == "shortcut" || mode == "roleKey" {
   case "ShiftUp" where mode == "roleKey": key = 56; flags = []
   case "escape": key = 53; flags = []
   case "nextTab": key = 48; flags = [.maskControl]
+  case "previousTab": key = 48; flags = [.maskControl, .maskShift]
   case "newGameWindow": key = 45; flags = [.maskCommand]
   case "quickAccess": key = 40; flags = [.maskCommand]
   case "toggleFullscreen": key = 3; flags = [.maskCommand, .maskControl]
@@ -200,7 +201,7 @@ if mode == "shortcut" || mode == "roleKey" {
     up.post(tap: .cghidEventTap)
     usleep(20_000)
     shiftUp.post(tap: .cghidEventTap)
-  } else if command == "nextTab" {
+  } else if command == "nextTab" || command == "previousTab" {
     guard let controlDown = CGEvent(
       keyboardEventSource: source, virtualKey: 59, keyDown: true
     ), let controlUp = CGEvent(
@@ -208,7 +209,16 @@ if mode == "shortcut" || mode == "roleKey" {
     ) else { fail("native Control modifier events unavailable") }
     controlDown.flags = [.maskControl]
     controlUp.flags = []
-    for event in [controlDown, down, up, controlUp] {
+    var events = [controlDown, down, up, controlUp]
+    if command == "previousTab" {
+      guard let shiftDown = CGEvent(keyboardEventSource: source, virtualKey: 56, keyDown: true),
+            let shiftUp = CGEvent(keyboardEventSource: source, virtualKey: 56, keyDown: false)
+      else { fail("native reverse-tab Shift events unavailable") }
+      shiftDown.flags = [.maskControl, .maskShift]
+      shiftUp.flags = [.maskControl]
+      events = [controlDown, shiftDown, down, up, shiftUp, controlUp]
+    }
+    for event in events {
       event.post(tap: .cghidEventTap)
       usleep(20_000)
     }

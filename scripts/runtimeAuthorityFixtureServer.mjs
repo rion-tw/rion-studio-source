@@ -281,6 +281,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
   </style>
 </head>
 <body>
+  <input id="tab-focus-input" aria-label="Tab focus text" hidden style="position:fixed;left:24px;top:24px;z-index:5;width:240px;height:40px">
   <canvas id="game-input-canvas" tabindex="0"></canvas>
   <main>
     <h1>[Runtime QA] <span id="role-id"></span></h1>
@@ -325,6 +326,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
   </main>
   <script>
     const roleId = ${safeRoleId};
+    document.querySelector("#tab-focus-input").hidden = !roleId.startsWith("chromium-tabs-focus-");
     const counts = { click: 0, keydown: 0, focus: 0, visibility: 0 };
     const sessionKey = "rion-e2e-session";
     const sessionMarker = ${safeSessionMarker};

@@ -104,6 +104,7 @@ export type VisibleWindowsApplicationShortcut =
 export type VisibleMacosApplicationShortcut =
   | "escape"
   | "nextTab"
+  | "previousTab"
   | "newGameWindow"
   | "quickAccess"
   | "toggleFullscreen"

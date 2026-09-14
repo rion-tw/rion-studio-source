@@ -1027,6 +1027,15 @@ revision, native foreground/focus and surface visibility. It never activates a
 window, chooses a workspace surface, or retries after background completion.
 AppKit document readiness only registers passive native input observation; it
 never restores launcher focus or queues a later key-window activation.
+A committed AppKit user tab activation also projects an optional
+`contentFocusTabId`. After native selection and surface visibility commit, the
+same content-only handoff restores the selected standalone Role WebContents,
+preserving its DOM focus target. Passive layout/restore projections and duplicate
+or superseded activations do not grant focus. Native blur/hide/close/failure,
+cancellation, a newer selection, or replaced ownership revokes pending handoff;
+readiness never reactivates a background host. Physical Ctrl+Tab/Shift release
+continues through the existing native modifier handoff. No Escape interception
+or DOM canvas focus is introduced.
 Missing persisted window names project as empty
 native titles on macOS and Windows. Windows shell document titles cannot replace
 the Core-owned title. These restore existing selection and naming semantics.

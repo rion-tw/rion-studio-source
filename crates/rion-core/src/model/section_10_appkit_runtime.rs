@@ -191,6 +191,10 @@ pub struct AppKitRuntimeWindowProjectionRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct AppKitRuntimeProjectionEffectRecord {
+    // One content-only responder handoff after a committed user activation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub content_focus_tab_id: Option<String>,
     pub event_id: String,
     pub windows: Vec<AppKitRuntimeWindowProjectionRecord>,
 }

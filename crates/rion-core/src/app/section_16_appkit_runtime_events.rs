@@ -223,7 +223,7 @@ impl AppCore {
             expected_revision: Some(primary.topology_revision),
             operation_id: crate::OperationId::new(event.event_id.clone())
                 .map_err(CoreError::InvalidInput)?,
-            tab_id: crate::RuntimeTabId::new(tab_id).map_err(CoreError::InvalidInput)?,
+            tab_id: crate::RuntimeTabId::new(tab_id.clone()).map_err(CoreError::InvalidInput)?,
             window_id: primary.identity.logical_window_id.clone(),
         })?;
         match commit.status {
@@ -232,7 +232,10 @@ impl AppCore {
             }
             crate::RuntimeCommitStatus::Applied | crate::RuntimeCommitStatus::Duplicate => {
                 let window_id = primary.identity.logical_window_id.clone();
-                self.finish_appkit_durable_projection(event, primary, true, &[window_id])
+                self.finish_appkit_durable_projection(
+                    event, primary, true, &[window_id],
+                    (commit.status == crate::RuntimeCommitStatus::Applied).then_some(tab_id),
+                )
             }
         }
     }
@@ -266,7 +269,7 @@ impl AppCore {
             return self.reconcile_appkit_superseded(&event, &primary, Some("APPKIT_EVENT_STALE"));
         }
         let window_id = primary.identity.logical_window_id.clone();
-        self.finish_appkit_durable_projection(event, primary, true, &[window_id])
+        self.finish_appkit_durable_projection(event, primary, true, &[window_id], None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -377,6 +380,7 @@ impl AppCore {
                 primary,
                 true,
                 &[target_window_id],
+                None,
             );
         }
 
@@ -412,6 +416,7 @@ impl AppCore {
             primary,
             true,
             &[source_window_id, target_window_id],
+            None,
         )
     }
 
@@ -484,7 +489,7 @@ impl AppCore {
             return self.reconcile_appkit_superseded(&event, &primary, Some("APPKIT_EVENT_STALE"));
         }
         let window_id = primary.identity.logical_window_id.clone();
-        self.finish_appkit_durable_projection(event, primary, true, &[window_id])
+        self.finish_appkit_durable_projection(event, primary, true, &[window_id], None)
     }
 }
 
@@ -1303,8 +1308,11 @@ impl AppCore {
         primary: crate::model::AppKitRuntimeHostObservationRecord,
         topology_committed: bool,
         window_ids: &[String],
+        content_focus_tab_id: Option<String>,
     ) -> CoreResult<AppKitEventReceipt> {
-        let mut receipt = self.finish_appkit_projection(event, primary, topology_committed)?;
+        let mut receipt = self.finish_appkit_projection_with_content_focus(
+            event, primary, topology_committed, content_focus_tab_id,
+        )?;
         if !receipt.topology_committed {
             return Ok(receipt);
         }
@@ -1508,6 +1516,7 @@ impl AppCore {
             ));
         }
         Ok(crate::model::AppKitRuntimeProjectionEffectRecord {
+            content_focus_tab_id: None,
             event_id: event.event_id.clone(),
             windows,
         })

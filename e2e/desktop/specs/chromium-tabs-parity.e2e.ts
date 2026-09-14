@@ -1,3 +1,4 @@
+import { runMacosTabFocusRegression } from "./chromium-tab-content-focus-setup";
 import { resizeWorkspaceWindow } from "../support/workspace-window-resize";
 import { leaveLaunchInBackground } from "../support/launch-foreground";
 import { $, browser, expect } from "@wdio/globals";
@@ -323,9 +324,7 @@ async function launchRoleIntoWindow(
   await captureLaunchDiagnostic("before-visible-destination-click", role, gameWindow);
   const priorTabIds = new Set((await electronDesktopE2eGameWindowRuntime(gameWindow.id)).currentRuntime?.coreTabIds ?? gameWindow.tabs.map((tab) => tab.id));
   const afterSequence = await fixtureCursor();
-  const fixtureId = ROLE_DEFINITIONS.find(
-    (definition) => definition.name === role.name
-  )!.fixtureId;
+  const fixtureId = new URL(role.launchUrl).pathname.split("/").at(-1)!;
   const processId = loading ? (await electronDesktopE2eProbe()).processId : undefined;
   if (loading) await fixtureRequest("/api/gate", { roleId: fixtureId });
   await savedWindow.click();
@@ -1378,6 +1377,16 @@ async function restartPhase(input: Readonly<{
 }
 
 describe("Chromium native tab lifecycle parity", () => {
+  it("hands fullscreen tab keyboard focus to content without a page click", async function () {
+    const probe = await electronDesktopE2eProbe();
+    if (probe.platform !== "macos" || required("RION_STUDIO_E2E_PHASE") !== "chromium-tabs-visible-seed") this.skip();
+    await ensureEnglishUi();
+    await acceptLegalAndSkipFirstRun();
+    await installRuntimeTabShellErrorJournal();
+    await runMacosTabFocusRegression({ mainWindowHandle: await browser.getWindowHandle(),
+      createWindow: createGameWindowThroughVisibleUi, launchRole: launchRoleIntoWindow });
+  });
+
   it("keeps exact visible, dormant, ordered, and generation-fenced native tabs", async () => {
     const probe = await electronDesktopE2eProbe();
     expect(probe.runtimeTarget).toBe(required("RION_STUDIO_E2E_RUNTIME_TARGET"));

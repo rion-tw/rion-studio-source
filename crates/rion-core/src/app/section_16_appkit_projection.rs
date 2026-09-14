@@ -5,7 +5,18 @@ impl AppCore {
         primary: crate::model::AppKitRuntimeHostObservationRecord,
         topology_committed: bool,
     ) -> CoreResult<AppKitEventReceipt> {
-        let projection = self.build_appkit_projection(&event)?;
+        self.finish_appkit_projection_with_content_focus(event, primary, topology_committed, None)
+    }
+
+    fn finish_appkit_projection_with_content_focus(
+        &self,
+        event: crate::model::AppKitRuntimeEventRecord,
+        primary: crate::model::AppKitRuntimeHostObservationRecord,
+        topology_committed: bool,
+        content_focus_tab_id: Option<String>,
+    ) -> CoreResult<AppKitEventReceipt> {
+        let mut projection = self.build_appkit_projection(&event)?;
+        projection.content_focus_tab_id = content_focus_tab_id;
         let quarantine_scope = projection.windows.clone();
         let native = self.run_embedded_runtime_effect(
             &primary.identity.logical_window_id,

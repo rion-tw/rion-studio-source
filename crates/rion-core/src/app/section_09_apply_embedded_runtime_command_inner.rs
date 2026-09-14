@@ -666,6 +666,7 @@ impl AppCore {
             &projection_target,
             CoreEffectAction::EmbeddedApplyAppKitProjection {
                 projection: Box::new(crate::model::AppKitRuntimeProjectionEffectRecord {
+                    content_focus_tab_id: None,
                     event_id: projection_event_id.clone(),
                     windows: projected_windows,
                 }),

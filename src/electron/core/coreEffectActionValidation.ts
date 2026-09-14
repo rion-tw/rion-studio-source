@@ -221,7 +221,7 @@ const appKitWindow: Check = (value) => closed(value, {
 }, { activeTabId: identity, contentBounds: layoutBounds });
 const appKitProjection: Check = (value) => closed(value, {
   eventId: identity, windows: arrayOf(appKitWindow)
-});
+}, { contentFocusTabId: identity });
 const reloadFence: Check = (value) => closed(value, {
   roleId: identity,
   ownerGeneration: nonnegativeInteger,

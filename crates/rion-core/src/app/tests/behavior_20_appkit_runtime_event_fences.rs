@@ -216,6 +216,7 @@ fn appkit_activation_commits_core_topology_and_finishes_from_exact_native_projec
         })
         .expect("activation must finish from an exact AppKit projection effect");
     assert_eq!(projection.event_id, event.event_id);
+    assert_eq!(projection.content_focus_tab_id.as_deref(), Some(tab_ids[0].as_str()));
     assert_eq!(projection.windows[0].active_tab_id.as_deref(), Some(tab_ids[0].as_str()));
     assert!(projection.windows[0].tabs.iter().all(|tab| {
         tab.phase == crate::model::RuntimeTabActivationPhaseRecord::Ready
@@ -228,6 +229,10 @@ fn appkit_activation_commits_core_topology_and_finishes_from_exact_native_projec
             .collect::<Vec<_>>(),
         tab_ids.iter().map(String::as_str).collect::<Vec<_>>()
     );
+
+    let mut passive = event.clone();
+    passive.action = crate::model::AppKitRuntimeEventActionRecord::Layout { layout_sequence: 1 };
+    assert!(core.build_appkit_projection(&passive).unwrap().content_focus_tab_id.is_none());
 
     let mut replay = event.clone();
     replay.event_id = uuid::Uuid::new_v4().to_string();
@@ -270,6 +275,7 @@ fn appkit_activation_commits_core_topology_and_finishes_from_exact_native_projec
         CoreEffectAction::EmbeddedApplyAppKitProjection { projection }
             if projection.windows[0].active_tab_id.as_deref() == Some(tab_ids[0].as_str())
                 && projection.windows[0].adapter_sequence == 2
+                && projection.content_focus_tab_id.is_none()
     )));
 
     let snapshot = core.browser_runtime.snapshot().unwrap();

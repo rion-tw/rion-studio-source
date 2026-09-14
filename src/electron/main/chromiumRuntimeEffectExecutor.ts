@@ -454,7 +454,7 @@ export class ChromiumRuntimeEffectExecutor {
           (windowId) => this.#windows.has(windowId)
         );
       case "embeddedApplyAppKitProjection":
-        return this.#applyAppKitProjection(effect, action.projection);
+        return this.#applyAppKitProjection(effect, action.projection, context?.signal);
       case "embeddedProvisionWindowForTabMove":
         return provisionChromiumRuntimeWindowForTabMove({
           ports: this.#input,
@@ -516,6 +516,7 @@ export class ChromiumRuntimeEffectExecutor {
   dispose(): Promise<void> {
     if (this.#disposePromise) return this.#disposePromise;
     if (this.#state === "disposed") return Promise.resolve();
+    for (const tab of this.#tabs.values()) tab.pendingContentFocus?.cancel();
     this.#state = "draining";
     this.#savedWindowRestorePresentations.clear();
     this.#ownershipTransitions.close("actorStop");
@@ -627,6 +628,9 @@ export class ChromiumRuntimeEffectExecutor {
       windowRecord.host.initializeAppKitTab(tab);
       windowRecord.windowGeneration = tab.appkitWindowGeneration!;
       windowRecord.topologyRevision = tab.appkitTopologyRevision!;
+    }
+    for (const current of this.#tabs.values()) {
+      if (current.windowId === tab.target.windowId) current.pendingContentFocus?.cancel();
     }
     windowRecord.tabIds.push(tab.tabId);
     windowRecord.activeTabId = tab.tabId;
@@ -1300,6 +1304,7 @@ export class ChromiumRuntimeEffectExecutor {
     requireIdentifier(tabId, "tab");
     const tab = this.#tabs.get(tabId);
     if (!tab) return false;
+    tab.pendingContentFocus?.cancel();
     if (tab.specification.attemptGeneration) {
       this.#closedTabAttempts.set(tabId, tab.specification.attemptGeneration);
       if (this.#closedTabAttempts.size > 4096) this.#closedTabAttempts.delete(this.#closedTabAttempts.keys().next().value!);
@@ -1421,9 +1426,11 @@ export class ChromiumRuntimeEffectExecutor {
 
   async #applyAppKitProjection(
     effect: CoreEffectRequest,
-    projection: AppKitRuntimeProjectionEffectRecord
+    projection: AppKitRuntimeProjectionEffectRecord,
+    signal?: AbortSignal
   ): Promise<Readonly<{ eventId: string; windowIds: readonly string[] }>> {
     const receipt = await applyChromiumRuntimeAppKitProjection({
+      signal,
       effect,
       projection,
       ports: this.#input,

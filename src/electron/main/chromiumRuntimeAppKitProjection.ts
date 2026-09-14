@@ -1,3 +1,5 @@
+import { handoffChromiumContentFocus, requestChromiumContentFocus,
+  type ChromiumContentFocusClaim } from "./chromiumRuntimeContentFocus";
 import { projectWorkspaceSlotLoads } from "./chromiumWorkspaceSlotLoading";
 import {
   applyChromiumSurfaceProjection, captureChromiumSurfaceProjections,
@@ -45,7 +47,7 @@ export interface ChromiumRuntimeTabRecord {
   readonly webViews: Map<string, EmbeddedRoleViewEffectRecord>;
   audioMuted: boolean;
   /** One content responder handoff after an explicit native focus admission. */
-  pendingContentFocus?: boolean;
+  pendingContentFocus?: ChromiumContentFocusClaim;
   slotRetry?: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>;
   slotLoads?: Map<string, import("../../shared/generated").WorkspaceSlotLoadRecord>;
   workspaceLoadPlan?: Extract<CoreEffectRequest["action"], { type: "embeddedLoadWorkspaceSlots" }>;
@@ -72,6 +74,7 @@ export interface ChromiumRuntimeWebSurfaceRecord {
 }
 
 export interface ApplyChromiumRuntimeAppKitProjectionInput {
+  readonly signal?: AbortSignal;
   readonly effect: CoreEffectRequest;
   readonly projection: AppKitRuntimeProjectionEffectRecord;
   readonly ports: ChromiumRuntimeEffectExecutorInput;
@@ -114,6 +117,13 @@ export async function applyChromiumRuntimeAppKitProjection(
     string,
     AppKitRuntimeWindowProjectionRecord
   >();
+  if (projection.contentFocusTabId !== undefined && !projection.windows.some(window =>
+      window.activeTabId === projection.contentFocusTabId &&
+      window.logicalTabIds.includes(projection.contentFocusTabId!) &&
+      !window.hiddenTabIds.includes(projection.contentFocusTabId!))) {
+    throw runtimeError("ELECTRON_MACOS_APPKIT_CONTENT_FOCUS_INVALID",
+      "Core selected a content focus tab outside its active projection.");
+  }
   const projectedWindowByTab = new Map<string, string>();
   const projectedLayoutsByRole = new Map<string, {
     windowId: string;
@@ -540,6 +550,24 @@ export async function applyChromiumRuntimeAppKitProjection(
     if (tab.slotLoads) projectWorkspaceSlotLoads(tab, windows.get(windowId)!,
       await ports.layout.resolveRoleBounds(tab.specification, windows.get(windowId)!.host));
   }
+  // The native transaction is committed. Focus failure must never roll it back.
+  if (projection.contentFocusTabId !== undefined) {
+    const exact = projection.windows.find(window => window.activeTabId === projection.contentFocusTabId);
+    const current = exact && windows.get(exact.identity.logicalWindowId);
+    if (current?.topologyRevision === exact?.topologyRevision &&
+        current?.lastAdapterSequence === exact?.adapterSequence) {
+      requestChromiumContentFocus(input, projection.contentFocusTabId);
+    }
+  }
+  handoffChromiumContentFocus(input, projection.windows.map(window => ({
+    windowId: window.identity.logicalWindowId, windowGeneration: window.windowGeneration,
+    topologyRevision: window.topologyRevision, tabIds: window.logicalTabIds,
+    hiddenTabIds: window.hiddenTabIds, activeTabId: window.activeTabId,
+    tabPhases: window.tabs.map(tab => ({ tabId: tab.tabId, phase: tab.phase }))
+  })), projection.windows.flatMap(window => window.roles.map(role => ({
+    roleId: role.roleId, state: "running" as const,
+    owner: { tabId: role.tabId, generation: role.ownerGeneration }
+  }))));
   return Object.freeze({
     eventId: projection.eventId,
     windowIds: Object.freeze([...projectionsByWindow.keys()].sort())

@@ -51,9 +51,9 @@ describe("Chromium native tab exact replacements", () => {
     const nativeFocus = await source(
       "e2e/desktop/support/macos-native-focus.swift"
     );
-    expect(nativeFocus).toContain('mode == "shortcut" && command == "nextTab"');
+    expect(nativeFocus).toContain('mode == "shortcut" && (command == "nextTab" || command == "previousTab")');
     expect(nativeFocus).toContain('case "nextTab": key = 48; flags = [.maskControl]');
-    expect(nativeFocus).toContain("for event in [controlDown, down, up, controlUp]");
+    expect(nativeFocus).toContain("var events = [controlDown, down, up, controlUp]");
     expect(nativeFocus).toContain(
       "exact runtime tab is not the active AppKit visual owner"
     );

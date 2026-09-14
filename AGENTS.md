@@ -1,7 +1,9 @@
 # Rion Studio Agent Rules
 
-For substantial tasks, read `.agents/context.md`, run `pnpm run ai:context`, and
-follow scoped `AGENTS.md`. Reuse loaded, unchanged context. Preserve unrelated
+Use `.agents/context.md` and `pnpm run ai:context` for unfamiliar areas,
+cross-boundary changes, or unclear context/validation requirements. Follow scoped
+`AGENTS.md`; reuse loaded, unchanged context. Known small edits, typo fixes, and
+commit-only tasks need no fresh routing or document reads. Preserve unrelated
 work; use `pnpm`, existing patterns, and focused runtime tests. Keep source
 cohesive within hygiene limits; never hand-edit `src/shared/generated`.
 
@@ -69,6 +71,11 @@ cohesive within hygiene limits; never hand-edit `src/shared/generated`.
 
 ## Validation and handoff
 
+- Complete the authorized implementation, required validation, and fixes for
+  failures caused by this change; do not stop for review merely after a first
+  implementation. Finish when done, when the user asks to pause, or when an
+  actual blocker requires external information or authorization. Report unrelated
+  failures separately without expanding the task.
 - Run routed checks from narrowest to broadest: hygiene, typecheck, lint,
   tests, Rust lint/tests, and build. Use this task's
   `--paths` for validation; `--changed` inventories all worktree changes, including

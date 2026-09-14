@@ -261,8 +261,13 @@ export function formatContextReport(report, { verbose = false } = {}) {
   appendList(lines, "Context (read once)", report.contextFiles);
   appendList(lines, "Canonical docs (read relevant sections)", report.canonicalDocs);
   appendList(lines, "Risks", report.risks);
-  appendList(lines, "Fast checks", report.fastChecks);
-  appendList(lines, "Required checks", report.requiredChecks);
+  const fastChecks = unique(report.fastChecks);
+  const requiredChecks = unique(report.requiredChecks);
+  const fast = new Set(fastChecks);
+  const required = new Set(requiredChecks);
+  appendList(lines, "Fast checks (required)", fastChecks.filter((check) => required.has(check)));
+  appendList(lines, "Fast checks (suggested)", fastChecks.filter((check) => !required.has(check)));
+  appendList(lines, "Additional required checks", requiredChecks.filter((check) => !fast.has(check)));
   lines.push(`Platforms local: ${report.platforms.local.join(", ") || "none"}`);
   lines.push(`Platforms pending: ${report.platforms.pending.join(", ") || "none"}`);
   if (report.e2e.features.length > 0) lines.push(`E2E features: ${report.e2e.features.join(", ")}`);

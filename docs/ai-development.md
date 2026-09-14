@@ -23,9 +23,13 @@ Do not copy a normative rule into multiple layers. A higher-level instruction ma
 state the invariant and link its authority, but detailed states, ordering, and
 failure behavior belong in one contract.
 
-## Route before loading context
+## Route when context or validation needs clarification
 
-Use an intent when planning and paths when concrete files are known:
+Use the router for unfamiliar areas, cross-boundary changes, or unclear context
+and validation requirements. Known small edits, typo fixes, and commit-only
+tasks need no fresh routing or document reads; explicit skill requests still
+apply. Existing applicable requirements remain in force. Use an intent while
+planning and paths when concrete files are known:
 
 ```bash
 pnpm run ai:context -- --list
@@ -37,8 +41,15 @@ pnpm run ai:context -- --changed --base origin/main --json
 pnpm run ai:context -- --changed --verbose
 ```
 
-The router unions overlapping areas and separates fast checks from handoff
-gates. Text reports show the first reason per area and the remaining count;
+The router unions overlapping areas. Text reports group commands into
+`Fast checks (required)` (both lists), `Fast checks (suggested)` (fast only), and
+`Additional required checks` (required only), omitting empty groups. Each exact
+command appears once, preserving source order within its group; different
+commands and wrapper scripts are not assumed equivalent. A successful check
+satisfies both lists while relevant inputs remain unchanged. Relevant changes,
+failures, or new evidence may require rerunning it; no result cache is maintained.
+
+Text reports show the first reason per area and the remaining count;
 `--verbose` shows every reason. `--json` always retains all fields and reasons,
 even with `--verbose`. Checks, platforms, and journey IDs are never truncated.
 An unknown intent, missing path, invalid Git base, or unclassified routed path
@@ -63,9 +74,9 @@ is an error. The router never executes checks or proves they passed.
 - General tooling starts with testing context. Release and desktop E2E tasks
   select their respective routes, including by intent when a generic CI/script
   path alone cannot express the task's release or journey impact.
-- Compare unique required-context bytes, optional reference bytes, and report
-  bytes separately for representative tasks. These are input-size measurements,
-  not measured token savings or quality scores.
+- Retain instructions that improve decisions. Existing hygiene limits remain
+  ceilings, not reduction targets. Context/reference/report bytes can describe
+  input size; they do not measure token savings or quality.
 
 ## Maintain the routing map
 
@@ -83,8 +94,9 @@ is an error. The router never executes checks or proves they passed.
 
 ## Task completion
 
-Route this task's actual `--paths` again after edits. Use `--changed` to inventory
-the whole worktree (including unrelated tasks), then reconcile with this task's
-diff before selecting validation. Report observed results, affected journey IDs,
+The completion boundary is defined in root `AGENTS.md`. Re-route this task's
+actual `--paths` only when scope or risk changes; reuse still-applicable context
+and checks. Use `--changed` for whole-worktree inventory, reconciling unrelated
+tasks with this task's diff. Report observed results, affected journey IDs,
 the exact E2E omission reason when applicable, and native platforms pending CI. A green
 portable check is not native Windows or macOS evidence.

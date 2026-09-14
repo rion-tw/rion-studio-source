@@ -1,22 +1,24 @@
 ---
 name: rion-task-router
-description: Select Rion Studio task context and validation by intent or changed paths for planning, implementation, diagnosis, and review of repository code or engineering documentation.
+description: Select Rion Studio task context and validation when the affected areas or required checks are unclear.
 ---
 
-# Route a Rion Studio task
+# Rion task context and validation
 
-1. Run `pnpm run ai:context -- --intent <id>` or pass concrete targets with
-   `--paths`. Use `--list` only for unknown IDs. Set `--change-kind` when known.
-2. Read emitted context once, reusing unchanged content already loaded.
-   Canonical documents are lookup targets: search headings/symbols, then read
-   relevant sections and dependent clauses before changing behavior. Follow
-   contract links as needed. Use `.agents/context.md` if the router is unavailable.
-3. After edits, route this task's actual paths for checks and platform/journey
-   obligations. Use `--changed` for whole-worktree inventory; reconcile unrelated
-   changes instead of treating them as this task. Use `--verbose` for all match
-   reasons or `--json` for the complete machine-readable report.
-4. Inspect the map on unknown intent, missing reference, or unclassified path;
-   do not guess around failed routing.
+Use for unfamiliar areas, cross-boundary changes, unclear obligations, or an
+explicit skill request. Known small edits, typo fixes, and commit-only tasks
+need no fresh routing. Re-route only when scope or risk changes.
 
-Report observed checks, never recommendations as evidence. Keep unavailable
-native platforms pending CI or their required physical-host gates.
+`pnpm run ai:context -- --intent <id>` selects by task; `--paths <task-paths>`
+selects by actual scope. Set `--change-kind` when known. Use `--list` for unknown
+IDs, `--verbose` for all match reasons, and `--json` for the complete report.
+`--changed` inventories the whole worktree, including unrelated work.
+
+Reuse applicable, unchanged context already loaded. Canonical documents are
+lookup targets: read relevant sections and dependent clauses before changing
+behavior. Use `.agents/context.md` if the router is unavailable. Inspect the map
+on unknown intent, missing reference, or unclassified path; do not bypass errors.
+
+The report selects checks, not evidence. Matching fast/required commands run
+once for unchanged relevant inputs. Preserve platform and journey obligations;
+report observed results and unavailable native gates pending CI or physical hosts.

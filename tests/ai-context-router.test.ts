@@ -199,6 +199,54 @@ describe("AI context router", () => {
     ]);
   });
 
+  it.each([
+    { name: "full overlap", fast: ["check:b", "check:a"], required: ["check:a", "check:b"],
+      output: "Fast checks (required):\n- check:b\n- check:a\n" },
+    { name: "partial overlap", fast: ["check:c", "check:b", "check:a"], required: ["check:d", "check:a", "check:b"],
+      output: "Fast checks (required):\n- check:b\n- check:a\nFast checks (suggested):\n- check:c\nAdditional required checks:\n- check:d\n" },
+    { name: "no overlap", fast: ["check:b", "check:a"], required: ["check:d", "check:c"],
+      output: "Fast checks (suggested):\n- check:b\n- check:a\nAdditional required checks:\n- check:d\n- check:c\n" },
+    { name: "empty lists", fast: [], required: [], output: "" },
+    { name: "required only", fast: [], required: ["check:a"],
+      output: "Additional required checks:\n- check:a\n" },
+    { name: "fast only", fast: ["check:a"], required: [],
+      output: "Fast checks (suggested):\n- check:a\n" },
+    { name: "duplicate commands", fast: ["check:a", "check:a"], required: ["check:a", "check:a"],
+      output: "Fast checks (required):\n- check:a\n" },
+    { name: "distinct wrapper commands", fast: ["pnpm run check:docs"], required: ["pnpm run check:hygiene"],
+      output: "Fast checks (suggested):\n- pnpm run check:docs\nAdditional required checks:\n- pnpm run check:hygiene\n" }
+  ])("groups $name without changing report data", async ({ fast, required, output }) => {
+    const report = await analyzeContext({
+      root: repositoryRoot, intents: ["ai-context"], changeKind: "internal-only", hostPlatform: "win32"
+    });
+    report.fastChecks = fast;
+    report.requiredChecks = required;
+    const before = JSON.stringify(report);
+    for (const verbose of [false, true]) {
+      const formatted = formatContextReport(report, { verbose });
+      const start = formatted.indexOf("Fast checks");
+      const fallback = formatted.indexOf("Additional required checks");
+      const end = formatted.indexOf("Platforms local:");
+      const checks = start < 0 && fallback < 0 ? "" : formatted.slice(start < 0 ? fallback : start, end);
+      expect(checks).toBe(output);
+      for (const command of new Set([...fast, ...required])) {
+        expect(checks.split("\n").filter((line) => line === `- ${command}`)).toHaveLength(1);
+      }
+    }
+    expect(JSON.stringify(report)).toBe(before);
+  });
+
+  it("retains overlapping requirements in CLI JSON", () => {
+    const args = ["scripts/aiContext.mjs", "--intent", "ai-context", "--change-kind", "internal-only", "--json"];
+    const run = (...flags: string[]) => JSON.parse(execFileSync(process.execPath, [...args, ...flags], {
+      cwd: repositoryRoot, encoding: "utf8"
+    }));
+    const report = run();
+    expect(report.fastChecks).toContain("pnpm run check:docs");
+    expect(report.requiredChecks).toContain("pnpm run check:docs");
+    expect(run("--verbose")).toEqual(report);
+  });
+
   it("fails closed for unknown intents and unclassified routed paths", async () => {
     const contextMap = await loadContextMap(repositoryRoot);
     await expect(analyzeContext({ root: repositoryRoot, contextMap, intents: ["missing"], hostPlatform: "darwin" }))

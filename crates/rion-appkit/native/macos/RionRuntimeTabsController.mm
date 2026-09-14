@@ -6,6 +6,7 @@
 #include "RionRuntimeTabsController/05_layout.mm"
 #include "RionRuntimeTabsController/06_modifier_focus.mm"
 #include "RionRuntimeTabsController/06_fullscreen.mm"
+#include "RionRuntimeTabsController/06_workspace_slot_loading.mm"
 #include "RionRuntimeTabsController/07_drag_drop.mm"
 #include "RionRuntimeTabsController/08_controller_lifecycle.mm"
 #include "RionRuntimeTabsController/09_chromium_surface_probe.mm"

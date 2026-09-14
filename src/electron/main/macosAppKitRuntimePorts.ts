@@ -50,6 +50,7 @@ export interface RawNativeAppKitRuntimeHost {
   snapshotContentLayout: (
     expected: AppKitRuntimeHostIdentity
   ) => RawAppKitRuntimeContentLayout;
+  applyWorkspaceSlotLoads?: (expected: AppKitRuntimeHostIdentity, projectionJson: string) => boolean;
   applyTabProjection: (
     expected: AppKitRuntimeHostIdentity,
     projectionRevision: string,

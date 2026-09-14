@@ -233,6 +233,18 @@ fn native_action_serialization_retains_only_fields_owned_by_the_action_type() {
     );
 
     let mut launcher = dense();
+    let mut retry = dense();
+    retry.insert("type".to_owned(), serde_json::json!("retryWorkspaceSlot"));
+    let receipt = serde_json::json!({"slotId": "slot-1", "loadId": "load-2", "revision": 3});
+    retry.insert("statusIdentity".to_owned(), receipt.clone());
+    retain_native_action_fields("retryWorkspaceSlot", &mut retry);
+    assert_eq!(
+        serde_json::Value::Object(retry),
+        serde_json::json!({
+            "type": "retryWorkspaceSlot", "sourceWindowId": "window-1", "record": receipt
+        })
+    );
+
     launcher.insert(
         "type".to_owned(),
         serde_json::Value::String("openLauncher".to_owned()),

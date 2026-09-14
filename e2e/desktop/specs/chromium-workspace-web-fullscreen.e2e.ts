@@ -1,4 +1,5 @@
 import { clickWorkspaceSlot } from "../support/ui";
+import { clickMacosVisibleRoleControl } from "../support/macos-appkit-ui";
 import { $, browser, expect } from "@wdio/globals";
 
 import type { EmbeddedRuntimeState, LaunchWorkspace, Role, RoleStatus } from
@@ -402,11 +403,19 @@ async function escapeAndObserveFullscreen(input: Readonly<{
   runtimeTabName: string;
   windowId: string;
 }>): Promise<ElectronDesktopE2eWorkspaceWebRuntimeInspection> {
+  if (input.platform === "macos") {
+    // ChromeDriver's document focus does not establish AppKit's first responder.
+    // Give the visible Web surface real native pointer focus before native Escape.
+    const inspection = await electronDesktopE2eWorkspaceWebRuntime(input.windowId);
+    const point = await readVisibleElectronPageElementPoint(input.expectedUrl, input.mainWindowHandle, "#contained-fullscreen-controls > p");
+    await clickMacosVisibleRoleControl(input.windowId, inspection.web.surfaceId, point, "web");
+  }
   const afterSequence = await fixtureCursor();
   await submitElectronPageEscape(input.expectedUrl, input.mainWindowHandle, {
     platform: input.platform,
     processId: input.processId,
-    runtimeTabName: input.runtimeTabName
+    runtimeTabName: input.runtimeTabName,
+    runtimeWindowId: input.windowId
   });
   const event = await waitFixtureEvent({
     afterSequence,

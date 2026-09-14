@@ -18,6 +18,8 @@ import type {
 } from "./chromiumRuntimeFullscreenToolbar";
 
 export interface ChromiumRuntimeHostPort {
+  applyWorkspaceSlotLoads?: (tabId: string, slots: readonly import("./chromiumWorkspaceSlotLoading").WorkspaceSlotLoadPresentation[]) => void;
+  bindWorkspaceSlotRetry?: (retry: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>) => void;
   readonly id: number;
   readonly logicalWindowId: string;
   readonly nativeWindow?: ChromiumRoleSurfaceNativeWindowPort;

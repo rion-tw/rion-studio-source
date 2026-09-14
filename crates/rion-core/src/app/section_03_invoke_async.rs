@@ -220,6 +220,23 @@ impl AppCore {
                         .map_err(|error| CoreError::Internal(error.to_string()))
                 })
             }
+            CoreCommand::WorkspaceSlotLoadReport { record } => {
+                let core = Arc::clone(self);
+                let receipt = tokio::task::spawn_blocking(move || {
+                    let result = core.report_workspace_slot_load(record)?;
+                    if result.as_ref().is_some_and(|record| record.phase != "loading") {
+                        core.project_embedded_runtime_snapshot_without_persistence(None)?;
+                    }
+                    Ok::<_, CoreError>(result)
+                }).await.map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(receipt).map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::WorkspaceSlotRetry { record } => {
+                let core = Arc::clone(self);
+                let result = tokio::task::spawn_blocking(move || core.retry_workspace_slot(record))
+                    .await.map_err(|error| CoreError::Internal(error.to_string()))??;
+                Ok(serde_json::json!(result))
+            }
             CoreCommand::BrowserWorkspaceWebSurfaceFailed {
                 operation_id,
                 surface_id,

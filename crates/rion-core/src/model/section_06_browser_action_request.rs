@@ -295,6 +295,14 @@ pub enum CoreEffectAction {
     EmbeddedConfigureRoleSessions {
         role_ids: Vec<String>,
     },
+    EmbeddedLoadWorkspaceSlots {
+        tab_id: String,
+        attempt_generation: String,
+        roles: Vec<EmbeddedRoleLoadEffectRecord>,
+        profile: Option<GlobalWebProfilePathsRecord>,
+        surfaces: Vec<EmbeddedWebSurfaceLoadEffectRecord>,
+    },
+    EmbeddedRetryWorkspaceSlot { record: WorkspaceSlotLoadRecord },
     EmbeddedLoadRoles {
         roles: Vec<EmbeddedRoleLoadEffectRecord>,
     },
@@ -482,6 +490,8 @@ impl CoreEffectAction {
             | Self::ChromeProfileImportCommit {
                 role_id: Some(_), ..
             }
+            | Self::EmbeddedLoadWorkspaceSlots { .. }
+            | Self::EmbeddedRetryWorkspaceSlot { .. }
             | Self::EmbeddedDestroyRole { .. }
             | Self::EmbeddedDestroyTab { .. }
             | Self::EmbeddedSetTabAudioMuted { .. }

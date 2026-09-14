@@ -1,3 +1,4 @@
+import { projectWorkspaceSlotLoads } from "./chromiumWorkspaceSlotLoading";
 import type { CoreEffectRequest, RuntimeWindowPreferencesRecord } from
   "../../shared/generated";
 import type { RuntimeTabActivationPhaseRecord } from "../../shared/generated";
@@ -221,6 +222,7 @@ export function bindChromiumRuntimeWindowLayout(input: {
           tab.specification,
           record.host
         );
+      projectWorkspaceSlotLoads(tab, record, bounds);
       if (layout) {
         contentBounds = layout.contentBounds;
         const attemptGeneration = tab.specification.attemptGeneration;

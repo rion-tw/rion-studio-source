@@ -127,6 +127,8 @@ export class WindowsRuntimeHostChromeController {
   #documentReady = false;
   #windowGeneration = 0;
   #topologyRevision = 0;
+  #slotLoads = new Map<string, readonly import("../../shared/workspaceSlotLoading").WorkspaceSlotLoadPresentation[]>();
+  #slotRetry: ((record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>) | undefined;
   #projectionRevision = 0;
   #activeTabId: string | null = null;
   #tabs: ChromiumRuntimeWindowChromeProjection["tabs"] = Object.freeze([]);
@@ -388,6 +390,16 @@ export class WindowsRuntimeHostChromeController {
     this.#publish();
   }
 
+  bindWorkspaceSlotRetry(retry: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>): void {
+    this.#slotRetry = retry;
+  }
+
+  applyWorkspaceSlotLoads(tabId: string, slots: readonly import("../../shared/workspaceSlotLoading").WorkspaceSlotLoadPresentation[]): void {
+    this.#slotLoads.set(tabId, slots);
+    this.#projectionRevision += 1;
+    this.#publish();
+  }
+
   async handleCommand(url: string, candidate: unknown): Promise<void> {
     const validCandidate = isWindowsRuntimeHostCommand(candidate);
     const indicatorTerminal = validCandidate && url === this.#documentUrl && candidate.windowId === this.#windowId &&
@@ -400,6 +412,8 @@ export class WindowsRuntimeHostChromeController {
       : null;
     const isReload = typeof candidate === "object" && candidate !== null &&
       "type" in candidate && candidate.type === "reloadTab";
+    const isSlotRetry = validCandidate && candidate.type === "retryWorkspaceSlot";
+    let slotRetryTerminal: Promise<void> | null = null;
     let reloadCommand: Extract<
       WindowsRuntimeHostTabCommand,
       { type: "reloadTab" }
@@ -421,6 +435,11 @@ export class WindowsRuntimeHostChromeController {
           "ELECTRON_WINDOWS_RUNTIME_COMMAND_FENCE_STALE",
           `The bundled toolbar command did not match its exact sender projection: ${JSON.stringify(validCommand ? { type: candidate.type, submitted: candidate.projectionRevision, current: this.#projectionRevision, windowId: candidate.windowId } : { malformed: true })}.`
         );
+      }
+      if (candidate.type === "retryWorkspaceSlot") {
+        if (candidate.record.tabId !== this.#activeTabId || !this.#slotRetry) return;
+        slotRetryTerminal = this.#slotRetry(candidate.record).then(() => undefined);
+        return;
       }
       if (candidate.type === "workspaceDividerPointer") {
         return this.#applyWorkspaceDividerCommand(candidate, observedDividerPosition);
@@ -453,8 +472,9 @@ export class WindowsRuntimeHostChromeController {
           () => this.#publishReloadCompletion(reloadCommand!),
           publishFailure
         )
+      : isSlotRetry ? operation.then(() => slotRetryTerminal).then(() => undefined, publishFailure)
       : operation.catch(publishFailure);
-    this.#commandLane = (isReload ? operation : terminal).catch(() => undefined);
+    this.#commandLane = (isReload || isSlotRetry ? operation : terminal).catch(() => undefined);
     return terminal.finally(() => { if (indicatorTerminal) this.#endedIndicatorGestures.delete(indicatorTerminal); });
   }
 
@@ -551,6 +571,8 @@ export class WindowsRuntimeHostChromeController {
   }
 
   close(): void {
+    this.#slotLoads.clear();
+    this.#slotRetry = undefined;
     this.#placementObserver = null;
     void this.drainWorkspaceDividerGestures().catch(() => undefined);
     const pending = this.#pending;
@@ -1032,6 +1054,9 @@ export class WindowsRuntimeHostChromeController {
   }
 
   #publish(): void {
+    for (const tabId of this.#slotLoads.keys()) {
+      if (this.#tabs.length > 0 && !this.#tabs.some((tab) => tab.tabId === tabId)) this.#slotLoads.delete(tabId);
+    }
     if (!this.#documentReady || !this.#contentBounds ||
         this.#windowGeneration < 1 || this.#topologyRevision < 1) return;
     const projection = Object.freeze({
@@ -1048,7 +1073,8 @@ export class WindowsRuntimeHostChromeController {
       windowGeneration: this.#windowGeneration,
       windowId: this.#windowId,
       workspaceBackground: this.#workspaceBackground,
-      workspaceDividers: this.#workspaceDividers
+      workspaceDividers: this.#workspaceDividers,
+      workspaceSlotLoads: (this.#slotLoads.get(this.#activeTabId ?? "") ?? []).filter((slot) => slot.record.phase !== "ready")
     });
     if (!isWindowsRuntimeHostProjection(projection)) {
       throw chromeError(

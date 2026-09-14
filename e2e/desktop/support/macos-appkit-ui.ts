@@ -39,11 +39,12 @@ async function readSystemEvents(script: string, ...arguments_: string[]): Promis
   return result.stdout.trim();
 }
 
-/** Clicks one exact visible Role-page point through the retained AppKit host. */
+/** Clicks one exact visible Role or Website point through the retained AppKit host. */
 export async function clickMacosVisibleRoleControl(
   windowId: string,
   roleId: string,
-  point: VisibleElectronPagePoint
+  point: VisibleElectronPagePoint,
+  kind: "role" | "web" = "role"
 ): Promise<void> {
   if (
     process.platform !== "darwin" ||
@@ -62,7 +63,7 @@ export async function clickMacosVisibleRoleControl(
     electronDesktopE2eFullscreenToolbarRuntime(windowId)
   ]);
   const surface = inspection.surfaces.find((candidate) =>
-    candidate.kind === "role" && candidate.id === roleId && candidate.visible
+    candidate.kind === kind && candidate.id === roleId && candidate.visible
   );
   const appKit = inspection.native.appKit;
   const visibleSurfaceTop = Math.min(

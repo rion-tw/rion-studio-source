@@ -702,3 +702,17 @@ fn appkit_platform_unavailable() -> Error {
         "The AppKit runtime host is unavailable on this platform.",
     )
 }
+
+#[cfg(target_os = "macos")]
+pub(super) fn apply_workspace_slot_loads(controller: NonNull<c_void>, json: &CStr) -> Result<bool> {
+    // SAFETY: exact native controller validated by the caller, synchronous main-thread bridge.
+    unsafe { rion_appkit::runtime_tabs_apply_workspace_slot_loads(controller, json) }
+        .map_err(native_controller_error)
+}
+#[cfg(not(target_os = "macos"))]
+pub(super) fn apply_workspace_slot_loads(
+    _controller: NonNull<c_void>,
+    _json: &CStr,
+) -> Result<bool> {
+    Err(appkit_platform_unavailable())
+}

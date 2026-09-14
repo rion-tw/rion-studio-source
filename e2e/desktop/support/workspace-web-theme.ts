@@ -40,7 +40,7 @@ export async function exerciseWorkspaceWebThemes(target: ThemeTarget): Promise<v
   const sidebar = await $(".app-main-sidebar");
   await sidebar.$("button*=Settings").click();
   await waitForRoute("/settings");
-  const preferences = await $(".settings-mode-sidebar button=Preferences");
+  const preferences = await $(".settings-mode-sidebar").$("button=Preferences");
   await preferences.waitForClickable({ timeout: 10_000 });
   await preferences.click();
   for (const theme of ["dark", "light", "dark"] as const) {
@@ -53,4 +53,6 @@ export async function exerciseWorkspaceWebThemes(target: ThemeTarget): Promise<v
     { timeout: 10_000, timeoutMsg: `Settings did not apply ${theme}` });
     await expectWorkspaceWebTheme(target, theme);
   }
+  await $("button=Back to app").click();
+  await $(".app-main-sidebar").waitForDisplayed({ timeout: 10_000 });
 }

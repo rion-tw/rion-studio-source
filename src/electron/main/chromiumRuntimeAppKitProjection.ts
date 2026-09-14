@@ -1,3 +1,4 @@
+import { projectWorkspaceSlotLoads } from "./chromiumWorkspaceSlotLoading";
 import {
   applyChromiumSurfaceProjection, captureChromiumSurfaceProjections,
   restoreChromiumSurfaceProjections, applyChromiumSurfaceReparent,
@@ -43,6 +44,9 @@ export interface ChromiumRuntimeTabRecord {
   readonly roleViews: Map<string, EmbeddedRoleViewEffectRecord>;
   readonly webViews: Map<string, EmbeddedRoleViewEffectRecord>;
   audioMuted: boolean;
+  slotRetry?: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>;
+  slotLoads?: Map<string, import("../../shared/generated").WorkspaceSlotLoadRecord>;
+  workspaceLoadPlan?: Extract<CoreEffectRequest["action"], { type: "embeddedLoadWorkspaceSlots" }>;
 }
 
 export interface ChromiumRuntimeRoleRecord {
@@ -523,6 +527,11 @@ export async function applyChromiumRuntimeAppKitProjection(
     window.lastAdapterSequence = windowProjection.adapterSequence;
   }
   for (const { transaction } of committedHosts) transaction.finalize?.();
+  for (const [tabId, windowId] of projectedWindowByTab) {
+    const tab = tabs.get(tabId)!;
+    if (tab.slotLoads) projectWorkspaceSlotLoads(tab, windows.get(windowId)!,
+      await ports.layout.resolveRoleBounds(tab.specification, windows.get(windowId)!.host));
+  }
   return Object.freeze({
     eventId: projection.eventId,
     windowIds: Object.freeze([...projectionsByWindow.keys()].sort())

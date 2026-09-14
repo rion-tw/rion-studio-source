@@ -124,7 +124,8 @@ static void RionForwardRuntimeTabsAction(
                                                  encoding:NSUTF8StringEncoding];
     }
   }
-  NSDictionary<NSString *, id> *statusIdentity = action[@"statusIdentity"];
+  NSDictionary<NSString *, id> *statusIdentity = [action[@"type"] isEqualToString:@"retryWorkspaceSlot"]
+      ? action[@"record"] : action[@"statusIdentity"];
   NSString *statusIdentityJSON = nil;
   if ([statusIdentity isKindOfClass:NSDictionary.class]) {
     NSData *data = [NSJSONSerialization dataWithJSONObject:statusIdentity
@@ -598,6 +599,16 @@ bool rion_runtime_tabs_retire_workspace_divider_gesture(
     if (!identity.length) return false;
     [(__bridge RionRuntimeTabsController *)rawController retireWorkspaceDividerGesture:identity];
     return true;
+  }
+}
+
+bool rion_runtime_tabs_apply_workspace_slot_loads(void * _Nullable rawController, const char *json) {
+  @autoreleasepool {
+    if (!NSThread.isMainThread || !rawController || !json) return false;
+    NSData *data = [[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *projection = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![projection isKindOfClass:NSDictionary.class]) return false;
+    return [(__bridge RionRuntimeTabsController *)rawController applyWorkspaceSlotLoads:projection];
   }
 }
 
@@ -1316,6 +1327,7 @@ bool rion_runtime_tabs_macro_fallback_event_self_test(void) {
 @property(nonatomic, weak) RionRuntimeTabsController *tabsController;
 @property(nonatomic, copy)
     NSArray<NSView *> *workspaceDividerAccessibilityChildren;
+@property(nonatomic, copy) NSArray<NSView *> *workspaceSlotAccessibilityChildren;
 
 @end
 

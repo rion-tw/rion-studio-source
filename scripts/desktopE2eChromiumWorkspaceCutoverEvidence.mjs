@@ -197,11 +197,13 @@ function validCoreStatus(status, roleId) {
     ["healthy", "unresponsive", null].includes(status.pageHealth);
 }
 
-function validRoleObservation(observation, platform) {
+function validRoleObservation(observation, platform, independentlyReady = false) {
   if (!exactKeys(observation, [
     "coreOwner", "coreStatus", "nativeOwner", "phase", "placeholders", "roleId"
   ]) || !Array.isArray(observation.placeholders) ||
-      !["degraded", "ready"].includes(observation.phase) ||
+      !(["degraded", "ready"].includes(observation.phase) ||
+        (independentlyReady && ["activating", "attaching", "loading"].includes(observation.phase) &&
+          observation.coreStatus?.automationState === "ready" && observation.coreStatus?.issueReason === null)) ||
       !exactKeys(observation.coreOwner, [
         "generation", "roleId", "slotId", "state", "tabId", "windowId"
       ]) || observation.coreOwner.roleId !== observation.roleId ||
@@ -401,7 +403,7 @@ function validateSharedRoleHistory(phase, observations, platform) {
 function validateRecoveryHistory(phase, observations, platform) {
   requireRuntime(
     Array.isArray(observations) && observations.length >= 6 &&
-      observations.every((observation) => validRoleObservation(observation, platform)) &&
+      observations.every((observation) => validRoleObservation(observation, platform, true)) &&
       observations.every((observation) => observation.placeholders.length === 0),
     `${phase}: malformed exact Role recovery history`
   );

@@ -225,6 +225,8 @@ impl AppCore {
         if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Ok(false);
         }
+        let degraded = self.workspace_slot_loads.lock().map_err(|_| CoreError::Internal("slot load state poisoned".to_owned()))?
+            .values().any(|slot| slot.tab_id == tab_id && slot.phase == "failed");
         let topology_changed = {
             let _authority_guard = self.runtime_authority_barrier.write().map_err(|_| {
                 CoreError::Internal("runtime authority barrier poisoned".to_owned())
@@ -275,7 +277,7 @@ impl AppCore {
                                 tab_id,
                                 activation.attempt_id.as_str()
                             ),
-                            phase: crate::model::RuntimeTabActivationPhaseRecord::Ready,
+                            phase: if degraded { crate::model::RuntimeTabActivationPhaseRecord::Degraded } else { crate::model::RuntimeTabActivationPhaseRecord::Ready },
                             tab_id: crate::RuntimeTabId::new(tab_id.to_owned())
                                 .map_err(CoreError::InvalidInput)?,
                         })?;

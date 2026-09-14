@@ -93,6 +93,11 @@ function deferred<Value>(): Deferred<Value> {
 }
 
 export class ChromiumRoleSurfaceRegistry {
+  readonly #retiredGenerations = new Map<string, number>();
+  wasRetired(id: string, generation: number): boolean {
+    return this.#retiredGenerations.get(id) === generation;
+  }
+
   readonly #sessions: ChromiumRoleSessionOwnerPort;
   readonly #views: ChromiumWebContentsViewFactoryPort;
   readonly #nativeAttachments: ChromiumRoleSurfaceNativeAttachmentPort | null;
@@ -1583,6 +1588,7 @@ export class ChromiumRoleSurfaceRegistry {
       if (this.#recordsByRole.get(record.roleId) === record) {
         this.#removeAllListeners(record);
         this.#recordsByRole.delete(record.roleId);
+        this.#retiredGenerations.set(record.roleId, record.generation);
         this.#roleByView.delete(record.view);
         this.#roleByWebContents.delete(record.contents);
         this.#releaseParent(record.parent);

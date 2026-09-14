@@ -1124,6 +1124,8 @@ impl AppCore {
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
             | CoreCommand::BrowserRoleSlotClaim { .. }
+            | CoreCommand::WorkspaceSlotLoadReport { .. }
+            | CoreCommand::WorkspaceSlotRetry { .. }
             | CoreCommand::BrowserWorkspaceWebSurfaceFailed { .. }
             | CoreCommand::BrowserWorkspaceWebNavigationCommitted { .. }
             | CoreCommand::BrowserTabAudioMute { .. }

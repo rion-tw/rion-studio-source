@@ -168,6 +168,11 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 
 - (void)updateStatusForActiveTab {
   RionRuntimeTabModel *tab = _tabModelsByIdentifier[_activeTabItem.tabIdentifier];
+  [self updateWorkspaceSlotLoads];
+  if ([tab.type isEqualToString:@"workspace"]) {
+    [self hideStatus];
+    return;
+  }
   if (RionRuntimeTabPhaseIsLoading(tab.phase)) {
     [self showLoadingStatusForTab:tab];
   } else if ([tab.phase isEqualToString:@"failed"] &&
@@ -655,6 +660,10 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 }
 
 - (NSInteger)statusPresentation {
+  for (NSView *view in _workspaceSlotStatusViews) {
+    if (!view.hidden && [view.accessibilityValue isEqual:@"loading"]) return 1;
+    if (!view.hidden && [view.accessibilityValue isEqual:@"failed"]) return 2;
+  }
   if (_destroyed || !_statusBackdrop || _statusBackdrop.hidden) return 0;
   if (_statusLoadingProgress && !_statusLoadingProgress.hidden) return 1;
   if (_failureStack && !_failureStack.hidden) return 2;

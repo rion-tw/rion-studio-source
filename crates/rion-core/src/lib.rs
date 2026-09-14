@@ -163,8 +163,9 @@ pub use model::{
     WindowsRuntimeWindowPlacementEventRecord, WindowsRuntimeWindowPlacementReceiptRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceCreateRequest,
     WorkspaceDividerDescriptor, WorkspaceDividerResizeInput, WorkspaceDividerResizeOutput,
-    WorkspaceLayoutInput, WorkspaceLayoutOutput, WorkspaceSlotInputRecord, WorkspaceSlotRequest,
-    WorkspaceUpdateInputRecord, WorkspaceUpdateRequest, WorkspaceWebContentRecord,
+    WorkspaceLayoutInput, WorkspaceLayoutOutput, WorkspaceSlotInputRecord, WorkspaceSlotLoadRecord,
+    WorkspaceSlotRequest, WorkspaceUpdateInputRecord, WorkspaceUpdateRequest,
+    WorkspaceWebContentRecord,
 };
 pub use model::{
     GpuRasterizationMode, GraphicsSettingsRecord, GraphicsSettingsSnapshotRecord,

@@ -387,6 +387,11 @@ function classifyWorkspaceWindowOpen(
  * overlay channel, macro target, or background trusted-input capture.
  */
 export class ChromiumGlobalWebSurfaceRegistry {
+  readonly #retiredGenerations = new Map<string, number>();
+  wasRetired(id: string, generation: number): boolean {
+    return this.#retiredGenerations.get(id) === generation;
+  }
+
   readonly #sessions: ChromiumGlobalWebSurfaceSessionOwnerPort;
   readonly #views: ChromiumWebContentsViewFactoryPort;
   readonly #nativeAttachments: ChromiumGlobalWebNativeAttachmentPort | null;
@@ -1297,6 +1302,7 @@ export class ChromiumGlobalWebSurfaceRegistry {
         this.#removeAllListeners(record);
         if (this.#records.get(record.surfaceId) === record) {
           this.#records.delete(record.surfaceId);
+        this.#retiredGenerations.set(record.surfaceId, record.generation);
         }
         if (record.contents.id !== undefined &&
           this.#surfaceByWebContentsId.get(record.contents.id) === record.surfaceId) {

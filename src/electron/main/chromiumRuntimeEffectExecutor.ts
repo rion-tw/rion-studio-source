@@ -1,3 +1,4 @@
+import { loadChromiumWorkspaceSlots } from "./chromiumWorkspaceSlotLoadExecutor";
 import { captureChromiumRuntimeSnapshot } from "./chromiumRuntimeSnapshotCapture";
 import { workspaceWebLaunchUrl } from "../../shared/workspaceStartPage";
 import { observeAppKitWorkspaceAppearance } from
@@ -105,18 +106,12 @@ export type {
 
 type ExecutorState = "open" | "draining" | "disposed";
 
-/**
- * Applies Rust-issued Chromium runtime effects to Electron-owned native handles.
- *
- * The executor owns only non-serializable window/view generations. Logical
- * topology remains in Core and arrives through effect records. Every native
- * close is awaited from the exact Electron destruction event by the injected
- * host/surface ports.
- */
+/** Executes Core effects against exact native handles. */
 export class ChromiumRuntimeEffectExecutor {
   readonly #input: ChromiumRuntimeEffectExecutorInput;
   readonly #windows = new Map<string, RuntimeWindowRecord>();
   readonly #tabs = new Map<string, RuntimeTabRecord>();
+  readonly #retiredSlotLoads = new Set<string>();
   readonly #roles = new Map<string, RuntimeRoleRecord>();
   readonly #openingRoles = new Map<string, RuntimeRoleRecord>();
   readonly #webSurfaces = new Map<string, RuntimeWebSurfaceRecord>();
@@ -398,6 +393,13 @@ export class ChromiumRuntimeEffectExecutor {
         return this.#createTab(effect, action.tab);
       case "embeddedConfigureRoleSessions":
         return this.#configureRoleSessions(action.roleIds);
+      case "embeddedLoadWorkspaceSlots":
+        return this.#loadWorkspaceSlots(effect, action, context?.signal);
+      case "embeddedRetryWorkspaceSlot": {
+        const tab = this.#tabs.get(action.record.tabId);
+        if (!tab?.workspaceLoadPlan) throw runtimeError("WORKSPACE_SLOT_RETRY_STALE", "The workspace retired before retry.");
+        return this.#loadWorkspaceSlots(effect, tab.workspaceLoadPlan, context?.signal, action.record);
+      }
       case "embeddedLoadRoles":
         return this.#loadRoles(
           effect.target.handleId,
@@ -667,6 +669,22 @@ export class ChromiumRuntimeEffectExecutor {
     });
   }
 
+  async #loadWorkspaceSlots(
+    effect: CoreEffectRequest,
+    plan: Extract<CoreEffectRequest["action"], { type: "embeddedLoadWorkspaceSlots" }>,
+    signal?: AbortSignal,
+    retry?: import("../../shared/generated").WorkspaceSlotLoadRecord
+  ): Promise<CoreEffectEventContinuation<void>> {
+    return loadChromiumWorkspaceSlots({
+      ports: this.#input, tabs: this.#tabs,
+      windowForTab: (tab) => this.#windowForTab(tab),
+      roleGenerations: this.#lastGenerationByRole, webGenerations: this.#lastGenerationByWebSurface,
+      retiredLoads: this.#retiredSlotLoads,
+      loadRoles: (tabId, roles, signal) => this.#loadRoles(tabId, roles, signal, true),
+      loadWebSurfaces: (effect, action, signal) => this.#loadWebSurfaces(effect, action, signal, true)
+    }, effect, plan, signal, retry);
+  }
+
   async #loadRoles(
     tabId: string,
     roles: ReadonlyArray<Readonly<{
@@ -675,7 +693,8 @@ export class ChromiumRuntimeEffectExecutor {
       url: string;
       zoomFactor: number;
     }>>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    slotLoad = false
   ): Promise<CoreEffectEventContinuation<void>> {
     const cancellation = new AbortController();
     signal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal;
@@ -788,9 +807,6 @@ export class ChromiumRuntimeEffectExecutor {
             role.roleId,
             generation
           );
-          // The create promise remains the authoritative load terminal. Observe
-          // a concurrently requested close immediately so rejection cannot
-          // become unhandled before the create path joins it below.
           void cancellationClose.catch(() => undefined);
           return cancellationClose;
         };
@@ -807,7 +823,7 @@ export class ChromiumRuntimeEffectExecutor {
             url: role.url,
             preloadPath: this.#input.preloadPath,
             bounds: roleBounds,
-            visible: windowRecord.activeTabId === tabId && windowRecord.host.isVisible(),
+            visible: !slotLoad && windowRecord.activeTabId === tabId && windowRecord.host.isVisible(),
             zoomFactor: effectiveChromiumRuntimeZoomFactor(
               role.zoomFactor,
               windowRecord.windowZoomFactor ?? 1
@@ -816,8 +832,6 @@ export class ChromiumRuntimeEffectExecutor {
           });
           signal?.addEventListener("abort", cancelOpeningSurface, { once: true });
           if (signal?.aborted) cancelOpeningSurface();
-          // Native ownership exists synchronously once create returns. Reserve it
-          // before yielding so projection and destruction can reach this surface.
           this.#openingRoles.set(role.roleId, record);
           await creation;
           if (this.#tabs.get(tabId) !== tab ||
@@ -843,7 +857,8 @@ export class ChromiumRuntimeEffectExecutor {
         } catch (error) {
           try {
             const closed = await closeOpeningSurface();
-            if (closed) {
+            if (closed || this.#input.surfaces.wasRetired?.(role.roleId, generation)) {
+              this.#retiredSlotLoads.add(`role:${role.roleId}:${generation}`);
               this.#input.overlays?.retire(role.roleId, generation);
               if (this.#roles.get(role.roleId) === record) this.#roles.delete(role.roleId);
             }
@@ -867,6 +882,7 @@ export class ChromiumRuntimeEffectExecutor {
         throw runtimeError("ELECTRON_CHROMIUM_ROLE_LOAD_STALE",
           "The loading tab retired before native readiness.");
       }
+      if (slotLoad) return;
       if (tab.webViews.size === 0) {
         this.#revealLoadedWindow(windowRecord);
         windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
@@ -884,7 +900,8 @@ export class ChromiumRuntimeEffectExecutor {
       CoreEffectRequest["action"],
       { type: "embeddedLoadWebSurfaces" }
     >,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    slotLoad = false
   ): Promise<CoreEffectEventContinuation<void>> {
     const cancellation = new AbortController();
     signal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal;
@@ -1040,7 +1057,7 @@ export class ChromiumRuntimeEffectExecutor {
             windowId: tab.windowId,
             url: descriptor.url,
             bounds: bounds.get(descriptor.surfaceId)!,
-            visible: windowRecord.activeTabId === tabId && windowRecord.host.isVisible(),
+            visible: !slotLoad && windowRecord.activeTabId === tabId && windowRecord.host.isVisible(),
             zoomFactor: effectiveChromiumRuntimeZoomFactor(
               descriptor.zoomFactor, windowRecord.windowZoomFactor ?? 1),
             audioMuted: tab.audioMuted
@@ -1071,7 +1088,7 @@ export class ChromiumRuntimeEffectExecutor {
           this.#attachedWebSurfaces.set(descriptor.surfaceId, record);
         } catch (error) {
           try {
-            await closeOpeningSurface();
+            if (await closeOpeningSurface() || this.#input.webSurfaces.wasRetired?.(descriptor.surfaceId, generation)) this.#retiredSlotLoads.add(`web:${descriptor.surfaceId}:${generation}`);
           } catch {
             // Preserve the initial failure. Exact native/session ownership is
             // retained by the registry if destruction or flush is unknown.
@@ -1098,6 +1115,7 @@ export class ChromiumRuntimeEffectExecutor {
         throw runtimeError("ELECTRON_GLOBAL_WEB_LOAD_STALE",
           "The loading Web tab retired before native readiness.");
       }
+      if (slotLoad) return;
       this.#revealLoadedWindow(windowRecord);
       windowRecord.host.releaseAppKitSurfaceAttachment?.(tabId);
     });

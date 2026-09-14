@@ -447,7 +447,46 @@ function renderDividers(projection: WindowsRuntimeHostProjection): void {
   }
 }
 
+const slotStatusLayer = document.createElement("div");
+slotStatusLayer.className = "workspace-slot-status-layer";
+document.body.append(slotStatusLayer);
+
+function renderSlotLoads(projection: WindowsRuntimeHostProjection): void {
+  slotStatusLayer.replaceChildren(...(projection.workspaceSlotLoads ?? []).map((slot) => {
+    const status = document.createElement("section");
+    status.className = "workspace-slot-status";
+    status.dataset.workspaceSlotStatus = slot.record.slotId;
+    status.dataset.phase = slot.record.phase;
+    status.setAttribute("role", "status");
+    Object.assign(status.style, { left: `${slot.bounds.x}px`, top: `${slot.bounds.y}px`,
+      width: `${slot.bounds.width}px`, height: `${slot.bounds.height}px` });
+    if (slot.record.phase === "loading") {
+      status.setAttribute("aria-label", slot.record.loadingLabel ?? "Loading");
+      const spinner = document.createElement("span");
+      spinner.className = "runtime-tab-loading workspace-slot-spinner";
+      status.append(spinner);
+    } else {
+      const label = document.createElement("span");
+      label.textContent = slot.record.failureLabel ?? "Unable to load this section";
+      status.append(label);
+      if (slot.record.retryable) {
+        const retry = document.createElement("button");
+        retry.textContent = slot.record.retryLabel ?? "Retry";
+        retry.addEventListener("click", () => {
+          if (!current) return;
+          retry.disabled = true;
+          bridge!.submit({ type: "retryWorkspaceSlot", windowId: current.windowId,
+            projectionRevision: current.projectionRevision, record: slot.record });
+        });
+        status.append(retry);
+      }
+    }
+    return status;
+  }));
+}
+
 function render(projection: WindowsRuntimeHostProjection): void {
+  renderSlotLoads(projection);
   cancelTabDrag();
   closeTabMenu();
   current = projection;

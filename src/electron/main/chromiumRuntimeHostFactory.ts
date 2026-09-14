@@ -854,6 +854,8 @@ implements ChromiumRuntimeHostFactoryPort {
         record,
         () => record.chrome.applyCoreProjection(projection)
       ),
+      bindWorkspaceSlotRetry: (retry: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>) => record.chrome.bindWorkspaceSlotRetry(retry),
+      applyWorkspaceSlotLoads: (tabId: string, slots: readonly import("../../shared/workspaceSlotLoading").WorkspaceSlotLoadPresentation[]) => record.chrome.applyWorkspaceSlotLoads(tabId, slots),
       applyWindowsChromeLayoutProjection: (
         projection: ChromiumRuntimeWindowChromeLayoutProjection
       ) => this.#withCurrent(

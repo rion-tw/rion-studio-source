@@ -73,7 +73,7 @@ const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // macro shortcuts to press/hold activation with keyDown/keyUp-only ordering; 34
 // isolates synthetic macro-key modifiers from live physical modifier state.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 38;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 39;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.
@@ -355,6 +355,7 @@ pub struct AppCore {
     database_paths: DatabasePaths,
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
     browser_runtime_issues: RwLock<std::collections::HashMap<String, BrowserRuntimeFailureReason>>,
+    workspace_slot_loads: std::sync::Mutex<std::collections::HashMap<(String, String), crate::model::WorkspaceSlotLoadRecord>>,
     browser_runtime_ready_roles: RwLock<std::collections::HashSet<String>>,
     embedded_closing_tabs: Mutex<std::collections::HashSet<String>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
@@ -541,6 +542,7 @@ impl AppCore {
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
             browser_runtime_issues: RwLock::new(std::collections::HashMap::new()),
+            workspace_slot_loads: std::sync::Mutex::new(std::collections::HashMap::new()),
             browser_runtime_ready_roles: RwLock::new(std::collections::HashSet::new()),
             embedded_closing_tabs: Mutex::new(std::collections::HashSet::new()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),

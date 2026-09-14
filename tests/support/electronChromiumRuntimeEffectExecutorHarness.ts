@@ -32,6 +32,7 @@ import { FakeChromiumRuntimeEffectHost as FakeHost } from
   "./electronChromiumRuntimeEffectHostFixture";
 
 export interface Harness {
+  readonly reportSlotLoad: ReturnType<typeof vi.fn>;
   readonly executor: ChromiumRuntimeEffectExecutor;
   readonly hosts: FakeHost[];
   readonly createHost: ReturnType<typeof vi.fn>;
@@ -292,7 +293,9 @@ export function harness(
   };
   const resolvePaths = vi.fn(async (roleId: string) => rolePaths(roleId));
   const executeChromeProfileImport = vi.fn(async () => ({ status: "applied" }));
+  const reportSlotLoad = vi.fn(async (record: import("../../src/shared/generated").WorkspaceSlotLoadRecord) => ({ ...record, revision: record.revision + 1 }));
   const executor = new ChromiumRuntimeEffectExecutor({
+    workspaceSlotLoading: { report: reportSlotLoad, retry: async () => true },
     ...(platform === "macos" ? {
       appKitWorkspaceAppearance: { observe: observeAppKitWorkspaceAppearance }
     } : {}),
@@ -351,6 +354,7 @@ export function harness(
     webSurfaces
   });
   return {
+    reportSlotLoad,
     executor,
     hosts,
     createHost,

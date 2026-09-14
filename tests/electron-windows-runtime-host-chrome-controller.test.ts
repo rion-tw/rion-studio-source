@@ -112,6 +112,29 @@ function harness(readCursorScreenPoint?: () => Readonly<{ x: number; y: number }
 }
 
 describe("Windows runtime-host chrome controller", () => {
+  it("keeps visible tab commands available while a single slot retries", async () => {
+    const subject = harness();
+    await subject.controller.applyCoreProjection(projection());
+    subject.controller.documentLoaded(documentUrl);
+    let finish!: () => void;
+    const retry = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    subject.controller.bindWorkspaceSlotRetry(retry);
+    const projectionRevision = subject.controller.readObservation().projectionRevision;
+    const terminal = subject.controller.handleCommand(documentUrl, {
+      type: "retryWorkspaceSlot", projectionRevision, windowId,
+      record: { tabId, slotId: "slot-1", surfaceId: "role-1", windowId,
+        windowGeneration: 1, attemptGeneration, loadId: "load-1", ownerGeneration: 1,
+        surfaceGeneration: 1, phase: "failed", retryable: true, revision: 2 }
+    });
+    await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce());
+    await subject.controller.handleCommand(documentUrl, {
+      type: "closeTab", projectionRevision, windowId, tabId
+    });
+    expect(subject.requestTabControl).toHaveBeenCalledWith(tabId, { type: "closeTab" });
+    finish();
+    await expect(terminal).resolves.toBeUndefined();
+  });
+
   it("hides on native host pointer leave and ignores retired owners and pinned chrome", async () => {
     const subject = harness();
     await subject.controller.applyCoreProjection(projection());

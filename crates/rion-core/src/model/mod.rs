@@ -25,6 +25,7 @@ include!("section_18_runtime_window_visibility.rs");
 include!("section_19_extensions.rs");
 
 include!("section_20_graphics_settings.rs");
+include!("section_21_workspace_slot_loading.rs");
 
 #[cfg(test)]
 mod retired_performance_tests;

@@ -640,6 +640,7 @@ impl AppCore {
             }
             return Err(error);
         }
+        let role_ids = self.workspace_ready_role_ids(&tab_id, role_ids)?;
         let launched_at = chrono::Utc::now().to_rfc3339();
         let mut commands = Vec::with_capacity(role_ids.len());
         for role_id in &role_ids {

@@ -471,6 +471,10 @@ unsafe extern "C" {
         controller: *mut c_void,
         gesture_id: *const std::ffi::c_char,
     ) -> bool;
+    fn rion_runtime_tabs_apply_workspace_slot_loads(
+        controller: *mut c_void,
+        projection_json: *const std::ffi::c_char,
+    ) -> bool;
     fn rion_runtime_tabs_apply_workspace_divider_projection(
         controller: *mut c_void,
         projection_json: *const std::ffi::c_char,
@@ -1375,6 +1379,23 @@ pub unsafe fn runtime_tabs_retire_workspace_divider_gesture(
     Ok(unsafe {
         rion_runtime_tabs_retire_workspace_divider_gesture(controller.as_ptr(), gesture_id.as_ptr())
     })
+}
+
+/// Applies Rust-acknowledged per-slot loading presentation.
+///
+/// # Safety
+/// The controller must be live and the JSON must remain valid on the AppKit main thread.
+#[cfg(target_os = "macos")]
+pub unsafe fn runtime_tabs_apply_workspace_slot_loads(
+    controller: NonNull<c_void>,
+    json: &CStr,
+) -> Result<bool, RuntimeTabsControllerError> {
+    require_main_thread()?;
+    if json.to_bytes().is_empty() || json.to_bytes().len() > 64 * 1024 {
+        return Err(RuntimeTabsControllerError::InvalidIdentifier);
+    }
+    // SAFETY: inherited exact controller and live JSON contract.
+    Ok(unsafe { rion_runtime_tabs_apply_workspace_slot_loads(controller.as_ptr(), json.as_ptr()) })
 }
 
 /// Applies and synchronously reads back the complete native workspace-divider

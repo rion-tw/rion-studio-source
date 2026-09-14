@@ -51,7 +51,7 @@ fn shared_workspace_role_is_blocked_then_moves_without_stopping_unique_roles() {
     assert!(target_launch.is_ok());
     assert!(target_actions.iter().any(|action| matches!(
         action,
-        CoreEffectAction::EmbeddedLoadRoles { roles }
+        CoreEffectAction::EmbeddedLoadRoles { roles } | CoreEffectAction::EmbeddedLoadWorkspaceSlots { roles, .. }
             if roles.len() == 1 && roles[0].role_id == unique_role_id
     )));
 
@@ -224,7 +224,7 @@ fn v23_shared_workspace_topology_retains_the_blocked_role_identity() {
         assert!(target_launch.is_ok(), "{platform}: {target_launch:?}");
         assert!(target_actions.iter().any(|action| matches!(
             action,
-            CoreEffectAction::EmbeddedLoadRoles { roles }
+            CoreEffectAction::EmbeddedLoadRoles { roles } | CoreEffectAction::EmbeddedLoadWorkspaceSlots { roles, .. }
                 if roles.len() == 1 && roles[0].role_id == unique_role_id
         )));
 
@@ -675,7 +675,7 @@ fn restored_role_tab_creates_a_blocked_demand_when_workspace_owns_the_role() {
     )));
     assert!(actions.iter().any(|action| matches!(
         action,
-        CoreEffectAction::EmbeddedLoadRoles { roles } if roles.is_empty()
+        CoreEffectAction::EmbeddedLoadRoles { roles } | CoreEffectAction::EmbeddedLoadWorkspaceSlots { roles, .. } if roles.is_empty()
     )));
 
     let after = core

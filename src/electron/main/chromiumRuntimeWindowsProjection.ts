@@ -1,3 +1,4 @@
+import { projectWorkspaceSlotLoads } from "./chromiumWorkspaceSlotLoading";
 import {
   applyChromiumSurfaceProjection, captureChromiumSurfaceProjections,
   restoreChromiumSurfaceProjections, applyChromiumSurfaceReparent,
@@ -479,6 +480,10 @@ export async function applyChromiumRuntimeWindowsProjection(
     window.activeTabId = projection.activeTabId ?? "";
     window.windowGeneration = projection.windowGeneration;
     window.topologyRevision = projection.topologyRevision;
+  }
+  for (const [tabId, projected] of projectedTabs) {
+    const tab = input.tabs.get(tabId)!;
+    projectWorkspaceSlotLoads(tab, input.windows.get(projected.windowId)!, projected.bounds);
   }
   return Object.freeze([...projectionByWindow.keys()].sort());
 }

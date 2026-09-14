@@ -278,3 +278,9 @@ body {
   inset: 50% 0 auto;
   height: 1px;
 }
+
+.workspace-slot-status-layer { position: fixed; inset: 0; pointer-events: none; }
+.workspace-slot-status { box-sizing: border-box; position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 12px; overflow: hidden; pointer-events: auto; background: var(--runtime-host-surface); color: var(--runtime-host-foreground); font-family: var(--font-ui); font-size: var(--type-body-size); text-align: center; }
+.workspace-slot-spinner { width: 24px; height: 24px; flex: none; }
+
+.workspace-slot-status button { min-height: var(--control-height); padding: 4px 12px; border: 1px solid var(--runtime-host-border); border-radius: var(--radius-sm); background: var(--runtime-host-surface); color: inherit; font: inherit; cursor: pointer; }

@@ -42,6 +42,7 @@ import type { ChromiumTrustedInputDocumentReplacementLease } from
   "./chromiumTrustedInputCoordinator";
 
 export interface ChromiumRuntimeSurfacePort {
+  wasRetired?: (id: string, generation: number) => boolean;
   focusVisible: (roleId: string, generation: number) => void;
   audioMuted: (roleId: string, generation: number) => boolean;
   isCurrentlyAudible: (roleId: string, generation: number) => boolean;
@@ -66,6 +67,7 @@ export interface ChromiumRuntimeSurfacePort {
 }
 
 export interface ChromiumRuntimeGlobalWebSurfacePort {
+  wasRetired?: (id: string, generation: number) => boolean;
   audioMuted: (surfaceId: string, generation: number) => boolean;
   isCurrentlyAudible: (surfaceId: string, generation: number) => boolean;
   create: (input: CreateChromiumGlobalWebSurfaceInput) =>
@@ -188,6 +190,10 @@ export interface ChromiumRuntimeRolePlaceholderPort {
 }
 
 export interface ChromiumRuntimeEffectExecutorInput {
+  readonly workspaceSlotLoading?: {
+    report: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<import("../../shared/generated").WorkspaceSlotLoadRecord | null>;
+    retry: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<boolean>;
+  };
   readonly appKitWorkspaceAppearance?: Readonly<{
     observe: (
       windowIds: readonly string[]

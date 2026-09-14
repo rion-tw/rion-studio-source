@@ -1,3 +1,5 @@
+import { isWorkspaceSlotLoadPresentation, isWorkspaceSlotLoadRecord, type WorkspaceSlotLoadPresentation } from "./workspaceSlotLoading";
+
 export const WINDOWS_RUNTIME_HOST_PROJECTION_CHANNEL =
   "rion:windows-runtime-host:projection";
 export const WINDOWS_RUNTIME_HOST_COMMAND_CHANNEL =
@@ -21,6 +23,7 @@ export interface WindowsRuntimeHostMoveTargetProjection {
 }
 
 export interface WindowsRuntimeHostProjection {
+  readonly workspaceSlotLoads?: readonly WorkspaceSlotLoadPresentation[];
   readonly workspaceBackground?: "material" | "black";
   readonly activeTabId: string | null;
   readonly alwaysShowToolbarInFullScreen: boolean;
@@ -101,7 +104,15 @@ export type WindowsRuntimeWorkspaceDividerPointerCommand = Readonly<{
   windowId: string;
 }>;
 
+export type WindowsRuntimeHostSlotRetryCommand = Readonly<{
+  type: "retryWorkspaceSlot";
+  projectionRevision: number;
+  windowId: string;
+  record: import("./generated").WorkspaceSlotLoadRecord;
+}>;
+
 export type WindowsRuntimeHostCommand =
+  | WindowsRuntimeHostSlotRetryCommand
   | WindowsRuntimeHostToolbarCommand
   | WindowsRuntimeHostTabCommand
   | WindowsRuntimeWorkspaceDividerPointerCommand;
@@ -139,7 +150,9 @@ function validUuid(value: unknown): value is string {
 export function isWindowsRuntimeHostProjection(
   value: unknown
 ): value is WindowsRuntimeHostProjection {
-  if (!isRecord(value) || Object.keys(value).length !== (value.workspaceBackground === undefined ? 13 : 14) ||
+  if (!isRecord(value) || Object.keys(value).length !== (value.workspaceBackground === undefined ? 13 : 14) + (value.workspaceSlotLoads === undefined ? 0 : 1) ||
+      (value.workspaceSlotLoads !== undefined && (!Array.isArray(value.workspaceSlotLoads) ||
+        !value.workspaceSlotLoads.every(isWorkspaceSlotLoadPresentation))) ||
       (value.workspaceBackground !== undefined && value.workspaceBackground !== "material" && value.workspaceBackground !== "black") ||
       !validIdentifier(value.windowId) ||
       !Number.isSafeInteger(value.projectionRevision) ||
@@ -237,6 +250,10 @@ export function isWindowsRuntimeHostCommand(
       !Number.isSafeInteger(value.projectionRevision) ||
       Number(value.projectionRevision) < 1) {
     return false;
+  }
+  if (value.type === "retryWorkspaceSlot") {
+    return Object.keys(value).length === 4 && isWorkspaceSlotLoadRecord(value.record) &&
+      value.record.windowId === value.windowId && value.record.phase === "failed" && value.record.retryable;
   }
   if (value.type !== "workspaceDividerPointer") {
     if (value.type === "setTabMuted") {

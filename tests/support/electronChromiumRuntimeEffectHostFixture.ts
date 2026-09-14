@@ -8,6 +8,8 @@ import type {
 import { type Mock, vi } from "vitest";
 
 export class FakeChromiumRuntimeEffectHost implements ChromiumRuntimeHostPort {
+  readonly applyWorkspaceSlotLoads: import("vitest").Mock<NonNullable<ChromiumRuntimeHostPort["applyWorkspaceSlotLoads"]>> = vi.fn();
+  readonly bindWorkspaceSlotRetry: import("vitest").Mock<NonNullable<ChromiumRuntimeHostPort["bindWorkspaceSlotRetry"]>> = vi.fn();
   readonly id: number;
   readonly logicalWindowId: string;
   readonly appKitIdentity;

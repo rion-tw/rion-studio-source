@@ -688,6 +688,8 @@ pub enum CoreCommand {
         #[ts(optional, rename = "expectedOwnerGeneration", type = "number")]
         expected_owner_generation: Option<u64>,
     },
+    WorkspaceSlotLoadReport { record: WorkspaceSlotLoadRecord },
+    WorkspaceSlotRetry { record: WorkspaceSlotLoadRecord },
     BrowserWorkspaceWebSurfaceFailed {
         #[ts(rename = "operationId")]
         operation_id: String,
@@ -810,6 +812,8 @@ impl CoreCommand {
                 | Self::BrowserRoleLaunch { .. }
                 | Self::BrowserWorkspaceLaunch { .. }
                 | Self::BrowserRoleSlotClaim { .. }
+                | Self::WorkspaceSlotLoadReport { .. }
+                | Self::WorkspaceSlotRetry { .. }
                 | Self::BrowserWorkspaceWebSurfaceFailed { .. }
                 | Self::BrowserWorkspaceWebNavigationCommitted { .. }
                 | Self::BrowserTabAudioMute { .. }

@@ -43,6 +43,7 @@ NS_ASSUME_NONNULL_BEGIN
     self.accessibilityRole = NSAccessibilityGroupRole;
     self.accessibilityIdentifier = @"com.rionstudio.runtime.appkit-root.v1";
     self.workspaceDividerAccessibilityChildren = @[];
+    self.workspaceSlotAccessibilityChildren = @[];
     [self registerForDraggedTypes:@[ RionRuntimeTabPasteboardType ]];
   }
   return self;
@@ -69,6 +70,9 @@ NS_ASSUME_NONNULL_BEGIN
   }
   for (NSView *divider in self.workspaceDividerAccessibilityChildren) {
     if (![children containsObject:divider]) [children addObject:divider];
+  }
+  for (NSView *slot in self.workspaceSlotAccessibilityChildren) {
+    if (![children containsObject:slot]) [children addObject:slot];
   }
   return children;
 }
@@ -255,6 +259,8 @@ NS_ASSUME_NONNULL_BEGIN
   NSString *_externalDragGhostTabIdentifier;
   CGFloat _externalDragGhostWidth;
   CGFloat _externalDragGhostLayoutWidth;
+  NSMutableDictionary<NSString *, NSArray<NSDictionary *> *> *_workspaceSlotLoads;
+  NSMutableArray<NSView *> *_workspaceSlotStatusViews;
   RionRuntimeStatusBackdropView *_statusBackdrop;
   NSProgressIndicator *_statusLoadingProgress;
   NSStackView *_failureStack;

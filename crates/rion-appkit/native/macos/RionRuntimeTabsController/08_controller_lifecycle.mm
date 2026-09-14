@@ -443,6 +443,9 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)destroy {
+  for (NSView *view in _workspaceSlotStatusViews) [view removeFromSuperview];
+  _workspaceSlotStatusViews = nil;
+  _workspaceSlotLoads = nil;
   if (_destroyed) return;
   [self removeWorkspaceDividerEventMonitor];
   RionRuntimeTabsRootView *root =
@@ -450,6 +453,7 @@ NS_ASSUME_NONNULL_BEGIN
       ? (RionRuntimeTabsRootView *)_accessoryController.view
       : nil;
   root.workspaceDividerAccessibilityChildren = @[];
+  root.workspaceSlotAccessibilityChildren = @[];
   for (RionRuntimeWorkspaceDividerView *divider in
            _workspaceDividerViews.allValues) {
     [divider cancelActiveGesture];

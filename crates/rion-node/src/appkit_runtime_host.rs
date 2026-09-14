@@ -1,3 +1,4 @@
+mod workspace_slot_loading;
 use std::{
     collections::HashMap,
     ffi::{CStr, CString, c_char, c_void},
@@ -1699,8 +1700,10 @@ fn retain_native_action_fields(
     action_type: &str,
     action: &mut serde_json::Map<String, serde_json::Value>,
 ) {
+    workspace_slot_loading::restore_retry_record(action_type, action);
     let fields: &[&str] = match action_type {
         "activate" => &["type", "tabId", "sourceWindowId"],
+        "retryWorkspaceSlot" => &["type", "record", "sourceWindowId"],
         "retryFailed" => &["type", "tabId", "sourceWindowId", "statusIdentity"],
         "stop" => &["type", "tabId", "sourceWindowId", "orderedTabIds"],
         "openTabMenu" => &["type", "tabId", "sourceWindowId"],

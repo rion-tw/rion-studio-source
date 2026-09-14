@@ -1,3 +1,4 @@
+import { workspaceSlotUi } from "../support/workspace-slot-ui";
 // [state-combination:CHROMIUM-MACOS-APPKIT-WORKSPACE-RECOVERY]
 // [state-combination:CHROMIUM-WINDOWS-WORKSPACE-RECOVERY]
 import { browser, expect } from "@wdio/globals";
@@ -5,7 +6,7 @@ import { browser, expect } from "@wdio/globals";
 import type { EmbeddedRuntimeTabSummary } from "../../../src/shared/types";
 import { electronDesktopE2eProbe, electronDesktopE2eRolePlaceholderRuntime } from
   "../support/electron-driver";
-import { clickVisibleElectronPageElement } from
+import { clickVisibleElectronPageElement, withRolePageTarget } from
   "../support/electron-role-surface";
 import { fixtureCursor, fixtureRequest, waitFixtureEvent } from
   "../support/fixture";
@@ -130,7 +131,31 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
       [healthyRole, failingRole]
     );
 
+    const failingSlot = workspace.slots.find((slot) => slot.roleId === failingRole.id)!;
+    await fixtureRequest("/api/gate", { roleId: FAILING_FIXTURE });
     await openCutoverWorkspace(workspace);
+    const openingTab = await waitWorkspaceTab(workspace.id);
+    const slotInput = { ...input, windowId: openingTab.windowId, tabId: openingTab.id, slotId: failingSlot.id };
+    try {
+      await waitFixturePath(`/api/gates/${FAILING_FIXTURE}/waiting`);
+      const healthyReady = await waitRoleInspection(healthyRole.id,
+        (inspection) => inspection.coreStatus.automationState === "ready",
+        "healthy sibling ready while another slot is gated");
+      const loading = await workspaceSlotUi(slotInput);
+      expect(loading.phase).toBe("loading");
+      expect(loading.width).toBeGreaterThan(0);
+      // The equal split leaves the divider gap outside both cell rectangles.
+      expect(loading.width).toBe(healthyReady.nativeOwner.bounds.width);
+      expect(loading.height).toBe(healthyReady.nativeOwner.bounds.height);
+      const healthySlot = workspace.slots.find((slot) => slot.roleId === healthyRole.id)!;
+      expect((await workspaceSlotUi({ ...slotInput, slotId: healthySlot.id })).phase).toBe("ready");
+      const cursor = await fixtureCursor();
+      await clickVisibleElectronPageElement(healthyRole.launchUrl, input.mainWindowHandle, "#qa-target");
+      expect(await waitFixtureEvent({ afterSequence: cursor, kind: "click", roleId: HEALTHY_FIXTURE }))
+        .toEqual(expect.objectContaining({ isTrusted: true }));
+    } finally {
+      await fixtureRequest("/api/release", { roleId: FAILING_FIXTURE });
+    }
     const initialTab = await waitCutoverWorkspaceTab(workspace, [
       { roleId: healthyRole.id, state: "running" },
       { roleId: failingRole.id, state: "running" }
@@ -236,6 +261,40 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
         enabled: false,
         roleId: FAILING_FIXTURE
       });
+    }
+
+    // An initial failure is local and can be retried without recreating its healthy sibling.
+    await fixtureRequest("/api/navigation-failure", { enabled: true, roleId: FAILING_FIXTURE });
+    await openCutoverWorkspace(workspace);
+    const failedTab = await waitWorkspaceTab(workspace.id);
+    const failureSlotInput = { ...input, windowId: failedTab.windowId, tabId: failedTab.id, slotId: failingSlot.id };
+    try {
+      await browser.waitUntil(async () => (await workspaceSlotUi(failureSlotInput)).phase === "failed",
+        { timeout: 45_000, timeoutMsg: "Initial slot failure did not render locally" });
+      const healthyUnchanged = await waitRoleInspection(healthyRole.id,
+        (inspection) => inspection.coreStatus.automationState === "ready", "healthy sibling before local retry");
+      await clickVisibleElectronPageElement(healthyRole.launchUrl, input.mainWindowHandle, "#qa-target");
+      const readHealthyState = () => withRolePageTarget(healthyRole.launchUrl, input.mainWindowHandle,
+        async () => browser.execute(() => ({
+          clicks: document.querySelector("#click")?.textContent, documentStarted: performance.timeOrigin
+        })));
+      const healthyDocument = await readHealthyState();
+      expect(Number(healthyDocument.clicks)).toBeGreaterThan(0);
+      await fixtureRequest("/api/navigation-failure", { enabled: false, roleId: FAILING_FIXTURE });
+      await workspaceSlotUi({ ...failureSlotInput, action: "retry" });
+      await waitCutoverWorkspaceTab(workspace, [
+        { roleId: healthyRole.id, state: "running" }, { roleId: failingRole.id, state: "running" }
+      ]);
+      await browser.waitUntil(async () => (await workspaceSlotUi(failureSlotInput)).phase === "ready",
+        { timeout: 45_000, timeoutMsg: "Retried slot did not reveal content" });
+      const healthyAfterRetry = await waitRoleInspection(healthyRole.id,
+        (inspection) => inspection.coreStatus.automationState === "ready", "healthy sibling after local retry");
+      expect(healthyAfterRetry.nativeOwner.generation).toBe(healthyUnchanged.nativeOwner.generation);
+      expect(healthyAfterRetry.coreOwner).toEqual(healthyUnchanged.coreOwner);
+      expect(await readHealthyState()).toEqual(healthyDocument);
+      await stopCutoverWindow({ ...input, tab: failedTab });
+    } finally {
+      await fixtureRequest("/api/navigation-failure", { enabled: false, roleId: FAILING_FIXTURE });
     }
 
     await openCutoverWorkspace(workspace);

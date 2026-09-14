@@ -12,6 +12,7 @@ fn chromium_web_launch_sequence(actions: &[CoreEffectAction]) -> Vec<&'static st
         .iter()
         .filter_map(|action| match action {
             CoreEffectAction::EmbeddedCreateTab { .. } => Some("create"),
+            CoreEffectAction::EmbeddedLoadWorkspaceSlots { .. } => Some("slots"),
             CoreEffectAction::EmbeddedLoadRoles { .. } => Some("roles"),
             CoreEffectAction::EmbeddedLoadWebSurfaces { .. } => Some("web"),
             _ => None,
@@ -152,7 +153,7 @@ fn v23_web_only_workspace_emits_an_explicit_global_chromium_surface_effect() {
         assert_eq!(launch.unwrap(), json!([]), "{platform}");
         assert_eq!(
             chromium_web_launch_sequence(&actions),
-            ["create", "web"],
+            ["create", "slots"],
             "{platform}"
         );
         let tab = actions
@@ -186,11 +187,11 @@ fn v23_web_only_workspace_emits_an_explicit_global_chromium_surface_effect() {
         let (effect_tab_id, attempt_generation, profile, surfaces) = actions
             .iter()
             .find_map(|action| match action {
-                CoreEffectAction::EmbeddedLoadWebSurfaces {
+                CoreEffectAction::EmbeddedLoadWorkspaceSlots {
                     tab_id,
                     attempt_generation,
-                    profile,
-                    surfaces,
+                    profile: Some(profile),
+                    surfaces, ..
                 } => Some((tab_id, attempt_generation, profile, surfaces)),
                 _ => None,
             })
@@ -245,7 +246,7 @@ fn v23_web_only_workspace_emits_an_explicit_global_chromium_surface_effect() {
 }
 
 #[test]
-fn v23_mixed_workspace_loads_managed_roles_before_explicit_web_surfaces() {
+fn chromium_mixed_workspace_admits_roles_and_web_surfaces_in_one_independent_batch() {
     for platform in ["darwin", "win32"] {
         let (directory, core) = chromium_web_core(platform);
         let role_id = create_role(&core, &first_game_id(&core), 1);
@@ -287,13 +288,13 @@ fn v23_mixed_workspace_loads_managed_roles_before_explicit_web_surfaces() {
         assert_eq!(launched[0]["roleId"], role_id, "{platform}");
         assert_eq!(
             chromium_web_launch_sequence(&actions),
-            ["create", "roles", "web"],
+            ["create", "slots"],
             "{platform}"
         );
         let managed_roles = actions
             .iter()
             .find_map(|action| match action {
-                CoreEffectAction::EmbeddedLoadRoles { roles } => Some(roles),
+                CoreEffectAction::EmbeddedLoadWorkspaceSlots { roles, .. } => Some(roles),
                 _ => None,
             })
             .expect("mixed workspace loads its managed role");
@@ -309,8 +310,8 @@ fn v23_mixed_workspace_loads_managed_roles_before_explicit_web_surfaces() {
         let (profile, surfaces) = actions
             .iter()
             .find_map(|action| match action {
-                CoreEffectAction::EmbeddedLoadWebSurfaces {
-                    profile, surfaces, ..
+                CoreEffectAction::EmbeddedLoadWorkspaceSlots {
+                    profile: Some(profile), surfaces, ..
                 } => Some((profile, surfaces)),
                 _ => None,
             })
@@ -401,7 +402,7 @@ fn v23_multiple_web_slots_share_one_profile_and_retain_exact_surface_slot_identi
         assert_eq!(launch.unwrap(), json!([]), "{platform}");
         assert_eq!(
             chromium_web_launch_sequence(&actions),
-            ["create", "web"],
+            ["create", "slots"],
             "{platform}"
         );
         let tab = actions
@@ -414,8 +415,8 @@ fn v23_multiple_web_slots_share_one_profile_and_retain_exact_surface_slot_identi
         let (profile, surfaces) = actions
             .iter()
             .find_map(|action| match action {
-                CoreEffectAction::EmbeddedLoadWebSurfaces {
-                    profile, surfaces, ..
+                CoreEffectAction::EmbeddedLoadWorkspaceSlots {
+                    profile: Some(profile), surfaces, ..
                 } => Some((profile, surfaces)),
                 _ => None,
             })

@@ -80,7 +80,7 @@ fn stopping_a_launching_workspace_retires_native_tab_after_core_topology_cancell
                     CoreEffectAction::EmbeddedCreateTab { tab } => {
                         created_tab_id = Some(tab.tab_id.clone());
                     }
-                    CoreEffectAction::EmbeddedLoadRoles { .. } if stop.is_none() => {
+                    CoreEffectAction::EmbeddedLoadRoles { .. } | CoreEffectAction::EmbeddedLoadWorkspaceSlots { .. } if stop.is_none() => {
                         let stop_core = Arc::clone(&core);
                         let tab_id = created_tab_id
                             .clone()

@@ -119,7 +119,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 38. Version 23 remains the first
+The active runtime contract is version 39. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -438,6 +438,20 @@ Any bounds, visibility, presentation, or host identity mismatch fails closed.
 Renderer HTML never replaces retained AppKit parent window/tab chrome. The
 paired `CHROMIUM-*-WORKSPACE-WEB-FULLSCREEN-017` journeys exercise visible main
 and popup controls on macOS and Windows, including restart.
+
+Chromium contract v39 makes initial Workspace loading and explicit retry slot-local.
+Core owns runtime-only `WorkspaceSlotLoadRecord` receipts, validating window,
+tab attempt, stable slot, role owner, native surface generation, and receipt
+revision. `EmbeddedLoadWorkspaceSlots` admits Role and Website navigation in one
+event-bound batch; exact per-slot completions reveal healthy content before its
+siblings finish. Failure retains healthy surfaces. `WorkspaceSlotRetry` advances
+only the failed slot's load identity and is admitted only after exact native
+retirement is acknowledged. AppKit renders native per-slot status views; Windows
+uses the bounded local host renderer. Both use Core-resolved layout bounds and
+return user retry through the typed native command lane. Ordinary page navigation
+does not add a loading overlay. No polling, automatic retry, or elapsed-time
+success is introduced. The paired `WORKSPACES-RECOVERY-026` journeys cover gated
+initial loading, a healthy sibling's visible interaction, and visible local retry.
 
 The remaining Workspace cutover journeys keep the same physical-host boundary.
 `CHROMIUM-*-WORKSPACE-WEB-ONLY-024` proves an empty-Role Web topology, isolated

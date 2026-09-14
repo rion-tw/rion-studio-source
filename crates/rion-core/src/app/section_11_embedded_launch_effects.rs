@@ -57,6 +57,7 @@ fn embedded_launch_effects(
             })
         })
         .collect::<CoreResult<Vec<_>>>()?;
+    let independent_slots = tab.workspace_id.is_some() && tab.roles.iter().all(|view| view.resolved_engine == crate::model::ResolvedBrowserEngine::Chromium);
     let focus_window_id = tab.target.window_id.clone();
     let create_step = effect_step(
         tab_id,
@@ -112,6 +113,15 @@ fn embedded_launch_effects(
             Duration::from_secs(15),
             None,
         ));
+    }
+    if independent_slots {
+        let (profile, surfaces) = web_surface_load.map(|plan| (Some(plan.profile), plan.surfaces))
+            .unwrap_or_default();
+        steps.push(effect_step(tab_id, CoreEffectAction::EmbeddedLoadWorkspaceSlots {
+            tab_id: tab_id.to_owned(), attempt_generation,
+            roles: managed_role_loads, profile, surfaces,
+        }, Duration::from_secs(45), None));
+        return Ok(steps);
     }
     if web_surface_load.is_none() || !managed_role_loads.is_empty() {
         steps.push(effect_step(

@@ -96,7 +96,7 @@ async function windowsRuntimeHostHandle(
   return target;
 }
 
-async function withWindowsRuntimeHost<Value>(
+export async function withWindowsRuntimeHost<Value>(
   mainWindowHandle: string,
   tabId: string | undefined,
   action: () => Promise<Value>,

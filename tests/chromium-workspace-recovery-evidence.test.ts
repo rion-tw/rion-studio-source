@@ -63,6 +63,12 @@ describe.each(["macos", "windows"] as const)("%s recovery evidence", platform =>
       healthyStatusPreserved: true, failingGenerationAdvancedOnRelaunch: true
     });
   });
+  it("accepts a ready visible sibling while its workspace is activating", async () => {
+    const values = [observation(platform, "healthy", 1, false, "activating"), ...history()];
+    await expect(validate(platform, values)).resolves.toMatchObject({ healthyStatusPreserved: true });
+    values[0].nativeOwner.visible = false;
+    await expect(validate(platform, values)).rejects.toThrow();
+  });
   it.each(["missing", "replaced-owner", "replaced-native", "not-relaunched"])(
     "rejects %s degradation or recovery evidence", async mismatch => {
       const values = history();

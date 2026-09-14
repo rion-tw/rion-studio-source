@@ -138,6 +138,7 @@ function requireCapturedWindowFocusState(
  */
 export class MacosAppKitChromiumRuntimeHostFactory implements
   MacosAppKitRuntimeHostFactoryPort {
+  readonly #slotRetries = new Map<string, (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>>();
   readonly nativeHostKind = "rust-napi-appkit" as const;
   readonly #input: MacosAppKitRuntimeHostFactoryInput;
   readonly #activeByLogicalWindow = new Map<string, HostRecord>();
@@ -601,6 +602,14 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
         record as HostRecord,
         () => native.isVisible()
       ),
+      bindWorkspaceSlotRetry: (retry: (record: import("../../shared/generated").WorkspaceSlotLoadRecord) => Promise<unknown>) => { this.#slotRetries.set((record as HostRecord).identity.logicalWindowId, retry); },
+      applyWorkspaceSlotLoads: (tabId: string, slots: readonly import("../../shared/workspaceSlotLoading").WorkspaceSlotLoadPresentation[]) => this.#withCurrent(record as HostRecord, () => {
+        const host = record as HostRecord;
+        const controller = requireNativeController(host, "workspace slot loading");
+        if (!controller.applyWorkspaceSlotLoads?.(host.identity, JSON.stringify({ tabId, slots }))) {
+          fail("WORKSPACE_SLOT_PRESENTATION_FAILED", "The native host rejected workspace slot loading.");
+        }
+      }),
       initializeAppKitTab: (tab: EmbeddedTabEffectRecord) => this.#withCurrent(
         record as HostRecord,
         () => this.#initializeTab(record as HostRecord, tab)
@@ -1136,6 +1145,12 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
       }
       if (event.type === "action" && isRecord(event.action)) {
         const action = event.action;
+        if (action.type === "retryWorkspaceSlot" && isRecord(action.record)) {
+          const retry = this.#slotRetries.get(record.identity.logicalWindowId);
+          if (retry) void retry(action.record as unknown as import("../../shared/generated").WorkspaceSlotLoadRecord)
+            .catch(this.#input.onError);
+          return;
+        }
         if (action.type === "windowFocusChanged") {
           if (action.sourceWindowId !== record.identity.logicalWindowId) {
             fail(
@@ -1428,6 +1443,7 @@ export class MacosAppKitChromiumRuntimeHostFactory implements
     removeMacosAppKitRuntimeWindowListeners(record.native, record.listeners);
     if (this.#activeByLogicalWindow.get(record.identity.logicalWindowId) === record) {
       this.#activeByLogicalWindow.delete(record.identity.logicalWindowId);
+      this.#slotRetries.delete(record.identity.logicalWindowId);
     }
     if (this.#ownerByNativeId.get(record.nativeId) === record) {
       this.#ownerByNativeId.delete(record.nativeId);

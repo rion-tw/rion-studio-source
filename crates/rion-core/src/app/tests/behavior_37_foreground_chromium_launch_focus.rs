@@ -359,7 +359,7 @@ fn fresh_chromium_web_only_workspace_focuses_before_web_surface_navigation() {
             .position(|action| {
                 matches!(
                     action,
-                    CoreEffectAction::EmbeddedLoadWebSurfaces {
+                    CoreEffectAction::EmbeddedLoadWorkspaceSlots {
                         tab_id: effect_tab_id,
                         ..
                     } if effect_tab_id == tab_id
@@ -446,7 +446,7 @@ fn restored_chromium_workspace_hydration_never_requests_native_focus() {
             .iter()
             .position(|action| matches!(
                 action,
-                CoreEffectAction::EmbeddedLoadWebSurfaces {
+                CoreEffectAction::EmbeddedLoadWorkspaceSlots {
                     tab_id: effect_tab_id,
                     ..
                 } if effect_tab_id.as_str() == tab_id

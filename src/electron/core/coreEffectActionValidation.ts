@@ -37,6 +37,13 @@ function closed(
     );
 }
 
+const workspaceSlotLoad: Check = (value) => closed(value, {
+  tabId: identity, slotId: identity, surfaceId: identity, windowId: identity,
+  attemptGeneration: identity, loadId: identity, windowGeneration: positiveInteger,
+  ownerGeneration: nonnegativeInteger, surfaceGeneration: nonnegativeInteger,
+  revision: positiveInteger, phase: oneOf("loading", "ready", "failed"), retryable: bool
+}, { loadingLabel: text, failureLabel: text, retryLabel: text });
+
 const engine = oneOf("webview2", "wkwebview", "chromium");
 const runtimeTabPhase = oneOf(
   "dormant", "activating", "attaching", "loading", "ready", "degraded", "failed"
@@ -349,6 +356,8 @@ const actionTypes = new Set<ActionType>([
   "chromeProfileImportCommit",
   "embeddedCreateTab",
   "embeddedConfigureRoleSessions",
+  "embeddedLoadWorkspaceSlots",
+  "embeddedRetryWorkspaceSlot",
   "embeddedLoadRoles",
   "embeddedLoadWebSurfaces",
   "embeddedInstallOverlays",
@@ -422,6 +431,11 @@ function isClosedKnownCoreEffectAction(value: unknown, type: ActionType): boolea
     case "embeddedConfigureRoleSessions":
     case "embeddedInstallOverlays":
       return closed(value, { type: oneOf(type), roleIds: arrayOf(identity) });
+    case "embeddedLoadWorkspaceSlots":
+      return closed(value, { type: oneOf(type), tabId: identity, attemptGeneration: identity, roles: arrayOf(roleLoad),
+        profile: nullable(globalWebProfile), surfaces: arrayOf(webSurfaceLoad) });
+    case "embeddedRetryWorkspaceSlot":
+      return closed(value, { type: oneOf(type), record: workspaceSlotLoad });
     case "embeddedLoadRoles":
       return closed(value, { type: oneOf(type), roles: arrayOf(roleLoad) });
     case "embeddedLoadWebSurfaces":

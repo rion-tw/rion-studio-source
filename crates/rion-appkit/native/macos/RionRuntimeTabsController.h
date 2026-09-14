@@ -211,6 +211,9 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
     (RionRuntimeTabsDesktopE2EFullscreenToolbarState *)state;
 - (NSInteger)statusPresentation;
 #endif
+- (BOOL)applyWorkspaceSlotLoads:(NSDictionary<NSString *, id> *)projection;
+- (void)updateWorkspaceSlotLoads;
+- (void)retryWorkspaceSlot:(NSButton *)sender;
 - (void)hideStatus;
 - (void)ensureTabIdentifier:(NSString *)tabIdentifier
                        name:(NSString *)name
@@ -373,6 +376,8 @@ bool rion_runtime_tabs_matches_projection(
 bool rion_runtime_tabs_matches_phases(
     void * _Nullable controller, const char *tabPhasesJSON);
 bool rion_runtime_tabs_retire_workspace_divider_gesture(void * _Nullable rawController, const char *gestureID);
+bool rion_runtime_tabs_apply_workspace_slot_loads(
+    void * _Nullable controller, const char *projectionJSON);
 bool rion_runtime_tabs_apply_workspace_divider_projection(
     void * _Nullable controller, const char *projectionJSON);
 bool rion_runtime_tabs_matches_workspace_divider_projection(

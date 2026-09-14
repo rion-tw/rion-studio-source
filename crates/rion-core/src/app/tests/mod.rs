@@ -85,3 +85,5 @@ include!("behavior_53_extensions.rs");
 include!("behavior_54_macro_source_roles.rs");
 include!("behavior_55_session_recovery.rs");
 include!("behavior_56_session_upgrade.rs");
+
+include!("behavior_57_workspace_slot_loading.rs");

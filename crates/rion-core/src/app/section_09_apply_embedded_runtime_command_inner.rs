@@ -180,17 +180,19 @@ impl AppCore {
         if self.runtime_contract_version < CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION {
             return Ok(());
         }
-        let Some(window_id) = window_id else {
-            return Ok(());
-        };
         let snapshot = self.browser_runtime.snapshot()?;
-        if snapshot
-            .windows
-            .get(window_id)
-            .is_some_and(|window| !window.tabs.is_empty())
-        {
-            // Native destruction removes the surface, but only Core can advance
-            // the surviving window's topology revision and successor selection.
+        let source_survives = window_id.is_some_and(|window_id| {
+            snapshot.windows.get(window_id).is_some_and(|window| !window.tabs.is_empty())
+        });
+        let released_placeholders = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot.tabs.iter().any(|tab| {
+                tab.slots.iter().any(|slot| slot.state == "available")
+            });
+        if source_survives || released_placeholders {
+            // Role ownership is global: releasing the last tab of a source
+            // window must also refresh available placeholders in other windows.
+            // Only Core supplies the surviving topology and terminal owner set.
             self.project_embedded_runtime_snapshot_without_persistence(parent_operation_id)?;
         }
         Ok(())

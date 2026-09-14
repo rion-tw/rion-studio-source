@@ -7,7 +7,7 @@ export const RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION =
 
 export interface RuntimeRolePlaceholderIdentity {
   readonly generation: number;
-  readonly ownerGeneration: number;
+  readonly ownerGeneration: number | null;
   readonly placeholderId: string;
   readonly roleId: string;
   readonly slotId: string;
@@ -79,7 +79,8 @@ function identity(
   value: Readonly<Record<string, unknown>>
 ): value is Readonly<Record<keyof RuntimeRolePlaceholderIdentity, unknown>> {
   return positiveInteger(value.generation) &&
-    positiveInteger(value.ownerGeneration) && identifier(value.placeholderId) &&
+    (value.ownerGeneration === null || positiveInteger(value.ownerGeneration)) &&
+    identifier(value.placeholderId) &&
     identifier(value.roleId) && identifier(value.slotId) && identifier(value.tabId) &&
     positiveInteger(value.topologyRevision) &&
     positiveInteger(value.windowGeneration) && identifier(value.windowId);

@@ -46,10 +46,10 @@ export async function reconcileChromiumRuntimeRolePlaceholders(input: Readonly<{
   if (!placeholders) return;
   const descriptors = [];
   for (const tab of input.tabs.values()) {
-    const blocked = tab.specification.slots.filter((slot) =>
-      slot.web === undefined && slot.state === "blocked"
+    const placeholdersSlots = tab.specification.slots.filter((slot) =>
+      slot.web === undefined && (slot.state === "blocked" || slot.state === "available")
     );
-    if (blocked.length === 0) continue;
+    if (placeholdersSlots.length === 0) continue;
     const window = input.windows.get(tab.windowId);
     if (
       !window || window.windowGeneration < 1 || window.topologyRevision < 1 ||
@@ -64,13 +64,15 @@ export async function reconcileChromiumRuntimeRolePlaceholders(input: Readonly<{
       tab.specification,
       window.host
     );
-    for (const slot of blocked) {
+    for (const slot of placeholdersSlots) {
       const owner = slot.owner;
       const ownerTab = owner ? input.tabs.get(owner.tabId) : undefined;
       const slotBounds = bounds.get(slot.role.id);
       if (
-        !owner || !slotBounds ||
-        owner.slotId.length === 0 || owner.generation < 1
+        !slotBounds ||
+        (slot.state === "blocked" && !owner) ||
+        (slot.state === "available" && owner !== undefined) ||
+        (owner && (owner.slotId.length === 0 || owner.generation < 1))
       ) {
         throw projectionError(
           "ELECTRON_ROLE_PLACEHOLDER_OWNER_STALE",
@@ -79,7 +81,7 @@ export async function reconcileChromiumRuntimeRolePlaceholders(input: Readonly<{
       }
       descriptors.push(Object.freeze({
         bounds: Object.freeze({ ...slotBounds }),
-        ownerGeneration: owner.generation,
+        ownerGeneration: owner?.generation ?? null,
         // EventBound: detaching the previous owner tab can precede Core's
         // terminal ownership projection. Preserve the exact owner fence and
         // blocked slot during that handoff; only its presentation name is

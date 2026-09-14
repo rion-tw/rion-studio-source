@@ -93,14 +93,16 @@ function installRuntimeRolePlaceholder(): void {
   const error = document.querySelector<HTMLElement>("#error");
   if (!roleName || !message || !claim || !error) return;
   let state: RuntimeRolePlaceholderState | null = null;
+  let claiming = false;
   const render = (next: RuntimeRolePlaceholderState): void => {
     state = next;
     roleName.textContent = next.roleName;
     message.textContent = next.blocked
       ? `This role is open in “${next.ownerTabName ?? "another tab"}”.`
       : "This role is currently stopped.";
-    claim.textContent = next.blocked ? "Stop there and open here" : "Open here";
-    claim.disabled = false;
+    claim.textContent = claiming ? "Opening…" :
+      next.blocked ? "Stop there and open here" : "Open here";
+    claim.disabled = claiming;
     error.hidden = true;
   };
   ipcRenderer.on(
@@ -116,8 +118,9 @@ function installRuntimeRolePlaceholder(): void {
     }
   );
   claim.addEventListener("click", async () => {
-    if (!state) return;
+    if (!state || claiming) return;
     const submitted = state;
+    claiming = true;
     claim.disabled = true;
     claim.textContent = "Opening…";
     error.hidden = true;
@@ -138,7 +141,7 @@ function installRuntimeRolePlaceholder(): void {
       );
       if (!receipt) throw new Error("The role-slot claim receipt is invalid.");
     } catch {
-      if (state !== submitted) return;
+      claiming = false;
       claim.disabled = false;
       claim.textContent = state.blocked ? "Stop there and open here" : "Open here";
       error.textContent = "Could not open the role. Try again.";

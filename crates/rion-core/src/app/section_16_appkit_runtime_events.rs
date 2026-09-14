@@ -1011,11 +1011,22 @@ impl AppCore {
             Ok(_) => {
                 self.finish_runtime_logical_close(&close, "closed")?;
                 let remaining = self.browser_runtime.snapshot()?;
+                let released_placeholders = self
+                    .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                    .snapshot.tabs.iter().any(|tab| {
+                        tab.slots.iter().any(|slot| slot.state == "available")
+                    });
                 if remaining
                     .windows
                     .get(&primary.identity.logical_window_id)
                     .is_none_or(|window| window.tabs.is_empty())
                 {
+                    if released_placeholders {
+                        self.project_surviving_chromium_window_after_close(
+                            Some(&primary.identity.logical_window_id),
+                            Some(close.operation_id.as_str()),
+                        )?;
+                    }
                     self.appkit_receipt(
                         &event,
                         &primary,
@@ -1025,7 +1036,16 @@ impl AppCore {
                         None,
                     )
                 } else {
-                    self.finish_appkit_projection(event, primary, true)
+                    let receipt = self.finish_appkit_projection(event, primary, true)?;
+                    if receipt.native_applied && released_placeholders {
+                        // Full native membership must commit before the terminal
+                        // owner set refreshes placeholders in every surviving host.
+                        self.project_surviving_chromium_window_after_close(
+                            None,
+                            Some(close.operation_id.as_str()),
+                        )?;
+                    }
+                    Ok(receipt)
                 }
             }
             Err(error) => {

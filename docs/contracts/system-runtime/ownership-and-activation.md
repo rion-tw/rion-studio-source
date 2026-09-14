@@ -94,7 +94,15 @@ registered as a managed role surface and cannot receive macro input, role audio,
 role navigation, or role zoom. Its command is accepted only from the exact
 registered placeholder label and generation-fenced tab, slot, role, and owner.
 The placeholder names the current owner tab when one exists and disables its
-button while a claim is in flight.
+button while a claim is in flight, including across presentation updates.
+Owner-authorized on 2026-09-14: a released placeholder retains the “another tab”
+and “Stop there and open here” presentation. Its actual owner generation is
+explicitly absent; the command uses Core's existing no-owner claim admission,
+never the previous owner's generation. After exact native release, Core projects
+the terminal owner set to surviving hosts even when the source window is gone.
+The local document's `ready` handshake may arrive before activation; it waits
+for exact document load and native attachment, or fails on retirement/load
+failure. Claims remain restricted to active registered documents.
 
 A role claim is serialized by the role operation lease and generation-fenced.
 Core first marks the source `stopping`; native code then closes and verifies the

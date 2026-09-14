@@ -842,18 +842,13 @@ async function bootstrapReadyPhase(
       sessionIdentity: WORKSPACE_WEB_CHROME_SHELL_SESSION
     },
     rolePlaceholderShell: {
-      documentPath: join(
-        import.meta.dirname,
-        "../renderer/runtime-role-placeholder-electron.html"
-      ),
+      documentPath: join(import.meta.dirname, "../renderer/runtime-role-placeholder-electron.html"),
       ipcMain,
-      preloadPath: join(
-        import.meta.dirname,
-        "../preload/workspaceWebChrome.cjs"
-      ),
+      preloadPath: join(import.meta.dirname, "../preload/workspaceWebChrome.cjs"),
       session: webChromeShellSession,
       sessionIdentity: RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION
     },
+    onRolePlaceholderError: (err) => runtimeLogs.shellError(err),
     onRuntimeTabQuickAccess: (tabId) => {
       const begin = beginRuntimeTabQuickAccess;
       if (!begin) {

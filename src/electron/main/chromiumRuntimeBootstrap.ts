@@ -322,6 +322,8 @@ export interface ChromiumRuntimeBootstrapInput {
   readonly electronVersion: string;
   readonly ipcMain: ChromiumRoleOverlayIpcMainPort;
   readonly onError: ConstructorParameters<typeof CoreEffectCoordinator>[0]["onError"];
+  /** Slot-local failures are logged without revealing the main window. */
+  readonly onRolePlaceholderError?: ChromiumRuntimeBootstrapInput["onError"];
   readonly onManagedShortcutDiagnostic?: (
     context: Readonly<Record<string, unknown>>
   ) => void;
@@ -907,7 +909,9 @@ export class ChromiumRuntimeBootstrap {
               type: "browserRoleSlotClaim",
               tabId: state.tabId,
               slotId: state.slotId,
-              expectedOwnerGeneration: state.ownerGeneration
+              ...(state.ownerGeneration === null ? {} : {
+                expectedOwnerGeneration: state.ownerGeneration
+              })
             });
             const owner = snapshot.roles.find(
               (role) => role.roleId === state.roleId
@@ -915,7 +919,7 @@ export class ChromiumRuntimeBootstrap {
             if (
               !owner || owner.tabId !== state.tabId ||
               owner.slotId !== state.slotId ||
-              owner.generation <= state.ownerGeneration
+              owner.generation <= (state.ownerGeneration ?? 0)
             ) {
               throw bootstrapError(
                 "ELECTRON_ROLE_PLACEHOLDER_CLAIM_READBACK_FAILED",
@@ -949,6 +953,7 @@ export class ChromiumRuntimeBootstrap {
             });
           },
           nativeAttachments: globalNativeAttachments,
+          onError: input.onRolePlaceholderError,
           shell: input.rolePlaceholderShell,
           views: input.views
         })

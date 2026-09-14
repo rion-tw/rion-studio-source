@@ -33,6 +33,14 @@ describe("runtime Role placeholder contract", () => {
     })).toEqual({ ...identity, status: "applied" });
   });
 
+  it("accepts an explicit absent owner but rejects zero or missing owner fences", () => {
+    expect(parseRuntimeRolePlaceholderState({ ...state, ownerGeneration: null, ownerTabName: null }))
+      .toMatchObject({ ownerGeneration: null });
+    for (const ownerGeneration of [0, -1, undefined]) {
+      expect(parseRuntimeRolePlaceholderState({ ...state, ownerGeneration })).toBeNull();
+    }
+  });
+
   it("rejects extra keys and stale/malformed generations", () => {
     expect(parseRuntimeRolePlaceholderState({ ...state, extra: true })).toBeNull();
     expect(parseRuntimeRolePlaceholderAction({ type: "ready", extra: true })).toBeNull();

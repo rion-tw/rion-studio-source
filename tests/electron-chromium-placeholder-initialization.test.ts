@@ -48,6 +48,19 @@ it.each(["windows", "macos"] as const)(
         ownerTabName: owner.name
       })
     ]);
+    await subject.executor.execute(effect("owner-tab", {
+      type: "embeddedDestroyTab", tabId: owner.tabId
+    }));
+    await subject.executor.execute(effect("embedded-runtime-projection", {
+      type: "embeddedFollowRoleOwnership", lifecycleEpoch: 1, roles: [],
+      windows: [projectedWindows[1]!], revealWindowIds: [], focusWindowIds: []
+    }));
+    expect(subject.reconcileRolePlaceholders).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        roleId: "shared-role", tabId: blocked.tabId, ownerGeneration: null,
+        ownerTabName: null, windowGeneration: 3, topologyRevision: 7
+      })
+    ]);
     await subject.executor.dispose();
   }
 );

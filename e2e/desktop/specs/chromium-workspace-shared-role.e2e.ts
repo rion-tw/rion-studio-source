@@ -8,6 +8,7 @@ import { clickVisibleElectronPageElement } from
   "../support/electron-role-surface";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import {
+  closeVisibleRuntimeTab,
   installRuntimeTabShellErrorJournal,
   runtimeTabShellErrors
 } from "../support/native-runtime-tabs";
@@ -27,6 +28,7 @@ import { verifyVisibleChromiumTabAudio } from "./chromium-tab-audio-support";
 import { selectMacosVisibleRuntimeLauncherRole } from
   "../support/macos-appkit-ui";
 import { waitForRoute } from "../support/ui";
+import { verifyReleasedRolePlaceholder } from "./chromium-workspace-released-role";
 
 // [journey:CHROMIUM-MACOS-APPKIT-WORKSPACE-SHARED-ROLE-025]
 // [journey:CHROMIUM-WINDOWS-WORKSPACE-SHARED-ROLE-025]
@@ -309,5 +311,12 @@ describe("Chromium shared Workspace Role exact replacement", () => {
       roleId: SHARED_FIXTURE
     })).toEqual(expect.objectContaining({ isTrusted: true }));
     expect(await runtimeTabShellErrors()).toEqual([]);
+    for (const tab of [tabA, tabB]) {
+      await closeVisibleRuntimeTab({ ...input,
+        tabId: tab.id, tabName: tab.name, windowId: tab.windowId
+      });
+    }
+    await verifyReleasedRolePlaceholder({ ...input, role: shared, sibling: uniqueB,
+      workspace: workspaceB, shellUrl: targetPlaceholder.shellUrl });
   });
 });

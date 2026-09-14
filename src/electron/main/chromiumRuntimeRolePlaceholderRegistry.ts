@@ -10,7 +10,8 @@ import {
   type RuntimeRolePlaceholderClaimReceipt,
   type RuntimeRolePlaceholderState
 } from "../../shared/runtimeRolePlaceholder";
-import { RionBridgeError } from "../ipc/errors";
+import { RionBridgeError, normalizeRionBridgeError } from "../ipc/errors";
+import type { CoreErrorPayload } from "../../shared/generated";
 import type { ChromiumRoleSessionPort } from "./chromiumRoleSessionRegistry";
 import type {
   ChromiumGlobalWebNativeAttachmentPort
@@ -54,7 +55,7 @@ export interface ChromiumRuntimeRolePlaceholderShellInput {
 
 export interface ChromiumRuntimeRolePlaceholderDescriptor {
   readonly bounds: ChromiumRoleSurfaceBounds;
-  readonly ownerGeneration: number;
+  readonly ownerGeneration: number | null;
   readonly ownerTabName: string | null;
   readonly parent: ChromiumRoleSurfaceParentPort;
   readonly placeholderId: string;
@@ -94,6 +95,7 @@ interface PlaceholderListeners {
 }
 
 interface PlaceholderRecord {
+  readonly activated: Deferred<void>;
   readonly contents: ChromiumRoleSurfaceWebContentsPort;
   readonly destroyed: Deferred<void>;
   readonly generation: number;
@@ -216,6 +218,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
   readonly #shell: ChromiumRuntimeRolePlaceholderShellInput;
   readonly #views: ChromiumWebContentsViewFactoryPort;
   readonly #generations = new Map<string, number>();
+  readonly #onError: (error: CoreErrorPayload) => void;
   #disposePromise: Promise<void> | null = null;
   #state: RegistryState = "open";
 
@@ -224,6 +227,7 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
       state: RuntimeRolePlaceholderState
     ) => Promise<RuntimeRolePlaceholderClaimReceipt>;
     nativeAttachments?: ChromiumGlobalWebNativeAttachmentPort | null;
+    onError?: (error: CoreErrorPayload) => void;
     shell: ChromiumRuntimeRolePlaceholderShellInput;
     views: ChromiumWebContentsViewFactoryPort;
   }>) {
@@ -243,9 +247,20 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
     this.#nativeAttachments = input.nativeAttachments ?? null;
     this.#shell = input.shell;
     this.#views = input.views;
+    this.#onError = input.onError ?? (() => undefined);
     this.#shell.ipcMain.handle(
       RUNTIME_ROLE_PLACEHOLDER_CHANNEL,
-      (event, payload) => this.#receiveAction(event, payload)
+      (event, payload) => this.#receiveAction(event, payload).catch((error: unknown) => {
+        const record = this.#recordByContents.get(event.sender);
+        const action = parseRuntimeRolePlaceholderAction(payload);
+        const failure = normalizeRionBridgeError(error);
+        this.#onError({ ...failure, message: `${failure.message} ${JSON.stringify({
+          action: action?.type ?? "invalid", placeholderId: record?.placeholderId,
+          roleId: record?.descriptor.roleId, slotId: record?.descriptor.slotId,
+          generation: record?.generation, state: record?.state
+        })}` });
+        throw error;
+      })
     );
   }
 
@@ -356,7 +371,11 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
     }
     const destroyed = deferred<void>();
     const loaded = deferred<void>();
+    const activated = deferred<void>();
+    // This event-bound handshake can terminate before a local document sends ready.
+    void activated.promise.catch(() => undefined);
     const record = {
+      activated,
       contents,
       destroyed,
       generation,
@@ -385,9 +404,14 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
         // EventBound: did-fail-load is the authoritative local-load terminal.
       });
       await loaded.promise;
+      if (record.state !== "opening" || this.#records.get(record.placeholderId) !== record) {
+        fail("ELECTRON_ROLE_PLACEHOLDER_RETIRED", "The local placeholder retired during opening.");
+      }
       record.state = "active";
       this.#publishState(record);
+      activated.resolve();
     } catch (error) {
+      activated.reject(error);
       await this.#close(record).catch(() => undefined);
       throw error;
     }
@@ -428,7 +452,6 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
       }
       this.#readProjection(record, descriptor.bounds, descriptor.visible);
       record.bounds = Object.freeze({ ...descriptor.bounds });
-      record.claimPromise = null;
       this.#publishState(record);
     } catch (error) {
       record.state = "quarantined";
@@ -455,6 +478,9 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
   async #close(record: PlaceholderRecord): Promise<void> {
     if (!this.#records.has(record.placeholderId)) return;
     record.state = "closing";
+    record.activated.reject(placeholderError(
+      "ELECTRON_ROLE_PLACEHOLDER_RETIRED", "The local placeholder closed before activation."
+    ));
     await this.#detach(record);
     if (!record.destroyedObserved) {
       record.contents.close({ waitForBeforeUnload: false });
@@ -468,6 +494,9 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
     return {
       destroyed: () => {
         record.destroyedObserved = true;
+        record.activated.reject(placeholderError(
+          "ELECTRON_ROLE_PLACEHOLDER_DESTROYED", "The local placeholder document was destroyed."
+        ));
         if (!record.loadSettled) {
           record.loadSettled = true;
           record.loaded.reject(placeholderError(
@@ -625,12 +654,23 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
   ): Promise<RuntimeRolePlaceholderState | RuntimeRolePlaceholderClaimReceipt> {
     const action = parseRuntimeRolePlaceholderAction(payload);
     const record = this.#recordByContents.get(event.sender);
-    if (!action || !record || record.contents !== event.sender ||
-        record.state !== "active" || this.#records.get(record.placeholderId) !== record) {
+    if (!action || !record || record.contents !== event.sender) {
       fail(
         "ELECTRON_ROLE_PLACEHOLDER_ACTION_UNAUTHORIZED",
-        "The local placeholder action lost its exact sender or native owner."
+        !action ? "The local placeholder action payload is invalid." :
+          "The local placeholder action sender is not registered."
       );
+    }
+    if (action.type === "ready" && record.state === "opening") {
+      await record.activated.promise;
+    }
+    if (this.#records.get(record.placeholderId) !== record) {
+      fail("ELECTRON_ROLE_PLACEHOLDER_ACTION_UNAUTHORIZED",
+        "The local placeholder action record was replaced or removed.");
+    }
+    if (record.state !== "active" || record.destroyedObserved) {
+      fail("ELECTRON_ROLE_PLACEHOLDER_ACTION_UNAUTHORIZED",
+        `The local placeholder action requires an active document (state=${record.state}).`);
     }
     const state = this.#stateFor(record);
     if (action.type === "ready") return state;

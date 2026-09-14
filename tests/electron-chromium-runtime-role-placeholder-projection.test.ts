@@ -161,9 +161,10 @@ describe("Chromium blocked Role-slot projection", () => {
     );
   });
 
-  it("retains the exact blocked owner fence while its tab detaches", async () => {
+  it.each([false, true])("projects a detached owner before/after terminal release (%s)", async (released) => {
     const state = topology();
     state.tabs.delete(state.source.tabId);
+    if (released) projectChromiumRuntimeRolePlaceholderSlots(state.tabs, []);
     const reconcile = vi.fn(async (
       _descriptors: readonly ChromiumRuntimeRolePlaceholderDescriptor[]
     ) => undefined);
@@ -186,7 +187,7 @@ describe("Chromium blocked Role-slot projection", () => {
     });
     expect(reconcile).toHaveBeenCalledWith([
       expect.objectContaining({
-        ownerGeneration: state.sourceOwner.generation,
+        ownerGeneration: released ? null : state.sourceOwner.generation,
         ownerTabName: null,
         roleId: state.sharedRole.id,
         slotId: "target-slot",

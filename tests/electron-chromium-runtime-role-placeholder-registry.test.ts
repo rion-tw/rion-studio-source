@@ -22,12 +22,21 @@ import type {
   ChromiumRoleWebContentsViewPort
 } from "../src/electron/main/chromiumRoleSurfacePorts";
 
+function testDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
 class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
   readonly listeners = new Map<string, Set<(...arguments_: never[]) => void>>();
   readonly sent: Array<readonly [string, ...unknown[]]> = [];
   readonly session: ChromiumRoleSessionPort;
   url = "";
   destroyed = false;
+  autoFinishLoad = true;
+  readonly loadStarted = testDeferred<void>();
 
   constructor(session: ChromiumRoleSessionPort) {
     this.session = session;
@@ -47,7 +56,8 @@ class FakeContents implements ChromiumRoleSurfaceWebContentsPort {
   isDestroyed(): boolean { return this.destroyed; }
   loadURL(url: string): Promise<void> {
     this.url = url;
-    queueMicrotask(() => this.emit("did-finish-load"));
+    this.loadStarted.resolve();
+    if (this.autoFinishLoad) queueMicrotask(() => this.emit("did-finish-load"));
     return Promise.resolve();
   }
 
@@ -120,12 +130,14 @@ function harness(storagePath: string | null = null) {
     windowGeneration: state.windowGeneration,
     windowId: state.windowId
   }));
+  const onError = vi.fn();
   const attached: string[] = [];
   const detached: string[] = [];
   const nativeDetach = new Map<string, () => void>();
   const failAttachForHost = new Set<number>();
   const registry = new ChromiumRuntimeRolePlaceholderRegistry({
     claim,
+    onError,
     nativeAttachments: {
       attachNonInputSurface: async (input) => {
         attached.push(input.surfaceId);
@@ -192,6 +204,7 @@ function harness(storagePath: string | null = null) {
   });
   return {
     attached,
+    onError,
     claim,
     descriptor,
     detached,
@@ -305,6 +318,114 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
     await subject.registry.dispose();
   });
 
+  it("waits for activation when ready arrives at DOMContentLoaded", async () => {
+    const subject = harness();
+    const creation = subject.registry.reconcile([subject.descriptor()]);
+    const contents = subject.views[0]!.webContents;
+    contents.autoFinishLoad = false;
+    await contents.loadStarted.promise;
+    const ready = Promise.resolve(subject.invoke(contents, { type: "ready" }));
+    const settled = vi.fn();
+    void ready.then(settled);
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    contents.emit("did-finish-load");
+    await creation;
+    await expect(ready).resolves.toMatchObject({ generation: 1 });
+    expect(subject.onError).not.toHaveBeenCalled();
+    await subject.registry.dispose();
+  });
+
+  it.each(["close", "load-failure"])("terminalizes pending ready on %s", async (failure) => {
+    const subject = harness();
+    const creation = subject.registry.reconcile([subject.descriptor()]);
+    const contents = subject.views[0]!.webContents;
+    contents.autoFinishLoad = false;
+    await contents.loadStarted.promise;
+    const ready = Promise.resolve(subject.invoke(contents, { type: "ready" }));
+    const rejected = expect(ready).rejects.toBeInstanceOf(Error);
+    const creationRejected = expect(creation).rejects.toBeInstanceOf(Error);
+    if (failure === "close") contents.close();
+    else contents.emit("did-fail-load", {}, -2, "failed", contents.url, true);
+    await rejected;
+    await creationRejected;
+    expect(subject.onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('"action":"ready"')
+    }));
+    await subject.registry.dispose();
+  });
+
+  it("keeps a released slot claimable without trusting its former owner", async () => {
+    const subject = harness();
+    await subject.registry.reconcile([subject.descriptor()]);
+    const contents = subject.views[0]!.webContents;
+    const old = await subject.invoke(contents, { type: "ready" }) as RuntimeRolePlaceholderState;
+    await subject.registry.reconcile([{
+      ...subject.descriptor(8), ownerGeneration: null, ownerTabName: null
+    }]);
+    const next = await subject.invoke(contents, { type: "ready" }) as RuntimeRolePlaceholderState;
+    const action = (state: RuntimeRolePlaceholderState) => {
+      const { blocked: _blocked, ownerTabName: _name, roleName: _role, ...identity } = state;
+      return { ...identity, type: "claim" };
+    };
+    expect(next).toMatchObject({ blocked: true, ownerGeneration: null, ownerTabName: null });
+    await expect(Promise.resolve(subject.invoke(contents, action(old))))
+      .rejects.toMatchObject({ code: "ELECTRON_ROLE_PLACEHOLDER_ACTION_STALE" });
+    await expect(Promise.resolve(subject.invoke(contents, action(next))))
+      .resolves.toMatchObject({ status: "applied", ownerGeneration: null });
+    expect(subject.claim).toHaveBeenCalledExactlyOnceWith(next);
+    await subject.registry.dispose();
+  });
+
+  it("coalesces claims through layout updates and allows manual retry after failure", async () => {
+    const subject = harness();
+    await subject.registry.reconcile([subject.descriptor()]);
+    const contents = subject.views[0]!.webContents;
+    const pending = testDeferred<RuntimeRolePlaceholderClaimReceipt>();
+    subject.claim.mockImplementationOnce(() => pending.promise);
+    const claim = async () => {
+      const { blocked: _blocked, ownerTabName: _name, roleName: _role, ...identity } =
+        await subject.invoke(contents, { type: "ready" }) as RuntimeRolePlaceholderState;
+      return subject.invoke(contents, { ...identity, type: "claim" });
+    };
+    const first = claim();
+    await subject.registry.reconcile([{
+      ...subject.descriptor(), bounds: { ...subject.descriptor().bounds, width: 500 }
+    }]);
+    const second = claim();
+    const firstRejected = expect(first).rejects.toThrow("creation failed");
+    const secondRejected = expect(second).rejects.toThrow("creation failed");
+    await Promise.resolve();
+    expect(subject.claim).toHaveBeenCalledOnce();
+    pending.reject(new Error("creation failed"));
+    await Promise.all([firstRejected, secondRejected]);
+    await expect(claim()).resolves.toMatchObject({ status: "applied" });
+    expect(subject.claim).toHaveBeenCalledTimes(2);
+    await subject.registry.dispose();
+  });
+
+  it("rejects closed and replaced documents before admitting any claim", async () => {
+    const subject = harness();
+    await subject.registry.reconcile([subject.descriptor()]);
+    const oldContents = subject.views[0]!.webContents;
+    const { blocked: _blocked, ownerTabName: _name, roleName: _role, ...identity } =
+      await subject.invoke(oldContents, { type: "ready" }) as RuntimeRolePlaceholderState;
+    const action = { ...identity, type: "claim" };
+    await subject.registry.reconcile([]);
+    await expect(Promise.resolve(subject.invoke(oldContents, action)))
+      .rejects.toMatchObject({ message: expect.stringContaining("removed") });
+    await subject.registry.reconcile([subject.descriptor()]);
+    await expect(Promise.resolve(subject.invoke(oldContents, action)))
+      .rejects.toMatchObject({ message: expect.stringContaining("replaced") });
+    const newContents = subject.views[1]!.webContents;
+    await expect(Promise.resolve(subject.invoke(newContents, action)))
+      .rejects.toMatchObject({ code: "ELECTRON_ROLE_PLACEHOLDER_ACTION_STALE" });
+    await expect(Promise.resolve(subject.invoke(newContents, { type: "claim" })))
+      .rejects.toMatchObject({ message: expect.stringContaining("payload is invalid") });
+    expect(subject.claim).not.toHaveBeenCalled();
+    await subject.registry.dispose();
+  });
+
   it("fails closed when a forged shell identity claims persistent storage", () => {
     expect(() => harness("/persistent/role-profile")).toThrowError(
       expect.objectContaining({ code: "ELECTRON_ROLE_PLACEHOLDER_SHELL_INVALID" })
@@ -332,6 +453,9 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
     expect(subject.host.contentView.addChildView).toHaveBeenCalledTimes(2);
     expect(() => subject.registry.readEvidence(subject.descriptor().placeholderId))
       .toThrowError(expect.objectContaining({ code: "ELECTRON_ROLE_PLACEHOLDER_STALE" }));
+    await expect(Promise.resolve(subject.invoke(subject.views[0]!.webContents, { type: "ready" })))
+      .rejects.toMatchObject({ message: expect.stringContaining("state=quarantined") });
+    expect(subject.claim).not.toHaveBeenCalled();
     await subject.registry.dispose();
   });
 });

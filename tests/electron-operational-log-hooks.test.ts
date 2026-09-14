@@ -72,6 +72,16 @@ describe("Electron operational log hooks", () => {
       "child_process_gone",
       "unhandled_rejection"
     ]);
+    contents.emit("did-fail-load", {}, -6, "ERR_FILE_NOT_FOUND",
+      "file:///Users/private/project/out/renderer/runtime-web-chrome-electron.html", true);
+    await logger.flush();
+    const failure = invoke.mock.calls.flatMap(([command]) => command.entries).at(-1)!;
+    expect(JSON.parse(failure.contextRawJson!)).toMatchObject({
+      webContentsId: 41, errorCode: "-6", errorName: "ERR_FILE_NOT_FOUND",
+      documentKind: "runtime-web-chrome-electron.html", navigationScheme: "file:",
+      failureReason: "local-resource-not-found"
+    });
+    expect(failure.contextRawJson).not.toContain("/Users/private");
     const encoded = JSON.stringify(entries);
     expect(encoded).not.toContain("private.example");
     expect(encoded).not.toContain("private DNS description");
@@ -80,6 +90,6 @@ describe("Electron operational log hooks", () => {
     dispose();
     app.emit("child-process-gone", {}, { type: "GPU", reason: "crashed" });
     await logger.flush();
-    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 });

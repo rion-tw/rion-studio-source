@@ -624,6 +624,12 @@ async function seedPhase(platform: "macos" | "windows"): Promise<void> {
     .some((window) => window.id === transientTab.windowId)).toBe(false);
   expect(await runtimeTabShellErrors()).toEqual([]);
   await stopCutoverWindow({ mainWindowHandle, platform, tab: transientTab });
+  // The native close must finish resource retirement as well as remove the tab.
+  await browser.waitUntil(async () => !(await rendererCall("listRoleStatuses"))
+    .some(status => status.roleId === role.id && status.state === "stopping"), {
+    timeout: 20_000, timeoutMsg: "Workspace close left a Role stuck stopping"
+  });
+  expect(await runtimeTabShellErrors()).toEqual([]);
 
   const gameWindow = await createSavedWindowThroughVisibleUi();
   const launched = await launchWorkspaceThroughVisibleUi(

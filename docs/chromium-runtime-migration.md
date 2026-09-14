@@ -44,6 +44,29 @@ legacy installation/data sources.
   objects. Rust events initiate projection changes, and shell acknowledgements
   return exact operation IDs and revisions before Core terminalizes work.
 
+## Development renderer assets
+
+`pnpm dev` builds Rust and runs `build:renderer` before starting electron-vite
+watch/dev mode. The application renderer uses the loopback dev server; the
+Workspace Web navigation row, Role placeholder, and Windows runtime host load
+local documents from `out/renderer` on both supported platforms. electron-vite
+dev builds main/preload only and serves renderer sources over HTTP, so it cannot
+supply those local documents. Always build the complete renderer input set,
+including emitted CSS, JavaScript, and images, instead of relying on output left
+by a previous production/E2E build. The renderer verifier checks all four HTML
+entries and their referenced local assets before the development app starts.
+All five preload entries are also emitted; dev then rebuilds/watches them.
+The workspace entrance itself is bundled into main from the generated HTML and
+served by `rion-start`, while application icons use tracked `build` assets.
+Local document changes take effect after restarting `pnpm dev`.
+
+Navigation failure logs retain the local document identity, URL scheme and
+Chromium symbolic error without recording private URLs or filesystem prefixes.
+Workspace slot terminals retain operation/tab/slot/surface/load generations and
+the failure code even when healthy siblings allow the overall launch to finish.
+Diagnostics distinguish unavailable legacy producers from projection failure
+code/message; unavailable fields remain unknown, never fabricated healthy data.
+
 ## macOS AppKit retention
 
 The v23 macOS cutover replaces WKWebView only. Existing AppKit ownership of game

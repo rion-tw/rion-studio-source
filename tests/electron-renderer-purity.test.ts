@@ -64,6 +64,23 @@ describe("Electron renderer purity", () => {
     expect(vite).toContain("workspaceWebChrome.ts");
   });
 
+  it.each(ELECTRON_RENDERER_DOCUMENTS)("verifies the emitted CSS, script and image for %s", async document => {
+    const rendererRoot = await mkdtemp(join(tmpdir(), "rion-electron-renderer-assets-"));
+    temporaryDirectories.push(rendererRoot);
+    await mkdir(join(rendererRoot, "assets"));
+    await Promise.all(ELECTRON_RENDERER_DOCUMENTS.map(name => writeFile(join(rendererRoot, name), "<!doctype html>")));
+    await writeFile(join(rendererRoot, document), '<link href="./assets/style.css" rel="stylesheet"><script src="./assets/main.js"></script><img src="./assets/icon.png">');
+    await writeFile(join(rendererRoot, "assets/main.js"), "window.rionStudio;");
+    await writeFile(join(rendererRoot, "assets/style.css"), "body { color: red }");
+    await writeFile(join(rendererRoot, "assets/icon.png"), "fixture");
+    await expect(verifyElectronRendererBundle(rendererRoot)).resolves.toBeDefined();
+    for (const asset of ["style.css", "main.js", "icon.png"]) {
+      await rm(join(rendererRoot, "assets", asset));
+      await expect(verifyElectronRendererBundle(rendererRoot)).rejects.toThrow(`missing local asset: ./assets/${asset}`);
+      await writeFile(join(rendererRoot, "assets", asset), "fixture");
+    }
+  });
+
   it("verifies final output and fails closed on Tauri code or documents", async () => {
     const rendererRoot = await mkdtemp(join(tmpdir(), "rion-electron-renderer-"));
     temporaryDirectories.push(rendererRoot);

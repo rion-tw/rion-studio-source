@@ -120,6 +120,19 @@ export async function verifyElectronRendererBundle(
     sources.push({ path: file.path, source: await readFile(file.absolutePath) });
   }
   assertElectronRendererSources(sources);
+  for (const document of sources.filter(source => ELECTRON_RENDERER_DOCUMENTS.includes(source.path))) {
+    // These are Vite-emitted local shell documents. Check their emitted entry
+    // assets as well as HTML presence so a partial/stale output cannot pass.
+    for (const match of document.source.toString("utf8").matchAll(/\b(?:src|href)=["']([^"']+)["']/gu)) {
+      const reference = match[1];
+      if (reference.startsWith("#") || /^(?:data:|https?:)/u.test(reference)) continue;
+      const resolved = new URL(reference, `file:///renderer/${document.path}`);
+      const asset = decodeURIComponent(resolved.pathname).slice("/renderer/".length);
+      if (resolved.protocol !== "file:" || !resolved.pathname.startsWith("/renderer/") || !filePaths.has(asset)) {
+        throw new Error(`Electron renderer document ${document.path} is missing local asset: ${reference}`);
+      }
+    }
+  }
   return {
     entryCount: entries.length,
     rendererRoot: absoluteRoot,

@@ -5,6 +5,9 @@ import { coreEffectEventContinuation, type CoreEffectEventContinuation } from ".
 import { runtimeError } from "./chromiumRuntimeEffectExecutorSupport";
 import { projectWorkspaceSlotLoads } from "./chromiumWorkspaceSlotLoading";
 
+import { normalizeRionBridgeError } from "../ipc/errors";
+import { recordRuntimeTransition } from "./runtimeOperationJournal";
+
 interface WorkspaceSlotExecutorInput {
   ports: ChromiumRuntimeEffectExecutorInput;
   tabs: Map<string, ChromiumRuntimeTabRecord>;
@@ -59,6 +62,7 @@ export async function loadChromiumWorkspaceSlots(
         projectWorkspaceSlotLoads(tab, loadingWindow, loadingBounds);
         let phase: "ready" | "failed" = "ready";
         let retryable = false;
+        let errorCode: string | undefined;
         const generations = descriptor.kind === "role" ? input.roleGenerations : input.webGenerations;
         const before = generations.get(descriptor.id) ?? 0;
         try {
@@ -73,6 +77,7 @@ export async function loadChromiumWorkspaceSlots(
         } catch (error) {
           if (loadSignal.aborted) throw error;
           phase = "failed";
+          errorCode = normalizeRionBridgeError(error, "WORKSPACE_SLOT_LOAD_FAILED").code;
           const generation = generations.get(descriptor.id) ?? 0;
           retryable = generation === before || input.retiredLoads.delete(`${descriptor.kind}:${descriptor.id}:${generation}`);
         }
@@ -82,6 +87,15 @@ export async function loadChromiumWorkspaceSlots(
           windowId: tab.windowId, windowGeneration: ownerWindow.windowGeneration,
           surfaceGeneration: generations.get(descriptor.id) ?? 0 });
         if (!record || loadSignal.aborted || input.tabs.get(tabId) !== tab) return;
+        recordRuntimeTransition({
+          operationId: effect.operationId, effectId: effect.effectId,
+          action: "workspace-slot-load", targetKind: descriptor.kind, targetId: descriptor.id,
+          stage: record.phase, ...(errorCode ? { errorCode } : {}),
+          fences: { tabId, slotId: slot.slotId, windowId: record.windowId,
+            attemptGeneration: record.attemptGeneration, loadId: record.loadId,
+            surfaceGeneration: record.surfaceGeneration, revision: record.revision,
+            retryable: record.retryable ? 1 : 0 }
+        });
         tab.slotLoads!.set(slot.slotId, record);
         const currentWindow = input.windowForTab(tab);
         const currentBounds = await input.ports.layout.resolveRoleBounds(tab.specification, currentWindow.host);

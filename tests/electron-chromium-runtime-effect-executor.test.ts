@@ -548,6 +548,24 @@ describe("Electron Chromium runtime effect executor", () => {
     });
   });
 
+  it.each(["macos", "windows"] as const)("requires an exact prior retirement receipt for an absent Web close on %s", async platform => {
+    const subject = harness(undefined, platform);
+    const specification = mixedTab();
+    await createTab(subject, specification);
+    await loadWebSurfaces(subject, specification);
+    subject.closeWebSurface.mockResolvedValue(false);
+    subject.webSurfaces.wasRetired = (_id, generation) => generation === 2;
+    const destroy = () => executeTerminal(subject, effect(specification.tabId, {
+      type: "embeddedDestroyTab", tabId: specification.tabId,
+      attemptGeneration: specification.attemptGeneration
+    }));
+    await expect(destroy()).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_SURFACE_CLOSE_NOT_OBSERVED" });
+    expect(subject.hosts[0]!.close).not.toHaveBeenCalled();
+    subject.webSurfaces.wasRetired = (id, generation) => id === "web-surface-1" && generation === 1;
+    await expect(destroy()).resolves.toBe(true);
+    expect(subject.executor.snapshot()).toMatchObject({ tabs: [], webSurfaces: [], windows: [] });
+  });
+
   it("retires successful mixed-tab surfaces and retries only the failed native close", async () => {
     const subject = harness();
     const specification = mixedTab();

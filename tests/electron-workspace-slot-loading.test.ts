@@ -1,3 +1,4 @@
+import { runtimeOperationEvidence } from "../src/electron/main/runtimeOperationJournal";
 import { describe, expect, it } from "vitest";
 import type { CoreEffectRequest, WorkspaceSlotLoadRecord } from "../src/shared/generated";
 import { isCoreEffectEventContinuation } from "../src/electron/main/coreEffectContinuation";
@@ -102,6 +103,32 @@ for (const platform of ["macos", "windows"] as const) describe(`workspace slot l
     expect(subject.hosts[0]!.applyWorkspaceSlotLoads).toHaveBeenLastCalledWith(specification.tabId, []);
   });
 
+  it("closes a mixed workspace after the failed paired Web creation already retired", async () => {
+    const subject = harness(undefined, platform);
+    const specification = mixedTab();
+    await createTab(subject, specification);
+    subject.createWebSurface.mockRejectedValue({ code: "ELECTRON_WORKSPACE_WEB_CHROME_FILE_NOT_FOUND", message: "Missing local chrome" });
+    subject.closeWebSurface.mockResolvedValue(false);
+    subject.webSurfaces.wasRetired = (id, generation) => id === "web-surface-1" && generation === 1;
+    const run = await subject.executor.execute(effect(specification.tabId, plan()));
+    if (!isCoreEffectEventContinuation(run)) throw new Error("missing event continuation");
+    await run.completion;
+    expect(subject.reportSlotLoad.mock.calls).toContainEqual([expect.objectContaining({
+      surfaceId: "web-surface-1", phase: "failed", retryable: true
+    })]);
+    expect(runtimeOperationEvidence().entries).toContainEqual(expect.objectContaining({
+      action: "workspace-slot-load", stage: "failed", targetId: "web-surface-1",
+      errorCode: "ELECTRON_WORKSPACE_WEB_CHROME_FILE_NOT_FOUND"
+    }));
+    const close = await subject.executor.execute(effect(specification.tabId, {
+      type: "embeddedDestroyTab", tabId: specification.tabId,
+      attemptGeneration: specification.attemptGeneration
+    }));
+    if (isCoreEffectEventContinuation(close)) await close.completion;
+    expect(subject.executor.snapshot()).toMatchObject({ tabs: [], roles: [], webSurfaces: [], windows: [] });
+    expect(subject.closeWebSurface).toHaveBeenCalledOnce();
+  });
+
   it("keeps the healthy Web surface and retries only a failed Role after confirmed cleanup", async () => {
     const subject = harness(async () => { throw new Error("classified initial load failure"); }, platform);
     const specification = mixedTab();
@@ -111,6 +138,11 @@ for (const platform of ["macos", "windows"] as const) describe(`workspace slot l
     await run.completion;
     const failureCall = subject.reportSlotLoad.mock.calls.find(([record]) => record.phase === "failed")!;
     expect(failureCall[0]).toMatchObject({ surfaceId: "role-1", retryable: true });
+    expect(runtimeOperationEvidence().entries).toContainEqual(expect.objectContaining({
+      action: "workspace-slot-load", targetKind: "role", targetId: "role-1", stage: "failed",
+      errorCode: "WORKSPACE_SLOT_LOAD_FAILED",
+      fences: expect.objectContaining({ tabId: specification.tabId, slotId: failureCall[0].slotId, retryable: 1 })
+    }));
     expect(subject.closeWebSurface).not.toHaveBeenCalled();
     subject.createSurface.mockImplementation(async (input) => ({
       roleId: input.roleId, generation: input.generation, parentId: input.parent.id, url: input.url

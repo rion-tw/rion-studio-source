@@ -1351,13 +1351,15 @@ export class ChromiumRuntimeEffectExecutor {
     }
     const [roleCloses, webCloses] = await Promise.all([
       Promise.allSettled(ownedRoles.map((role) =>
-        this.#retireInputAndCloseRole(role)
+        this.#retireInputAndCloseRole(role).then(closed =>
+          closed || this.#input.surfaces.wasRetired?.(role.roleId, role.generation) === true)
       )),
       Promise.allSettled(ownedWebSurfaces.map((surface) =>
         this.#input.webSurfaces.closeSurface(
           surface.surfaceId,
           surface.generation
-        )
+        ).then(closed => closed || this.#input.webSurfaces.wasRetired?.(
+          surface.surfaceId, surface.generation) === true)
       ))
     ]);
     for (const [index, result] of roleCloses.entries()) {

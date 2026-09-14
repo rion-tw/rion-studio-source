@@ -31,6 +31,22 @@ const registration = {
 };
 
 describe("Electron runtime diagnostics collector", () => {
+  it("distinguishes unavailable legacy fields from the exact projection failure", async () => {
+    const failure = { code: "ELECTRON_RUNTIME_PROJECTION_NOT_READY", message: "Core and Electron disagree on the tab identity set." };
+    const collector = new ElectronRuntimeDiagnosticsCollector({
+      readCoreSnapshot: async () => ({}) as never,
+      readNativeSnapshot: () => ({ windows: [], tabs: [], roles: [], webSurfaces: [] }),
+      applicationLifecycle: () => ({ phase: "running" }) as never,
+      registration: () => registration,
+      projectCoherentSnapshot: () => { throw failure; }
+    });
+    const result = await collector.capture();
+    const evidence = JSON.parse(result.runtimeEvidenceRawJson!);
+    expect(evidence.collection.projectionFailure).toEqual(failure);
+    expect(evidence.collection.unavailableLegacyFields).not.toContain(failure.code);
+    expect(result.collectionErrorCodes).toContain(failure.code);
+  });
+
   it("exports cached Core evidence without awaiting a stalled live read", async () => {
     const live = vi.fn(() => new Promise<never>(() => undefined));
     const cached = { capturedAt: "2026-09-14T10:00:00Z", snapshot: {

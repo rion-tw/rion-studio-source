@@ -33,6 +33,7 @@ import { FakeChromiumRuntimeEffectHost as FakeHost } from
   "./electronChromiumRuntimeEffectHostFixture";
 
 export interface Harness {
+  readonly webSurfaces: ChromiumRuntimeGlobalWebSurfacePort;
   readonly surfaces: ChromiumRuntimeSurfacePort;
   readonly resolveRoleBounds: Mock<(specification: EmbeddedTabEffectRecord) => Promise<ReturnType<typeof roleBounds>>>;
   readonly reportSlotLoad: ReturnType<typeof vi.fn>;
@@ -358,6 +359,7 @@ export function harness(
     webSurfaces
   });
   return {
+    webSurfaces,
     surfaces,
     resolveRoleBounds,
     reportSlotLoad,

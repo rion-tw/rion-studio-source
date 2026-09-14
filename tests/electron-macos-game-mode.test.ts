@@ -166,7 +166,7 @@ describe("Electron development launcher", () => {
       scripts?: Record<string, string>;
     };
     expect(packageJson.scripts?.["dev:electron"]).toBe(
-      "pnpm run build:electron:rust && node scripts/runElectronDev.mjs"
+      "pnpm run build:electron:rust && pnpm run build:renderer && node scripts/runElectronDev.mjs"
     );
   });
 

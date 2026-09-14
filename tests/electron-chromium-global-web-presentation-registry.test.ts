@@ -362,6 +362,25 @@ describe("Chromium paired Workspace Web presentation", () => {
     await subject.subject.dispose();
     updateWorkspaceWebTheme("light");
   });
+  it.each(["darwin", "win32"] as const)("retains exact retirement and classifies a missing local chrome document on %s", async platform => {
+    const fixture = harness(null, platform);
+    const creation = fixture.subject.create(fixture.input);
+    const outcome = creation.catch(error => error);
+    await vi.waitFor(() => expect(fixture.views).toHaveLength(2));
+    const shell = fixture.views[0]!.webContents;
+    const content = fixture.views[1]!.webContents;
+    content.close.mockImplementation(() => content.destroy());
+    shell.emit("did-fail-load", {}, -6, "ERR_FILE_NOT_FOUND", shell.loadedUrls[0]!, true, 1, 1);
+    await vi.waitFor(() => expect(shell.close).toHaveBeenCalledOnce());
+    expect(fixture.subject.wasRetired(fixture.input.surfaceId, 1)).toBe(false);
+    shell.destroy();
+    expect(await outcome).toMatchObject({ code: "ELECTRON_WORKSPACE_WEB_CHROME_FILE_NOT_FOUND" });
+    expect(fixture.subject.wasRetired(fixture.input.surfaceId, 1)).toBe(true);
+    expect(fixture.parent.children).toEqual([]);
+    expect(await fixture.subject.closeSurface(fixture.input.surfaceId, 1)).toBe(false);
+    await fixture.subject.dispose();
+  });
+
   it.each(["darwin", "win32"] as const)("terminalizes a rejected shell navigation without a load event on %s", async platform => {
     const subject = harness(null, platform);
     const failure = new Error("ERR_ABORTED: local shell navigation cancelled");
@@ -381,6 +400,9 @@ describe("Chromium paired Workspace Web presentation", () => {
       await vi.waitFor(() => expect(shell.close).toHaveBeenCalledOnce());
       expect(await outcome).toBe(failure);
       expect(subject.subject.activeCount).toBe(0);
+      expect(subject.subject.wasRetired(subject.input.surfaceId, 1)).toBe(true);
+      expect(subject.subject.wasRetired(subject.input.surfaceId, 2)).toBe(false);
+      expect(subject.subject.wasRetired("never-created", 1)).toBe(false);
       expect(subject.parent.children).toEqual([]);
       await subject.subject.dispose();
     } finally {

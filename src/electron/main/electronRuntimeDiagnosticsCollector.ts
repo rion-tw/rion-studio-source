@@ -111,15 +111,22 @@ export class ElectronRuntimeDiagnosticsCollector {
     }
     try { applicationLifecycle = this.#input.applicationLifecycle(); }
     catch (error) { collectionErrorCodes.push(normalizeRionBridgeError(error, "ELECTRON_RUNTIME_LIFECYCLE_UNAVAILABLE").code); }
+    let projectionFailure: { code: string; message: string } | undefined;
     if (core && native) {
       try { this.#input.projectCoherentSnapshot(core, native, capturedAt); }
-      catch (error) { collectionErrorCodes.push(normalizeRionBridgeError(error, "ELECTRON_RUNTIME_PROJECTION_UNAVAILABLE").code); }
+      catch (error) {
+        projectionFailure = normalizeRionBridgeError(error, "ELECTRON_RUNTIME_PROJECTION_UNAVAILABLE");
+        collectionErrorCodes.push(projectionFailure.code);
+      }
     }
     let registration = this.#registration;
     try { registration = this.#input.registration(); }
     catch { collectionErrorCodes.push("ELECTRON_RUNTIME_REGISTRATION_CACHED"); }
     const evidence = {
-      capturedAt, core: core ? { capturedAt: coreCapturedAt,
+      capturedAt,
+      collection: { unavailableLegacyFields: [...INCOMPLETE_COLLECTION_CODES],
+        ...(projectionFailure ? { projectionFailure } : {}) },
+      core: core ? { capturedAt: coreCapturedAt,
         source: this.#input.readCachedCoreSnapshot ? "cached" : "live",
         revision: core.revision, runtimeRevision: core.runtimeRevision,
         browserRuntime: core.browserRuntime ? { windows: core.browserRuntime.windows,

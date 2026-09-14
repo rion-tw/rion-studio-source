@@ -260,6 +260,11 @@ export class ChromiumGlobalWebPresentationRegistry {
     );
   }
 
+  wasRetired(surfaceId: string, generation: number): boolean {
+    // Content retirement alone cannot prove that the paired local chrome detached.
+    return !this.#records.has(surfaceId) && this.#content.wasRetired(surfaceId, generation);
+  }
+
   get activeCount(): number {
     return this.#records.size;
   }
@@ -664,11 +669,11 @@ export class ChromiumGlobalWebPresentationRegistry {
         record.loadSettled = true;
         record.loaded.resolve();
       },
-      didFailLoad: (_event, _code, _description, _url, isMainFrame) => {
+      didFailLoad: (_event, code, _description, _url, isMainFrame) => {
         if (!isMainFrame || record.loadSettled) return;
         record.loadSettled = true;
         record.loaded.reject(presentationError(
-          "ELECTRON_WORKSPACE_WEB_CHROME_LOAD_FAILED",
+          code === -6 ? "ELECTRON_WORKSPACE_WEB_CHROME_FILE_NOT_FOUND" : "ELECTRON_WORKSPACE_WEB_CHROME_LOAD_FAILED",
           "The Rion-owned local Web chrome document did not load."
         ));
       },

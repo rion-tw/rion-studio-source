@@ -1,7 +1,10 @@
+import type { CompatibleModifierEvidenceRecord } from "../../shared/generated";
+
 interface CompatibleKeyDescriptor {
   readonly type: "rawKeyDown" | "keyUp";
   readonly code: string;
   readonly key: string;
+  readonly shiftedKey?: string;
   readonly modifiers: number;
   readonly location: 0 | 1 | 2;
   readonly windowsVirtualKeyCode: number;
@@ -22,6 +25,11 @@ export interface ChromiumCompatibleInputCommand {
   readonly intent: "normal" | "cleanup";
   readonly action: "focus" | "key" | "click";
   readonly key?: CompatibleKeyDescriptor;
+  readonly modifierState?: Readonly<{
+    coreCodesBefore: readonly string[];
+    coreCodesAfter: readonly string[];
+    nativePhysicalCodes: readonly string[];
+  }>;
   readonly pointer?: Readonly<{
     clientX: number; clientY: number; button: 0 | 1 | 2;
     modifiers: number; releaseOnly: boolean;
@@ -42,6 +50,7 @@ export interface ChromiumCompatibleInputReceipt {
   readonly eventCount: number;
   readonly status: "applied" | "failed" | "indeterminate";
   readonly errorCode: string | null;
+  readonly modifierEvidence?: CompatibleModifierEvidenceRecord;
 }
 
 export function compatibleInputSource(command: ChromiumCompatibleInputCommand): string {

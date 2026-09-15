@@ -172,7 +172,7 @@ their top edge. Pointer end/cancel, tab changes, host teardown, stream failure,
 and supersede retire the presentation. Exact gesture and paint revisions prevent
 late events from reviving it. These changes do not alter portable or SQLite schemas.
 
-The active runtime contract is version 41. Version 23 remains the first
+The active runtime contract is version 43. Version 23 remains the first
 Chromium data/effect compatibility boundary; v22/v23 stored data, migration phase
 names and updater runtime-family labels are not rewritten by the policy update.
 Version 25 adds the production-publisher CRX3 verification requirement for new
@@ -218,6 +218,12 @@ cleanup action, and lets an already-running Macro's managed shortcut stop it
 before replacement input is attempted. It also retains bounded abnormal-input
 timelines and proof-drift field names in diagnostics. Version 35 does not change
 SQLite, portable data, or the public bridge shape.
+Version 42 supersedes v34's modifier isolation. Both fixed-target Canvas output
+and trusted CDP keyboard output, including held-key reassertions, inherit the
+current physical modifier snapshot in addition to Core-owned modifiers. Expected
+trusted receipts use the same flags as submission. Physical provenance
+reconciliation, cleanup, Core ownership and document/host fences remain intact;
+SQLite, portable data and public bridge shapes are unchanged.
 Workspace Website `lastUrl` updates remain live RuntimeKernel metadata but do
 not advance the window topology revision, so ordinary browsing cannot stale the
 exact parent fence used by a later controlled popup.
@@ -1074,3 +1080,11 @@ key ownership, scheduling, cleanup and terminality. There is no automatic
 transport switch, original-action retry, data migration, or verification solver.
 See [Trusted Input Receipts](contracts/system-runtime/trusted-input-receipts.md)
 for the distinct compatible receipt guarantee.
+
+## Chromium v43 compatible modifier overlap
+
+Canvas-compatible macro effects now share exact-side physical/Core modifier
+ownership handling, including zero-event adoption and ownership-release receipts.
+See [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md) for v43 ordering and bounded diagnostic evidence.
+The v42 physical modifier inheritance and existing second-press stop behavior
+remain in effect.

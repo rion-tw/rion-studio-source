@@ -708,6 +708,9 @@ pub struct TrustedInputSequenceFailureRecord {
 pub struct TrustedInputTerminalEvidenceRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub compatible_modifier_evidence: Option<CompatibleModifierEvidenceRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub parent_request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

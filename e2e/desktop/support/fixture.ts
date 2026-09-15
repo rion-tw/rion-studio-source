@@ -16,6 +16,7 @@ export interface FixtureEvent {
   };
   code?: string;
   contentType?: string;
+  consumerPressedCodes?: string[];
   contract?: string;
   coordinates?: { x: number; y: number };
   defaultPrevented?: boolean;

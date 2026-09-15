@@ -169,6 +169,33 @@ fn sanitize_error(error: LogErrorDetails, user_data_dir: &Path, depth: usize) ->
 }
 
 fn sanitize_value(value: Value, user_data_dir: &Path, depth: usize) -> Value {
+    sanitize_value_with_array_limit(value, user_data_dir, depth, MAX_KEYS)
+}
+
+fn sanitize_compatible_modifier_evidence(value: &Value, user_data_dir: &Path) -> Option<Value> {
+    // Admit only the generated, closed diagnostic shape. Generic log contexts
+    // retain their existing depth/key bounds and all text still gets redacted.
+    let mut evidence: crate::model::CompatibleModifierEvidenceRecord =
+        serde_json::from_value(value.clone()).ok()?;
+    let excess = evidence.transitions.len().saturating_sub(64);
+    evidence.transitions.drain(..excess);
+    evidence.dropped_transition_count = evidence
+        .dropped_transition_count
+        .saturating_add(excess as u64);
+    Some(sanitize_value_with_array_limit(
+        serde_json::to_value(evidence).ok()?,
+        user_data_dir,
+        0,
+        64,
+    ))
+}
+
+fn sanitize_value_with_array_limit(
+    value: Value,
+    user_data_dir: &Path,
+    depth: usize,
+    array_limit: usize,
+) -> Value {
     if depth >= MAX_DEPTH {
         return Value::String("<MAX_DEPTH>".to_owned());
     }
@@ -177,8 +204,10 @@ fn sanitize_value(value: Value, user_data_dir: &Path, depth: usize) -> Value {
         Value::Array(values) => Value::Array(
             values
                 .into_iter()
-                .take(MAX_KEYS)
-                .map(|value| sanitize_value(value, user_data_dir, depth + 1))
+                .take(array_limit)
+                .map(|value| {
+                    sanitize_value_with_array_limit(value, user_data_dir, depth + 1, array_limit)
+                })
                 .collect(),
         ),
         Value::Object(values) => Value::Object(
@@ -188,8 +217,16 @@ fn sanitize_value(value: Value, user_data_dir: &Path, depth: usize) -> Value {
                 .map(|(key, value)| {
                     let value = if SENSITIVE_KEY.is_match(&key) {
                         Value::String("<REDACTED>".to_owned())
+                    } else if depth == 0 && key == "compatibleModifierEvidence" {
+                        sanitize_compatible_modifier_evidence(&value, user_data_dir)
+                            .unwrap_or_else(|| sanitize_value(value, user_data_dir, depth + 1))
                     } else {
-                        sanitize_value(value, user_data_dir, depth + 1)
+                        sanitize_value_with_array_limit(
+                            value,
+                            user_data_dir,
+                            depth + 1,
+                            array_limit,
+                        )
                     };
                     (key, value)
                 })
@@ -309,6 +346,40 @@ mod tests {
                 "<USER_DATA>/logs"
             );
         };
+    }
+
+    #[test]
+    fn preserves_bounded_compatible_modifier_evidence_without_relaxing_generic_redaction() {
+        let transitions = (1..=65)
+            .map(|sequence| {
+                serde_json::json!({
+                    "sequence": sequence, "source": "compatible", "code": "AltLeft",
+                    "phase": "rawKeyDown", "disposition": "dispatch", "physicalCodes": ["AltLeft"],
+                    "coreCodes": ["AltLeft"], "eventModifierMask": 1
+                })
+            })
+            .collect::<Vec<_>>();
+        let context = serde_json::json!({
+            "password": "private",
+            "generic": {"a": {"b": {"c": {"d": {"password": "private"}}}}},
+            "compatibleModifierEvidence": {
+                "coreCodesBefore": [], "coreCodesAfter": ["AltLeft"],
+                "nativePhysicalCodes": ["AltLeft"], "physicalCodesBefore": ["AltLeft"],
+                "physicalCodesAfter": ["AltLeft"], "eventModifierMask": 1,
+                "disposition": "dispatch", "transitions": transitions,
+                "droppedTransitionCount": 2, "password": "private"
+            }
+        });
+        let result = sanitize_value(context, Path::new("/app/data"), 0);
+        let evidence = &result["compatibleModifierEvidence"];
+        assert_eq!(evidence["transitions"].as_array().unwrap().len(), 64);
+        assert_eq!(evidence["transitions"][0]["sequence"], 2);
+        assert_eq!(evidence["transitions"][0]["coreCodes"][0], "AltLeft");
+        assert_eq!(evidence["transitions"][63]["physicalCodes"][0], "AltLeft");
+        assert_eq!(evidence["droppedTransitionCount"], 3);
+        assert!(evidence.get("password").is_none());
+        assert_eq!(result["password"], "<REDACTED>");
+        assert_eq!(result["generic"]["a"]["b"]["c"]["d"], "<MAX_DEPTH>");
     }
 
     #[test]

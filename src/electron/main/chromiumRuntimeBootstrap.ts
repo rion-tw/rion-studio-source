@@ -128,7 +128,7 @@ import { ChromiumRoleReloadCoordinator } from
 import { executeControlledRuntimeTabReload } from
   "./controlledRuntimeTabReload";
 
-export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 41;
+export const ELECTRON_CHROMIUM_RUNTIME_CONTRACT_VERSION = 43;
 const processCoreEffectReceiptLedger = createCoreEffectProcessReceiptLedger();
 
 export function withElectronChromiumRuntimeContract<Options extends object>(

@@ -18,6 +18,7 @@ function cloneTerminal(
 ): TrustedInputTerminalEvidenceRecord {
   return {
     ...record,
+    ...(record.compatibleModifierEvidence ? { compatibleModifierEvidence: structuredClone(record.compatibleModifierEvidence) } : {}),
     ...(record.sequenceFailure ? { sequenceFailure: structuredClone(record.sequenceFailure) } : {}),
     nativeProofChanges: [...record.nativeProofChanges],
     traceSteps: record.traceSteps.map(step => ({ ...step }))

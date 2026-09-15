@@ -1,5 +1,6 @@
 import { expect } from "@wdio/globals";
 import { Key } from "webdriverio";
+import { exerciseCompatibleAltShortcuts } from "./chromium-macro-compatible-alt";
 
 import type { Macro } from "../../../src/shared/types";
 import {
@@ -41,7 +42,6 @@ import {
   expectChromiumNativeRoleBinding,
   launchChromiumRoleVisible,
   macroFixtureUrl,
-  showChromiumMacroWindow,
   startChromiumMacroVisible,
   writeChromiumMacroEvidence
 } from "./chromium-macro-cutover-support";
@@ -149,47 +149,40 @@ async function exerciseRapidShiftShortcuts(input: Readonly<{
   const [firstKey, secondKey] = input.order === "Digit2ThenDigit3"
     ? ["2", "3"] as const
     : ["3", "2"] as const;
-  if (input.platform === "macos") {
-    const processId = (await electronDesktopE2eProbe()).processId;
-    await clickMacosVisibleRoleControl(
-      WINDOW_ID,
-      input.roleId,
-      await readVisibleElectronCanvasPoint(input.launchUrl, input.mainWindowHandle)
-    );
-    releaseNativeShift = () => pressVisibleMacosRoleKey({
-      code: "ShiftUp",
-      processId,
-      runtimeTabName: input.roleName,
-      runtimeWindowId: WINDOW_ID
-    });
-    await pressVisibleMacosRoleKey({
-      code: input.order === "Digit2ThenDigit3"
-        ? "Shift+Digit2ThenDigit3Hold"
-        : "Shift+Digit3ThenDigit2Hold",
-      processId,
-      runtimeTabName: input.roleName,
-      runtimeWindowId: WINDOW_ID
-    });
-  } else {
-    await submitElectronRoleKeySequenceWithPause(
-      input.launchUrl,
-      input.mainWindowHandle,
-      [
-        { key: Key.Shift, phase: "keyDown" },
-        { key: firstKey, phase: "keyDown" },
-        { key: secondKey, phase: "keyDown" }
-      ],
-      50,
-      [
-        { key: firstKey, phase: "keyUp" },
-        { key: secondKey, phase: "keyUp" },
-        { key: Key.Shift, phase: "keyUp" }
-      ],
-      { windowId: WINDOW_ID }
-    );
-  }
   let collisionEvents: readonly FixtureEvent[] = [];
   try {
+    if (input.platform === "macos") {
+      const processId = (await electronDesktopE2eProbe()).processId;
+      await clickMacosVisibleRoleControl(
+        WINDOW_ID,
+        input.roleId,
+        await readVisibleElectronCanvasPoint(input.launchUrl, input.mainWindowHandle)
+      );
+      releaseNativeShift = () => pressVisibleMacosRoleKey({
+        code: "ShiftUp",
+        processId,
+        runtimeTabName: input.roleName,
+        runtimeWindowId: WINDOW_ID
+      });
+      await pressVisibleMacosRoleKey({
+        code: input.order === "Digit2ThenDigit3"
+          ? "Shift+Digit2ThenDigit3Hold"
+          : "Shift+Digit3ThenDigit2Hold",
+        processId,
+        runtimeTabName: input.roleName,
+        runtimeWindowId: WINDOW_ID
+      });
+    } else {
+      const processId = (await electronDesktopE2eProbe()).processId;
+      await submitElectronRoleKeyPhases(input.launchUrl, input.mainWindowHandle, [], { windowId: WINDOW_ID });
+      releaseNativeShift = () => pressVisibleWindowsApplicationShortcut({
+        command: "shiftUp", processId, targetMode: "focused-runtime"
+      });
+      await pressVisibleWindowsApplicationShortcut({
+        command: input.order === "Digit2ThenDigit3" ? "shiftDigit2ThenDigit3Hold" : "shiftDigit3ThenDigit2Hold",
+        processId, targetMode: "focused-runtime"
+      });
+    }
     await browser.waitUntil(async () => {
       collisionEvents = await fixtureEvents({
         afterSequence: collisionFixture,
@@ -199,10 +192,10 @@ async function exerciseRapidShiftShortcuts(input: Readonly<{
         shift: boolean): boolean => collisionEvents.some((event) =>
         event.kind === kind && event.code === code && event.key === key &&
         event.isTrusted === false && event.modifiers?.shift === shift);
-      return exact("keydown", "Digit2", "2", false) &&
-        exact("keyup", "Digit2", "2", false) &&
-        exact("keydown", "Digit0", "0", false) &&
-        exact("keyup", "Digit0", "0", false) &&
+      return exact("keydown", "Digit2", "@", true) &&
+        exact("keyup", "Digit2", "@", true) &&
+        exact("keydown", "Digit0", ")", true) &&
+        exact("keyup", "Digit0", ")", true) &&
         exact("keydown", "Digit1", "!", true) &&
         exact("keyup", "Digit1", "!", true);
     }, {
@@ -225,8 +218,8 @@ async function exerciseRapidShiftShortcuts(input: Readonly<{
   }
   expect(collisionEvents.filter((event) =>
     (event.kind === "keydown" || event.kind === "keyup") &&
-    event.code === "Digit2" && event.key === "2" &&
-    event.modifiers?.shift === false
+    event.code === "Digit0" && event.key === ")" &&
+    event.modifiers?.shift === true
   ).map((event) => event.kind)).toEqual(["keydown", "keyup"]);
   await waitForMacroProjection({
     absent: true,
@@ -416,7 +409,6 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
   const macros = await createKeyboardMacros(roleA.id);
   const middleHeld = await createMiddleHeldMacro(roleB.id);
   const window = await createChromiumMacroWindow(WINDOW_ID, "Chromium Macro Keyboard");
-  await showChromiumMacroWindow(window);
   const tabA = await launchChromiumRoleVisible(roleA, ROLE_A_FIXTURE, window);
   const tabB = await launchChromiumRoleVisible(roleB, ROLE_B_FIXTURE, window);
   await activateChromiumRoleVisible(context, tabA);
@@ -518,6 +510,11 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
     roleName: roleA.name
   });
 
+  await exerciseCompatibleAltShortcuts({
+    launchUrl: roleA.launchUrl!, mainWindowHandle: context.mainWindowHandle,
+    platform: context.platform, roleId: roleA.id, roleName: roleA.name,
+    fixtureRoleId: ROLE_A_FIXTURE, windowId: WINDOW_ID
+  });
   const popupFenceFixture = await fixtureCursor();
   const trustedInputBeforePopup = await electronDesktopE2eTrustedInputRuntime(roleA.id);
   const trustedSurfaceGeneration = trustedInputBeforePopup.at(-1)?.receipt.surfaceGeneration;
@@ -639,75 +636,83 @@ export async function runChromiumMacroKeyboardCutover(): Promise<void> {
 
   const continuityFixture = await fixtureCursor();
   const continuityProjection = await rendererEventCursor();
-  await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
-    { key: Key.Shift, phase: "keyDown" },
-    { key: "5", phase: "keyDown" }
-  ], { windowId: WINDOW_ID });
-  await waitForMacroProjection({
-    afterSequence: continuityProjection,
-    macroId: macros.continuity.id,
-    roleIds: [roleA.id],
-    state: "running"
-  });
-  const continuityOneDown = await waitExactKey({
-    afterSequence: continuityFixture,
-    code: "Digit1",
-    kind: "keydown",
-    roleId: ROLE_A_FIXTURE
-  });
-  exactCompatibleKey(continuityOneDown, "Digit1");
-  expect(continuityOneDown).toEqual(expect.objectContaining({
-    key: "1",
-    modifiers: { alt: false, control: false, meta: false, shift: false }
-  }));
-  const continuityOneUp = await waitExactKey({
-    afterSequence: continuityOneDown.sequence,
-    code: "Digit1",
-    kind: "keyup",
-    roleId: ROLE_A_FIXTURE
-  });
-  exactCompatibleKey(continuityOneUp, "Digit1");
-  expect(continuityOneUp).toEqual(expect.objectContaining({
-    key: "1",
-    modifiers: { alt: false, control: false, meta: false, shift: false }
-  }));
-  await activateChromiumRoleVisible(context, tabB);
-  await activateChromiumRoleVisible(context, tabA);
-  if (context.platform === "macos") {
-    await clickMacosVisibleRoleControl(
-      WINDOW_ID,
-      roleA.id,
-      await readVisibleElectronCanvasPoint(roleA.launchUrl!, context.mainWindowHandle)
-    );
-    await pressVisibleMacosRoleKey({
-      code: "Shift+Digit4",
-      processId: (await electronDesktopE2eProbe()).processId,
-      runtimeTabName: roleA.name,
-      runtimeWindowId: WINDOW_ID
+  const processId = (await electronDesktopE2eProbe()).processId;
+  const continuityKey = (release: boolean) => context.platform === "macos"
+    ? pressVisibleMacosRoleKey({
+      code: release ? "Shift+Digit5Release" : "Shift+Digit5Hold",
+      processId, runtimeTabName: roleA.name, runtimeWindowId: WINDOW_ID
+    })
+    : pressVisibleWindowsApplicationShortcut({
+      command: release ? "shiftDigit5Release" : "shiftDigit5Hold",
+      processId, targetMode: "focused-runtime"
     });
-    await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
-      { key: "5", phase: "keyUp" },
-      { key: Key.Shift, phase: "keyUp" }
-    ], { windowId: WINDOW_ID, focusCanvas: false });
+  if (context.platform === "macos") {
+    await clickMacosVisibleRoleControl(WINDOW_ID, roleA.id,
+      await readVisibleElectronCanvasPoint(roleA.launchUrl!, context.mainWindowHandle));
   } else {
-    await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [
-      { key: "4", phase: "keyDown" },
-      { key: "4", phase: "keyUp" },
-      { key: "5", phase: "keyUp" },
-      { key: Key.Shift, phase: "keyUp" }
-    ], { windowId: WINDOW_ID, focusCanvas: false });
+    await submitElectronRoleKeyPhases(roleA.launchUrl!, context.mainWindowHandle, [], { windowId: WINDOW_ID });
   }
-  const shiftedFour = await waitExactKey({
-    afterSequence: continuityFixture,
-    code: "Digit4",
-    kind: "keydown",
-    roleId: ROLE_A_FIXTURE
-  });
-  expect(shiftedFour).toEqual(expect.objectContaining({
-    isTrusted: true,
-    key: "$",
-    modifiers: { alt: false, control: false, meta: false, shift: true }
-  }));
+  try {
+    await continuityKey(false);
+    await waitForMacroProjection({
+      afterSequence: continuityProjection,
+      macroId: macros.continuity.id,
+      roleIds: [roleA.id],
+      state: "running"
+    });
+    const continuityOneDown = await waitExactKey({
+      afterSequence: continuityFixture,
+      code: "Digit1",
+      kind: "keydown",
+      roleId: ROLE_A_FIXTURE
+    });
+    exactCompatibleKey(continuityOneDown, "Digit1");
+    expect(continuityOneDown).toEqual(expect.objectContaining({
+      key: "!",
+      modifiers: { alt: false, control: false, meta: false, shift: true }
+    }));
+    const continuityOneUp = await waitExactKey({
+      afterSequence: continuityOneDown.sequence,
+      code: "Digit1",
+      kind: "keyup",
+      roleId: ROLE_A_FIXTURE
+    });
+    exactCompatibleKey(continuityOneUp, "Digit1");
+    expect(continuityOneUp).toEqual(expect.objectContaining({
+      key: "!",
+      modifiers: { alt: false, control: false, meta: false, shift: true }
+    }));
+    await activateChromiumRoleVisible(context, tabB);
+    await activateChromiumRoleVisible(context, tabA);
+    if (context.platform === "macos") {
+      await clickMacosVisibleRoleControl(
+        WINDOW_ID,
+        roleA.id,
+        await readVisibleElectronCanvasPoint(roleA.launchUrl!, context.mainWindowHandle)
+      );
+      await pressVisibleMacosRoleKey({
+        code: "Shift+Digit4",
+        processId: (await electronDesktopE2eProbe()).processId,
+        runtimeTabName: roleA.name,
+        runtimeWindowId: WINDOW_ID
+      });
+    } else {
+      await pressVisibleWindowsApplicationShortcut({ command: "shiftDigit4", processId, targetMode: "focused-runtime" });
+    }
+    const shiftedFour = await waitExactKey({
+      afterSequence: continuityFixture,
+      code: "Digit4",
+      kind: "keydown",
+      roleId: ROLE_A_FIXTURE
+    });
+    expect(shiftedFour).toEqual(expect.objectContaining({
+      isTrusted: true,
+      key: "$",
+      modifiers: { alt: false, control: false, meta: false, shift: true }
+    }));
+  } finally {
+    await continuityKey(true);
+  }
   await waitForMacroProjection({
     absent: true,
     afterSequence: continuityProjection,

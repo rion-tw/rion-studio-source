@@ -92,9 +92,16 @@ export async function cancelVisibleNativeDiagnosticsSaveDialog(input: Readonly<{
 }
 
 export type VisibleWindowsApplicationShortcut =
+  | "altDown" | "altUp" | "altDigit1" | "altDigit1Tap"
   | "nextTab"
   | "shiftDigit3"
+  | "shiftDigit4"
   | "shiftDigit3Twice"
+  | "shiftDigit5Hold"
+  | "shiftDigit5Release"
+  | "shiftDigit2ThenDigit3Hold"
+  | "shiftDigit3ThenDigit2Hold"
+  | "shiftUp"
   | "escape"
   | "quickAccess"
   | "newGameWindow"
@@ -120,10 +127,13 @@ export type VisibleMacosRoleKey =
   | "KeyY"
   | "Shift+Digit3"
   | "Shift+Digit4"
+  | "Shift+Digit5Hold"
+  | "Shift+Digit5Release"
   | "Shift+Digit3Twice"
   | "Shift+Digit2ThenDigit3Hold"
   | "Shift+Digit3ThenDigit2Hold"
-  | "ShiftUp";
+  | "ShiftUp"
+  | "AltDown" | "AltUp" | "Alt+Digit1" | "Alt+Digit1Tap";
 
 async function settleMacosAppKitRuntimeFocus(input: Readonly<{
   activate: boolean;
@@ -476,6 +486,40 @@ public static class RionNativeShortcutInput {
       Marshal.SizeOf(typeof(Input))
     ) == (uint)inputs.Length;
   }
+  public static bool SendShiftSequence(string command, ushort shift, ushort digit) {
+    Input[] inputs;
+    if (command == "shiftUp") inputs = new[] { ScanCodeInput(shift, true) };
+    else if (command == "shiftDigit5Hold")
+      inputs = new[] { ScanCodeInput(shift, false), ScanCodeInput(digit, false) };
+    else if (command == "shiftDigit5Release")
+      inputs = new[] { ScanCodeInput(digit, true), ScanCodeInput(shift, true) };
+    else {
+      ushort second = (ushort)MapVirtualKey(command == "shiftDigit2ThenDigit3Hold" ? 0x33u : 0x32u, 0);
+      if (second == 0) return false;
+      inputs = new[] { ScanCodeInput(shift, false), ScanCodeInput(digit, false),
+        ScanCodeInput(digit, true), ScanCodeInput(second, false), ScanCodeInput(second, true) };
+    }
+    foreach (Input input in inputs) {
+      if (SendInput(1, new[] { input }, Marshal.SizeOf(typeof(Input))) != 1) return false;
+      System.Threading.Thread.Sleep(20);
+    }
+    return true;
+  }
+  public static bool SendAltSequence(string command) {
+    ushort alt = (ushort)MapVirtualKey(0x12, 0);
+    ushort digit = (ushort)MapVirtualKey(0x31, 0);
+    if (alt == 0 || digit == 0) return false;
+    Input[] inputs = command == "altDown" ? new[] { ScanCodeInput(alt, false) }
+      : command == "altUp" ? new[] { ScanCodeInput(alt, true) }
+      : command == "altDigit1" ? new[] { ScanCodeInput(digit, false), ScanCodeInput(digit, true) }
+      : new[] { ScanCodeInput(alt, false), ScanCodeInput(digit, false),
+        ScanCodeInput(digit, true), ScanCodeInput(alt, true) };
+    foreach (Input input in inputs) {
+      if (SendInput(1, new[] { input }, Marshal.SizeOf(typeof(Input))) != 1) return false;
+      System.Threading.Thread.Sleep(20);
+    }
+    return true;
+  }
 }
 '@
 [Console]::Error.WriteLine('shortcut-stage: select-exact-window')
@@ -529,9 +573,16 @@ $SHIFT = [byte]0x10
 $modifier = $true
 $shiftModifier = $false
 switch ($command) {
+  { $_ -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap') } { $key = [byte]0x31; $modifier = $false }
   'nextTab' { $key = [byte]0x09 }
   'shiftDigit3' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
+  'shiftDigit4' { $key = [byte]0x34; $modifier = $false; $shiftModifier = $true }
   'shiftDigit3Twice' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
+  'shiftDigit5Hold' { $key = [byte]0x35; $modifier = $false; $shiftModifier = $true }
+  'shiftDigit5Release' { $key = [byte]0x35; $modifier = $false; $shiftModifier = $true }
+  'shiftDigit2ThenDigit3Hold' { $key = [byte]0x32; $modifier = $false; $shiftModifier = $true }
+  'shiftDigit3ThenDigit2Hold' { $key = [byte]0x33; $modifier = $false; $shiftModifier = $true }
+  'shiftUp' { $key = $SHIFT; $modifier = $false; $shiftModifier = $true }
   'escape' { $key = [byte]0x1B; $modifier = $false }
   'newGameWindow' { $key = [byte]0x4E }
   'quickAccess' { $key = [byte]0x4B }
@@ -552,8 +603,12 @@ if ($shiftModifier) { $scanCodes.Add($shiftScan) }
 $scanCodes.Add($keyScan)
 [Console]::WriteLine([RionNativeShortcutInput]::FocusEvidence($foregroundWindow))
 [Console]::Error.WriteLine('shortcut-stage: submit-native-chord')
-$submitted = if ($command -eq 'shiftDigit3Twice') {
+$submitted = if ($command -in @('altDown', 'altUp', 'altDigit1', 'altDigit1Tap')) {
+  [RionNativeShortcutInput]::SendAltSequence($command)
+} elseif ($command -eq 'shiftDigit3Twice') {
   [RionNativeShortcutInput]::SendRepeatedShiftChord($shiftScan, $keyScan)
+} elseif ($command -in @('shiftDigit5Hold', 'shiftDigit5Release', 'shiftDigit2ThenDigit3Hold', 'shiftDigit3ThenDigit2Hold', 'shiftUp')) {
+  [RionNativeShortcutInput]::SendShiftSequence($command, $shiftScan, $keyScan)
 } else { [RionNativeShortcutInput]::SendScanChord($scanCodes.ToArray()) }
 if (-not $submitted) {
   throw 'Windows shortcut scan-code chord injection failed'

@@ -126,9 +126,15 @@ if mode == "shortcut" || mode == "roleKey" {
   let key: CGKeyCode
   let flags: CGEventFlags
   switch command {
+  case "AltDown" where mode == "roleKey": key = 58; flags = [.maskAlternate]
+  case "AltUp" where mode == "roleKey": key = 58; flags = []
+  case "Alt+Digit1" where mode == "roleKey": key = 18; flags = [.maskAlternate]
+  case "Alt+Digit1Tap" where mode == "roleKey": key = 18; flags = [.maskAlternate]
   case "KeyY" where mode == "roleKey": key = 16; flags = []
   case "Shift+Digit3" where mode == "roleKey": key = 20; flags = [.maskShift]
   case "Shift+Digit4" where mode == "roleKey": key = 21; flags = [.maskShift]
+  case "Shift+Digit5Hold" where mode == "roleKey": key = 23; flags = [.maskShift]
+  case "Shift+Digit5Release" where mode == "roleKey": key = 23; flags = [.maskShift]
   case "Shift+Digit3Twice" where mode == "roleKey": key = 20; flags = [.maskShift]
   case "Shift+Digit2ThenDigit3Hold" where mode == "roleKey": key = 19; flags = [.maskShift]
   case "Shift+Digit3ThenDigit2Hold" where mode == "roleKey": key = 20; flags = [.maskShift]
@@ -150,7 +156,22 @@ if mode == "shortcut" || mode == "roleKey" {
   }
   down.flags = flags
   up.flags = flags
-  if command == "Shift+Digit3Twice" {
+  if command == "AltDown" {
+    down.post(tap: .cghidEventTap)
+  } else if command == "AltUp" {
+    up.post(tap: .cghidEventTap)
+  } else if command == "Alt+Digit1" || command == "Alt+Digit1Tap" {
+    guard let altDown = CGEvent(keyboardEventSource: source, virtualKey: 58, keyDown: true),
+          let altUp = CGEvent(keyboardEventSource: source, virtualKey: 58, keyDown: false)
+      else { fail("native Alt shortcut events unavailable") }
+    altDown.flags = [.maskAlternate]
+    altUp.flags = []
+    let events = command == "Alt+Digit1Tap" ? [altDown, down, up, altUp] : [down, up]
+    for event in events {
+      event.post(tap: .cghidEventTap)
+      usleep(20_000)
+    }
+  } else if command == "Shift+Digit3Twice" {
     guard let shiftDown = CGEvent(
       keyboardEventSource: source, virtualKey: 56, keyDown: true
     ), let shiftUp = CGEvent(
@@ -181,6 +202,15 @@ if mode == "shortcut" || mode == "roleKey" {
     secondDown.flags = [.maskShift]
     secondUp.flags = [.maskShift]
     for event in [shiftDown, down, up, secondDown, secondUp] {
+      event.post(tap: .cghidEventTap)
+      usleep(20_000)
+    }
+  } else if command == "Shift+Digit5Hold" || command == "Shift+Digit5Release" {
+    let releasing = command == "Shift+Digit5Release"
+    guard let shift = CGEvent(keyboardEventSource: source, virtualKey: 56, keyDown: !releasing)
+      else { fail("native held Shift shortcut unavailable") }
+    shift.flags = releasing ? [] : [.maskShift]
+    for event in releasing ? [up, shift] : [shift, down] {
       event.post(tap: .cghidEventTap)
       usleep(20_000)
     }

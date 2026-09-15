@@ -17,13 +17,13 @@ managed Role `WebContents`, restricted to `Input.dispatchKeyEvent` and
 for that document. The runtime does not reconnect, switch transports, or infer
 success from elapsed time.
 
-Every automatic-input arm and its CDP submission use the same modifier
-projection. Synthetic macro keyboard effects and held-key reassertions include
-only Core-owned active modifier codes; live physical Shift, Control, Alt, or
-Meta state cannot change their DOM flags or `key` value. Managed
-`physical-pass-through` replacement keys and macro clicks retain the physical
-modifier snapshot. Direct player input remains outside this projection and is
-unchanged.
+Under Chromium contract v42, every automatic-input arm and its CDP submission
+merge the same live physical modifier snapshot with Core-owned active modifiers.
+This includes synthetic macro keyboard effects and held-key reassertions: a
+physically held Shift can change an otherwise unmodified Digit1 to `!`.
+Managed `physical-pass-through` replacement keys and macro clicks also retain
+physical flags. This supersedes v34's modifier isolation without changing
+Core ownership, physical provenance reconciliation, or direct player input.
 
 After every Core key effect, the arm also names each exact physical modifier
 side that is still down but absent from the effect's resulting active-code set.
@@ -202,3 +202,11 @@ compensation. The existing Core recovery ticket issues a new release-only reques
 with its own deadline after the original lane returns. Diagnostics retain the
 parent request, applied prefix, compensation and rollback outcomes. Neither a
 DOM capture nor a Core rollback alone proves the game consumer is neutral.
+
+## Chromium v43 compatible modifier overlap
+
+Canvas-compatible macro effects now share exact-side physical/Core modifier
+ownership handling, including zero-event adoption and ownership-release receipts.
+See [Compatible Macro Input](compatible-macro-input.md) for v43 ordering and bounded diagnostic evidence.
+The v42 physical modifier inheritance and existing second-press stop behavior
+remain in effect.

@@ -2,7 +2,7 @@
 
 Contract version 22 preserves the shared compatibility semantics documented in
 the linked parts. The active Electron registration uses Chromium contract
-version 41; Core retains version 22 only for consumed legacy data and fixtures.
+version 43; Core retains version 22 only for consumed legacy data and fixtures.
 
 The System Runtime contract retains Rust-owned semantics across the migration
 from v22 WebView2/WKWebView to v23 Chromium. Electron is now the sole repository
@@ -41,3 +41,11 @@ popup/security policy, or ordering guarantee requires a contract-version bump
 and matching macOS and Windows behavior tests. Additive fields remain compatible
 within version 22 only when the generated Rust/TypeScript contracts and all
 consumers remain aligned.
+
+## Chromium v43 compatible modifier overlap
+
+Canvas-compatible macro effects now share exact-side physical/Core modifier
+ownership handling, including zero-event adoption and ownership-release receipts.
+See [Compatible Macro Input](contracts/system-runtime/compatible-macro-input.md) for v43 ordering and bounded diagnostic evidence.
+The v42 physical modifier inheritance and existing second-press stop behavior
+remain in effect.

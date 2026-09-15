@@ -23,12 +23,101 @@ describe.each(["darwin", "win32"] as const)("%s compatible game input", platform
       generation: 1, frameToken: "document-token", documentInstanceId: "document-id",
       sequence: ++sequence, deadlineMs: Date.now() + 60_000, intent: "normal", action: "focus", ...fields
     });
-    const key = (code: string, phase: "rawKeyDown" | "keyUp", activeCodes: string[]) => dispatch({
-      action: "key", key: chromiumCdpKeyDescriptor({ code, phase, activeCodesBefore: [], activeCodes,
-        autoRepeat: false, suppressShortcut: true }, platform)
-    });
+    let coreCodes: string[] = [];
+    const key = (code: string, phase: "rawKeyDown" | "keyUp", activeCodes: string[]) => {
+      const physical = controller.physicalModifierCodes();
+      const after = activeCodes.filter(code => /^(Alt|Shift|Control|Meta)(Left|Right)$/.test(code));
+      const result = dispatch({
+        modifierState: { coreCodesBefore: coreCodes, coreCodesAfter: after, nativePhysicalCodes: physical },
+        action: "key", key: chromiumCdpKeyDescriptor({ code, phase, activeCodesBefore: coreCodes,
+          activeCodes: [...new Set([...activeCodes, ...physical])], autoRepeat: false, suppressShortcut: true }, platform)
+      });
+      if (result.status === "applied") coreCodes = after;
+      return result;
+    };
     expect(dispatch({}).status).toBe("applied");
-    return { canvas, dispatch, key, binding };
+    return { canvas, dispatch, key, binding, controller };
+  }
+
+  for (const modifier of ["Alt", "Shift", "Control", "Meta"]) {
+    for (const side of ["Left", "Right"]) {
+      const code = `${modifier}${side}`;
+      const flag = `${modifier === "Control" ? "ctrl" : modifier.toLowerCase()}Key`;
+      it(`retains physical ${code} across 100 compatible macro cycles`, () => {
+        const { canvas, key, controller } = setup();
+        const held = new Set<string>();
+        const edges: string[] = [];
+        canvas.addEventListener("keydown", event => { held.add(event.code); edges.push(`down:${event.code}`); });
+        canvas.addEventListener("keyup", event => { held.delete(event.code); edges.push(`up:${event.code}`); });
+        canvas.dispatchEvent(new KeyboardEvent("keydown", { code, key: modifier, [flag]: true, bubbles: true }));
+        for (let cycle = 0; cycle < 100; cycle++) {
+          expect(key("Digit1", "rawKeyDown", ["Digit1"]).status).toBe("applied");
+          expect(held.has(code)).toBe(true);
+          key("Digit1", "keyUp", []);
+          expect(key(code, "rawKeyDown", [code])).toMatchObject({ status: "applied", eventCount: 0 });
+          key("Digit3", "rawKeyDown", [code, "Digit3"]);
+          expect(held.has(code)).toBe(true);
+          key("Digit3", "keyUp", [code]);
+          expect(key(code, "keyUp", [])).toMatchObject({ status: "applied", eventCount: 0 });
+          expect(held.has(code)).toBe(true);
+        }
+        expect(controller.physicalModifierCodes()).toEqual([code]);
+        expect(edges.filter(edge => edge.endsWith(`:${code}`))).toEqual([`down:${code}`]);
+        canvas.dispatchEvent(new KeyboardEvent("keyup", { code, key: modifier, bubbles: true }));
+        expect([...held]).toEqual([]);
+      });
+
+      it.each(["before", "between", "after-main", "after-cleanup"])(
+        `preserves ${code} ownership when physical release occurs %s`, releaseAt => {
+          const { canvas, key } = setup();
+          const held = new Set<string>();
+          const mainStates: boolean[] = [];
+          const flags: boolean[] = [];
+          canvas.addEventListener("keydown", event => {
+            held.add(event.code);
+            if (event.code === "Digit3") {
+              mainStates.push(held.has(code));
+              flags.push(Boolean(event[flag as keyof KeyboardEvent]));
+            }
+          });
+          canvas.addEventListener("keyup", event => {
+            held.delete(event.code);
+            if (event.code === "Digit3") {
+              mainStates.push(held.has(code));
+              flags.push(Boolean(event[flag as keyof KeyboardEvent]));
+            }
+          });
+          const release = () => canvas.dispatchEvent(new KeyboardEvent("keyup", { code, key: modifier, bubbles: true }));
+          canvas.dispatchEvent(new KeyboardEvent("keydown", { code, key: modifier, [flag]: true, bubbles: true }));
+          if (releaseAt === "before") release();
+          key(code, "rawKeyDown", [code]);
+          if (releaseAt === "between") release();
+          key("Digit3", "rawKeyDown", [code, "Digit3"]);
+          if (releaseAt === "after-main") { release(); expect(held.has(code)).toBe(true); }
+          key("Digit3", "keyUp", [code]);
+          key(code, "keyUp", []);
+          if (releaseAt === "after-cleanup") release();
+          expect(mainStates).toEqual([true, true]);
+          expect(flags).toEqual([true, true]);
+          expect([...held]).toEqual([]);
+        }
+      );
+
+      it(`hands ${code} from Core to physical ownership with one final release`, () => {
+        const { canvas, key } = setup();
+        const edges: string[] = [];
+        for (const type of ["keydown", "keyup"]) {
+          canvas.addEventListener(type, event => edges.push(`${type}:${(event as KeyboardEvent).code}`));
+        }
+        key(code, "rawKeyDown", [code]);
+        canvas.dispatchEvent(new KeyboardEvent("keydown", { code, key: modifier, [flag]: true, bubbles: true }));
+        expect(key(code, "keyUp", [])).toMatchObject({
+          status: "applied", eventCount: 0, modifierEvidence: { disposition: "releaseOwnership" }
+        });
+        canvas.dispatchEvent(new KeyboardEvent("keyup", { code, key: modifier, bubbles: true }));
+        expect(edges).toEqual([`keydown:${code}`, `keyup:${code}`]);
+      });
+    }
   }
 
   it("delivers 100 paired key/click cycles behind a focused iframe without activating it or losing progress", () => {
@@ -81,6 +170,65 @@ describe.each(["darwin", "win32"] as const)("%s compatible game input", platform
       { frameToken: "other" }, { documentInstanceId: "other" }])
       expect(dispatch(fields).status).toBe("failed");
     expect(down).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Core Alt held across physical press/release, blur, reassert and final cleanup", async () => {
+    const { canvas, key, controller } = setup();
+    const held = new Set<string>();
+    canvas.addEventListener("keydown", event => held.add(event.code));
+    canvas.addEventListener("keyup", event => held.delete(event.code));
+    key("AltLeft", "rawKeyDown", ["AltLeft"]);
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code: "AltLeft", key: "Alt", altKey: true, bubbles: true }));
+    window.dispatchEvent(new Event("blur"));
+    await Promise.resolve();
+    expect(controller.physicalModifierCodes()).toEqual([]);
+    expect([...held]).toEqual(["AltLeft"]);
+    // An authoritative Core reassert can restore a consumer cleared by focus loss.
+    held.clear();
+    key("AltLeft", "rawKeyDown", ["AltLeft"]);
+    expect([...held]).toEqual(["AltLeft"]);
+    key("AltLeft", "keyUp", []);
+    expect([...held]).toEqual([]);
+  });
+
+  it("does not acquire ownership on rejected input and bounds document modifier evidence", () => {
+    const { canvas, dispatch, key } = setup();
+    const down = vi.fn();
+    canvas.addEventListener("keydown", down);
+    expect(dispatch({ action: "key", modifierState: { coreCodesBefore: [], coreCodesAfter: ["Bogus"], nativePhysicalCodes: [] },
+      key: chromiumCdpKeyDescriptor({ code: "AltLeft", phase: "rawKeyDown", activeCodes: ["AltLeft"],
+        activeCodesBefore: [], autoRepeat: false, suppressShortcut: false }, platform) }).status).toBe("failed");
+    expect(down).not.toHaveBeenCalled();
+    for (let index = 0; index < 40; index++) {
+      key("AltLeft", "rawKeyDown", ["AltLeft"]);
+      key("AltLeft", "keyUp", []);
+    }
+    const evidence = key("Digit3", "rawKeyDown", ["Digit3"]).modifierEvidence!;
+    expect(evidence.transitions).toHaveLength(64);
+    expect(evidence.droppedTransitionCount).toBe(16);
+    expect(evidence.transitions[0]?.sequence).toBe(17);
+    expect(evidence.transitions.at(-1)?.sequence).toBe(80);
+    expect(evidence.coreCodesAfter).toEqual([]);
+    expect(evidence.eventModifierMask).toBe(0);
+  });
+
+  it.each([
+    ["AltLeft", "altKey", 1], ["AltRight", "altKey", 1],
+    ["ControlLeft", "ctrlKey", 2], ["ControlRight", "ctrlKey", 2],
+    ["MetaLeft", "metaKey", 4], ["MetaRight", "metaKey", 4],
+    ["ShiftLeft", "shiftKey", 8], ["ShiftRight", "shiftKey", 8]
+  ] as const)("keeps %s flags aligned when native release precedes DOM release", (code, flag, mask) => {
+    const { canvas, dispatch } = setup();
+    const seen: KeyboardEvent[] = [];
+    canvas.addEventListener("keyup", event => seen.push(event));
+    canvas.dispatchEvent(new KeyboardEvent("keydown", { code, [flag]: true, bubbles: true }));
+    const receipt = dispatch({ action: "key",
+      modifierState: { coreCodesBefore: [], coreCodesAfter: [], nativePhysicalCodes: [] },
+      key: { ...chromiumCdpKeyDescriptor({ code: "Digit1", phase: "keyUp", activeCodes: [],
+        activeCodesBefore: ["Digit1"], autoRepeat: false, suppressShortcut: true }, platform), shiftedKey: "!" } });
+    expect(seen[0]?.[flag]).toBe(true);
+    expect(seen[0]?.key).toBe(mask === 8 ? "!" : "1");
+    expect(receipt.modifierEvidence?.eventModifierMask).toBe(mask);
   });
 
   it("never redirects a release to a replacement canvas", () => {

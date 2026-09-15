@@ -1,3 +1,4 @@
+import { compatibleModifierEvidenceForTest } from "./helpers/compatibleInputReceipt";
 import type { ChromiumCompatibleInputPort } from "../src/electron/main/chromiumCompatibleInput";
 import type { ChromiumViewInputObservation } from "../src/electron/main/chromiumViewInputSubmission";
 import type { BrowserAction } from "../src/shared/generated";
@@ -379,7 +380,7 @@ function harness(options: { compatibility?: ChromiumCompatibleInputPort } = {}) 
 describe("Windows Chromium trusted-input adapter", () => {
   it("delivers compatible readiness, keys and clicks without CDP, arming or native focus", async () => {
     const send: ChromiumCompatibleInputPort["dispatchCompatibleInput"] = vi.fn(async (_frame, command) => ({
-      ...command, targetToken: "original-canvas", isTrusted: false,
+      ...command, ...compatibleModifierEvidenceForTest(command), targetToken: "original-canvas", isTrusted: false,
       eventCount: command.action === "focus" ? 0 : command.action === "key" ? 1 : 5,
       status: "applied", errorCode: null
     }));
@@ -400,6 +401,35 @@ describe("Windows Chromium trusted-input adapter", () => {
     expect(keyDispatch).not.toHaveBeenCalled();
     expect(mouseDispatch).not.toHaveBeenCalled();
     expect(subject.native.focusForeground).not.toHaveBeenCalled();
+    subject.adapter.dispose();
+  });
+
+  it.each([
+    { physical: ["ShiftRight"], owned: [], key: "!", mask: 8 },
+    { physical: ["ControlRight", "AltLeft"], owned: ["ShiftLeft"], key: "!", mask: 11 },
+    { physical: [], owned: [], key: "1", mask: 0 }
+  ])("merges physical and Core modifiers in compatible key down/up: %j", async scenario => {
+    const send = vi.fn<ChromiumCompatibleInputPort["dispatchCompatibleInput"]>(async (_frame, command) => ({
+      ...command, ...compatibleModifierEvidenceForTest(command), targetToken: "original-canvas", isTrusted: false,
+      eventCount: 1, status: "applied", errorCode: null
+    }));
+    const subject = harness({ compatibility: { dispatchCompatibleInput: send } });
+    subject.setNativePhysicalModifierCodes(scenario.physical);
+    for (const phase of ["rawKeyDown", "keyUp"] as const) {
+      const result = await subject.adapter.dispatch(nativeRequest(phase, {
+        ...keyAction(), code: "Digit1", key: "1", modifiers: [],
+        exactModifierCodes: scenario.owned, phase: phase === "keyUp" ? "release" : "hold"
+      }, {
+        keyEffect: { phase, code: "Digit1", activeCodesBefore: [...scenario.owned, "Digit1"],
+          activeCodes: phase === "keyUp" ? scenario.owned : [...scenario.owned, "Digit1"],
+          autoRepeat: false, suppressShortcut: true }
+      }));
+      expect(result.status).toBe("applied");
+      expect(send.mock.calls.at(-1)?.[1].key).toMatchObject({
+        type: phase, code: "Digit1", key: scenario.key, modifiers: scenario.mask
+      });
+    }
+    expect(subject.controls).toEqual([]);
     subject.adapter.dispose();
   });
 
@@ -683,7 +713,7 @@ describe("Windows Chromium trusted-input adapter", () => {
     await expect(result).resolves.toEqual(expect.objectContaining({ status: "applied" }));
   });
 
-  it("isolates synthetic key modifiers while preserving click physical modifiers", async () => {
+  it("inherits physical modifiers for synthetic keys, reassertions and clicks", async () => {
     const keySubject = harness();
     keySubject.setNativePhysicalModifierCodes(["ShiftRight", "ControlRight", "AltLeft"]);
     const keyResult = keySubject.adapter.dispatch(nativeRequest(
@@ -699,24 +729,14 @@ describe("Windows Chromium trusted-input adapter", () => {
     await Promise.resolve();
     expect(keySubject.keyRequests).toEqual([
       expect.objectContaining({
-        code: "Digit1", alt: false, ctrl: false, meta: false, shift: false
+        code: "Digit1", alt: true, ctrl: true, meta: false, shift: true
       }),
       expect.objectContaining({
-        code: "Digit1", alt: false, ctrl: false, meta: false, shift: false
-      })
-    ]);
-    expect(keySubject.arm().expectedEvents).toEqual([
-      expect.objectContaining({
-        type: "keydown", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
-      }),
-      expect.objectContaining({
-        type: "keyup", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
+        code: "Digit1", alt: true, ctrl: true, meta: false, shift: true
       })
     ]);
     keySubject.arm().expectedEvents.forEach((event, index) => {
-      keySubject.dom(event, index);
+      keySubject.dom({ ...event, shiftKey: true, ctrlKey: true, altKey: true }, index);
     });
     await expect(keyResult).resolves.toMatchObject({ status: "applied" });
 
@@ -735,24 +755,14 @@ describe("Windows Chromium trusted-input adapter", () => {
     await Promise.resolve();
     expect(shiftedSubject.keyRequests).toEqual([
       expect.objectContaining({
-        code: "Digit1", alt: false, ctrl: false, meta: false, shift: true
+        code: "Digit1", alt: true, ctrl: true, meta: false, shift: true
       }),
       expect.objectContaining({
-        code: "Digit1", alt: false, ctrl: false, meta: false, shift: true
-      })
-    ]);
-    expect(shiftedSubject.arm().expectedEvents).toEqual([
-      expect.objectContaining({
-        type: "keydown", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
-      }),
-      expect.objectContaining({
-        type: "keyup", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
+        code: "Digit1", alt: true, ctrl: true, meta: false, shift: true
       })
     ]);
     shiftedSubject.arm().expectedEvents.forEach((event, index) => {
-      shiftedSubject.dom(event, index);
+      shiftedSubject.dom({ ...event, shiftKey: true, ctrlKey: true, altKey: true }, index);
     });
     await expect(shiftedResult).resolves.toMatchObject({ status: "applied" });
 
@@ -778,10 +788,10 @@ describe("Windows Chromium trusted-input adapter", () => {
     await Promise.resolve();
     expect(reassertSubject.keyRequests).toEqual([
       expect.objectContaining({
-        code: "Digit1", alt: false, ctrl: false, meta: false, shift: true
+        code: "Digit1", alt: true, ctrl: true, meta: false, shift: true
       })
     ]);
-    reassertSubject.dom(reassertSubject.arm().expectedEvents[0]!, 0);
+    reassertSubject.dom({ ...reassertSubject.arm().expectedEvents[0]!, shiftKey: true, ctrlKey: true, altKey: true }, 0);
     await expect(reassertResult).resolves.toMatchObject({ status: "applied" });
 
     const mouseSubject = harness();

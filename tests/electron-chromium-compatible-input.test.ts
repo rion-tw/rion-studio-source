@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { compatibleModifierEvidenceForTest } from "./helpers/compatibleInputReceipt";
+import { recentTrustedInputTerminals, resetTrustedInputTerminalJournalForTest } from "../src/electron/main/chromiumTrustedInputTerminalJournal";
 import { ChromiumCompatibleInput } from "../src/electron/main/chromiumCompatibleInput";
 import type { ChromiumCompatibleInputCommand, ChromiumCompatibleInputReceipt } from "../src/electron/ipc/chromiumCompatibleInputProtocol";
 import type { ChromiumRoleOverlayFrameIdentity } from "../src/electron/main/chromiumRoleSurfaceRegistry";
@@ -18,7 +20,7 @@ const request: ChromiumNativeTrustedInputRequest = {
 };
 
 function receipt(command: ChromiumCompatibleInputCommand): ChromiumCompatibleInputReceipt {
-  return { requestId: command.requestId, ownerId: command.ownerId, roleId: command.roleId,
+  return { ...compatibleModifierEvidenceForTest(command), requestId: command.requestId, ownerId: command.ownerId, roleId: command.roleId,
     inputEpoch: command.inputEpoch, generation: command.generation, frameToken: command.frameToken,
     documentInstanceId: command.documentInstanceId, sequence: command.sequence, targetToken: "canvas",
     isTrusted: false, eventCount: 1, status: "applied", errorCode: null };
@@ -104,4 +106,45 @@ describe.each(["darwin", "win32"] as const)("%s compatible input receipts", plat
     const test = setup(async command => ({ ...receipt(command), status: "failed", errorCode: "SYSTEM_COMPATIBLE_INPUT_DELIVERY_FAILED" }));
     expect(await test.dispatch()).toMatchObject({ status: "indeterminate", confirmedInputNeutrality: false });
   });
+
+  it("accepts the observed page modifier while native release is ahead of its DOM event", async () => {
+    const test = setup(async command => ({ ...receipt(command), modifierEvidence: {
+      ...compatibleModifierEvidenceForTest(command).modifierEvidence!,
+      physicalCodesBefore: ["AltLeft"], physicalCodesAfter: ["AltLeft"], eventModifierMask: 1
+    } }));
+    expect(await test.dispatch()).toMatchObject({ status: "applied" });
+  });
+
+  it.each(["rawKeyDown", "keyUp"] as const)("accepts only exact modifier overlap evidence for %s", async phase => {
+    resetTrustedInputTerminalJournalForTest();
+    const test = setup(async command => ({ ...receipt(command), eventCount: 0,
+      modifierEvidence: { ...compatibleModifierEvidenceForTest(command).modifierEvidence!,
+        disposition: phase === "keyUp" ? "releaseOwnership" : "adoptPhysical", eventModifierMask: null } }));
+    const result = await test.lane.dispatch({ ...request,
+      keyEffect: { code: "AltLeft", phase, activeCodesBefore: phase === "keyUp" ? ["AltLeft"] : [],
+        activeCodes: phase === "keyUp" ? [] : ["AltLeft"], autoRepeat: false, suppressShortcut: false }
+    }, frame, ["AltLeft"], null, test.verifyHost);
+    expect(result.status).toBe("applied");
+    expect(recentTrustedInputTerminals().at(-1)).toMatchObject({
+      applicationPath: "canvas-compatibility", expectedDomEventCount: 0,
+      observedDomEventCount: 0, gameDeliveryConfirmed: false, physicalInterleave: "indeterminate"
+    });
+  });
+
+  it.each(["missing", "zero-main", "false-mask", "false-core", "oversized-trace"])(
+    "rejects forged compatible evidence: %s", async fault => {
+      const test = setup(async command => {
+        const response = receipt(command);
+        if (fault === "missing") delete (response as { modifierEvidence?: unknown }).modifierEvidence;
+        if (fault === "zero-main") return { ...response, eventCount: 0,
+          modifierEvidence: { ...response.modifierEvidence, disposition: "adoptPhysical", eventModifierMask: null } };
+        if (fault === "false-mask") response.modifierEvidence!.eventModifierMask = 1;
+        if (fault === "false-core") response.modifierEvidence!.coreCodesAfter = ["AltLeft"];
+        if (fault === "oversized-trace") response.modifierEvidence!.transitions = Array(65).fill(null);
+        return response;
+      });
+      expect(await test.dispatch()).toMatchObject({ status: "indeterminate", errorCode: "SYSTEM_COMPATIBLE_INPUT_RECEIPT_MISMATCH" });
+      expect(test.send).toHaveBeenCalledOnce();
+    }
+  );
 });

@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md) and defines the managed-shortcut ordering introduced by Chromium runtime contract v33, the exact modifier projection required by v34, and the stop-before-replacement outcome required by v35. The entry document owns the compatibility version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md) and defines the managed-shortcut ordering introduced by Chromium runtime contract v33, the physical modifier inheritance restored by v42, and the stop-before-replacement outcome required by v35. The entry document owns the compatibility version and routes readers to the minimum normative section required for a task. For v43 compatible overlap, see [Compatible Macro Input](compatible-macro-input.md).
 
 ## Physical ownership and admission
 
@@ -42,10 +42,10 @@ release-time chord replay. Before every native effect, the authenticated
 isolated-world guard reports the eight-sided physical modifier snapshot. The
 adapter retains the complete snapshot for exact-side adoption, interleave
 classification, diagnostics, and platform phase cursors. It merges that snapshot
-into event flags only for `physical-pass-through` replacement keys and macro
-click steps. Synthetic macro keyboard effects, including held-key reassertion,
-derive their modifier flags only from Core's active-code snapshot and never
-inherit a live non-Core physical modifier. A managed hold must still match the
+into event flags for all keyboard effects, including synthetic steps, held-key
+reassertion and `physical-pass-through` replacement keys, as well as macro clicks.
+Core's active-code snapshot still contributes explicitly owned modifiers; physical
+modifiers need no new Core owner to affect an event. A managed hold must still match the
 admitted ownership snapshot. Its release remains cleanup-reachable when focus
 continuity changes that snapshot: the original sides identify the owned cycle,
 while the freshly armed sides determine release-event flags. Physical modifier adoption is idempotent while held; overlap emits no duplicate Chromium keydown. If Core removes a modifier that the overlay still proves is physically held, the trusted-input receipt contract reprojects that exact side for Chromium without exposing it to game listeners, creating a Core owner, or sending a balancing synthetic keyup.

@@ -365,10 +365,12 @@
       snapshot: snapshotMacroKeyboardEvent(event, false),
       target
     });
+    recordCompatibleModifierTransition("physical", event.code, "rawKeyDown", delivered ? "dispatch" : "retained", event);
   }
 
-  function forgetPhysicalGameKey(code) {
+  function forgetPhysicalGameKey(code, event = null) {
     physicalGameKeys.delete(String(code));
+    recordCompatibleModifierTransition("physical", code, "keyUp", "dispatch", event);
   }
 
   function physicalModifierCodes() {
@@ -460,6 +462,7 @@
     if (!active) return;
     physicalGameKeys.delete(code);
     const macroOwnership = macroModifierOwnership.get(code);
+    recordCompatibleModifierTransition("focus-cleanup", code, "keyUp", macroOwnership ? "retained" : "dispatch");
     if (macroOwnership) {
       macroOwnership.delivered = true;
       return;
@@ -536,6 +539,7 @@
     if (!physical || !macroOwnership) return false;
     physicalGameKeys.delete(event.code);
     macroOwnership.delivered = true;
+    recordCompatibleModifierTransition("physical", event.code, "keyUp", "retained", event);
     consumeShortcutEvent(event);
     return true;
   }
@@ -1078,7 +1082,7 @@
     updateRuntimeTabShortcutModifier(event, false);
     const consumedModifierKeyUp = consumeOverlappingPhysicalModifierKeyUp(event);
     if (consumedShortcutKeyUp && !consumedModifierKeyUp) consumeShortcutEvent(event);
-    if (!consumedModifierKeyUp) forgetPhysicalGameKey(event.code);
+    if (!consumedModifierKeyUp) forgetPhysicalGameKey(event.code, event);
     if (coordinateMeasurementController?.handleKeyUp(event)) {
       return;
     }

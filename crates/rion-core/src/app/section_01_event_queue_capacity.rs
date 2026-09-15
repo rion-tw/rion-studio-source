@@ -71,9 +71,10 @@ const STABLE_SYSTEM_WEBVIEW_RUNTIME_CONTRACT_VERSION: u32 = 22;
 // native BrowserWindow popup path and connected-opener lifecycle receipts; 32
 // binds physical-input provenance to trusted DOM receipts; 33 changes managed
 // macro shortcuts to press/hold activation with keyDown/keyUp-only ordering; 34
-// isolates synthetic macro-key modifiers from live physical modifier state.
+// introduced macro-key modifier isolation, superseded by 42's physical modifier
+// inheritance for Canvas and trusted input, retaining Core ownership and receipts.
 pub(crate) const CHROMIUM_RUNTIME_MIN_CONTRACT_VERSION: u32 = 23;
-pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 41;
+pub const CHROMIUM_RUNTIME_CONTRACT_VERSION: u32 = 43;
 // Native System WebView session effects may spend up to 40 seconds waiting for
 // one navigation. Keep the core deadline above that bound so the shell can
 // close its hidden surface and return an authoritative result.

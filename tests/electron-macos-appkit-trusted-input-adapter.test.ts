@@ -1,3 +1,4 @@
+import { compatibleModifierEvidenceForTest } from "./helpers/compatibleInputReceipt";
 import type { ChromiumCompatibleInputPort } from "../src/electron/main/chromiumCompatibleInput";
 import type { BrowserAction } from "../src/shared/generated";
 import { describe, expect, it, vi } from "vitest";
@@ -463,7 +464,7 @@ function harness(options: Readonly<{
 describe("macOS AppKit trusted-input adapter", () => {
   it("delivers compatible readiness, keys and clicks without CDP, arming or native focus", async () => {
     const send: ChromiumCompatibleInputPort["dispatchCompatibleInput"] = vi.fn(async (_frame, command) => ({
-      ...command, targetToken: "original-canvas", isTrusted: false,
+      ...command, ...compatibleModifierEvidenceForTest(command), targetToken: "original-canvas", isTrusted: false,
       eventCount: command.action === "focus" ? 0 : command.action === "key" ? 1 : 5,
       status: "applied", errorCode: null
     }));
@@ -483,6 +484,35 @@ describe("macOS AppKit trusted-input adapter", () => {
     expect(subject.controls).toEqual([]);
     expect(keyDispatch).not.toHaveBeenCalled();
     expect(mouseDispatch).not.toHaveBeenCalled();
+    subject.adapter.dispose();
+  });
+
+  it.each([
+    { physical: ["ShiftRight"], owned: [], key: "!", mask: 8 },
+    { physical: ["ControlRight", "AltLeft"], owned: ["ShiftLeft"], key: "!", mask: 11 },
+    { physical: [], owned: [], key: "1", mask: 0 }
+  ])("merges physical and Core modifiers in compatible key down/up: %j", async scenario => {
+    const send = vi.fn<ChromiumCompatibleInputPort["dispatchCompatibleInput"]>(async (_frame, command) => ({
+      ...command, ...compatibleModifierEvidenceForTest(command), targetToken: "original-canvas", isTrusted: false,
+      eventCount: 1, status: "applied", errorCode: null
+    }));
+    const subject = harness({ compatibility: { dispatchCompatibleInput: send } });
+    subject.setNativePhysicalModifierCodes(scenario.physical);
+    for (const phase of ["rawKeyDown", "keyUp"] as const) {
+      const result = await subject.adapter.dispatch(nativeRequest(phase, {
+        ...keyAction(), code: "Digit1", key: "1", modifiers: [],
+        exactModifierCodes: scenario.owned, phase: phase === "keyUp" ? "release" : "hold"
+      }, {
+        keyEffect: { phase, code: "Digit1", activeCodesBefore: [...scenario.owned, "Digit1"],
+          activeCodes: phase === "keyUp" ? scenario.owned : [...scenario.owned, "Digit1"],
+          autoRepeat: false, suppressShortcut: true }
+      }));
+      expect(result.status).toBe("applied");
+      expect(send.mock.calls.at(-1)?.[1].key).toMatchObject({
+        type: phase, code: "Digit1", key: scenario.key, modifiers: scenario.mask
+      });
+    }
+    expect(subject.controls).toEqual([]);
     subject.adapter.dispose();
   });
 
@@ -792,7 +822,7 @@ describe("macOS AppKit trusted-input adapter", () => {
     });
   });
 
-  it("isolates synthetic key modifiers while preserving click physical modifiers", async () => {
+  it("inherits physical modifiers for synthetic keys, reassertions and clicks", async () => {
     const keySubject = harness();
     keySubject.setNativePhysicalModifierCodes(["ShiftRight", "ControlRight", "AltLeft"]);
     const keyCompletion = keySubject.adapter.dispatch(nativeRequest(
@@ -808,23 +838,13 @@ describe("macOS AppKit trusted-input adapter", () => {
     const keyControl = keySubject.arm(["ShiftRight", "ControlRight", "AltLeft"]);
     await Promise.resolve();
     expect(keySubject.keySubmissions).toEqual([
-      expect.objectContaining({ code: "Digit1", modifierFlags: 0 }),
-      expect.objectContaining({ code: "Digit1", modifierFlags: 0 })
-    ]);
-    expect(keyControl.expectedEvents).toEqual([
-      expect.objectContaining({
-        type: "keydown", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
-      }),
-      expect.objectContaining({
-        type: "keyup", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: false
-      })
+      expect.objectContaining({ code: "Digit1", modifierFlags: (1 << 17) | (1 << 18) | (1 << 19) }),
+      expect.objectContaining({ code: "Digit1", modifierFlags: (1 << 17) | (1 << 18) | (1 << 19) })
     ]);
     keyControl.expectedEvents.forEach((_event, index) => {
       keySubject.adapter.receive(
         keySubject.event,
-        keySubject.domReceipt(keyControl, index)
+        keySubject.domReceipt(keyControl, index, { shiftKey: true, ctrlKey: true, altKey: true })
       );
     });
     await expect(keyCompletion).resolves.toMatchObject({ status: "applied" });
@@ -844,23 +864,13 @@ describe("macOS AppKit trusted-input adapter", () => {
     const shiftedControl = shiftedSubject.arm(["ControlRight", "AltLeft"]);
     await Promise.resolve();
     expect(shiftedSubject.keySubmissions).toEqual([
-      expect.objectContaining({ code: "Digit1", modifierFlags: 1 << 17 }),
-      expect.objectContaining({ code: "Digit1", modifierFlags: 1 << 17 })
-    ]);
-    expect(shiftedControl.expectedEvents).toEqual([
-      expect.objectContaining({
-        type: "keydown", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
-      }),
-      expect.objectContaining({
-        type: "keyup", code: "Digit1",
-        altKey: false, ctrlKey: false, metaKey: false, shiftKey: true
-      })
+      expect.objectContaining({ code: "Digit1", modifierFlags: (1 << 17) | (1 << 18) | (1 << 19) }),
+      expect.objectContaining({ code: "Digit1", modifierFlags: (1 << 17) | (1 << 18) | (1 << 19) })
     ]);
     shiftedControl.expectedEvents.forEach((_event, index) => {
       shiftedSubject.adapter.receive(
         shiftedSubject.event,
-        shiftedSubject.domReceipt(shiftedControl, index)
+        shiftedSubject.domReceipt(shiftedControl, index, { shiftKey: true, ctrlKey: true, altKey: true })
       );
     });
     await expect(shiftedCompletion).resolves.toMatchObject({ status: "applied" });
@@ -886,11 +896,11 @@ describe("macOS AppKit trusted-input adapter", () => {
     const reassertControl = reassertSubject.arm(["ControlRight", "AltLeft"]);
     await Promise.resolve();
     expect(reassertSubject.keySubmissions).toEqual([
-      expect.objectContaining({ code: "Digit1", modifierFlags: 1 << 17 })
+      expect.objectContaining({ code: "Digit1", modifierFlags: (1 << 17) | (1 << 18) | (1 << 19) })
     ]);
     reassertSubject.adapter.receive(
       reassertSubject.event,
-      reassertSubject.domReceipt(reassertControl, 0)
+      reassertSubject.domReceipt(reassertControl, 0, { shiftKey: true, ctrlKey: true, altKey: true })
     );
     await expect(reassertCompletion).resolves.toMatchObject({ status: "applied" });
 

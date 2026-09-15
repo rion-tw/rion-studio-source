@@ -19,7 +19,6 @@ import {
 import { randomUUID } from "node:crypto";
 
 import { activeChromiumModifierCodes, isChromiumModifierCode,
-  physicalChromiumModifierCodesForAction,
   resolveChromiumModifierCodes } from
   "./chromiumTrustedInputKeySequence";
 import { mergeChromiumPhysicalModifiers } from
@@ -740,7 +739,7 @@ implements ChromiumNativeTrustedInputPort {
       if (this.#compatible) {
         const originalHost = host;
         return this.#compatible.dispatch(request, frame,
-          physicalChromiumModifierCodesForAction(request.action, nativeProbe.physicalModifierCodes),
+          nativeProbe.physicalModifierCodes,
           request.action.type === "click" ? this.#clicks.resolve(request, frame) : null, () => {
             const currentHost = this.#hosts.resolve(request.roleId, request.surfaceGeneration);
             if (this.#disposed || !currentHost || !sameHost(currentHost, originalHost) ||
@@ -1057,15 +1056,11 @@ implements ChromiumNativeTrustedInputPort {
       if (receipt.modifierDisposition === "dispatch") {
         pending.nativeInvoked = false;
         pending.applicationPath = "none";
-        const projectedPhysicalModifierCodes = physicalChromiumModifierCodesForAction(
-          pending.request.action,
-          pending.physicalModifierCodes
-        );
         const projectedCode = pending.request.keyEffect?.code ??
           (pending.request.action.type === "key" ? pending.request.action.code : null);
         const expectedEvents = mergeChromiumPhysicalModifiers(
           pending.expectedEvents,
-          projectedPhysicalModifierCodes,
+          pending.physicalModifierCodes,
           projectedCode
         );
         pending.expectedEvents = Object.freeze([
@@ -1309,13 +1304,9 @@ implements ChromiumNativeTrustedInputPort {
       for (const transition of pending.nativeTransitions) {
         if (pending.terminal) return;
         if (transition.type === "key") {
-          const projectedPhysicalModifierCodes = physicalChromiumModifierCodesForAction(
-            pending.request.action,
-            pending.physicalModifierCodes
-          );
           const physicalCodes = isChromiumModifierCode(transition.code)
-            ? projectedPhysicalModifierCodes.filter(code => code !== transition.code)
-            : projectedPhysicalModifierCodes;
+            ? pending.physicalModifierCodes.filter(code => code !== transition.code)
+            : pending.physicalModifierCodes;
           const activeCodes = Object.freeze([...new Set([
             ...transition.modifierCodes,
             ...physicalCodes,
@@ -1359,10 +1350,7 @@ implements ChromiumNativeTrustedInputPort {
               clientY: transition.clientY
             })
           ));
-          const modifierCodes = physicalChromiumModifierCodesForAction(
-            pending.request.action,
-            pending.physicalModifierCodes
-          );
+          const modifierCodes = pending.physicalModifierCodes;
           pending.cdpModifierMask = chromiumCdpModifierMask(modifierCodes);
           const receipt = await this.#cdp.dispatchMouse(pending.frame, {
             x: transition.clientX,

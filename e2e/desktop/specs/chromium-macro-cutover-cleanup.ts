@@ -113,7 +113,6 @@ async function launchBound(
   windowName: string
 ): Promise<ChromiumRoleTab> {
   const window = await createChromiumMacroWindow(windowId, windowName);
-  await showChromiumMacroWindow(window);
   const tab = await launchChromiumRoleVisible(role, fixtureId, window);
   await expectChromiumNativeRoleBinding(context, tab);
   return tab;

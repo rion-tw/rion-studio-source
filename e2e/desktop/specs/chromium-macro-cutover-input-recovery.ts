@@ -45,7 +45,6 @@ import {
   expectChromiumNativeRoleBinding,
   launchChromiumRoleVisible,
   macroFixtureUrl,
-  showChromiumMacroWindow,
   startChromiumMacroVisible,
   stopChromiumMacroVisible,
   writeChromiumMacroEvidence
@@ -265,7 +264,6 @@ export async function runChromiumMacroInputRecoveryCutover(): Promise<void> {
     WINDOW_ID,
     "Chromium Macro Input Recovery"
   );
-  await showChromiumMacroWindow(window);
   const tab = await launchChromiumRoleVisible(role, FIXTURE_ID, window);
   await activateChromiumRoleVisible(context, tab);
   const nativeBinding = await expectChromiumNativeRoleBinding(context, tab);

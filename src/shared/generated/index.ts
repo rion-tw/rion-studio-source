@@ -6,6 +6,8 @@ export type { ExtensionRoleRecord } from "./ExtensionRoleRecord";
 export type { ExtensionPreparedRecord } from "./ExtensionPreparedRecord";
 export type { ExtensionResultRecord } from "./ExtensionResultRecord";
 export type { BrowserActionRequest } from "./BrowserActionRequest";
+export type { CompatibleModifierEvidenceRecord } from "./CompatibleModifierEvidenceRecord";
+export type { CompatibleModifierTransitionRecord } from "./CompatibleModifierTransitionRecord";
 export type { BrowserAction } from "./BrowserAction";
 export type { BrowserActionResult } from "./BrowserActionResult";
 export type { AppKitAttachedWebSurfaceRecord } from "./AppKitAttachedWebSurfaceRecord";

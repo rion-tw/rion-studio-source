@@ -3,6 +3,8 @@ import { chromiumCdpKeyDescriptor, chromiumCdpModifierMask } from "./chromiumCdp
 import type { ChromiumRoleOverlayFrameIdentity } from "./chromiumRoleSurfaceRegistry";
 import type { ChromiumNativeTrustedInputRequest as Request, ChromiumNativeTrustedInputReceipt as Receipt } from "./chromiumTrustedInputCoordinator";
 import { recordTrustedInputTerminal } from "./chromiumTrustedInputTerminalJournal";
+import { isChromiumModifierCode } from "./chromiumTrustedInputKeySequence";
+import { compatibleInputEventCount, validCompatibleInputEvidence } from "./chromiumCompatibleInputEvidence";
 
 export interface ChromiumCompatibleInputPort {
   dispatchCompatibleInput: (frame: ChromiumRoleOverlayFrameIdentity, command: ChromiumCompatibleInputCommand) => Promise<unknown>;
@@ -40,21 +42,25 @@ export class ChromiumCompatibleInput {
       frameToken: frame.frameToken, documentInstanceId: frame.documentInstanceId,
       sequence: ++document.sequence, deadlineMs: request.deadlineMs, intent: request.intent,
       action: effect ? "key" : request.action.type === "click" ? "click" : "focus",
-      ...(effect ? { key: chromiumCdpKeyDescriptor({ ...effect,
-        activeCodes: [...new Set([...effect.activeCodes, ...modifiers])] }, this.input.platform) } : {}),
+      ...(effect ? { key: { ...chromiumCdpKeyDescriptor({ ...effect,
+        activeCodes: [...new Set([...effect.activeCodes, ...modifiers])] }, this.input.platform),
+        shiftedKey: chromiumCdpKeyDescriptor({ ...effect,
+          activeCodes: [...effect.activeCodes, "ShiftLeft"] }, this.input.platform).key },
+        modifierState: { coreCodesBefore: effect.activeCodesBefore.filter(isChromiumModifierCode),
+          coreCodesAfter: effect.activeCodes.filter(isChromiumModifierCode), nativePhysicalCodes: [...modifiers] } } : {}),
       ...(request.action.type === "click" && point ? { pointer: {
         ...point, button: request.action.button === "left" ? 0 : request.action.button === "middle" ? 1 : 2,
         modifiers: chromiumCdpModifierMask(modifiers), releaseOnly: request.pointerReleaseOnly === true
       } as const } : {})
     };
-    const expectedCount = command.action === "key" ? 1 : command.action === "focus" ? 0
-      : command.pointer?.releaseOnly ? 2 : command.pointer?.button === 2 ? 6 : 5;
+    const expectedCount = compatibleInputEventCount(command);
     const retained = document;
     return new Promise(resolve => {
       let terminal = false;
       let submitted = false;
       let timer: unknown = null;
-      const finish = (status: Receipt["status"], errorCode: string | null, count = 0) => {
+      const finish = (status: Receipt["status"], errorCode: string | null, count = 0,
+        received?: ChromiumCompatibleInputReceipt) => {
         if (terminal) return;
         terminal = true;
         this.input.timers.cancel(timer);
@@ -65,9 +71,15 @@ export class ChromiumCompatibleInput {
           capturedAt: new Date().toISOString(), requestId: request.requestId, roleId: request.roleId,
           inputEpoch: request.inputEpoch, surfaceGeneration: request.surfaceGeneration, intent: request.intent,
           actionType: request.action.type, applicationPath: "canvas-compatibility", documentInstanceId: frame.documentInstanceId,
-          deliveryOwnerId: command.ownerId, gameDeliveryConfirmed: status === "applied", expectedDomEventCount: expectedCount,
+          deliveryOwnerId: command.ownerId, gameDeliveryConfirmed: status === "applied" && count > 0,
+          expectedDomEventCount: compatibleInputEventCount(command, received),
           observedDomEventCount: count, modifierProjectionCodes: [], cdpSubmissionCertainty: "not-invoked",
-          physicalInterleave: "none", terminalCode: errorCode ?? "APPLIED", nativeProofChanges: [],
+          physicalInterleave: received?.modifierEvidence &&
+            received.modifierEvidence.physicalCodesBefore.join() !== received.modifierEvidence.physicalCodesAfter.join()
+            ? "modifier-change" : "indeterminate", terminalCode: errorCode ?? "APPLIED", nativeProofChanges: [],
+          ...(received?.modifierEvidence ? { compatibleModifierEvidence: received.modifierEvidence,
+            ...(received.modifierEvidence.eventModifierMask !== null
+              ? { lastObservedDomModifierMask: received.modifierEvidence.eventModifierMask } : {}) } : {}),
           ...(effect ? { keyCode: effect.code, keyPhase: effect.phase } : {}),
           ...(errorCode ? { failureStage: "compatible-game-delivery" } : {}),
           traceSteps: [{ sequence: 1, source: "core", stage: "browser-action-admitted" },
@@ -108,7 +120,8 @@ export class ChromiumCompatibleInput {
                 receipt.isTrusted !== false || !Number.isSafeInteger(receipt.eventCount) || receipt.eventCount < 0 ||
                 receipt.eventCount > expectedCount || (receipt.status === "failed" && receipt.eventCount !== 0) ||
                 !["applied", "failed", "indeterminate"].includes(receipt.status) ||
-                (receipt.status === "applied" && (receipt.errorCode !== null || receipt.eventCount !== expectedCount ||
+                !validCompatibleInputEvidence(command, receipt) ||
+                (receipt.status === "applied" && (receipt.errorCode !== null || receipt.eventCount !== compatibleInputEventCount(command, receipt) ||
                   typeof receipt.targetToken !== "string" || receipt.targetToken.length === 0 ||
                   (retained.target !== null && receipt.targetToken !== retained.target))) ||
                 (receipt.status !== "applied" && (typeof receipt.errorCode !== "string" ||
@@ -116,7 +129,7 @@ export class ChromiumCompatibleInput {
               finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_RECEIPT_MISMATCH"); return;
             }
             if (receipt.status === "applied") retained.target = receipt.targetToken;
-            finish(receipt.status, receipt.errorCode, receipt.eventCount);
+            finish(receipt.status, receipt.errorCode, receipt.eventCount, receipt);
           } catch { finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED"); }
         }, () => finish("indeterminate", "SYSTEM_COMPATIBLE_INPUT_DELIVERY_FAILED"));
       } catch { finish(submitted ? "indeterminate" : "failed", "SYSTEM_COMPATIBLE_INPUT_HOST_SUPERSEDED"); }

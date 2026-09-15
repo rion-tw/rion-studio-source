@@ -26,6 +26,7 @@ include!("section_19_extensions.rs");
 
 include!("section_20_graphics_settings.rs");
 include!("section_21_workspace_slot_loading.rs");
+include!("section_22_compatible_modifier_evidence.rs");
 
 #[cfg(test)]
 mod retired_performance_tests;

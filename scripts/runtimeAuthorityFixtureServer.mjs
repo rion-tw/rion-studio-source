@@ -133,6 +133,8 @@ function recordFixtureEvent(input) {
     caret: normalizedCaretSnapshot(input.caret),
     code: typeof input.code === "string" ? input.code : undefined,
     contentType: typeof input.contentType === "string" ? input.contentType : undefined,
+    consumerPressedCodes: Array.isArray(input.consumerPressedCodes) && input.consumerPressedCodes.length <= 256 &&
+      input.consumerPressedCodes.every(code => typeof code === "string") ? [...input.consumerPressedCodes] : undefined,
     contract: typeof input.contract === "string" ? input.contract : undefined,
     coordinates: input.coordinates,
     defaultPrevented: typeof input.defaultPrevented === "boolean"

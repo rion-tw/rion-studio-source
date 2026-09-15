@@ -2,6 +2,8 @@ export interface FixtureKeyboardEvent {
   kind: string;
   sequence: number;
   code: string;
+  keyCode?: number;
+  which?: number;
   isTrusted: boolean;
   modifiers: { alt: boolean; control: boolean; meta: boolean; shift: boolean };
   consumerPressedCodes?: string[];

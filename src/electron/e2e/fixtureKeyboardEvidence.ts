@@ -25,8 +25,10 @@ export function assertFixtureKeyboardReleased(evidence: FixtureKeyboardEvidence,
     throw new Error("Terminal keyboard evidence has an unordered or incomplete sequence");
   }
   const phases = events.filter(event => event.code === code);
+  const legacyCode = /^(?:Key[A-Z]|Digit[0-9])$/.test(code) ? code.at(-1)!.charCodeAt(0) : undefined;
   if (phases.map(event => event.kind).join(",") !== "keydown,consumer-keydown,keyup,consumer-keyup" ||
-      phases.some(event => event.isTrusted !== false || Object.values(event.modifiers).some(Boolean)) ||
+      legacyCode === undefined || phases.some(event => event.keyCode !== legacyCode || event.which !== legacyCode ||
+        event.isTrusted !== false || Object.values(event.modifiers).some(Boolean)) ||
       !phases[1]?.consumerPressedCodes?.includes(code) ||
       phases[3]?.consumerPressedCodes?.length !== 0 ||
       events.filter(event => event.kind.startsWith("consumer-")).at(-1)?.consumerPressedCodes?.length !== 0) {

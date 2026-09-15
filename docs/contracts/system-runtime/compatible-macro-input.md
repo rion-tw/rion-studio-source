@@ -72,6 +72,12 @@ and the latest 64 ordered modifier transitions per document with a dropped count
 Physical, compatible and focus-cleanup sources are distinct. Missing interleave
 evidence is indeterminate, not an asserted absence of physical input. Older
 terminal records decode without the optional evidence. The overlay revision is
-`2026-09-15.1`; runtime registration requires Chromium contract v43.
+`2026-09-16.1`; runtime registration requires Chromium contract v43.
 Log capture preserves this typed 64-entry evidence, including modifier-code
 arrays, while retaining text redaction and the ordinary bounds for generic logs.
+
+Legacy `keyCode` and `which` values are set through `KeyboardEventInit`, including
+forwarded input and focus cleanup. Defining JavaScript properties on an isolated
+world wrapper does not preserve those values in the game's main world. Native
+regression tests must read both legacy fields in that main-world consumer;
+isolated-world readback or a `code`-only pressed set cannot prove compatibility.

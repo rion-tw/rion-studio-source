@@ -150,6 +150,8 @@ function recordFixtureEvent(input) {
     hidden: typeof input.hidden === "boolean" ? input.hidden : undefined,
     isTrusted: typeof input.isTrusted === "boolean" ? input.isTrusted : undefined,
     key: typeof input.key === "string" ? input.key : undefined,
+    keyCode: Number.isInteger(input.keyCode) ? input.keyCode : undefined,
+    which: Number.isInteger(input.which) ? input.which : undefined,
     kind: input.kind,
     method: typeof input.method === "string" ? input.method : undefined,
     modifiers: input.modifiers,
@@ -774,6 +776,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       defaultPrevented: event.defaultPrevented,
       isTrusted: event.isTrusted,
       key: event.key,
+      keyCode: event.keyCode,
+      which: event.which,
       modifiers: { alt: event.altKey, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey },
       repeat: event.repeat,
       targetId: event.target instanceof Element ? event.target.id : undefined

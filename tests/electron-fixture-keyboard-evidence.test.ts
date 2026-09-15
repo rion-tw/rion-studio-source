@@ -4,7 +4,7 @@ import { createFixtureKeyboardJournal } from "../scripts/fixtureKeyboardJournal.
 
 function evidence(release = true): FixtureKeyboardEvidence {
   const journal = createFixtureKeyboardJournal();
-  const details = { code: "KeyT", isTrusted: false, modifiers: { alt: false, control: false, meta: false, shift: false } };
+  const details = { code: "KeyT", keyCode: 84, which: 84, isTrusted: false, modifiers: { alt: false, control: false, meta: false, shift: false } };
   journal.record("keydown", details);
   journal.record("consumer-keydown", { ...details, consumerPressedCodes: ["KeyT"] });
   if (release) {
@@ -23,8 +23,9 @@ describe("terminal consumer acceptance", () => {
   it("rejects a missing release even if transport reported applied", () => {
     expect(() => assertFixtureKeyboardReleased(evidence(false), "KeyT")).toThrow("complete KeyT lifecycle");
   });
-  it.each(["duplicate", "held", "wrong-document", "truncated"])("rejects %s evidence", fault => {
+  it.each(["duplicate", "held", "wrong-document", "truncated", "zero-legacy-code"])("rejects %s evidence", fault => {
     const result = evidence();
+    if (fault === "zero-legacy-code") result.snapshot!.events.at(-1)!.keyCode = 0;
     if (fault === "duplicate") result.snapshot!.events.push(result.snapshot!.events.at(-1)!);
     if (fault === "held") result.snapshot!.events.at(-1)!.consumerPressedCodes = ["KeyT"];
     if (fault === "wrong-document") result.snapshot!.fixtureRoleId = "other";

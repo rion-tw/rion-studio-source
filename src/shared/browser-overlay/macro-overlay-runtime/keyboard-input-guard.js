@@ -432,6 +432,9 @@
         bubbles: true,
         cancelable: true,
         code: snapshot.code,
+        charCode: Number(snapshot.charCode) || 0,
+        keyCode: Number(snapshot.keyCode) || 0,
+        which: Number(snapshot.which) || 0,
         composed: true,
         ctrlKey: snapshot.ctrlKey,
         isComposing: snapshot.isComposing,
@@ -441,15 +444,6 @@
         repeat: false,
         shiftKey: snapshot.shiftKey
       });
-      for (const property of ["charCode", "keyCode", "which"]) {
-        const value = Number(snapshot[property]) || 0;
-        if (event[property] === value) continue;
-        try {
-          Object.defineProperty(event, property, { configurable: true, value });
-        } catch {
-          // `code` and `key` remain available when a WebView rejects a legacy field override.
-        }
-      }
       forwardedMacroGameEvents.add(event);
       active.target.dispatchEvent(event);
     } catch (error) {
@@ -552,6 +546,9 @@
         bubbles: false,
         cancelable: true,
         code: snapshot.code,
+        charCode: Number(snapshot.charCode) || 0,
+        keyCode: Number(snapshot.keyCode) || 0,
+        which: Number(snapshot.which) || 0,
         composed: false,
         ctrlKey: snapshot.ctrlKey,
         isComposing: snapshot.isComposing,
@@ -561,15 +558,6 @@
         repeat: snapshot.repeat,
         shiftKey: snapshot.shiftKey
       });
-      for (const property of ["charCode", "keyCode", "which"]) {
-        const value = Number(snapshot[property]) || 0;
-        if (event[property] === value) continue;
-        try {
-          Object.defineProperty(event, property, { configurable: true, value });
-        } catch {
-          // `code` and `key` remain available when a WebView rejects a legacy field override.
-        }
-      }
       forwardedMacroGameEvents.add(event);
       target.dispatchEvent(event);
       return true;

@@ -60,12 +60,12 @@
         const event = new window.KeyboardEvent(key.type === "keyUp" ? "keyup" : "keydown", {
           code: key.code, key: (modifiers & 8) !== 0 ? key.shiftedKey ?? key.key : key.key,
           location: key.location, repeat: key.autoRepeat,
+          // Constructor fields cross isolated-world wrappers; expando overrides do not.
+          keyCode: key.windowsVirtualKeyCode, which: key.windowsVirtualKeyCode,
           altKey: (modifiers & 1) !== 0, ctrlKey: (modifiers & 2) !== 0,
           metaKey: (modifiers & 4) !== 0, shiftKey: (modifiers & 8) !== 0,
           bubbles: true, cancelable: true, composed: true
         });
-        for (const property of ["keyCode", "which"])
-          Object.defineProperty(event, property, { value: key.windowsVirtualKeyCode });
         const physicalBefore = physicalModifierCodes();
         // Apply the same Core-following overlap rules as trusted delivery before
         // marking the event forwarded. Physical key handlers see this ownership

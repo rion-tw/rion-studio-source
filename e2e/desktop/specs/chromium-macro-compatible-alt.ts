@@ -52,6 +52,8 @@ export async function exerciseCompatibleAltShortcuts(input: Readonly<{
         const phases = events.filter(event => event.kind === kind && event.code === code);
         expect(phases).toHaveLength(1);
         const phase = phases[0]!;
+        expect(phase.keyCode).toBe(code === "Digit1" ? 49 : 51);
+        expect(phase.which).toBe(phase.keyCode);
         expect(phase.modifiers?.alt).toBe(phase.consumerPressedCodes?.includes("AltLeft"));
         if (kind === "consumer-keydown" || code === "Digit3" || held) {
           expect(phase.modifiers?.alt).toBe(true);
@@ -69,8 +71,8 @@ export async function exerciseCompatibleAltShortcuts(input: Readonly<{
   };
   try {
     await key("down");
-    await cycle(true);
-    await cycle(true);
+    const heldCycles = process.env.RION_STUDIO_E2E_PROFILE?.includes("hardware") ? 100 : 10;
+    for (let index = 0; index < heldCycles; index++) await cycle(true);
   } finally { await key("up"); }
   const cycles = process.env.RION_STUDIO_E2E_PROFILE?.includes("hardware") ? 100 : 4;
   for (let index = 0; index < cycles; index++) await cycle(false);

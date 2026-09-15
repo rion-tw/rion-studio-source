@@ -31,6 +31,8 @@ export interface FixtureEvent {
   hidden?: boolean;
   isTrusted?: boolean;
   key?: string;
+  keyCode?: number;
+  which?: number;
   kind: string;
   method?: string;
   fullscreen?: {

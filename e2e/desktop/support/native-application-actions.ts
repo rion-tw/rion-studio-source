@@ -587,96 +587,26 @@ if (-not $submitted) {
   }
 }
 
-async function activateVisibleMacosDockQuickMenu(processId: number): Promise<void> {
-  const script = String.raw`
-on firstMatchingLabel(itemNames, candidates)
-  repeat with candidate in candidates
-    if itemNames contains (candidate as text) then return candidate as text
-  end repeat
-  error "localized Rion Quick Menu label unavailable; items=" & itemNames
-end firstMatchingLabel
+interface NativeQuickMenuSelection {
+  readonly windowLabel?: string;
+  readonly absentWindowLabel?: string;
+}
 
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  set openLabels to {"Open Rion Studio", "開啟 Rion Studio", "打开 Rion Studio", "Rion Studio を開く"}
-  set roleLabels to {"Roles", "角色", "ロール"}
-  set workspaceLabels to {"Workspaces", "工作區", "工作区", "ワークスペース"}
-  set windowLabels to {"Windows", "視窗", "窗口", "ウインドウ"}
-  set appKitWindowPrefix to "com.rionstudio.runtime.appkit-window.v1:"
-  tell application "System Events"
-    set matchingProcesses to application processes whose unix id is targetPid
-    if (count of matchingProcesses) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set launcherWindows to {}
-    repeat with appWindow in windows of targetProcess
-      set appWindowIdentifier to ""
-      try
-        set appWindowIdentifier to value of attribute "AXIdentifier" of appWindow as text
-      end try
-      if appWindowIdentifier does not start with appKitWindowPrefix then
-        if value of attribute "AXRole" of appWindow is "AXWindow" then
-          set end of launcherWindows to appWindow
-        end if
-      end if
-    end repeat
-    if (count of launcherWindows) is not 1 then error "exact Rion launcher AXWindow unavailable"
-    set launcherWindow to item 1 of launcherWindows
-    set frontmost of targetProcess to true
-
-    tell process "Dock"
-      set rionDockItemCount to 0
-      set electronDockItemCount to 0
-      set rionDockItemIndex to 0
-      set electronDockItemIndex to 0
-      set dockItemCount to count of UI elements of list 1
-      repeat with dockItemIndex from 1 to dockItemCount
-        set candidate to UI element dockItemIndex of list 1
-        if role description of candidate is "application dock item" then
-          if name of candidate is "Rion Studio" or name of candidate is "Rion Studio Dev" then
-            set rionDockItemCount to rionDockItemCount + 1
-            set rionDockItemIndex to dockItemIndex
-          else if name of candidate is "Electron" then
-            set electronDockItemCount to electronDockItemCount + 1
-            set electronDockItemIndex to dockItemIndex
-          end if
-        end if
-      end repeat
-      if rionDockItemCount is 1 then
-        set targetDockItemIndex to rionDockItemIndex
-      else if rionDockItemCount is 0 and electronDockItemCount is 1 then
-        set targetDockItemIndex to electronDockItemIndex
-      else
-        error "Rion Dock isolation unavailable; Rion=" & rionDockItemCount & "; Electron=" & electronDockItemCount
-      end if
-      set dockItem to UI element targetDockItemIndex of list 1
-      perform action "AXShowMenu" of dockItem
-      set menuExpiry to (current date) + 10
-      set shownMenu to missing value
-      repeat while shownMenu is missing value
-        try
-          set shownMenu to value of attribute "AXShownMenuUIElement" of dockItem
-        end try
-        if (current date) is greater than menuExpiry then error "Rion Dock Quick Menu unavailable"
-        delay 0.05
-      end repeat
-      set itemNames to name of every menu item of shownMenu
-      set openLabel to my firstMatchingLabel(itemNames, openLabels)
-      my firstMatchingLabel(itemNames, roleLabels)
-      my firstMatchingLabel(itemNames, workspaceLabels)
-      my firstMatchingLabel(itemNames, windowLabels)
-      click menu item openLabel of shownMenu
-    end tell
-  end tell
-end run`;
-  await executeFile("/usr/bin/osascript", [
-    "-e",
-    script,
-    "--",
-    String(processId)
+async function activateVisibleMacosDockQuickMenu(
+  processId: number,
+  selection: NativeQuickMenuSelection
+): Promise<void> {
+  await executeFile("/usr/bin/xcrun", [
+    "swift",
+    fileURLToPath(new URL("./macos-native-quick-menu.swift", import.meta.url)),
+    String(processId), selection.windowLabel ?? "", selection.absentWindowLabel ?? ""
   ], { encoding: "utf8", timeout: 20_000 });
 }
 
-async function activateVisibleWindowsTrayQuickMenu(processId: number): Promise<void> {
+async function activateVisibleWindowsTrayQuickMenu(
+  processId: number,
+  selection: NativeQuickMenuSelection
+): Promise<void> {
   const script = String.raw`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -803,8 +733,10 @@ $matches = [System.Collections.Generic.List[System.IntPtr]]::new()
   }
   return $true
 }, [IntPtr]::Zero) | Out-Null
-if ($matches.Count -ne 1) { throw 'exact visible Rion launcher HWND unavailable' }
-[RionQuickMenuInput]::ShowWindowAsync($matches[0], 6) | Out-Null
+if (-not $payload.windowLabel -and -not $payload.absentWindowLabel) {
+  if ($matches.Count -ne 1) { throw 'exact visible Rion launcher HWND unavailable' }
+  [RionQuickMenuInput]::ShowWindowAsync($matches[0], 6) | Out-Null
+}
 
 $trayIcon = Find-RionNotificationIcon
 if (-not $trayIcon) {
@@ -838,18 +770,35 @@ do {
   if ([DateTime]::UtcNow -gt $expiry) { throw 'complete Rion Studio Tray Quick Menu unavailable' }
   Start-Sleep -Milliseconds 50
 } while ($true)
-Click-Center $openItem $false
+$menu = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($openItem)
+$directItems = $menu.FindAll(
+  [System.Windows.Automation.TreeScope]::Children,
+  [System.Windows.Automation.PropertyCondition]::new(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::MenuItem
+  )
+)
+if ($payload.absentWindowLabel -and ($directItems | Where-Object {
+  $_.Current.Name -eq $payload.absentWindowLabel
+})) { throw 'closed runtime window remains in the top-level Tray menu' }
+if ($payload.windowLabel) {
+  $windowItems = @($directItems | Where-Object { $_.Current.Name -eq $payload.windowLabel })
+  if ($windowItems.Count -ne 1) { throw 'exact top-level runtime window menu item unavailable' }
+  Click-Center $windowItems[0] $false
+} else {
+  Click-Center $openItem $false
+}
 `;
-  await runEncodedPowerShellJson(script, { processId }, {
+  await runEncodedPowerShellJson(script, { processId, ...selection }, {
     timeoutMilliseconds: 30_000
   });
 }
 
-/** Opens the real Dock/notification-area menu and invokes its visible Open item. */
+/** Selects a top-level window or Open item through the real Dock/Tray menu. */
 export async function activateVisibleNativeQuickMenu(input: Readonly<{
   platform: "macos" | "windows";
   processId: number;
-}>): Promise<void> {
+} & NativeQuickMenuSelection>): Promise<void> {
   if (!validProcessId(input.processId)) {
     throw new Error("The native Quick Menu requires one exact app PID");
   }
@@ -857,13 +806,13 @@ export async function activateVisibleNativeQuickMenu(input: Readonly<{
     if (process.platform !== "darwin") {
       throw new Error("The macOS Dock Quick Menu requires a macOS host");
     }
-    await activateVisibleMacosDockQuickMenu(input.processId);
+    await activateVisibleMacosDockQuickMenu(input.processId, input);
     return;
   }
   if (process.platform !== "win32") {
     throw new Error("The Windows Tray Quick Menu requires a Windows host");
   }
-  await activateVisibleWindowsTrayQuickMenu(input.processId);
+  await activateVisibleWindowsTrayQuickMenu(input.processId, input);
 }
 
 /**

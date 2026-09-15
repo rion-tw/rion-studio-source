@@ -101,11 +101,54 @@ function submenu(
 }
 
 describe("Electron Quick Menu model", () => {
+  it.each(["darwin", "win32"] as const)("lists only live windows directly, sharing submenu names and order (%s)", (platform) => {
+    const state = snapshot();
+    // Hidden tabs still belong to a live window; multiple tabs yield one entry.
+    state.browserRuntime.tabs[1]!.hidden = true;
+    state.browserRuntime.tabs.push({
+      ...state.browserRuntime.tabs[1]!, id: "second-tab", name: "Inactive"
+    });
+    const model = buildElectronQuickMenuModel({ language: "zh-TW", legal: legal(false), platform, snapshot: state });
+    const direct = model.filter((entry) => "id" in entry && entry.id.startsWith("show-display:"));
+    expect(direct).toEqual([
+      { id: "show-display:window-live", label: "Live", checked: true, enabled: true },
+      { id: "show-display:window-temp", label: "Temporary Role · 臨時視窗", checked: true, enabled: true }
+    ]);
+    for (const entry of direct) expect(submenu(model, "視窗")).toContain(entry);
+    expect(model).not.toContainEqual(expect.objectContaining({ id: "restore-window:window-saved" }));
+    expect(submenu(model, "視窗")).toContainEqual(expect.objectContaining({ id: "restore-window:window-saved" }));
+    expect(model.slice(0, 7)).toEqual([
+      expect.objectContaining({ id: "open-app" }),
+      expect.objectContaining({ id: "review-terms" }),
+      { type: "separator" }, ...direct, { type: "separator" },
+      expect.objectContaining({ label: "角色", submenu: expect.any(Array) })
+    ]);
+  });
+
+  it.each(["darwin", "win32"] as const)("omits the direct section without live windows (%s)", (platform) => {
+    const state = snapshot();
+    state.browserRuntime.windows = [];
+    state.browserRuntime.tabs = [];
+    const model = buildElectronQuickMenuModel({ language: "en", legal: legal(true), platform, snapshot: state });
+    expect(model.slice(0, 3)).toEqual([
+      expect.objectContaining({ id: "open-app" }), { type: "separator" },
+      expect.objectContaining({ label: "Roles", submenu: expect.any(Array) })
+    ]);
+    expect(model.some((entry) => "id" in entry && entry.id.startsWith("show-display:"))).toBe(false);
+    expect(submenu(model, "Windows")).toHaveLength(2);
+    for (let index = 1; index < model.length; index += 1) {
+      expect("type" in model[index]! && "type" in model[index - 1]!).toBe(false);
+    }
+  });
+
   it.each(["darwin", "win32"] as const)("names an empty temporary window without the product name (%s)", (platform) => {
     const state = snapshot();
     state.browserRuntime.tabs = state.browserRuntime.tabs.filter((tab) => tab.windowId !== "window-temp");
     const model = buildElectronQuickMenuModel({ language: "zh-TW", legal: legal(true), platform, snapshot: state });
     expect(submenu(model, "視窗")).toContainEqual(expect.objectContaining({
+      id: "show-display:window-temp", label: "臨時視窗"
+    }));
+    expect(model).toContainEqual(expect.objectContaining({
       id: "show-display:window-temp", label: "臨時視窗"
     }));
   });

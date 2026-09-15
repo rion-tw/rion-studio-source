@@ -209,6 +209,9 @@ export function buildElectronQuickMenuModel(
   if (windowItems.length === 0) {
     windowItems.push(item("no-windows", labels.noWindows, false));
   }
+  const openWindowItems = windowItems.filter(
+    (entry) => "id" in entry && entry.id.startsWith("show-display:")
+  );
 
   return Object.freeze([
     item("open-app", labels.open, true),
@@ -216,6 +219,10 @@ export function buildElectronQuickMenuModel(
       ? [item("review-terms", labels.reviewTerms, true)]
       : []),
     Object.freeze({ type: "separator" as const }),
+    ...openWindowItems,
+    ...(openWindowItems.length > 0
+      ? [Object.freeze({ type: "separator" as const })]
+      : []),
     Object.freeze({ label: labels.roles, submenu: Object.freeze(roleItems) }),
     Object.freeze({
       label: labels.workspaces,

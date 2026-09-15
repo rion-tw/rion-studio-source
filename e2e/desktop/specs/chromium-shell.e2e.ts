@@ -1,6 +1,6 @@
 import { $, browser, expect } from "@wdio/globals";
 
-import type { AppSnapshot } from "../../../src/shared/types";
+import type { AppSnapshot, Role } from "../../../src/shared/types";
 import {
   electronDesktopE2eArmApplicationShortcutFullscreenExit,
   electronDesktopE2eApplicationShortcutRuntime,
@@ -16,16 +16,21 @@ import {
   activateVisibleNativeQuickMenu,
   focusVisibleMacosAppKitRuntime,
   pressVisibleMacosApplicationShortcut,
-  pressVisibleWindowsApplicationShortcut
+  pressVisibleWindowsApplicationShortcut,
+  waitForFocusedMacosAppKitRuntime
 } from
   "../support/native-application-actions";
 import { rendererCall } from "../support/renderer-bridge";
 import {
   installRuntimeTabShellErrorJournal,
-  runtimeTabShellErrors
+  runtimeTabShellErrors,
+  clickVisibleRuntimeWindowControl,
+  closeVisibleRuntimeWindow,
+  runtimeWindowIsMinimized
 } from "../support/native-runtime-tabs";
 import {
   bootstrapChromiumMacroCutover,
+  createChromiumMacroWindow,
   launchChromiumRoleVisible,
   macroFixtureUrl
 } from "./chromium-macro-cutover-support";
@@ -337,6 +342,51 @@ async function createFocusedApplicationShortcutRuntime(input: Readonly<{
   return { initial, windowId: exactWindowId };
 }
 
+async function verifyDirectWindowQuickMenu(input: Readonly<{
+  platform: ChromiumShellPlatform;
+  processId: number;
+  mainWindowHandle: string;
+  role: Role;
+}>): Promise<void> {
+  const window = await createChromiumMacroWindow(
+    "bdc97824-27f9-4928-a58e-7f7567f32962", "Quick Menu Window"
+  );
+  const { windowId, tabId } = await launchChromiumRoleVisible(
+    input.role, SHORTCUT_FIXTURE_ID, window
+  );
+  const initial = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime;
+  expect(initial?.coreTabIds).toEqual([tabId]);
+  await clickVisibleRuntimeWindowControl({ ...input, windowId, tabId, command: "minimize" });
+  await browser.waitUntil(() => runtimeWindowIsMinimized(input.platform, windowId), {
+    timeout: 10_000, timeoutMsg: "Quick Menu fixture window was not minimized"
+  });
+  await activateVisibleNativeQuickMenu({ ...input, windowLabel: window.name });
+  if (input.platform === "macos") {
+    await waitForFocusedMacosAppKitRuntime({ processId: input.processId, windowId });
+    expect(await runtimeWindowIsMinimized(input.platform, windowId)).toBe(false);
+  }
+  await browser.waitUntil(async () => {
+    const runtime = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime;
+    return runtime?.visible === true &&
+      (input.platform === "macos" || runtime.focused);
+  }, { timeout: 10_000, timeoutMsg: "Direct Quick Menu item did not present its exact runtime window" });
+  const restored = (await electronDesktopE2eGameWindowRuntime(windowId)).currentRuntime;
+  expect(restored).toEqual(expect.objectContaining({
+    windowId, windowGeneration: initial!.windowGeneration,
+    parentNativeHostId: initial!.parentNativeHostId,
+    appKitIdentity: initial!.appKitIdentity, coreTabIds: [tabId], nativeTabIds: [tabId]
+  }));
+  await closeVisibleRuntimeWindow({ ...input, windowId, tabId });
+  await browser.waitUntil(async () =>
+    !(await rendererCall("getEmbeddedRuntimeState")).windows.some(
+      (candidate) => candidate.windowId === windowId
+    ), { timeout: 10_000, timeoutMsg: "Closed Quick Menu fixture remains live in Core" });
+  await activateVisibleNativeQuickMenu({ ...input, absentWindowLabel: window.name });
+  await browser.waitUntil(() => browser.execute(() => document.hasFocus()), {
+    timeout: 10_000, timeoutMsg: "Quick Menu did not return to the launcher after window close"
+  });
+}
+
 async function restoreMacosShortcutFocus(input: Readonly<{
   fullscreen?: boolean;
   platform: ChromiumShellPlatform;
@@ -501,6 +551,25 @@ describe("Chromium desktop shell", () => {
         timeoutMsg: "The native Quick Menu did not present the launcher window"
       }
     );
+  });
+
+  it("restores an exact minimized window from the direct Quick Menu and removes its closed entry", async () => {
+    const context = await bootstrapChromiumMacroCutover();
+    const desktop = await electronDesktopE2eProbe();
+    const launchUrl = macroFixtureUrl(SHORTCUT_FIXTURE_ID);
+    const game = await rendererCall("createGame", {
+      defaultLaunchUrl: launchUrl, name: "Quick Menu Fixture Game"
+    });
+    const role = await rendererCall("createRole", {
+      gameId: game.id, launchUrl, name: "Quick Menu Fixture Role"
+    });
+    await verifyDirectWindowQuickMenu({
+      ...context, processId: desktop.processId, role
+    });
+  });
+
+  it("applies native new-window, zoom and fullscreen shortcuts to the exact runtime", async () => {
+    const desktop = await electronDesktopE2eProbe();
     await verifyFocusedApplicationShortcuts({
       platform: desktop.platform,
       processId: desktop.processId

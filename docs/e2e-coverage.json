@@ -695,7 +695,7 @@
         "success",
         "failure"
       ],
-      "description": "Open the isolated Rion Studio Dock item through macOS accessibility, require the complete localized Roles, Workspaces, and Windows Quick Menu sections, invoke its visible Open Rion Studio item, and prove that the exact-PID Electron launcher becomes frontmost again."
+      "description": "Open the isolated Rion Studio Dock item through macOS accessibility, require the complete localized Roles, Workspaces, and Windows Quick Menu sections, invoke its visible Open Rion Studio item, and prove that the exact-PID Electron launcher becomes frontmost again. Launch a fixture Role into a saved Game Window through visible Quick Access, minimize it through its visible control, select its direct top-level Dock item, and prove restored native focus and stable exact AppKit identity. Close it through visible chrome and require its top-level menu item to disappear."
     },
     {
       "id": "CHROMIUM-WINDOWS-QUICK-MENU-033",
@@ -717,7 +717,7 @@
         "success",
         "failure"
       ],
-      "description": "Find the visible Rion Studio notification-area icon through Windows UI Automation, require the complete localized Roles, Workspaces, and Windows Tray menu sections, invoke its visible Open Rion Studio item, and prove that the minimized exact-PID Electron launcher becomes foreground again."
+      "description": "Find the visible Rion Studio notification-area icon through Windows UI Automation, require the complete localized Roles, Workspaces, and Windows Tray menu sections, invoke its visible Open Rion Studio item, and prove that the minimized exact-PID Electron launcher becomes foreground again. Launch a fixture Role into a saved Game Window through visible Quick Access, minimize it through its visible control, select its direct top-level Tray item, and prove restored focus and stable exact bundled-host identity. Close it through visible chrome and require its top-level menu item to disappear."
     },
     {
       "id": "CHROMIUM-WINDOWS-TRUSTED-INPUT-PHYSICAL-009",

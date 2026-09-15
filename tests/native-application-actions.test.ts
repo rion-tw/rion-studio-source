@@ -171,7 +171,7 @@ describe("native application shortcut target modes", () => {
   it("selects the exact Windows notification overflow before its shared-id fallback", () => {
     const quickMenu = sourceBetween(
       "async function activateVisibleWindowsTrayQuickMenu",
-      "/** Opens the real Dock/notification-area menu"
+      "export async function activateVisibleNativeQuickMenu"
     );
     expect(quickMenu).toContain("function Find-NotificationChevron");
     expect(quickMenu).toContain("function Find-RionNotificationIcon");

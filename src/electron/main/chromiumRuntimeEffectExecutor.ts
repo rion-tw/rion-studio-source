@@ -181,6 +181,11 @@ export class ChromiumRuntimeEffectExecutor {
       closingWebSurfaceGenerations: this.#closingWebSurfaceGenerations });
   }
 
+  /** Retained resources to fence in Core; shutdown must not query native presentation. */
+  roleIdsForInputDrain(): readonly string[] {
+    return [...new Set([...this.#roles.keys(), ...this.#openingRoles.keys()])].sort();
+  }
+
   desktopE2eStatusPresentation(windowId: string): number | undefined {
     return this.#windows.get(windowId)?.host.desktopE2eStatusPresentation?.(); }
 

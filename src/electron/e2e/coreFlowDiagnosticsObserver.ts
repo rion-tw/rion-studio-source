@@ -77,6 +77,7 @@ export function describeRuntimeEffectAction(
   if (action.type === "embeddedCreateTab") {
     return {
       tabId: action.tab.tabId,
+      sourceId: action.tab.sourceId,
       windowId: action.tab.target.windowId,
       windowGeneration: action.tab.appkitWindowGeneration,
       topologyRevision: action.tab.appkitTopologyRevision

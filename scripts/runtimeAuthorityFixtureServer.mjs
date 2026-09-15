@@ -1,3 +1,4 @@
+import { createFixtureKeyboardJournal } from "./fixtureKeyboardJournal.mjs";
 import { createServer } from "node:http";
 
 const DEFAULT_PORT = 41739;
@@ -361,8 +362,14 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       }
       document.querySelector("#last-event").textContent = kind;
     };
+    const keyboardJournal = (${createFixtureKeyboardJournal.toString()})();
+    const fixtureDocumentToken = crypto.randomUUID();
+    Object.defineProperty(window, "__rionFixtureKeyboardSnapshot", { value: () => ({
+      ...keyboardJournal.snapshot(), fixtureRoleId: roleId, documentToken: fixtureDocumentToken
+    }) });
     let recordQueue = Promise.resolve();
     const record = (kind, details = {}) => {
+      keyboardJournal.record(kind, details);
       if (kind in counts) counts[kind] += 1;
       render(kind);
       recordQueue = recordQueue.then(() => fetch("/api/event", {

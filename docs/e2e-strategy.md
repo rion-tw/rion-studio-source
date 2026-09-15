@@ -495,3 +495,22 @@ unit tests cover allowed HTTPS origins, rejected origins and isolated sessions.
 Real iq.com video playback, account entitlement, codecs and license acceptance
 remain separate manual evidence. No CDM or alternate Electron build is installed
 by these journeys.
+
+### Terminal cleanup observation
+
+Workspace cancellation and Macro terminal-cleanup journeys observe the original
+Core effect continuation, not its admission. A diagnostic callback must never
+replace that continuation or turn a snapshot/readback failure into the native
+effect's result. Tab destruction must complete before the workspace test waits
+for both exact Role retirement projections.
+
+For tab, window and Quit cleanup, the fixture records keyboard edges and consumer
+pressed codes synchronously in a bounded, document-local journal. The E2E-only
+close observer reads the original frame once before `closeRole` retires the
+overlay and WebContents; it fences Role, surface generation, frame, document and
+fixture origin. The resulting `electron-fixture-keyboard-terminal.json` is
+independent of the page's HTTP event queue. Missing, replaced or truncated
+consumer evidence fails acceptance even when the input receipt says applied.
+The observer never injects keys, retries readback, or waits for HTTP. Production
+input/drain ordering is also tested without this observer. These hooks are
+excluded from production builds and add no public renderer capability.

@@ -1,3 +1,4 @@
+import { drainChromiumShutdownInput } from "./chromiumShutdownInputDrain";
 import { ChromiumSessionRecoveryExecutor } from "./chromiumSessionRecoveryExecutor";
 import type {
   BrowserRuntimeRegistrationRecord,
@@ -1620,6 +1621,13 @@ export class ChromiumRuntimeBootstrap {
       .then(() => this.#roleReloadCoordinator?.dispose())
       .then(() => this.#popupCoordinator.dispose())
       .then(() => this.#automaticInputContext.closeAndDrain())
+      .then(() => {
+        // A lost stream already terminalizes its accepted effects. Normal exit
+        // must keep it alive until Core has released every frozen Role's input.
+        if (this.#fatalGeneration > 0) return;
+        return drainChromiumShutdownInput(this.#core,
+          this.#executor.roleIdsForInputDrain());
+      })
       .then(() => this.#coordinator.dispose());
     return this.#intakeDrainPromise;
   }

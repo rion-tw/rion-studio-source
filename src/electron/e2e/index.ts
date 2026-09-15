@@ -1,3 +1,5 @@
+import { installFixtureKeyboardCloseObserver } from "./fixtureKeyboardCloseObserver";
+import { observeRuntimeEffectCompletion } from "./runtimeEffectCompletionObservation";
 import { MacosAppKitInputSurfaceAttachmentCoordinator } from "../main/macosAppKitInputSurfaceAttachmentCoordinator";
 import { installRuntimeTargetProjectionBarrier } from "./runtimeTargetProjectionBarrier";
 import { installDiagnosticsProjectionFault } from "./diagnosticsProjectionFault";
@@ -469,18 +471,24 @@ function installElectronDesktopE2eWorkspaceWebObserver(): void {
     let result: unknown;
     try {
       result = await originalExecuteRuntimeEffect.call(this, effect, context);
-      appendCoreFlowObservation({
-        boundary: "effect",
-        ...(action.type === "embeddedDestroyTab"
-          ? { details: { native: this.snapshot(), result } }
-          : {}),
-        identity: effect.effectId,
-        status: "completed",
-        type: action.type
-      });
+      observeRuntimeEffectCompletion(result, (terminal) => {
+        appendCoreFlowObservation({
+          boundary: "effect", identity: effect.effectId, status: "completed",
+          type: action.type,
+          details: { action: details, operationId: effect.operationId,
+            ...(action.type === "embeddedDestroyTab" ? { result: terminal } : {}) }
+        });
+      }, (error) => {
+        appendCoreFlowObservation({
+          boundary: "effect", identity: effect.effectId, status: "rejected",
+          type: action.type, details: { action: details, operationId: effect.operationId },
+          error: describeCoreFlowError(error)
+        });
+      }, (error) => console.error("E2E effect observation failed", error));
     } catch (error) {
       appendCoreFlowObservation({
         boundary: "effect",
+        details: { action: details, operationId: effect.operationId },
         error: error instanceof Error ? error.message : String(error),
         identity: effect.effectId,
         status: "rejected",
@@ -1516,6 +1524,7 @@ installElectronDesktopE2eLaunchCompletionObserver();
 installElectronDesktopE2eApplicationLifecycleObserver();
 installElectronDesktopE2eRoleRuntimeObserver();
 installElectronDesktopE2eRoleSurfaceLifecycleObserver(app, artifactDirectory);
+installFixtureKeyboardCloseObserver(artifactDirectory, process.env.RION_STUDIO_E2E_FIXTURE_ORIGIN);
 installElectronDesktopE2eNativeAttachmentLifecycleObserver(
   ChromiumViewAttachmentCoordinator.prototype,
   artifactDirectory

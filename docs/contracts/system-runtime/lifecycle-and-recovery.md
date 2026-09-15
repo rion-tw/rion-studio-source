@@ -200,6 +200,7 @@ classes from `WM_POWERBROADCAST`. These adapters report signals only; neither
 adapter defines ordering or terminal semantics.
 
 ## Shutdown rules
+Chromium keeps documents and the effect stream live until Core’s `macroInputFence` / `macroInputDrain` confirm each retained Role’s epoch; failed drains cannot mark clean exit.
 
 Shutdown moves once through `accepting`, `draining`, and either `closed` or
 `indeterminate`. While draining, new launch, navigation, geometry, presentation,
@@ -212,7 +213,6 @@ Confirmed isolation with an unconfirmed controller release is `degraded`;
 unconfirmed content isolation is `indeterminate` and marks the runtime unhealthy.
 Every `close_all()` caller waits for and receives the same shutdown receipt,
 including update installation and repeated exit requests.
-
 The restore session is marked `cleanExit: false` while the runtime is active and
 before any updater drain. It becomes `true` only after the shared shutdown
 receipt is terminal `applied` or `degraded`. A failed or indeterminate drain

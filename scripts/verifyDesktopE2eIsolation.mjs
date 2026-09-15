@@ -34,12 +34,12 @@ const runtimeRoots = [
   {
     directory: resolve(root, "out", "main"),
     label: "Electron main",
-    markers: /rion:e2e:invoke|rionStudioDesktopE2e|retainedV22Precondition/u
+    markers: /rion:e2e:invoke|rionStudioDesktopE2e|retainedV22Precondition|__rionFixtureKeyboardSnapshot|electron-fixture-keyboard-terminal/u
   },
   {
     directory: resolve(root, "out", "preload"),
     label: "Electron preload",
-    markers: /rion:e2e:invoke|rionStudioDesktopE2e|retainedV22Precondition/u
+    markers: /rion:e2e:invoke|rionStudioDesktopE2e|retainedV22Precondition|__rionFixtureKeyboardSnapshot|electron-fixture-keyboard-terminal/u
   }
 ];
 for (const runtimeRoot of runtimeRoots) {

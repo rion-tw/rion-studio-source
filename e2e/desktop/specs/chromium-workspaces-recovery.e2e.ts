@@ -1,10 +1,12 @@
+import { expectRoleSurfacesDestroyed, runtimeEffectCursor, waitForCreatedWorkspaceTab, waitForTabDestruction } from "../support/terminal-cleanup-evidence";
+import { installRendererEventJournal, rendererEventCursor, waitForRoleProjection } from "../support/renderer-events";
 import { workspaceSlotUi } from "../support/workspace-slot-ui";
 // [state-combination:CHROMIUM-MACOS-APPKIT-WORKSPACE-RECOVERY]
 // [state-combination:CHROMIUM-WINDOWS-WORKSPACE-RECOVERY]
 import { browser, expect } from "@wdio/globals";
 
 import type { EmbeddedRuntimeTabSummary } from "../../../src/shared/types";
-import { electronDesktopE2eProbe, electronDesktopE2eRolePlaceholderRuntime } from
+import { electronDesktopE2eProbe, electronDesktopE2eRolePlaceholderRuntime, electronDesktopE2eRoleSessionRuntime } from
   "../support/electron-driver";
 import { clickVisibleElectronPageElement, withRolePageTarget } from
   "../support/electron-role-surface";
@@ -328,6 +330,10 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
 
     const processId = (await electronDesktopE2eProbe()).processId;
     const cancelCursor = await fixtureCursor();
+    await installRendererEventJournal();
+    const cancelProjectionCursor = await rendererEventCursor();
+    const cancelEffectCursor = await runtimeEffectCursor();
+    let cancelledTabId = "";
     await fixtureRequest("/api/gate", { roleId: HEALTHY_FIXTURE });
     await fixtureRequest("/api/gate", { roleId: FAILING_FIXTURE });
     try {
@@ -342,6 +348,7 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
         await closeLoadingWindowsRuntimeTab({ processId, tabName: workspace.name });
       } else {
         const gatedTab = await waitWorkspaceTab(workspace.id);
+        cancelledTabId = gatedTab.id;
         await stopCutoverWindow({
           mainWindowHandle: input.mainWindowHandle,
           platform: input.platform,
@@ -356,13 +363,15 @@ describe("Chromium Workspace navigation-failure recovery exact replacement", () 
       await fixtureRequest("/api/release", { roleId: HEALTHY_FIXTURE });
       await fixtureRequest("/api/release", { roleId: FAILING_FIXTURE });
     }
-    // Native click and transport cancellation precede Core tab retirement.
-    await browser.waitUntil(async () => !(await rendererCall(
-      "getEmbeddedRuntimeState"
-    )).tabs.some((tab) => tab.sourceId === workspace.id), {
-      timeout: 45_000,
-      timeoutMsg: "The cancelled Workspace did not reach Core tab retirement"
-    });
+    cancelledTabId ||= await waitForCreatedWorkspaceTab(workspace.id, cancelEffectCursor);
+    await waitForTabDestruction(cancelledTabId);
+    await Promise.all([healthyRole.id, failingRole.id].map(roleId =>
+      waitForRoleProjection({ roleId, absent: true, afterSequence: cancelProjectionCursor })
+    ));
+    await expectRoleSurfacesDestroyed([healthyRole.id, failingRole.id]);
+    for (const roleId of [healthyRole.id, failingRole.id]) {
+      expect((await electronDesktopE2eRoleSessionRuntime(roleId)).currentRuntime).toBeNull();
+    }
     const cancelled = await rendererCall("getEmbeddedRuntimeState");
     expect(cancelled.tabs.some((tab) => tab.sourceId === workspace.id)).toBe(false);
     expect((await rendererCall("listRoleStatuses")).some((status) =>

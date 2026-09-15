@@ -1,3 +1,4 @@
+import { expectRoleSurfacesDestroyed, expectTerminalConsumerRelease, waitForTabDestruction } from "../support/terminal-cleanup-evidence";
 import { browser, expect } from "@wdio/globals";
 
 import type { Macro, Role } from "../../../src/shared/types";
@@ -150,11 +151,11 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     }]
   });
   const tabMacro = await createHeldMacro(tabRole, NAMES.tabMacro, "KeyT");
-  const windowMacro = await createHeldMacro(windowRole, NAMES.windowMacro, "KeyW");
+  const windowMacro = await createHeldMacro(windowRole, NAMES.windowMacro, "KeyT");
   const shutdownMacro = await createHeldMacro(
     shutdownRole,
     NAMES.shutdownMacro,
-    "KeyA"
+    "KeyT"
   );
   const tabParent = await launchBound(
     context,
@@ -184,7 +185,7 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
   )).toBe(false);
 
   const tabFixture = await fixtureCursor();
-  await startChromiumMacroVisible(tabMacro, [tabRole.id]);
+  const tabMacroCursor = await startChromiumMacroVisible(tabMacro, [tabRole.id]);
   const tabDown = await waitFixtureEvent({
     afterSequence: tabFixture,
     kind: "keydown",
@@ -198,11 +199,11 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     tabName: tabRole.name,
     windowId: tabChild.windowId
   });
-  await waitFixtureEvent({
-    afterSequence: tabDown.sequence,
-    kind: "keyup",
-    roleId: FIXTURES.tab
-  });
+  expect(tabDown.code).toBe("KeyT");
+  await expectTerminalConsumerRelease(tabRole.id, tabChild.tabId, "KeyT");
+  await waitForTabDestruction(tabChild.tabId);
+  await expectRoleSurfacesDestroyed([tabRole.id]);
+  await waitForMacroProjection({ absent: true, afterSequence: tabMacroCursor, macroId: tabMacro.id });
   await expectExactCleanup(tabRole, tabObservations.at(-1)?.sequence ?? 0);
   const windowCloseCursor = await rendererEventCursor();
   await closeVisibleRuntimeWindow({
@@ -227,7 +228,7 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     NAMES.windowB
   );
   const windowFixture = await fixtureCursor();
-  await startChromiumMacroVisible(windowMacro, [windowRole.id]);
+  const windowMacroCursor = await startChromiumMacroVisible(windowMacro, [windowRole.id]);
   const windowDown = await waitFixtureEvent({
     afterSequence: windowFixture,
     kind: "keydown",
@@ -240,11 +241,11 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     platform: context.platform,
     windowId: WINDOW_B
   });
-  await waitFixtureEvent({
-    afterSequence: windowDown.sequence,
-    kind: "keyup",
-    roleId: FIXTURES.window
-  });
+  expect(windowDown.code).toBe("KeyT");
+  await expectTerminalConsumerRelease(windowRole.id, tabWindow.tabId, "KeyT");
+  await waitForTabDestruction(tabWindow.tabId);
+  await expectRoleSurfacesDestroyed([windowRole.id]);
+  await waitForMacroProjection({ absent: true, afterSequence: windowMacroCursor, macroId: windowMacro.id });
   await expectExactCleanup(windowRole, windowObservations.at(-1)?.sequence ?? 0);
   await waitForRuntimeProjection({
     absent: true,
@@ -266,7 +267,7 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     kind: "keydown",
     roleId: FIXTURES.shutdown
   });
-  expect((await fixtureState())[FIXTURES.shutdown]?.pressedCodes).toContain("KeyA");
+  expect((await fixtureState())[FIXTURES.shutdown]?.pressedCodes).toContain("KeyT");
   const nativeBinding = await expectChromiumNativeRoleBinding(context, tabShutdown);
   await writeChromiumMacroEvidence("chromium-macro-terminal-cleanup-seed.json", {
     nativeBinding,
@@ -280,6 +281,8 @@ export async function seedChromiumMacroTerminalCleanup(): Promise<void> {
     tabWindow
   });
   await quitChromiumApplicationVisible(context);
+  await expectTerminalConsumerRelease(shutdownRole.id, tabShutdown.tabId, "KeyT");
+  await expectRoleSurfacesDestroyed([shutdownRole.id]);
 }
 
 export async function restartChromiumMacroTerminalCleanup(): Promise<void> {
@@ -314,7 +317,7 @@ export async function restartChromiumMacroTerminalCleanup(): Promise<void> {
     kind: "keydown",
     roleId: FIXTURES.shutdown
   });
-  expect(keyDown).toEqual(expect.objectContaining({ code: "KeyA", isTrusted: false }));
+  expect(keyDown).toEqual(expect.objectContaining({ code: "KeyT", isTrusted: false }));
   await stopChromiumMacroVisible(macro, macroCursor);
   const keyUp = await waitFixtureEvent({
     afterSequence: keyDown.sequence,

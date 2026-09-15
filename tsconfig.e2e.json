@@ -7,6 +7,7 @@
   "include": [
     "e2e/desktop/**/*.ts",
     "src/electron/e2e/popupLifecycleJournalInspection.ts",
+    "src/electron/e2e/fixtureKeyboardEvidence.ts",
     "src/electron/e2e/runtimeTabReloadInspection.ts",
     "src/renderer/src/global.d.ts",
     "src/shared/**/*.ts"

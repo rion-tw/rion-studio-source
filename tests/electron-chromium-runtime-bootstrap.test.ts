@@ -1,3 +1,4 @@
+import { ChromiumRuntimeEffectExecutor } from "../src/electron/main/chromiumRuntimeEffectExecutor";
 import { posix } from "node:path";
 
 import type {
@@ -123,6 +124,10 @@ class FakeCore implements ChromiumRuntimeCorePort {
     command: Command
   ): Promise<CoreCommandResult<Command>> {
     this.commands.push(command);
+    if (command.type === "macroInputFence" || command.type === "macroInputDrain") {
+      this.order.push(command.type);
+      return { roleId: command.roleId, inputEpoch: 1, current: true } as CoreCommandResult<Command>;
+    }
     if (command.type === "roleSessionMigrationsList") {
       this.order.push("resume-migrations");
       return [...this.migrationJournals] as unknown as CoreCommandResult<Command>;
@@ -577,6 +582,59 @@ describe("Electron Chromium runtime bootstrap", () => {
       await clean;
       await runtime.shutdown();
     }
+  });
+
+  it("drains Core-owned macro keys before closing the effect stream", async () => {
+    const core = new FakeCore();
+    const snapshot = vi.spyOn(ChromiumRuntimeEffectExecutor.prototype, "roleIdsForInputDrain")
+      .mockReturnValue(["held-role"]);
+    const runtime = await ChromiumRuntimeBootstrap.start({
+      core, platform: "darwin", electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250",
+      rolePreloadPath: "/Rion/out/preload/role.cjs", ...emptyNativePorts(), onError: vi.fn()
+    });
+    try {
+      await runtime.prepareCleanExit(async () => undefined);
+      expect(core.commands.filter(command => command.type === "macroInputFence" || command.type === "macroInputDrain"))
+        .toEqual([{ type: "macroInputFence", roleId: "held-role" },
+          { type: "macroInputDrain", roleId: "held-role", inputEpoch: 1 }]);
+    } finally { snapshot.mockRestore(); await runtime.shutdown(); }
+  });
+
+  it.each([true, false])("keeps surfaces and effects until an exact input drain (current=%s)", async current => {
+    const core = new FakeCore();
+    const cohort = vi.spyOn(ChromiumRuntimeEffectExecutor.prototype, "roleIdsForInputDrain").mockReturnValue(["held-role"]);
+    const disposed = vi.spyOn(ChromiumRuntimeEffectExecutor.prototype, "dispose");
+    const runtime = await ChromiumRuntimeBootstrap.start({
+      core, platform: "darwin", electronVersion: "43.6.0", chromiumVersion: "150.0.7871.250",
+      rolePreloadPath: "/Rion/out/preload/role.cjs", ...emptyNativePorts(), onError: vi.fn()
+    });
+    const terminal = deferred();
+    const originalInvoke = core.invoke.bind(core);
+    const invoke = vi.spyOn(core, "invoke").mockImplementation(async command => {
+      if (command.type !== "macroInputDrain") return originalInvoke(command);
+      await terminal.promise;
+      return { roleId: command.roleId, inputEpoch: command.inputEpoch, current } as never;
+    });
+    const persist = vi.fn(async () => undefined);
+    const clean = runtime.prepareCleanExit(persist);
+    const outcome = current ? expect(clean).resolves.toBeUndefined()
+      : expect(clean).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_SHUTDOWN_INPUT_UNVERIFIED" });
+    try {
+      await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith({ type: "macroInputDrain", roleId: "held-role", inputEpoch: 1 }));
+      expect(core.unsubscribe).not.toHaveBeenCalled();
+      expect(disposed).not.toHaveBeenCalled();
+      expect(persist).not.toHaveBeenCalled();
+      terminal.resolve();
+      await outcome;
+      if (current) {
+        expect(persist).toHaveBeenCalledOnce();
+        await runtime.shutdown();
+      } else {
+        expect(persist).not.toHaveBeenCalled();
+        expect(disposed).not.toHaveBeenCalled();
+        await expect(runtime.shutdown()).rejects.toMatchObject({ code: "ELECTRON_CHROMIUM_SHUTDOWN_INPUT_UNVERIFIED" });
+      }
+    } finally { cohort.mockRestore(); disposed.mockRestore(); invoke.mockRestore(); }
   });
 
   it("closes frozen native state before admitting a clean recovery journal", async () => {

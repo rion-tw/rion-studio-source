@@ -1,3 +1,4 @@
+import { JSDOM } from "jsdom";
 import { spawn, type ChildProcess } from "node:child_process";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -42,6 +43,28 @@ afterEach(async () => {
 });
 
 describe("runtime authority fixture launch gates", () => {
+  it("records consumer keyup synchronously while its HTTP telemetry is blocked", async () => {
+    const { origin } = await startFixture();
+    const url = `${origin}/role/chromium-cleanup-tab`;
+    const source = await (await fetch(url)).text();
+    const dom = new JSDOM(source, { url, runScripts: "outside-only" });
+    dom.window.fetch = () => new Promise<Response>(() => { /* Held HTTP response is the precondition. */ });
+    try {
+      dom.window.eval(dom.window.document.querySelector("script")!.textContent!);
+      const canvas = dom.window.document.querySelector("canvas")!;
+      canvas.dispatchEvent(new dom.window.KeyboardEvent("keydown", { code: "KeyT", bubbles: true }));
+      canvas.dispatchEvent(new dom.window.KeyboardEvent("keyup", { code: "KeyT", bubbles: true }));
+      const read = Reflect.get(dom.window, "__rionFixtureKeyboardSnapshot") as () => {
+        events: Array<{ kind: string; consumerPressedCodes?: string[] }>;
+      };
+      expect(read().events.map(event => event.kind)).toEqual([
+        "keydown", "consumer-keydown", "keyup", "consumer-keyup"
+      ]);
+      expect(read().events.at(-1)?.consumerPressedCodes).toEqual([]);
+      expect((await (await fetch(`${origin}/api/state`)).json())["chromium-cleanup-tab"]?.keyup ?? 0).toBe(0);
+    } finally { dom.window.close(); }
+  });
+
   it("serves an executable role event and session script", async () => {
     const { origin } = await startFixture();
     const source = await (await fetch(`${origin}/role/test-role?mode=seed&marker=marker-a`)).text();

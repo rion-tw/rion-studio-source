@@ -1,3 +1,5 @@
+import { pressVisibleNativeApplicationQuit } from "../support/native-application-actions";
+import { waitForElectronDesktopE2eTerminalNativeQuit } from "../support/electron-terminal-native-quit";
 import { $, browser, expect } from "@wdio/globals";
 import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
@@ -879,44 +881,36 @@ export async function writeChromiumMacroEvidence(
 export async function quitChromiumApplicationVisible(
   context: ChromiumMacroScenarioContext
 ): Promise<void> {
-  const pid = String((await electronDesktopE2eProbe()).processId);
+  await browser.switchToWindow(context.mainWindowHandle);
   if (context.platform === "macos") {
-    await executeFile("/usr/bin/osascript", ["-e", `
-on run argv
-  set targetPid to (item 1 of argv) as integer
-  tell application "System Events"
-    set matches to application processes whose unix id is targetPid
-    if (count of matches) is not 1 then error "exact Rion process unavailable"
-    set targetProcess to a reference to (first application process whose unix id is targetPid)
-    set frontmost of targetProcess to true
-    keystroke "q" using command down
-  end tell
-end run`, "--", pid], { encoding: "utf8" });
-    return;
+    await pressVisibleNativeApplicationQuit();
+  } else {
+    const pid = String((await electronDesktopE2eProbe()).processId);
+    await executeFile("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$pidValue=${pid}; Add-Type -AssemblyName UIAutomationClient; `
+        + "$root=[System.Windows.Automation.AutomationElement]::RootElement; "
+        + "$processCondition=New-Object System.Windows.Automation.PropertyCondition("
+        + "[System.Windows.Automation.AutomationElement]::ProcessIdProperty,$pidValue); "
+        + "$titleCondition=New-Object System.Windows.Automation.PropertyCondition("
+        + "[System.Windows.Automation.AutomationElement]::NameProperty,'Rion Studio'); "
+        + "$mainCondition=New-Object System.Windows.Automation.AndCondition("
+        + "$processCondition,$titleCondition); "
+        + "$windows=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$mainCondition); "
+        + "if($windows.Count -ne 1){throw 'exact Rion main window unavailable'}; "
+        + "$closeCondition=New-Object System.Windows.Automation.AndCondition("
+        + "(New-Object System.Windows.Automation.PropertyCondition("
+        + "[System.Windows.Automation.AutomationElement]::ControlTypeProperty,"
+        + "[System.Windows.Automation.ControlType]::Button)),"
+        + "(New-Object System.Windows.Automation.PropertyCondition("
+        + "[System.Windows.Automation.AutomationElement]::NameProperty,'Close'))); "
+        + "$buttons=$windows[0].FindAll([System.Windows.Automation.TreeScope]::Descendants,"
+        + "$closeCondition); if($buttons.Count -ne 1){throw 'exact native Close unavailable'}; "
+        + "$invoke=$buttons[0].GetCurrentPattern("
+        + "[System.Windows.Automation.InvokePattern]::Pattern); $invoke.Invoke();"
+    ], { encoding: "utf8" });
   }
-  await executeFile("powershell.exe", [
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    `$pidValue=${pid}; Add-Type -AssemblyName UIAutomationClient; `
-      + "$root=[System.Windows.Automation.AutomationElement]::RootElement; "
-      + "$processCondition=New-Object System.Windows.Automation.PropertyCondition("
-      + "[System.Windows.Automation.AutomationElement]::ProcessIdProperty,$pidValue); "
-      + "$titleCondition=New-Object System.Windows.Automation.PropertyCondition("
-      + "[System.Windows.Automation.AutomationElement]::NameProperty,'Rion Studio'); "
-      + "$mainCondition=New-Object System.Windows.Automation.AndCondition("
-      + "$processCondition,$titleCondition); "
-      + "$windows=$root.FindAll([System.Windows.Automation.TreeScope]::Children,$mainCondition); "
-      + "if($windows.Count -ne 1){throw 'exact Rion main window unavailable'}; "
-      + "$closeCondition=New-Object System.Windows.Automation.AndCondition("
-      + "(New-Object System.Windows.Automation.PropertyCondition("
-      + "[System.Windows.Automation.AutomationElement]::ControlTypeProperty,"
-      + "[System.Windows.Automation.ControlType]::Button)),"
-      + "(New-Object System.Windows.Automation.PropertyCondition("
-      + "[System.Windows.Automation.AutomationElement]::NameProperty,'Close'))); "
-      + "$buttons=$windows[0].FindAll([System.Windows.Automation.TreeScope]::Descendants,"
-      + "$closeCondition); if($buttons.Count -ne 1){throw 'exact native Close unavailable'}; "
-      + "$invoke=$buttons[0].GetCurrentPattern("
-      + "[System.Windows.Automation.InvokePattern]::Pattern); $invoke.Invoke();"
-  ], { encoding: "utf8" });
+  await waitForElectronDesktopE2eTerminalNativeQuit();
 }

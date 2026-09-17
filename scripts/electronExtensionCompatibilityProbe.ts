@@ -13,6 +13,7 @@ import type { CompatibilityReadyRecord } from
 const root = process.env.RION_EXTENSION_COMPAT_PROBE_DIR;
 const preloadPath = process.env.RION_EXTENSION_COMPAT_PRELOAD;
 const signingKeyPath = process.env.RION_EXTENSION_COMPAT_SIGNING_KEY;
+const workerType = process.env.RION_EXTENSION_COMPAT_WORKER_TYPE ?? "classic";
 if (
   !root || !preloadPath || !signingKeyPath ||
   !isAbsolute(root) || !isAbsolute(preloadPath) || !isAbsolute(signingKeyPath)
@@ -39,7 +40,7 @@ void app.whenReady().then(async () => {
     "utf8"
   ));
   writeFileSync(join(extensionPath, "manifest.json"), JSON.stringify({
-    background: { service_worker: "background.js" },
+    background: { service_worker: "background.js", ...(workerType === "module" ? { type: "module" } : {}) },
     content_scripts: [{
       js: ["content.js"],
       matches: ["http://127.0.0.1/*"],
@@ -64,12 +65,22 @@ void app.whenReady().then(async () => {
     priority: 1
   }]));
   writeFileSync(join(extensionPath, "offscreen.html"), "<!doctype html><title>probe</title>");
+  const topLevelListeners = `
+    (self.browser || self.chrome).permissions.onRemoved.addListener(() => undefined);
+    (self.browser || self.chrome).permissions.onAdded.addListener(() => undefined);
+    (self.browser || self.chrome).commands.onCommand.addListener(() => undefined);
+    (self.browser || self.chrome).alarms.onAlarm.addListener(() => undefined);
+  `;
+  writeFileSync(join(extensionPath, "dependency.js"), topLevelListeners);
   writeFileSync(join(extensionPath, "background.js"), `
+    ${workerType === "module" ? "import './dependency.js';" : "importScripts('dependency.js');"}
+    ${topLevelListeners}
     const removed = () => undefined;
     chrome.permissions.onRemoved.addListener(removed);
     chrome.webNavigation.onCompleted.addListener(() => undefined);
     chrome.runtime.onMessage.addListener((_message, _sender, reply) => {
       void (async () => {
+        await chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
         await chrome.storage.session.set({ probe: 'ready' });
         const stored = await chrome.storage.session.get('probe');
         const managementBefore = await chrome.permissions.contains({ permissions: ['management'] });
@@ -123,7 +134,8 @@ void app.whenReady().then(async () => {
     });
   `);
   writeFileSync(join(extensionPath, "content.js"), `
-    chrome.runtime.sendMessage({ probe: true }, reply => {
+    chrome.runtime.sendMessage({ probe: true }, async reply => {
+      if (reply) reply.contentSessionStorage = (await chrome.storage.session.get('probe')).probe;
       console.log('RION_EXTENSION_COMPAT_REPLY=' + JSON.stringify(reply ?? {
         error: chrome.runtime.lastError?.message
       }));
@@ -167,6 +179,7 @@ void app.whenReady().then(async () => {
   const result = await withDeadline(response);
   assert.deepEqual(result, {
     menuId: "probe-menu", duplicateMenuDenied: true,
+    contentSessionStorage: "ready",
     unavailableTab: { resultMissing: true, error: 'RION_EXTENSION_API_UNAVAILABLE:tabs.create' },
     lastErrorCleared: true,
     missingMenu: 'RION_CONTEXT_MENU_NOT_FOUND',
@@ -189,6 +202,7 @@ void app.whenReady().then(async () => {
   window.destroy();
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
   console.log(`RION_EXTENSION_COMPAT_PROBE=${JSON.stringify({
+    workerType,
     electron: process.versions.electron,
     extensionId: extension.id,
     platform: process.platform,

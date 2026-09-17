@@ -539,3 +539,89 @@ DNR allocation restart probe failed as documented above. The native probe also
 asserts that handled menu callback errors do not escape as main-process IPC
 exceptions, optional management remains denied, native getSelf works, and
 getAll cannot obtain the extension inventory without permission.
+
+## Native filtering verification (2026-09-18)
+
+The existing dev uBlock Origin Lite 2026.914.1325 failure at
+`js/background.js:899` was reproduced with a generic module fixture selecting
+`self.browser || self.chrome`. The same fixture using `chrome` succeeded:
+Chromium's distinct `browser` object lacked the compatibility APIs injected
+only into `chrome`. This was not evidence of a module preload ordering defect.
+The shared preload now installs its bounded APIs into both native namespaces,
+shares event listener identity, scopes callback `runtime.lastError` to both
+runtime objects, and preserves native DNR and scripting bindings.
+
+Electron 43.7.0 also exposes native `storage.session`, including `getKeys`,
+`onChanged`, and `setAccessLevel`. The preload now preserves that native object;
+the bounded in-memory fallback applies only when it is absent. This avoids
+replacing native content-script access control with an unsupported API reply.
+Classic and module fixtures both exercise static-import/top-level listeners,
+callback error cleanup, and native session-storage reads from content scripts.
+
+The Role network-failure observer previously installed
+`session.webRequest.onErrorOccurred`. On the pinned engine even this passive
+Electron listener replaces the extension network delegate and prevents DNR
+filtering. Roles now consume exact-WebContents `did-fail-provisional-load` and
+`did-fail-load` events through the existing generation-fenced, deduplicating
+failure owner. Main-frame cancellation remains ignored; subframes and retired
+surfaces cannot fail the Role. No request interception, polling or transport
+fallback is introduced. Global-Web and shell-only sessions remain outside
+extension assignment scope.
+
+`pnpm run verify:electron-extension-filtering` creates isolated Sessions and a
+controlled local server, runs a module fixture, and verifies allowed requests,
+blocked requests absent from server receipts, native `ERR_BLOCKED_BY_CLIENT`,
+CSS hiding, unassigned-session isolation, Role reopen and fresh-process restart.
+It also waits for the exact worker's native `stopped` event, wakes that scope
+through `startWorkerForScope`, and repeats the request/server-receipt assertions.
+Both the generic module fixture and unchanged uBlock Lite passed this idle-worker
+restart case in each process; a test deadline only reports missing evidence.
+It is included in `verify:electron-extensions`. Do not attach an Electron
+webRequest listener to collect filtering evidence: it changes the result.
+
+For an unchanged installed package, set `RION_EXTENSION_FILTERING_PACKAGE` to
+its absolute directory and `RION_EXTENSION_FILTERING_BLOCKED_PATH` to a path
+matched by that package's rules. The harness copies only package files into its
+temporary root; it never opens or copies user Role profiles. The original
+uBlock Lite package blocked `/xpopup/xpopup.js` before and after reopen/restart,
+while `/normal.js` loaded and the unassigned Session received both. Its test
+page's `.adsbox` element was not hidden: network blocking passed, but this is
+not a claim of complete cosmetic filtering support. The generic CSS fixture
+passed independently.
+
+The paired P1 `EXTENSION-FILTERING-001` journeys additionally use visible input
+inside the production Role host and verify server receipts, CSS and Role reopen.
+The focused macOS run at
+`.desktop-e2e-artifacts/2026-09-17T19-00-22-034Z-darwin` passed. Windows native
+execution remains pending; parameterized tests do not substitute for it.
+
+The full macOS smoke run at
+`.desktop-e2e-artifacts/2026-09-17T19-01-21-856Z-darwin` passed extension context
+menus, filtering, and the existing extension seed/restart phases. It stopped at
+the unchanged Workspace gap-divider journey with `First host mounted bottom
+geometry waited for loading` in `chromium-workspace-first-host.ts:71`. This is
+not a complete smoke pass, and no baseline comparison was run for that failure.
+
+After a production build, computer use opened the existing dev `chromium test`
+Role into its game scene. At 2026-09-17T19:09:07Z the unchanged uBlock Lite package
+reported `ELECTRON_EXTENSION_READY`, with no worker initialization failure in
+that launch. The Role was stopped again; the dashboard showed zero running
+Roles. This proves live startup, separately from the controlled filtering test.
+
+Validation: 4,534 JS/TS tests passed (19 skipped), 1,228 Rust tests passed (five
+ignored), typecheck, lint (23 existing renderer warnings), Rust lint, hygiene,
+coverage, production build, and production E2E isolation passed. The initial
+isolation check correctly rejected the E2E bundle; rebuilding production and
+rerunning passed. Classic/module compatibility and native storage-session
+content access passed. The later idle-worker probe change passed its native
+generic/original-package runs, typecheck, source hygiene and focused lint.
+
+The separate 31,001-rule DNR allocation restart regression remains failing in
+the stock engine. The [native patch candidate](../patches/electron/README.md)
+corrects per-extension accounting against the current process's global pool;
+its pinned source hashes and patch applicability were checked. It has **not**
+been compiled or integrated into the bundled Electron binary. A native engine
+build environment is required before that repair can be certified. Local disk
+cleanup recovered room for checkout, but Xcode's unaccepted license currently
+blocks the native toolchain. No role preferences,
+enabled ruleset choices, package scripts or quotas are reset as a workaround.

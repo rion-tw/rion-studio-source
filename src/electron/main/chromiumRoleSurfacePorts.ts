@@ -71,6 +71,7 @@ export interface ChromiumRoleSurfaceEventMap {
     frameProcessId: number,
     frameRoutingId: number
   ) => void;
+  readonly "did-fail-provisional-load": ChromiumRoleSurfaceEventMap["did-fail-load"];
   readonly "did-fail-load": (
     event: unknown,
     errorCode: number,

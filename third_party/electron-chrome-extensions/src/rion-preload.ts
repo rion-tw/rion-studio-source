@@ -61,6 +61,10 @@ const electronContext = Object.freeze({
 function injectMainWorld() {
   const bridge = (globalThis as any).rionExtensionBridge
   const chrome = (globalThis as any).chrome || {}
+  // Chromium exposes distinct chrome/browser namespace objects. Extensions may
+  // select either before their first static import has finished evaluating.
+  const browser = (globalThis as any).browser
+  const namespaces = browser && browser !== chrome ? [chrome, browser] : [chrome]
   const extensionId = chrome.runtime?.id
   if (typeof extensionId !== 'string' || !/^[a-p]{32}$/u.test(extensionId)) return
 
@@ -68,15 +72,20 @@ function injectMainWorld() {
   const complete = (pending: Promise<unknown>, callback?: Listener) => {
     if (!callback) return pending
     void pending.then(result => callback(result), (error: unknown) => {
-      const previous = Object.getOwnPropertyDescriptor(chrome.runtime, 'lastError')
+      const runtimes = [...new Set(namespaces.map(api => api.runtime).filter(Boolean))]
+      const previous = runtimes.map(runtime => Object.getOwnPropertyDescriptor(runtime, 'lastError'))
       try {
-        Object.defineProperty(chrome.runtime, 'lastError', {
-          configurable: true, value: { message: error instanceof Error ? error.message : String(error) },
-        })
+        for (const runtime of runtimes) {
+          Object.defineProperty(runtime, 'lastError', {
+            configurable: true, value: { message: error instanceof Error ? error.message : String(error) },
+          })
+        }
         callback(undefined)
       } finally {
-        if (previous) Object.defineProperty(chrome.runtime, 'lastError', previous)
-        else delete chrome.runtime.lastError
+        runtimes.forEach((runtime, index) => {
+          if (previous[index]) Object.defineProperty(runtime, 'lastError', previous[index]!)
+          else delete runtime.lastError
+        })
       }
     })
     return undefined
@@ -238,7 +247,7 @@ function injectMainWorld() {
     setPopup: resolved(), setTitle: resolved(),
   }
 
-  Object.defineProperties(chrome, {
+  for (const namespace of namespaces) Object.defineProperties(namespace, {
     action: { configurable: true, enumerable: true, value: action },
     alarms: { configurable: true, enumerable: true, value: alarms },
     browserAction: { configurable: true, enumerable: true, value: action },
@@ -250,15 +259,15 @@ function injectMainWorld() {
     offscreen: { configurable: true, enumerable: true, value: offscreen },
     permissions: { configurable: true, enumerable: true, value: permissions },
     storage: { configurable: true, enumerable: true, value: {
-      ...(chrome.storage || {}), session: sessionStorage,
+      ...(namespace.storage || {}), session: namespace.storage?.session ?? sessionStorage,
     } },
     tabs: { configurable: true, enumerable: true, value: tabs },
     webNavigation: { configurable: true, enumerable: true, value: webNavigation },
   })
 
-  if (chrome.runtime) {
+  for (const namespace of namespaces) if (namespace.runtime) {
     try {
-      Object.defineProperties(chrome.runtime, {
+      Object.defineProperties(namespace.runtime, {
         connectNative: { configurable: true, value: unavailable('runtime.connectNative') },
         sendNativeMessage: { configurable: true, value: unavailable('runtime.sendNativeMessage') },
       })
@@ -292,7 +301,8 @@ function injectMainWorld() {
       staticRulesetCount: rulesets.length,
       staticRulesetStatus,
       unavailableApis: [
-        'action.openPopup', 'nativeMessaging', 'storage.session.setAccessLevel', 'tabs.mutate',
+        'action.openPopup', 'nativeMessaging', 'tabs.mutate',
+        ...(chrome.storage.session === sessionStorage ? ['storage.session.setAccessLevel'] : []),
         ...(chrome.userScripts ? [] : ['userScripts']),
       ],
     })

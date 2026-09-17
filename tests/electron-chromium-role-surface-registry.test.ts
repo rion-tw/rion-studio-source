@@ -1059,29 +1059,16 @@ describe("Electron Chromium role-surface registry", () => {
     const contents = subject.views[0].webContents;
     contents.finish("https://game.test/launch");
     await creation;
-    const session = subject.sessionStates[0]!;
-
-    session.emitNetworkError({
-      resourceType: "subFrame",
-      url: "https://game.test/frame",
-      webContents: contents
-    });
-    session.emitNetworkError({
-      resourceType: "mainFrame",
-      url: "https://game.test/wrong-owner",
-      webContents: {}
-    });
+    contents.emit("did-fail-provisional-load", {}, -105, "subframe", "https://game.test/frame", false, 1, 1);
+    const unrelated = new FakeWebContents(contents.session);
+    unrelated.emit("did-fail-provisional-load", {}, -105, "wrong owner", "https://game.test/wrong-owner", true, 1, 1);
     expect(report).not.toHaveBeenCalled();
 
     contents.emit("did-start-navigation", {
       isMainFrame: true,
       isSameDocument: false
     });
-    session.emitNetworkError({
-      resourceType: "mainFrame",
-      url: "https://game.test/offline",
-      webContents: contents
-    });
+    contents.emit("did-fail-provisional-load", {}, -105, "offline", "https://game.test/offline", true, 1, 1);
     contents.emit(
       "did-fail-load", {}, -105, "duplicate native failure",
       "https://game.test/offline", true, 1, 1
@@ -1089,7 +1076,7 @@ describe("Electron Chromium role-surface registry", () => {
 
     expect(report).toHaveBeenCalledOnce();
     expect(report).toHaveBeenCalledWith({
-      errorCode: 0,
+      errorCode: -105,
       roleId: "role-1",
       surfaceGeneration: 1,
       tabId: "tab-1",
@@ -1205,7 +1192,8 @@ describe("Electron Chromium role-surface registry", () => {
     contents.destroy();
     await close;
     expect(contents.listeners.get("did-fail-load")?.size ?? 0).toBe(0);
-    expect(subject.sessionStates[0]?.onErrorOccurred).toHaveBeenLastCalledWith(null);
+    expect(subject.sessionStates[0]?.onErrorOccurred).not.toHaveBeenCalled();
+    expect(contents.listeners.get("did-fail-provisional-load")?.size ?? 0).toBe(0);
     contents.emit(
       "did-fail-load", {}, -105, "late failure",
       "https://game.test/late", true, 1, 1

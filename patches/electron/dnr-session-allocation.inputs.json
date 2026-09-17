@@ -1,0 +1,9 @@
+{
+  "electron": "43.7.0",
+  "chromium": "150.0.7871.250",
+  "sourceBase": "https://raw.githubusercontent.com/chromium/chromium/150.0.7871.250/",
+  "sha256": {
+    "extensions/browser/api/declarative_net_request/global_rules_tracker.h": "d5e609d975a9fa1fe2c8d7602abc70afd3fcb40f085a3372230eb2066a69a85c",
+    "extensions/browser/api/declarative_net_request/global_rules_tracker.cc": "f45331f88f6ef2cd61ca3a5a9ccac68beb139f1741ca57e8fd6d307212bf337b"
+  }
+}

@@ -129,21 +129,7 @@ export interface ChromiumRoleSurfaceRecord {
   overlayRetired: boolean;
   nativeAttachmentRetired: boolean;
   nativeAttachmentRetirement: Promise<void> | null;
-  networkFailureSession: ChromiumRoleNetworkFailureSessionPort | null;
   readonly navigation: ChromiumRoleNavigationLifecycleOwner;
-}
-
-export interface ChromiumRoleNetworkFailureSessionPort {
-  readonly webRequest: Readonly<{
-    onErrorOccurred: (
-      listener: ((details: Readonly<{
-        resourceType: string;
-        url: string;
-        webContents?: object;
-        webContentsId?: number;
-      }>) => void) | null
-    ) => void;
-  }>;
 }
 
 export interface ChromiumRoleSurfaceParentOwner {

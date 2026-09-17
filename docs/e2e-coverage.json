@@ -42,6 +42,7 @@
       "runtimeTarget": "chromium-v23-macos-appkit",
       "phases": [
         "chromium-extensions-context-menu",
+        "chromium-extension-filtering",
         "chromium-extensions-seed",
         "chromium-extensions-restart",
         "chromium-shell-smoke",
@@ -145,7 +146,8 @@
         "e2e/desktop/specs/chromium-tabs-parity.e2e.ts",
         "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
         "e2e/desktop/specs/chromium-role-session-recovery.e2e.ts",
-        "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts"
+        "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts",
+        "e2e/desktop/specs/chromium-extension-filtering.e2e.ts"
       ]
     },
     "chromium-windows-smoke": {
@@ -153,6 +155,7 @@
       "runtimeTarget": "chromium-v23-windows",
       "phases": [
         "chromium-extensions-context-menu",
+        "chromium-extension-filtering",
         "chromium-extensions-seed",
         "chromium-extensions-restart",
         "chromium-shell-smoke",
@@ -260,7 +263,8 @@
         "e2e/desktop/specs/chromium-windows-trusted-input-physical.e2e.ts",
         "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
         "e2e/desktop/specs/chromium-role-session-recovery.e2e.ts",
-        "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts"
+        "e2e/desktop/specs/chromium-role-session-upgrade.e2e.ts",
+        "e2e/desktop/specs/chromium-extension-filtering.e2e.ts"
       ]
     },
     "chromium-macos-appkit-hardware-extended": {
@@ -564,7 +568,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, render the complete Buster detail page through visible search results and mouse/keyboard autocomplete, preserve the browser process, then navigate to the official AdBlock detail page, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation and its temporary native window title is blank, stop its last native tab without shell errors, prove the native window retires, and reopen the same Role with compatibility readiness. Verify required API permissions exclude optional management, require fresh native worker-running and compatibility-ready evidence on initial open, reopen, and application restart; reject generic degraded outcomes and bootstrap deadline expiry as passing evidence. Treat READY as bootstrap-only evidence; inspect post-navigation worker/API errors separately. Expected context-menu duplicate errors must reach callbacks without host IPC exceptions, uncommitted frames must not expose empty URLs, and unsupported tabs.create must report runtime.lastError. The standalone native DNR allocation restart probe is a separate known-failing engine gate; do not count this journey as proof of ruleset updates or complete AdBlock operation. Retain later AdBlock compatibility failures without claiming full AdBlock support, then verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, render the complete Buster detail page through visible search results and mouse/keyboard autocomplete, preserve the browser process, then navigate to the official AdBlock detail page, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation and its temporary native window title is blank, stop its last native tab without shell errors, prove the native window retires, and reopen the same Role with compatibility readiness. Verify required API permissions exclude optional management, require fresh native worker-running and compatibility-ready evidence on initial open, reopen, and application restart; reject generic degraded outcomes and bootstrap deadline expiry as passing evidence. Treat READY as bootstrap-only evidence; inspect post-navigation worker/API errors separately. Expected context-menu duplicate errors must reach callbacks without host IPC exceptions, uncommitted frames must not expose empty URLs, and unsupported tabs.create must report runtime.lastError. The standalone native DNR allocation restart probe is a separate known-failing engine gate; do not count this journey as proof of ruleset updates or complete AdBlock operation. Retain later AdBlock compatibility failures without claiming full AdBlock support, then verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency. Generic browser/chrome namespace and native storage.session compatibility are additionally gated by the paired EXTENSION-FILTERING-001 journey and classic/module native probes."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-EXTENSIONS-001",
@@ -587,7 +591,7 @@
         "success",
         "cancel"
       ],
-      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, render the complete Buster detail page through visible search results and mouse/keyboard autocomplete, preserve the browser process, then navigate to the official AdBlock detail page, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation and its temporary native window title is blank, use the real AppKit right-click Stop and Close item on its last tab, prove the native window retires without shell errors, and reopen the same Role with compatibility readiness. Verify required API permissions exclude optional management, require fresh native worker-running and compatibility-ready evidence on initial open, reopen, and application restart; reject generic degraded outcomes and bootstrap deadline expiry as passing evidence. Treat READY as bootstrap-only evidence; inspect post-navigation worker/API errors separately. Expected context-menu duplicate errors must reach callbacks without host IPC exceptions, uncommitted frames must not expose empty URLs, and unsupported tabs.create must report runtime.lastError. The standalone native DNR allocation restart probe is a separate known-failing engine gate; do not count this journey as proof of ruleset updates or complete AdBlock operation. Retain later AdBlock compatibility failures without claiming full AdBlock support, then verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency."
+      "description": "Browse the isolated Chrome Web Store at full container width without horizontal scrolling or the Chrome-promotion dialog, enter from Add extension at /category/extensions with the app-language hl parameter, render the complete Buster detail page through visible search results and mouse/keyboard autocomplete, preserve the browser process, then navigate to the official AdBlock detail page, install it with visible permission confirmation and All roles scope, verify Electron reports the same extension ID, and verify the 960×640 installed view has three grid tracks, no horizontal overflow, a package icon, non-empty description, localized size, and exact ID before and after restart. Then create a future role through visible UI, verify its extension reaches a terminal compatibility status before Role navigation and its temporary native window title is blank, use the real AppKit right-click Stop and Close item on its last tab, prove the native window retires without shell errors, and reopen the same Role with compatibility readiness. Verify required API permissions exclude optional management, require fresh native worker-running and compatibility-ready evidence on initial open, reopen, and application restart; reject generic degraded outcomes and bootstrap deadline expiry as passing evidence. Treat READY as bootstrap-only evidence; inspect post-navigation worker/API errors separately. Expected context-menu duplicate errors must reach callbacks without host IPC exceptions, uncommitted frames must not expose empty URLs, and unsupported tabs.create must report runtime.lastError. The standalone native DNR allocation restart probe is a separate known-failing engine gate; do not count this journey as proof of ruleset updates or complete AdBlock operation. Retain later AdBlock compatibility failures without claiming full AdBlock support, then verify scope after restart, switch to selected roles, disable and cancel/confirm removal, and verify sidebar catalogue counts before installation, after installation/restart, and after removal. External store download is a bounded liveness dependency. Generic browser/chrome namespace and native storage.session compatibility are additionally gated by the paired EXTENSION-FILTERING-001 journey and classic/module native probes."
     },
     {
       "id": "CHROMIUM-MACOS-APPKIT-SHELL-001",
@@ -3698,6 +3702,50 @@
         "failure"
       ],
       "description": "Inject an orphan native host only into diagnostics observation, export through the visible settings action and native Save dialog, then verify the partial-success message and actual ZIP containing Core/native mismatch evidence and persisted operation logs."
+    },
+    {
+      "id": "CHROMIUM-WINDOWS-EXTENSION-FILTERING-001",
+      "coverageGroup": "chromium-v23-extension-filtering",
+      "feature": "extensions",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-windows-smoke",
+      "phases": [
+        "chromium-extension-filtering"
+      ],
+      "spec": "e2e/desktop/specs/chromium-extension-filtering.e2e.ts",
+      "platforms": [
+        "windows"
+      ],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "restart"
+      ],
+      "description": "Open managed Roles through visible UI. Seed a generic module extension using browser namespace APIs as a deterministic precondition. Press a visible page button with trusted native input; assert normal resources succeed, matching requests never reach the fixture server, CSS hides the matched element, and an unassigned Role remains unfiltered. The production Role network-failure observer must coexist with native DNR. Process restart and native ERR_BLOCKED_BY_CLIENT are covered by the separate filtering probe. Stop and visibly reopen the same filtered Role, reseed the package precondition, and repeat the visible filtering check."
+    },
+    {
+      "id": "CHROMIUM-MACOS-APPKIT-EXTENSION-FILTERING-001",
+      "coverageGroup": "chromium-v23-extension-filtering",
+      "feature": "extensions",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "chromium-macos-appkit-smoke",
+      "phases": [
+        "chromium-extension-filtering"
+      ],
+      "spec": "e2e/desktop/specs/chromium-extension-filtering.e2e.ts",
+      "platforms": [
+        "macos"
+      ],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": [
+        "success",
+        "restart"
+      ],
+      "description": "Open managed Roles through visible UI. Seed a generic module extension using browser namespace APIs as a deterministic precondition. Press a visible page button with trusted native input; assert normal resources succeed, matching requests never reach the fixture server, CSS hides the matched element, and an unassigned Role remains unfiltered. The production Role network-failure observer must coexist with native DNR. Process restart and native ERR_BLOCKED_BY_CLIENT are covered by the separate filtering probe. Stop and visibly reopen the same filtered Role, reseed the package precondition, and repeat the visible filtering check."
     }
   ],
   "retiredCompatibility": {

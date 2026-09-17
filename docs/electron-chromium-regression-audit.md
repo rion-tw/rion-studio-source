@@ -308,3 +308,17 @@ execution remains `platform-pending` until its CI profile runs.
 CHROMIUM-MACOS-APPKIT-DIAGNOSTICS-DEGRADED-072
 CHROMIUM-WINDOWS-DIAGNOSTICS-DEGRADED-072
 ```
+
+## Native extension filtering follow-up (2026-09-18)
+
+These P1 journeys close a `test-gap`: bootstrap readiness did not prove native
+DNR request blocking. The fixture runs module-worker browser namespace APIs,
+native session storage, CSS, and visible request actions inside the production
+Role host, including Role reopen and an unassigned Role. Windows native
+execution remains `platform-pending` until Windows CI runs. The separate native
+DNR allocation restart failure remains open pending a rebuilt engine.
+
+```text
+CHROMIUM-MACOS-APPKIT-EXTENSION-FILTERING-001
+CHROMIUM-WINDOWS-EXTENSION-FILTERING-001
+```

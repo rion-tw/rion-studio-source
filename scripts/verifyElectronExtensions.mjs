@@ -10,7 +10,7 @@ import { classifyElectronDevOutput } from "./diagnoseElectronDevOutput.mjs";
 
 if (!["darwin", "win32"].includes(process.platform)) throw new Error("Extensions verification requires macOS or Windows");
 const require = createRequire(import.meta.url);
-const executable = require("electron");
+const executable = process.env.RION_EXTENSION_PROBE_EXECUTABLE ?? require("electron");
 const root = await mkdtemp(join(tmpdir(), "rion-extensions-native-"));
 try {
   for (const phase of ["seed", "restart"]) {
@@ -33,45 +33,48 @@ try {
     platform: "node",
     target: "node24"
   });
-  const compatibility = spawn(executable, [compatibilityMain], {
-    env: {
-      ...process.env,
-      RION_EXTENSION_COMPAT_PRELOAD: fileURLToPath(new URL("../out/preload/extensionCompat.cjs", import.meta.url)),
-      RION_EXTENSION_COMPAT_PROBE_DIR: root,
-      RION_EXTENSION_COMPAT_SIGNING_KEY: fileURLToPath(new URL(
-        "../crates/rion-core/src/extensions/test-signing-key.json",
-        import.meta.url
-      ))
-    },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  let compatibilityOutput = "";
-  for (const [stream, target] of [
-    [compatibility.stdout, process.stdout],
-    [compatibility.stderr, process.stderr]
-  ]) {
-    stream.setEncoding("utf8");
-    stream.on("data", (chunk) => {
-      target.write(chunk);
-      compatibilityOutput = `${compatibilityOutput}${chunk}`.slice(-1024 * 1024);
+  for (const workerType of ["classic", "module"]) {
+    const compatibility = spawn(executable, [compatibilityMain], {
+      env: {
+        ...process.env,
+        RION_EXTENSION_COMPAT_WORKER_TYPE: workerType,
+        RION_EXTENSION_COMPAT_PRELOAD: fileURLToPath(new URL("../out/preload/extensionCompat.cjs", import.meta.url)),
+        RION_EXTENSION_COMPAT_PROBE_DIR: root,
+        RION_EXTENSION_COMPAT_SIGNING_KEY: fileURLToPath(new URL(
+          "../crates/rion-core/src/extensions/test-signing-key.json",
+          import.meta.url
+        ))
+      },
+      stdio: ["ignore", "pipe", "pipe"]
     });
-  }
-  await new Promise((resolve, reject) => {
-    compatibility.once("error", reject);
-    compatibility.once("exit", (code, signal) => code === 0
-      ? resolve()
-      : reject(new Error(`Extension compatibility probe failed: ${code ?? signal}`)));
-  });
-  if (compatibilityOutput.includes("Error occurred in handler for 'crx-msg'")) {
-    throw new Error("Handled extension API errors escaped through the native IPC handler.");
-  }
-  const diagnosis = classifyElectronDevOutput(compatibilityOutput);
-  const serviceWorkerFailure = diagnosis.findings.find((finding) =>
-    finding.id === "extension-service-worker-registration-failed" ||
-    finding.id === "extension-service-worker-runtime-error"
-  );
-  if (serviceWorkerFailure) {
-    throw new Error(`Extension compatibility probe retained ${serviceWorkerFailure.id}.`);
+    let compatibilityOutput = "";
+    for (const [stream, target] of [
+      [compatibility.stdout, process.stdout],
+      [compatibility.stderr, process.stderr]
+    ]) {
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk) => {
+        target.write(chunk);
+        compatibilityOutput = `${compatibilityOutput}${chunk}`.slice(-1024 * 1024);
+      });
+    }
+    await new Promise((resolve, reject) => {
+      compatibility.once("error", reject);
+      compatibility.once("exit", (code, signal) => code === 0
+        ? resolve()
+        : reject(new Error(`Extension compatibility probe failed: ${code ?? signal}`)));
+    });
+    if (compatibilityOutput.includes("Error occurred in handler for 'crx-msg'")) {
+      throw new Error("Handled extension API errors escaped through the native IPC handler.");
+    }
+    const diagnosis = classifyElectronDevOutput(compatibilityOutput);
+    const serviceWorkerFailure = diagnosis.findings.find((finding) =>
+      finding.id === "extension-service-worker-registration-failed" ||
+      finding.id === "extension-service-worker-runtime-error"
+    );
+    if (serviceWorkerFailure) {
+      throw new Error(`Extension compatibility probe retained ${serviceWorkerFailure.id}.`);
+    }
   }
   const bootstrapMain = join(root, "electron-extension-bootstrap-probe.cjs");
   await build({
@@ -105,3 +108,5 @@ try {
   }
 
 } finally { await rm(root, { recursive: true, force: true }); }
+
+await import("./verifyElectronExtensionFiltering.mjs");

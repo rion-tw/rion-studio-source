@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 if (!['darwin', 'win32'].includes(process.platform)) throw new Error('DNR allocation verification requires a native desktop host.');
-const executable = createRequire(import.meta.url)('electron');
+const executable = process.env.RION_EXTENSION_PROBE_EXECUTABLE ?? createRequire(import.meta.url)('electron');
 const root = await mkdtemp(join(tmpdir(), 'rion-dnr-allocation-'));
 try {
   for (const phase of ['seed', 'restart']) {

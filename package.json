@@ -76,7 +76,8 @@
     "typecheck": "tsc --build --force",
     "lint": "eslint .",
     "test": "vitest run",
-    "release": "semantic-release"
+    "release": "semantic-release",
+    "verify:electron-extension-filtering": "node scripts/verifyElectronExtensionFiltering.mjs"
   },
   "keywords": [
     "electron",

@@ -55,7 +55,6 @@ import {
   validateZoomFactor
 } from "./chromiumRoleSurfaceRegistrySupport";
 import type {
-  ChromiumRoleNetworkFailureSessionPort,
   ChromiumRoleOverlayFrameIdentity,
   ChromiumRoleOverlayLifecycleEvent,
   ChromiumRoleOverlayLifecycleReason,
@@ -712,7 +711,6 @@ export class ChromiumRoleSurfaceRegistry {
     }
     try {
       this.#installSecurityPolicy(record);
-      this.#installNetworkFailureObservation(record);
       view.setBounds({ ...input.bounds });
       if (!sameBounds(view.getBounds(), input.bounds)) {
         fail(
@@ -1066,7 +1064,6 @@ export class ChromiumRoleSurfaceRegistry {
       overlayRetired: false,
       nativeAttachmentRetired: false,
       nativeAttachmentRetirement: null,
-      networkFailureSession: null,
       navigation: new ChromiumRoleNavigationLifecycleOwner({
         generation: input.generation,
         hub: this.#navigationLifecycle,
@@ -1206,40 +1203,11 @@ export class ChromiumRoleSurfaceRegistry {
     contents.on("will-navigate", record.listeners.willNavigate);
     contents.on("will-redirect", record.listeners.willRedirect);
     contents.on("did-finish-load", record.listeners.didFinishLoad);
+    // Native WebContents events observe failures without replacing Chromium's
+    // extension network delegate (any session.webRequest listener bypasses DNR).
+    contents.on("did-fail-provisional-load", record.listeners.didFailLoad);
     contents.on("did-fail-load", record.listeners.didFailLoad);
     contents.on("destroyed", record.listeners.destroyed);
-  }
-
-  #installNetworkFailureObservation(record: SurfaceRecord): void {
-    const candidate = record.sessionHandle.session as unknown as Partial<
-      ChromiumRoleNetworkFailureSessionPort
-    >;
-    if (
-      !candidate.webRequest ||
-      typeof candidate.webRequest.onErrorOccurred !== "function"
-    ) {
-      fail(
-        "ELECTRON_ROLE_NETWORK_OBSERVER_UNAVAILABLE",
-        "The Chromium Role Session cannot publish authoritative request failures."
-      );
-    }
-    candidate.webRequest.onErrorOccurred((details) => {
-      if (details.resourceType !== "mainFrame") return;
-      const exactWebContents = details.webContents !== undefined
-        ? details.webContents === record.contents
-        : Number.isSafeInteger(details.webContentsId) &&
-          Number.isSafeInteger(record.contents.id) &&
-          details.webContentsId === record.contents.id;
-      if (!exactWebContents) return;
-      this.#reportActiveMainFrameFailure(record, 0, details.url);
-    });
-    record.networkFailureSession = candidate as ChromiumRoleNetworkFailureSessionPort;
-  }
-
-  #removeNetworkFailureObservation(record: SurfaceRecord): void {
-    if (!record.networkFailureSession) return;
-    record.networkFailureSession.webRequest.onErrorOccurred(null);
-    record.networkFailureSession = null;
   }
 
   #reportActiveMainFrameFailure(
@@ -1664,11 +1632,11 @@ export class ChromiumRoleSurfaceRegistry {
   #removeLoadListeners(record: SurfaceRecord): void {
     const contents = record.contents;
     contents.removeListener("did-finish-load", record.listeners.didFinishLoad);
+    contents.removeListener("did-fail-provisional-load", record.listeners.didFailLoad);
     contents.removeListener("did-fail-load", record.listeners.didFailLoad);
   }
 
   #removeAllListeners(record: SurfaceRecord): void {
-    this.#removeNetworkFailureObservation(record);
     this.#removeLoadListeners(record);
     const contents = record.contents;
     contents.removeListener("before-input-event", record.listeners.beforeInputEvent);

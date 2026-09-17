@@ -1,4 +1,5 @@
 export const desktopE2eSpecByPhase: Readonly<Record<string, string>> = {
+  "chromium-extension-filtering": "e2e/desktop/specs/chromium-extension-filtering.e2e.ts",
   "chromium-chrome-profile-import-seed": "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
   "chromium-chrome-profile-import-restart": "e2e/desktop/specs/chromium-chrome-profile-import.e2e.ts",
   "chromium-extensions-context-menu": "e2e/desktop/specs/chromium-extension-context-menu.e2e.ts",

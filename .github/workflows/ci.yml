@@ -61,14 +61,12 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # check:cargo-dependencies shells out to `cargo metadata --no-deps`, which
+      # resolves the workspace without compiling it. This job therefore needs the
+      # pinned toolchain but no Rust build cache; compilation lives in
+      # rust-portable-checks, which runs in parallel with this job.
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
-
-      - name: Restore Rust build cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-bin: "false"
-          shared-key: checks-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -82,15 +80,6 @@ jobs:
       - name: Enforce architecture dependency direction
         run: pnpm exec vitest run tests/rust-architecture-boundaries.test.ts tests/thin-typescript-boundary.test.ts
 
-      - name: Check portable Rust formatting and lints
-        run: pnpm run lint:rust:portable
-
-      - name: Test portable Rust crates and generate contracts
-        run: pnpm run test:rust:portable
-
-      - name: Verify generated Rust contracts
-        run: git diff --exit-code -- src/shared/generated
-
       - name: Typecheck
         run: pnpm run typecheck
 
@@ -99,6 +88,47 @@ jobs:
 
       - name: Lint TypeScript
         run: pnpm run lint
+
+  rust-portable-checks:
+    name: Portable Rust checks and generated contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: "false"
+          shared-key: checks-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check portable Rust formatting and lints
+        run: pnpm run lint:rust:portable
+
+      # This step regenerates src/shared/generated, so the contract verification
+      # below must stay immediately after it and in this same job.
+      - name: Test portable Rust crates and generate contracts
+        run: pnpm run test:rust:portable
+
+      - name: Verify generated Rust contracts
+        run: git diff --exit-code -- src/shared/generated
 
   renderer-assets:
     name: Build renderer assets
@@ -152,6 +182,15 @@ jobs:
       - name: Install nightly Rust sanitizer toolchain
         run: rustup toolchain install nightly --profile minimal --component rust-src
 
+      # This job had no Rust cache, so it compiled rion-core from scratch twice per
+      # run: once sanitized and once plain. One cache covers both, because the two
+      # RUSTFLAGS variants occupy separate fingerprint directories in the same target.
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: "false"
+          shared-key: sanitizer-${{ runner.os }}-${{ runner.arch }}
+
       - name: Run macro runtime under AddressSanitizer
         run: cargo +nightly test -p rion-core --lib macro_runtime::tests --target x86_64-unknown-linux-gnu -- --test-threads=1
         env:
@@ -161,11 +200,24 @@ jobs:
       - name: Repeat race-sensitive macro and health tests
         shell: bash
         run: |
+          set -euo pipefail
+          soak_tests=(
+            macro_runtime::tests::one_thousand_start_stop_cycles_drain_authoritative_runtime_state
+            macro_runtime::tests::atomic_press_start_stop_converges_without_a_phantom_invocation
+            macro_runtime::tests::role_lock_registries_stay_bounded_across_five_hundred_role_lifecycles
+          )
           for iteration in $(seq 1 20); do
             echo "Concurrency soak iteration ${iteration}/20"
-            cargo test -p rion-core --lib one_thousand_start_stop_cycles_drain_authoritative_runtime_state -- --test-threads=8
-            cargo test -p rion-core --lib atomic_toggle_converges_without_a_phantom_invocation -- --test-threads=8
-            cargo test -p rion-core --lib role_lock_registries_stay_bounded_across_five_hundred_role_lifecycles -- --test-threads=8
+            # One process per iteration keeps the fresh-process race exposure while
+            # dropping two thirds of the cargo invocations. --exact plus the executed
+            # count assertion makes a renamed test fail here: a filter that matches
+            # nothing prints "0 passed" and exits 0.
+            soak_output="$(cargo test -p rion-core --lib -- --exact --test-threads=8 "${soak_tests[@]}")"
+            echo "${soak_output}"
+            if ! grep -qx "running ${#soak_tests[@]} tests" <<<"${soak_output}"; then
+              echo "Expected ${#soak_tests[@]} soak tests to run; the filters no longer match any test." >&2
+              exit 1
+            fi
           done
 
   platform-validation:
@@ -194,6 +246,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -217,11 +270,15 @@ jobs:
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 
+      # Nothing else uses the platform-ci key, so restore-only meant this cache was
+      # never written and both native runners recompiled the whole workspace every
+      # run. Branch pushes refresh it; pull requests stay restore-only so a fork or
+      # feature branch cannot poison what the native validation builds against.
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: "false"
-          save-if: "false"
+          save-if: ${{ github.event_name == 'push' }}
           shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}
 
       - name: Download renderer assets for platform checks
@@ -330,6 +387,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

@@ -224,7 +224,10 @@ describe("desktop shell migration workflows", () => {
     expect(platformChecks).toContain(
       "shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}"
     );
-    expect(platformChecks).toContain('save-if: "false"');
+    // Restore-only on pull requests, refreshed on branch pushes, so the cache is
+    // actually populated instead of being restored from a key nothing ever writes.
+    expect(platformChecks).toContain("save-if: ${{ github.event_name == 'push' }}");
+    expect(platformChecks).not.toContain('save-if: "false"');
     expect(workflow.match(/shared-key: platform-ci-/gu)).toHaveLength(1);
     expect(workflow).not.toContain("shared-key: platform-tauri-");
     expect(workflow).not.toContain("pnpm exec tauri build");

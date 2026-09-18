@@ -758,6 +758,11 @@ export class ChromiumGlobalWebPresentationRegistry {
 
   #detachView(record: ChromeRecord): void {
     if (!record.attached) return;
+    // A destroyed parent has already released every child view natively.
+    if (record.parent.isDestroyed()) {
+      record.attached = false;
+      return;
+    }
     record.parent.contentView.removeChildView(record.view);
     record.attached = false;
   }

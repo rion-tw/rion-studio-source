@@ -162,6 +162,12 @@ fn execute_macro_role(
 ) -> Result<(), String> {
     let mut held_keys = Vec::new();
     let role_ids = [role_id.to_owned()];
+    let dispatches_input = definition.steps.iter().any(|step| {
+        matches!(
+            step,
+            MacroStepDefinition::Key { .. } | MacroStepDefinition::Click { .. }
+        )
+    });
     let execution = (|| {
         wait_cancelable_for_role(context, role_id, context.settings.startup_delay_ms)?;
         let mut iteration = 0_u32;
@@ -197,6 +203,17 @@ fn execute_macro_role(
             }
             let MacroRepeat::Loop { interval_ms } = definition.repeat else {
                 break;
+            };
+            // A zero interval means "do not wait between iterations", which is
+            // only meaningful when the iteration actually dispatches input --
+            // every key and click already pays `post_input_delay_ms`. A macro
+            // whose steps dispatch nothing would otherwise spin a whole core on
+            // `yield_now` while contending for the shared status lock, so its
+            // loop is floored instead.
+            let interval_ms = if interval_ms == 0 && !dispatches_input {
+                EMPTY_LOOP_MINIMUM_INTERVAL_MS
+            } else {
+                interval_ms
             };
             wait_cancelable_for_role(context, role_id, interval_ms)?;
         }

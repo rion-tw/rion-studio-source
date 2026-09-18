@@ -329,13 +329,45 @@ fn remove_with_retry(path: &Path) -> CoreResult<()> {
     Ok(())
 }
 
+/// Windows device names are resolved before the filesystem, so a path segment
+/// matching one of these (with or without an extension) never names a file.
+const WINDOWS_RESERVED_STEMS: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// The single gate in front of every `user_data_dir/roles/<role_id>/...` path.
+///
+/// Every in-process producer emits a UUID, so this is a defence-in-depth
+/// boundary rather than a parser for arbitrary input. It is written as a
+/// security boundary and it is the only one, so it rejects the cases that are
+/// silently destructive on a real filesystem rather than only the obvious
+/// traversal forms:
+///
+/// - `:` is the NTFS alternate-data-stream separator, so `r1:x` resolves to a
+///   stream of `r1` rather than to its own directory.
+/// - Windows strips a trailing `.` or space, which would map two distinct role
+///   ids onto one directory: deleting one role would destroy the other's data.
+/// - Windows device stems are resolved ahead of the filesystem.
+/// - An unbounded id overruns `MAX_PATH` once Chromium's own nesting is added
+///   under `roles/<id>/browser/chromium`.
 fn validate_role_id(role_id: &str) -> CoreResult<()> {
+    let reserved_stem = role_id
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
     if role_id.is_empty()
+        || role_id.len() > 128
         || role_id == "."
         || role_id == ".."
+        || role_id.ends_with(['.', ' '])
+        || role_id.starts_with(' ')
         || role_id.contains('/')
         || role_id.contains('\\')
+        || role_id.contains(':')
         || role_id.chars().any(|character| character <= '\u{1f}')
+        || WINDOWS_RESERVED_STEMS.contains(&reserved_stem.as_str())
     {
         Err(CoreError::InvalidInput("Role id is invalid.".to_owned()))
     } else {
@@ -367,6 +399,40 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn rejects_role_ids_that_are_destructive_on_a_real_filesystem() {
+        let directory = tempdir().unwrap();
+        for role_id in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            "role/child",
+            "role\\child",
+            // NTFS alternate data stream of `role`, not its own directory.
+            "role:stream",
+            // Windows strips these, collapsing two roles onto one directory.
+            "role.",
+            "role ",
+            // Device names resolve ahead of the filesystem.
+            "CON",
+            "nul.txt",
+            "Com9",
+            "\u{1}control",
+            &"r".repeat(129),
+        ] {
+            assert!(
+                ensure(directory.path(), role_id).is_err(),
+                "expected {role_id:?} to be rejected"
+            );
+        }
+        // A trailing-dot id must not collide with the plain id's directory.
+        ensure(directory.path(), "role-1").unwrap();
+        assert!(ensure(directory.path(), "role-1.").is_err());
+        assert!(uuid::Uuid::new_v4().to_string().len() <= 128);
+        ensure(directory.path(), &uuid::Uuid::new_v4().to_string()).unwrap();
+    }
 
     #[test]
     fn ensures_resets_and_removes_isolated_role_directories() {

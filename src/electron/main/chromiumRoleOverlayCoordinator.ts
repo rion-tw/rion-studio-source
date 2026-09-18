@@ -20,6 +20,8 @@ import type {
 } from "./chromiumRoleSurfaceRegistry";
 
 const MAX_OVERLAY_ENVELOPE_BYTES = 64 * 1024;
+/** Matches the role fonts coordinator's bound on its identical replay guard. */
+const RECENT_REFRESH_ID_CAPACITY = 512;
 const OVERLAY_METHOD_SET = new Set<string>(CHROMIUM_ROLE_OVERLAY_METHODS);
 
 type CoordinatorState = "open" | "disposed";
@@ -326,6 +328,7 @@ export class ChromiumRoleOverlayCoordinator {
   readonly #waitersByRole = new Map<string, OverlayReadyWaiter>();
   readonly #refreshById = new Map<string, OverlayRefreshWaiter>();
   readonly #usedRefreshIds = new Set<string>();
+  readonly #usedRefreshIdOrder: string[] = [];
   readonly #refreshTailByRole = new Map<
     string,
     Promise<ChromiumRoleOverlayRefreshReceipt>
@@ -348,6 +351,30 @@ export class ChromiumRoleOverlayCoordinator {
     this.#unsubscribeSurfaceLifecycle = this.#surfaces.subscribeOverlayLifecycle(
       this.#onSurfaceLifecycle
     );
+  }
+
+  /**
+   * Bounds the replay-guard set. Overlay refresh fires on every macro overlay
+   * update for every role, so retaining one id per refresh for the whole
+   * session is unbounded growth. Ids still owned by a pending refresh are
+   * never evicted, so the guard cannot admit a live duplicate.
+   */
+  #evictTerminalRefreshIds(): void {
+    let inspected = 0;
+    while (
+      this.#usedRefreshIds.size > RECENT_REFRESH_ID_CAPACITY &&
+      inspected < this.#usedRefreshIdOrder.length
+    ) {
+      const oldest = this.#usedRefreshIdOrder.shift();
+      if (!oldest) return;
+      if (this.#refreshById.has(oldest)) {
+        this.#usedRefreshIdOrder.push(oldest);
+        inspected += 1;
+      } else {
+        this.#usedRefreshIds.delete(oldest);
+        inspected = 0;
+      }
+    }
   }
 
   register(ipcMain: ChromiumRoleOverlayIpcMainPort): void {
@@ -562,6 +589,7 @@ export class ChromiumRoleOverlayCoordinator {
     }
     this.#refreshById.clear();
     this.#usedRefreshIds.clear();
+    this.#usedRefreshIdOrder.length = 0;
     this.#refreshTailByRole.clear();
   }
 
@@ -627,6 +655,8 @@ export class ChromiumRoleOverlayCoordinator {
       ));
     }
     this.#usedRefreshIds.add(refreshId);
+    this.#usedRefreshIdOrder.push(refreshId);
+    this.#evictTerminalRefreshIds();
 
     const completion = deferred<ChromiumRoleOverlayRefreshReceipt>();
     const waiter: OverlayRefreshWaiter = {

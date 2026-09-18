@@ -170,6 +170,58 @@ describe("Electron fatal startup shutdown", () => {
     expect(input.quit).toHaveBeenCalledOnce();
   });
 
+  it("exits nonzero when the fatal drain never settles", async () => {
+    const input = defaults();
+    const neverSettles = new Promise<void>(() => undefined);
+    const lifecycle = {
+      beginFatalQuit: vi.fn(),
+      prepareQuit: vi.fn(() => neverSettles)
+    };
+
+    await expect(terminateElectronAfterFatalStartup({
+      ...input,
+      lifecycle,
+      terminationDeadlineMs: 5
+    })).resolves.toBe("forced-exit");
+
+    expect(input.quit).not.toHaveBeenCalled();
+    expect(input.forceExit).toHaveBeenCalledOnce();
+    expect(input.forceExit).toHaveBeenCalledWith(70);
+    expect(input.onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_FATAL_TERMINATION_DEADLINE"
+    }));
+    expect(input.disposeShell).not.toHaveBeenCalled();
+  });
+
+  it("exits nonzero when shell disposal never settles after a clean drain", async () => {
+    const input = {
+      ...defaults(),
+      disposeShell: vi.fn(() => new Promise<void>(() => undefined))
+    };
+
+    await expect(terminateElectronAfterFatalStartup({
+      ...input,
+      core: { shutdown: vi.fn(async () => undefined) },
+      terminationDeadlineMs: 5
+    })).resolves.toBe("forced-exit");
+
+    expect(input.quit).not.toHaveBeenCalled();
+    expect(input.forceExit).toHaveBeenCalledWith(70);
+  });
+
+  it("keeps a settling drain on the ordinary clean-quit terminal", async () => {
+    const input = defaults();
+
+    await expect(terminateElectronAfterFatalStartup({
+      ...input,
+      core: { shutdown: vi.fn(async () => undefined) },
+      terminationDeadlineMs: 10_000
+    })).resolves.toBe("clean-quit");
+
+    expect(input.quit).toHaveBeenCalledOnce();
+    expect(input.forceExit).not.toHaveBeenCalled();
+  });
+
   it("upgrades an in-flight fatal owner to mandatory nonzero termination", async () => {
     const drain = deferred();
     const quit = vi.fn();

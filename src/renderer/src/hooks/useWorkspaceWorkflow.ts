@@ -89,6 +89,7 @@ export function useWorkspaceWorkflow({
     const ids = selectedWorkspaces.map((workspace) => workspace.id);
     const finishBusy = beginBusyMany(ids);
     if (!finishBusy) {
+      setNotice?.(t("operations.busyRetry"));
       return false;
     }
 

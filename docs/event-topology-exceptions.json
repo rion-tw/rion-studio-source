@@ -79,6 +79,28 @@
       "reason": "The external Chromium renderer may never settle its delivery promise; the role lane must terminalize without retrying.",
       "terminalOutcome": "Unknown submitted delivery becomes indeterminate. Expiry never becomes success or initiates a transport fallback.",
       "cleanup": "Exact completion, document retirement or disposal clears the timer; late receipts cannot affect the terminal outcome."
+    },
+    {
+      "id": "electron-fatal-termination-deadline",
+      "paths": [
+        "src/electron/main/fatalStartupShutdown.ts"
+      ],
+      "mechanism": "One-shot last-resort process-termination deadline around the fatal drain.",
+      "authoritativeEvent": "The lifecycle/runtime/Core fatal drain and shell disposal settle.",
+      "reason": "The fatal path awaits the same cached shutdown promise it exists to rescue, so a drain that never settles would hold the process open with before-quit permanently prevented and no escape for the user or the OS session-end handler.",
+      "terminalOutcome": "Expiry is an explicit unclean termination: it reports ELECTRON_FATAL_TERMINATION_DEADLINE and exits nonzero (70). It never reaches quit(), never reports clean-quit, and elapsed time is never success.",
+      "cleanup": "Every terminal path clears the one-shot timer; the timer is unref'd so it cannot itself hold the process open."
+    },
+    {
+      "id": "windows-session-end-terminal-deadline",
+      "paths": [
+        "src/electron/main/windowsSessionEndCoordinator.ts"
+      ],
+      "mechanism": "One-shot OS session-end grace bound around the Core clean-exit drain.",
+      "authoritativeEvent": "The lifecycle confirmQuit drain resolves or rejects.",
+      "reason": "query-session-end is prevented before the drain starts, and Windows grants only a limited grace period after WM_QUERYENDSESSION. An EventBound drain that never settles would block the user's shutdown, restart, or sign-out with no interactive escape, and a never-settling promise never reaches the lifecycle's fatal routing.",
+      "terminalOutcome": "Expiry reports ELECTRON_WINDOWS_SESSION_END_DEADLINE and enters the shared fatal owner, which terminates the process nonzero and leaves the unclean-exit marker. Elapsed time is never success and never persists a clean boundary.",
+      "cleanup": "Both drain terminals clear the one-shot timer, dispose clears it, and the timer is unref'd so it cannot itself hold the process open."
     }
   ]
 }

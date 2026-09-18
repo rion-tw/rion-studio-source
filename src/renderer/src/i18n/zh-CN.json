@@ -1404,5 +1404,6 @@
   "recovery.unknown": "未验证",
   "settings.logsLevelEvidence": "当前：{level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}",
   "settings.logsExportPartial": "已导出诊断包，部分实时数据无法获取。",
-  "settings.logsExportComplete": "已导出诊断包。"
+  "settings.logsExportComplete": "已导出诊断包。",
+  "operations.busyRetry": "部分选取的项目仍在完成先前的动作，请稍候再试一次。"
 }

@@ -165,6 +165,7 @@ export function useRoleWorkflow({
     const ids = selectedRoles.map((role) => role.id);
     const finishBusy = beginBusyMany(ids);
     if (!finishBusy) {
+      setNotice?.(t("operations.busyRetry"));
       return false;
     }
 

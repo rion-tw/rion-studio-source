@@ -1404,5 +1404,6 @@
   "recovery.unknown": "未検証",
   "settings.logsLevelEvidence": "現在：{level} · Debug {debug} · Info {info} · Warn {warn} · Error {error}",
   "settings.logsExportPartial": "診断情報をエクスポートしました。一部の最新データは取得できませんでした。",
-  "settings.logsExportComplete": "診断情報をエクスポートしました。"
+  "settings.logsExportComplete": "診断情報をエクスポートしました。",
+  "operations.busyRetry": "選択した項目の一部が前の操作を完了中です。しばらくしてからもう一度お試しください。"
 }

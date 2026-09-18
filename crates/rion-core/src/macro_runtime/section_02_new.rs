@@ -932,12 +932,26 @@ impl MacroRuntime {
         if self.shared.shutting_down.swap(true, Ordering::AcqRel) {
             return;
         }
-        let controls = self
-            .shared
-            .inner
-            .lock()
-            .map(|inner| inner.invocations.values().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
+        // Release role-transfer waiters BEFORE waiting on the controls, the
+        // same order `suspend_for_application_lifecycle` uses. A worker parked
+        // on `role_transfer_changed` holds that role's action lock and is not
+        // woken by cancellation alone, so cancelling first would stall every
+        // parked invocation for its full stop timeout.
+        let controls = {
+            let mut transferring_cleared = false;
+            let controls = match self.shared.inner.lock() {
+                Ok(mut inner) => {
+                    inner.transferring_role_ids.clear();
+                    transferring_cleared = true;
+                    inner.invocations.values().cloned().collect::<Vec<_>>()
+                }
+                Err(_) => Vec::new(),
+            };
+            if transferring_cleared {
+                self.shared.role_transfer_changed.notify_all();
+            }
+            controls
+        };
         let _ = cancel_and_wait_all(&controls);
         if let Ok(mut inner) = self.shared.inner.lock() {
             inner.application_suspend_epochs.clear();

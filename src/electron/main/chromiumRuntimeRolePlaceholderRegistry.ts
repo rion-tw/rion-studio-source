@@ -640,6 +640,11 @@ export class ChromiumRuntimeRolePlaceholderRegistry {
 
   #detachView(record: PlaceholderRecord): void {
     if (!record.attached) return;
+    // A destroyed parent has already released every child view natively.
+    if (record.descriptor.parent.isDestroyed()) {
+      record.attached = false;
+      return;
+    }
     record.descriptor.parent.contentView.removeChildView(record.view);
     record.attached = false;
   }

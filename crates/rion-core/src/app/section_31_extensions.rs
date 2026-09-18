@@ -337,11 +337,17 @@ impl AppCore {
                     .collect();
                 let before_cleanup = snapshot.installed.len();
                 for package in candidates {
-                    let path = std::path::Path::new(&package.directory);
-                    if path.parent() != Some(self.user_data_dir.join("extensions").as_path()) {
+                    // Containment must be proven on canonical paths: this is the
+                    // only guard in front of an unconditional recursive delete,
+                    // and a lexical parent check passes for a `..` or symlinked
+                    // component that actually names the whole user-data root.
+                    let Ok(path) = crate::extensions::managed_package_directory(
+                        &self.user_data_dir,
+                        &package.directory,
+                    ) else {
                         continue;
-                    }
-                    match std::fs::remove_dir_all(path) {
+                    };
+                    match std::fs::remove_dir_all(&path) {
                         Ok(()) => {}
                         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                         Err(_) => continue,

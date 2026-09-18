@@ -1476,6 +1476,14 @@ export class ChromiumRoleSurfaceRegistry {
         "The role surface lost its exact physical parent identity."
       );
     }
+    // A destroyed parent has already released every child view natively, so
+    // detaching is complete rather than failed. Treating it as a failure
+    // quarantines the record and blocks relaunching the role for the session.
+    if (physicalParent.isDestroyed()) {
+      record.attached = false;
+      record.physicalParent = null;
+      return;
+    }
     try {
       physicalParent.contentView.removeChildView(record.view);
     } catch {

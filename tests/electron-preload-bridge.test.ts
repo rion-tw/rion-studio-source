@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { RionBridgeError } from "../src/electron/ipc/errors";
+import { RION_API_EVENT_METHODS } from "../src/electron/ipc/apiMethods";
 import { RION_IPC_CHANNELS } from "../src/electron/ipc/protocol";
 import {
   createRionStudioPreloadApi,
@@ -82,4 +83,37 @@ describe("Electron sandbox preload bridge", () => {
     listener({}, { method: "not-allowlisted", payload: [[]] });
     expect(callback).toHaveBeenCalledOnce();
   });
+});
+
+it("multiplexes every event method over one channel listener", () => {
+  const ipc = createIpcRenderer();
+  const api = createRionStudioPreloadApi(ipc.port);
+  const methods = Object.keys(RION_API_EVENT_METHODS) as (keyof typeof RION_API_EVENT_METHODS)[];
+
+  // All 26 event methods share one channel, so one listener per subscription
+  // exceeded Node's default maxListeners of 10 and re-parsed every envelope
+  // once per subscribed method.
+  const unsubscribes = methods.map((method) =>
+    (api[method] as (callback: () => void) => () => void)(() => undefined)
+  );
+  expect(methods.length).toBeGreaterThan(10);
+  expect(ipc.listeners.size).toBe(1);
+
+  unsubscribes.forEach((unsubscribe) => unsubscribe());
+  expect(ipc.listeners.size).toBe(0);
+});
+
+it("delivers an event only to the callbacks subscribed to that method", () => {
+  const ipc = createIpcRenderer();
+  const api = createRionStudioPreloadApi(ipc.port);
+  const rolesChanged = vi.fn();
+  const gamesChanged = vi.fn();
+  api.onRolesChanged(rolesChanged);
+  api.onGamesChanged(gamesChanged);
+
+  const [listener] = [...ipc.listeners];
+  listener?.({}, { method: "onRolesChanged", payload: [] });
+
+  expect(rolesChanged).toHaveBeenCalledOnce();
+  expect(gamesChanged).not.toHaveBeenCalled();
 });

@@ -68,6 +68,7 @@ function classifyStoreUrl(url: URL | null): StoreNavigationClassification {
 export class ExtensionStoreHost {
   #view: WebContentsView | null = null;
   #window: BrowserWindow | null = null;
+  #ownerClosed: { window: BrowserWindow; listener: () => void } | null = null;
   #failed = false;
   #generation = 0;
   #language: NonNullable<ExtensionStoreRequest["language"]> = "en";
@@ -195,7 +196,9 @@ export class ExtensionStoreHost {
         if (main && code !== -3) updateFailed(true);
       });
       view.webContents.on("render-process-gone", () => updateFailed(true));
-      window.once("closed", () => { if (this.#window === window) this.dispose(); });
+      const onWindowClosed = () => { if (this.#window === window) this.dispose(); };
+      this.#ownerClosed = { window, listener: onWindowClosed };
+      window.once("closed", onWindowClosed);
       // EventBound: navigation lifecycle events establish the store state.
       this.#queueNavigation(
         view,
@@ -240,6 +243,22 @@ export class ExtensionStoreHost {
     if (view) {
       if (this.#window && !this.#window.isDestroyed()) this.#window.contentView.removeChildView(view);
       if (!view.webContents.isDestroyed()) view.webContents.close();
+    }
+    // The store partition outlives every view it hosts, so the request filter
+    // must be uninstalled with the view that installed it. Leaving it attached
+    // keeps a dead view's closure filtering requests on a persistent session.
+    try {
+      session.fromPartition("rion-extension-store", { cache: false })
+        .webRequest.onBeforeRequest(null);
+    } catch {
+      // Filter removal is cleanup only and cannot fail view retirement.
+    }
+    // The owner window also outlives the view, so its close listener is
+    // removed rather than accumulating one entry per view recreation.
+    const ownerClosed = this.#ownerClosed;
+    this.#ownerClosed = null;
+    if (ownerClosed && !ownerClosed.window.isDestroyed()) {
+      ownerClosed.window.removeListener("closed", ownerClosed.listener);
     }
     this.#window = null;
   }

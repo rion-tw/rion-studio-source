@@ -82,6 +82,12 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
   const pending = useRef<string | null>(null);
   const commandSequence = useRef(0);
   const alive = useRef(true);
+  // The subscription effect must not re-run on a translator identity change:
+  // its cleanup cancels the in-flight preparation in Core, so a language switch
+  // (or a lazily loaded dictionary resolving) would kill an install that the
+  // renderer still shows as pending, leaving a dead operationId behind.
+  const translate = useRef(t);
+  translate.current = t;
   useEffect(() => {
     if (previousView.current !== "installed" && view === "installed") {
       const card = returnFocus.current ? document.querySelector<HTMLButtonElement>(`[data-extension-id="${returnFocus.current}"] button`) : null;
@@ -98,14 +104,14 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     alive.current = true;
     const unsubscribe = window.rionStudio.onExtensionsChanged(apply);
     const unstore = window.rionStudio.onExtensionStoreChanged(setStore);
-    void window.rionStudio.extensions({ type: "snapshot" }).then(r => { if (alive.current) apply(r.snapshot); }, () => { if (alive.current) setError(t("extensions.failed")); });
+    void window.rionStudio.extensions({ type: "snapshot" }).then(r => { if (alive.current) apply(r.snapshot); }, () => { if (alive.current) setError(translate.current("extensions.failed")); });
     return () => {
       alive.current = false;
       unsubscribe(); unstore();
       void window.rionStudio.extensionStore({ action: "hide" }).catch(() => undefined);
       if (pending.current) void window.rionStudio.extensions({ type: "cancel", operationId: pending.current }).catch(() => undefined);
     };
-  }, [apply, t]);
+  }, [apply]);
 
   useEffect(() => {
     const element = viewport.current;
@@ -127,6 +133,15 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     return () => { observer.disconnect(); window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); void window.rionStudio.extensionStore({ action: "hide" }).catch(() => undefined); };
   }, [view, covered, t, language]);
 
+  /**
+   * Releases the latch held by a command this cancellation superseded. The
+   * superseded command's own `finally` is fenced out by the sequence bump, so
+   * without this the latch would have no owner left to release it.
+   */
+  const releaseSupersededCommand = () => {
+    commandBusy.current = false;
+    if (alive.current) setBusy(false);
+  };
   const command = async (input: ExtensionUserCommand) => {
     if (commandBusy.current) return null;
     commandBusy.current = true;
@@ -141,8 +156,18 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
   };
   const closeInstall = async () => {
     if (commandBusy.current) return;
-    if (pending.current && !await command({ type: "cancel", operationId: pending.current })) return;
-    pending.current = null; setError("");
+    const operationId = pending.current;
+    pending.current = null;
+    setError("");
+    // Leaving the install editor is the user's decision and must not depend on
+    // Core accepting the cancel. This is the editor's only exit -- it backs the
+    // header Back action and the Escape key -- so a rejected cancel (a stale or
+    // already-terminal operationId) would otherwise trap the user here with no
+    // retry affordance. The cancel is still issued, and the route's unmount
+    // cleanup re-issues one for any operation still pending.
+    if (operationId) {
+      void command({ type: "cancel", operationId });
+    }
     navigate(storePath, { replace: true });
     setPrepared(null);
   };
@@ -155,8 +180,11 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     // Supersede the preparation immediately, but unlock navigation only after Core cancels it.
     try {
       await window.rionStudio.extensions({ type: "cancel", operationId: id });
-      pending.current = null; commandBusy.current = false;
-      if (alive.current) { setBusy(false); setError(""); }
+      // Core acknowledged the cancel, so this is the authoritative terminal for
+      // the superseded command even if its own promise never settles.
+      pending.current = null;
+      releaseSupersededCommand();
+      if (alive.current) setError("");
     } catch { if (alive.current) setError(t("extensions.failed")); }
     finally { if (alive.current) setCancelling(false); }
   };
@@ -173,10 +201,26 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     if (!alive.current || pending.current !== operationId || cancellation.current === operationId) return;
     if (result?.prepared) {
       commandBusy.current = true; setBusy(true);
-      try { await window.rionStudio.extensionStore({ action: "hide" }); }
-      catch { await cancelPreparation(); setError(t("extensions.failed")); return; }
-      if (!alive.current || pending.current !== operationId || cancellation.current === operationId) return;
-      commandBusy.current = false; setBusy(false);
+      let hidden = false;
+      try {
+        await window.rionStudio.extensionStore({ action: "hide" });
+        hidden = true;
+      } catch {
+        await cancelPreparation();
+        if (alive.current) setError(t("extensions.failed"));
+      } finally {
+        // This second acquisition is owned here, so every exit releases it --
+        // including the superseded return below, which previously left the
+        // latch set with no owner and made the whole route inert. The one
+        // deliberate exception is a failed cancellation, which retains the
+        // latch so the visible Cancel action stays the user's retry path.
+        if (hidden || pending.current !== operationId) {
+          commandBusy.current = false;
+          if (alive.current) setBusy(false);
+        }
+      }
+      if (!hidden || !alive.current) return;
+      if (pending.current !== operationId || cancellation.current === operationId) return;
       setPrepared(result.prepared); navigate(installPath);
     } else pending.current = null;
   };

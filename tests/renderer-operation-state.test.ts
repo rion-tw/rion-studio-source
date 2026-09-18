@@ -53,3 +53,21 @@ describe("renderer operation state", () => {
     expect(snapshots).toEqual([["one", "two"], []]);
   });
 });
+
+it("refuses a whole batch when any id is already busy, so callers must report it", () => {
+  const changes: ReadonlySet<string>[] = [];
+  const tracker = new BusyIdTracker((ids) => changes.push(ids));
+
+  const first = tracker.begin("macro-1");
+  expect(first).toBeTypeOf("function");
+
+  // A single still-settling id cancels the entire batch. Every caller returns
+  // early on this, so without an explicit notice the action is silent and
+  // indistinguishable from a dead button.
+  expect(tracker.beginMany(["macro-1", "macro-2", "macro-3"])).toBeUndefined();
+  expect(changes.at(-1)).toEqual(new Set(["macro-1"]));
+
+  first?.();
+  expect(tracker.beginMany(["macro-1", "macro-2", "macro-3"])).toBeTypeOf("function");
+  expect(changes.at(-1)).toEqual(new Set(["macro-1", "macro-2", "macro-3"]));
+});

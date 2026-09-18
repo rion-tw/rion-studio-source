@@ -135,6 +135,39 @@ use std::sync::mpsc;
     }
 
     #[test]
+    fn a_zero_interval_loop_without_input_steps_is_floored_instead_of_spinning() {
+        let (events, events_receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![MacroStepDefinition::Delay {
+            id: "delay".to_owned(),
+            ms: 0,
+        }]);
+        start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };
+        let starting_runtime = runtime.clone();
+        let starting = thread::spawn(move || starting_runtime.start(start));
+        let focus = next_browser_actions(&events_receiver);
+        runtime.dispatch_results(success_results(focus)).unwrap();
+        starting.join().unwrap().unwrap();
+
+        // The step delay itself stays exactly as authored; only the loop
+        // interval is floored, because this macro dispatches no input and would
+        // otherwise iterate as fast as the thread can yield.
+        let startup_wait = next_wait(&waits);
+        assert_eq!(startup_wait.duration_ms, 0);
+        let _ = startup_wait.release.send(());
+        let step_wait = next_wait(&waits);
+        assert_eq!(step_wait.duration_ms, 0);
+        let _ = step_wait.release.send(());
+        let loop_wait = next_wait(&waits);
+        assert_eq!(loop_wait.duration_ms, EMPTY_LOOP_MINIMUM_INTERVAL_MS);
+        let _ = loop_wait.release.send(());
+
+        runtime.stop_macro("m1").ok();
+    }
+
+    #[test]
     fn external_shortcut_source_runs_only_active_execution_roles() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {

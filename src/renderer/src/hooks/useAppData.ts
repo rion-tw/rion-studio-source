@@ -56,7 +56,15 @@ export function useAppData() {
         INITIAL_APP_DATA_TIMEOUT_MS,
         "Rion Studio data did not load within 15 seconds."
       );
-      appSnapshotStore.commit(next);
+      // A rejected commit means the store already holds this revision or a
+      // newer one. Reporting "ready" regardless would render the empty
+      // snapshot -- zero games, roles and macros -- while claiming success and
+      // surfacing no error anywhere.
+      if (!appSnapshotStore.commit(next) && appSnapshotStore.getSnapshot().revision <= 0) {
+        throw new Error(
+          "Rion Studio data could not be applied because its revision was rejected."
+        );
+      }
       if (options.markInitialLoad && request === initialLoadRequestRef.current) {
         setInitialLoadState("ready");
       }

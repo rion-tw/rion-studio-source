@@ -54,6 +54,10 @@ const PROBE_CONTROL_DIRECTORY_NAME: &str = "probe-control";
 pub(super) struct MacosUpdateInstaller {
     prepared: Mutex<Option<PreparedMacosInstall>>,
     current_executable_override: Option<PathBuf>,
+    /// Injects a post-swap directory-sync failure so the rollback path that
+    /// runs after the bundle has already been replaced can be proven.
+    #[cfg(test)]
+    fail_post_swap_sync: bool,
 }
 
 #[derive(Clone)]
@@ -135,7 +139,25 @@ impl UpdatePlatformInstaller for MacosUpdateInstaller {
             let _ = fs::remove_dir_all(&staging_root);
             return Err(UpdatePlatformInstallError::ReplacementFailed);
         }
-        sync_directory(parent)?;
+        // The bundle swap is already applied here, and `self.prepared` is not
+        // recorded until the end of this function. A bare `?` would therefore
+        // return with the filesystem mutated and no rollback state, so
+        // `rollback()` could only answer StateUnavailable and the caller would
+        // silently keep a half-applied update plus an orphaned backup bundle.
+        #[cfg(test)]
+        let post_swap_sync = if self.fail_post_swap_sync {
+            Err(UpdatePlatformInstallError::Io(std::io::Error::other(
+                "injected directory sync failure",
+            )))
+        } else {
+            sync_directory(parent)
+        };
+        #[cfg(not(test))]
+        let post_swap_sync = sync_directory(parent);
+        if let Err(error) = post_swap_sync {
+            rollback_paths(&current_bundle, &backup_bundle, &staging_root)?;
+            return Err(error);
+        }
         let replacement_validation =
             validate_bundle(&current_bundle, &request.attempt.target_version);
         let new_executable = current_bundle.join(candidate_executable_relative);
@@ -279,6 +301,16 @@ impl MacosUpdateInstaller {
         Self {
             prepared: Mutex::new(None),
             current_executable_override: Some(current_executable),
+            fail_post_swap_sync: false,
+        }
+    }
+
+    #[cfg(test)]
+    fn for_test_failing_post_swap_sync(current_executable: PathBuf) -> Self {
+        Self {
+            prepared: Mutex::new(None),
+            current_executable_override: Some(current_executable),
+            fail_post_swap_sync: true,
         }
     }
 }

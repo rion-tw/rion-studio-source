@@ -122,7 +122,7 @@ import {
 } from "./electronStartupQuitFence";
 import { applyElectronMainWindowClosePolicy } from
   "./mainWindowClosePolicy";
-import { ElectronWindowsSessionEndCoordinator } from
+import { createWindowsSessionEndCoordinator } from
   "./windowsSessionEndCoordinator";
 import { installWindowsApplicationMenu } from "./windowsApplicationMenu";
 import { installMacosApplicationMenu } from "./macosApplicationMenu";
@@ -190,6 +190,7 @@ let unsubscribeDisplayTopology: (() => void) | null = null;
 let mainWindowState: ElectronWindowStateController | null = null;
 let applicationLifecycle: ElectronApplicationLifecycleController | null = null;
 let chromiumRuntime: ChromiumRuntimeBootstrap | null = null;
+let abandonExtensionReleases: (() => void) | null = null;
 let appKitRuntimeEvents: MacosAppKitRuntimeEventBridge | null = null;
 let chromiumLaunchCompletions: ChromiumRuntimeLaunchCompletionCoordinator | null = null;
 let runtimeRestoreSession: ChromiumRuntimeRestoreSessionCoordinator | null = null;
@@ -490,6 +491,7 @@ function fatalTerminationCoordinator(): ElectronFatalTerminationCoordinator {
     lifecycle: () => lifecycle, runtime: () => chromiumRuntime, core: () => core,
     disposeShell: disposeShellAfterFatalTermination,
     quit: () => app.quit(), forceExit: (code) => app.exit(code),
+    onTerminationBegan: () => abandonExtensionReleases?.(),
     onError: (error) => {
       runtimeLogs.fatalTerminationError(error);
       console.error(`[${error.code}] ${error.message}`);
@@ -574,15 +576,13 @@ async function createMainWindow(): Promise<BrowserWindow> {
   window.webContents.on("render-process-gone", () => {
     mainRendererQuitHandshake.markUnavailable(identity);
   });
-  const windowsSessionEnd = platform() === "win32"
-    ? new ElectronWindowsSessionEndCoordinator({
-        platform: "win32",
-        window,
-        confirmQuit: () => activeLifecycle().confirmQuit(),
-        onError: revealShellError
-      })
-    : null;
-  windowsSessionEnd?.start();
+  const windowsSessionEnd = createWindowsSessionEndCoordinator({
+    platform: platform(),
+    window,
+    confirmQuit: () => activeLifecycle().confirmQuit(),
+    forceTerminate: () => void fatalTerminationCoordinator().forceTerminate(),
+    onError: revealShellError
+  });
   window.on("close", (event) => {
     applyElectronMainWindowClosePolicy({
       hide: () => window.hide(),
@@ -797,6 +797,7 @@ async function bootstrapReadyPhase(
     onError: revealShellError
   });
   const extensionSessions = createChromiumExtensionSessions(core, runtimeLogs);
+  abandonExtensionReleases = () => extensionSessions.abandonNativeReleases();
   chromiumRuntime = await ChromiumRuntimeBootstrap.start({
     core,
     ipcMain,

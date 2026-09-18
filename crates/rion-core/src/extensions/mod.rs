@@ -89,6 +89,25 @@ fn prepare_downloaded(
     ))
 }
 
+/// Resolves a catalogue record's directory to a real path that is a direct
+/// child of the managed `extensions` root.
+///
+/// The comparison is made on canonical paths on both sides. A lexical
+/// `Path::parent()` check is not a containment proof: `..` is an ordinary
+/// path component, so `<user_data>/extensions/..` has `<user_data>/extensions`
+/// as its lexical parent while actually naming `<user_data>` itself.
+pub(crate) fn managed_package_directory(
+    user_data_dir: &std::path::Path,
+    directory: &str,
+) -> Result<std::path::PathBuf> {
+    let managed_root = std::fs::canonicalize(user_data_dir.join("extensions"))?;
+    let directory = std::fs::canonicalize(directory)?;
+    if directory.parent() != Some(managed_root.as_path()) {
+        return Err(ExtensionPackageError::PackageInvalid);
+    }
+    Ok(directory)
+}
+
 pub(crate) fn backfill_metadata(
     user_data_dir: &std::path::Path,
     record: &mut ExtensionPackageRecord,
@@ -97,11 +116,7 @@ pub(crate) fn backfill_metadata(
     if !needs_display && record.required_api_permissions.is_some() {
         return Ok(false);
     }
-    let managed_root = std::fs::canonicalize(user_data_dir.join("extensions"))?;
-    let directory = std::fs::canonicalize(&record.directory)?;
-    if directory.parent() != Some(managed_root.as_path()) {
-        return Err(ExtensionPackageError::PackageInvalid);
-    }
+    let directory = managed_package_directory(user_data_dir, &record.directory)?;
     // Gather every fallible value before changing the durable record.
     let required = if record.required_api_permissions.is_none() {
         Some(permissions::required_api_permissions(

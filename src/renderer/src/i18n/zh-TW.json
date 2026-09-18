@@ -1279,6 +1279,7 @@
   "bulkDelete.macros.title": "要刪除 {count} 個巨集嗎？",
   "bulkDelete.macros.description": "執行中的巨集會先停止，再永久刪除所選巨集及其已儲存步驟。",
   "bulkDelete.result.summary": "已刪除 {deleted} 個；略過 {skipped} 個。",
+  "operations.busyRetry": "部分選取的項目仍在完成先前的動作，請稍候再試一次。",
   "bulkDelete.reason.protected": "{count} 個受保護",
   "bulkDelete.reason.in_use": "{count} 個使用中",
   "bulkDelete.reason.not_found": "{count} 個已不存在",

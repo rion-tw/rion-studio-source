@@ -349,6 +349,35 @@ fn replacement_allows_the_verified_target_to_change_runtime_executable_name() {
 }
 
 #[test]
+fn a_post_swap_sync_failure_restores_the_previous_bundle_and_leaves_no_transaction_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let current_bundle = directory.path().join("Rion Studio.app");
+    let current_executable =
+        create_ad_hoc_test_bundle_named(&current_bundle, "22.9.0", "rion-tauri");
+    let candidate_bundle = directory.path().join("candidate/Rion Studio.app");
+    create_ad_hoc_test_bundle(&candidate_bundle, "23.0.0");
+    let artifact_path = directory.path().join("Rion-Studio.app.tar.gz");
+    archive_test_bundle(&candidate_bundle, &artifact_path);
+    let request = PlatformInstallRequest {
+        attempt: install_attempt("23.0.0"),
+        platform: UpdatePlatform::MacosAarch64,
+        artifact_path,
+        user_data_dir: directory.path().join("user-data"),
+    };
+    let installer = MacosUpdateInstaller::for_test_failing_post_swap_sync(current_executable);
+
+    // The swap is already applied when the sync fails. Without an explicit
+    // rollback the caller keeps the new bundle in place while being told the
+    // install failed, and `rollback()` can only answer StateUnavailable
+    // because `prepared` was never recorded.
+    let error = installer.prepare(&request).unwrap_err();
+    assert!(matches!(error, UpdatePlatformInstallError::Io(_)));
+    validate_bundle(&current_bundle, "22.9.0").unwrap();
+    assert!(current_bundle.join("Contents/MacOS/rion-tauri").is_file());
+    assert_transaction_paths_removed(&current_bundle, &request.attempt.attempt_id);
+}
+
+#[test]
 fn first_target_boot_finalizes_a_crash_resumable_real_replacement() {
     let (_directory, installer, request, current_bundle) = real_install_fixture();
     installer.prepare(&request).unwrap();

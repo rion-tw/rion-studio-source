@@ -94,6 +94,42 @@ describe.each(["darwin", "win32"])("bootstrap lease lifecycle (%s)", platform =>
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("drops the role entry even when Core rejects the lease release", async () => {
+    const f = fixture(); await f.started.promise;
+    f.load.resolve({ id }); f.status("starting"); f.ready(); f.status("running");
+    await f.prepared;
+
+    f.core.invoke.mockRejectedValueOnce(new Error("CORE_SHUTTING_DOWN"));
+    const released = f.sessions.release(f.handle as never);
+    await f.removing.promise;
+    f.unloaded();
+    await expect(released).rejects.toThrow("CORE_SHUTTING_DOWN");
+
+    // A retained released entry would fail every later prepare() for this role
+    // with EXTENSIONS_STALE_SESSION and quarantine the surface for the session.
+    f.core.invoke.mockClear();
+    await expect(f.sessions.prepare(f.handle as never, f.surface as never))
+      .resolves.toBeUndefined();
+  });
+
+  it("abandons an unconfirmed native unload instead of holding the drain open", async () => {
+    const f = fixture(); await f.started.promise;
+    f.load.resolve({ id }); f.status("starting"); f.ready(); f.status("running");
+    await f.prepared;
+
+    // Chromium accepts removeExtension but never emits extension-unloaded.
+    const released = f.sessions.release(f.handle as never);
+    await f.removing.promise;
+    let settled = false;
+    void released.catch(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    f.sessions.abandonNativeReleases("EXTENSIONS_RELEASE_ABANDONED_FATAL_TERMINATION");
+    await expect(released).rejects.toThrow("EXTENSIONS_RELEASE_ABANDONED_FATAL_TERMINATION");
+    expect(f.native.listenerCount("extension-unloaded")).toBe(0);
+  });
+
   it.each(["release", "host-failure"])("settles pending bootstrap on %s without the deadline", async action => {
     vi.useFakeTimers();
     const f = fixture();

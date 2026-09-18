@@ -409,3 +409,64 @@ it("passes the current app language when opening and updating the store", async 
     expect(f.extensionStore).toHaveBeenLastCalledWith(expect.objectContaining({ action: "show", language: "ja" }));
   } finally { rect.mockRestore(); }
 });
+
+it("leaves the install editor even when Core rejects the cancellation", async () => {
+  const f = fixture({ revision: 3, installed: [], roles: [] });
+  const user = userEvent.setup();
+  mount({ language: "en", roles: [], t });
+  await screen.findByText("No extensions installed yet.");
+  await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
+  await act(async () => f.showStore());
+  f.invoke.mockResolvedValueOnce({
+    snapshot: original,
+    lease: null,
+    prepared: { operationId: "op-1", package: original.installed[0] }
+  });
+  await user.click(screen.getByRole("button", { name: "Install this extension" }));
+  // install() is fire-and-forget behind two awaits, so wait for the editor.
+  await vi.waitFor(() => expect(document.querySelector("#app-editor-form")).not.toBeNull());
+
+  // The install editor's Back action is its only exit, so a rejected cancel of
+  // a stale or already-terminal operation must not trap the user inside it.
+  f.invoke.mockRejectedValueOnce(new Error("cancel failed"));
+  await user.click(within(
+    document.querySelector("#app-editor-form") as HTMLElement
+  ).getByRole("button", { name: en["extensions.cancel"] }));
+  expect(document.querySelector("#app-editor-form")).toBeNull();
+  expect(f.invoke.mock.calls.at(-1)?.[0]).toMatchObject({ type: "cancel" });
+});
+
+it("keeps the store usable when a preparation is superseded after the store hides", async () => {
+  const f = fixture({ revision: 3, installed: [], roles: [] });
+  const user = userEvent.setup();
+  mount({ language: "en", roles: [], t });
+  await screen.findByText("No extensions installed yet.");
+  await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
+  await act(async () => f.showStore());
+
+  // Cancel wins the race while the store is still hiding: the second latch
+  // acquisition in install() must still be released, or every later action on
+  // the route short-circuits on commandBusy and the page becomes inert.
+  let hide!: () => void;
+  f.invoke.mockResolvedValueOnce({
+    snapshot: original,
+    lease: null,
+    prepared: { operationId: "op-2", package: original.installed[0] }
+  });
+  f.extensionStore.mockImplementationOnce(
+    () => new Promise(resolve => { hide = () => resolve(undefined as never); })
+  );
+  await user.click(screen.getByRole("button", { name: "Install this extension" }));
+  await vi.waitFor(() => expect(hide).toBeTypeOf("function"));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await act(async () => { hide(); });
+
+  expect(document.querySelector("#app-editor-form")).toBeNull();
+  const back = await vi.waitFor(() => {
+    const button = screen.getByRole("button", { name: "Back to extensions" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    return button;
+  });
+  await user.click(back);
+  expect(screen.getByText("No extensions installed yet.")).toBeTruthy();
+});

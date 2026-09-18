@@ -135,6 +135,9 @@ export function useMacroWorkflow({
     const ids = selectedMacros.map((macro) => macro.id);
     const finishBusy = beginBusyMany(ids);
     if (!finishBusy) {
+      // A batch is all-or-nothing, so a single still-settling item silently
+      // cancels the whole action -- indistinguishable from a dead button.
+      setNotice?.(t("operations.busyRetry"));
       return false;
     }
 
@@ -207,6 +210,9 @@ export function useMacroWorkflow({
 
     const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
     if (!finishBusy) {
+      // A batch is all-or-nothing, so a single still-settling item silently
+      // cancels the whole action -- indistinguishable from a dead button.
+      setNotice?.(t("operations.busyRetry"));
       return false;
     }
 
@@ -265,6 +271,7 @@ export function useMacroWorkflow({
 
     const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
     if (!finishBusy) {
+      setNotice?.(t("operations.busyRetry"));
       return;
     }
     const reportError = beginErrorOperation();
@@ -295,6 +302,7 @@ export function useMacroWorkflow({
 
     const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
     if (!finishBusy) {
+      setNotice?.(t("operations.busyRetry"));
       return;
     }
 

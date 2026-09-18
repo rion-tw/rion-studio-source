@@ -889,3 +889,38 @@ fn appkit_window_close_drains_the_exact_cohort_without_intermediate_phase_projec
         core.shutdown();
     }
 }
+
+#[test]
+fn appkit_event_sequence_fence_retains_one_entry_per_launch_generation() {
+    let (_directory, core) = core_for_runtime_contract("darwin", 23);
+    // launch_generation is fresh per launch, so every launch/stop cycle of the
+    // same logical window inserts a new key that nothing ever removes.
+    for generation in 0..500_u32 {
+        let identity = AppKitRuntimeHostIdentityRecord {
+            logical_window_id: "window-1".to_owned(),
+            launch_generation: format!("launch-{generation}"),
+            native_generation: generation,
+        };
+        assert!(core.accept_appkit_event_sequence(&identity, 1).unwrap());
+    }
+    // The logical window was never registered in the runtime, so every retired
+    // identity is prunable and the fence stays bounded instead of retaining one
+    // entry per launch for the lifetime of the process.
+    assert!(
+        core.appkit_event_sequence_probe
+            .load(std::sync::atomic::Ordering::Acquire)
+            <= 256,
+        "the sequence fence must not retain every historical launch generation"
+    );
+
+    // Monotonicity for the identity currently being fenced is unaffected by
+    // pruning: the entry just written is never the one dropped.
+    let latest = AppKitRuntimeHostIdentityRecord {
+        logical_window_id: "window-1".to_owned(),
+        launch_generation: "launch-live".to_owned(),
+        native_generation: 1_000,
+    };
+    assert!(core.accept_appkit_event_sequence(&latest, 7).unwrap());
+    assert!(!core.accept_appkit_event_sequence(&latest, 7).unwrap());
+    assert!(!core.accept_appkit_event_sequence(&latest, 6).unwrap());
+}

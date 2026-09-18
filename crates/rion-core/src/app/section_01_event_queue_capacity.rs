@@ -58,6 +58,8 @@ use crate::{
 };
 
 const EVENT_QUEUE_CAPACITY: usize = 64;
+/// Threshold above which retired AppKit host identities are pruned.
+const APPKIT_EVENT_SEQUENCE_PRUNE_THRESHOLD: usize = 256;
 const LAUNCH_COMPLETION_QUEUE_CAPACITY: usize = 64;
 const LAUNCH_COMPLETION_CONCURRENCY: usize = 4;
 const INSTANCE_LOCK_FILE_NAME: &str = "rion-studio.instance.lock";
@@ -342,6 +344,8 @@ pub struct AppCore {
     app_snapshot_sequence: AtomicU64,
     appkit_event_sequence: Arc<crate::runtime_scoped_sequence::RuntimeScopedSequence>,
     appkit_event_sequences: Mutex<std::collections::HashMap<AppKitRuntimeHostIdentityRecord, u64>>,
+    #[cfg(test)]
+    pub(crate) appkit_event_sequence_probe: std::sync::atomic::AtomicUsize,
     appkit_window_visibility_replay:
         crate::runtime_window_visibility_replay::RuntimeWindowVisibilityReplay<
             crate::model::AppKitRuntimeEventReceiptRecord,
@@ -526,6 +530,8 @@ impl AppCore {
                 crate::runtime_scoped_sequence::RuntimeScopedSequence::default(),
             ),
             appkit_event_sequences: Mutex::new(std::collections::HashMap::new()),
+            #[cfg(test)]
+            appkit_event_sequence_probe: std::sync::atomic::AtomicUsize::new(0),
             appkit_window_visibility_replay:
                 crate::runtime_window_visibility_replay::RuntimeWindowVisibilityReplay::default(),
             runtime_authority_barrier: Arc::new(RwLock::new(())),

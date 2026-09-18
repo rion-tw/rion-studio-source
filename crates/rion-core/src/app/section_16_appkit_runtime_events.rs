@@ -202,6 +202,23 @@ impl AppCore {
             return Ok(false);
         }
         sequences.insert(identity.clone(), sequence);
+        // The key carries a per-launch generation, so unpruned this retains one
+        // entry per launch for the process lifetime. Only identities whose
+        // logical window is gone are dropped; a late event naming a removed
+        // window is still refused by the observation match.
+        if sequences.len() > APPKIT_EVENT_SEQUENCE_PRUNE_THRESHOLD
+            && let Ok(snapshot) = self.browser_runtime.snapshot()
+        {
+            let live = snapshot
+                .windows
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::HashSet<_>>();
+            sequences.retain(|kept, _| live.contains(kept.logical_window_id.as_str()));
+        }
+        #[cfg(test)]
+        self.appkit_event_sequence_probe
+            .store(sequences.len(), std::sync::atomic::Ordering::Release);
         Ok(true)
     }
 

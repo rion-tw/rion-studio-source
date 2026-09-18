@@ -127,6 +127,8 @@ async function readManifestSummary(directory: string): Promise<ManifestSummary |
 /** Native follower: Core alone selects packages and issues each role lease. */
 export class ChromiumExtensionSessions {
   readonly #entries = new Map<string, Entry>();
+  readonly #pendingUnloads = new Set<(reason: string) => void>();
+  #abandoned = false;
   readonly #hosts = new WeakMap<Session, CompatibilityHostPort>();
   readonly #poisonedSessions = new WeakSet<Session>();
   readonly #bootstraps = new WeakMap<
@@ -528,39 +530,77 @@ export class ChromiumExtensionSessions {
       entry.surface = null;
       this.#disableCompatibilityHost(entry, "surface_retirement_missing");
     }
-    await entry.ready.catch(() => undefined);
-    const native = (handle.session as Session).extensions;
-    if (native) {
-      for (const extension of native.getAllExtensions()) {
-        await this.#unload(native, extension.id);
+    // The entry is dropped on every terminal, including failure: retaining a
+    // released entry would fail every later prepare() for this role with
+    // EXTENSIONS_STALE_SESSION and quarantine the role surface for the session.
+    try {
+      await entry.ready.catch(() => undefined);
+      const native = (handle.session as Session).extensions;
+      if (native) {
+        for (const extension of native.getAllExtensions()) {
+          await this.#unload(native, extension.id);
+        }
+      }
+      if (entry.lease) {
+        await this.core.invoke({
+          type: "extensions",
+          command: {
+            type: "release",
+            roleId: handle.roleId,
+            leaseId: entry.lease.leaseId
+          }
+        });
+      }
+    } finally {
+      if (this.#entries.get(handle.roleId) === entry) {
+        this.#entries.delete(handle.roleId);
       }
     }
-    if (entry.lease) {
-      await this.core.invoke({
-        type: "extensions",
-        command: {
-          type: "release",
-          roleId: handle.roleId,
-          leaseId: entry.lease.leaseId
-        }
-      });
-    }
-    this.#entries.delete(handle.roleId);
   };
 
+  /**
+   * Abandons every outstanding native unload wait. This is the actor-stop edge
+   * for the EventBound release: the owner has given up on Chromium ever
+   * confirming, so the wait must not keep holding the shutdown path. It is an
+   * explicit indeterminate terminal, never a synthesized unload confirmation.
+   */
+  abandonNativeReleases(reason = "EXTENSIONS_RELEASE_ABANDONED"): void {
+    this.#abandoned = true;
+    for (const abandon of [...this.#pendingUnloads]) abandon(reason);
+    this.#pendingUnloads.clear();
+  }
+
   #unload(native: Session["extensions"], id: string): Promise<void> {
-    // EventBound: the exact extension-unloaded event releases the native resource.
+    if (this.#abandoned) {
+      return Promise.reject(new Error("EXTENSIONS_RELEASE_ABANDONED"));
+    }
+    // EventBound: the exact extension-unloaded event releases the native
+    // resource. Cancellation edge: abandonNativeReleases() terminalizes the
+    // wait as indeterminate when the owner stops. Elapsed time never does.
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const detach = (): void => {
+        if (settled) return;
+        settled = true;
+        native.removeListener("extension-unloaded", listener);
+        this.#pendingUnloads.delete(abandon);
+      };
       const listener: Parameters<typeof native.on>[1] = (_event, extension) => {
         if (extension.id !== id) return;
-        native.removeListener("extension-unloaded", listener);
+        detach();
         resolve();
       };
+      const abandon = (reason: string): void => {
+        if (settled) return;
+        detach();
+        reject(new Error(reason));
+      };
+      this.#pendingUnloads.add(abandon);
       native.on("extension-unloaded", listener);
       try {
         native.removeExtension(id);
       } catch (error) {
-        native.removeListener("extension-unloaded", listener);
+        detach();
         reject(error);
       }
     });

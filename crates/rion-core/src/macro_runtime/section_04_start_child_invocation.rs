@@ -329,18 +329,29 @@ fn perform_actions_with_control(
             .inner
             .lock()
             .map_err(|_| "macro runtime lock poisoned".to_owned())?;
+        // This wait holds the role action lock, so it must observe every
+        // terminal edge and not only `role_transfer_changed`. Cancellation and
+        // runtime shutdown are signalled by atomics that other threads set
+        // without notifying this condvar, so the predicate is re-evaluated on a
+        // bounded re-check rather than only on notification. The re-check never
+        // decides the outcome: it only re-reads the authoritative flags.
         while !allow_cancelled
             && !control.cancelled.load(Ordering::Acquire)
+            && !shared.shutting_down.load(Ordering::Acquire)
             && role_ids
                 .iter()
                 .any(|role_id| inner.transferring_role_ids.contains(role_id))
         {
-            inner = shared
+            let (guard, _) = shared
                 .role_transfer_changed
-                .wait(inner)
+                .wait_timeout(inner, ROLE_TRANSFER_RECHECK_INTERVAL)
                 .map_err(|_| "macro role transfer lock poisoned".to_owned())?;
+            inner = guard;
         }
-        if !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
+        if !allow_cancelled
+            && (control.cancelled.load(Ordering::Acquire)
+                || shared.shutting_down.load(Ordering::Acquire))
+        {
             return Err(MacroActionFailure::internal("macro run cancelled"));
         }
         actions

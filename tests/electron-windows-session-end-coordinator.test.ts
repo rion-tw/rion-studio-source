@@ -97,6 +97,48 @@ describe("Electron Windows session-end coordinator", () => {
     await expect(coordinator.terminalResult()).rejects.toBe(failure);
   });
 
+  it("forces termination when the drain never settles so the OS session can end", async () => {
+    const nativeWindow = createWindow();
+    const forceTerminate = vi.fn();
+    const onError = vi.fn();
+    const coordinator = new ElectronWindowsSessionEndCoordinator({
+      platform: "win32",
+      window: nativeWindow.window,
+      confirmQuit: vi.fn(() => new Promise<void>(() => undefined)),
+      forceTerminate,
+      sessionEndDeadlineMs: 5,
+      onError
+    });
+    coordinator.start();
+
+    // query-session-end is already prevented here, so a drain that never
+    // settles would block the user's shutdown with no interactive escape.
+    nativeWindow.emit({ preventDefault: vi.fn() });
+    await vi.waitFor(() => expect(forceTerminate).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      code: "ELECTRON_WINDOWS_SESSION_END_DEADLINE"
+    }));
+  });
+
+  it("never forces termination once the drain reaches a terminal", async () => {
+    const nativeWindow = createWindow();
+    const forceTerminate = vi.fn();
+    const coordinator = new ElectronWindowsSessionEndCoordinator({
+      platform: "win32",
+      window: nativeWindow.window,
+      confirmQuit: vi.fn(async () => undefined),
+      forceTerminate,
+      sessionEndDeadlineMs: 5,
+      onError: vi.fn()
+    });
+    coordinator.start();
+
+    nativeWindow.emit({ preventDefault: vi.fn() });
+    await expect(coordinator.terminalResult()).resolves.toBeUndefined();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(forceTerminate).not.toHaveBeenCalled();
+  });
+
   it("does not bind a Windows-only native event on macOS", () => {
     const nativeWindow = createWindow();
     const coordinator = new ElectronWindowsSessionEndCoordinator({

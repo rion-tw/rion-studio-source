@@ -93,7 +93,8 @@ function owner(): BrowserWindow {
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     getContentSize: () => [960, 640],
     isDestroyed: () => false,
-    once: vi.fn()
+    once: vi.fn(),
+    removeListener: vi.fn()
   } as unknown as BrowserWindow;
 }
 

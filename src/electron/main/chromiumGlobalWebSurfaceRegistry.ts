@@ -1577,6 +1577,11 @@ export class ChromiumGlobalWebSurfaceRegistry {
 
   #detach(record: SurfaceRecord): void {
     if (!record.attached) return;
+    // A destroyed parent has already released every child view natively.
+    if (record.parent.isDestroyed()) {
+      record.attached = false;
+      return;
+    }
     try {
       record.parent.contentView.removeChildView(record.view);
     } catch {

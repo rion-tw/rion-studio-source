@@ -30,6 +30,14 @@ const MAX_PENDING_ACTIONS: usize = 512;
 const COMPLETED_ACTION_CAPACITY: usize = 1_024;
 const MAX_RECENT_START_ATTEMPTS: usize = 40;
 const PRESENTATION_STATUS_MIN_INTERVAL: Duration = Duration::from_millis(250);
+/// Bounded re-check for the role-transfer wait, which holds a role action lock
+/// while cancellation and runtime shutdown are published through atomics that
+/// do not notify `role_transfer_changed`. It only re-reads those authoritative
+/// flags; it never decides an outcome and never shortens a real transfer.
+const ROLE_TRANSFER_RECHECK_INTERVAL: Duration = Duration::from_millis(50);
+/// Floor for a zero-interval loop whose steps dispatch no input. Matches the
+/// minimum `post_input_delay_ms` that every dispatching macro already pays.
+const EMPTY_LOOP_MINIMUM_INTERVAL_MS: u32 = 10;
 const SIBLING_FAILURE_MESSAGE: &str = "Cancelled because another assigned role failed.";
 const UNASSIGNED_WORKFLOW_MESSAGE: &str =
     "Assign a role to this macro and every called macro before running it.";

@@ -1275,6 +1275,32 @@ describe("Electron Chromium role-surface registry", () => {
     expect(subject.sessionRegistry.activeCount).toBe(0);
   });
 
+  it("completes detach when the native parent window was already destroyed", async () => {
+    const subject = harness();
+    const creation = subject.registry.create(subject.input());
+    const view = subject.views[0];
+    view.webContents.finish("https://game.test/launch");
+    await creation;
+
+    // The host window is torn down first, so Electron already released every
+    // child view. A failed detach here would quarantine the record and make
+    // ELECTRON_ROLE_SURFACE_OWNERSHIP_CONFLICT permanent for this role.
+    subject.parent.destroyed = true;
+    subject.parent.failRemove = true;
+    const close = subject.registry.closeRole("role-1", 1);
+    view.webContents.destroy();
+    await expect(close).resolves.not.toThrow();
+    expect(subject.parent.removed).toHaveLength(0);
+
+    const replacement = new FakeParent(2);
+    const relaunch = subject.registry.create(
+      subject.input("role-1", { generation: 2, parent: replacement })
+    );
+    subject.views[1].webContents.finish("https://game.test/launch");
+    await expect(relaunch).resolves.toBeDefined();
+    expect(replacement.added).toHaveLength(1);
+  });
+
   it("updates bounds, visibility, audio, and zoom only for the active generation", async () => {
     const subject = harness();
     const creation = subject.registry.create(subject.input());

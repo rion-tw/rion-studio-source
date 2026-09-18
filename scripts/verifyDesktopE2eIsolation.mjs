@@ -1,11 +1,29 @@
 import { execFile } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { verifyElectronRendererBundle } from "./verifyElectronRendererBundle.mjs";
 
 const execute = promisify(execFile);
 const root = resolve(import.meta.dirname, "..");
+
+// This check inspects built output. Say so, instead of surfacing a bare ENOENT
+// from the first read when nothing has been built yet.
+for (const required of [
+  ["out", "renderer"],
+  ["out", "main", "index.js"],
+  ["out", "preload", "index.cjs"]
+]) {
+  const requiredPath = resolve(root, ...required);
+  try {
+    await access(requiredPath);
+  } catch {
+    throw new Error(
+      `Desktop E2E isolation verification needs built output at ${required.join("/")}. ` +
+      "Run `pnpm run build:renderer` first."
+    );
+  }
+}
 const { stdout } = await execute("cargo", [
   "tree",
   "-p",

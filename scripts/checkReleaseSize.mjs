@@ -56,12 +56,18 @@ export async function verifyReleaseSizeBudget(directory) {
   }));
 }
 
+class UsageError extends Error {}
+
 async function runCli() {
   const arguments_ = process.argv.slice(2);
   if (arguments_[0] === "--") arguments_.shift();
   const [directory, ...unexpectedArguments] = arguments_;
   if (!directory) {
-    throw new Error("Usage: node scripts/checkReleaseSize.mjs <artifact-directory>");
+    throw new UsageError(
+      "Usage: pnpm run check:release-size -- <artifact-directory>\n" +
+      "The directory holds one platform's normalized release artifacts, " +
+      "for example `candidate` after a release build."
+    );
   }
   if (unexpectedArguments.length > 0) {
     throw new Error("Release size verification accepts exactly one artifact directory.");
@@ -80,5 +86,11 @@ function formatMiB(bytes) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  await runCli();
+  try {
+    await runCli();
+  } catch (error) {
+    if (!(error instanceof UsageError)) throw error;
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 2;
+  }
 }

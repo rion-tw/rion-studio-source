@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import process from "node:process";
@@ -29,6 +29,9 @@ const libraryName = process.platform === "win32"
     : "librion_node.so";
 const source = join(repositoryRoot, "target", cargoProfile, libraryName);
 const destination = join(outputDirectory, "rion-core.node");
+// Records which library the installed addon was produced from, so a no-op build
+// skips copying, re-signing and dlopening a ~105 MB addon that has not changed.
+const stampPath = join(outputDirectory, "rion-core.node.stamp.json");
 
 await run(await resolveCargoExecutable(), [
   "build",
@@ -39,23 +42,64 @@ await run(await resolveCargoExecutable(), [
   ...(desktopE2e ? ["--features=desktop-e2e"] : [])
 ]);
 await mkdir(outputDirectory, { recursive: true });
-await copyFile(source, destination);
 
-if (process.platform === "darwin") {
-  await run("/usr/bin/install_name_tool", [
-    "-id",
-    "@rpath/rion-core.node",
-    destination
-  ]);
-  await verifyMacosChromiumAddonLinkage(destination);
-  await run("/usr/bin/codesign", ["--force", "--sign", "-", destination]);
+const buildLabel = release ? "release" : desktopE2e ? "desktop-e2e" : "dev";
+const sourceStatistics = await stat(source);
+// The cargo profile and desktop-e2e feature select different addon surfaces that
+// share one destination path, so both belong in the identity of the stamp.
+const sourceIdentity = {
+  cargoProfile,
+  desktopE2e,
+  sourceByteLength: sourceStatistics.size,
+  sourceModifiedMilliseconds: sourceStatistics.mtimeMs
+};
+
+if (await installedAddonMatches(sourceIdentity)) {
+  console.log(`Reused verified Rust Node-API addon (${buildLabel}): ${destination}`);
+} else {
+  // Invalidate first: a stamp must never outlive the addon it describes.
+  await rm(stampPath, { force: true });
+  await copyFile(source, destination);
+
+  if (process.platform === "darwin") {
+    await run("/usr/bin/install_name_tool", [
+      "-id",
+      "@rpath/rion-core.node",
+      destination
+    ]);
+    await verifyMacosChromiumAddonLinkage(destination);
+    await run("/usr/bin/codesign", ["--force", "--sign", "-", destination]);
+  }
+
+  verifyDesktopE2eAddonSurface(destination, desktopE2e);
+
+  const destinationStatistics = await stat(destination);
+  await writeFile(stampPath, `${JSON.stringify({
+    ...sourceIdentity,
+    destinationByteLength: destinationStatistics.size,
+    destinationModifiedMilliseconds: destinationStatistics.mtimeMs
+  }, undefined, 2)}\n`);
+
+  console.log(`Built Rust Node-API addon (${buildLabel}): ${destination}`);
 }
 
-verifyDesktopE2eAddonSurface(destination, desktopE2e);
-
-console.log(
-  `Built Rust Node-API addon (${release ? "release" : desktopE2e ? "desktop-e2e" : "dev"}): ${destination}`
-);
+async function installedAddonMatches(identity) {
+  let stamp;
+  try {
+    stamp = JSON.parse(await readFile(stampPath, "utf8"));
+  } catch {
+    return false;
+  }
+  for (const [key, value] of Object.entries(identity)) {
+    if (stamp[key] !== value) return false;
+  }
+  // The destination is also checked, so an addon replaced or truncated after the
+  // stamp was written is rebuilt and re-verified rather than trusted.
+  const destinationStatistics = await stat(destination).catch(() => undefined);
+  return destinationStatistics !== undefined &&
+    stamp.destinationByteLength === destinationStatistics.size &&
+    stamp.destinationModifiedMilliseconds === destinationStatistics.mtimeMs;
+}
 
 function verifyDesktopE2eAddonSurface(addonPath, expected) {
   const require = createRequire(import.meta.url);

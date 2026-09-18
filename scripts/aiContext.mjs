@@ -22,7 +22,6 @@ const ROUTED_ROOTS = [
   "e2e/",
   "release/",
   "scripts/",
-  "src-tauri/",
   "src/",
   "tests/"
 ];
@@ -37,13 +36,21 @@ const ROUTED_ROOT_FILES = new Set([
   "pnpm-workspace.yaml",
   "release.config.mjs",
   "rust-toolchain.toml",
-  "vite.tauri.config.ts",
   "vitest.config.ts"
 ]);
 
 export async function loadContextMap(root = ROOT) {
   return JSON.parse(await readFile(resolve(root, MAP_PATH), "utf8"));
 }
+
+// Routing globs that match no tracked file on purpose: build output that is only
+// ever untracked, and a workflow name reserved for a rebuild entry point that does
+// not exist yet. Every other unmatched glob is rot, because the path it routed to
+// was renamed or retired and the routing silently stopped selecting anything.
+const INTENTIONALLY_UNMATCHED_PATH_GLOBS = new Set([
+  ".github/workflows/*rebuild*",
+  "release/**"
+]);
 
 export function matchesGlob(path, glob) {
   return globToRegExp(glob).test(normalizePath(path));
@@ -213,6 +220,18 @@ export async function validateAiContext(root = ROOT) {
   }
 
   const repositoryFiles = await gitFiles(root);
+  const routedGlobs = new Set([
+    ...(map.areas ?? []).flatMap((area) => area.pathGlobs ?? []),
+    ...(map.featurePaths ?? []).flatMap((feature) => feature.pathGlobs ?? [])
+  ]);
+  for (const glob of routedGlobs) {
+    const matched = repositoryFiles.some((path) => matchesGlob(path, glob));
+    if (matched === INTENTIONALLY_UNMATCHED_PATH_GLOBS.has(glob)) {
+      failures.push(matched
+        ? `${MAP_PATH}: path glob ${glob} now matches files and must leave the intentionally-unmatched list`
+        : `${MAP_PATH}: path glob ${glob} matches no repository file`);
+    }
+  }
   for (const path of repositoryFiles.filter(isRoutedPath)) {
     if (!(map.areas ?? []).some((area) => area.pathGlobs.some((glob) => matchesGlob(path, glob)))) {
       failures.push(`${MAP_PATH}: unclassified repository path ${path}`);

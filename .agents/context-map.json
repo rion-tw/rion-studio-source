@@ -161,7 +161,7 @@
     {
       "id": "macro-runtime",
       "intentAliases": ["automation", "macro", "macro-runtime"],
-      "pathGlobs": ["crates/rion-core/src/macro_runtime/**", "src/renderer/src/features/macros/**", "src-tauri/src/system_runtime/*macro*", "e2e/desktop/specs/macro-runtime.e2e.ts"],
+      "pathGlobs": ["crates/rion-core/src/macro_runtime/**", "src/renderer/src/features/macros/**", "e2e/desktop/specs/chromium-macro-*.e2e.ts"],
       "contextFiles": [".agents/context/architecture.md", ".agents/context/system-runtime.md", ".agents/context/testing.md"],
       "canonicalDocs": ["docs/contracts/system-runtime/lifecycle-and-recovery.md", "docs/contracts/system-runtime/managed-macro-shortcuts.md"],
       "risks": ["input-safety", "event-topology", "terminality"],
@@ -172,7 +172,7 @@
     {
       "id": "system-runtime-native",
       "intentAliases": ["native", "system-runtime", "webview"],
-      "pathGlobs": ["crates/rion-platform/**", "crates/rion-appkit/**", "crates/rion-node/**", "crates/rion-core/src/browser_runtime/**", "crates/rion-core/src/operation_actor/**", "crates/rion-core/src/runtime_kernel/**", "src-tauri/**", "src/electron/**", "src/renderer/runtime-shell/**"],
+      "pathGlobs": ["crates/rion-platform/**", "crates/rion-appkit/**", "crates/rion-node/**", "crates/rion-core/src/browser_runtime/**", "crates/rion-core/src/operation_actor/**", "crates/rion-core/src/runtime_kernel/**", "src/electron/**"],
       "contextFiles": [".agents/context/architecture.md", ".agents/context/system-runtime.md", ".agents/context/testing.md"],
       "canonicalDocs": ["docs/system-webview-runtime-contract.md", "docs/chromium-runtime-migration.md"],
       "risks": ["native-lifecycle", "event-topology", "cross-platform"],
@@ -194,7 +194,7 @@
     {
       "id": "updater-release",
       "intentAliases": ["release", "updater", "update-transaction"],
-      "pathGlobs": [".github/workflows/*release*", ".github/workflows/*rebuild*", ".github/workflows/*updater*", "release/**", "release.config.mjs", "crates/rion-updater/**", "crates/rion-node/src/updater.rs", "src-tauri/src/update*", "src-tauri/src/update*/**", "src/electron/main/electronChromiumUpdater.ts", "src/electron/main/electronUpdaterDispatcher.ts", "scripts/*Release*", "scripts/*Updater*", "scripts/syncPublicRepositoryDocs*", "tests/electron-chromium-updater.test.ts", "tests/electron-updater-*.test.ts"],
+      "pathGlobs": [".github/workflows/*release*", ".github/workflows/*rebuild*", ".github/workflows/*updater*", "release/**", "release.config.mjs", "crates/rion-updater/**", "crates/rion-node/src/updater.rs", "src/electron/main/electronChromiumUpdater.ts", "src/electron/main/electronUpdaterDispatcher.ts", "scripts/*Release*", "scripts/*Updater*", "scripts/syncPublicRepositoryDocs*", "tests/electron-chromium-updater.test.ts", "tests/electron-updater-*.test.ts"],
       "contextFiles": [".agents/context/release.md", ".agents/context/testing.md"],
       "canonicalDocs": ["docs/updater-transaction-contract.md"],
       "risks": ["release-integrity", "recovery", "cross-platform"],
@@ -205,7 +205,7 @@
     {
       "id": "build-ci",
       "intentAliases": ["build", "ci", "tooling"],
-      "pathGlobs": [".github/**", "scripts/**", "tests/**", "docs/event-topology-exceptions.json", "build/*.nsh", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "electron.vite.config.ts", "electron-builder.config.mjs", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
+      "pathGlobs": [".github/**", "scripts/**", "tests/**", "docs/event-topology-exceptions.json", "build/*.nsh", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "electron.vite.config.ts", "electron-builder.config.mjs", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
       "contextFiles": [".agents/context/testing.md"],
       "canonicalDocs": [],
       "risks": ["ci-reachability", "tooling-drift"],
@@ -219,9 +219,9 @@
     { "feature": "dashboard", "pathGlobs": ["src/renderer/src/features/dashboard/**"] },
     { "feature": "games", "pathGlobs": ["src/renderer/src/features/games/**"] },
     { "feature": "roles", "pathGlobs": ["src/renderer/src/features/roles/**", "crates/rion-core/src/session_import/**"] },
-    { "feature": "workspaces", "pathGlobs": ["src/renderer/src/features/workspaces/**", "e2e/desktop/specs/workspace-recovery.e2e.ts"] },
-    { "feature": "game-windows", "pathGlobs": ["src/renderer/src/features/game-windows/**", "src/renderer/runtime-shell/**", "src-tauri/src/system_runtime/**", "src-tauri/native/**", "src/electron/runtime/**"] },
-    { "feature": "macros", "pathGlobs": ["src/renderer/src/features/macros/**", "crates/rion-core/src/macro_runtime/**", "e2e/desktop/specs/macro-runtime.e2e.ts"] },
-    { "feature": "settings", "pathGlobs": ["src/renderer/src/features/settings/**", "src-tauri/src/update*", "crates/rion-updater/**", "crates/rion-node/src/updater.rs", "src/electron/main/electronChromiumUpdater.ts", "src/electron/main/electronUpdaterDispatcher.ts"] }
+    { "feature": "workspaces", "pathGlobs": ["src/renderer/src/features/workspaces/**", "e2e/desktop/specs/chromium-workspaces-recovery.e2e.ts"] },
+    { "feature": "game-windows", "pathGlobs": ["src/renderer/src/features/game-windows/**"] },
+    { "feature": "macros", "pathGlobs": ["src/renderer/src/features/macros/**", "crates/rion-core/src/macro_runtime/**", "e2e/desktop/specs/chromium-macro-*.e2e.ts"] },
+    { "feature": "settings", "pathGlobs": ["src/renderer/src/features/settings/**", "crates/rion-updater/**", "crates/rion-node/src/updater.rs", "src/electron/main/electronChromiumUpdater.ts", "src/electron/main/electronUpdaterDispatcher.ts"] }
   ]
 }

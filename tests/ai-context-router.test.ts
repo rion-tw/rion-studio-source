@@ -55,7 +55,7 @@ describe("AI context router", () => {
       contextMap: await loadContextMap(repositoryRoot),
       paths: [
         "crates/rion-core/src/macro_runtime/section_01_action_timeout.rs",
-        "src-tauri/src/system_runtime/section_32_macro_input_recovery.rs"
+        "crates/rion-node/src/appkit_runtime_host/trusted_input.rs"
       ],
       changeKind: "unknown",
       hostPlatform: "darwin"

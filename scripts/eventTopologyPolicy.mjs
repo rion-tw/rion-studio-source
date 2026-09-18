@@ -20,8 +20,6 @@ const timerSourcePrefixes = [
 const productSourcePrefixes = [
   "crates/rion-core/src/",
   "crates/rion-platform/src/",
-  "src-tauri/native/",
-  "src-tauri/src/",
   "src/electron/main/",
   "src/renderer/src/",
   "src/shared/browser-overlay/"

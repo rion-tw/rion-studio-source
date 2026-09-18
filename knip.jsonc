@@ -5,9 +5,6 @@
     "e2e/desktop/wdio.electron.conf.ts",
     "src/electron/e2e/index.ts",
     "src/electron/e2e/preload.ts",
-    "src/renderer/src/main.tsx",
-    // Independent module script loaded by src/renderer/index.html before React.
-    "src/renderer/src/app/earlyDocumentState.ts",
     "src/shared/browser-overlay/*.js",
     "e2e/desktop/specs/*.e2e.ts",
     "scripts/*.mjs",
@@ -16,30 +13,46 @@
     "scripts/migrationDiagnostics/inspectLocalStorage.ts",
     "scripts/migrationDiagnostics/retained.mjs",
     "scripts/migrationDiagnostics/testMissingRepair.mjs",
+    // Electron probe processes and preloads. Each is launched by path string from
+    // package.json, a sibling verifier, a native-integration test or a documented
+    // runbook, so no static import reaches them. They are listed one by one rather
+    // than as scripts/*.cjs on purpose: a glob would also absorb a newly orphaned
+    // probe, which is how three of them went unreferenced without being reported.
+    "scripts/electronAppKitRuntimeProbe.cjs",
+    "scripts/electronDowngradeStorageProbe.cjs",
+    "scripts/electronLoadChromiumInputOwner.cjs",
+    "scripts/electronProfileReadbackProbe.cjs",
+    "scripts/electronRuntimeProbe.cjs",
+    "scripts/electronWindowsChromiumTrustedInputProbe.cjs",
+    "scripts/electronWindowsChromiumTrustedInputProbePreload.cjs",
+    "scripts/probeChromiumCdpInput.cjs",
+    "scripts/probeChromiumCompatibleInput.cjs",
+    "scripts/probeChromiumInput.cjs",
+    "scripts/probeChromiumLocalFonts.cjs",
+    "scripts/probeChromiumShortcuts.cjs",
+    "scripts/probeChromiumViewport.cjs",
+    "scripts/probeWorkspaceBackground.cjs",
     "tests/**/*.{ts,tsx}"
   ],
   "project": [
     "src/**/*.{ts,tsx,js}",
     "e2e/**/*.ts",
-    "scripts/*.{mjs,mts}",
+    // .cjs is included so unreferenced Electron probe scripts are reported;
+    // three orphaned probes hid here while the pattern covered only .mjs/.mts.
+    "scripts/*.{cjs,mjs,mts}",
     "scripts/migrationDiagnostics/*.{mjs,ts}",
     "tests/**/*.{ts,tsx}",
     "*.{ts,mjs}"
   ],
   "ignore": [
     "scripts/*.d.mts",
-    "src/renderer/src/global.d.ts",
-    "src/shared/generated/**",
-    // Raw runtime fragments are native Rust include_str! inputs and are not standalone JavaScript modules.
-    "src/shared/browser-overlay/macro-overlay-runtime/*.js"
+    "src/shared/generated/**"
   ],
   "ignoreDependencies": [
     // Executed through pnpm solely for updater signing.
     "@tauri-apps/cli",
     // WDIO loads these CLI/config-selected packages without static imports.
     "@wdio/cli",
-    // Electron WebdriverIO loads the service from the profile configuration.
-    "@wdio/electron-service",
     "@wdio/local-runner",
     "@wdio/mocha-framework",
     "@wdio/spec-reporter",
@@ -52,10 +65,6 @@
       "binaries"
     ]
   },
-  "ignoreUnresolved": [
-    // macOS provides this absolute OS executable; Windows cannot resolve it.
-    "/bin/ps"
-  ],
   "rules": {
     // Knip 6 reports the existing intentional exports and shared types as warnings.
     "exports": "warn",

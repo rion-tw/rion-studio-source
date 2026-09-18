@@ -1044,7 +1044,13 @@ function sendTerminalNavigationFailure(response, roleId) {
     "content-type": "text/html; charset=utf-8",
     "x-content-type-options": "nosniff"
   });
-  response.end(body);
+  // The declared length promises 4096 bytes that never arrive. Destroying the
+  // connection once the partial body is flushed makes the truncation terminal at
+  // the exact moment the fixture decides it, which is what a crashed navigation
+  // source does. Ending the response instead left an idle keep-alive socket, so
+  // the consumer only failed when that socket timed out six seconds later, and
+  // elapsed time rather than an authoritative event decided the outcome.
+  response.write(body, () => response.destroy());
 }
 
 function releaseNavigationFailure(roleId) {
@@ -1398,6 +1404,11 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     for (const response of downloadResponses) response.destroy();
     downloadResponses.clear();
+    // Gated navigations, event long-polls and observer streams hold their
+    // responses open on purpose, so server.close() on its own waits for sockets
+    // that never end and the process exits only once they time out, about three
+    // seconds per fixture. Closing them explicitly keeps teardown event-bound.
+    server.closeAllConnections();
     server.close(() => process.exit(0));
   });
 }

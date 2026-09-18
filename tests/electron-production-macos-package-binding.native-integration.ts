@@ -27,6 +27,10 @@ afterEach(async () => {
   ));
 });
 
+// This file runs in the native-integration lane, not the default vitest suite:
+// its single test builds a real .asar, tars it and creates and mounts two UDZO
+// DMGs through hdiutil, which took 21.7s of the default suite's 60s for one test.
+// The lane is serial with a 60s timeout, which is what this work needs.
 describe("macOS production candidate package binding", () => {
   it.runIf(process.platform === "darwin")(
     "extracts the tar and mounts the DMG read-only against one package manifest",

@@ -3,7 +3,7 @@ import { type FormEvent, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { ExtensionPackageRecord, ExtensionRoleRecord } from "../../../../shared/generated";
 import type { AppLanguage, Role } from "../../../../shared/types";
-import { EditorPage } from "../../components/EditorPage";
+import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { StatusCallout, Surface } from "../../components/ui/patterns";
@@ -15,6 +15,12 @@ import { formatExtensionBytes } from "./extensionSize";
 interface Props {
   packageRecord: ExtensionPackageRecord;
   installing: boolean;
+  /**
+   * The package left the catalogue entirely while this editor was open. Distinct
+   * from `packageRecord.removed`, which is the soft tombstone whose confirmation
+   * view is still a valid, saveable action.
+   */
+  missing?: boolean;
   roles: Role[];
   runtimeRoles: ExtensionRoleRecord[];
   busy: boolean;
@@ -30,7 +36,7 @@ interface Props {
 
 const sameIds = (left: string[], right: string[]) => left.length === right.length && left.every(id => right.includes(id));
 
-export function ExtensionEditor({ packageRecord, installing, roles, runtimeRoles, busy, error, language, onCancel, onSave, onRemove, t }: Props) {
+export function ExtensionEditor({ packageRecord, installing, missing = false, roles, runtimeRoles, busy, error, language, onCancel, onSave, onRemove, t }: Props) {
   const navigate = useNavigate();
   const [allRoles, setAllRoles] = useState(packageRecord.applyToAllRoles);
   const [selectedIds, setSelectedIds] = useState(() => packageRecord.applyToAllRoles ? roles.map(role => role.id) : packageRecord.enabledRoleIds);
@@ -52,10 +58,18 @@ export function ExtensionEditor({ packageRecord, installing, roles, runtimeRoles
   const loadFailed = runtimeRoles.some(role => role.extensionIds.includes(packageRecord.id) && (role.status === "failed" || role.status === "indeterminate"));
   const degraded = runtimeRoles.some(role => role.extensionIds.includes(packageRecord.id) && role.status === "degraded");
   const title = t(removed ? "extensions.confirmRemove" : installing ? "extensions.installTitle" : "extensions.manageTitle");
+  // A clean form has nothing to protect, so a package that left the catalogue
+  // reads exactly as it did before. Only unsaved work keeps the editor open.
+  if (missing && !dirty) {
+    return <EditorNotFound title={t("editor.notFound.title")} description={t("extensions.notFound")}
+      actionLabel={t("extensions.returnToList")} onAction={onCancel} />;
+  }
   return <EditorPage
     backActionLabel={t(installing ? "extensions.cancel" : "editor.back")} backLabel={t(installing ? "extensions.cancel" : "extensions.returnToList")}
     description={t(removed ? "extensions.removedDescription" : installing ? "extensions.installDescription" : "extensions.manageDescription")}
+    canSubmit={!missing}
     isSaving={busy} onCancel={onCancel} onSubmit={event => void submit(event)}
+    removedNotice={missing ? t("editor.removed.notice") : undefined}
     saveIcon={removed ? <Trash2 size={16} /> : installing ? <Check size={16} /> : <Save size={16} />}
     saveLabel={t(busy ? "extensions.saving" : removed ? "extensions.confirmRemove" : installing ? "extensions.confirmInstall" : "extensions.save")}
     saveVariant={removed ? "destructive" : "default"} title={title} contentClassName="editor-layout editor-layout-extension">

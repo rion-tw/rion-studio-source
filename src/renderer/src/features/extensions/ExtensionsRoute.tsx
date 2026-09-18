@@ -10,6 +10,7 @@ import { SearchField } from "../../components/SearchField";
 import { EmptyState } from "../../components/EmptyState";
 import { EditorNotFound } from "../../components/EditorPage";
 import { useConfirmation } from "../../components/confirmation";
+import { useRetainedEntity } from "../../app/retainedEntity";
 import { ExtensionCard } from "./ExtensionCard";
 import { ExtensionEditor } from "./ExtensionEditor";
 import { PageFrame, PageHeader, StatusCallout } from "../../components/ui/patterns";
@@ -53,10 +54,15 @@ interface EditorProps {
 function ManageEditor({ roles, snapshot, busy, error, language, t, onSave, onRemove }: EditorProps) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const packageRecord = snapshot.installed.find(p => p.id === id);
+  // Tombstone cleanup drops the package from the catalogue after the last role
+  // lease releases, which can land while its role scope is being edited.
+  const { entity: packageRecord, isRemoved } = useRetainedEntity(
+    id,
+    snapshot.installed.find(p => p.id === id)
+  );
   if (snapshot.revision < 0) return <PageFrame className="h-full"><StatusCallout role="status">{t(error ? "extensions.loadUnavailable" : "extensions.loading")}</StatusCallout></PageFrame>;
   if (!packageRecord) return <EditorNotFound title={t("editor.notFound.title")} description={t("extensions.notFound")} actionLabel={t("extensions.returnToList")} onAction={() => navigate(listPath, { replace: true })} />;
-  return <ExtensionEditor key={packageRecord.id} packageRecord={packageRecord} installing={false} roles={roles} runtimeRoles={snapshot.roles} busy={busy} error={error}
+  return <ExtensionEditor key={packageRecord.id} packageRecord={packageRecord} installing={false} missing={isRemoved} roles={roles} runtimeRoles={snapshot.roles} busy={busy} error={error}
     language={language} t={t} onCancel={() => navigate(listPath, { replace: true })}
     onSave={(ids, all, remove) => onSave(packageRecord, ids, all, remove)} onRemove={() => onRemove(packageRecord)} />;
 }

@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { Button } from "./ui/button";
-import { Surface } from "./ui/patterns";
+import { StatusCallout, Surface } from "./ui/patterns";
 import {
   registerWindowControlsScrollSource,
   syncWindowControlsScrollSource
@@ -26,6 +26,12 @@ interface EditorPageProps {
   isSaving: boolean;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  /**
+   * Shown above the content when the edited entity disappeared from the live
+   * projection while the form was dirty. It sits outside the content grid so an
+   * editor's own column layout is unaffected.
+   */
+  removedNotice?: string;
   saveHint?: string;
   saveIcon: ReactNode;
   saveLabel: string;
@@ -43,6 +49,7 @@ export function EditorPage({
   isSaving,
   onCancel,
   onSubmit,
+  removedNotice,
   saveHint,
   saveIcon,
   saveLabel,
@@ -127,6 +134,10 @@ export function EditorPage({
               </div>
             </div>
           </header>
+
+          {removedNotice ? (
+            <StatusCallout tone="destructive" role="alert">{removedNotice}</StatusCallout>
+          ) : null}
 
           <div className={cn("grid gap-4", contentClassName)}>
             {children}

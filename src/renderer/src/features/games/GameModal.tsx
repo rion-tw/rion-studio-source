@@ -3,6 +3,7 @@ import { type ChangeEvent, type FormEvent, type JSX, useMemo, useRef, useState }
 import { useNavigate, useParams } from "react-router";
 
 import { createGameFormState, createNewGameForm, areEditorFormsEqual } from "../../app/editorFormState";
+import { useRetainedEntity } from "../../app/retainedEntity";
 import { getGameCoverUrl, getGameIconUrl } from "../../app/gamePresentation";
 import type { GameFormState } from "../../app/types";
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
@@ -26,31 +27,36 @@ interface GameEditorRouteProps {
 function GameEditorRoute(props: GameEditorRouteProps): JSX.Element {
   const { id } = useParams();
   const navigate = useNavigate();
-  const game = id ? props.games.find((item) => item.id === id) : undefined;
+  const { entity: game, isRemoved } = useRetainedEntity(
+    id,
+    id ? props.games.find((item) => item.id === id) : undefined
+  );
   if (id && !game) {
     return <EditorNotFound title={props.t("editor.notFound.title")} description={props.t("games.notFound")} actionLabel={props.t("games.back")} onAction={() => navigate("/games", { replace: true })} />;
   }
   const initialForm = game ? createGameFormState(game) : createNewGameForm();
-  return <GameEditor key={id ?? "new"} {...props} game={game} initialForm={initialForm} />;
+  return <GameEditor key={id ?? "new"} {...props} game={game} initialForm={initialForm} isRemoved={isRemoved} />;
 }
 
 function GameEditor({
   games: _games,
   game,
   initialForm,
+  isRemoved,
   isSaving,
   t,
   onError,
   onReset,
   onSave
-}: GameEditorRouteProps & { game?: Game; initialForm: GameFormState }): JSX.Element {
+}: GameEditorRouteProps & { game?: Game; initialForm: GameFormState; isRemoved: boolean }): JSX.Element {
   const navigate = useNavigate();
   const initialRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
-  const guard = useUnsavedChangesGuard(!areEditorFormsEqual(initialRef.current, form), useMemo(() => ({
+  const isDirty = !areEditorFormsEqual(initialRef.current, form);
+  const guard = useUnsavedChangesGuard(isDirty, useMemo(() => ({
     title: t("confirm.unsaved.title"), description: t("confirm.unsaved.description"), cancelLabel: t("confirm.unsaved.continue"), confirmLabel: t("confirm.unsaved.discard"), tone: "destructive" as const
   }), [t]), isSaving);
-  const canSubmit = Boolean(form.name.trim() && /^https?:\/\//.test(form.defaultLaunchUrl));
+  const canSubmit = Boolean(form.name.trim() && /^https?:\/\//.test(form.defaultLaunchUrl)) && !isRemoved;
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -67,11 +73,18 @@ function GameEditor({
     setForm(resetForm);
   }
 
+  // A clean form has nothing to protect, so a removed game reads exactly as it
+  // did before. Only unsaved work keeps the editor open.
+  if (isRemoved && !isDirty) {
+    return <EditorNotFound title={t("editor.notFound.title")} description={t("games.notFound")} actionLabel={t("games.back")} onAction={() => navigate("/games", { replace: true })} />;
+  }
+
   return (
     <EditorPage
       backActionLabel={t("editor.back")} backLabel={t("games.back")} canSubmit={canSubmit}
       description={form.id ? t("games.form.editDescription") : t("games.form.newDescription")}
       isSaving={isSaving} onCancel={() => navigate("/games", { replace: true })} onSubmit={(event) => void submit(event)}
+      removedNotice={isRemoved ? t("editor.removed.notice") : undefined}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />} saveLabel={form.id ? t("games.form.save") : t("games.form.create")}
       title={t(form.id ? "games.form.title.edit" : "games.form.title.new")}
       contentClassName="editor-layout editor-layout-game"

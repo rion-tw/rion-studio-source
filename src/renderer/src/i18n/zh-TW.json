@@ -158,6 +158,7 @@
   "editor.notFound.role": "此角色已不存在，請返回角色列表繼續操作。",
   "editor.notFound.workspace": "此工作區已不存在，請返回工作區列表繼續操作。",
   "editor.notFound.macro": "此巨集已不存在，請返回巨集列表繼續操作。",
+  "editor.removed.notice": "這個項目在你編輯期間已被移除。你尚未儲存的變更仍顯示在這裡，但已經無法儲存。",
   "loading.title": "正在載入角色工作區",
   "loading.description": "正在準備角色、工作階段與工作區。",
   "loading.route": "載入畫面",

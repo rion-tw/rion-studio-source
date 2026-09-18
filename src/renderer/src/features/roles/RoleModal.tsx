@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import type { RoleFormState } from "../../app/types";
 import { areEditorFormsEqual, createNewRoleForm, createRoleFormState } from "../../app/editorFormState";
+import { useRetainedEntity } from "../../app/retainedEntity";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
 import type { Translator } from "../../i18n";
 import type { Game, Role } from "../../../../shared/types";
@@ -43,7 +44,10 @@ function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const selectedRole = id ? props.roles.find((role) => role.id === id) : undefined;
+  const { entity: selectedRole, isRemoved } = useRetainedEntity(
+    id,
+    id ? props.roles.find((role) => role.id === id) : undefined
+  );
 
   if (id && !selectedRole) {
     return (
@@ -59,25 +63,31 @@ function RoleEditorRoute(props: RoleEditorRouteProps): JSX.Element {
   const requestedGameId = new URLSearchParams(location.search).get("gameId") ?? undefined;
   const requestedGame = props.games.find((game) => game.id === requestedGameId) ?? props.games[0];
   const initialForm = selectedRole ? createRoleFormState(selectedRole) : createNewRoleForm(requestedGame);
-  return <RoleEditor key={`${id ?? "new"}:${requestedGameId ?? ""}`} {...props} initialForm={initialForm} isGameLocked={!id && Boolean(requestedGameId && requestedGame)} selectedRole={selectedRole} />;
+  return <RoleEditor key={`${id ?? "new"}:${requestedGameId ?? ""}`} {...props} initialForm={initialForm} isGameLocked={!id && Boolean(requestedGameId && requestedGame)} isRemoved={isRemoved} selectedRole={selectedRole} />;
 }
 
 function RoleEditor({
   games,
   initialForm,
   isGameLocked,
+  isRemoved,
   isSaving,
   selectedRole,
   t,
   onError,
   onClearBrowserData,
   onSave
-}: RoleEditorRouteProps & { initialForm: RoleFormState; isGameLocked: boolean; selectedRole?: Role }): JSX.Element {
+}: RoleEditorRouteProps & {
+  initialForm: RoleFormState;
+  isGameLocked: boolean;
+  isRemoved: boolean;
+  selectedRole?: Role;
+}): JSX.Element {
   const navigate = useNavigate();
   const initialFormRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
-  const canSubmit = form.name.trim().length > 0;
+  const canSubmit = form.name.trim().length > 0 && !isRemoved;
   const confirmationOptions = useMemo(() => ({
     title: t("confirm.unsaved.title"),
     description: t("confirm.unsaved.description"),
@@ -89,6 +99,19 @@ function RoleEditor({
 
   function handleCancel(): void {
     navigate("/roles", { replace: true });
+  }
+
+  // A clean form has nothing to protect, so a removed role reads exactly as it
+  // did before. Only unsaved work keeps the editor open.
+  if (isRemoved && !isDirty) {
+    return (
+      <EditorNotFound
+        title={t("editor.notFound.title")}
+        description={t("editor.notFound.role")}
+        actionLabel={t("editor.back.roles")}
+        onAction={handleCancel}
+      />
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -109,6 +132,7 @@ function RoleEditor({
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
+      removedNotice={isRemoved ? t("editor.removed.notice") : undefined}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("roleForm.saveChanges") : t("roleForm.createRole")}
       title={t(form.id ? "roleForm.title.edit" : "roleForm.title.new")}

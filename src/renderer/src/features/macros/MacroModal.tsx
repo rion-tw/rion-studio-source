@@ -17,6 +17,7 @@ import { Switch } from "../../components/ui/switch";
 import { FormField, HelpPanel, SegmentedControl, Surface } from "../../components/ui/patterns";
 
 import { areEditorFormsEqual, createMacroFormState, createNewMacroForm } from "../../app/editorFormState";
+import { useRetainedEntity } from "../../app/retainedEntity";
 
 import { readRequestedMacroRoleIds } from "../../app/editorNavigation";
 
@@ -60,7 +61,10 @@ function MacroEditorRoute(props: MacroEditorRouteProps): JSX.Element {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const selectedMacro = id ? props.macros.find((macro) => macro.id === id) : undefined;
+  const { entity: selectedMacro, isRemoved } = useRetainedEntity(
+    id,
+    id ? props.macros.find((macro) => macro.id === id) : undefined
+  );
 
   if (id && !selectedMacro) {
     return (
@@ -77,19 +81,20 @@ function MacroEditorRoute(props: MacroEditorRouteProps): JSX.Element {
   const initialForm = selectedMacro
     ? createMacroFormState(selectedMacro)
     : createNewMacroForm(props.macros, props.roles, props.t, requestedRoleIds);
-  return <MacroEditor key={id ?? `new:${requestedRoleIds?.join(",") ?? ""}`} {...props} initialForm={initialForm} />;
+  return <MacroEditor key={id ?? `new:${requestedRoleIds?.join(",") ?? ""}`} {...props} initialForm={initialForm} isRemoved={isRemoved} />;
 }
 
 function MacroEditor({
   initialForm,
   games,
+  isRemoved,
   isSaving,
   macroSettings = DEFAULT_MACRO_SETTINGS,
   macros,
   roles,
   t,
   onSave
-}: MacroEditorRouteProps & { initialForm: MacroFormState }): JSX.Element {
+}: MacroEditorRouteProps & { initialForm: MacroFormState; isRemoved: boolean }): JSX.Element {
   const navigate = useNavigate();
   const initialFormRef = useRef(initialForm);
   const [form, setForm] = useState(initialForm);
@@ -186,15 +191,29 @@ function MacroEditor({
     }
   }
 
+  // A clean form has nothing to protect, so a removed macro reads exactly as it
+  // did before. Only unsaved work keeps the editor open.
+  if (isRemoved && !isDirty) {
+    return (
+      <EditorNotFound
+        title={t("editor.notFound.title")}
+        description={t("editor.notFound.macro")}
+        actionLabel={t("editor.back.macros")}
+        onAction={handleCancel}
+      />
+    );
+  }
+
   return (
     <EditorPage
       backActionLabel={t("editor.back")}
       backLabel={t("editor.back.macros")}
-      canSubmit={canSubmit}
+      canSubmit={canSubmit && !isRemoved}
       description={form.id ? t("macroForm.description.edit") : t("macroForm.description.new")}
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
+      removedNotice={isRemoved ? t("editor.removed.notice") : undefined}
       saveHint={saveHint}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("macroForm.saveChanges") : t("macroForm.createMacro")}

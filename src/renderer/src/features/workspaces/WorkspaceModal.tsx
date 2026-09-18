@@ -15,6 +15,7 @@ import { FieldHeader, FormField, HelpPanel, Surface } from "../../components/ui/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
+import { useRetainedEntity } from "../../app/retainedEntity";
 
 import type { WorkspaceFormState } from "../../app/types";
 
@@ -52,7 +53,10 @@ interface WorkspaceEditorRouteProps {
 function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
   const { id } = useParams();
   const navigate = useNavigate();
-  const selectedWorkspace = id ? props.workspaces.find((workspace) => workspace.id === id) : undefined;
+  const { entity: selectedWorkspace, isRemoved } = useRetainedEntity(
+    id,
+    id ? props.workspaces.find((workspace) => workspace.id === id) : undefined
+  );
 
   if (id && !selectedWorkspace) {
     return (
@@ -73,6 +77,7 @@ function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
       key={id ?? "new"}
       {...props}
       initialForm={initialForm}
+      isRemoved={isRemoved}
       persistedSlots={selectedWorkspace?.slots}
     />
   );
@@ -81,6 +86,7 @@ function WorkspaceEditorRoute(props: WorkspaceEditorRouteProps): JSX.Element {
 function WorkspaceEditor({
   initialForm,
   games,
+  isRemoved,
   isSaving,
   roles,
   statusByRole,
@@ -89,6 +95,7 @@ function WorkspaceEditor({
   persistedSlots
 }: WorkspaceEditorRouteProps & {
   initialForm: WorkspaceFormState;
+  isRemoved: boolean;
   persistedSlots?: LaunchWorkspaceSlot[];
 }): JSX.Element {
   const navigate = useNavigate();
@@ -140,15 +147,29 @@ function WorkspaceEditor({
     }
   }
 
+  // A clean form has nothing to protect, so a removed workspace reads exactly
+  // as it did before. Only unsaved work keeps the editor open.
+  if (isRemoved && !isDirty) {
+    return (
+      <EditorNotFound
+        title={t("editor.notFound.title")}
+        description={t("editor.notFound.workspace")}
+        actionLabel={t("editor.back.workspaces")}
+        onAction={handleCancel}
+      />
+    );
+  }
+
   return (
     <EditorPage
       backActionLabel={t("editor.back")}
       backLabel={t("editor.back.workspaces")}
-      canSubmit={canSubmit}
+      canSubmit={canSubmit && !isRemoved}
       description={form.id ? t("workspaceForm.description.edit") : t("workspaceForm.description.new")}
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
+      removedNotice={isRemoved ? t("editor.removed.notice") : undefined}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("workspaceForm.saveChanges") : t("workspaceForm.createWorkspace")}
       title={t(form.id ? "workspaceForm.title.edit" : "workspaceForm.title.new")}

@@ -16,7 +16,7 @@ import {
   runtimeTabShellErrors
 } from "../support/native-runtime-tabs";
 import { rendererCall } from "../support/renderer-bridge";
-import { acceptLegalAndSkipFirstRun, ensureEnglishUi, setEditorName, setInputValue, submitEditor, waitForRoute } from "../support/ui";
+import { acceptLegalAndSkipFirstRun, clickDialogButton, ensureEnglishUi, setEditorName, setInputValue, submitEditor, waitForRoute } from "../support/ui";
 
 // [journey:CHROMIUM-MACOS-APPKIT-EXTENSIONS-001]
 // [journey:CHROMIUM-WINDOWS-EXTENSIONS-001]
@@ -98,8 +98,8 @@ describe("Extensions store and per-role configuration", () => {
       const confirm = await $("button=Confirm installation");
       // DeadlineBound test boundary: external store failure is a failed journey.
       await confirm.waitForDisplayed({ timeout: 150000 });
-      await $('[role="dialog"]').$("button=All roles").click();
-      await expectDialogFits();
+      await $("#app-editor-form").$("button=All roles").click();
+      await expectEditorFits();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-confirm.png"));
       await confirm.click();
       await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && p.applyToAllRoles), { timeout: 15000 });
@@ -209,20 +209,25 @@ describe("Extensions store and per-role configuration", () => {
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-installed-dark.png"));
       await verifyExtensionPermissionsAfterRestart();
       await $("button=Manage").click();
-      await $('[role="dialog"]').$("button=Selected roles").click();
+      await waitForRoute(`/extensions/${EXTENSION_ID}/edit`);
+      await $("#app-editor-form").$("button=Selected roles").click();
       const checkbox = await $("label*=Extensions journey role").$("[role=checkbox]");
       await expect(checkbox).toHaveAttribute("data-state", "checked");
-      await expectDialogFits();
+      await expectEditorFits();
       await browser.saveScreenshot(join(process.env.RION_STUDIO_E2E_ARTIFACT_DIR!, "screenshots", "extensions-manage-dark.png"));
       await $("button=Clear selection").click();
       await $("button=Save").click();
       await browser.waitUntil(async () => (await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.find(p => p.id === EXTENSION_ID)?.applyToAllRoles === false);
+      await waitForRoute("/extensions");
       await $("button=Manage").click();
-      await $("button=Remove").click();
-      await $('[role="dialog"]').$("button=Cancel").click();
+      await waitForRoute(`/extensions/${EXTENSION_ID}/edit`);
+      await $("#app-editor-form").$("button=Remove").click();
+      await clickDialogButton("Cancel");
       expect((await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && !p.removed)).toBe(true);
-      await $('[role="dialog"]').$("button=Remove").click();
-      await $("button=Confirm removal").click();
+      expect(await $("#app-editor-form").isExisting()).toBe(true);
+      await $("#app-editor-form").$("button=Remove").click();
+      await clickDialogButton("Confirm removal");
+      await waitForRoute("/extensions");
       await browser.waitUntil(async () => !(await rendererCall("extensions", { type: "snapshot" })).snapshot.installed.some(p => p.id === EXTENSION_ID && !p.removed));
       await expect($("h2=No extensions installed yet.")).toBeDisplayed();
       await expect(sidebar.$("button*=Extensions")).toHaveText(/^Extensions\s*0$/);
@@ -268,11 +273,12 @@ async function expectInstalledCardMetadata(): Promise<void> {
   expect(observation.idTitle).toBe(EXTENSION_ID);
 }
 
-async function expectDialogFits(): Promise<void> {
+async function expectEditorFits(): Promise<void> {
   expect(await browser.execute(() => {
-    const dialog = document.querySelector('[role="dialog"]');
-    const footer = dialog?.querySelector("footer")?.getBoundingClientRect();
-    return !!dialog && !!footer && footer.bottom <= innerHeight && footer.top >= 0
-      && dialog.scrollWidth <= dialog.clientWidth;
+    const editor = document.querySelector<HTMLElement>("#app-editor-form");
+    const submit = editor?.querySelector<HTMLElement>("button[type='submit']")?.getBoundingClientRect();
+    return !!editor && !document.querySelector('[role="dialog"], dialog[open]')
+      && !!submit && submit.bottom <= innerHeight && submit.top >= 0 && submit.right <= innerWidth
+      && editor.scrollWidth <= editor.clientWidth;
   })).toBe(true);
 }

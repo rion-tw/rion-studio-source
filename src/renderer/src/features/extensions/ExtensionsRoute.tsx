@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, Plus, Puzzle, Search, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router";
 import type { ExtensionPackageRecord, ExtensionSnapshotRecord } from "../../../../shared/generated";
 import type { ExtensionStoreState, ExtensionUserCommand } from "../../../../shared/extensions";
 import type { AppLanguage, Role } from "../../../../shared/types";
@@ -7,11 +8,20 @@ import type { TranslationKey, Translator } from "../../i18n";
 import { Button } from "../../components/ui/button";
 import { SearchField } from "../../components/SearchField";
 import { EmptyState } from "../../components/EmptyState";
+import { EditorNotFound } from "../../components/EditorPage";
+import { useConfirmation } from "../../components/confirmation";
 import { ExtensionCard } from "./ExtensionCard";
-import { ExtensionDialog } from "./ExtensionDialog";
+import { ExtensionEditor } from "./ExtensionEditor";
 import { PageFrame, PageHeader, StatusCallout } from "../../components/ui/patterns";
 
 const emptyStore: ExtensionStoreState = { url: "", extensionId: null, canGoBack: false, canGoForward: false, loading: false, failed: false };
+const listPath = "/extensions";
+const storePath = "/extensions/store";
+const installPath = "/extensions/install";
+const editPath = (id: string) => `/extensions/${encodeURIComponent(id)}/edit`;
+type View = "installed" | "store" | "install" | "edit";
+const resolveView = (pathname: string): View =>
+  pathname === storePath ? "store" : pathname === installPath ? "install" : /^\/extensions\/[^/]+\/edit$/.test(pathname) ? "edit" : "installed";
 
 const extensionErrorKeys: Readonly<Record<string, TranslationKey>> = {
   EXTENSIONS_STORE_UNAVAILABLE: "extensions.storeUnavailable",
@@ -29,34 +39,57 @@ function extensionFailure(t: Translator, reason: unknown): string {
   return t(typeof code === "string" ? extensionErrorKeys[code] ?? "extensions.failed" : "extensions.failed");
 }
 
+interface EditorProps {
+  roles: Role[];
+  snapshot: ExtensionSnapshotRecord;
+  busy: boolean;
+  error: string;
+  language: AppLanguage;
+  t: Translator;
+  onSave: (packageRecord: ExtensionPackageRecord, roleIds: string[], applyToAllRoles: boolean, remove: boolean) => Promise<boolean>;
+  onRemove: (packageRecord: ExtensionPackageRecord) => Promise<boolean>;
+}
+
+function ManageEditor({ roles, snapshot, busy, error, language, t, onSave, onRemove }: EditorProps) {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const packageRecord = snapshot.installed.find(p => p.id === id);
+  if (snapshot.revision < 0) return <PageFrame className="h-full"><StatusCallout role="status">{t(error ? "extensions.loadUnavailable" : "extensions.loading")}</StatusCallout></PageFrame>;
+  if (!packageRecord) return <EditorNotFound title={t("editor.notFound.title")} description={t("extensions.notFound")} actionLabel={t("extensions.returnToList")} onAction={() => navigate(listPath, { replace: true })} />;
+  return <ExtensionEditor key={packageRecord.id} packageRecord={packageRecord} installing={false} roles={roles} runtimeRoles={snapshot.roles} busy={busy} error={error}
+    language={language} t={t} onCancel={() => navigate(listPath, { replace: true })}
+    onSave={(ids, all, remove) => onSave(packageRecord, ids, all, remove)} onRemove={() => onRemove(packageRecord)} />;
+}
+
 export default function ExtensionsRoute({ roles, t, language, covered = false }: { roles: Role[]; t: Translator; language: AppLanguage; covered?: boolean }) {
+  const navigate = useNavigate();
+  const confirm = useConfirmation();
+  const view = resolveView(useLocation().pathname);
   const [snapshot, setSnapshot] = useState<ExtensionSnapshotRecord>({ revision: -1, installed: [], roles: [] });
   const [store, setStore] = useState(emptyStore);
-  const [tab, setTab] = useState<"installed" | "store">("installed");
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [selection, setSelection] = useState<ExtensionPackageRecord | null>(null);
-  const [operation, setOperation] = useState<string | null>(null);
+  const [prepared, setPrepared] = useState<{ operationId: string; package: ExtensionPackageRecord } | null>(null);
   const commandBusy = useRef(false);
   const cancellation = useRef<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
-  const previousTab = useRef(tab);
-  const previousSelection = useRef(selection);
+  const returnFocus = useRef<string | null>(null);
+  const previousView = useRef(view);
   const viewport = useRef<HTMLDivElement>(null);
 
   const pending = useRef<string | null>(null);
   const commandSequence = useRef(0);
   const alive = useRef(true);
   useEffect(() => {
-    if (previousTab.current === "store" && tab === "installed") addButton.current?.focus();
-    previousTab.current = tab;
-  }, [tab]);
-  useEffect(() => {
-    if (previousSelection.current && !selection && document.activeElement === document.body) addButton.current?.focus();
-    previousSelection.current = selection;
-  }, [selection]);
+    if (previousView.current !== "installed" && view === "installed") {
+      const card = returnFocus.current ? document.querySelector<HTMLButtonElement>(`[data-extension-id="${returnFocus.current}"] button`) : null;
+      (card ?? addButton.current)?.focus();
+    }
+    if (view === "installed") returnFocus.current = null;
+    previousView.current = view;
+  }, [view]);
   const apply = useCallback((next: ExtensionSnapshotRecord) => {
     setSnapshot(previous => next.revision > previous.revision ? next : previous);
   }, []);
@@ -76,7 +109,7 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
 
   useEffect(() => {
     const element = viewport.current;
-    if (tab !== "store" || selection || covered || !element) {
+    if (view !== "store" || covered || !element) {
       void window.rionStudio.extensionStore({ action: "hide" }).catch(() => undefined);
       return;
     }
@@ -92,7 +125,7 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     window.addEventListener("scroll", update, true);
     update();
     return () => { observer.disconnect(); window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); void window.rionStudio.extensionStore({ action: "hide" }).catch(() => undefined); };
-  }, [tab, selection, covered, t, language]);
+  }, [view, covered, t, language]);
 
   const command = async (input: ExtensionUserCommand) => {
     if (commandBusy.current) return null;
@@ -106,10 +139,12 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     } catch (reason) { if (alive.current && sequence === commandSequence.current) setError(extensionFailure(t, reason)); return null; }
     finally { if (sequence === commandSequence.current) { commandBusy.current = false; if (alive.current) setBusy(false); } }
   };
-  const close = async () => {
+  const closeInstall = async () => {
     if (commandBusy.current) return;
     if (pending.current && !await command({ type: "cancel", operationId: pending.current })) return;
-    pending.current = null; setOperation(null); setSelection(null); setError("");
+    pending.current = null; setError("");
+    navigate(storePath, { replace: true });
+    setPrepared(null);
   };
   const cancelPreparation = async () => {
     const id = pending.current;
@@ -130,7 +165,7 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
     if (!id || commandBusy.current) return;
     setError("");
     const existing = snapshot.installed.find(p => p.id === id);
-    if (existing) { await window.rionStudio.extensionStore({ action: "hide" }); setSelection(existing); return; }
+    if (existing) { await window.rionStudio.extensionStore({ action: "hide" }); navigate(editPath(existing.id)); return; }
     const operationId = crypto.randomUUID();
     pending.current = operationId;
     cancellation.current = null;
@@ -142,28 +177,36 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
       catch { await cancelPreparation(); setError(t("extensions.failed")); return; }
       if (!alive.current || pending.current !== operationId || cancellation.current === operationId) return;
       commandBusy.current = false; setBusy(false);
-      setSelection(result.prepared.package); setOperation(operationId);
+      setPrepared(result.prepared); navigate(installPath);
     } else pending.current = null;
   };
-  const save = async (roleIds: string[], applyToAllRoles: boolean, remove: boolean) => {
-    if (!selection || commandBusy.current) return;
-    const result = await command(remove ? { type: "remove", id: selection.id } : operation
+  const save = async (packageRecord: ExtensionPackageRecord, roleIds: string[], applyToAllRoles: boolean, remove: boolean, operation: string | null) => {
+    if (commandBusy.current) return false;
+    const result = await command(remove ? { type: "remove", id: packageRecord.id } : operation
       ? { type: "install", operationId: operation, roleIds, applyToAllRoles }
-      : { type: "configure", id: selection.id, roleIds, applyToAllRoles });
-    if (result && alive.current) {
-      if (operation) { setTab("installed"); setQuery(""); }
-      pending.current = null; setOperation(null); setSelection(null);
-    }
+      : { type: "configure", id: packageRecord.id, roleIds, applyToAllRoles });
+    if (!result || !alive.current) return false;
+    if (operation) { setQuery(""); pending.current = null; setPrepared(null); }
+    returnFocus.current = packageRecord.id;
+    return true;
+  };
+  const remove = async (packageRecord: ExtensionPackageRecord) => {
+    if (commandBusy.current) return false;
+    const confirmed = await confirm({
+      title: t("extensions.removeTitle").replace("{name}", packageRecord.name), description: t("extensions.removeDescription"),
+      cancelLabel: t("extensions.cancel"), confirmLabel: t("extensions.confirmRemove"), tone: "destructive"
+    });
+    return confirmed && alive.current ? save(packageRecord, [], false, true, null) : false;
   };
   const visible = snapshot.installed.filter(p => `${p.name} ${p.id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  return <PageFrame className="h-full" contentClassName="flex h-full min-h-0 min-w-0 w-full flex-col gap-4">
-    <PageHeader title={t(tab === "store" ? "extensions.store" : "extensions.title")} description={t("extensions.description")}
-      actions={tab === "store" ? <Button className="page-header-control" variant="outline" disabled={busy} onClick={() => setTab("installed")}><ArrowLeft size={14} />{t("extensions.returnToList")}</Button> : <>
+  const catalogue = <PageFrame className="h-full" contentClassName="flex h-full min-h-0 min-w-0 w-full flex-col gap-4">
+    <PageHeader title={t(view === "store" ? "extensions.store" : "extensions.title")} description={t("extensions.description")}
+      actions={view === "store" ? <Button className="page-header-control" variant="outline" disabled={busy} onClick={() => navigate(listPath)}><ArrowLeft size={14} />{t("extensions.returnToList")}</Button> : <>
         <SearchField className="page-header-control page-header-search" value={query} onChange={setQuery} placeholder={t("extensions.search")} />
-        <Button ref={addButton} className="page-header-control" variant="outline" onClick={() => setTab("store")}><Plus size={14} />{t("extensions.add")}</Button>
+        <Button ref={addButton} className="page-header-control" variant="outline" onClick={() => navigate(storePath)}><Plus size={14} />{t("extensions.add")}</Button>
       </>} />
-    {error && !selection && <StatusCallout tone="destructive" role="alert">{error}</StatusCallout>}
-    {tab === "store" ? <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3">
+    {error && <StatusCallout tone="destructive" role="alert">{error}</StatusCallout>}
+    {view === "store" ? <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3">
       <div className="flex items-center gap-2">
         <Button variant="ghost" aria-label={t("extensions.back")} disabled={!store.canGoBack} onClick={() => void window.rionStudio.extensionStore({ action: "back" }).then(setStore).catch(() => setError(t("extensions.storeUnavailable")))}><ArrowLeft size={14} /></Button>
         <Button variant="ghost" aria-label={t("extensions.forward")} disabled={!store.canGoForward} onClick={() => void window.rionStudio.extensionStore({ action: "forward" }).then(setStore).catch(() => setError(t("extensions.storeUnavailable")))}><ArrowRight size={14} /></Button>
@@ -174,13 +217,23 @@ export default function ExtensionsRoute({ roles, t, language, covered = false }:
       </div>
       <div ref={viewport} className="min-h-[240px] min-w-0 w-full flex-1 overflow-x-hidden rounded-md border border-border" aria-label={t("extensions.store")} />
     </div> : snapshot.revision < 0 ? <StatusCallout role="status">{t(error ? "extensions.loadUnavailable" : "extensions.loading")}</StatusCallout>
-      : snapshot.installed.length === 0 ? <EmptyState icon={Puzzle} title={t("extensions.empty")} actionLabel={t("extensions.add")} onAction={() => setTab("store")} />
+      : snapshot.installed.length === 0 ? <EmptyState icon={Puzzle} title={t("extensions.empty")} actionLabel={t("extensions.add")} onAction={() => navigate(storePath)} />
       : visible.length === 0 ? <EmptyState icon={Search} title={t("extensions.noMatches")} actionLabel={t("extensions.clearSearch")} onAction={() => setQuery("")} />
       : <ul className="collection-grid collection-grid-extensions auto-rows-fr gap-3" aria-label={t("extensions.installed")}>
         {visible.map(p => <ExtensionCard key={p.id} language={language} packageRecord={p} runtimeRoles={snapshot.roles} t={t}
-          onManage={() => { setError(""); setSelection(p); }} />)}
+          onManage={() => { setError(""); returnFocus.current = p.id; navigate(editPath(p.id)); }} />)}
       </ul>}
-    {selection && <ExtensionDialog selection={selection} installing={!!operation} roles={roles} runtimeRoles={snapshot.roles}
-      busy={busy} error={error} onClose={() => void close()} onSave={(ids, all, remove) => void save(ids, all, remove)} t={t} />}
   </PageFrame>;
+  return <Routes>
+    <Route index element={catalogue} />
+    <Route path="store" element={catalogue} />
+    <Route path="install" element={prepared
+      ? <ExtensionEditor key={prepared.operationId} packageRecord={prepared.package} installing roles={roles} runtimeRoles={snapshot.roles} busy={busy} error={error}
+        language={language} t={t} onCancel={() => void closeInstall()} onRemove={async () => false}
+        onSave={(ids, all) => save(prepared.package, ids, all, false, prepared.operationId)} />
+      : <Navigate to={listPath} replace />} />
+    <Route path=":id/edit" element={<ManageEditor roles={roles} snapshot={snapshot} busy={busy} error={error} language={language} t={t}
+      onSave={(packageRecord, ids, all, remove) => save(packageRecord, ids, all, remove, null)} onRemove={remove} />} />
+    <Route path="*" element={<Navigate to={listPath} replace />} />
+  </Routes>;
 }

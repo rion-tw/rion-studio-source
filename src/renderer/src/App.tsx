@@ -680,7 +680,7 @@ export function App(): JSX.Element {
 
         <Suspense fallback={<RouteFallback t={preferences.t} />}>
           <Routes>
-            {extensionsAvailable && <Route path="/extensions" element={<ExtensionsRoute language={preferences.language} roles={data.roles} t={preferences.t} covered={isQuickAccessOpen} />} />}
+            {extensionsAvailable && <Route path="/extensions/*" element={<ExtensionsRoute language={preferences.language} roles={data.roles} t={preferences.t} covered={isQuickAccessOpen} />} />}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route
               path="/games"

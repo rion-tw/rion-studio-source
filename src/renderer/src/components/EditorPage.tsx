@@ -29,6 +29,7 @@ interface EditorPageProps {
   saveHint?: string;
   saveIcon: ReactNode;
   saveLabel: string;
+  saveVariant?: "default" | "destructive";
   title: string;
 }
 
@@ -45,6 +46,7 @@ export function EditorPage({
   saveHint,
   saveIcon,
   saveLabel,
+  saveVariant = "default",
   title
 }: EditorPageProps): JSX.Element {
   const formRef = useRef<HTMLFormElement>(null);
@@ -57,7 +59,8 @@ export function EditorPage({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
-      if (isSaving) {
+      // Keys inside an open modal confirmation belong to that dialog, not to the editor.
+      if (isSaving || (event.target instanceof Element && event.target.closest("dialog[open]"))) {
         return;
       }
 
@@ -115,6 +118,7 @@ export function EditorPage({
                 <Button
                   className="min-w-[132px]"
                   type="submit"
+                  variant={saveVariant}
                   disabled={isSaving || !canSubmit}
                 >
                   {isSaving ? <Loader2 className="spin" size={16} /> : saveIcon}

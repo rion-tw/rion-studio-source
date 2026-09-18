@@ -23,7 +23,8 @@ export function ExtensionRolePicker({ roles, runtimeRoles, extensionId, selected
   const [query, setQuery] = useState("");
   const visible = roles.filter(role => role.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const selected = new Set(selectedIds);
-  return <section className="grid gap-3" aria-label={t("extensions.scope")}>
+  return <section className="grid gap-3" aria-label={t("extensions.scope")}
+    onKeyDown={event => { if (event.key === "Enter" && event.target instanceof HTMLInputElement) event.preventDefault(); }}>
     <h3 className="text-heading font-semibold">{t("extensions.scope")}</h3>
     <fieldset disabled={busy} className="min-w-0">
       <SegmentedControl className="grid-cols-2" value={allRoles ? "all" : "selected"}
@@ -36,8 +37,8 @@ export function ExtensionRolePicker({ roles, runtimeRoles, extensionId, selected
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-caption text-muted-foreground">{t("extensions.selectedCount").replace("{selected}", String(allRoles ? roles.length : roles.filter(role => selected.has(role.id)).length)).replace("{total}", String(roles.length))}</p>
         {!allRoles && <div className="flex gap-2">
-          <Button variant="ghost" disabled={busy} onClick={() => onSelectedIds(roles.map(role => role.id))}>{t("extensions.selectCurrentRoles")}</Button>
-          <Button variant="ghost" disabled={busy || selectedIds.length === 0} onClick={() => onSelectedIds([])}>{t("extensions.clearSelection")}</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => onSelectedIds(roles.map(role => role.id))}>{t("extensions.selectCurrentRoles")}</Button>
+          <Button type="button" variant="ghost" disabled={busy || selectedIds.length === 0} onClick={() => onSelectedIds([])}>{t("extensions.clearSelection")}</Button>
         </div>}
       </div>
       <ul className="divide-y divide-border rounded-md border border-border">

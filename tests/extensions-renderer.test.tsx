@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { type ComponentProps, useState } from "react";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
+import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
 import ExtensionsRoute from "../src/renderer/src/features/extensions/ExtensionsRoute";
 import { formatExtensionBytes } from "../src/renderer/src/features/extensions/extensionSize";
 import en from "../src/renderer/src/i18n/en.json";
@@ -35,6 +38,28 @@ const original: ExtensionSnapshotRecord = {
   roles: [{ roleId: role.id, leaseId: "lease", extensionIds: [id], status: "loaded" }]
 };
 afterEach(cleanup);
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+beforeAll(() => {
+  Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, writable: true, value: ResizeObserverStub });
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    close: { configurable: true, value: function close(this: HTMLDialogElement): void { this.removeAttribute("open"); } },
+    showModal: { configurable: true, value: function showModal(this: HTMLDialogElement): void { this.setAttribute("open", ""); } }
+  });
+});
+
+type RouteProps = ComponentProps<typeof ExtensionsRoute>;
+let updateProps: ((next: Partial<RouteProps>) => void) | null = null;
+function Host({ initial }: { initial: RouteProps }) {
+  const [props, setProps] = useState(initial);
+  updateProps = next => setProps(previous => ({ ...previous, ...next }));
+  return <ConfirmationProvider><ExtensionsRoute {...props} /></ConfirmationProvider>;
+}
+function mount(props: RouteProps, initialPath = "/extensions") {
+  const router = createMemoryRouter([{ path: "/extensions/*", element: <Host initial={props} /> }], { initialEntries: [initialPath] });
+  render(<RouterProvider router={router} />);
+  return { router, update: (next: Partial<RouteProps>) => act(async () => updateProps?.(next)) };
+}
+const confirmation = () => within(document.querySelector("dialog[open]") as HTMLElement);
 
 it("defines permanent and transient package failures in all four languages", () => {
   const permanentKeys = [
@@ -56,7 +81,7 @@ it("distinguishes pending configuration from the live lease and ignores stale sn
   const invoke = vi.fn(async () => ({ snapshot: original, lease: null, prepared: null }));
   window.rionStudio = { extensions: invoke, extensionStore: vi.fn(async () => ({})), onExtensionsChanged: (listener: typeof publish) => { publish = listener; return () => undefined; }, onExtensionStoreChanged: () => () => undefined } as unknown as RionStudioApi;
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
+  mount({ language: "en", roles: [role], t });
   await screen.findByText("Fixture");
   await act(async () => publish({ ...original, revision: 2, installed: [] }));
   expect(screen.getByText("Fixture")).toBeTruthy();
@@ -73,14 +98,18 @@ it("retains an actionable removal tombstone instead of offering a duplicate inst
   const invoke = vi.fn(async () => ({ snapshot, lease: null, prepared: null }));
   window.rionStudio = { extensions: invoke, extensionStore: vi.fn(async () => ({})), onExtensionsChanged: () => () => undefined, onExtensionStoreChanged: () => () => undefined } as unknown as RionStudioApi;
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
+  mount({ language: "en", roles: [role], t });
   await screen.findByText("Removal pending");
   await user.click(screen.getByRole("button", { name: "Retry removal" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Confirm removal" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Back to extensions" }));
   expect(invoke).toHaveBeenCalledTimes(1);
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Retry removal" }));
   await user.click(screen.getByRole("button", { name: "Retry removal" }));
   await user.click(screen.getByRole("button", { name: "Confirm removal" }));
   expect(invoke).toHaveBeenLastCalledWith({ type: "remove", id });
+  await screen.findByRole("button", { name: "Retry removal" });
 });
 
 function fixture(snapshot = original) {
@@ -90,15 +119,13 @@ function fixture(snapshot = original) {
   const store = { url: "https://chromewebstore.google.com/", extensionId: id, canGoBack: false, canGoForward: false, loading: false, failed: false };
   const extensionStore = vi.fn(async () => store);
   window.rionStudio = { extensions: invoke, extensionStore, onExtensionsChanged: (listener: typeof publish) => { publish = listener; return () => undefined; }, onExtensionStoreChanged: (listener: typeof storePublish) => { storePublish = listener; return () => undefined; } } as unknown as RionStudioApi;
-  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   return { invoke, extensionStore, publish: (next: ExtensionSnapshotRecord) => publish(next), showStore: () => storePublish(store) };
 }
-afterEach(() => vi.unstubAllGlobals());
 
 it("searches normalized names and IDs and distinguishes no matches from an empty catalogue", async () => {
   fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
+  mount({ language: "en", roles: [role], t });
   await screen.findByText("Fixture");
   const search = screen.getByRole("textbox", { name: "Search extensions" });
   await user.type(search, "  FIXTURE  ");
@@ -122,7 +149,7 @@ it("renders installed metadata in equal-height three-column cards with graceful 
     ]
   };
   fixture(snapshot);
-  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
+  mount({ language: "en", roles: [role], t });
 
   const list = await screen.findByRole("list", { name: "Installed" });
   expect(list.className).toContain("collection-grid-extensions");
@@ -162,51 +189,73 @@ it("formats installed bytes as localized tabular B, KB, and MB values", () => {
 it("preserves selected-role drafts across scope changes and applies select-all beyond the search filter", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[role, { ...role, id: "other", name: "Other" }]} t={t} />);
+  mount({ language: "en", roles: [role, { ...role, id: "other", name: "Other" }], t });
   await user.click(await screen.findByRole("button", { name: "Manage" }));
-  const dialog = within(screen.getByRole("dialog"));
-  await user.click(dialog.getByRole("button", { name: "All roles" }));
-  expect(dialog.getByRole("checkbox", { name: "Other" }).getAttribute("data-state")).toBe("checked");
-  await user.click(dialog.getByRole("button", { name: "Selected roles" }));
-  expect(dialog.getByRole("checkbox", { name: "Other" }).getAttribute("data-state")).toBe("unchecked");
-  await user.type(dialog.getByRole("textbox", { name: "Search roles" }), "Role A");
-  await user.click(dialog.getByRole("button", { name: "Select all current roles" }));
-  await user.click(dialog.getByRole("button", { name: "Save" }));
+  const editor = within(document.querySelector("#app-editor-form") as HTMLElement);
+  expect(editor.getByRole("heading", { level: 1, name: "Manage extension" })).toBeTruthy();
+  await user.click(editor.getByRole("button", { name: "All roles" }));
+  expect(editor.getByRole("checkbox", { name: "Other" }).getAttribute("data-state")).toBe("checked");
+  await user.click(editor.getByRole("button", { name: "Selected roles" }));
+  expect(editor.getByRole("checkbox", { name: "Other" }).getAttribute("data-state")).toBe("unchecked");
+  await user.type(editor.getByRole("textbox", { name: "Search roles" }), "Role A");
+  await user.click(editor.getByRole("button", { name: "Select all current roles" }));
+  await user.click(editor.getByRole("button", { name: "Save" }));
   expect(f.invoke).toHaveBeenLastCalledWith({ type: "configure", id, roleIds: ["role", "other"], applyToAllRoles: false });
 });
 
 it("restores all current roles when a saved all-role rule switches to selected roles", async () => {
   const f = fixture({ ...original, installed: [{ ...original.installed[0], applyToAllRoles: true, enabledRoleIds: [] }] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
+  mount({ language: "en", roles: [role], t });
   await user.click(await screen.findByRole("button", { name: "Manage" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Selected roles" }));
+  await user.click(screen.getByRole("button", { name: "Selected roles" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(f.invoke).toHaveBeenLastCalledWith({ type: "configure", id, roleIds: [role.id], applyToAllRoles: false });
+  expect(await screen.findByRole("button", { name: "Manage" })).toBe(document.activeElement);
 });
 
-it("preserves the draft after cancelled removal or failed save and returns focus on close", async () => {
+it("preserves the draft after cancelled removal or failed save and returns focus to the card", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
-  const manage = await screen.findByRole("button", { name: "Manage" });
-  await user.click(manage);
+  mount({ language: "en", roles: [role], t });
+  await user.click(await screen.findByRole("button", { name: "Manage" }));
+  await user.click(screen.getByRole("button", { name: "Remove" }));
+  expect(confirmation().getByText('Remove "Fixture"?')).toBeTruthy();
+  confirmation().getByRole("button", { name: "Cancel" }).focus();
+  await user.keyboard("{Escape}");
+  expect(document.querySelector("#app-editor-form")).toBeTruthy();
+  await user.click(confirmation().getByRole("button", { name: "Cancel" }));
+  expect(document.querySelector("dialog[open]")).toBeNull();
   await user.click(screen.getByRole("checkbox", { name: "Role A" }));
   await user.click(screen.getByRole("button", { name: "Remove" }));
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+  await user.click(confirmation().getByRole("button", { name: "Cancel" }));
   expect(screen.getByRole("checkbox", { name: "Role A" }).getAttribute("data-state")).toBe("unchecked");
   f.invoke.mockRejectedValueOnce(new Error("write failure"));
   await user.click(screen.getByRole("button", { name: "Save" }));
-  expect(within(screen.getByRole("dialog")).getByRole("alert")).toBeTruthy();
+  expect(within(document.querySelector("#app-editor-form") as HTMLElement).getByRole("alert")).toBeTruthy();
   expect(screen.getByRole("checkbox", { name: "Role A" }).getAttribute("data-state")).toBe("unchecked");
   await user.keyboard("{Escape}");
+  await user.click(confirmation().getByRole("button", { name: "Discard changes" }));
+  const manage = await screen.findByRole("button", { name: "Manage" });
   expect(document.activeElement).toBe(manage);
+});
+
+it("removes an extension after confirmation and returns to the list", async () => {
+  const f = fixture();
+  const user = userEvent.setup();
+  mount({ language: "en", roles: [role], t });
+  await user.click(await screen.findByRole("button", { name: "Manage" }));
+  await user.click(screen.getByRole("button", { name: "Remove" }));
+  f.invoke.mockResolvedValueOnce({ snapshot: { ...original, revision: 4, installed: [] }, lease: null, prepared: null });
+  await user.click(confirmation().getByRole("button", { name: "Confirm removal" }));
+  expect(f.invoke).toHaveBeenLastCalledWith({ type: "remove", id });
+  expect(await screen.findByText("No extensions installed yet.")).toBeTruthy();
 });
 
 it("installs an all-role rule without existing roles and returns to an unfiltered list", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  const { router } = mount({ language: "en", roles: [], t });
   await screen.findByText("Fixture");
   await user.type(screen.getByRole("textbox", { name: "Search extensions" }), "absent");
   await user.click(screen.getByRole("button", { name: "Add extension" }));
@@ -215,11 +264,15 @@ it("installs an all-role rule without existing roles and returns to an unfiltere
   f.invoke.mockImplementationOnce(async () => ({ snapshot: { revision: 4, installed: [], roles: [] }, lease: null, prepared: { operationId: "prepared", package: original.installed[0] } }));
   await user.click(screen.getByRole("button", { name: "Install this extension" }));
   expect(f.extensionStore).toHaveBeenCalledWith({ action: "hide" });
-  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "All roles" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Install extension" })).toBeTruthy();
+  expect(router.state.location.pathname).toBe("/extensions/install");
+  expect(screen.getByText("Requested permissions").closest("details")?.open).toBe(true);
+  await user.click(screen.getByRole("button", { name: "All roles" }));
   f.invoke.mockResolvedValueOnce({ snapshot: { ...original, revision: 5, installed: [{ ...original.installed[0], applyToAllRoles: true, enabledRoleIds: [] }] }, lease: null, prepared: null });
   await user.click(screen.getByRole("button", { name: "Confirm installation" }));
   expect(f.invoke.mock.calls.at(-1)?.[0]).toMatchObject({ type: "install", applyToAllRoles: true });
-  expect(screen.getByText("Fixture")).toBeTruthy();
+  expect(await screen.findByText("Fixture")).toBeTruthy();
+  expect(document.querySelector("#app-editor-form")).toBeNull();
   expect((screen.getByRole("textbox", { name: "Search extensions" }) as HTMLInputElement).value).toBe("");
 });
 
@@ -227,7 +280,7 @@ it("shows loading and initial failure without a false empty state", async () => 
   const f = fixture();
   let reject!: (reason: Error) => void;
   f.invoke.mockImplementationOnce(() => new Promise((_resolve, failure) => { reject = failure; }));
-  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  mount({ language: "en", roles: [], t });
   expect(screen.getByRole("status").textContent).toBe("Loading…");
   expect(screen.queryByText("No extensions installed yet.")).toBeNull();
   await act(async () => reject(new Error("offline")));
@@ -245,7 +298,7 @@ it.each([
 ])("localizes %s without retry guidance", async (code, expected) => {
   const f = fixture({ revision: 3, installed: [], roles: [] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  mount({ language: "en", roles: [], t });
   await screen.findByText("No extensions installed yet.");
   await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
   await act(async () => f.showStore());
@@ -261,7 +314,7 @@ it.each([
 it("offers retry only for a transient store failure", async () => {
   const f = fixture({ revision: 3, installed: [], roles: [] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  mount({ language: "en", roles: [], t });
   await screen.findByText("No extensions installed yet.");
   await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
   await act(async () => f.showStore());
@@ -278,7 +331,7 @@ it("offers retry only for a transient store failure", async () => {
 it("cancels preparation and ignores its late result while preserving the list search", async () => {
   const f = fixture({ revision: 3, installed: [], roles: [] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  mount({ language: "en", roles: [], t });
   await screen.findByText("No extensions installed yet.");
   await user.type(screen.getByRole("textbox", { name: "Search extensions" }), "remember");
   await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
@@ -289,7 +342,7 @@ it("cancels preparation and ignores its late result while preserving the list se
   expect((screen.getByRole("button", { name: "Back to extensions" }) as HTMLButtonElement).disabled).toBe(true);
   await user.click(screen.getByRole("button", { name: "Cancel" }));
   await act(async () => finish({ snapshot: original, lease: null, prepared: { operationId: "late", package: original.installed[0] } }));
-  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.querySelector("#app-editor-form")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Back to extensions" }));
   expect((screen.getByRole("textbox", { name: "Search extensions" }) as HTMLInputElement).value).toBe("remember");
 });
@@ -297,7 +350,7 @@ it("cancels preparation and ignores its late result while preserving the list se
 it("keeps navigation blocked after cancellation failure until Core acknowledges retry", async () => {
   const f = fixture({ revision: 3, installed: [], roles: [] });
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[]} t={t} />);
+  mount({ language: "en", roles: [], t });
   await screen.findByText("No extensions installed yet.");
   await user.click(screen.getAllByRole("button", { name: "Add extension" })[0]);
   await act(async () => f.showStore());
@@ -312,25 +365,36 @@ it("keeps navigation blocked after cancellation failure until Core acknowledges 
   expect(f.invoke.mock.calls.at(-1)).toEqual(f.invoke.mock.calls.at(-2));
 });
 
-it("keeps keyboard focus inside the dialog and submits a save only once while pending", async () => {
+it("submits a save only once while pending and keeps the editor open until Core answers", async () => {
   const f = fixture();
   const user = userEvent.setup();
-  render(<ExtensionsRoute language="en" roles={[role]} t={t} />);
+  mount({ language: "en", roles: [role], t });
   await user.click(await screen.findByRole("button", { name: "Manage" }));
-  const dialog = screen.getByRole("dialog");
-  const save = within(dialog).getByRole("button", { name: "Save" });
-  await user.tab({ shift: true });
-  expect(document.activeElement).toBe(save);
-  await user.tab();
-  expect(document.activeElement?.tagName).toBe("SUMMARY");
+  const save = screen.getByRole("button", { name: "Save" });
   let finish!: (value: Awaited<ReturnType<typeof f.invoke>>) => void;
   f.invoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   await user.dblClick(save);
   expect(f.invoke.mock.calls.filter(([input]) => (input as { type: string }).type === "configure")).toHaveLength(1);
+  expect((screen.getByRole("button", { name: "Back to extensions" }) as HTMLButtonElement).disabled).toBe(true);
   await user.keyboard("{Escape}");
-  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(document.querySelector("#app-editor-form")).toBeTruthy();
   await act(async () => finish({ snapshot: original, lease: null, prepared: null }));
+  expect(document.querySelector("#app-editor-form")).toBeNull();
+  expect(await screen.findByRole("button", { name: "Manage" })).toBeTruthy();
+});
+
+it("opens a manage editor from its route and reports missing packages without a modal", async () => {
+  fixture();
+  const user = userEvent.setup();
+  const { router } = mount({ language: "en", roles: [role], t }, `/extensions/${id}/edit`);
+  expect(await screen.findByRole("heading", { level: 1, name: "Manage extension" })).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
+  await act(async () => { await router.navigate(`/extensions/${"c".repeat(32)}/edit`); });
+  expect(await screen.findByText("Editor unavailable")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back to extensions" }));
+  expect(router.state.location.pathname).toBe("/extensions");
+  await act(async () => { await router.navigate("/extensions/install"); });
+  expect(router.state.location.pathname).toBe("/extensions");
 });
 
 it("passes the current app language when opening and updating the store", async () => {
@@ -338,10 +402,10 @@ it("passes the current app language when opening and updating the store", async 
   const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, width: 600, height: 400 } as DOMRect);
   try {
     const user = userEvent.setup();
-    const view = render(<ExtensionsRoute language="zh-TW" roles={[]} t={t} />);
+    const view = mount({ language: "zh-TW", roles: [], t });
     await user.click(screen.getByRole("button", { name: "Add extension" }));
     expect(f.extensionStore).toHaveBeenCalledWith(expect.objectContaining({ action: "show", language: "zh-TW" }));
-    view.rerender(<ExtensionsRoute language="ja" roles={[]} t={t} />);
+    await view.update({ language: "ja" });
     expect(f.extensionStore).toHaveBeenLastCalledWith(expect.objectContaining({ action: "show", language: "ja" }));
   } finally { rect.mockRestore(); }
 });

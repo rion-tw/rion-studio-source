@@ -10,15 +10,22 @@ coverage/
 pnpm-debug.log*
 *.tsbuildinfo
 /target/
-/src-tauri/gen/
 /performance-results/
 /.desktop-e2e-artifacts/
+
+# Agent tooling state, including nested git worktrees. An untracked nested
+# worktree is reported by `git ls-files --others` as a single directory entry.
+.claude/
+
+# Lint cache
+.eslintcache
+
+# Windows Rust test-loader diagnostics written by scripts/diagnoseWindowsTestLoader.ps1
+/diagnostics/
 
 # Generated native helper artifacts
 /build/native/
 /build/webview2-sdk/
-/native/macos/runtime-tabs/build/
-/native/windows/webview2/build/
 
 # CI compiler and packaging caches
 /.ccache/

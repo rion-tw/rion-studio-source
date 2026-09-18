@@ -7,6 +7,9 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   {
     ignores: [
+      // Agent tooling state. A nested git worktree here is a second full copy of
+      // the repository; ESLint does not read .gitignore, so it must be named again.
+      ".claude",
       "coverage",
       ".desktop-e2e-artifacts",
       "dist",

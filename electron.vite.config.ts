@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { electronMainBundleGuard } from "./scripts/electronMainBundleGuard.mjs";
@@ -17,7 +17,15 @@ const sourceDiff = execFileSync("git", ["diff", "HEAD", "--", "."], { cwd: repos
 const newSources = execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"],
   { cwd: repositoryRoot, encoding: "utf8" }).split("\0").filter(Boolean);
 const sourceHash = createHash("sha256").update(sourceDiff);
-for (const path of newSources.sort()) sourceHash.update(path).update(readFileSync(resolve(repositoryRoot, path)));
+for (const path of newSources.sort()) {
+  sourceHash.update(path);
+  // Git reports an untracked directory it cannot enumerate, such as a nested
+  // repository or worktree, as a single trailing-slash entry. Its contents are
+  // not this project's sources, so the path alone carries the provenance.
+  const absolutePath = resolve(repositoryRoot, path);
+  if (!statSync(absolutePath, { throwIfNoEntry: false })?.isFile()) continue;
+  sourceHash.update(readFileSync(absolutePath));
+}
 const buildCommit = sourceDiff.length || newSources.length
   ? `${sourceCommit}+worktree.${sourceHash.digest("hex").slice(0, 16)}` : sourceCommit;
 const desktopE2eBuild = process.env.RION_STUDIO_DESKTOP_E2E_BUILD === "1";

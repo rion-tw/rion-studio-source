@@ -75,13 +75,29 @@ export async function exerciseFirstWorkspaceHost(input: Input): Promise<void> {
       await capture(`first-host-${phase}-shown`);
       for (const gap of [1,16] as const) for (const background of ["material","black"] as const) {
       await input.setAppearance(gap,background); expectedBackground = background; expectedGap = gap;
-      // Core holding the new appearance does not mean the host has projected it.
-      // Sampling pixels before it has shows the previous background, so wait for
-      // the host's own projected value where it reports one.
+      // Core holding the new appearance does not mean the host has projected it,
+      // and the host having projected it does not mean its document has painted
+      // it — there is no ack for a rendered projection revision. Wait for the
+      // projection, then probe one pixel of the gap so the full sample set is
+      // never taken against the previous background.
       await browser.waitUntil(async () => {
         const projected = (await inspect(input.windowId)).native.workspaceBackground;
         return projected === undefined || projected === background;
       }, {timeout:20_000,timeoutMsg:`First host ${phase} did not project the ${background} workspace background`});
+      await browser.waitUntil(async () => {
+        const probeBoxes = Object.values((await layout()).roles);
+        const probeLeft = probeBoxes.reduce((a,b) => a.x < b.x ? a : b);
+        const probeRight = probeBoxes.filter(b => b.x > probeLeft.x).sort((a,b) => a.y-b.y);
+        const probeGap = probeRight[0]!.x-probeLeft.x-probeLeft.width;
+        const point = {x: probeLeft.x+probeLeft.width+probeGap/2, y: probeLeft.y+probeLeft.height/2};
+        const probe = await captureWorkspacePixels({ inspection: await inspect(input.windowId),
+          name: `first-host-${phase}-${gap}-${background}-probe`, observeOnly: true,
+          reference: {x:Math.floor(point.x),y:Math.floor(point.y),width:1,height:1},
+          region: {x:Math.floor(point.x),y:Math.floor(point.y),width:2,height:2},
+          points: [point] });
+        const brightest = Math.max(...probe.samples[0]!);
+        return background === "black" ? brightest <= 8 : brightest > 8;
+      }, {timeout:20_000,timeoutMsg:`First host ${phase} did not paint the ${background} workspace background`});
       const prefix = `first-host-${phase}-${gap}-${background}`;
       for (const edge of ["right","bottom","bottomRight","left","top"] as const) {
         const old = (await layout()).contentBounds;

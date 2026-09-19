@@ -1384,25 +1384,44 @@ async function readFullscreenToolbarRuntime(
     );
   }
   // This reader demands one coherent Core/native snapshot, and a live border
-  // drag keeps projections in flight. One fence only drains the work admitted
-  // before it, so settle until a pass admits nothing new and the fences below
-  // are compared at rest instead of mid-transaction. A runtime that refuses to
-  // settle, because it is draining, keeps its exact mismatch diagnostic below
-  // instead of being reported as a settle failure.
-  try {
-    for (let settled = 0, sequence = -1; settled < 32; settled += 1) {
-      const next = await runtime.settleCurrentProjection();
-      if (next === sequence) break;
-      sequence = next;
+  // drag keeps projections in flight. Settling first is not enough: reading
+  // Core is itself a round trip, so a projection admitted during it leaves the
+  // logical revision ahead of the native one and the fences below disagree
+  // over a pair that was never simultaneous. Take the pair, then settle again;
+  // an unchanged projection sequence across the read proves nothing advanced
+  // while it was taken. A runtime that refuses to settle, because it is
+  // draining, keeps its exact mismatch diagnostic below instead of being
+  // reported as a settle failure.
+  const settleToQuiescence = async (): Promise<number | null> => {
+    try {
+      let sequence = -1;
+      for (let settled = 0; settled < 32; settled += 1) {
+        const next = await runtime.settleCurrentProjection();
+        if (next === sequence) return sequence;
+        sequence = next;
+      }
+      return sequence;
+    } catch {
+      return null;
     }
-  } catch {
-    // The exact Core/native comparison below is the authoritative evidence.
+  };
+  const readCoreAndNative = async () => {
+    const [snapshot, windowPreferences] = await Promise.all([
+      core.invoke({ type: "appSnapshot" }),
+      core.invoke({ type: "runtimeWindowPreferencesGet" })
+    ]);
+    return { native: runtime.snapshot(), snapshot, windowPreferences };
+  };
+  let read: Awaited<ReturnType<typeof readCoreAndNative>> | null = null;
+  for (let attempt = 0; attempt < 8 && read === null; attempt += 1) {
+    const before = await settleToQuiescence();
+    const candidate = await readCoreAndNative();
+    const after = before === null ? null : await settleToQuiescence();
+    if (before === null || after === before || attempt === 7) read = candidate;
   }
-  const [coreSnapshot, preferences] = await Promise.all([
-    core.invoke({ type: "appSnapshot" }),
-    core.invoke({ type: "runtimeWindowPreferencesGet" })
-  ]);
-  const nativeSnapshot = runtime.snapshot();
+  const coreSnapshot = read!.snapshot;
+  const preferences = read!.windowPreferences;
+  const nativeSnapshot = read!.native;
   const logicalWindows = coreSnapshot.logicalWindows.filter(
     (window) => window.windowId === windowId
   );

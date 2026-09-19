@@ -190,4 +190,32 @@ describe("native application shortcut target modes", () => {
     );
     expect(quickMenu).toContain("visible buttons=$buttons");
   });
+
+  it("selects the checked top-level window entry Chromium reports as a CheckBox", () => {
+    const quickMenu = sourceBetween(
+      "async function activateVisibleWindowsTrayQuickMenu",
+      "export async function activateVisibleNativeQuickMenu"
+    );
+    // A running window is the one entry this helper selects, and Electron marks
+    // it checked. Chromium then reports it as a UIA CheckBox, so a MenuItem-only
+    // top-level walk finds every other row and never the selectable one.
+    expect(quickMenu).toContain(
+      "'ControlType.MenuItem', 'ControlType.CheckBox', 'ControlType.RadioButton'"
+    );
+    expect(quickMenu).toContain(
+      "$commandTypeNames -contains $_.Current.ControlType.ProgrammaticName"
+    );
+    expect(quickMenu).toContain("[System.Windows.Automation.Condition]::TrueCondition");
+    expect(quickMenu).toContain("top-level items=$(MenuCommandDiagnostics $directItems)");
+    expect(quickMenu).toContain("[RionQuickMenuInput]::DismissMenu()");
+  });
+
+  it("reports the exact visible top-level windows that defeat launcher selection", () => {
+    expect(source).toContain(
+      "public static string WindowEvidence(IntPtr hwnd) {"
+    );
+    expect(source).toContain(
+      "\"exact visible Rion main window unavailable; visible top-level windows=$evidence\""
+    );
+  });
 });
